@@ -152,6 +152,16 @@ describe("DesktopVoiceControlsViewModel", () => {
         await vm.disconnect();
         expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("leave");
     });
+    it("also sounds actual microphone changes from the call-stage controls", async () => {
+        await connect();
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
+        expect(playDesktopVoiceSound).toHaveBeenCalledExactlyOnceWith("mute");
+        call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
+        expect(playDesktopVoiceSound).toHaveBeenCalledTimes(1);
+        call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
+        expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("unmute");
+    });
     it("disconnects the real call and releases all subscriptions on unmount", async () => {
         await connect();
         expect(vm.getSnapshot().roomName).toBe("Lounge");

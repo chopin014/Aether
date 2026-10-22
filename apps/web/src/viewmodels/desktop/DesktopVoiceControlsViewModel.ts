@@ -69,7 +69,11 @@ export class DesktopVoiceControlsViewModel
     };
 
     private readonly onDeviceMute = (): void => {
+        const wasMuted = this.snapshot.current.microphoneMuted;
         this.refresh();
+        const { microphoneMuted, busy } = this.snapshot.current;
+        // Dock actions play their own single cue after success; include changes from the call-stage controls.
+        if (!busy && wasMuted !== microphoneMuted) void playDesktopVoiceSound(microphoneMuted ? "mute" : "unmute");
         if (this.call?.deviceMuteState) {
             void SettingsStore.setValue(
                 "audioInputMuted",
