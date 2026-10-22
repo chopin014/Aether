@@ -1,0 +1,31 @@
+diff --git a/src/matrixrtc/RTCEncryptionManager.ts b/src/matrixrtc/RTCEncryptionManager.ts
+index f2c46a15c2bc79172c3e90b02157c1c09c5a2109..62957811f487d55f67625f69319148be35157747 100644
+--- a/src/matrixrtc/RTCEncryptionManager.ts
++++ b/src/matrixrtc/RTCEncryptionManager.ts
+@@ -228,12 +228,20 @@ export class RTCEncryptionManager implements IEncryptionManager {
+         keyIndex: number,
+         membership: CallMembershipIdentityParts,
+     ): void {
+-        const fullMembership = this.getMemberships().find(
+-            (member) =>
+-                member.userId === membership.userId &&
+-                member.deviceId === membership.deviceId &&
+-                member.memberId === membership.memberId,
+-        );
++        const fullMembership = this.getMemberships().find((member) => {
++            if (member.userId !== membership.userId || member.deviceId !== membership.deviceId) return false;
++            if (member.memberId === membership.memberId) return true;
++
++            // Existing Element Call clients send a per-join UUID in the key event while
++            // publishing a legacy user:device membership/backend identity. Bind those
++            // authenticated keys to that same device, retaining strict IDs on newer backends.
++            const legacyIdentity = `${member.userId}:${member.deviceId}`;
++            return (
++                member.memberId === legacyIdentity &&
++                member.backendIdentities.length === 1 &&
++                member.backendIdentities[0] === legacyIdentity
++            );
++        });
+         if (!fullMembership) {
+             this.logger?.info(
+                 `No matching RTC membership for key from ${membership.userId}:${membership.deviceId}, delaying key addition`,

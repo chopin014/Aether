@@ -72,6 +72,21 @@ async function receivedAudioBytes(page: Page): Promise<number> {
     });
 }
 
+/** Encrypted packets can arrive while decryption fails and every speaker remains silent. */
+async function decodedAudioEnergy(page: Page): Promise<number> {
+    return page.evaluate(async () => {
+        const peers = (window as Window & { __desktopVoicePeers?: RTCPeerConnection[] }).__desktopVoicePeers ?? [];
+        let energy = 0;
+        for (const peer of peers) {
+            const stats = await peer.getStats();
+            stats.forEach((entry) => {
+                if (entry.type === "inbound-rtp" && entry.kind === "audio") energy += entry.totalAudioEnergy ?? 0;
+            });
+        }
+        return energy;
+    });
+}
+
 test(
     "two members use a persistent Element Call voice room without Jitsi",
     { tag: ["@no-firefox", "@no-webkit"] },
@@ -104,6 +119,20 @@ test(
             await bobPage.waitForSelector(".mx_MatrixChat");
             await settle(bobPage);
             await observePeers(bobPage);
+            const bobApp = new ElementAppPage(bobPage);
+            // Reproduce existing Element clients: a per-join key UUID with a legacy membership/backend ID.
+            await bobApp.client.evaluate((client) => {
+                const send = client.encryptAndSendToDevice.bind(client);
+                const legacyJoinId = crypto.randomUUID();
+                client.encryptAndSendToDevice = async (eventType, targets, content) => {
+                    if (eventType === "io.element.call.encryption_keys") {
+                        const legacy: typeof content = { ...content, member: { ...content.member, id: legacyJoinId } };
+                        delete legacy.member_id;
+                        return send(eventType, targets, legacy);
+                    }
+                    return send(eventType, targets, content);
+                };
+            });
 
             const spaceId = await app.client.createRoom({
                 name: "Voice studio",
@@ -142,7 +171,6 @@ test(
                 userId: bob.userId,
             });
             await homeserver.csApi.request("POST", `/v3/join/${roomId}`, bob.accessToken, {});
-            const bobApp = new ElementAppPage(bobPage);
             await expect
                 .poll(() => bobApp.client.evaluate((client, id) => client.getRoom(id)?.getType(), roomId))
                 .toBe("org.matrix.msc3417.call");
@@ -151,6 +179,15 @@ test(
                 await expect(memberPage.getByTestId("videoTile")).toHaveCount(2, { timeout: 30_000 });
                 await expect(memberPage.locator("video").filter({ visible: true })).toHaveCount(0);
                 await expect.poll(() => receivedAudioBytes(memberPage), { timeout: 30_000 }).toBeGreaterThan(0);
+                await expect.poll(() => decodedAudioEnergy(memberPage), { timeout: 30_000 }).toBeGreaterThan(0);
+                await expect
+                    .poll(() =>
+                        memberPage.locator("audio").evaluateAll((elements) => {
+                            const audio = elements as HTMLAudioElement[];
+                            return audio.length > 0 && audio.every((a) => !a.paused && !a.muted && a.volume > 0);
+                        }),
+                    )
+                    .toBe(true);
             }
             const participants = page.getByRole("group", { name: "People in Lounge" });
             await expect(participants.getByRole("button", { name: "Alice", exact: true })).toBeVisible();
@@ -172,6 +209,8 @@ test(
             await expect(dock.getByRole("button", { name: "Unmute", exact: true })).toBeVisible();
             await dock.getByRole("button", { name: "Undeafen", exact: true }).click();
             await expect(dock.getByRole("button", { name: "Mute", exact: true })).toBeVisible();
+            const energyAfterUndeafen = await decodedAudioEnergy(page);
+            await expect.poll(() => decodedAudioEnergy(page), { timeout: 15_000 }).toBeGreaterThan(energyAfterUndeafen);
             await expect.poll(() => soundResponses.size).toBeGreaterThanOrEqual(5);
             expect([...soundResponses.values()].every((status) => status === 200 || status === 206)).toBe(true);
             await page.getByRole("button", { name: "Open room chat", exact: true }).click();
