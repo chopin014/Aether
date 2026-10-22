@@ -33,6 +33,7 @@ type RoomListItemProps = RoomListItemViewSnapshot &
 
 // Wrapper component that creates a mocked ViewModel
 const RoomListItemWrapperImpl = ({
+    onViewCallParticipant,
     onOpenRoom,
     onMarkAsRead,
     onMarkAsUnread,
@@ -54,6 +55,7 @@ const RoomListItemWrapperImpl = ({
     ...rest
 }: RoomListItemProps): JSX.Element => {
     const vm = useMockedViewModel(rest, {
+        onViewCallParticipant,
         onOpenRoom,
         onMarkAsRead,
         onMarkAsUnread,
@@ -325,5 +327,17 @@ export const WithUserStatus: Story = {
             emoji: "🌭",
             text: "Hot",
         },
+    },
+};
+
+/** Live participants are indented directly beneath their voice channel. */
+export const DesktopVoiceParticipants: Story = {
+    args: {
+        channelKind: "voice",
+        callParticipants: [
+            { userId: "@alice:example.org", name: "Alice" },
+            { userId: "@bob:example.org", name: "Bob" },
+        ],
+        onViewCallParticipant: fn(),
     },
 };

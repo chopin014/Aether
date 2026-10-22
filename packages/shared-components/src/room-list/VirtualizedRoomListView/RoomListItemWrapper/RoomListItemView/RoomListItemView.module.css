@@ -17,12 +17,12 @@
     width: 100%;
 
     /* Gap between items, accounted for in ROOM_LIST_ITEM_HEIGHT */
-    --padding-top: var(--cpd-space-1x);
-    --padding-bottom: var(--cpd-space-1x);
+    --padding-top: var(--mx-desktop-channel-row-gap, var(--cpd-space-1x));
+    --padding-bottom: var(--mx-desktop-channel-row-gap, var(--cpd-space-1x));
     padding: var(--padding-top) 0 var(--padding-bottom) 0;
 
     /* 44px height + padding */
-    min-height: calc(44px + var(--padding-top) + var(--padding-bottom));
+    min-height: calc(var(--mx-desktop-room-content-height, 44px) + var(--padding-top) + var(--padding-bottom));
 
     font: var(--cpd-font-body-md-regular);
     letter-spacing: var(--cpd-font-letter-spacing-body-md);
@@ -31,6 +31,42 @@
     /* Hide the menu by default */
     .hoverMenu {
         display: none;
+    }
+}
+
+.channelWithParticipants {
+    width: 100%;
+}
+
+.callParticipants {
+    padding: 0 var(--cpd-space-2x) var(--cpd-space-1x) var(--cpd-space-9x);
+}
+
+.callParticipant {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-2x);
+    width: 100%;
+    height: var(--cpd-space-8x);
+    padding: 0 var(--cpd-space-1x);
+    border: 0;
+    border-radius: var(--cpd-space-1x);
+    background: transparent;
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-sm-medium);
+    text-align: start;
+    cursor: pointer;
+
+    > span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &:hover,
+    &:focus-visible {
+        background: var(--cpd-color-bg-action-tertiary-hovered);
+        color: var(--cpd-color-text-primary);
     }
 }
 
@@ -67,9 +103,9 @@
 
 .container {
     flex: 1;
-    margin: 0 var(--cpd-space-3x);
+    margin: 0 var(--mx-desktop-room-margin, var(--cpd-space-3x));
     padding: 0 var(--cpd-space-2x);
-    border-radius: 8px;
+    border-radius: var(--mx-desktop-room-radius, 8px);
     min-width: 0;
 }
 
@@ -123,9 +159,21 @@
         bottom: calc(5px + var(--padding-bottom));
         left: 0;
         width: 4px;
-        background-color: var(--cpd-color-bg-accent-rest);
+        background-color: var(--mx-desktop-room-marker, var(--cpd-color-bg-accent-rest));
         border-radius: 0 8px 8px 0;
     }
+}
+
+.channelIcon {
+    flex: none;
+    width: var(--cpd-space-6x);
+    height: var(--cpd-space-6x);
+    color: var(--cpd-color-icon-secondary);
+}
+
+.channel {
+    min-height: var(--cpd-space-8x);
+    gap: var(--cpd-space-2x);
 }
 
 .bold .roomName {

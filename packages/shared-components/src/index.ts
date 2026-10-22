@@ -113,3 +113,11 @@ export * from "./status/UserStatusIconView";
 export * from "./devtools/CustomThemesView";
 // MVVM
 export * from "./core/viewmodel";
+
+export * from "./desktop/DesktopAccountDockView";
+
+export * from "./desktop/DesktopContactsView";
+
+export * from "./desktop/DesktopVoiceControlsView";
+
+export * from "./desktop/DesktopTitlebarView";

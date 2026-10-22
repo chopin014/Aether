@@ -18,8 +18,8 @@ import {
 } from "matrix-js-sdk/src/matrix";
 import { Tooltip } from "@vector-im/compound-web";
 import { logger } from "matrix-js-sdk/src/logger";
-import { LockOffIcon, SendSolidIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
-import { useCreateAutoDisposedViewModel } from "@element-hq/web-shared-components";
+import { LockOffIcon, SendSolidIcon, PlusIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
+import { useCreateAutoDisposedViewModel, UploadButton } from "@element-hq/web-shared-components";
 
 import { _t } from "../../../languageHandler";
 import { MatrixClientPeg } from "../../../MatrixClientPeg";
@@ -27,6 +27,8 @@ import dis from "../../../dispatcher/dispatcher";
 import { type ActionPayload } from "../../../dispatcher/payloads";
 import Stickerpicker from "./Stickerpicker";
 import { makeRoomPermalink, type RoomPermalinkCreator } from "../../../utils/permalinks/Permalinks";
+import { useRoomUploadViewModel } from "../../../viewmodels/room/RoomUploadViewModel";
+
 import E2EIcon from "./E2EIcon";
 import SettingsStore from "../../../settings/SettingsStore";
 import { aboveLeftOf, type MenuProps } from "../../structures/ContextMenu";
@@ -64,6 +66,12 @@ import { MessageComposerUrlPreviewViewModel } from "../../../viewmodels/composer
 import { useScopedRoomContext } from "../../../contexts/ScopedRoomContext";
 import PlatformPeg from "../../../PlatformPeg";
 import { ModuleApi } from "../../../modules/Api";
+
+/** Keep file selection and upload permissions in the existing room upload model. */
+function DesktopAttachmentButton(): JSX.Element {
+    const vm = useRoomUploadViewModel();
+    return <UploadButton vm={vm} className="mx_DesktopShell_attachment" icon={<PlusIcon />} />;
+}
 
 // The prefix used when persisting editor drafts to localstorage.
 export const WYSIWYG_EDITOR_STATE_STORAGE_PREFIX = "mx_wysiwyg_state_";
@@ -705,6 +713,9 @@ export class MessageComposer extends React.Component<IProps, IState> {
                     />
                     <div className="mx_MessageComposer_row">
                         {leftIcon}
+                        {canSendMessages && SettingsStore.getValue("feature_desktop_shell") && (
+                            <DesktopAttachmentButton />
+                        )}
                         {composer}
                         <div className="mx_MessageComposer_actions">
                             {controls}

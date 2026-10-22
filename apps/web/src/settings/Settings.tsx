@@ -212,6 +212,7 @@ export interface Settings {
 
     // We can't use the following type because of `feature_sliding_sync_proxy_url` & `feature_hidebold` being in the namespace incorrectly
     // [settingName: `feature_${string}`]: IFeature;
+    "feature_desktop_shell": IFeature;
     "feature_video_rooms": IFeature;
     [Features.NotificationSettings2]: IFeature;
     "feature_msc3531_hide_messages_pending_moderation": IFeature;
@@ -360,6 +361,9 @@ export interface Settings {
     "debug_registration": IBaseSetting<boolean>;
     "debug_animation": IBaseSetting<boolean>;
     "audioInputMuted": IBaseSetting<boolean>;
+    "desktopDeafened": IBaseSetting<boolean>;
+    "desktopVoiceSounds": IBaseSetting<boolean>;
+    "desktopMicMutedBeforeDeafen": IBaseSetting<boolean>;
     "videoInputMuted": IBaseSetting<boolean>;
     "activeCallRoomIds": IBaseSetting<string[]>;
     "releaseAnnouncementData": IBaseSetting<ReleaseAnnouncementData>;
@@ -393,6 +397,15 @@ export const SETTINGS: Settings = {
     "test_setting": {
         supportedLevels: [],
         default: "",
+    },
+
+    "feature_desktop_shell": {
+        isFeature: true,
+        labsGroup: LabGroup.Ui,
+        displayName: _td("labs|desktop_shell"),
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS_WITH_CONFIG,
+        default: false,
+        controller: new ReloadOnChangeController(),
     },
 
     "feature_video_rooms": {
@@ -1395,6 +1408,19 @@ export const SETTINGS: Settings = {
         default: false,
     },
     "audioInputMuted": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: false,
+    },
+    "desktopVoiceSounds": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: true,
+        displayName: _td("desktop|voice|sounds"),
+    },
+    "desktopDeafened": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: false,
+    },
+    "desktopMicMutedBeforeDeafen": {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
         default: false,
     },

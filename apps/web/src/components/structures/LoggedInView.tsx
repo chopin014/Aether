@@ -6,6 +6,8 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
+import { DesktopAccountDockContainer } from "../views/menus/UserMenuContainer";
+
 import React, { type ClipboardEvent } from "react";
 import {
     ClientEvent,
@@ -25,6 +27,7 @@ import classNames from "classnames";
 import { GroupView, SeparatorView, Panel, LeftResizablePanelView } from "@element-hq/web-shared-components";
 
 import { isOnlyCtrlOrCmdKeyEvent, Key } from "../../Keyboard";
+import { DesktopTitlebarContainer } from "./DesktopTitlebarContainer";
 import PageTypes from "../../PageTypes";
 import MediaDeviceHandler from "../../MediaDeviceHandler";
 import dis from "../../dispatcher/dispatcher";
@@ -64,6 +67,7 @@ import { MatrixClientContextProvider } from "./MatrixClientContextProvider";
 import { Landmark, LandmarkNavigation } from "../../accessibility/LandmarkNavigation";
 import { ModuleApi } from "../../modules/Api.ts";
 import { SDKContext } from "../../contexts/SDKContext.ts";
+import { RoomListCollapsedProvider } from "../../contexts/RoomListCollapsedContext";
 import { ResizerViewModel } from "../../viewmodels/structures/ResizerViewModel.ts";
 
 // We need to fetch each pinned message individually (if we don't already have it)
@@ -125,6 +129,7 @@ class LoggedInView extends React.Component<IProps, IState> {
     protected timezoneProfileUpdateRef?: string[];
 
     private resizerViewModel?: ResizerViewModel;
+    private readonly desktopShellEnabled = SettingsStore.getValue("feature_desktop_shell");
 
     public static contextType = SDKContext;
     declare public context: React.ContextType<typeof SDKContext>;
@@ -149,6 +154,7 @@ class LoggedInView extends React.Component<IProps, IState> {
     }
 
     public componentDidMount(): void {
+        if (this.desktopShellEnabled) document.body.classList.add("mx_DesktopShell");
         document.addEventListener("keydown", this.onNativeKeyDown, false);
         this.context.legacyCallHandler.addListener(LegacyCallHandlerEvent.CallState, this.onCallState);
 
@@ -227,6 +233,7 @@ class LoggedInView extends React.Component<IProps, IState> {
     };
 
     public componentWillUnmount(): void {
+        if (this.desktopShellEnabled) document.body.classList.remove("mx_DesktopShell");
         document.removeEventListener("keydown", this.onNativeKeyDown, false);
         this.context.legacyCallHandler.removeListener(LegacyCallHandlerEvent.CallState, this.onCallState);
         this._matrixClient.removeListener(ClientEvent.AccountData, this.onAccountData);
@@ -664,6 +671,7 @@ class LoggedInView extends React.Component<IProps, IState> {
         const wrapperClasses = classNames({
             mx_MatrixChat_wrapper: true,
             mx_MatrixChat_useCompactLayout: this.state.useCompactLayout,
+            mx_MatrixChat_desktopShell: this.desktopShellEnabled,
         });
         const bodyClasses = classNames({
             "mx_MatrixChat": true,
@@ -697,20 +705,23 @@ class LoggedInView extends React.Component<IProps, IState> {
             // Resizable layout with a draggable separator. The SpacePanel lives inside GroupView
             // (leftPanel omits it).
             content = (
-                <GroupView vm={resizerViewModel}>
-                    <SpacePanel />
-                    <LeftResizablePanelView
-                        vm={resizerViewModel}
-                        className="mx_LeftPanel_panel"
-                        minSize="200px"
-                        maxSize="370px"
-                        defaultSize="370px"
-                    >
-                        {leftPanel}
-                    </LeftResizablePanelView>
-                    <SeparatorView className="mx_Separator" vm={resizerViewModel} />
-                    <Panel className="mx_LeftPanel_panel">{roomView}</Panel>
-                </GroupView>
+                <RoomListCollapsedProvider vm={resizerViewModel}>
+                    <GroupView vm={resizerViewModel}>
+                        <SpacePanel />
+                        <LeftResizablePanelView
+                            vm={resizerViewModel}
+                            className="mx_LeftPanel_panel"
+                            minSize="200px"
+                            maxSize="370px"
+                            defaultSize={this.desktopShellEnabled ? "310px" : "370px"}
+                        >
+                            {leftPanel}
+                        </LeftResizablePanelView>
+                        <SeparatorView className="mx_Separator" vm={resizerViewModel} />
+                        <Panel className="mx_LeftPanel_panel">{roomView}</Panel>
+                        {this.desktopShellEnabled && <DesktopAccountDockContainer vm={resizerViewModel} />}
+                    </GroupView>
+                </RoomListCollapsedProvider>
             );
         } else {
             // Fallback layout for a module's full-screen view (e.g. multiroom) which must not use the
@@ -734,6 +745,11 @@ class LoggedInView extends React.Component<IProps, IState> {
                     aria-hidden={this.props.hideToSRUsers}
                 >
                     <ToastContainer />
+                    {this.desktopShellEnabled && (
+                        <div className="mx_DesktopShell_titlebar" aria-hidden="true">
+                            <DesktopTitlebarContainer />
+                        </div>
+                    )}
                     <div className={bodyClasses}>{content}</div>
                 </div>
                 <PipContainer />

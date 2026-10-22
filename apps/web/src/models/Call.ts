@@ -54,6 +54,7 @@ import {
     BackgroundStyle,
     type ConfigOptions,
     type DeviceMuteState,
+    type DeviceMuteRequest,
     type ElementCallConfiguration,
     type ElementCallHandle,
     type UserIntent,
@@ -101,6 +102,7 @@ export enum CallEvent {
     Close = "close",
     Destroy = "destroy",
     CallTypeChanged = "call_type_changed",
+    DeviceMute = "device_mute",
 }
 
 interface CallEventHandlerMap {
@@ -112,6 +114,7 @@ interface CallEventHandlerMap {
     [CallEvent.Close]: () => void;
     [CallEvent.Destroy]: () => void;
     [CallEvent.CallTypeChanged]: (callType: CallType) => void;
+    [CallEvent.DeviceMute]: (state: DeviceMuteState) => void;
 }
 
 /**
@@ -213,7 +216,9 @@ export abstract class Call extends TypedEventEmitter<CallEvent, CallEventHandler
      * @returns {Call | null} The call.
      */
     public static get(room: Room): Call | null {
-        return ElementCall.get(room) ?? JitsiCall.get(room);
+        const elementCall = ElementCall.get(room);
+        if (elementCall || SdkConfig.get("element_call").use_exclusively) return elementCall;
+        return JitsiCall.get(room);
     }
 
     /**
@@ -710,11 +715,14 @@ export class ElementCall extends Call {
         } else if (isVideoRoom(room)) {
             return {
                 // Video rooms already exist, so just treat as if we're joining a group call.
-                intent: ElementCallIntent.JoinExisting,
+                intent:
+                    voiceOnly || (room.isCallRoom() && SettingsStore.getValue("feature_desktop_shell"))
+                        ? ElementCallIntent.JoinExistingVoice
+                        : ElementCallIntent.JoinExisting,
                 // Video rooms should always return to lobby.
                 returnToLobby: true,
-                // Never skip the lobby, we always want to give the caller a chance to explicitly join.
-                skipLobby: false,
+                // Selecting a desktop voice channel is the explicit action to join it.
+                skipLobby: room.isCallRoom() && SettingsStore.getValue("feature_desktop_shell"),
             };
         }
 
@@ -1094,6 +1102,7 @@ export class ElementCall extends Call {
         // and gets its options decided afresh.
         this.ready = Promise.withResolvers<void>();
         this.frozenComponentOptions = null;
+        this._deviceMuteState = undefined;
         super.close();
         // A voice call in PiP has no CallView to stop presenting it on close
         // (whether the widget asked to close or its messaging just stopped),
@@ -1173,15 +1182,42 @@ export class ElementCall extends Call {
         this.close(); // User is done with the call; tell the UI to close it
     }
 
+    private _deviceMuteState: DeviceMuteState | undefined;
+
+    /** The latest microphone and camera state reported by Element Call. */
+    public get deviceMuteState(): DeviceMuteState | undefined {
+        return this._deviceMuteState;
+    }
+
+    /** Changes devices through the mounted Element Call component, preserving its media lifecycle. */
+    public setDeviceMute = async (request: DeviceMuteRequest): Promise<DeviceMuteState> => {
+        if (!this.componentHandle) throw new Error("Element Call component is not ready");
+        const state = await this.componentHandle.setDeviceMute(request);
+        this.handleDeviceMute(state);
+        return state;
+    };
+
+    /** Mutes call playback using Element Call's host audio controls. */
+    public setAudioOutputEnabled = (enabled: boolean): void => {
+        const controls = (window as Window & { controls?: { setAudioEnabled: (enabled: boolean) => void } }).controls;
+        if (!controls) throw new Error("Element Call audio output is not ready");
+        controls.setAudioEnabled(enabled);
+    };
+
     /** Element Call reports its mute state (`HostBridge.notifyDeviceMute` / `io.element.device_mute`). */
-    public handleDeviceMute(_state?: DeviceMuteState): void {
-        // Nothing to do yet; Element Web does not track the call's mute state.
+    public handleDeviceMute(state?: DeviceMuteState): void {
+        if (!state) return;
+        this._deviceMuteState = state;
+        this.emit(CallEvent.DeviceMute, state);
     }
 
     private readonly onDeviceMute = (ev: CustomEvent<IWidgetApiRequest>): void => {
         ev.preventDefault();
-        this.widgetApi!.transport.reply(ev.detail, {}); // ack
-        this.handleDeviceMute();
+        this.widgetApi!.transport.reply(ev.detail, {});
+        const state = ev.detail.data as Partial<DeviceMuteState> | undefined;
+        if (typeof state?.audio_enabled === "boolean" && typeof state.video_enabled === "boolean") {
+            this.handleDeviceMute({ audio_enabled: state.audio_enabled, video_enabled: state.video_enabled });
+        }
     };
 
     private readonly onJoin = (ev: CustomEvent<IWidgetApiRequest>): void => {

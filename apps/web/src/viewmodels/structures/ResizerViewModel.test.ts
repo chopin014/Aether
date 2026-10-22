@@ -64,7 +64,9 @@ describe("LeftPanelResizerViewModel", () => {
         vm.onLeftPanelResize({ inPixels: 0, asPercentage: 6 });
         await waitFor(() => {
             expect(vm.getSnapshot().isCollapsed).toStrictEqual(true);
+            expect(vm.getSnapshot().leftPanelWidth).toBe(0);
         });
+        vm.dispose();
     });
 
     it("should noop on click when handle is not yet set", () => {

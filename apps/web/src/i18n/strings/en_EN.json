@@ -74,6 +74,7 @@
         "minimise": "Minimise",
         "new_room": "New room",
         "new_video_room": "New video room",
+        "new_voice_room": "New voice room",
         "next": "Next",
         "no": "No",
         "not_now": "Not now",
@@ -591,6 +592,7 @@
         "version": "Version",
         "video_room": "Video room",
         "view_message": "View message",
+        "voice_room": "Voice room",
         "warning": "Warning"
     },
     "composer": {
@@ -656,6 +658,7 @@
     "create_room": {
         "action_create_room": "Create room",
         "action_create_video_room": "Create video room",
+        "action_create_voice_room": "Create voice room",
         "encrypted_video_room_warning": "You can't disable this later. The room will be encrypted but the embedded call will not.",
         "encrypted_warning": "You can't disable this later. Bridges & most bots won't work yet.",
         "encryption_forced": "Your server requires encryption to be enabled in private rooms.",
@@ -677,6 +680,7 @@
         "title_private_room": "Create a private room",
         "title_public_room": "Create a public room",
         "title_video_room": "Create a video room",
+        "title_voice_room": "Create a voice room",
         "topic_label": "Topic (optional)",
         "unfederated": "Block anyone not part of %(serverName)s from ever joining this room.",
         "unfederated_label_default_off": "You might enable this if the room will only be used for collaborating with internal teams on your service. This cannot be changed later.",
@@ -754,6 +758,23 @@
         "reason_description": "Describe the reason for reporting the room.",
         "report_room_description": "Report this chat to your account provider.",
         "title": "Decline invitation"
+    },
+    "desktop": {
+        "contacts": {
+            "action_failed": "That action could not be completed. Please try again.",
+            "offline": "desktop|contacts|offline",
+            "online": "desktop|contacts|online"
+        },
+        "members": {
+            "invited": "Invited"
+        },
+        "text_channels": "Text Channels",
+        "voice": {
+            "action_failed": "The audio control could not be changed. Please try again.",
+            "sound_section": "Sounds",
+            "sounds": "Play voice control sounds"
+        },
+        "voice_channels": "Voice Channels"
     },
     "desktop_default_device_name": "%(brand)s Desktop: %(platformName)s",
     "devtools": {
@@ -1525,6 +1546,7 @@
         "click_for_info": "More info",
         "config_only": "Your account provider must enable this in config.json.",
         "currently_experimental": "Currently experimental.",
+        "desktop_shell": "Desktop layout",
         "document_previews": "Experimental document previews",
         "document_previews_description": "Open PDF and Markdown attachments in the right panel.",
         "dynamic_room_predecessors": "Dynamic room predecessors",
@@ -2046,6 +2068,9 @@
         "inaccessible_subtitle_1": "Try again later, or ask a room or space admin to check if you have access.",
         "inaccessible_subtitle_2": "%(errcode)s was returned while trying to access the room or space. If you think you're seeing this message in error, please <issueLink>submit a bug report</issueLink>.",
         "intro": {
+            "desktop_server_start": "This is the beginning of this server.",
+            "desktop_server_welcome": "Welcome to <serverName/>",
+            "desktop_welcome": "Welcome to #%(roomName)s!",
             "display_topic": "Topic: <topic/>",
             "dm_caption": "Only the two of you are in this conversation, unless either of you invites anyone to join.",
             "edit_topic": "Topic: <topic/> (<a>edit</a>)",

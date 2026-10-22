@@ -23,6 +23,8 @@ interface SpaceMenuViewProps {
      * The view model for the room list header
      */
     vm: RoomListHeaderViewModel;
+    /** Use the whole Space name as the menu trigger. */
+    fullWidth?: boolean;
 }
 
 /**
@@ -35,9 +37,9 @@ interface SpaceMenuViewProps {
  * <SpaceMenuView vm={roomListHeaderViewModel} />
  * ```
  */
-export function SpaceMenuView({ vm }: SpaceMenuViewProps): JSX.Element {
+export function SpaceMenuView({ vm, fullWidth = false }: SpaceMenuViewProps): JSX.Element {
     const { translate: _t } = useI18n();
-    const { canInviteInSpace, canAccessSpaceSettings, title } = useViewModel(vm);
+    const { canInviteInSpace, canAccessSpaceSettings, canCreateRoom, canCreateVideoRoom, title } = useViewModel(vm);
     const [open, setOpen] = useState(false);
 
     return (
@@ -47,17 +49,30 @@ export function SpaceMenuView({ vm }: SpaceMenuViewProps): JSX.Element {
             title={title}
             align="start"
             trigger={
-                <IconButton
-                    className={styles.button}
-                    aria-label={_t("room_list|open_space_menu")}
-                    // 24px icon with a 20px icon
-                    size="24px"
-                    style={{ padding: "2px" }}
-                >
-                    <ChevronDownIcon />
-                </IconButton>
+                fullWidth ? (
+                    <button className={styles.spaceTrigger} aria-label={_t("room_list|open_space_menu")} type="button">
+                        <span>{title}</span>
+                        <ChevronDownIcon aria-hidden />
+                    </button>
+                ) : (
+                    <IconButton
+                        className={styles.button}
+                        aria-label={_t("room_list|open_space_menu")}
+                        // 24px icon with a 20px icon
+                        size="24px"
+                        style={{ padding: "2px" }}
+                    >
+                        <ChevronDownIcon />
+                    </IconButton>
+                )
             }
         >
+            {fullWidth && canCreateRoom && (
+                <MenuItem label={_t("action|new_room")} onSelect={vm.createRoom} hideChevron />
+            )}
+            {fullWidth && canCreateVideoRoom && (
+                <MenuItem label={_t("action|new_voice_room")} onSelect={vm.createVideoRoom} hideChevron />
+            )}
             <MenuItem Icon={HomeIcon} label={_t("room_list|space_menu|home")} onSelect={vm.openSpaceHome} hideChevron />
             {canInviteInSpace && (
                 <MenuItem Icon={UserAddIcon} label={_t("action|invite")} onSelect={vm.inviteInSpace} hideChevron />

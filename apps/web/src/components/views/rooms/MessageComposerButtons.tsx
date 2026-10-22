@@ -68,6 +68,7 @@ const MessageComposerButtons: React.FC<IProps> = (props: IProps) => {
     const roomUploadSnapshot = useViewModel(roomUploadVM);
     const { room, narrow } = useScopedRoomContext("room", "narrow");
 
+    const desktopShell = useSettingValue("feature_desktop_shell");
     const isWysiwygLabEnabled = useSettingValue("feature_wysiwyg_composer");
 
     if (!matrixClient || !room || props.haveRecording) {
@@ -114,7 +115,7 @@ const MessageComposerButtons: React.FC<IProps> = (props: IProps) => {
             ) : (
                 emojiButton(props)
             ),
-            <UploadButton key="upload" vm={roomUploadVM} />,
+            !desktopShell && <UploadButton key="upload" vm={roomUploadVM} />,
         ];
         moreButtons = [
             showStickersButton(props),

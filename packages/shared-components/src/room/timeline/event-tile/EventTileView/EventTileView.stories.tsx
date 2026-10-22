@@ -1716,3 +1716,14 @@ export const PinnedGroup: Story = {
     globals: groupGlobals,
     args: Pinned.args,
 };
+
+export const DesktopChannelMessage: Story = {
+    render: () => (
+        <EventPresentationProvider value={{ layout: "group", density: "default", messageStyle: "desktop" }}>
+            <EventTileView
+                root={{ id: "desktop-event", shape: "Room", state: { isOwnEvent: false, hasReply: false } }}
+                slots={roomSlots}
+            />
+        </EventPresentationProvider>
+    ),
+};

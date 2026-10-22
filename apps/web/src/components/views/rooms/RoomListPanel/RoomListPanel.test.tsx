@@ -13,6 +13,7 @@ import { render, screen } from "test-utils-rtl";
 import { clientAndSDKContextRenderOptions, createTestClient, TestSDKContext } from "test-utils";
 import userEvent from "@testing-library/user-event";
 
+import SettingsStore from "../../../../settings/SettingsStore";
 import { RoomListPanel } from "./RoomListPanel";
 import { shouldShowComponent } from "../../../../customisations/helpers/UIComponents";
 import { MetaSpace } from "../../../../stores/spaces";
@@ -53,6 +54,16 @@ describe("<RoomListPanel />", () => {
 
         // By default, we consider shouldShowComponent(UIComponent.FilterContainer) should return true
         vi.mocked(shouldShowComponent).mockReturnValue(true);
+    });
+
+    it("puts the account dock in the shell instead of inside the scrolling room list", () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+            name === "feature_desktop_shell" ? true : getValue(name, ...args),
+        );
+        renderComponent();
+        expect(screen.queryByRole("group", { name: "User menu" })).not.toBeInTheDocument();
+        vi.mocked(SettingsStore.getValue).mockRestore();
     });
 
     it("should render the RoomListSearch component when UIComponent.FilterContainer is at true", () => {

@@ -143,6 +143,24 @@ describe("RoomHeader", () => {
         expect(container).toHaveTextContent(ROOM_ID);
     });
 
+    it("uses the channel symbol in the desktop header while retaining room actions", async () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const setting = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        try {
+            const { container } = render(<RoomHeader room={room} />, getWrapper());
+            expect(container.querySelector(".mx_DesktopShell_channelIcon")).toBeInTheDocument();
+            await userEvent.click(screen.getByRole("button", { name: "Notifications" }));
+            expect(screen.getByRole("menuitemradio", { name: "Mute room" })).toBeInTheDocument();
+            await userEvent.keyboard("{Escape}");
+            await userEvent.click(getByText(container, ROOM_ID));
+            expect(setCardSpy).toHaveBeenCalled();
+        } finally {
+            setting.mockRestore();
+        }
+    });
+
     it("opens the room summary", async () => {
         const user = userEvent.setup();
         const { container } = render(<RoomHeader room={room} />, getWrapper());

@@ -1,0 +1,62 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.buttons {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--cpd-space-1x);
+}
+.buttons > button {
+    width: var(--cpd-space-8x);
+    height: var(--cpd-space-8x);
+    padding: var(--cpd-space-1x);
+}
+.buttons > button[data-muted="true"] {
+    color: var(--cpd-color-icon-critical-primary);
+}
+.connection {
+    padding-block: var(--cpd-space-2x);
+    border-block-end: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+}
+.connectionRow {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-1x);
+}
+.callIdentity {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    text-align: start;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: var(--cpd-color-text-secondary);
+    cursor: pointer;
+}
+.callIdentity > * {
+    margin: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.connectedLabel {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-1x);
+    color: var(--cpd-color-text-success-primary);
+}
+.connectedLabel svg {
+    width: var(--cpd-space-4x);
+    height: var(--cpd-space-4x);
+}
+.error {
+    color: var(--cpd-color-text-critical-primary);
+}

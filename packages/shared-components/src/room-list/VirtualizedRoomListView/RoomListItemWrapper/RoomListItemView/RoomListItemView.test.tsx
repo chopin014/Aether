@@ -9,7 +9,7 @@ import React from "react";
 import { render, screen, waitFor } from "@test-utils";
 import userEvent from "@testing-library/user-event";
 import { composeStories } from "@storybook/react-vite";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import * as stories from "./RoomListItemView.stories";
 
@@ -29,6 +29,32 @@ const {
 } = composeStories(stories);
 
 describe("<RoomListItemView />", () => {
+    it("renders actual members beneath a voice channel and opens their profile separately from joining", async () => {
+        const user = userEvent.setup();
+        const onProfile = vi.fn();
+        render(
+            <Default
+                channelKind="voice"
+                callParticipants={[
+                    { userId: "@alice:example.org", name: "Alice" },
+                    { userId: "@bob:example.org", name: "Bob" },
+                ]}
+                onViewCallParticipant={onProfile}
+            />,
+        );
+        const group = screen.getByRole("group", { name: "People in General" });
+        expect(group).toBeVisible();
+        await user.click(screen.getByRole("button", { name: "Bob", exact: true }));
+        expect(onProfile).toHaveBeenCalledWith("@bob:example.org");
+    });
+
+    it.each(["text", "voice"] as const)("renders a %s channel without a message preview or profile avatar", (kind) => {
+        render(<Default channelKind={kind} renderAvatar={() => <span>Profile avatar</span>} />);
+        expect(screen.getByRole("option", { name: "Open room General" })).toBeVisible();
+        expect(screen.queryByText("Profile avatar")).not.toBeInTheDocument();
+        expect(screen.queryByText("Alice: Hey everyone!")).not.toBeInTheDocument();
+    });
+
     it("renders Default story", () => {
         const { container } = render(<Default />);
         expect(container).toMatchSnapshot();

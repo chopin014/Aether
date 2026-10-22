@@ -371,9 +371,10 @@ export default class CreateRoomDialog extends React.Component<IProps, IState> {
             let microcopy: string;
             if (privateShouldBeEncrypted(MatrixClientPeg.safeGet())) {
                 if (this.state.canChangeEncryption) {
-                    microcopy = isVideoRoom
-                        ? _t("create_room|encrypted_video_room_warning")
-                        : _t("create_room|encrypted_warning");
+                    microcopy =
+                        this.props.type === RoomType.ElementVideo
+                            ? _t("create_room|encrypted_video_room_warning")
+                            : _t("create_room|encrypted_warning");
                 } else {
                     microcopy = _t("create_room|encryption_forced");
                 }
@@ -422,9 +423,10 @@ export default class CreateRoomDialog extends React.Component<IProps, IState> {
             federateLabel = _t("create_room|unfederated_label_default_on");
         }
 
+        const isVoiceRoom = isVideoRoom && SettingsStore.getValue("feature_desktop_shell");
         let title: string;
         if (isVideoRoom) {
-            title = _t("create_room|title_video_room");
+            title = isVoiceRoom ? _t("create_room|title_voice_room") : _t("create_room|title_video_room");
         } else if (this.props.parentSpace || this.state.joinRule === JoinRule.Knock) {
             title = _t("action|create_a_room");
         } else {
@@ -500,7 +502,11 @@ export default class CreateRoomDialog extends React.Component<IProps, IState> {
                 </div>
                 <DialogButtons
                     primaryButton={
-                        isVideoRoom ? _t("create_room|action_create_video_room") : _t("create_room|action_create_room")
+                        isVoiceRoom
+                            ? _t("create_room|action_create_voice_room")
+                            : isVideoRoom
+                              ? _t("create_room|action_create_video_room")
+                              : _t("create_room|action_create_room")
                     }
                     onPrimaryButtonClick={this.onOk}
                     onCancel={this.onCancel}

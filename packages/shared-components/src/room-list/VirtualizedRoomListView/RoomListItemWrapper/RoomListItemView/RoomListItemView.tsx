@@ -8,6 +8,7 @@
 import React, { type JSX, memo, useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import classNames from "classnames";
 import { useMergeRefs } from "react-merge-refs";
+import { Avatar } from "@vector-im/compound-web";
 
 import { Flex } from "../../../../core/utils/Flex";
 import { type NotificationDecorationData } from "./NotificationDecoration";
@@ -87,6 +88,10 @@ export interface RoomListItemViewSnapshot {
     isLowPriority: boolean;
     /** Whether the room is a direct message */
     isDm: boolean;
+    /** Desktop channel symbol; direct messages retain their profile avatars. */
+    channelKind?: "text" | "voice";
+    /** Distinct users with live MatrixRTC memberships, visible before joining a voice room. */
+    callParticipants?: { userId: string; name: string; avatarUrl?: string }[];
     /** Can invite other users in the room */
     canInvite: boolean;
     /** Can copy the room link */
@@ -113,6 +118,8 @@ export interface RoomListItemViewSnapshot {
  * Implemented by the room item view model.
  */
 export interface RoomListItemViewActions {
+    /** Open a voice participant's real Matrix profile. */
+    onViewCallParticipant?: (userId: string) => void;
     /** Called when the room should be opened */
     onOpenRoom: () => void;
     /** Called when the room should be marked as read */
@@ -222,7 +229,7 @@ export const RoomListItemView = memo(function RoomListItemView({
     // Generate a11y label from notification state and room name
     const a11yLabel = getA11yLabel(item.name, item.notification);
 
-    return (
+    const roomItem = (
         <RoomListItemContextMenu vm={vm}>
             <Flex
                 as="button"
@@ -250,5 +257,38 @@ export const RoomListItemView = memo(function RoomListItemView({
                 <RoomListItemContent vm={vm} renderAvatar={renderAvatar} />
             </Flex>
         </RoomListItemContextMenu>
+    );
+
+    if (item.channelKind !== "voice" || !item.callParticipants?.length) return roomItem;
+
+    return (
+        <div className={styles.channelWithParticipants}>
+            {roomItem}
+            <div
+                className={styles.callParticipants}
+                role="group"
+                aria-label={_t("desktop|voice|participants", { roomName: item.name })}
+            >
+                {item.callParticipants.map((participant) => (
+                    <button
+                        key={participant.userId}
+                        type="button"
+                        className={styles.callParticipant}
+                        onClick={() => vm.onViewCallParticipant?.(participant.userId)}
+                        title={participant.name}
+                        aria-label={participant.name}
+                    >
+                        <Avatar
+                            id={participant.userId}
+                            name={participant.name}
+                            src={participant.avatarUrl}
+                            size="24px"
+                            type="round"
+                        />
+                        <span>{participant.name}</span>
+                    </button>
+                ))}
+            </div>
+        </div>
     );
 });

@@ -15,6 +15,7 @@ import { waitFor, fireEvent } from "test-utils-rtl";
 import { filterConsole, mkThirdPartyInviteEvent } from "test-utils";
 import { type Room, type RoomMember, type RoomState, MatrixEvent, RoomStateEvent } from "matrix-js-sdk/src/matrix";
 
+import SettingsStore from "../../../../settings/SettingsStore";
 import { MemberListStore } from "../../../../stores/MemberListStore";
 import { type Rendered, renderMemberList } from "./__mocks__";
 
@@ -123,6 +124,22 @@ describe("MemberListView and MemberlistHeaderView", () => {
             }
         }
     }
+
+    it("groups desktop members by actual presence without the redundant People toolbar", async () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const setting = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        try {
+            const { root } = await renderMemberList(true);
+            expect(root.getByRole("heading", { name: "Online — 6" })).toBeVisible();
+            expect(root.queryByRole("heading", { name: "People" })).not.toBeInTheDocument();
+            expect(root.queryByRole("button", { name: "Close" })).not.toBeInTheDocument();
+            expect(root.getAllByRole("option")).toHaveLength(6);
+        } finally {
+            setting.mockRestore();
+        }
+    });
 
     describe("MemberListView", () => {
         let rendered: Rendered;

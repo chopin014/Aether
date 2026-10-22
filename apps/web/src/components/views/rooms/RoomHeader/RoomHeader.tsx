@@ -21,7 +21,15 @@ import PublicIcon from "@vector-im/compound-design-tokens/assets/web/icons/publi
 import { HistoryVisibility, JoinRule, type Room } from "matrix-js-sdk/src/matrix";
 import { Flex, Box, StatusTextView } from "@element-hq/web-shared-components";
 import { CallType } from "matrix-js-sdk/src/webrtc/call";
-import { HistoryIcon, UserProfileSolidIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
+import {
+    HistoryIcon,
+    UserProfileSolidIcon,
+    RoomIcon,
+    PinIcon,
+    SearchIcon,
+    GroupIcon,
+    VolumeOnIcon,
+} from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { useRoomName } from "../../../../hooks/useRoomName.ts";
 import { RightPanelPhases } from "../../../../stores/right-panel/RightPanelStorePhases.ts";
@@ -47,6 +55,7 @@ import { type ButtonEvent } from "../../elements/AccessibleButton.tsx";
 import WithPresenceIndicator, { useDmMember } from "../../avatars/WithPresenceIndicator.tsx";
 import { type IOOBData } from "../../../../stores/ThreepidInviteStore.ts";
 import { MainSplitContentType } from "../../../../contexts/RoomContext.ts";
+import { Action } from "../../../../dispatcher/actions";
 import defaultDispatcher from "../../../../dispatcher/dispatcher.ts";
 import { RoomSettingsTab } from "../../dialogs/RoomSettingsDialog-tab";
 import { useScopedRoomContext } from "../../../../contexts/ScopedRoomContext.tsx";
@@ -56,6 +65,8 @@ import { LocalRoom } from "../../../../models/LocalRoom.ts";
 import { useIsEncrypted } from "../../../../hooks/useIsEncrypted.ts";
 import { useUserStatus } from "../../../../hooks/useUserStatus.ts";
 import { SDKContext } from "../../../../contexts/SDKContext.ts";
+import { useContextMenu, ChevronFace } from "../../../structures/ContextMenu";
+import { RoomNotificationContextMenu } from "../../context_menus/RoomNotificationContextMenu";
 
 function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: JSX.Element }): JSX.Element {
     const sdkContext = useContext(SDKContext);
@@ -81,7 +92,10 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
     const dmMember = useDmMember(room);
     const isDirectMessage = !!dmMember;
 
+    const desktopShell = useFeatureEnabled("feature_desktop_shell");
     const notificationsEnabled = useFeatureEnabled("feature_notifications");
+    const [notificationMenuOpen, notificationMenuRef, openNotificationMenu, closeNotificationMenu] =
+        useContextMenu<HTMLButtonElement>();
 
     const videoClick = useCallback(
         (ev: React.MouseEvent) => videoCallClick(ev, callOptions[0]),
@@ -299,8 +313,8 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
                 joinCallButton
             ) : (
                 <>
-                    {!isVideoRoom && videoCallButton}
-                    {!isVideoRoom && voiceCallButton}
+                    {!isVideoRoom && (!desktopShell || isDirectMessage) && videoCallButton}
+                    {!isVideoRoom && (!desktopShell || isDirectMessage) && voiceCallButton}
                 </>
             )}
 
@@ -319,7 +333,7 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
                     <ToggleableIcon Icon={ThreadsIcon} phase={RightPanelPhases.ThreadPanel} />
                 </IconButton>
             </Tooltip>
-            {notificationsEnabled && (
+            {!desktopShell && notificationsEnabled && (
                 <Tooltip label={_t("notifications|enable_prompt_toast_title")}>
                     <IconButton
                         indicator={notificationLevelToIndicator(globalNotificationState.level)}
@@ -334,19 +348,72 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
                 </Tooltip>
             )}
 
-            <Tooltip label={_t("right_panel|room_summary_card|title")}>
-                <IconButton
-                    onClick={(evt) => {
-                        evt.stopPropagation();
-                        sdkContext.rightPanelStore.showOrHidePhase(RightPanelPhases.RoomSummary);
-                    }}
-                    aria-label={_t("right_panel|room_summary_card|title")}
-                >
-                    <ToggleableIcon Icon={RoomInfoIcon} phase={RightPanelPhases.RoomSummary} />
-                </IconButton>
-            </Tooltip>
+            {desktopShell ? (
+                <>
+                    <IconButton
+                        ref={notificationMenuRef}
+                        tooltip={_t("notifications|enable_prompt_toast_title")}
+                        aria-haspopup="menu"
+                        aria-expanded={notificationMenuOpen}
+                        onClick={openNotificationMenu}
+                    >
+                        <NotificationsIcon />
+                    </IconButton>
+                    {notificationMenuOpen && (
+                        <RoomNotificationContextMenu
+                            room={room}
+                            left={notificationMenuRef.current!.getBoundingClientRect().right - 240}
+                            top={notificationMenuRef.current!.getBoundingClientRect().bottom + 8}
+                            chevronFace={ChevronFace.None}
+                            onFinished={closeNotificationMenu}
+                        />
+                    )}
+                </>
+            ) : (
+                <Tooltip label={_t("right_panel|room_summary_card|title")}>
+                    <IconButton
+                        onClick={(evt) => {
+                            evt.stopPropagation();
+                            sdkContext.rightPanelStore.showOrHidePhase(RightPanelPhases.RoomSummary);
+                        }}
+                        aria-label={_t("right_panel|room_summary_card|title")}
+                    >
+                        <ToggleableIcon Icon={RoomInfoIcon} phase={RightPanelPhases.RoomSummary} />
+                    </IconButton>
+                </Tooltip>
+            )}
 
-            {!isDirectMessage && (
+            {desktopShell && (
+                <Tooltip label={_t("right_panel|pinned_messages_button")}>
+                    <IconButton
+                        aria-label={_t("right_panel|pinned_messages_button")}
+                        onClick={() => sdkContext.rightPanelStore.showOrHidePhase(RightPanelPhases.PinnedMessages)}
+                    >
+                        <ToggleableIcon Icon={PinIcon} phase={RightPanelPhases.PinnedMessages} />
+                    </IconButton>
+                </Tooltip>
+            )}
+            {!isDirectMessage && desktopShell && (
+                <Tooltip label={_t("common|n_members", { count: memberCount })}>
+                    <IconButton
+                        aria-label={_t("common|n_members", { count: memberCount })}
+                        onClick={() => sdkContext.rightPanelStore.showOrHidePhase(RightPanelPhases.MemberList)}
+                    >
+                        <ToggleableIcon Icon={GroupIcon} phase={RightPanelPhases.MemberList} />
+                    </IconButton>
+                </Tooltip>
+            )}
+            {desktopShell && (
+                <button
+                    type="button"
+                    className="mx_DesktopShell_messageSearch"
+                    onClick={() => defaultDispatcher.fire(Action.FocusMessageSearch)}
+                >
+                    <span>{_t("action|search")}</span>
+                    <SearchIcon aria-hidden />
+                </button>
+            )}
+            {!isDirectMessage && !desktopShell && (
                 <Text as="div" size="sm" weight="medium">
                     <FacePile
                         className="mx_RoomHeader_members"
@@ -423,6 +490,7 @@ export default function RoomHeader({
     const isRoomEncrypted = useIsEncrypted(sdkContext.client!, room);
     const e2eStatus = useEncryptionStatus(sdkContext.client!, room);
     const askToJoinEnabled = useFeatureEnabled("feature_ask_to_join");
+    const desktopChannel = useFeatureEnabled("feature_desktop_shell") && !isDirectMessage;
     const onAvatarClick = (): void => {
         defaultDispatcher.dispatch({
             action: "open_room_settings",
@@ -433,18 +501,26 @@ export default function RoomHeader({
     return (
         <CurrentRightPanelPhaseContextProvider roomId={room.roomId}>
             <Flex as="header" align="center" gap="var(--cpd-space-3x)" className="mx_RoomHeader light-panel">
-                <WithPresenceIndicator room={room}>
-                    {/* We hide this from the tabIndex list as it is a pointer shortcut and superfluous for a11y */}
-                    {/* Disable on-click actions until the room is created */}
-                    <RoomAvatar
-                        room={room}
-                        size="40px"
-                        oobData={oobData}
-                        onClick={room instanceof LocalRoom ? undefined : onAvatarClick}
-                        tabIndex={-1}
-                        altText={_t("room|header_avatar_open_settings_label")}
-                    />
-                </WithPresenceIndicator>
+                {desktopChannel ? (
+                    room.isCallRoom() || room.isElementVideoRoom() ? (
+                        <VolumeOnIcon className="mx_DesktopShell_channelIcon" aria-hidden />
+                    ) : (
+                        <RoomIcon className="mx_DesktopShell_channelIcon" aria-hidden />
+                    )
+                ) : (
+                    <WithPresenceIndicator room={room}>
+                        {/* We hide this from the tabIndex list as it is a pointer shortcut and superfluous for a11y */}
+                        {/* Disable on-click actions until the room is created */}
+                        <RoomAvatar
+                            room={room}
+                            size="40px"
+                            oobData={oobData}
+                            onClick={room instanceof LocalRoom ? undefined : onAvatarClick}
+                            tabIndex={-1}
+                            altText={_t("room|header_avatar_open_settings_label")}
+                        />
+                    </WithPresenceIndicator>
+                )}
                 {/* Disable on-click actions until the room is created */}
                 <button
                     aria-label={_t("right_panel|room_summary_card|title")}

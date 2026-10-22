@@ -108,6 +108,7 @@ const SpaceLandingAddButton: React.FC<{ space: Room }> = ({ space }) => {
     const canCreateRoom = shouldShowComponent(UIComponent.CreateRooms);
     const canCreateSpace = shouldShowComponent(UIComponent.CreateSpaces);
     const videoRoomsEnabled = useFeatureEnabled("feature_video_rooms");
+    const desktopShellEnabled = useFeatureEnabled("feature_desktop_shell");
     const elementCallVideoRoomsEnabled = useFeatureEnabled("feature_element_call_video_rooms");
 
     let contextMenu: JSX.Element | null = null;
@@ -141,7 +142,9 @@ const SpaceLandingAddButton: React.FC<{ space: Room }> = ({ space }) => {
                             />
                             {videoRoomsEnabled && (
                                 <IconizedContextMenuOption
-                                    label={_t("action|new_video_room")}
+                                    label={
+                                        desktopShellEnabled ? _t("action|new_voice_room") : _t("action|new_video_room")
+                                    }
                                     icon={<VideoCallSolidIcon />}
                                     onClick={async (e): Promise<void> => {
                                         e.preventDefault();
@@ -151,7 +154,7 @@ const SpaceLandingAddButton: React.FC<{ space: Room }> = ({ space }) => {
                                         if (
                                             await showCreateNewRoom(
                                                 space,
-                                                elementCallVideoRoomsEnabled
+                                                desktopShellEnabled || elementCallVideoRoomsEnabled
                                                     ? RoomType.UnstableCall
                                                     : RoomType.ElementVideo,
                                             )

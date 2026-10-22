@@ -132,6 +132,17 @@ describe("JitsiCall", () => {
             expect(Call.get(room)).toBeInstanceOf(JitsiCall);
         });
 
+        it("does not fall back to a legacy Jitsi call in Element Call exclusive mode", async () => {
+            await JitsiCall.create(room);
+            const config = SdkConfig.get();
+            SdkConfig.add({ element_call: { use_exclusively: true } });
+            try {
+                expect(Call.get(room)).toBeNull();
+            } finally {
+                SdkConfig.put(config);
+            }
+        });
+
         it("ignores terminated calls", async () => {
             await JitsiCall.create(room);
 
@@ -1143,6 +1154,36 @@ describe("ElementCall with the React component embedding", () => {
         expect(call.widgetGenerationParameters).toEqual({ skipLobby: true });
     });
 
+    it("changes microphone state through the component handle and publishes its actual reply", async () => {
+        const state = { audio_enabled: false, video_enabled: false };
+        const setDeviceMute = vi.fn(async () => state);
+        call.setComponentHandle({ setDeviceMute } as unknown as ElementCallHandle);
+        const changed = vi.fn();
+        call.on(CallEvent.DeviceMute, changed);
+        await expect(call.setDeviceMute({ audio_enabled: false })).resolves.toEqual(state);
+        expect(setDeviceMute).toHaveBeenCalledWith({ audio_enabled: false });
+        expect(call.deviceMuteState).toEqual(state);
+        expect(changed).toHaveBeenCalledWith(state);
+    });
+
+    it("reports a missing component rather than pretending to mute", async () => {
+        await expect(call.setDeviceMute({ audio_enabled: false })).rejects.toThrow("not ready");
+        expect(call.deviceMuteState).toBeUndefined();
+    });
+
+    it("mutes playback through Element Call's host audio API", () => {
+        const setAudioEnabled = vi.fn();
+        vi.stubGlobal("controls", { setAudioEnabled });
+        try {
+            call.setAudioOutputEnabled(false);
+            expect(setAudioEnabled).toHaveBeenLastCalledWith(false);
+            call.setAudioOutputEnabled(true);
+            expect(setAudioEnabled).toHaveBeenLastCalledWith(true);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
     it("times out if the component never reports ready", async () => {
         vi.useFakeTimers();
         const started = call.start({});
@@ -1250,6 +1291,18 @@ describe("ElementCall with the React component embedding", () => {
             const { intent, config } = call.getCallOptions();
             expect(intent).toBe(ElementCallIntent.JoinExisting);
             expect(config).toMatchObject({ returnToLobby: true, skipLobby: false });
+        });
+
+        it("joins desktop voice channels immediately with voice-only media", () => {
+            vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+            enabledSettings.add("feature_desktop_shell");
+            try {
+                const { intent, config } = call.getCallOptions();
+                expect(intent).toBe(ElementCallIntent.JoinExistingVoice);
+                expect(config).toMatchObject({ returnToLobby: true, skipLobby: true });
+            } finally {
+                enabledSettings.delete("feature_desktop_shell");
+            }
         });
 
         it("detects DMs and voice calls like the widget URL does", () => {

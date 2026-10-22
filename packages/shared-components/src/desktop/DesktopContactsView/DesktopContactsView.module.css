@@ -1,0 +1,277 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.root {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-width: 0;
+    color: var(--cpd-color-text-primary);
+    background: var(--cpd-color-bg-canvas-default);
+}
+.root p,
+.navigation p {
+    margin: 0;
+}
+.header {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-4x);
+    height: 49px;
+    padding-inline: var(--cpd-space-4x);
+    flex: none;
+    border-block-end: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+}
+.title {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-2x);
+    flex: none;
+}
+.title svg {
+    color: var(--cpd-color-icon-secondary);
+    width: var(--cpd-space-6x);
+    height: var(--cpd-space-6x);
+}
+.tabs {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-4x);
+    flex: 1;
+    min-width: 0;
+    border-inline-start: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    padding-inline-start: var(--cpd-space-4x);
+}
+.tabs > button:not(.addFriend) {
+    background: transparent;
+    border: 0;
+    border-radius: var(--cpd-space-1x);
+    color: var(--cpd-color-text-secondary);
+    padding: var(--cpd-space-1x) var(--cpd-space-2x);
+    font: var(--cpd-font-body-md-medium);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-2x);
+}
+.tabs > button:hover,
+.tabs > button[aria-current] {
+    background: var(--cpd-color-bg-action-tertiary-selected);
+    color: var(--cpd-color-text-primary);
+}
+.tabs .addFriend {
+    background: var(--cpd-color-bg-action-primary-rest);
+    padding-inline: var(--cpd-space-2x);
+    height: var(--cpd-space-6x);
+    border: 0;
+    border-radius: var(--cpd-space-1x);
+    white-space: nowrap;
+}
+.body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+}
+.contacts {
+    flex: 1;
+    min-width: 0;
+    overflow: auto;
+    padding: var(--cpd-space-4x) var(--cpd-space-8x);
+}
+.contacts > :first-child {
+    width: 100%;
+    background: var(--mx-desktop-shell-frame, var(--cpd-color-bg-subtle-secondary));
+    border-radius: var(--cpd-space-1x);
+}
+.search {
+    border: 0;
+    border-radius: var(--cpd-space-1x);
+    background: var(--mx-desktop-shell-frame, var(--cpd-color-bg-subtle-secondary));
+    height: var(--cpd-space-8x);
+}
+.search:focus-within {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+}
+.sectionTitle {
+    margin-block: var(--cpd-space-6x) var(--cpd-space-2x);
+    color: var(--cpd-color-text-secondary);
+}
+.list {
+    padding: 0;
+    margin: 0;
+    list-style: none;
+}
+.contact {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-2x);
+    min-height: var(--cpd-space-16x);
+    border-block-start: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+}
+.contact:hover {
+    background: var(--cpd-color-bg-action-tertiary-hovered);
+    border-radius: var(--cpd-space-2x);
+}
+.identity {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    align-items: center;
+    gap: var(--cpd-space-3x);
+    padding: var(--cpd-space-2x);
+    border: 0;
+    border-radius: var(--cpd-space-2x);
+    background: transparent;
+    color: inherit;
+    text-align: start;
+    cursor: pointer;
+}
+.names {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.names > * {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.subtitle {
+    color: var(--cpd-color-text-secondary);
+}
+.avatar {
+    position: relative;
+    flex: none;
+}
+.presence {
+    position: absolute;
+    inset-inline-end: calc(-1 * var(--cpd-space-0-5x));
+    inset-block-end: 0;
+    width: var(--cpd-space-2x);
+    height: var(--cpd-space-2x);
+    border: var(--cpd-space-0-5x) solid var(--cpd-color-bg-canvas-default);
+    border-radius: 50%;
+    background: var(--cpd-color-icon-tertiary);
+}
+.presence[data-presence="online"] {
+    background: var(--cpd-color-icon-success-primary);
+}
+.presence[data-presence="unavailable"] {
+    background: var(--cpd-color-icon-warning-primary);
+}
+.actions {
+    display: flex;
+    gap: var(--cpd-space-2x);
+    padding-inline-end: var(--cpd-space-2x);
+}
+.actions > button {
+    border-radius: 50%;
+    background: var(--cpd-color-bg-subtle-primary);
+}
+.activity {
+    width: 300px;
+    min-width: 200px;
+    flex: 0 1 300px;
+    border-inline-start: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    padding: var(--cpd-space-4x);
+    overflow: auto;
+}
+.activity h2 {
+    margin-block: var(--cpd-space-2x) var(--cpd-space-4x);
+}
+.activityContact {
+    width: 100%;
+    background: var(--cpd-color-bg-subtle-primary);
+    margin-block-end: var(--cpd-space-2x);
+}
+.quiet {
+    text-align: center;
+    margin-block: var(--cpd-space-8x);
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-2x);
+}
+.quiet > :last-child {
+    color: var(--cpd-color-text-secondary);
+}
+.empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--cpd-space-4x);
+    min-height: 300px;
+    height: 65%;
+    color: var(--cpd-color-text-tertiary);
+    text-align: center;
+}
+.empty svg {
+    width: var(--cpd-space-16x);
+    height: var(--cpd-space-16x);
+}
+.error {
+    color: var(--cpd-color-text-critical-primary);
+}
+.navigation {
+    padding-inline: var(--cpd-space-2x);
+}
+.friendsButton {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: var(--cpd-space-3x);
+    height: var(--cpd-space-11x);
+    padding-inline: var(--cpd-space-3x);
+    border: 0;
+    border-radius: var(--cpd-space-2x);
+    color: var(--cpd-color-text-secondary);
+    background: transparent;
+    font: var(--cpd-font-body-lg-medium);
+    cursor: pointer;
+}
+.friendsButton:hover {
+    background: var(--cpd-color-bg-action-tertiary-hovered);
+    color: var(--cpd-color-text-primary);
+}
+.friendsButton svg {
+    width: var(--cpd-space-6x);
+    height: var(--cpd-space-6x);
+}
+.badge {
+    margin-inline-start: auto;
+    background: var(--cpd-color-bg-critical-primary);
+    color: var(--cpd-color-text-on-solid-primary);
+    border-radius: var(--cpd-space-3x);
+    min-width: var(--cpd-space-4x);
+    text-align: center;
+    padding-inline: var(--cpd-space-1x);
+    font: var(--cpd-font-body-xs-semibold);
+}
+.conversationsHeading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--cpd-space-4x) var(--cpd-space-2x) var(--cpd-space-1x);
+    color: var(--cpd-color-text-tertiary);
+}
+@media (max-width: 1100px) {
+    .activity {
+        display: none;
+    }
+}
+@media (max-width: 720px) {
+    .tabs {
+        gap: 0;
+        padding-inline-start: var(--cpd-space-1x);
+    }
+    .header {
+        gap: var(--cpd-space-2x);
+    }
+    .contacts {
+        padding-inline: var(--cpd-space-4x);
+    }
+}

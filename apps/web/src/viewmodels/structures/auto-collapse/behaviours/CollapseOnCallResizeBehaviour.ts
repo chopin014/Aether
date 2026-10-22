@@ -5,6 +5,7 @@
  * Please see LICENSE files in the repository root for full details.
  */
 
+import SettingsStore from "../../../../settings/SettingsStore";
 import { BaseCollapseBehaviour } from "./BaseCollapseBehaviour";
 import type { Call } from "../../../../models/Call";
 import { type CallStore, CallStoreEvent } from "../../../../stores/CallStore";
@@ -28,6 +29,8 @@ export class CollapseOnCallResizeBehaviour extends BaseCollapseBehaviour {
     }
 
     private onCallConnected = (calls: Set<Call>): void => {
+        // Desktop voice rooms keep channel navigation and the persistent call dock in view.
+        if (SettingsStore.getValue("feature_desktop_shell")) return;
         if (calls.size > 0) {
             this.setCallJustStarted();
             this.collapseHandler.collapse();

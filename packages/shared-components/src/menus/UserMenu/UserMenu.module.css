@@ -137,3 +137,40 @@
     text-overflow: ellipsis;
     overflow: hidden;
 }
+
+.dockWrapper {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+}
+
+.triggerButton.dockTrigger {
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: var(--cpd-space-1x);
+    border-radius: var(--cpd-space-2x);
+    text-align: start;
+
+    &:hover {
+        background: var(--cpd-color-bg-action-tertiary-hovered);
+    }
+}
+
+.triggerButton > .identity {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    max-width: none;
+
+    > span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
+.matrixId {
+    color: var(--cpd-color-text-secondary);
+}

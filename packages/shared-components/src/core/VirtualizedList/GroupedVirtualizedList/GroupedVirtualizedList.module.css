@@ -52,5 +52,5 @@ overlap. Without an opaque fill they show through each other (overlapping text);
     position: sticky;
     top: 0;
     z-index: 2;
-    background: var(--cpd-color-bg-canvas-default);
+    background: var(--grouped-list-header-background, var(--cpd-color-bg-canvas-default));
 }

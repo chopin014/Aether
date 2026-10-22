@@ -264,6 +264,11 @@ export default class VoiceUserSettingsTab extends React.Component<EmptyObject, I
                         {requestButton}
                         {microphoneDropdown}
                     </SettingsSection>
+                    {SettingsStore.getValue("feature_desktop_shell") && (
+                        <SettingsSection heading={_t("desktop|voice|sound_section")}>
+                            <SettingsFlag name="desktopVoiceSounds" level={SettingLevel.DEVICE} />
+                        </SettingsSection>
+                    )}
                     {allowLegacyCalls && (
                         <SettingsSection heading={_t("common|legacy_voice_and_video_settings")}>
                             {elementCallEnabled && (

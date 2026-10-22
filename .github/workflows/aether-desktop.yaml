@@ -1,0 +1,73 @@
+# Copyright 2026 Gabriel. SPDX-License-Identifier: AGPL-3.0-only
+name: Aether desktop builds
+on:
+    workflow_dispatch:
+permissions:
+    contents: read
+concurrency:
+    group: aether-desktop-${{ github.ref }}
+    cancel-in-progress: true
+jobs:
+    renderer:
+        runs-on: ubuntu-24.04
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+            - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+              with:
+                  node-version-file: apps/desktop/.node-version
+                  install: false
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm exec nx run element-web:build
+            - name: Bundle the Aether renderer
+              shell: bash
+              run: |
+                  cp apps/desktop/config.desktop.json apps/web/webapp/config.json
+                  mkdir -p apps/desktop/webapp
+                  cp -a apps/web/webapp/. apps/desktop/webapp/
+                  pnpm --dir apps/desktop run asar-webapp
+            - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+              with:
+                  name: aether-renderer
+                  path: apps/desktop/webapp.asar
+                  if-no-files-found: error
+    desktop:
+        needs: renderer
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - os: ubuntu-24.04
+                      platform: linux
+                    - os: windows-2025
+                      platform: win
+        runs-on: ${{ matrix.os }}
+        env:
+            VERSION: 0.1.0-dev
+            CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+            - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+              with:
+                  node-version-file: apps/desktop/.node-version
+                  install: false
+            - run: pnpm install --frozen-lockfile --filter element-desktop
+            - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+              with:
+                  name: aether-renderer
+                  path: apps/desktop
+            - run: pnpm --dir apps/desktop exec tsc
+            - run: pnpm --dir apps/desktop exec node scripts/copy-res.ts
+            - run: pnpm --dir apps/desktop run build:aether --${{ matrix.platform }} --x64
+            - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+              with:
+                  name: Aether-${{ matrix.platform }}-x64
+                  path: |
+                      apps/desktop/dist/*.AppImage
+                      apps/desktop/dist/*.deb
+                      apps/desktop/dist/*.tar.gz
+                      apps/desktop/dist/*.exe
+                  if-no-files-found: error

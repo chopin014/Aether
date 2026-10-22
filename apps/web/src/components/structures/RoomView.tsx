@@ -2735,6 +2735,17 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 this.state.mainSplitContentType === MainSplitContentType.Call ? "video_room" : "maximised_widget";
         }
 
+        let minSize: number | undefined;
+        if (
+            SettingsStore.getValue("feature_desktop_shell") &&
+            this.context.rightPanelStore.currentCardForRoom(this.state.room.roomId).phase ===
+                RightPanelPhases.MemberList
+        ) {
+            sizeKey = "desktop_members";
+            defaultSize = 240;
+            minSize = 240;
+        }
+
         const extraButtons: JSX.Element[] = [];
         for (const cb of ModuleApi.instance.extras.roomHeaderButtonsCallbacks) {
             const b = cb(this.state.room.roomId);
@@ -2758,6 +2769,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                             panel={rightPanel}
                             sizeKey={sizeKey}
                             defaultSize={defaultSize}
+                            minSize={minSize}
                             analyticsRoomType={analyticsRoomType}
                         >
                             <div

@@ -31,6 +31,9 @@ interface IProps {
      */
     defaultSize: number;
 
+    /** Minimum width of the side panel. Defaults to 320. */
+    minSize?: number;
+
     analyticsRoomType: WebPanelResize["roomType"];
 }
 
@@ -105,7 +108,7 @@ export default class MainSplit extends React.Component<IProps> {
                 <Resizable
                     key={this.props.sizeKey}
                     defaultSize={this.loadSidePanelSize()}
-                    minWidth={320}
+                    minWidth={this.props.minSize ?? 320}
                     maxWidth="50%"
                     enable={{
                         top: false,

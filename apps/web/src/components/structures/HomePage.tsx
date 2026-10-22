@@ -24,6 +24,8 @@ import MatrixClientContext, { useMatrixClientContext } from "../../contexts/Matr
 import MiniAvatarUploader, { AVATAR_SIZE } from "../views/elements/MiniAvatarUploader";
 import PosthogTrackers from "../../PosthogTrackers";
 import EmbeddedPage from "./EmbeddedPage";
+import { DesktopContactsContainer } from "./DesktopContactsContainer";
+import { useFeatureEnabled } from "../../hooks/useSettings";
 
 const onClickSendDm = (ev: ButtonEvent): void => {
     PosthogTrackers.trackInteraction("WebHomeCreateChatButton", ev);
@@ -88,8 +90,11 @@ const UserWelcomeTop: React.FC = () => {
 
 const HomePage: React.FC<IProps> = ({ justRegistered = false }) => {
     const cli = useMatrixClientContext();
+    const desktopShell = useFeatureEnabled("feature_desktop_shell");
     const config = SdkConfig.get();
     const pageUrl = getHomePageUrl(config, cli);
+
+    if (desktopShell) return <DesktopContactsContainer />;
 
     if (pageUrl) {
         return <EmbeddedPage className="mx_HomePage" url={pageUrl} scrollbar={true} />;

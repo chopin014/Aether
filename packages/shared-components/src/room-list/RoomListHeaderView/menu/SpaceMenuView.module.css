@@ -16,3 +16,29 @@
         transform: rotate(180deg);
     }
 }
+
+.spaceTrigger {
+    border: 0;
+    background: transparent;
+    color: var(--cpd-color-text-primary);
+    font: var(--cpd-font-body-lg-semibold);
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-1x);
+    min-width: 0;
+    width: 100%;
+    padding: var(--cpd-space-2x) 0;
+    cursor: pointer;
+
+    span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    svg {
+        width: 20px;
+        height: 20px;
+        flex: none;
+    }
+}

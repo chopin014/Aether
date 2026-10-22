@@ -51,6 +51,7 @@ const SpaceContextMenu: React.FC<IProps> = ({ space, hideHeader, onFinished, ...
     const cli = useContext(MatrixClientContext);
     const userId = cli.getSafeUserId();
     const videoRoomsEnabled = useFeatureEnabled("feature_video_rooms");
+    const desktopShellEnabled = useFeatureEnabled("feature_desktop_shell");
     const elementCallVideoRoomsEnabled = useFeatureEnabled("feature_element_call_video_rooms");
 
     if (!space) return null;
@@ -159,7 +160,10 @@ const SpaceContextMenu: React.FC<IProps> = ({ space, hideHeader, onFinished, ...
             ev.preventDefault();
             ev.stopPropagation();
 
-            void showCreateNewRoom(space, elementCallVideoRoomsEnabled ? RoomType.UnstableCall : RoomType.ElementVideo);
+            void showCreateNewRoom(
+                space,
+                desktopShellEnabled || elementCallVideoRoomsEnabled ? RoomType.UnstableCall : RoomType.ElementVideo,
+            );
             onFinished();
         };
 
@@ -188,7 +192,7 @@ const SpaceContextMenu: React.FC<IProps> = ({ space, hideHeader, onFinished, ...
                     <IconizedContextMenuOption
                         data-testid="new-video-room-option"
                         icon={<PlusIcon />}
-                        label={_t("common|video_room")}
+                        label={desktopShellEnabled ? _t("common|voice_room") : _t("common|video_room")}
                         onClick={onNewVideoRoomClick}
                     >
                         <BetaPill />

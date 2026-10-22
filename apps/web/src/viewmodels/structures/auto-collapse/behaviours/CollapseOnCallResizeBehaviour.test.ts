@@ -12,11 +12,28 @@ import EventEmitter from "node:events";
 import { type CallStore, CallStoreEvent } from "../../../../stores/CallStore";
 import { CollapseOnCallResizeBehaviour } from "./CollapseOnCallResizeBehaviour";
 import { CollapseHandler } from "../CollapseHandler";
-import { describe, it, expect, vi } from "vitest";
+import SettingsStore from "../../../../settings/SettingsStore";
+import { describe, it, expect, vi, afterEach } from "vitest";
 
 vi.useFakeTimers();
 
 describe("CollapseOnCallResizeBehaviour", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it("keeps desktop channel navigation and call controls visible during calls", () => {
+        vi.spyOn(SettingsStore, "getValue").mockImplementation((setting) => setting === "feature_desktop_shell");
+        const store = new EventEmitter() as unknown as CallStore;
+        const expand = vi.fn();
+        const collapse = vi.fn();
+        const behaviour = new CollapseOnCallResizeBehaviour(new CollapseHandler(expand, collapse, 0), store);
+        store.emit(CallStoreEvent.ConnectedCalls, new Set([1]));
+        store.emit(CallStoreEvent.ConnectedCalls, new Set());
+        expect(collapse).not.toHaveBeenCalled();
+        expect(expand).not.toHaveBeenCalled();
+        expect(behaviour.shouldIgnoreResize).toBe(false);
+        behaviour.dispose();
+    });
+
     it("Should collapse/expand the panel on call", () => {
         const mockCallStore = new EventEmitter() as unknown as CallStore;
 

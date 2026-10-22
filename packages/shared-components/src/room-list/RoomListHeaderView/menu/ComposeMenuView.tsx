@@ -8,6 +8,7 @@
 import React, { useState, type JSX } from "react";
 import { IconButton, Menu, MenuItem, ReleaseAnnouncement } from "@vector-im/compound-web";
 import VideoCallIcon from "@vector-im/compound-design-tokens/assets/web/icons/video-call";
+import { VoiceCallIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 import ChatIcon from "@vector-im/compound-design-tokens/assets/web/icons/chat";
 import RoomIcon from "@vector-im/compound-design-tokens/assets/web/icons/room";
 import SectionIcon from "@vector-im/compound-design-tokens/assets/web/icons/section";
@@ -36,8 +37,13 @@ interface ComposeMenuViewProps {
 export function ComposeMenuView({ vm }: ComposeMenuViewProps): JSX.Element {
     const { translate: _t } = useI18n();
     const [open, setOpen] = useState(false);
-    const { canCreateRoom, canCreateVideoRoom, displaySectionReleaseAnnouncement, areSectionsEnabled } =
-        useViewModel(vm);
+    const {
+        canCreateRoom,
+        canCreateVideoRoom,
+        callRoomsAreVoice,
+        displaySectionReleaseAnnouncement,
+        areSectionsEnabled,
+    } = useViewModel(vm);
 
     // 28px button with a 20px icon
     const button = (
@@ -75,8 +81,8 @@ export function ComposeMenuView({ vm }: ComposeMenuViewProps): JSX.Element {
             )}
             {canCreateVideoRoom && (
                 <MenuItem
-                    Icon={VideoCallIcon}
-                    label={_t("action|new_video_room")}
+                    Icon={callRoomsAreVoice ? VoiceCallIcon : VideoCallIcon}
+                    label={callRoomsAreVoice ? _t("action|new_voice_room") : _t("action|new_video_room")}
                     onSelect={vm.createVideoRoom}
                     hideChevron
                 />

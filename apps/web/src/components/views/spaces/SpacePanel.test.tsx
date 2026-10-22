@@ -15,6 +15,7 @@ import { render, screen, fireEvent, act, cleanup, waitFor, within } from "test-u
 import { type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
 import { mkStubRoom, wrapInMatrixClientContext, wrapInSdkContext, TestSDKContext } from "test-utils";
 
+import { RoomListCollapsedContext } from "../../../contexts/RoomListCollapsedContext";
 import { MatrixClientPeg } from "../../../MatrixClientPeg";
 import { MetaSpace, type SpaceKey } from "../../../stores/spaces";
 import { shouldShowComponent } from "../../../customisations/helpers/UIComponents";
@@ -164,6 +165,26 @@ describe("<SpacePanel />", () => {
         expect(metaSpaceLabels).toEqual(["Home", "Other rooms", "Conferences"]);
 
         spySettingsStore.mockRestore();
+    });
+
+    it("returns the account menu to the rail when the desktop sidebar collapses", () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const settings = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        const { rerender } = render(
+            <RoomListCollapsedContext.Provider value={false}>
+                <SpacePanel />
+            </RoomListCollapsedContext.Provider>,
+        );
+        expect(screen.queryByRole("button", { name: "User menu" })).not.toBeInTheDocument();
+        rerender(
+            <RoomListCollapsedContext.Provider value={true}>
+                <SpacePanel />
+            </RoomListCollapsedContext.Provider>,
+        );
+        expect(screen.getByRole("button", { name: "User menu" })).toBeInTheDocument();
+        settings.mockRestore();
     });
 
     describe("create new space button", () => {

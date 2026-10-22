@@ -9,10 +9,11 @@ Please see LICENSE files in the repository root for full details.
 import React, { type JSX, useContext, useMemo } from "react";
 import { EventType, type Room, type User, type MatrixClient } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
-import { ErrorSolidIcon, UserAddIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
+import { ErrorSolidIcon, UserAddIcon, RoomIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 import { EventTileBubble, LinkedText } from "@element-hq/web-shared-components";
 
 import DMRoomMap from "../../../utils/DMRoomMap";
+import { useFeatureEnabled } from "../../../hooks/useSettings";
 import { _t, _td } from "../../../languageHandler";
 import AccessibleButton, { type ButtonEvent } from "../elements/AccessibleButton";
 import MiniAvatarUploader, { AVATAR_SIZE } from "../elements/MiniAvatarUploader";
@@ -56,6 +57,7 @@ const NewRoomIntro: React.FC = () => {
     const { room, roomId } = useScopedRoomContext("room", "roomId");
     const topic = useTopic(room);
     const isLocalRoom = room instanceof LocalRoom;
+    const desktopShell = useFeatureEnabled("feature_desktop_shell");
 
     let dmPartner: string | undefined;
     if (isLocalRoom) {
@@ -71,6 +73,12 @@ const NewRoomIntro: React.FC = () => {
     if (!room || !roomId) {
         throw new Error("Unable to create a NewRoomIntro without room and roomId");
     }
+
+    const activeSpace = sdkContext.spaceStore.activeSpaceRoom;
+    const desktopSpace =
+        desktopShell && !dmPartner && activeSpace && sdkContext.spaceStore.isRoomInSpace(activeSpace.roomId, roomId)
+            ? activeSpace
+            : undefined;
 
     let body: JSX.Element;
     if (dmPartner) {
@@ -114,6 +122,19 @@ const NewRoomIntro: React.FC = () => {
                     )}
                 </p>
                 {caption && <p>{caption}</p>}
+            </React.Fragment>
+        );
+    } else if (desktopSpace) {
+        body = (
+            <React.Fragment>
+                <h2>
+                    {_t(
+                        "room|intro|desktop_server_welcome",
+                        {},
+                        { serverName: () => <strong>{desktopSpace.name}</strong> },
+                    )}
+                </h2>
+                <p>{_t("room|intro|desktop_server_start")}</p>
             </React.Fragment>
         );
     } else {
@@ -246,9 +267,15 @@ const NewRoomIntro: React.FC = () => {
 
         body = (
             <React.Fragment>
-                {avatar}
+                {desktopShell ? (
+                    <div className="mx_DesktopShell_introChannel" aria-hidden="true">
+                        <RoomIcon />
+                    </div>
+                ) : (
+                    avatar
+                )}
 
-                <h2>{room.name}</h2>
+                <h2>{desktopShell ? _t("room|intro|desktop_welcome", { roomName: room.name }) : room.name}</h2>
 
                 <p>
                     {createdText}{" "}
@@ -293,7 +320,7 @@ const NewRoomIntro: React.FC = () => {
     );
 
     return (
-        <li className="mx_NewRoomIntro">
+        <li className={desktopSpace ? "mx_NewRoomIntro mx_DesktopShell_serverIntro" : "mx_NewRoomIntro"}>
             {!hasExpectedEncryptionSettings(cli, room) && (
                 <EventTileBubble
                     icon={<ErrorSolidIcon color="var(--cpd-color-icon-critical-primary)" />}

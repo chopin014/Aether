@@ -331,6 +331,22 @@ describe("createRoom", () => {
         expect(widgetPower).toEqual(100);
     });
 
+    it("uses Element Call for a legacy room request when calls are exclusive", async () => {
+        SdkConfig.put({ element_call: { use_exclusively: true, disable: false } });
+        const createElementCall = vi.spyOn(ElementCall, "create");
+        const createJitsiCall = vi.spyOn(JitsiCall, "create");
+
+        await createRoom(client, { roomType: RoomType.ElementVideo });
+
+        expect(client.createRoom).toHaveBeenCalledWith(
+            expect.objectContaining({
+                creation_content: expect.objectContaining({ type: RoomType.UnstableCall }),
+            }),
+        );
+        expect(createElementCall).toHaveBeenCalledOnce();
+        expect(createJitsiCall).not.toHaveBeenCalled();
+    });
+
     it("sets up Element video rooms correctly", async () => {
         const createCallSpy = vi.spyOn(ElementCall, "create");
 

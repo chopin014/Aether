@@ -37,7 +37,7 @@ export function EventTileView({
     onPermalinkContextMenu,
 }: Readonly<EventTileViewProps>): JSX.Element {
     const Root = root.as ?? "li";
-    const { layout, density } = useEventPresentation();
+    const { layout, density, messageStyle } = useEventPresentation();
     const isRenderableSlot = (content: React.ReactNode): boolean =>
         content !== null && content !== undefined && typeof content !== "boolean";
 
@@ -231,6 +231,21 @@ export function EventTileView({
                 </div>
                 {renderSlot("receipt")}
             </>,
+            undefined,
+            -1,
+        );
+    }
+
+    if (messageStyle === "desktop" && layout === "group" && root.shape === "Room" && !root.state.info) {
+        return renderRoot(
+            <div className={styles.desktopMessage}>
+                {renderSlot("avatar")}
+                <div className={styles.desktopMetadata}>{renderSlots("sender", "timestamp")}</div>
+                <div id={root.id} data-testid="event-tile-line" className={lineClassName} onContextMenu={onContextMenu}>
+                    {renderSlots("contextMenu", "padlock", "replyChain", "body", "actionBar")}
+                </div>
+                {renderSlots("footer", "threadInfo", "receipt")}
+            </div>,
             undefined,
             -1,
         );

@@ -19,6 +19,8 @@ import { Landmark, LandmarkNavigation } from "../../../../accessibility/Landmark
 import { type IState as IRovingTabIndexState } from "../../../../accessibility/RovingTabIndex";
 import { RoomListHeaderViewModel } from "../../../../viewmodels/room-list/RoomListHeaderViewModel";
 import { useMatrixClientContext } from "../../../../contexts/MatrixClientContext";
+import { useSettingValue } from "../../../../hooks/useSettings";
+import { DesktopContactsContainer } from "../../../structures/DesktopContactsContainer";
 import { SDKContext } from "../../../../contexts/SDKContext.ts";
 
 type RoomListPanelProps = {
@@ -34,6 +36,8 @@ type RoomListPanelProps = {
  */
 export const RoomListPanel: React.FC<RoomListPanelProps> = ({ activeSpace }) => {
     const sdkContext = useContext(SDKContext);
+    const desktopShellEnabled = useSettingValue("feature_desktop_shell");
+    const isChannelList = desktopShellEnabled && activeSpace.startsWith("!");
     const displayRoomSearch = shouldShowComponent(UIComponent.FilterContainer);
     const [focusedElement, setFocusedElement] = useState<Element | null>(null);
 
@@ -77,8 +81,10 @@ export const RoomListPanel: React.FC<RoomListPanelProps> = ({ activeSpace }) => 
             onBlur={onBlur}
             onKeyDown={onKeyDown}
         >
-            {displayRoomSearch && <RoomListSearch activeSpace={activeSpace} />}
-            <RoomListHeaderView vm={vm} />
+            {desktopShellEnabled && isChannelList && <RoomListHeaderView vm={vm} desktop />}
+            {displayRoomSearch && !isChannelList && <RoomListSearch activeSpace={activeSpace} />}
+            {!desktopShellEnabled && <RoomListHeaderView vm={vm} />}
+            {desktopShellEnabled && !isChannelList && <DesktopContactsContainer navigation />}
             <RoomListView />
         </Flex>
     );

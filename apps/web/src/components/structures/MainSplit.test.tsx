@@ -49,6 +49,22 @@ describe("<MainSplit/>", () => {
         expect(container.querySelector<HTMLElement>(".mx_RightPanel_ResizeWrapper")!.style.width).toBe("500px");
     });
 
+    it("supports the compact desktop member panel without changing other panel sizes", () => {
+        const { container } = render(
+            <MainSplit
+                children={children}
+                panel={panel}
+                sizeKey="desktop_members"
+                defaultSize={240}
+                minSize={240}
+                analyticsRoomType="other_room"
+            />,
+        );
+        const wrapper = container.querySelector<HTMLElement>(".mx_RightPanel_ResizeWrapper")!;
+        expect(wrapper.style.width).toBe("240px");
+        expect(wrapper.style.minWidth).toBe("240px");
+    });
+
     it("prefers size stashed in LocalStorage to the defaultSize prop", () => {
         localStorage.setItem("mx_rhs_size_thread", "333");
         const { container } = render(

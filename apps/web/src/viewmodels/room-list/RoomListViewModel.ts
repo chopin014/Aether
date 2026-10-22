@@ -17,6 +17,8 @@ import {
 } from "@element-hq/web-shared-components";
 import { Room, type MatrixClient, PendingEventOrdering, RoomType } from "matrix-js-sdk/src/matrix";
 
+import { getDesktopChannelSections, DESKTOP_TEXT_CHANNELS, DESKTOP_VOICE_CHANNELS } from "./DesktopChannelSections";
+
 import { Action } from "../../dispatcher/actions";
 import dispatcher from "../../dispatcher/dispatcher";
 import { type ViewRoomDeltaPayload } from "../../dispatcher/payloads/ViewRoomDeltaPayload";
@@ -104,6 +106,10 @@ function getVisibleFilterIds(): FilterId[] {
  */
 function getSectionTitle(tag: string): string {
     switch (tag) {
+        case DESKTOP_TEXT_CHANNELS:
+            return _t("desktop|text_channels");
+        case DESKTOP_VOICE_CHANNELS:
+            return _t("desktop|voice_channels");
         case DefaultTagID.Invite:
             return _t("room_list|section|invites");
         case DefaultTagID.Favourite:
@@ -228,6 +234,7 @@ export class RoomListViewModel
             isLoadingRooms: RoomListStoreV3.instance.isLoadingRooms,
             isRoomListEmpty,
             filterIds,
+            hidePrimaryFilters: SettingsStore.getValue("feature_desktop_shell"),
             activeFilterId: undefined,
             roomListState: {
                 activeRoomIndex: undefined,
@@ -467,8 +474,8 @@ export class RoomListViewModel
      * Get the ordered list of room IDs.
      */
     public get roomIds(): string[] {
-        return this.withPreviewRoom(this.roomsResult)
-            .sections.flatMap((section) => section.rooms)
+        return getDesktopChannelSections(this.withPreviewRoom(this.roomsResult))
+            .flatMap((section) => section.rooms)
             .map((room) => room.roomId);
     }
 
@@ -667,7 +674,9 @@ export class RoomListViewModel
      */
     private async scrollRoomIntoView(roomId: string): Promise<boolean> {
         // Look in the full (pre-collapse) sections so we can find rooms hidden in collapsed sections.
-        const section = this.roomsResult.sections.find((s) => s.rooms.some((room) => room.roomId === roomId));
+        const section = getDesktopChannelSections(this.roomsResult).find((s) =>
+            s.rooms.some((room) => room.roomId === roomId),
+        );
         // Room not found
         if (!section) return false;
 
@@ -985,7 +994,7 @@ export class RoomListViewModel
         this.lastActiveRoomPosition = roomId ? this.findRoomPosition(this.roomsResult.sections, roomId) : undefined;
 
         // Update section header view models with current rooms for unread state tracking
-        for (const section of this.roomsResult.sections) {
+        for (const section of getDesktopChannelSections(this.roomsResult)) {
             this.getSectionHeaderViewModel(section.tag).setRooms(section.rooms);
         }
 
@@ -1030,6 +1039,7 @@ export class RoomListViewModel
             roomListState: keepIfSame(this.snapshot.current.roomListState, roomListState),
             sections: keepIfSame(previousSections, viewSections),
             isFlatList,
+            hidePrimaryFilters: SettingsStore.getValue("feature_desktop_shell"),
         });
 
         this.notifyCollapseState(isFlatList);
@@ -1183,14 +1193,20 @@ function computeSections(
 ): { sections: Section[]; isFlatList: boolean } {
     const customSections = getCustomSectionData();
 
-    const filtered = roomsResult.sections
+    const filtered = getDesktopChannelSections(roomsResult)
         // Only include sections that have rooms, or custom sections that were created in the current space.
         .filter(
             (section) =>
                 section.rooms.length > 0 ||
                 (isCustomSectionTag(section.tag) && customSections[section.tag]?.spaceId === roomsResult.spaceId),
         );
-    const isFlatList = filtered.length === 0 || (filtered.length === 1 && filtered[0].tag === CHATS_TAG);
+    const singleDesktopDMSection =
+        SettingsStore.getValue("feature_desktop_shell") &&
+        !roomsResult.spaceId.startsWith("!") &&
+        filtered.length === 1 &&
+        filtered[0].tag === DefaultTagID.DM;
+    const isFlatList =
+        filtered.length === 0 || (filtered.length === 1 && filtered[0].tag === CHATS_TAG) || singleDesktopDMSection;
 
     const sections = filtered.map((section) => ({
         ...section,

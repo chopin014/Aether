@@ -7,6 +7,7 @@
 
 import React, {
     type ReactElement,
+    type ReactNode,
     type PropsWithChildren,
     useState,
     type ComponentProps,
@@ -41,11 +42,14 @@ export interface UploadButtonViewActions {
 export function UploadButton({
     vm,
     defaultOpen = false,
+    icon,
     ...rootButtonProps
 }: PropsWithChildren<
-    { vm: ViewModel<UploadButtonViewSnapshot, UploadButtonViewActions>; defaultOpen?: boolean } & ComponentProps<
-        typeof IconButton
-    >
+    {
+        vm: ViewModel<UploadButtonViewSnapshot, UploadButtonViewActions>;
+        defaultOpen?: boolean;
+        icon?: ReactNode;
+    } & ComponentProps<typeof IconButton>
 >): ReactElement {
     const i18n = useI18n();
     const [open, setOpen] = useState(defaultOpen);
@@ -73,7 +77,7 @@ export function UploadButton({
                 aria-label={label}
                 onClick={() => vm.onUploadOptionSelected(options[0].type)}
             >
-                {Icon ? <Icon /> : <AttachmentIcon />}
+                {icon ?? (Icon ? <Icon /> : <AttachmentIcon />)}
             </IconButton>
         );
     }
@@ -86,7 +90,7 @@ export function UploadButton({
             onClick={onMenuClick}
             title={i18n.translate("common|attachment")}
         >
-            <AttachmentIcon />
+            {icon ?? <AttachmentIcon />}
         </IconButton>
     );
 

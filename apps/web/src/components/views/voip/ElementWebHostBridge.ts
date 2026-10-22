@@ -5,6 +5,7 @@
  * Please see LICENSE files in the repository root for full details.
  */
 
+import MediaDeviceHandler from "../../../MediaDeviceHandler";
 import ActiveWidgetStore from "../../../stores/ActiveWidgetStore";
 import { CallStore } from "../../../stores/CallStore";
 import { type ElementCall } from "../../../models/Call";
@@ -38,7 +39,9 @@ export class ElementWebHostBridge implements ElementCallHostBridge {
      * the lobby may start them unmuted on its strength, as it does when Element Web hosts Element Call as a
      * widget. Standalone Element Call, whose intent comes from a URL, starts the user muted instead.
      */
-    public readonly allowJoinUnmutedViaIntent = true;
+    public get allowJoinUnmutedViaIntent(): boolean {
+        return !MediaDeviceHandler.startWithAudioMuted;
+    }
 
     public constructor(
         private readonly call: ElementCall,

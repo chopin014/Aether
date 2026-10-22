@@ -13,7 +13,7 @@ import {
     type Section,
     type UserStatus,
 } from "@element-hq/web-shared-components";
-import { ClientEvent, KnownMembership, RoomEvent } from "matrix-js-sdk/src/matrix";
+import { ClientEvent, KnownMembership, RoomEvent, RoomMemberEvent } from "matrix-js-sdk/src/matrix";
 import { CallType } from "matrix-js-sdk/src/webrtc/call";
 import { logger } from "matrix-js-sdk/src/logger";
 
@@ -44,6 +44,8 @@ import RoomListStoreV3 from "../../stores/room-list-v3/RoomListStoreV3";
 import { getCustomSectionData, isDefaultSectionTag } from "../../stores/room-list-v3/section";
 import { _t } from "../../languageHandler";
 import { fetchUserStatus } from "../../utils/userStatus";
+import { mediaFromMxc } from "../../customisations/Media";
+import { type ViewUserPayload } from "../../dispatcher/payloads/ViewUserPayload";
 
 /**
  * View section type without `isSelected` field
@@ -134,6 +136,8 @@ export class RoomListItemViewModel
         // Subscribe to room-specific events
         this.disposables.trackListener(props.room, RoomEvent.Name, this.onRoomChanged);
         this.disposables.trackListener(props.room, RoomEvent.Tags, this.onRoomChanged);
+        this.disposables.trackListener(props.client, RoomMemberEvent.Name, this.onParticipantProfileChanged);
+        this.disposables.trackListener(props.client, RoomMemberEvent.Avatar, this.onParticipantProfileChanged);
 
         // Rebuild the available sections when their order changes or when one is created/renamed/removed
         const orderSectionsRef = SettingsStore.watchSetting("RoomList.OrderedCustomSections", null, () =>
@@ -190,6 +194,10 @@ export class RoomListItemViewModel
      * @param participants The current call participants
      */
     private onCallParticipantsChanged = (participants: Map<RoomMember, Set<string>>): void => {
+        if (this.snapshot.current.channelKind === "voice") {
+            this.updateItem();
+            return;
+        }
         const hasCall = Boolean(this.snapshot.current.notification.callType);
         // There is already an active call, we don't need to update the item
         if (hasCall && participants.size > 0) return;
@@ -230,9 +238,20 @@ export class RoomListItemViewModel
         const newCallType =
             call && call.participants.size > 0 ? (call.callType === CallType.Voice ? "voice" : "video") : undefined;
 
-        if (currentCallType !== newCallType) {
+        if (currentCallType !== newCallType || this.snapshot.current.channelKind === "voice") {
             this.updateItem();
         }
+    };
+
+    private readonly onParticipantProfileChanged = (_event: unknown, member: RoomMember): void => {
+        if (member.roomId === this.props.room.roomId && this.snapshot.current.channelKind === "voice") {
+            this.updateItem();
+        }
+    };
+
+    public onViewCallParticipant = (userId: string): void => {
+        const member = this.props.room.getMember(userId);
+        if (member) dispatcher.dispatch<ViewUserPayload>({ action: Action.ViewUser, member });
     };
 
     private onRoomChanged = (): void => {
@@ -384,6 +403,27 @@ export class RoomListItemViewModel
         // A room with a pending invitation always sits in the Invites section, so it can't be moved
         // to another one, by dragging it or through the menu entries that assign a section.
         const canChangeSection = room.getMyMembership() !== KnownMembership.Invite;
+        const channelKind =
+            SettingsStore.getValue("feature_desktop_shell") && !isDm
+                ? room.isCallRoom() || room.isElementVideoRoom()
+                    ? "voice"
+                    : "text"
+                : undefined;
+        const callParticipants =
+            channelKind === "voice"
+                ? [...(call?.participants.keys() ?? [])]
+                      .map((member) => {
+                          const mxc = member.getMxcAvatarUrl();
+                          return {
+                              userId: member.userId,
+                              name: member.name,
+                              avatarUrl: mxc
+                                  ? (mediaFromMxc(mxc).getThumbnailOfSourceHttp(48, 48, "crop") ?? undefined)
+                                  : undefined,
+                          };
+                      })
+                      .sort((a, b) => a.name.localeCompare(b.name) || a.userId.localeCompare(b.userId))
+                : undefined;
 
         return {
             id: room.roomId,
@@ -408,6 +448,8 @@ export class RoomListItemViewModel
             isFavourite,
             isLowPriority,
             isDm,
+            channelKind,
+            callParticipants,
             canInvite,
             canCopyRoomLink,
             canMarkAsRead,

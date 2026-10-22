@@ -1,3 +1,21 @@
+# Aether
+
+A desktop Matrix client with a Discord-style interface, built on Element Desktop.
+Linux and Windows are the first release targets. Voice rooms use Element Call.
+
+**In development:** UI migration is incomplete. There is no production release yet.
+The application icon and palette are temporary. See [implementation status](docs/desktop-ui.md)
+and [Aether builds](docs/aether-releases.md).
+
+- [Project page](https://chopin014.github.io/Aether/)
+- [Issues](https://github.com/chopin014/Aether/issues)
+- [Upstream Element](https://github.com/element-hq/element-web)
+
+Aether retains Element's Matrix SDK, encryption, verification and native desktop integration.
+Original upstream documentation follows. Licensing and attribution remain in the repository.
+
+---
+
 [![Chat](https://img.shields.io/matrix/element-web:matrix.org?logo=matrix)](https://matrix.to/#/#element-web:matrix.org)
 ![Tests](https://github.com/element-hq/element-web/actions/workflows/tests.yaml/badge.svg)
 ![Static Analysis](https://github.com/element-hq/element-web/actions/workflows/static_analysis.yaml/badge.svg)

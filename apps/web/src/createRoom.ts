@@ -128,6 +128,10 @@ export const DEFAULT_EVENTS_POWER_LEVEL = {
  */
 export default async function createRoom(client: MatrixClient, opts: IOpts): Promise<string | null> {
     opts = opts || {};
+    // Honour the call policy even if an older menu or integration requests a legacy video room.
+    if (opts.roomType === RoomType.ElementVideo && SdkConfig.get("element_call").use_exclusively) {
+        opts = { ...opts, roomType: RoomType.UnstableCall };
+    }
     if (opts.spinner === undefined) opts.spinner = true;
     if (opts.guestAccess === undefined) opts.guestAccess = true;
     if (opts.encryption === undefined) opts.encryption = false;

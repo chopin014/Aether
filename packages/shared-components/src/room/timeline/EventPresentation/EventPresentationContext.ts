@@ -11,6 +11,8 @@ import type { EventDensity, EventLayout } from "./EventPresentation.types";
 
 /** Presentation settings that shared event/timeline components can adapt to. */
 export interface EventPresentation {
+    /** Desktop channel messages place the timestamp beside the author. */
+    messageStyle?: "desktop";
     /** Layout family used for event rendering. */
     layout: EventLayout;
     /** Spacing density used within the layout. */

@@ -16,7 +16,7 @@
     font: var(--cpd-font-body-sm-regular);
     letter-spacing: var(--cpd-font-letter-spacing-body-sm);
     color: var(--cpd-color-text-secondary);
-    padding: var(--cpd-space-1x) 0;
+    padding: var(--mx-desktop-category-padding, var(--cpd-space-1x)) 0;
 
     &:hover,
     /* keyboardActive is toggled in JS for keyboard focus only (see RoomListSectionHeaderView), and
@@ -75,8 +75,11 @@
 
 .container {
     position: relative;
-    margin: 0 var(--cpd-space-3x);
-    padding: var(--cpd-space-1-5x) var(--cpd-space-2x) var(--cpd-space-1-5x) var(--cpd-space-1x);
+    margin: 0 var(--mx-desktop-room-margin, var(--cpd-space-3x));
+    padding: var(
+        --mx-desktop-category-inner-padding,
+        var(--cpd-space-1-5x) var(--cpd-space-2x) var(--cpd-space-1-5x) var(--cpd-space-1x)
+    );
     border-radius: 8px;
 
     div {
@@ -165,5 +168,5 @@ scrolling rows beneath because the overlay wrapper (.stickyHeader) owns the stac
     inset-block: 0;
     inset-inline: 0 var(--cpd-space-3x);
     z-index: -1;
-    background: var(--cpd-color-bg-canvas-default);
+    background: var(--mx-desktop-shell-frame, var(--cpd-color-bg-canvas-default));
 }

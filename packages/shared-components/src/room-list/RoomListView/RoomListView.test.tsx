@@ -22,6 +22,7 @@ vi.spyOn(crypto, "randomUUID").mockImplementation(
 
 const {
     Default,
+    DesktopChannels,
     Loading,
     Empty,
     EmptyWithoutCreatePermission,
@@ -186,4 +187,10 @@ describe("<RoomListView />", () => {
 
         expect(Toast.args.closeToast).toHaveBeenCalled();
     });
+});
+
+it("uses category navigation without Element primary filters in the desktop Space list", () => {
+    renderWithMockContext(<DesktopChannels />);
+    expect(screen.queryByRole("button", { name: "Unread" })).not.toBeInTheDocument();
+    expect(screen.getByRole("treegrid")).toBeVisible();
 });

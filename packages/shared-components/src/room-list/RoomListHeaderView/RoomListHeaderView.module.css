@@ -6,13 +6,14 @@
  */
 
 .header {
-    min-height: 60px;
+    min-height: var(--mx-desktop-shell-header-height, 60px);
     padding: 0 var(--cpd-space-4x) 0 var(--cpd-space-3x);
+    border-bottom: var(--mx-desktop-header-border, 0);
 }
 
 .container {
     flex: 1;
-    padding-bottom: var(--cpd-space-3x);
+    padding-bottom: var(--mx-desktop-header-padding, var(--cpd-space-3x));
     min-width: 0;
 }
 
@@ -26,5 +27,16 @@
         white-space: nowrap;
         text-overflow: ellipsis;
         user-select: none; /* currently supported by Chrome, Edge, Opera and Firefox */
+        font-size: var(--mx-desktop-sidebar-heading-size, var(--cpd-font-size-heading-sm));
+    }
+}
+
+.desktopHeader {
+    padding-inline: var(--cpd-space-3x);
+    flex: none;
+    min-height: 49px;
+
+    > button:first-child {
+        flex: 1;
     }
 }

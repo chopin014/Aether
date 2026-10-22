@@ -15,6 +15,8 @@ import {
     type RoomListSectionHeaderViewSnapshot,
 } from "@element-hq/web-shared-components";
 
+import { isDesktopChannelSection } from "./DesktopChannelSections";
+
 import { RoomNotificationStateStore } from "../../stores/notifications/RoomNotificationStateStore";
 import { NotificationStateEvents } from "../../stores/notifications/NotificationState";
 import { type RoomNotificationState } from "../../stores/notifications/RoomNotificationState";
@@ -43,7 +45,7 @@ import throttle from "lodash/throttle";
  */
 function getAcceptedRoomKind(tag: string): AcceptedRoomKind {
     // Membership decides what is in the Invites section, so rooms can't be moved into it
-    if (tag === DefaultTagID.Invite) return "none";
+    if (tag === DefaultTagID.Invite || isDesktopChannelSection(tag)) return "none";
     if (tag === DefaultTagID.DM) return "dm";
     if (tag === CHATS_TAG) {
         // Chats holds the direct messages too when the People section is not shown. The setting is
@@ -78,7 +80,7 @@ export class RoomListSectionHeaderViewModel
     private currentCalls = new Set<Call>();
 
     public constructor(props: RoomListSectionHeaderViewModelProps) {
-        const isDefaultSection = isDefaultSectionTag(props.tag);
+        const isDefaultSection = isDefaultSectionTag(props.tag) || isDesktopChannelSection(props.tag);
         super(props, {
             id: props.tag,
             title: props.title,

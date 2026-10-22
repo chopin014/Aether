@@ -36,6 +36,8 @@ export type RoomListViewSnapshot = {
     isRoomListEmpty: boolean;
     /** Array of filter IDs */
     filterIds: FilterId[];
+    /** Space channel navigation uses categories rather than primary filter chips. */
+    hidePrimaryFilters?: boolean;
     /** Currently active filter ID (if any) */
     activeFilterId?: FilterId;
     /** Room list state */
@@ -140,13 +142,15 @@ export const RoomListView: React.FC<RoomListViewProps> = ({ vm, renderAvatar, on
 
     return (
         <>
-            <div>
-                <RoomListPrimaryFilters
-                    filterIds={snapshot.filterIds}
-                    activeFilterId={snapshot.activeFilterId}
-                    onToggleFilter={vm.onToggleFilter}
-                />
-            </div>
+            {!snapshot.hidePrimaryFilters && (
+                <div>
+                    <RoomListPrimaryFilters
+                        filterIds={snapshot.filterIds}
+                        activeFilterId={snapshot.activeFilterId}
+                        onToggleFilter={vm.onToggleFilter}
+                    />
+                </div>
+            )}
             <Flex direction="column" className={styles.list}>
                 <AutoHideScrollbar className={styles.scrollbar}>
                     {listBody}

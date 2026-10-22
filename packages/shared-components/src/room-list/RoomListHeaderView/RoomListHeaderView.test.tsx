@@ -6,9 +6,13 @@
  */
 
 import { composeStories } from "@storybook/react-vite";
-import { render } from "@test-utils";
+import { render, screen } from "@test-utils";
 import { describe, it, expect } from "vitest";
 import React from "react";
+
+import userEvent from "@testing-library/user-event";
+import { RoomListHeaderView } from "./RoomListHeaderView";
+import { MockedViewModel, defaultSnapshot } from "./test-utils";
 
 import * as stories from "./RoomListHeaderView.stories";
 
@@ -41,4 +45,21 @@ describe("RoomListHeaderView", () => {
         collapseButton.click();
         expect(CollapseSections.args?.collapseOrExpandSections).toHaveBeenCalled();
     });
+});
+
+it("opens the Space menu from the whole desktop title and retains permission-checked creation", async () => {
+    const vm = new MockedViewModel({
+        ...defaultSnapshot,
+        title: "Design studio",
+        displaySpaceMenu: true,
+        canCreateRoom: true,
+        canCreateVideoRoom: false,
+    });
+    render(<RoomListHeaderView vm={vm} desktop />);
+    const title = screen.getByRole("button", { name: "Open space menu" });
+    expect(title).toHaveTextContent("Design studio");
+    await userEvent.click(title);
+    expect(screen.queryByRole("menuitem", { name: "New voice room" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("menuitem", { name: "New room" }));
+    expect(vm.createRoom).toHaveBeenCalledOnce();
 });

@@ -7,10 +7,10 @@
 
 .view {
     /* From figma, this should be aligned with the room header */
-    min-height: 64px;
+    min-height: var(--mx-desktop-search-height, 64px);
     box-sizing: border-box;
-    border-bottom: var(--cpd-border-width-1) solid var(--cpd-color-bg-subtle-primary);
-    padding: 0 var(--cpd-space-3x);
+    border-bottom: var(--mx-desktop-search-border, var(--cpd-border-width-1) solid var(--cpd-color-bg-subtle-primary));
+    padding: var(--mx-desktop-search-padding, 0 var(--cpd-space-3x));
 }
 
 .search {
@@ -19,6 +19,9 @@
     font: var(--cpd-font-body-md-regular);
     color: var(--cpd-color-text-secondary);
     min-width: 0;
+    padding: var(--mx-desktop-search-button-padding, 0);
+    background: var(--mx-desktop-search-background, transparent);
+    border-radius: var(--cpd-space-1-5x);
 
     svg {
         fill: var(--cpd-color-icon-secondary);

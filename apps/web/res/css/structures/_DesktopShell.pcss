@@ -1,0 +1,511 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+/* Theme aliases inherit into portal roots, including settings and verification dialogs. */
+body.mx_DesktopShell {
+    --mx-desktop-shell-header-height: 49px;
+    --mx-desktop-shell-frame: var(--cpd-color-bg-subtle-secondary);
+    --mx-desktop-header-border: 1px solid var(--cpd-color-border-interactive-secondary);
+    --mx-desktop-header-padding: 14px;
+    --mx-desktop-sidebar-heading-size: 16px;
+    --mx-desktop-search-height: 52px;
+    --mx-desktop-search-border: 0;
+    --mx-desktop-search-padding: 8px 10px;
+    --mx-desktop-search-button-padding: 8px;
+    --mx-desktop-search-background: var(--cpd-color-bg-subtle-primary);
+    --mx-desktop-room-content-height: 32px;
+    --mx-desktop-channel-row-gap: 1px;
+    --mx-desktop-category-padding: 12px;
+    --mx-desktop-category-inner-padding: 2px 8px 2px 4px;
+    --mx-desktop-room-margin: 8px;
+    --mx-desktop-room-radius: 6px;
+    --mx-desktop-room-marker: transparent;
+
+    /* Compound's search field must not inherit the legacy text-input border and margin. */
+    [data-desktop-contacts] label > input[type="search"] {
+        border: 0;
+        margin: 0;
+        background: transparent;
+    }
+
+    /* Keep the desktop frame visible around the captured settings modal. */
+    .mx_Dialog_border:has(.mx_UserSettingsDialog, .mx_RoomSettingsDialog, .mx_SpaceSettingsDialog) {
+        width: calc(100% - 80px);
+        max-width: 1440px;
+        height: calc(100% - 80px);
+        max-height: calc(100% - 80px);
+        border: 1px solid var(--cpd-color-border-interactive-secondary);
+        border-radius: 12px;
+        padding: 0;
+        overflow: hidden;
+    }
+
+    .mx_Dialog:has(.mx_UserSettingsDialog, .mx_RoomSettingsDialog, .mx_SpaceSettingsDialog) {
+        height: 100%;
+        padding: 0;
+        overflow: hidden;
+        background: var(--cpd-color-bg-subtle-primary);
+    }
+
+    .mx_UserSettingsDialog,
+    .mx_RoomSettingsDialog,
+    .mx_SpaceSettingsDialog {
+        --mx-desktop-settings-sidebar: 252px;
+        width: 100%;
+        max-width: none;
+        height: 100%;
+        padding: 0;
+        overflow: hidden;
+
+        &::before {
+            content: "";
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: var(--mx-desktop-settings-sidebar);
+            background: var(--cpd-color-bg-canvas-default);
+        }
+
+        .mx_Dialog_header {
+            height: 49px;
+            margin: 0;
+            padding: 0 48px 0 calc(var(--mx-desktop-settings-sidebar) + 16px);
+            display: flex;
+            align-items: center;
+            border-block-end: 1px solid var(--cpd-color-border-interactive-secondary);
+        }
+
+        .mx_Dialog_title,
+        .mx_UserSettingsDialog_title,
+        .mx_UserSettingsDialog_title_strong {
+            margin: 0;
+            font: var(--cpd-font-body-lg-semibold) !important;
+        }
+
+        .mx_Dialog_cancelButton {
+            top: 12px;
+            right: 12px;
+            background: transparent;
+        }
+
+        .mx_TabbedView_tabsOnLeft {
+            inset: 49px 0 0;
+            margin: 0;
+            padding: 0;
+
+            .mx_TabbedView_tabLabels {
+                position: absolute;
+                inset: 16px auto 16px 16px;
+                width: calc(var(--mx-desktop-settings-sidebar) - 32px);
+                max-width: none;
+                overflow-y: auto;
+            }
+
+            .mx_TabbedView_tabLabel {
+                border-radius: 6px;
+                justify-content: flex-start;
+                padding: 6px 8px;
+                min-height: 36px;
+
+                svg {
+                    margin-inline-end: 8px;
+                }
+            }
+
+            .mx_TabbedView_tabLabel_text {
+                display: inline;
+            }
+
+            .mx_TabbedView_tabPanel {
+                margin: 0 0 0 var(--mx-desktop-settings-sidebar);
+                min-width: 0;
+                height: 100%;
+            }
+
+            .mx_TabbedView_tabPanelContent {
+                padding: 24px clamp(24px, 6vw, 124px);
+                box-sizing: border-box;
+            }
+        }
+
+        .mx_TabbedView .mx_SettingsTab {
+            min-width: 0;
+            padding: 0 0 64px;
+        }
+
+        .mx_SettingsTab_heading {
+            font: var(--cpd-font-heading-md-semibold);
+        }
+    }
+}
+
+/* Preserve light, high-contrast and system theme selection. */
+body.mx_DesktopShell.cpd-theme-dark {
+    --mx-desktop-shell-frame: #121214;
+    --cpd-color-bg-canvas-default: #1a1a1e;
+    --cpd-color-bg-subtle-primary: #232327;
+    --cpd-color-bg-subtle-secondary: #121214;
+    --cpd-color-bg-action-tertiary-hovered: #2c2c31;
+    --cpd-color-bg-action-tertiary-selected: #323237;
+    --cpd-color-text-primary: #f2f2f3;
+    --cpd-color-text-secondary: #b5b5bd;
+    --cpd-color-text-tertiary: #97979f;
+    --cpd-color-icon-primary: #b5b5bd;
+    --cpd-color-icon-secondary: #97979f;
+    --cpd-color-border-interactive-secondary: #ffffff0c;
+    --cpd-color-bg-accent-rest: #5865f2;
+    --cpd-color-bg-accent-hovered: #4752c4;
+    --cpd-color-bg-accent-pressed: #3c45a5;
+    --cpd-color-bg-action-primary-rest: #5865f2;
+    --cpd-color-bg-action-primary-hovered: #4752c4;
+    --cpd-color-bg-action-primary-pressed: #3c45a5;
+    --cpd-color-text-on-solid-primary: #ffffff;
+    --cpd-color-icon-on-solid-primary: #ffffff;
+    --cpd-color-icon-accent-tertiary: #5865f2;
+    --cpd-color-text-action-accent: #a3abff;
+    --cpd-color-icon-accent-primary: #a3abff;
+}
+
+.mx_DesktopShell_titlebar {
+    height: 32px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-sm-semibold);
+    user-select: none;
+    -webkit-app-region: drag;
+}
+
+.mx_MatrixChat_wrapper.mx_MatrixChat_desktopShell {
+    background: var(--mx-desktop-shell-frame);
+    flex-direction: column;
+
+    .mx_MatrixChat {
+        > [data-group] {
+            position: relative;
+        }
+
+        min-height: 0;
+        height: auto;
+    }
+
+    /* The resizable panel's inner flex item must shrink to zero when collapsed. */
+    .mx_LeftPanel_panel {
+        min-width: 0;
+    }
+
+    .mx_SpacePanel {
+        background: var(--mx-desktop-shell-frame);
+        border-inline-end: none;
+        padding-block-start: var(--cpd-space-2x);
+        padding-block-end: 72px;
+
+        &.collapsed {
+            width: 64px;
+        }
+
+        .mx_SpaceButton_narrow {
+            margin-inline-start: 8px;
+            padding-block: 4px;
+            min-width: 48px;
+
+            .mx_SpaceButton_selectionWrapper {
+                width: 40px;
+                padding: 0;
+                border: 0;
+                border-radius: 12px;
+            }
+
+            &.mx_SpaceButton_active .mx_SpaceButton_selectionWrapper {
+                border: 0;
+                padding: 0;
+                background: var(--cpd-color-bg-accent-rest);
+
+                &::before {
+                    content: "";
+                    position: absolute;
+                    inset-inline-start: -12px;
+                    height: 32px;
+                    width: 4px;
+                    border-radius: 0 4px 4px 0;
+                    background: var(--cpd-color-text-primary);
+                }
+            }
+
+            .mx_SpaceButton_icon {
+                width: 24px;
+                height: 24px;
+                padding: 8px;
+                border-radius: 12px;
+            }
+
+            .mx_BaseAvatar,
+            .mx_BaseAvatar_image {
+                width: 40px;
+                height: 40px;
+                border-radius: 12px;
+            }
+        }
+    }
+
+    .mx_LeftPanel {
+        border-start-start-radius: var(--cpd-space-3x);
+        border: 1px solid var(--cpd-color-border-interactive-secondary);
+        border-block-end: 0;
+        background: var(--mx-desktop-shell-frame);
+    }
+
+    .mx_RoomListPanel {
+        --grouped-list-header-background: var(--mx-desktop-shell-frame);
+        min-height: 0;
+        padding-block-end: 72px;
+        background: var(--mx-desktop-shell-frame);
+    }
+
+    &:has([data-voice-connected]) .mx_RoomListPanel,
+    &:has([data-voice-connected]) .mx_SpacePanel {
+        padding-block-end: 128px;
+    }
+
+    .mx_RoomView_wrapper,
+    .mx_RoomView {
+        background: var(--cpd-color-bg-canvas-default);
+    }
+
+    .mx_RoomHeader {
+        height: var(--mx-desktop-shell-header-height);
+        min-height: var(--mx-desktop-shell-header-height);
+        background: var(--cpd-color-bg-canvas-default);
+        border-bottom: 1px solid var(--cpd-color-border-interactive-secondary);
+
+        .mx_RoomHeader_heading {
+            font: var(--cpd-font-body-md-semibold);
+        }
+
+        .mx_BaseAvatar,
+        .mx_BaseAvatar_image {
+            width: 28px;
+            height: 28px;
+        }
+
+        .mx_FacePile {
+            padding: var(--cpd-space-1x);
+            background: transparent;
+        }
+    }
+
+    .mx_DesktopShell_messageSearch {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex: 0 1 240px;
+        min-width: 100px;
+        height: 32px;
+        padding: 0 10px;
+        margin-inline-start: 4px;
+        border: 1px solid var(--cpd-color-border-interactive-secondary);
+        border-radius: 8px;
+        background: var(--mx-desktop-shell-frame);
+        color: var(--cpd-color-text-tertiary);
+        font: var(--cpd-font-body-md-regular);
+        cursor: text;
+
+        svg {
+            width: 20px;
+            height: 20px;
+        }
+    }
+
+    .mx_DesktopShell_channelIcon {
+        height: 24px;
+        width: 24px;
+        flex-shrink: 0;
+        color: var(--cpd-color-icon-secondary);
+    }
+
+    .mx_EventTile {
+        --event-tile-state-hover-background: var(--cpd-color-bg-subtle-secondary);
+        --EventTile_group_line-line-height: 22px;
+    }
+
+    .mx_EventTile_content {
+        font-size: 16px;
+        line-height: 24px;
+    }
+
+    .mx_NewRoomIntro {
+        margin: 32px 16px 32px 16px;
+
+        > h2 {
+            margin-block: 16px 8px;
+            font: var(--cpd-font-heading-lg-semibold);
+        }
+
+        .mx_NewRoomIntro_buttons {
+            margin-block-start: 16px;
+        }
+    }
+
+    .mx_NewRoomIntro.mx_DesktopShell_serverIntro {
+        margin: 64px 24px 24px;
+        text-align: center;
+
+        > h2 {
+            max-width: 520px;
+            margin: 0 auto 8px;
+            font: var(--cpd-font-heading-lg-regular);
+            font-size: 32px;
+            line-height: 40px;
+
+            strong {
+                display: block;
+                font-weight: inherit;
+            }
+        }
+
+        > p {
+            margin: 8px 0 0;
+            color: var(--cpd-color-text-primary);
+        }
+    }
+
+    .mx_DesktopShell_introChannel {
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        background: var(--cpd-color-bg-subtle-primary);
+        display: grid;
+        place-items: center;
+
+        svg {
+            width: 44px;
+            height: 44px;
+            color: var(--cpd-color-icon-primary);
+        }
+    }
+
+    .mx_MessageComposer {
+        margin: 0 16px 8px;
+
+        .mx_MessageComposer_wrapper {
+            border: 1px solid var(--cpd-color-border-interactive-secondary);
+            border-radius: 8px;
+            background: var(--cpd-color-bg-subtle-primary);
+            padding-inline: 12px;
+            margin: 0;
+        }
+
+        .mx_MessageComposer_row {
+            min-height: 56px;
+        }
+
+        .mx_MessageComposer_input,
+        .mx_SendMessageComposer .mx_BasicMessageComposer {
+            min-height: 54px;
+            font-size: 16px;
+        }
+
+        .mx_MessageComposer_actions {
+            gap: 16px;
+            align-self: center;
+        }
+
+        .mx_DesktopShell_attachment {
+            width: 32px;
+            height: 32px;
+            padding: 4px;
+            flex: none;
+            margin-inline-end: 12px;
+        }
+
+        .mx_MessageComposer_e2eIconWrapper {
+            inset-inline-start: 40px;
+            inset-block-start: 4px;
+            z-index: 1;
+        }
+
+        .mx_MessageComposer_input textarea {
+            background: transparent;
+        }
+    }
+
+    .mx_RightPanel {
+        background: var(--mx-desktop-shell-frame);
+        border-inline-start: 1px solid var(--cpd-color-border-interactive-secondary);
+    }
+
+    .mx_RightPanel:has(.mx_MemberListView) {
+        background: var(--cpd-color-bg-canvas-default);
+    }
+
+    .mx_MemberListView {
+        padding-inline: 8px;
+
+        .mx_MemberTileView {
+            height: 44px;
+            padding: 6px 8px;
+            border: 0;
+            border-radius: 6px;
+
+            &:hover,
+            &:focus-visible {
+                background: var(--cpd-color-bg-action-tertiary-hovered);
+            }
+
+            .mx_MemberTileView_name {
+                font: var(--cpd-font-body-lg-medium);
+            }
+
+            .mx_MemberTileView_userLabel {
+                margin-inline-start: 4px;
+                font-size: 10px;
+            }
+        }
+    }
+
+    .mx_DesktopShell_memberHeading {
+        margin: 0;
+        padding: 18px 4px 4px;
+        height: 44px;
+        box-sizing: border-box;
+        font: var(--cpd-font-body-sm-medium);
+        color: var(--cpd-color-text-tertiary);
+    }
+
+    .mx_EntityTile {
+        border-radius: 6px;
+    }
+
+    .mx_RoomView_statusArea {
+        min-height: 24px;
+    }
+}
+
+@media (max-width: 720px) {
+    body.mx_DesktopShell .mx_TabbedView_tabsOnLeft.mx_TabbedView_responsive {
+        .mx_TabbedView_tabLabels {
+            width: 44px;
+        }
+
+        .mx_TabbedView_tabLabel_text {
+            display: none;
+        }
+
+        .mx_TabbedView_tabPanel {
+            margin-inline-start: 60px;
+        }
+    }
+}
+
+.mx_DesktopShell_accountDock {
+    position: absolute;
+    inset-inline-start: 8px;
+    inset-block-end: 6px;
+    z-index: 20;
+    max-width: calc(100% - 16px);
+}

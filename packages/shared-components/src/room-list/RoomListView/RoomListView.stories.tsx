@@ -296,3 +296,5 @@ export const ToastOverStickySection: Story = {
         await expect(canvasElement).toMatchImageSnapshot();
     },
 };
+
+export const DesktopChannels: Story = { args: { hidePrimaryFilters: true, isFlatList: false } };

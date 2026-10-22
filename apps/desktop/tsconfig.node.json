@@ -10,7 +10,14 @@
         "types": [],
         "skipLibCheck": true,
         "noEmit": true,
-        "strict": true
+        "strict": true,
+        "allowImportingTsExtensions": true
     },
-    "include": ["./electron-builder.ts", "./vitest.config.ts", "./src/**/*.d.ts", "./src/**/*.test.ts"]
+    "include": [
+        "./electron-builder.ts",
+        "./vitest.config.ts",
+        "./src/**/*.d.ts",
+        "./src/**/*.test.ts",
+        "./aether-builder.ts"
+    ]
 }

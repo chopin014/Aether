@@ -8,6 +8,7 @@
 import React, { type JSX, memo, type ReactNode } from "react";
 import { Text, Tooltip } from "@vector-im/compound-web";
 import classNames from "classnames";
+import { RoomIcon, VolumeOnIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { Flex } from "../../../../core/utils/Flex";
 import { useViewModel } from "../../../../core/viewmodel";
@@ -44,11 +45,20 @@ export const RoomListItemContent = memo(function RoomListItemContent({
         <Flex
             className={classNames(styles.container, {
                 [styles.dragging]: isDragging,
+                [styles.channel]: !!item.channelKind,
             })}
             gap="var(--cpd-space-3x)"
             align="center"
         >
-            {renderAvatar(item.room)}
+            {item.channelKind ? (
+                item.channelKind === "voice" ? (
+                    <VolumeOnIcon className={styles.channelIcon} aria-hidden />
+                ) : (
+                    <RoomIcon className={styles.channelIcon} aria-hidden />
+                )
+            ) : (
+                renderAvatar(item.room)
+            )}
             <Flex className={styles.content} gap="var(--cpd-space-2x)" align="center" justify="space-between">
                 {/* We truncate the room name when too long. Title here is to show the full name on hover */}
                 <div className={styles.ellipsis}>
@@ -63,7 +73,7 @@ export const RoomListItemContent = memo(function RoomListItemContent({
                         )}
                     </div>
 
-                    {item.messagePreview && (
+                    {item.messagePreview && !item.channelKind && (
                         <Text as="div" size="sm" className={styles.ellipsis} title={item.messagePreview}>
                             {item.messagePreview}
                         </Text>

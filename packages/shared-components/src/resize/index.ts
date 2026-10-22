@@ -23,6 +23,8 @@ export interface ResizerViewSnapshot {
      * Whether the left panel is collapsed or not.
      */
     isCollapsed: boolean;
+    /** Measured sidebar width for presentation that spans the sidebar and Space rail. */
+    leftPanelWidth?: number;
     /**
      * This is the initial size of the panel if available; should be interpreted as percentage.
      */

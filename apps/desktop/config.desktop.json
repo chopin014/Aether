@@ -1,0 +1,25 @@
+{
+    "brand": "Aether",
+    "default_server_config": {
+        "m.homeserver": {
+            "base_url": "https://matrix-client.matrix.org",
+            "server_name": "matrix.org"
+        }
+    },
+    "default_theme": "dark",
+    "features": {
+        "feature_desktop_shell": true,
+        "feature_video_rooms": true,
+        "feature_element_call_video_rooms": true,
+        "feature_element_call_react": true
+    },
+    "element_call": {
+        "brand": "Element Call",
+        "disable": false,
+        "use_exclusively": true
+    },
+    "help_url": "https://github.com/chopin014/Aether/issues",
+    "branding": {
+        "auth_header_logo_url": "themes/aether/wordmark.svg"
+    }
+}

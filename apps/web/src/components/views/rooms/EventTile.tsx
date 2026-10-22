@@ -928,7 +928,9 @@ export class UnwrappedEventTile extends React.Component<EventTileProps, IState> 
                 hideSender: this.props.hideSender,
             },
             timestamp: {
-                alwaysShowTimestamps: this.props.alwaysShowTimestamps,
+                alwaysShowTimestamps:
+                    this.props.alwaysShowTimestamps ||
+                    (SettingsStore.getValue("feature_desktop_shell") && !this.props.continuation),
                 hideTimestamp: this.props.hideTimestamp,
                 threadReplyEventTs: threadState.threadReplyEventTs,
             },

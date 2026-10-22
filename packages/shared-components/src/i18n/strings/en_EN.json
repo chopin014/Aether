@@ -20,6 +20,7 @@
         "new_room": "New room",
         "new_section": "New section",
         "new_video_room": "New video room",
+        "new_voice_room": "New voice room",
         "no": "No",
         "open_menu": "Open menu",
         "pause": "Pause",
@@ -57,6 +58,43 @@
                 "other": "%(count)s links"
             },
             "remove": "Remove URL preview"
+        }
+    },
+    "desktop": {
+        "contacts": {
+            "accept": "Accept",
+            "active_now": "Active Now",
+            "add_friend": "Add Friend",
+            "all": "All",
+            "blocked": "Blocked",
+            "direct_messages": "Direct Messages",
+            "empty": "No one is here yet.",
+            "friends": "Friends",
+            "ignore": "Ignore",
+            "incoming_request": "Incoming invitation",
+            "message": "Message",
+            "more": "More",
+            "new_message": "New message",
+            "no_matches": "No one matches your search.",
+            "offline": "Offline",
+            "online": "Online",
+            "pending": "Pending",
+            "profile": "Profile",
+            "quiet_description": "When your contacts come online, you’ll see them here.",
+            "quiet_title": "It’s quiet for now…",
+            "search": "Search",
+            "unavailable": "Idle",
+            "unblock": "Unblock"
+        },
+        "voice": {
+            "audio_settings": "Voice & Video settings",
+            "connected": "Voice Connected",
+            "deafen": "Deafen",
+            "disconnect": "Disconnect",
+            "mute": "Mute",
+            "participants": "People in %(roomName)s",
+            "undeafen": "Undeafen",
+            "unmute": "Unmute"
         }
     },
     "devtools": {

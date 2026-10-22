@@ -160,9 +160,11 @@ export class RoomListHeaderViewModel
     };
 
     public createVideoRoom = (): void => {
-        const type = SettingsStore.getValue("feature_element_call_video_rooms")
-            ? RoomType.UnstableCall
-            : RoomType.ElementVideo;
+        const type =
+            SettingsStore.getValue("feature_desktop_shell") ||
+            SettingsStore.getValue("feature_element_call_video_rooms")
+                ? RoomType.UnstableCall
+                : RoomType.ElementVideo;
         if (this.activeSpace) {
             void showCreateNewRoom(this.activeSpace, type);
         } else {
@@ -292,6 +294,7 @@ function getInitialSnapshot(spaceStore: SpaceStore, matrixClient: MatrixClient):
     return {
         activeSortOption,
         isMessagePreviewEnabled,
+        callRoomsAreVoice: SettingsStore.getValue("feature_desktop_shell"),
         ...computeHeaderSpaceState(spaceStore, matrixClient),
     };
 }

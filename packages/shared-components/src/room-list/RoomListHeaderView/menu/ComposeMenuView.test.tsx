@@ -40,6 +40,15 @@ describe("<ComposeMenuView />", () => {
         expect(screen.getByRole("menuitem", { name: "New video room" })).toBeInTheDocument();
     });
 
+    it("creates a voice room using the existing Matrix room action", async () => {
+        const vm = new MockedViewModel({ ...defaultSnapshot, callRoomsAreVoice: true });
+        render(<ComposeMenuView vm={vm} />);
+        await userEvent.click(screen.getByRole("button", { name: "New" }));
+        await userEvent.click(screen.getByRole("menuitem", { name: "New voice room" }));
+        expect(vm.createVideoRoom).toHaveBeenCalledOnce();
+        expect(screen.queryByRole("menuitem", { name: "New video room" })).not.toBeInTheDocument();
+    });
+
     it("should hide new room option when canCreateRoom is false", async () => {
         const user = userEvent.setup();
 

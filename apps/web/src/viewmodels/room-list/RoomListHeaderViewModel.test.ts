@@ -262,6 +262,14 @@ describe("RoomListHeaderViewModel", () => {
             expect(showCreateNewRoom).toHaveBeenCalledWith(mockSpace, RoomType.ElementVideo);
         });
 
+        it("creates MatrixRTC voice rooms in the desktop layout even if the old video-room flag is off", () => {
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name) => name === "feature_desktop_shell");
+            vm = new RoomListHeaderViewModel({ matrixClient, spaceStore: sdkContext.spaceStore });
+            expect(vm.getSnapshot().callRoomsAreVoice).toBe(true);
+            vm.createVideoRoom();
+            expect(showCreateNewRoom).toHaveBeenCalledWith(mockSpace, RoomType.UnstableCall);
+        });
+
         it("should use UnstableCall type when element_call_video_rooms is enabled", () => {
             vi.spyOn(sdkContext.spaceStore, "activeSpaceRoom", "get").mockReturnValue(null);
 

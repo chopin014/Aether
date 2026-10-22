@@ -84,7 +84,7 @@ export class ResizerViewModel
 
     public onLeftPanelResize = debounce((panelSize: PanelSize): void => {
         const newSize = panelSize.inPixels;
-        this.snapshot.merge({ isCollapsed: newSize === 0 });
+        this.snapshot.merge({ isCollapsed: newSize === 0, leftPanelWidth: newSize });
     }, 50);
 
     public onLeftPanelResized = (newSize: number): void => {

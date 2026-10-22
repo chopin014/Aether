@@ -11,7 +11,7 @@ Please see LICENSE files in the repository root for full details.
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, render, screen, within } from "test-utils-rtl";
-import { type Room, JoinRule, MatrixError, Preset, Visibility } from "matrix-js-sdk/src/matrix";
+import { type Room, RoomType, JoinRule, MatrixError, Preset, Visibility } from "matrix-js-sdk/src/matrix";
 import { flushPromises, getMockClientWithEventEmitter, mkSpace, mockClientMethodsUser } from "test-utils";
 
 import CreateRoomDialog from "./CreateRoomDialog";
@@ -525,5 +525,16 @@ describe("<CreateRoomDialog />", () => {
             const callArgs = onFinished.mock.calls[0];
             expect(callArgs.length === 0 || callArgs[0] === false).toBe(true);
         });
+    });
+    it("names MatrixRTC rooms as voice rooms in the desktop layout", async () => {
+        const originalGetValue = SettingsStore.getValue.bind(SettingsStore);
+        vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+            name === "feature_desktop_shell" ? true : originalGetValue(name, ...args),
+        );
+        getComponent({ type: RoomType.UnstableCall });
+        await flushPromises();
+        expect(screen.getByRole("heading", { name: "Create a voice room" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /^Create voice room$/ })).toBeInTheDocument();
+        expect(screen.queryByText(/embedded call will not/)).not.toBeInTheDocument();
     });
 });

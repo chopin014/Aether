@@ -27,6 +27,7 @@ import {
 import { LocalRoom } from "../../../models/LocalRoom";
 import NewRoomIntro from "./NewRoomIntro";
 import DMRoomMap from "../../../utils/DMRoomMap";
+import SettingsStore from "../../../settings/SettingsStore";
 import { DirectoryMember } from "../../../utils/direct-messages";
 import { ScopedRoomContextProvider } from "../../../contexts/ScopedRoomContext.tsx";
 import defaultDispatcher from "../../../dispatcher/dispatcher";
@@ -58,6 +59,46 @@ describe("NewRoomIntro", () => {
 
     afterEach(() => {
         vi.resetAllMocks();
+    });
+
+    it("welcomes desktop channel members using the actual Matrix room name", () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const setting = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        try {
+            const room = new Room(roomId, client, client.getSafeUserId());
+            room.name = "general";
+            renderNewRoomIntro(client, room);
+            expect(screen.getByRole("heading", { name: "Welcome to #general!" })).toBeVisible();
+        } finally {
+            setting.mockRestore();
+        }
+    });
+
+    it("welcomes members to the active server without the room setup controls", () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const setting = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        const space = new Room("!space:example.com", client, client.getSafeUserId());
+        space.name = "Studio";
+        const spaceStore = SDKContextClass.instance.spaceStore;
+        const activeSpace = vi.spyOn(spaceStore, "activeSpaceRoom", "get").mockReturnValue(space);
+        const containsRoom = vi.spyOn(spaceStore, "isRoomInSpace").mockReturnValue(true);
+        try {
+            const room = new Room(roomId, client, client.getSafeUserId());
+            room.name = "general";
+            renderNewRoomIntro(client, room);
+            expect(screen.getByRole("heading", { name: "Welcome to Studio" })).toBeVisible();
+            expect(screen.getByText("This is the beginning of this server.")).toBeVisible();
+            expect(screen.queryByTestId("topic")).not.toBeInTheDocument();
+            expect(screen.queryByRole("button", { name: /Invite/ })).not.toBeInTheDocument();
+        } finally {
+            containsRoom.mockRestore();
+            activeSpace.mockRestore();
+            setting.mockRestore();
+        }
     });
 
     describe("for a DM Room", () => {

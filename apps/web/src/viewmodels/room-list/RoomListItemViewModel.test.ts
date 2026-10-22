@@ -15,8 +15,9 @@ import {
     KnownMembership,
     Room,
     RoomEvent,
+    RoomMemberEvent,
     PendingEventOrdering,
-    type RoomMember,
+    RoomMember,
 } from "matrix-js-sdk/src/matrix";
 import { CallType } from "matrix-js-sdk/src/webrtc/call";
 import { createTestClient, flushPromises } from "test-utils";
@@ -99,7 +100,61 @@ describe("RoomListItemViewModel", () => {
         vi.restoreAllMocks();
     });
 
+    it("shows distinct call members before joining and updates every join and leave", () => {
+        const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+        vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
+            setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+        );
+        vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+        const alice = new RoomMember(room.roomId, "@alice:server");
+        alice.name = "Alice";
+        const bob = new RoomMember(room.roomId, "@bob:server");
+        bob.name = "Bob";
+        const call = Object.assign(new EventEmitter(), {
+            participants: new Map([[alice, new Set(["device1", "device2"])]]),
+            callType: CallType.Voice,
+        });
+        vi.mocked(CallStore.instance.getCall).mockReturnValue(call as unknown as Call);
+        viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+        expect(viewModel.getSnapshot().callParticipants).toEqual([
+            { userId: alice.userId, name: "Alice", avatarUrl: undefined },
+        ]);
+        call.participants.set(bob, new Set(["device3"]));
+        call.emit(CallEvent.Participants, call.participants);
+        expect(viewModel.getSnapshot().callParticipants?.map((member) => member.name)).toEqual(["Alice", "Bob"]);
+        call.participants.delete(alice);
+        call.emit(CallEvent.Participants, call.participants);
+        expect(viewModel.getSnapshot().callParticipants?.map((member) => member.name)).toEqual(["Bob"]);
+        bob.name = "Robert";
+        matrixClient.emit(RoomMemberEvent.Name, undefined as unknown as MatrixEvent, bob);
+        expect(viewModel.getSnapshot().callParticipants?.[0].name).toBe("Robert");
+        vi.spyOn(room, "getMember").mockReturnValue(bob);
+        const dispatch = vi.spyOn(dispatcher, "dispatch");
+        viewModel.onViewCallParticipant(bob.userId);
+        expect(dispatch).toHaveBeenCalledWith({ action: Action.ViewUser, member: bob });
+        call.participants.clear();
+        call.emit(CallEvent.Participants, call.participants);
+        expect(viewModel.getSnapshot().callParticipants).toEqual([]);
+        viewModel.dispose();
+        expect(call.listenerCount(CallEvent.Participants)).toBe(0);
+    });
+
     describe("Initialization", () => {
+        it.each([
+            [false, false, "text"],
+            [true, false, "voice"],
+            [false, true, undefined],
+        ] as const)("uses the Matrix room type for desktop channels (call: %s, DM: %s)", (isCall, isDm, kind) => {
+            const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+            vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
+                setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+            );
+            vi.spyOn(room, "isCallRoom").mockReturnValue(isCall);
+            vi.mocked(DMRoomMap.shared().getUserIdForRoomId).mockReturnValue(isDm ? "@bob:server" : undefined);
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            expect(viewModel.getSnapshot().channelKind).toBe(kind);
+        });
+
         it("should initialize with room data", async () => {
             viewModel = new RoomListItemViewModel({ room, client: matrixClient });
 
@@ -109,6 +164,7 @@ describe("RoomListItemViewModel", () => {
             const snapshot = viewModel.getSnapshot();
             expect(snapshot.id).toBe("!room:server");
             expect(snapshot.name).toBe("Test Room");
+            expect(snapshot.channelKind).toBeUndefined();
         });
 
         it("should load message preview when enabled", async () => {

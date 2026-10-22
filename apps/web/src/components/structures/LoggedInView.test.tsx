@@ -57,6 +57,7 @@ describe("<LoggedInView />", () => {
         ...mockClientMethodsServer(),
         ...mockClientMethodsRooms([]),
         getAccountData: vi.fn(),
+        getIgnoredUsers: vi.fn().mockReturnValue([]),
         getSyncState: vi.fn().mockReturnValue(null),
         getSyncStateData: vi.fn().mockReturnValue(null),
         getMediaHandler: vi.fn(),
@@ -100,6 +101,34 @@ describe("<LoggedInView />", () => {
         // @ts-expect-error
         mockClient.pushProcessor = new PushProcessor(mockClient);
         mockSdkContext._client = mockClient;
+    });
+
+    describe("desktop presentation", () => {
+        const originalController = SETTINGS["feature_desktop_shell"].controller;
+
+        beforeEach(() => {
+            SETTINGS["feature_desktop_shell"].controller = undefined;
+        });
+        afterEach(async () => {
+            await SettingsStore.setValue("feature_desktop_shell", null, SettingLevel.DEVICE, false);
+            SETTINGS["feature_desktop_shell"].controller = originalController;
+        });
+
+        it("scopes the desktop theme to a logged-in view and removes it on unmount", async () => {
+            await SettingsStore.setValue("feature_desktop_shell", null, SettingLevel.DEVICE, true);
+            const { container, unmount } = getComponent();
+            expect(document.body).toHaveClass("mx_DesktopShell");
+            expect(container.querySelector(".mx_MatrixChat_wrapper")).toHaveClass("mx_MatrixChat_desktopShell");
+            expect(container.querySelector(".mx_DesktopShell_titlebar")).toHaveAttribute("aria-hidden", "true");
+            unmount();
+            expect(document.body).not.toHaveClass("mx_DesktopShell");
+        });
+
+        it("preserves the original layout when the feature is disabled", () => {
+            const { container } = getComponent();
+            expect(document.body).not.toHaveClass("mx_DesktopShell");
+            expect(container.querySelector(".mx_MatrixChat_wrapper")).not.toHaveClass("mx_MatrixChat_desktopShell");
+        });
     });
 
     describe("synced push rules", () => {

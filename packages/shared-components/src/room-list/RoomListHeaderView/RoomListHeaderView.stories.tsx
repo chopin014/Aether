@@ -18,9 +18,10 @@ import { useMockedViewModel } from "../../core/viewmodel";
 import { withViewDocs } from "../../../.storybook/withViewDocs";
 import { defaultSnapshot } from "./default-snapshot";
 
-type RoomListHeaderProps = RoomListHeaderViewSnapshot & RoomListHeaderViewActions;
+type RoomListHeaderProps = RoomListHeaderViewSnapshot & RoomListHeaderViewActions & { desktop?: boolean };
 
 const RoomListHeaderViewWrapperImpl = ({
+    desktop,
     createChatRoom,
     createRoom,
     createVideoRoom,
@@ -49,7 +50,7 @@ const RoomListHeaderViewWrapperImpl = ({
         collapseOrExpandSections,
         closeSectionReleaseAnnouncement,
     });
-    return <RoomListHeaderView vm={vm} />;
+    return <RoomListHeaderView vm={vm} desktop={desktop} />;
 };
 const RoomListHeaderViewWrapper = withViewDocs(RoomListHeaderViewWrapperImpl, RoomListHeaderView);
 
@@ -156,3 +157,5 @@ export const NoComposeMenu: Story = {
         areSectionsEnabled: false,
     },
 };
+
+export const DesktopSpace: Story = { args: { desktop: true, displaySpaceMenu: true, title: "Design studio" } };

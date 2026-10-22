@@ -25,6 +25,8 @@ import dispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
 import DMRoomMap from "../../utils/DMRoomMap";
+import { DESKTOP_TEXT_CHANNELS, DESKTOP_VOICE_CHANNELS } from "./DesktopChannelSections";
+
 import { RoomListViewModel } from "./RoomListViewModel";
 import { PreviewRoomListItemViewModel } from "./PreviewRoomListItemViewModel";
 import { type RoomViewStore } from "../../stores/RoomViewStore";
@@ -111,6 +113,57 @@ describe("RoomListViewModel", () => {
     });
 
     describe("Initialization", () => {
+        it("uses one flat direct-message list in desktop Home", () => {
+            const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+            vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
+                setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+            );
+            vi.mocked(RoomListStoreV3.instance.getSortedRoomsInActiveSpace).mockReturnValue({
+                spaceId: MetaSpace.Home,
+                sections: [{ tag: DefaultTagID.DM, rooms: [room1, room2] }],
+            });
+            viewModel = new RoomListViewModel({
+                client: matrixClient,
+                spaceStore: SDKContextClass.instance.spaceStore,
+                roomViewStore: SDKContextClass.instance.roomViewStore,
+            });
+            expect(viewModel.getSnapshot().isFlatList).toBe(true);
+            expect(viewModel.roomIds).toEqual([room1.roomId, room2.roomId]);
+        });
+
+        it("projects Space channels into collapsible categories without changing Matrix tags", async () => {
+            const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+            vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
+                setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+            );
+            vi.spyOn(room2, "isCallRoom").mockReturnValue(true);
+            vi.spyOn(RoomListStoreV3.instance, "getSortedRoomsInActiveSpace").mockReturnValue({
+                spaceId: "!space:example.org",
+                sections: [{ tag: CHATS_TAG, rooms: [room1, room2, room3] }],
+            });
+            viewModel = new RoomListViewModel({
+                client: matrixClient,
+                spaceStore: SDKContextClass.instance.spaceStore,
+                roomViewStore: SDKContextClass.instance.roomViewStore,
+            });
+            await flushPromises();
+            expect(viewModel.getSnapshot().hidePrimaryFilters).toBe(true);
+            expect(viewModel.getSnapshot().isFlatList).toBe(false);
+            expect(viewModel.roomIds).toEqual([room1.roomId, room3.roomId, room2.roomId]);
+            expect(viewModel.getSnapshot().sections).toEqual([
+                { id: DESKTOP_TEXT_CHANNELS, roomIds: [room1.roomId, room3.roomId] },
+                { id: DESKTOP_VOICE_CHANNELS, roomIds: [room2.roomId] },
+            ]);
+            const header = viewModel.getSectionHeaderViewModel(DESKTOP_TEXT_CHANNELS);
+            expect(header.getSnapshot()).toMatchObject({
+                displaySectionMenu: false,
+                canBeReordered: false,
+                acceptedRoomKind: "none",
+            });
+            await header.onClick();
+            expect(viewModel.getSnapshot().sections[0].roomIds).toEqual([]);
+            expect(tagRoom).not.toHaveBeenCalled();
+        });
         it("should initialize with correct snapshot", () => {
             viewModel = new RoomListViewModel({
                 client: matrixClient,

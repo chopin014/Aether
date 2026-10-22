@@ -7,7 +7,12 @@
 
 import React, { type JSX } from "react";
 import { IconButton, H1 } from "@vector-im/compound-web";
-import { CollapseAllIcon, ExpandAllIcon, ChatIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
+import {
+    CollapseAllIcon,
+    ExpandAllIcon,
+    ChatIcon,
+    UserAddIcon,
+} from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { type ViewModel, useViewModel } from "../../core/viewmodel";
 import { Flex } from "../../core/utils/Flex";
@@ -43,6 +48,8 @@ export interface RoomListHeaderViewSnapshot {
      * Whether the user can create video rooms
      */
     canCreateVideoRoom: boolean;
+    /** Present persistent MatrixRTC rooms as audio-first voice rooms. */
+    callRoomsAreVoice?: boolean;
     /**
      * Whether the user can invite in the active space
      */
@@ -136,6 +143,8 @@ interface RoomListHeaderViewProps {
      * The view model for the room list header component.
      */
     vm: RoomListHeaderViewModel;
+    /** A Space menu and invite action for desktop channel navigation. */
+    desktop?: boolean;
 }
 
 /**
@@ -147,11 +156,37 @@ interface RoomListHeaderViewProps {
  * <RoomListHeaderView vm={roomListHeaderViewModel} />
  * ```
  */
-export function RoomListHeaderView({ vm }: Readonly<RoomListHeaderViewProps>): JSX.Element {
+export function RoomListHeaderView({ vm, desktop = false }: Readonly<RoomListHeaderViewProps>): JSX.Element {
     const { translate: _t } = useI18n();
-    const { title, displaySpaceMenu, collapseSections, areSectionsEnabled, canCreateRoom, canCreateVideoRoom } =
-        useViewModel(vm);
+    const {
+        title,
+        displaySpaceMenu,
+        collapseSections,
+        areSectionsEnabled,
+        canCreateRoom,
+        canCreateVideoRoom,
+        canInviteInSpace,
+    } = useViewModel(vm);
     const canOnlyStartChat = !areSectionsEnabled && !canCreateRoom && !canCreateVideoRoom;
+
+    if (desktop && displaySpaceMenu) {
+        return (
+            <Flex
+                as="header"
+                className={`${styles.header} ${styles.desktopHeader}`}
+                align="center"
+                gap="var(--cpd-space-3x)"
+                data-testid="room-list-header"
+            >
+                <SpaceMenuView vm={vm} fullWidth />
+                {canInviteInSpace && (
+                    <IconButton size="28px" tooltip={_t("action|invite")} onClick={vm.inviteInSpace}>
+                        <UserAddIcon />
+                    </IconButton>
+                )}
+            </Flex>
+        );
+    }
 
     return (
         <Flex

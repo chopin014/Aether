@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 
 import { fireEvent, render, screen } from "@test-utils";
+import { EventPresentationProvider } from "../../EventPresentation";
 import type { EventLayout } from "../../EventPresentation";
 import {
     EventTileView,
@@ -818,5 +819,22 @@ describe("EventTileView bubble layout reactions", () => {
 
     it("keeps the add-reaction control after the reactions in another user's bubble", () => {
         expect(getComputedStyle(renderAddReactionButton(false)).order).toBe("0");
+    });
+});
+
+describe("desktop channel messages", () => {
+    it("puts the timestamp beside the author and preserves the reply and action slots", () => {
+        render(
+            <EventPresentationProvider value={{ layout: "group", density: "default", messageStyle: "desktop" }}>
+                <EventTileView {...createProps({ slots: createStylingContractSlots() })} />
+            </EventPresentationProvider>,
+        );
+        const metadata = screen.getByTestId("event-tile-slot-sender").parentElement!;
+        expect(metadata).toContainElement(screen.getByTestId("event-tile-slot-timestamp"));
+        expect(screen.getByTestId("event-tile-line")).toContainElement(
+            screen.getByTestId("event-tile-slot-replyChain"),
+        );
+        expect(screen.getByTestId("event-tile-line")).toContainElement(screen.getByTestId("event-tile-slot-actionBar"));
+        expect(screen.getByTestId("event-tile-slot-avatar")).toBeVisible();
     });
 });

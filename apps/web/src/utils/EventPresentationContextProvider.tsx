@@ -45,9 +45,13 @@ export function EventPresentationContextProvider({
 }: Readonly<PropsWithChildren<EventPresentationContextProviderProps>>): JSX.Element {
     // Compact density is still owned by app/web; this exposes it as shared event presentation.
     const configuredUseCompactLayout = useSettingValue("useCompactLayout");
+    const desktopShell = useSettingValue("feature_desktop_shell");
     const eventLayout = EVENT_LAYOUT_BY_APP_LAYOUT[layout];
     const density = getEventDensity(layout, useCompactLayoutOverride ?? configuredUseCompactLayout);
-    const value = useMemo<EventPresentation>(() => ({ layout: eventLayout, density }), [eventLayout, density]);
+    const value = useMemo<EventPresentation>(
+        () => ({ layout: eventLayout, density, messageStyle: desktopShell ? "desktop" : undefined }),
+        [eventLayout, density, desktopShell],
+    );
 
     return <EventPresentationProvider value={value}>{children}</EventPresentationProvider>;
 }
