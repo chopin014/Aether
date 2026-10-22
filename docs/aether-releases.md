@@ -52,6 +52,10 @@ sends and receives real messages, opens the member list and checks settings at t
 Playwright runs against a separate copy with its inspection fuse enabled; the distribution copy retains its
 production fuse settings. A Windows x64 NSIS installer was successfully built on the Windows runner;
 it is unsigned, and interactive Windows runtime testing is still pending.
+For `0.1.0-dev.1`, the [desktop workflow](https://github.com/chopin014/Aether/actions/runs/39852786892)
+passed its renderer, Windows installer and Linux AppImage/deb/tar.gz jobs. The packaged native smoke test
+passed in 33.3 seconds, and the legacy-key audio regression passed in 50.3 seconds after failing against
+the previous renderer with zero decoded audio energy.
 
 The two-person MatrixRTC test verifies audio transport, microphone/deafen controls, call continuity while
 reading a text room, live sidebar members, and participant visibility while the local user is disconnected.
