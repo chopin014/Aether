@@ -44,7 +44,7 @@ jobs:
                       platform: win
         runs-on: ${{ matrix.os }}
         env:
-            VERSION: 0.1.0-dev
+            VERSION: 0.1.0-dev.1
             CSC_IDENTITY_AUTO_DISCOVERY: "false"
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

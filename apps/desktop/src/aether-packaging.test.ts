@@ -26,6 +26,7 @@ describe("Aether distribution identity", () => {
     it("prepares Linux and Windows artifacts without publishing", () => {
         expect(config.publish).toBeNull();
         expect(config.linux.target).toEqual(["AppImage", "deb", "tar.gz"]);
+        expect(config.linux.maintainer).toBe("Aether contributors <156453220+chopin014@users.noreply.github.com>");
         expect(config.win.target).toEqual(["nsis"]);
         expect(config.extraResources).toContainEqual({ from: "aether", to: "build", filter: ["icon.*"] });
     });

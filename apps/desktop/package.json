@@ -3,7 +3,7 @@
     "productName": "Aether",
     "main": "lib/electron-main.js",
     "exports": "./lib/electron-main.js",
-    "version": "0.1.0-dev",
+    "version": "0.1.0-dev.1",
     "description": "Aether desktop messenger for Matrix",
     "author": {
         "name": "Gabriel"
