@@ -40,3 +40,17 @@ The channel list uses `CallStore`/Element Call's MatrixRTC participant map, even
 Each user appears once across multiple devices. Membership and profile updates refresh the rows, which open real Matrix profiles.
 MatrixRTC room state does not expose remote users' speaking/microphone state to non-participants; those indicators must only be
 added when an authoritative media signal is available. Do not fabricate speaking rings or mute badges.
+
+## Validation performed
+
+The Linux x64 application was packaged with its own executable, app ID, protocol, icons and embedded renderer.
+The packaged native smoke test signs in to a disposable Matrix server, creates a Space and text/voice rooms,
+sends and receives real messages, opens the member list and checks settings at the reference viewport.
+Playwright runs against a separate copy with its inspection fuse enabled; the distribution copy retains its
+production fuse settings. Windows packaging is configured but has not yet been validated on Windows.
+
+The two-person MatrixRTC test verifies audio transport, microphone/deafen controls, call continuity while
+reading a text room, live sidebar members, and participant visibility while the local user is disconnected.
+Unit tests cover sound preferences/output routing, rejected controls, membership changes, profiles and cleanup.
+The landing page publishes only `site/` to `gh-pages`; research captures remain outside the public repository.
+Inherited upstream automation is disabled on the Aether repository. Aether builds are manually triggered.

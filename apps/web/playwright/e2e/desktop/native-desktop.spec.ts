@@ -72,10 +72,22 @@ test("the real Electron host runs the Matrix shell through its native preload", 
     try {
         expect(await desktop.evaluate(({ app }) => app.getName())).toBe("Aether");
         const page = await desktop.firstWindow();
-        await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1280, 720));
         await populateLocalStorageWithCredentials(page, credentials);
         await page.reload();
         await page.waitForSelector(".mx_MatrixChat", { timeout: 60_000 });
+        // ready-to-show restores window state; wait for it before setting the reference size.
+        await expect
+            .poll(() => desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()))
+            .toBe(true);
+        await desktop.evaluate(({ BrowserWindow }) => {
+            const window = BrowserWindow.getAllWindows()[0];
+            window.unmaximize();
+            window.setContentSize(1280, 720);
+        });
+        // Keep screenshot and input coordinates stable while the native compositor applies restored bounds.
+        await page.setViewportSize({ width: 1280, height: 720 });
+        await expect.poll(() => page.evaluate(() => document.documentElement.clientWidth)).toBe(1280);
+        await expect.poll(() => page.evaluate(() => document.documentElement.clientHeight)).toBe(720);
         expect(new URL(page.url()).protocol).toBe("vector:");
         expect(await page.evaluate(() => "electron" in window)).toBe(true);
         await rejectToastIfExists(page, "Verify this device");
@@ -140,9 +152,31 @@ test("the real Electron host runs the Matrix shell through its native preload", 
         await page.getByRole("button", { name: "2 members", exact: true }).click();
         await page.getByRole("button", { name: "All settings", exact: true }).click();
         await expect(page.getByRole("dialog")).toBeVisible();
-        await expect
-            .poll(() => page.getByRole("dialog").evaluate((element) => element.scrollWidth <= element.clientWidth))
-            .toBe(true);
+        try {
+            await expect
+                .poll(() => page.getByRole("dialog").evaluate((element) => element.scrollWidth <= element.clientWidth))
+                .toBe(true);
+        } catch (error) {
+            await page.screenshot({ path: testInfo.outputPath("native-settings-overflow.png") });
+            console.log(
+                await page.getByRole("dialog").evaluate((dialog) => {
+                    const bounds = dialog.getBoundingClientRect();
+                    return {
+                        width: dialog.clientWidth,
+                        scroll: dialog.scrollWidth,
+                        overflowing: [...dialog.querySelectorAll("*")]
+                            .filter((node) => node.getBoundingClientRect().right > bounds.right + 1)
+                            .map((node) => ({
+                                tag: node.tagName,
+                                className: node.className,
+                                right: node.getBoundingClientRect().right,
+                            }))
+                            .slice(0, 25),
+                    };
+                }),
+            );
+            throw error;
+        }
         await page.screenshot({ path: testInfo.outputPath("native-settings.png") });
         if (process.env.ELEMENT_DESKTOP_REVIEW) {
             test.setTimeout(30 * 60_000);

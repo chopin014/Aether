@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import { type Page, type Request } from "@playwright/test";
+import { type Page, type Request, type Response } from "@playwright/test";
 import {
     closeReleaseAnnouncementIfExists,
     populateLocalStorageWithCredentials,
@@ -14,6 +14,7 @@ import {
 } from "@element-hq/element-web-playwright-common";
 
 import { test, expect } from "../../element-web-test";
+import { ElementAppPage } from "../../pages/ElementAppPage";
 
 test.use({
     matrixRTC: true,
@@ -77,6 +78,11 @@ test(
     async ({ page, app, user, browser, homeserver, config }, testInfo) => {
         test.setTimeout(180_000);
         const jitsiRequests: string[] = [];
+        const soundResponses = new Map<string, number>();
+        const onSound = (response: Response): void => {
+            if (response.url().endsWith(".wav")) soundResponses.set(response.url(), response.status());
+        };
+        page.on("response", onSound);
         const checkRequest = (url: string): void => {
             if (/jitsi|meet\.element\.io/.test(url)) jitsiRequests.push(url);
         };
@@ -136,6 +142,10 @@ test(
                 userId: bob.userId,
             });
             await homeserver.csApi.request("POST", `/v3/join/${roomId}`, bob.accessToken, {});
+            const bobApp = new ElementAppPage(bobPage);
+            await expect
+                .poll(() => bobApp.client.evaluate((client, id) => client.getRoom(id)?.getType(), roomId))
+                .toBe("org.matrix.msc3417.call");
             await bobPage.goto(`/#/room/${roomId}`);
             for (const memberPage of [page, bobPage]) {
                 await expect(memberPage.getByTestId("videoTile")).toHaveCount(2, { timeout: 30_000 });
@@ -162,6 +172,8 @@ test(
             await expect(dock.getByRole("button", { name: "Unmute", exact: true })).toBeVisible();
             await dock.getByRole("button", { name: "Undeafen", exact: true }).click();
             await expect(dock.getByRole("button", { name: "Mute", exact: true })).toBeVisible();
+            await expect.poll(() => soundResponses.size).toBeGreaterThanOrEqual(5);
+            expect([...soundResponses.values()].every((status) => status === 200 || status === 206)).toBe(true);
             await page.getByRole("button", { name: "Open room chat", exact: true }).click();
             await expect(page.getByRole("heading", { name: "chat", exact: true })).toBeVisible();
             await expect(dock.getByText("Voice Connected", { exact: true })).toBeVisible();
@@ -195,6 +207,7 @@ test(
             await expect(page.getByRole("dialog")).toBeVisible();
         } finally {
             page.off("request", onRequest);
+            page.off("response", onSound);
             bobContext.off("request", onRequest);
             await bobContext.close();
         }
