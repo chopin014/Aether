@@ -67,5 +67,6 @@ jobs:
               shell: bash
               run: |
                   if test -f src/audio/NoiseSuppressionProcessor.test.browser.ts; then
-                      pnpm exec vitest run --project browser src/audio
+                      # Concurrent real-time audio graphs can drop samples on small CI runners.
+                      pnpm exec vitest run --project browser --maxWorkers 1 src/audio
                   fi
