@@ -103,6 +103,7 @@ export enum CallEvent {
     Destroy = "destroy",
     CallTypeChanged = "call_type_changed",
     DeviceMute = "device_mute",
+    SpeakingUsers = "speaking_users",
 }
 
 interface CallEventHandlerMap {
@@ -115,6 +116,7 @@ interface CallEventHandlerMap {
     [CallEvent.Destroy]: () => void;
     [CallEvent.CallTypeChanged]: (callType: CallType) => void;
     [CallEvent.DeviceMute]: (state: DeviceMuteState) => void;
+    [CallEvent.SpeakingUsers]: (userIds: ReadonlySet<string>) => void;
 }
 
 /**
@@ -164,6 +166,7 @@ export abstract class Call extends TypedEventEmitter<CallEvent, CallEventHandler
     protected set connectionState(value: ConnectionState) {
         const prevValue = this._connectionState;
         this._connectionState = value;
+        if (value === ConnectionState.Disconnected) this.speakingUserIds = new Set();
         this.emit(CallEvent.ConnectionState, value, prevValue);
     }
 
@@ -181,7 +184,27 @@ export abstract class Call extends TypedEventEmitter<CallEvent, CallEventHandler
     protected set participants(value: Map<RoomMember, Set<string>>) {
         const prevValue = this._participants;
         this._participants = value;
+        const userIds = new Set([...value.keys()].map((member) => member.userId));
+        this.speakingUserIds = new Set([...this.speakingUserIds].filter((userId) => userIds.has(userId)));
         this.emit(CallEvent.Participants, value, prevValue);
+    }
+
+    private _speakingUserIds: ReadonlySet<string> = new Set();
+
+    /** Matrix users whose unmuted microphone activity is reported by the media connection. */
+    public get speakingUserIds(): ReadonlySet<string> {
+        return this._speakingUserIds;
+    }
+
+    protected set speakingUserIds(value: ReadonlySet<string>) {
+        if (
+            value.size === this._speakingUserIds.size &&
+            [...value].every((userId) => this._speakingUserIds.has(userId))
+        ) {
+            return;
+        }
+        this._speakingUserIds = value;
+        this.emit(CallEvent.SpeakingUsers, value);
     }
 
     private _presented = false;
@@ -323,6 +346,7 @@ export abstract class Call extends TypedEventEmitter<CallEvent, CallEventHandler
      */
     protected close(): void {
         this.widgetApi = null;
+        this.speakingUserIds = new Set();
         this.emit(CallEvent.Close);
     }
 
@@ -685,6 +709,7 @@ export class ElementCall extends Call {
      */
     public readonly setComponentHandle = (handle: ElementCallHandle | null): void => {
         this.componentHandle = handle;
+        if (!handle) this.speakingUserIds = new Set();
     };
 
     /**
@@ -1208,8 +1233,27 @@ export class ElementCall extends Call {
     public handleDeviceMute(state?: DeviceMuteState): void {
         if (!state) return;
         this._deviceMuteState = state;
+        if (!state.audio_enabled) {
+            this.speakingUserIds = new Set(
+                [...this.speakingUserIds].filter((userId) => userId !== this.client.getUserId()),
+            );
+        }
         this.emit(CallEvent.DeviceMute, state);
     }
+
+    /** Receives real local and remote microphone activity from the embedded media component. */
+    public handleSpeakingUsers = (userIds: string[]): void => {
+        const members = new Set([...this.participants.keys()].map((member) => member.userId));
+        this.speakingUserIds = new Set(
+            this.connected && !this.destroyed
+                ? userIds.filter(
+                      (userId) =>
+                          members.has(userId) &&
+                          (userId !== this.client.getUserId() || this.deviceMuteState?.audio_enabled !== false),
+                  )
+                : [],
+        );
+    };
 
     private readonly onDeviceMute = (ev: CustomEvent<IWidgetApiRequest>): void => {
         ev.preventDefault();

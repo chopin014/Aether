@@ -1171,6 +1171,68 @@ describe("ElementCall with the React component embedding", () => {
         expect(call.deviceMuteState).toBeUndefined();
     });
 
+    describe("speaking activity", () => {
+        const aliceId = "@alice:example.org";
+        const bobId = "@bob:example.org";
+
+        beforeEach(() => {
+            call.session.memberships = [
+                { sender: aliceId, deviceId: "alice1" },
+                { sender: aliceId, deviceId: "alice2" },
+                { sender: bobId, deviceId: "bob1" },
+            ] as CallMembership[];
+            call.session.emit(MatrixRTCSessionEvent.MembershipsChanged, [], []);
+        });
+
+        it("reports distinct local and remote speakers only while connected", () => {
+            call.handleSpeakingUsers([aliceId]);
+            expect(call.speakingUserIds.size).toBe(0);
+            call.handleJoined();
+            const changed = vi.fn();
+            call.on(CallEvent.SpeakingUsers, changed);
+            call.handleSpeakingUsers([aliceId, bobId, aliceId, "@unknown:example.org"]);
+            expect(call.speakingUserIds).toEqual(new Set([aliceId, bobId]));
+            expect(changed).toHaveBeenCalledTimes(1);
+            call.handleSpeakingUsers([bobId, aliceId]);
+            expect(changed).toHaveBeenCalledTimes(1);
+            call.handleSpeakingUsers([]);
+            expect(call.speakingUserIds.size).toBe(0);
+            expect(changed).toHaveBeenLastCalledWith(new Set());
+        });
+
+        it("clears local speech on mute and ignores late activity for the muted microphone", () => {
+            call.handleJoined();
+            call.handleSpeakingUsers([aliceId, bobId]);
+            call.handleDeviceMute({ audio_enabled: false, video_enabled: false });
+            expect(call.speakingUserIds).toEqual(new Set([bobId]));
+            call.handleSpeakingUsers([aliceId, bobId]);
+            expect(call.speakingUserIds).toEqual(new Set([bobId]));
+            call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
+            call.handleSpeakingUsers([aliceId]);
+            expect(call.speakingUserIds).toEqual(new Set([aliceId]));
+        });
+
+        it("keeps a user speaking until their final participating device leaves", () => {
+            call.handleJoined();
+            call.handleSpeakingUsers([aliceId, bobId]);
+            call.session.memberships = call.session.memberships.filter((member) => member.deviceId !== "alice1");
+            call.session.emit(MatrixRTCSessionEvent.MembershipsChanged, [], []);
+            expect(call.speakingUserIds).toEqual(new Set([aliceId, bobId]));
+            call.session.memberships = call.session.memberships.filter((member) => member.sender !== aliceId);
+            call.session.emit(MatrixRTCSessionEvent.MembershipsChanged, [], []);
+            expect(call.speakingUserIds).toEqual(new Set([bobId]));
+        });
+
+        it.each(["hangup", "unmount", "close"])("clears speaking activity on %s", (reason) => {
+            call.handleJoined();
+            call.handleSpeakingUsers([aliceId, bobId]);
+            if (reason === "hangup") call.handleHangup();
+            else if (reason === "unmount") call.setComponentHandle(null);
+            else call.handleClose();
+            expect(call.speakingUserIds.size).toBe(0);
+        });
+    });
+
     it("mutes playback through Element Call's host audio API", () => {
         const setAudioEnabled = vi.fn();
         vi.stubGlobal("controls", { setAudioEnabled });

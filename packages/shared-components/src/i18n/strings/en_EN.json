@@ -92,6 +92,7 @@
             "deafen": "Deafen",
             "disconnect": "Disconnect",
             "mute": "Mute",
+            "participant_speaking": "%(name)s (speaking)",
             "participants": "People in %(roomName)s",
             "undeafen": "Undeafen",
             "unmute": "Unmute"

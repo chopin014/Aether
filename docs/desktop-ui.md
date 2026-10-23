@@ -95,6 +95,8 @@ Voice-channel participants now appear directly below their channel: 24px round a
 40px avatar indentation from the channel sidebar edge, 8px avatar/name spacing and a subtle hover state.
 The dimensions follow the captured Discord voice sidebar at its CSS scale. The real MatrixRTC user list
 updates on join, leave and profile changes; multiple devices appear once. A profile row does not join the call.
-No speaking rings or remote mute badges are fabricated from room membership state.
+Speaking rings follow actual local and remote microphone activity while connected to an embedded Element Call.
+The sidebar observes existing tracks without changing capture, gain, or noise processing; muted and departed users
+clear their ring. Reduced motion keeps a steady ring. Remote mute badges are not inferred from room membership.
 Original Aether sound cues accompany successful microphone/deafen controls and real call connection changes.
 Voice settings include a device-level switch for the cues. See [packaging and release work](aether-releases.md).

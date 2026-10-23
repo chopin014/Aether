@@ -34,6 +34,7 @@ export interface ElementWebHostBridgeOptions {
  */
 export class ElementWebHostBridge implements ElementCallHostBridge {
     public readonly supportsReactions = true;
+
     /**
      * Element Web chose the intent on the user's behalf (which button they pressed), so a call that skips
      * the lobby may start them unmuted on its strength, as it does when Element Web hosts Element Call as a
@@ -77,6 +78,11 @@ export class ElementWebHostBridge implements ElementCallHostBridge {
 
     public readonly notifyDeviceMute = async (state: DeviceMuteState): Promise<void> => {
         this.call.handleDeviceMute(state);
+    };
+
+    /** Forward real speech activity, already deduplicated across a user's devices. */
+    public readonly notifySpeakingUsers = async (userIds: string[]): Promise<void> => {
+        this.call.handleSpeakingUsers(userIds);
     };
 
     public readonly close = async (): Promise<void> => {

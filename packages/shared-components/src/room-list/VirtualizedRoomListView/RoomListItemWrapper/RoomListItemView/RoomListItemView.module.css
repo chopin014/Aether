@@ -57,7 +57,7 @@
     text-align: start;
     cursor: pointer;
 
-    > span {
+    > span:last-child {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -67,6 +67,72 @@
     &:focus-visible {
         background: var(--cpd-color-bg-action-tertiary-hovered);
         color: var(--cpd-color-text-primary);
+    }
+}
+
+/*
+ * Activity ring around a voice participant's avatar while they speak. The ring is an outline and the
+ * pulse an absolutely positioned pseudo-element, so neither changes the row's size or moves the name.
+ */
+.participantAvatar {
+    --speaking-ring-width: var(--cpd-border-width-2);
+    --speaking-ring-gap: var(--cpd-border-width-1);
+
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    border-radius: 50%;
+    outline: var(--speaking-ring-width) solid transparent;
+    outline-offset: var(--speaking-ring-gap);
+    /* Fade the ring in and out so short pauses between words don't flicker */
+    transition: outline-color 150ms ease-out;
+
+    &::after {
+        content: "";
+        position: absolute;
+        inset: calc(-1 * (var(--speaking-ring-width) + var(--speaking-ring-gap)));
+        border: var(--speaking-ring-width) solid var(--cpd-color-border-success-primary);
+        border-radius: 50%;
+        opacity: 0;
+        pointer-events: none;
+    }
+}
+
+.speaking {
+    outline-color: var(--cpd-color-border-success-primary);
+
+    &::after {
+        animation: speakingPulse 1.4s ease-out infinite;
+    }
+}
+
+/* A soft wave that grows off the ring, kept small enough to stay within the 32px participant row */
+@keyframes speakingPulse {
+    0% {
+        opacity: 0.55;
+        transform: scale(1);
+    }
+
+    100% {
+        opacity: 0;
+        transform: scale(1.06);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* Keep the steady ring as the speaking cue, without the repeating pulse */
+    .participantAvatar {
+        transition: none;
+    }
+
+    .speaking::after {
+        animation: none;
+    }
+}
+
+@media (forced-colors: active) {
+    .speaking {
+        outline-color: Highlight;
     }
 }
 
