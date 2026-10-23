@@ -30,6 +30,14 @@ describe("Aether distribution identity", () => {
         expect(config.win.target).toEqual(["nsis"]);
         expect(config.extraResources).toContainEqual({ from: "aether", to: "build", filter: ["icon.*"] });
     });
+    it("ships the brand icon at every size Linux and Windows request", () => {
+        const png = readFileSync("aether/icon.png");
+        expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([512, 512]);
+        const ico = readFileSync("aether/icon.ico");
+        // A width byte of 0 means 256 px in the ICO directory.
+        const sizes = Array.from({ length: ico.readUInt16LE(4) }, (_, i) => ico[6 + i * 16] || 256);
+        expect(sizes).toEqual([16, 24, 32, 48, 64, 128, 256]);
+    });
     it("ships the Matrix desktop shell and Element Call without an upstream update feed", () => {
         const renderer = JSON.parse(readFileSync("config.desktop.json", "utf8"));
         expect(renderer.brand).toBe("Aether");
