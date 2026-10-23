@@ -199,6 +199,15 @@ body.mx_DesktopShell.cpd-theme-light {
 
 body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
     --cpd-color-bg-subtle-primary: var(--ae-surface-raised);
+    /*
+     * Compound's neutral action defaults use theme-bg, bypassing our canvas aliases. Let them sit on any
+     * Aether surface (including portal menus and the profile frame), with overlays for hover and press.
+     * Keep Compound's 4%/6% secondary-action feedback strengths.
+     */
+    --cpd-color-bg-action-secondary-rest: transparent;
+    --cpd-color-bg-action-secondary-hovered: color-mix(in srgb, var(--ae-text) 4%, transparent);
+    --cpd-color-bg-action-secondary-pressed: color-mix(in srgb, var(--ae-text) 6%, transparent);
+    --cpd-color-bg-action-tertiary-rest: transparent;
     --cpd-color-bg-action-tertiary-hovered: var(--ae-surface-raised);
     --cpd-color-bg-action-tertiary-selected: var(--ae-border);
     --cpd-color-text-primary: var(--ae-text);

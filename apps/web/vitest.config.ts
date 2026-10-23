@@ -115,6 +115,10 @@ export default defineProject({
             },
             {
                 extends: true,
+                // Pre-bundle visual test dependencies so discovering icons cannot reload a running test.
+                optimizeDeps: {
+                    include: ["@vector-im/compound-web", "@vector-im/compound-design-tokens/assets/web/icons"],
+                },
                 test: {
                     name: "browser",
                     include: ["src/**/*.test.browser.{ts,tsx}"],
