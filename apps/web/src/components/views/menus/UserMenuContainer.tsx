@@ -72,11 +72,7 @@ export function DesktopAccountDockContainer({ vm }: { vm: ResizerViewModel }): J
     const dockRef = useHeightCustomProperty("--mx-desktop-dock-height");
     if (isCollapsed) return null;
     return (
-        <div
-            ref={dockRef}
-            className="mx_DesktopShell_accountDock"
-            style={{ width: (leftPanelWidth ?? 310) + 64 - 16 }}
-        >
+        <div ref={dockRef} className="mx_DesktopShell_accountDock" style={{ width: (leftPanelWidth ?? 310) + 64 - 16 }}>
             <UserMenuContainer isPanelCollapsed={false} desktopDock />
         </div>
     );
