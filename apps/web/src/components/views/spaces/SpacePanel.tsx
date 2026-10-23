@@ -136,7 +136,8 @@ type MetaSpaceButtonProps = Pick<IMetaSpaceButtonProps, "selected" | "isPanelCol
 const MetaSpaceButton: React.FC<IMetaSpaceButtonProps> = ({ selected, isPanelCollapsed, size = "32px", ...props }) => {
     return (
         <li
-            className={classNames("mx_SpaceItem", {
+            // mx_SpaceItem_meta lets the desktop shell divide Home from the user's Spaces
+            className={classNames("mx_SpaceItem mx_SpaceItem_meta", {
                 collapsed: isPanelCollapsed,
             })}
             role="treeitem"

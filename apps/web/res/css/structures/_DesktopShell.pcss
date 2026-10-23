@@ -275,41 +275,79 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         min-width: 0;
     }
 
+    /*
+     * The server rail, after Discord's: 48px icons in a 72px rail, circles that round into squares when hovered or
+     * selected, and a pill at the rail's edge for unread (8px), hover (20px) and selected (40px).
+     */
     .mx_SpacePanel {
+        --mx-desktop-rail-icon: 48px;
+        --mx-desktop-rail-inset: 12px;
+
         background: var(--mx-desktop-shell-frame);
         border-inline-end: none;
         padding-block-start: var(--cpd-space-2x);
         padding-block-end: var(--mx-desktop-dock-clearance);
 
         &.collapsed {
-            width: 64px;
+            width: calc(var(--mx-desktop-rail-icon) + 2 * var(--mx-desktop-rail-inset));
+        }
+
+        /* Discord's divider between Home and the servers. */
+        .mx_SpaceItem_meta:not(:has(~ .mx_SpaceItem_meta))::after {
+            content: "";
+            display: block;
+            width: 32px;
+            height: 2px;
+            margin: 4px auto;
+            border-radius: 1px;
+            background: var(--cpd-color-border-interactive-secondary);
         }
 
         .mx_SpaceButton_narrow {
-            margin-inline-start: 8px;
+            margin-inline-start: var(--mx-desktop-rail-inset);
             padding-block: 4px;
-            min-width: 48px;
+            min-width: var(--mx-desktop-rail-icon);
 
             .mx_SpaceButton_selectionWrapper {
-                width: 40px;
+                width: var(--mx-desktop-rail-icon);
                 padding: 0;
                 border: 0;
-                border-radius: 12px;
+                border-radius: 50%;
+                transition: border-radius 150ms ease-out;
+
+                &::before {
+                    content: "";
+                    position: absolute;
+                    inset-inline-start: calc(-1 * var(--mx-desktop-rail-inset));
+                    width: 4px;
+                    height: 0;
+                    border-radius: 0 4px 4px 0;
+                    background: var(--cpd-color-text-primary);
+                    transition: height 150ms ease-out;
+                }
+            }
+
+            &:not(:hover, :focus-visible):has(.mx_SpacePanel_badgeContainer [data-badge-type])
+                .mx_SpaceButton_selectionWrapper::before {
+                height: 8px;
+            }
+
+            &:is(:hover, :focus-visible) .mx_SpaceButton_selectionWrapper {
+                border-radius: 16px;
+
+                &::before {
+                    height: 20px;
+                }
             }
 
             &.mx_SpaceButton_active .mx_SpaceButton_selectionWrapper {
                 border: 0;
                 padding: 0;
+                border-radius: 16px;
                 background: var(--cpd-color-bg-accent-rest);
 
                 &::before {
-                    content: "";
-                    position: absolute;
-                    inset-inline-start: -12px;
-                    height: 32px;
-                    width: 4px;
-                    border-radius: 0 4px 4px 0;
-                    background: var(--cpd-color-text-primary);
+                    height: 40px;
                 }
             }
 
@@ -319,16 +357,22 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
             }
 
             .mx_SpaceButton_icon {
-                width: 24px;
-                height: 24px;
-                padding: 8px;
-                border-radius: 12px;
+                width: 28px;
+                height: 28px;
+                padding: 10px;
+                border-radius: inherit;
+                background-color: var(--cpd-color-bg-subtle-primary);
+                transition: background-color 150ms ease-out;
+            }
+
+            &.mx_SpaceButton_active .mx_SpaceButton_icon {
+                background-color: transparent;
             }
 
             /* The Aether mark is twice as wide as it is tall, so it may use the icon's padding to read clearly. */
             .mx_SpaceButton_icon svg.mx_DesktopShell_homeSymbol {
-                width: 30px;
-                margin-inline: -3px;
+                width: 36px;
+                margin-inline: -4px;
                 color: var(--cpd-color-text-primary);
             }
 
@@ -338,9 +382,45 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
 
             .mx_BaseAvatar,
             .mx_BaseAvatar_image {
-                width: 40px;
-                height: 40px;
-                border-radius: 12px;
+                --cpd-avatar-size: var(--mx-desktop-rail-icon);
+
+                width: var(--mx-desktop-rail-icon);
+                height: var(--mx-desktop-rail-icon);
+                border-radius: inherit;
+            }
+
+            .mx_SpaceButton_avatarWrapper,
+            .mx_SpaceButton_avatarPlaceholder {
+                border-radius: inherit;
+            }
+
+            /* The pill marks unread servers, so only counts and mentions keep a badge, at the bottom right. */
+            .mx_SpacePanel_badgeContainer {
+                inset: auto -4px -4px auto;
+
+                [data-badge-type="dot"] {
+                    display: none;
+                }
+            }
+        }
+
+        /* Creating a server is an accent "+" that fills on hover, as in Discord. */
+        .mx_SpaceButton_new.mx_SpaceButton_narrow {
+            .mx_SpaceButton_icon svg {
+                color: var(--cpd-color-icon-accent-primary);
+            }
+
+            &:is(:hover, :focus-visible) .mx_SpaceButton_icon {
+                background-color: var(--cpd-color-bg-accent-rest);
+
+                svg {
+                    color: var(--cpd-color-icon-on-solid-primary);
+                }
+            }
+
+            /* The pill only marks servers. */
+            .mx_SpaceButton_selectionWrapper::before {
+                display: none;
             }
         }
     }

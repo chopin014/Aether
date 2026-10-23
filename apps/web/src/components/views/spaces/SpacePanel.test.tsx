@@ -163,6 +163,10 @@ describe("<SpacePanel />", () => {
                 .getAttribute("aria-label"),
         );
         expect(metaSpaceLabels).toEqual(["Home", "Other rooms", "Conferences"]);
+        // Meta spaces are marked so the desktop shell can divide them from the user's Spaces
+        expect(spaceButtons.every((li) => li.classList.contains("mx_SpaceItem_meta"))).toBe(true);
+        const createSpace = within(tree).getByRole("button", { name: "Create a space" }).closest("li");
+        expect(createSpace).not.toHaveClass("mx_SpaceItem_meta");
 
         spySettingsStore.mockRestore();
     });
