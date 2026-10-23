@@ -15,7 +15,7 @@ import {
     KnownMembership,
     Room,
     RoomEvent,
-    RoomMemberEvent,
+    RoomStateEvent,
     PendingEventOrdering,
     RoomMember,
 } from "matrix-js-sdk/src/matrix";
@@ -34,6 +34,8 @@ import { Action } from "../../dispatcher/actions";
 import { CallStore } from "../../stores/CallStore";
 import { CallEvent, type Call } from "../../models/Call";
 import { RoomListItemViewModel } from "./RoomListItemViewModel";
+import { MatrixClientPeg } from "../../MatrixClientPeg";
+import { mediaFromMxc } from "../../customisations/Media";
 import RoomListStoreV3 from "../../stores/room-list-v3/RoomListStoreV3";
 import * as tagRoomModule from "../../utils/room/tagRoom";
 import { CHATS_TAG } from "../../stores/room-list-v3/section";
@@ -115,6 +117,7 @@ describe("RoomListItemViewModel", () => {
             callType: CallType.Voice,
         });
         vi.mocked(CallStore.instance.getCall).mockReturnValue(call as unknown as Call);
+        const profileListeners = room.listeners(RoomStateEvent.Members);
         viewModel = new RoomListItemViewModel({ room, client: matrixClient });
         expect(viewModel.getSnapshot().callParticipants).toEqual([
             { userId: alice.userId, name: "Alice", avatarUrl: undefined },
@@ -126,8 +129,14 @@ describe("RoomListItemViewModel", () => {
         call.emit(CallEvent.Participants, call.participants);
         expect(viewModel.getSnapshot().callParticipants?.map((member) => member.name)).toEqual(["Bob"]);
         bob.name = "Robert";
-        matrixClient.emit(RoomMemberEvent.Name, undefined as unknown as MatrixEvent, bob);
+        room.emit(RoomStateEvent.Members, undefined as unknown as MatrixEvent, room.currentState, bob);
         expect(viewModel.getSnapshot().callParticipants?.[0].name).toBe("Robert");
+        vi.spyOn(MatrixClientPeg, "safeGet").mockReturnValue(matrixClient);
+        vi.spyOn(bob, "getMxcAvatarUrl").mockReturnValue("mxc://example.org/new-avatar");
+        room.emit(RoomStateEvent.Members, undefined as unknown as MatrixEvent, room.currentState, bob);
+        expect(viewModel.getSnapshot().callParticipants?.[0].avatarUrl).toBe(
+            mediaFromMxc("mxc://example.org/new-avatar").getThumbnailOfSourceHttp(48, 48, "crop"),
+        );
         vi.spyOn(room, "getMember").mockReturnValue(bob);
         const dispatch = vi.spyOn(dispatcher, "dispatch");
         viewModel.onViewCallParticipant(bob.userId);
@@ -137,6 +146,7 @@ describe("RoomListItemViewModel", () => {
         expect(viewModel.getSnapshot().callParticipants).toEqual([]);
         viewModel.dispose();
         expect(call.listenerCount(CallEvent.Participants)).toBe(0);
+        expect(room.listeners(RoomStateEvent.Members)).toEqual(profileListeners);
     });
 
     describe("Initialization", () => {
