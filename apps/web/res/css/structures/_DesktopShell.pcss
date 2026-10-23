@@ -441,6 +441,8 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
     }
 
     .mx_MessageComposer {
+        /* The room view's 100% width plus these margins pushed the composer past the window's edge. */
+        width: auto;
         margin: 0 16px 8px;
 
         .mx_MessageComposer_wrapper {
