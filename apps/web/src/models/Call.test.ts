@@ -1313,6 +1313,28 @@ describe("ElementCall with the React component embedding", () => {
             expect(call.voiceStates.get(alice.userId)?.deafened).toBe(true);
         });
 
+        it("shows our own deafen at once, whatever the call reports", () => {
+            vi.stubGlobal("controls", { setAudioEnabled: vi.fn() });
+            const ownUserId = client.getUserId()!;
+            const own = { userId: ownUserId, muted: false, deafened: false };
+            const bob = { userId: "@bob:example.org", muted: true, deafened: false };
+            try {
+                call.handleVoiceStates([bob, own]);
+                call.setAudioOutputEnabled(false);
+                expect(call.voiceStates.get(ownUserId)).toEqual({ ...own, muted: true, deafened: true });
+                expect(call.voiceStates.get(bob.userId)).toEqual(bob);
+
+                // A later report from the call keeps our own deafen
+                call.handleVoiceStates([{ ...bob, muted: false }, own]);
+                expect(call.voiceStates.get(ownUserId)?.deafened).toBe(true);
+
+                call.setAudioOutputEnabled(true);
+                expect(call.voiceStates.get(ownUserId)).toEqual(own);
+            } finally {
+                vi.unstubAllGlobals();
+            }
+        });
+
         it.each(["unmount", "close"])("forgets voice states on %s", (reason) => {
             call.setComponentHandle({} as ElementCallHandle);
             call.handleVoiceStates([alice]);

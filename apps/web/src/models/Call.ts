@@ -1269,8 +1269,14 @@ export class ElementCall extends Call {
         if (!controls) throw new Error("Element Call audio output is not ready");
         controls.setAudioEnabled(enabled);
         this.componentHandle?.setDeafened(!enabled).catch((error) => logger.warn("Could not announce deafen", error));
+        this.localDeafened = !enabled;
+        this.handleVoiceStates(this.reportedVoiceStates);
     };
 
+    /** Whether this device has silenced the call, which it knows without waiting for the call to report it. */
+    private localDeafened = false;
+    /** The voice states as Element Call last reported them, before our own deafen is applied. */
+    private reportedVoiceStates: readonly VoiceState[] = [];
     private _voiceStates: ReadonlyMap<string, VoiceState> = NO_VOICE_STATES;
 
     public get voiceStates(): ReadonlyMap<string, VoiceState> {
@@ -1278,7 +1284,14 @@ export class ElementCall extends Call {
     }
 
     /** Element Call reports who is muted or deafened (`HostBridge.notifyVoiceStates`). */
-    public handleVoiceStates(states: readonly VoiceState[]): void {
+    public handleVoiceStates(reported: readonly VoiceState[]): void {
+        this.reportedVoiceStates = reported;
+        // Our own deafen reaches others through the call, which may not be able to announce it, so our own row
+        // follows this device directly.
+        const ownUserId = this.client.getUserId();
+        const states = this.localDeafened
+            ? reported.map((state) => (state.userId === ownUserId ? { ...state, muted: true, deafened: true } : state))
+            : reported;
         const previous = this._voiceStates;
         if (
             states.length === previous.size &&
