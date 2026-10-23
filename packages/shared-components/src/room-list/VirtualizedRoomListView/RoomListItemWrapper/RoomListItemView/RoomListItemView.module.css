@@ -46,8 +46,9 @@
     width: 100%;
 }
 
+/* The end padding matches the channel row's margin, so status icons line up with the channel's own icons. */
 .callParticipants {
-    padding: 0 var(--cpd-space-2x) var(--cpd-space-1x) var(--cpd-space-9x);
+    padding: 0 var(--mx-desktop-room-margin, var(--cpd-space-3x)) var(--cpd-space-1x) var(--cpd-space-9x);
 }
 
 .callParticipant {
@@ -56,7 +57,7 @@
     gap: var(--cpd-space-2x);
     width: 100%;
     height: var(--cpd-space-8x);
-    padding: 0 var(--cpd-space-1x);
+    padding: 0 var(--cpd-space-2x) 0 var(--cpd-space-1x);
     border: 0;
     border-radius: var(--cpd-space-1x);
     background: transparent;
@@ -80,11 +81,16 @@
     }
 }
 
-/* A muted microphone or deafened participant, matching the dock's muted controls. */
+/*
+ * A muted microphone or deafened participant. Grey, because red suggests a moderator did it, as in Discord. The
+ * slot is as wide as the channel row's 20px icons so their centres line up.
+ */
 .participantVoiceStatus {
     display: inline-flex;
     flex: none;
-    color: var(--cpd-color-icon-critical-primary);
+    justify-content: center;
+    width: var(--cpd-space-5x);
+    color: var(--cpd-color-icon-tertiary);
 
     svg {
         width: var(--cpd-space-4x);
