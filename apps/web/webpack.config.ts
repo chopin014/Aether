@@ -225,6 +225,17 @@ export default (env: string, argv: Record<string, any>): webpack.Configuration =
 
                 // Make shared-components imports resolve to EW deps
                 "@vector-im/compound-web": getPackageRoot("@vector-im/compound-web", ""),
+
+                // Resolve exported audio assets before Webpack handles their ?url resource query.
+                "@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js": fileURLToPath(
+                    import.meta.resolve("@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js"),
+                ),
+                "@sapphi-red/web-noise-suppressor/rnnoise.wasm": fileURLToPath(
+                    import.meta.resolve("@sapphi-red/web-noise-suppressor/rnnoise.wasm"),
+                ),
+                "@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm": fileURLToPath(
+                    import.meta.resolve("@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm"),
+                ),
             },
             fallback: {
                 // Mock out the NodeFS module: The opus decoder imports this wrongly.
@@ -266,6 +277,12 @@ export default (env: string, argv: Record<string, any>): webpack.Configuration =
                 /highlight\.js[\\/]lib[\\/]languages/,
             ],
             rules: [
+                {
+                    // AudioWorklet modules and WASM must be served as files, without evaluating them in the page.
+                    resourceQuery: /^\?url$/,
+                    type: "asset/resource",
+                    generator: { filename: "bundles/[fullhash]/[name].[contenthash][ext]" },
+                },
                 {
                     // The Element Call component bundles MediaPipe (background blur), whose WASM loader has an
                     // `import(url)` fallback for module workers whose `importScripts` refuses to run. Webpack
@@ -420,6 +437,15 @@ export default (env: string, argv: Record<string, any>): webpack.Configuration =
                         name: "opus-encoderWorker.min.[hash:7].[ext]",
                         outputPath: ".",
                     },
+                },
+                {
+                    test: /VoiceGateWorklet\.ts$/,
+                    resourceQuery: /^\?worker&url$/,
+                    type: "javascript/auto",
+                    use: [
+                        { loader: path.join(__dirname, "src/audio/voice-gate-worklet-loader.cjs") },
+                        { loader: "babel-loader" },
+                    ],
                 },
                 {
                     // Ideally we should use the built-in worklet support in Webpack 5 with the syntax

@@ -1,0 +1,72 @@
+# Copyright 2026 Gabriel. SPDX-License-Identifier: AGPL-3.0-only
+name: Aether validation
+on:
+    pull_request:
+        branches: [main]
+    push:
+        branches: [main]
+    workflow_dispatch:
+permissions:
+    contents: read
+concurrency:
+    group: aether-validation-${{ github.ref }}
+    cancel-in-progress: true
+env:
+    NX_DAEMON: "false"
+jobs:
+    lint:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+            - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+              with:
+                  node-version-file: apps/desktop/.node-version
+                  install: false
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm lint
+    desktop-and-audio-tests:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+            - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+              with:
+                  node-version-file: apps/desktop/.node-version
+                  install: false
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm exec playwright install --with-deps chromium
+            - run: pnpm exec nx run-many -t test:unit:prepare -p
+            - name: App unit tests
+              working-directory: apps/web
+              run: >-
+                  pnpm exec vitest run --project unit --maxWorkers 2
+                  src/audio
+                  src/viewmodels/desktop
+                  src/vector/platform/ElectronPlatform.test.ts
+                  src/models/MatrixRTCLegacyKeys.test.ts
+                  src/models/Call.test.ts
+                  src/viewmodels/room-list/RoomListItemViewModel.test.ts
+                  src/viewmodels/settings/MicrophoneSettingsViewModel.test.ts
+                  src/components/views/voip/ElementCall
+                  src/components/views/voip/ElementWebHostBridge.test.ts
+            - name: Component tests in Chromium
+              working-directory: packages/shared-components
+              run: >-
+                  pnpm exec vitest run --project unit
+                  src/desktop
+                  src/room/timeline/event-tile/EventTileView
+                  src/room-list/VirtualizedRoomListView/RoomListItemWrapper/RoomListItemView
+                  src/settings/MicrophoneSettingsView
+            - name: Audio processing in Chromium
+              working-directory: apps/web
+              shell: bash
+              run: |
+                  if test -f src/audio/NoiseSuppressionProcessor.test.browser.ts; then
+                      # Concurrent real-time audio graphs can drop samples on small CI runners.
+                      pnpm exec vitest run --project browser --maxWorkers 1 src/audio
+                  fi

@@ -296,6 +296,10 @@ export interface Settings {
     "webrtc_audio_autoGainControl": IBaseSetting<boolean>;
     "webrtc_audio_echoCancellation": IBaseSetting<boolean>;
     "webrtc_audio_noiseSuppression": IBaseSetting<boolean>;
+    "webrtc_audio_inputVolume": IBaseSetting<number>;
+    "webrtc_audio_microphoneTestVolume": IBaseSetting<number>;
+    "webrtc_audio_automaticSensitivity": IBaseSetting<boolean>;
+    "webrtc_audio_sensitivity": IBaseSetting<number>;
     "language": IBaseSetting<string>;
     "breadcrumb_rooms": IBaseSetting<string[]>;
     "recent_emoji": IBaseSetting<RecentEmojiData>;
@@ -392,7 +396,8 @@ export type BooleanSettingKey = Assignable<Settings, IBaseSetting<boolean>> | Fe
 export type NullableBooleanSettingKey = Assignable<Settings, IBaseSetting<boolean | null>> | FeatureSettingKey;
 export type StringSettingKey = Assignable<Settings, IBaseSetting<string>>;
 
-export const SETTINGS: Settings = {
+// Browser tests do not load the unit-test augmentation that declares this test-only key.
+export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
     // Used in tests only
     "test_setting": {
         supportedLevels: [],
@@ -1058,6 +1063,22 @@ export const SETTINGS: Settings = {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
         displayName: _td("settings|voip|noise_suppression"),
         default: true,
+    },
+    "webrtc_audio_inputVolume": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: 100,
+    },
+    "webrtc_audio_microphoneTestVolume": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: 50,
+    },
+    "webrtc_audio_automaticSensitivity": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: true,
+    },
+    "webrtc_audio_sensitivity": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: -50,
     },
     "language": {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS_WITH_CONFIG,

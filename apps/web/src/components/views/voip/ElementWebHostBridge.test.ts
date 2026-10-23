@@ -15,6 +15,7 @@ import { type Call, type ElementCall } from "../../../models/Call";
 import { type ElementCallHostBridge } from "@element-hq/element-call-component/api";
 import { logger } from "matrix-js-sdk/src/logger";
 import { ElementWebHostBridge } from "./ElementWebHostBridge";
+import { NoiseSuppressionProcessor } from "../../../audio/NoiseSuppressionProcessor";
 
 describe("ElementWebHostBridge", () => {
     const widgetId = "widget1";
@@ -26,6 +27,7 @@ describe("ElementWebHostBridge", () => {
         handleHangup: ReturnType<typeof vi.fn>;
         handleClose: ReturnType<typeof vi.fn>;
         handleDeviceMute: ReturnType<typeof vi.fn>;
+        handleSpeakingUsers: ReturnType<typeof vi.fn>;
     };
     let setWidgetPersistence: ReturnType<typeof vi.spyOn>;
     let bridge: ElementWebHostBridge;
@@ -38,6 +40,7 @@ describe("ElementWebHostBridge", () => {
             handleHangup: vi.fn(),
             handleClose: vi.fn(),
             handleDeviceMute: vi.fn(),
+            handleSpeakingUsers: vi.fn(),
         };
         setWidgetPersistence = vi
             .spyOn(ActiveWidgetStore.instance, "setWidgetPersistence")
@@ -47,6 +50,20 @@ describe("ElementWebHostBridge", () => {
 
     afterEach(() => {
         vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+    });
+
+    it("creates a separate microphone processor for each publishing connection", () => {
+        vi.stubGlobal("AudioWorkletNode", class {});
+        vi.stubGlobal("AudioContext", class {});
+        const processor = bridge.createMicrophoneProcessor();
+        expect(processor).toBeInstanceOf(NoiseSuppressionProcessor);
+        expect(bridge.createMicrophoneProcessor()).not.toBe(processor);
+    });
+
+    it("keeps standard capture when audio worklets are unavailable", () => {
+        vi.stubGlobal("AudioWorkletNode", undefined);
+        expect(bridge.createMicrophoneProcessor()).toBeUndefined();
     });
 
     it("forwards what Element Call tells the host to the call model", async () => {
@@ -58,6 +75,10 @@ describe("ElementWebHostBridge", () => {
         expect(call.handleHangup).toHaveBeenCalled();
         await bridge.notifyDeviceMute({ audio_enabled: false, video_enabled: true });
         expect(call.handleDeviceMute).toHaveBeenCalledWith({ audio_enabled: false, video_enabled: true });
+        await bridge.notifySpeakingUsers(["@alice:example.org", "@bob:example.org"]);
+        expect(call.handleSpeakingUsers).toHaveBeenCalledWith(["@alice:example.org", "@bob:example.org"]);
+        await bridge.notifySpeakingUsers([]);
+        expect(call.handleSpeakingUsers).toHaveBeenLastCalledWith([]);
         await bridge.close();
         expect(call.handleClose).toHaveBeenCalled();
     });

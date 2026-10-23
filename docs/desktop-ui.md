@@ -91,10 +91,53 @@ This is a development build, not a signed release. Branding, app identity, updat
 
 ## Aether voice additions
 
+Embedded Element Call microphone audio uses RNNoise speech filtering when **Settings → Voice & Video →
+Noise suppression** is enabled (the default). The same switch bypasses the filter during an ongoing call.
+The existing browser echo cancellation setting remains independent. Processing runs locally in a 48 kHz
+AudioWorklet before LiveKit encodes and encrypts the microphone; it never requests a second microphone,
+plays the microphone through the speakers, or filters screen-share audio. Device changes rebuild the
+processor, and leaving the call releases its worklet, output track and audio context. Initialization or
+worklet failures fall back to standard browser noise suppression.
+
+REA inspection of Discord 1.0.166's installed `discord_voice/index.js` identified the separate
+`discord_krisp` module and its `VoiceEngine.setKrispPath` integration. Discord documents this engine in
+its [Krisp FAQ](https://support.discord.com/hc/en-us/articles/360040843952-Krisp-FAQ).
+Aether uses the open-source [RNNoise Web Audio implementation](https://github.com/sapphi-red/web-noise-suppressor)
+for the same background-noise use case. This does not establish equivalent filtering quality or isolation
+of other people's voices. Disable noise suppression for music. The iframe and legacy call paths retain
+their existing browser processing.
+
+The browser regression measures at least 12 dB of attenuation on generated fan-like noise and checks
+that disabling suppression restores the signal. The model provides little reduction for the tested
+repeating, full-band white-noise signal; fan-noise results must not be read as a guarantee for all sounds.
+The dependency patch adds a readiness handshake, so failed or stalled model initialization can fall back
+before a silent processed track is published.
+
+With embedded Element Call enabled, **Settings → Voice & Video → Microphone settings** includes input
+gain (0–200%), automatic voice detection, and a manual threshold (-100–0 dB). Voice activation gates
+the outgoing microphone on the audio thread, with a short hold to preserve pauses between syllables.
+These controls also apply when RNNoise is disabled. The iframe and legacy call paths retain their
+existing controls.
+
+**Mic test** plays the processed microphone locally through the selected output, shows the input
+level and detection threshold, and has an independent test playback volume. Use headphones to avoid
+feedback. Starting a test requests microphone access; stopping it, closing settings, leaving the page,
+or disconnecting the microphone releases the preview. Changing input devices or browser processing
+settings restarts an active test. Device choices, gain, sensitivity and test playback volume are saved
+on this device.
+
 Voice-channel participants now appear directly below their channel: 24px round avatars, 32px rows,
 40px avatar indentation from the channel sidebar edge, 8px avatar/name spacing and a subtle hover state.
 The dimensions follow the captured Discord voice sidebar at its CSS scale. The real MatrixRTC user list
 updates on join, leave and profile changes; multiple devices appear once. A profile row does not join the call.
-No speaking rings or remote mute badges are fabricated from room membership state.
+While joined to a voice channel, a green ring and soft pulse follow each user's real, unmuted
+microphone activity, including the local user. The main call avatars use that same signal in grid,
+one-to-one and spotlight layouts. Multiple devices are combined into one sidebar speaking indicator.
+The embedded Element Call bridge supplies this signal. The pinned dependency patch measures the existing
+microphone tracks every 40ms, with a short release hold, so the sidebar does not wait for server speaker
+updates. It reuses the call's tracks and falls back to its existing speech detection when Web Audio is
+unavailable, without recording audio or publishing activity as Matrix room state. Activity clears
+on mute, leave or disconnect. Reduced-motion users see a steady ring. Before joining, membership alone
+does not reveal who is speaking, so no speaking rings or remote mute badges are fabricated.
 Original Aether sound cues accompany successful microphone/deafen controls and real call connection changes.
 Voice settings include a device-level switch for the cues. See [packaging and release work](aether-releases.md).

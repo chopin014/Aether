@@ -121,3 +121,5 @@ export * from "./desktop/DesktopContactsView";
 export * from "./desktop/DesktopVoiceControlsView";
 
 export * from "./desktop/DesktopTitlebarView";
+
+export * from "./settings/MicrophoneSettingsView";

@@ -341,3 +341,40 @@ export const DesktopVoiceParticipants: Story = {
         onViewCallParticipant: fn(),
     },
 };
+
+/** A participant who is talking gets an activity ring and soft pulse around their avatar. */
+export const DesktopVoiceParticipantSpeaking: Story = {
+    args: {
+        channelKind: "voice",
+        callParticipants: [
+            { userId: "@alice:example.org", name: "Alice", isSpeaking: true },
+            { userId: "@bob:example.org", name: "Bob" },
+        ],
+        onViewCallParticipant: fn(),
+    },
+};
+
+/** Nobody in the call is talking, so no avatar has a ring. */
+export const DesktopVoiceParticipantsSilent: Story = {
+    args: {
+        channelKind: "voice",
+        callParticipants: [
+            { userId: "@alice:example.org", name: "Alice", isSpeaking: false },
+            { userId: "@bob:example.org", name: "Bob", isSpeaking: false },
+        ],
+        onViewCallParticipant: fn(),
+    },
+};
+
+/** Several participants talking over each other each show their own ring. */
+export const DesktopVoiceParticipantsMultipleSpeaking: Story = {
+    args: {
+        channelKind: "voice",
+        callParticipants: [
+            { userId: "@alice:example.org", name: "Alice", isSpeaking: true },
+            { userId: "@bob:example.org", name: "Bob" },
+            { userId: "@charlie:example.org", name: "Charlie", isSpeaking: true },
+        ],
+        onViewCallParticipant: fn(),
+    },
+};

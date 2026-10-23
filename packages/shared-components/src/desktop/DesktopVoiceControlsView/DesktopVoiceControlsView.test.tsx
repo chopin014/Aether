@@ -38,15 +38,15 @@ describe("DesktopVoiceControlsView", () => {
     it("calls the actual microphone and deafen actions", async () => {
         const vm = makeVm();
         render(<DesktopVoiceControlsView vm={vm} />);
-        await userEvent.click(screen.getByRole("button", { name: "Mute", exact: true }));
+        await userEvent.click(screen.getByRole("button", { name: "Mute" }));
         expect(vm.toggleMicrophone).toHaveBeenCalledOnce();
-        await userEvent.click(screen.getByRole("button", { name: "Deafen", exact: true }));
+        await userEvent.click(screen.getByRole("button", { name: "Deafen" }));
         expect(vm.toggleDeafened).toHaveBeenCalledOnce();
     });
     it("shows current device state and prevents overlapping device changes", () => {
         render(<DesktopVoiceControlsView vm={makeVm({ microphoneMuted: true, deafened: true, busy: true })} />);
-        expect(screen.getByRole("button", { name: "Unmute", exact: true })).toHaveAttribute("aria-pressed", "true");
-        expect(screen.getByRole("button", { name: "Undeafen", exact: true })).toBeDisabled();
+        expect(screen.getByRole("button", { name: "Unmute" })).toHaveAttribute("aria-pressed", "true");
+        expect(screen.getByRole("button", { name: "Undeafen" })).toBeDisabled();
     });
     it("shows only an actual connected call and keeps navigation, settings and hang-up available", async () => {
         const vm = makeVm({ roomName: "Lounge" });

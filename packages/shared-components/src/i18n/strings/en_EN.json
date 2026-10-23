@@ -92,6 +92,7 @@
             "deafen": "Deafen",
             "disconnect": "Disconnect",
             "mute": "Mute",
+            "participant_speaking": "%(name)s (speaking)",
             "participants": "People in %(roomName)s",
             "undeafen": "Undeafen",
             "unmute": "Unmute"
@@ -306,6 +307,35 @@
             "space_settings": "Space settings"
         },
         "unread_messages": "Unread messages"
+    },
+    "settings": {
+        "microphone": {
+            "automatic_help": "Adjust the voice detection threshold automatically to match your microphone and surroundings.",
+            "automatic_sensitivity": "Automatically determine input sensitivity",
+            "below_threshold": "Below the sensitivity threshold",
+            "decibels": "%(db)s dB",
+            "idle_status": "Start a mic test to check your level.",
+            "inactive": "Inactive",
+            "input_device": "Input device",
+            "input_sensitivity": "Input sensitivity",
+            "input_volume": "Input volume",
+            "manual_help": "Move left for more sensitivity. Move right to pick up fewer quiet sounds.",
+            "manual_sensitivity": "Manual sensitivity",
+            "mic_test": "Mic test",
+            "microphone_level": "Microphone level",
+            "percent": "%(volume)s%(percent)s",
+            "starting": "Starting…",
+            "starting_status": "Waiting for microphone access…",
+            "stop_test": "Stop test",
+            "system_default": "System default",
+            "system_output_hint": "The mic test uses your system output device.",
+            "test_help": "Play back your processed microphone audio to hear how you sound. Use headphones to avoid feedback. The test starts only when you select Mic test.",
+            "test_output_device": "Test output device",
+            "test_playback_volume": "Test playback volume",
+            "threshold": "Threshold: %(db)s dB",
+            "title": "Microphone settings",
+            "voice_detected": "Voice detected"
+        }
     },
     "status": {
         "set_status": {

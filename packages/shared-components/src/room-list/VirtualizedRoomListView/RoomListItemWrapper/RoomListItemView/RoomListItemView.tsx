@@ -90,8 +90,11 @@ export interface RoomListItemViewSnapshot {
     isDm: boolean;
     /** Desktop channel symbol; direct messages retain their profile avatars. */
     channelKind?: "text" | "voice";
-    /** Distinct users with live MatrixRTC memberships, visible before joining a voice room. */
-    callParticipants?: { userId: string; name: string; avatarUrl?: string }[];
+    /**
+     * Distinct users with live MatrixRTC memberships, visible before joining a voice room.
+     * `isSpeaking` draws an activity ring around the participant's avatar while they talk.
+     */
+    callParticipants?: { userId: string; name: string; avatarUrl?: string; isSpeaking?: boolean }[];
     /** Can invite other users in the room */
     canInvite: boolean;
     /** Can copy the room link */
@@ -276,15 +279,28 @@ export const RoomListItemView = memo(function RoomListItemView({
                         className={styles.callParticipant}
                         onClick={() => vm.onViewCallParticipant?.(participant.userId)}
                         title={participant.name}
-                        aria-label={participant.name}
+                        // Speaking state is folded into the name rather than announced through a live
+                        // region, so screen readers only hear it when the participant is focused.
+                        aria-label={
+                            participant.isSpeaking
+                                ? _t("desktop|voice|participant_speaking", { name: participant.name })
+                                : participant.name
+                        }
+                        data-speaking={participant.isSpeaking || undefined}
                     >
-                        <Avatar
-                            id={participant.userId}
-                            name={participant.name}
-                            src={participant.avatarUrl}
-                            size="24px"
-                            type="round"
-                        />
+                        <span
+                            className={classNames(styles.participantAvatar, {
+                                [styles.speaking]: participant.isSpeaking,
+                            })}
+                        >
+                            <Avatar
+                                id={participant.userId}
+                                name={participant.name}
+                                src={participant.avatarUrl}
+                                size="24px"
+                                type="round"
+                            />
+                        </span>
                         <span>{participant.name}</span>
                     </button>
                 ))}

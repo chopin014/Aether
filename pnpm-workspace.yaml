@@ -108,6 +108,10 @@ allowBuilds:
     pkcs11js: false
 
 patchedDependencies:
+    # Wait for RNNoise WASM initialization and recover from worklet startup failures.
+    "@sapphi-red/web-noise-suppressor@0.4.1": patches/@sapphi-red__web-noise-suppressor.patch
+    # Expose speaking activity and allow microphone noise suppression before publishing.
+    "@element-hq/element-call-component@0.0.0": patches/@element-hq__element-call-component.patch
     # Workaround for missing types export
     "@vector-im/matrix-wysiwyg": patches/@vector-im__matrix-wysiwyg.patch
     # Workaround for lack of React 19 support

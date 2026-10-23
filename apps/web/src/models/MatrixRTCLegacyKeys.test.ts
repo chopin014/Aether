@@ -40,10 +40,11 @@ describe("MatrixRTC keys from existing Element Call clients", () => {
 
     function setup(memberships: CallMembership[]) {
         const onKey = vi.fn();
-        const transport: IKeyTransport = Object.assign(
-            new TypedEventEmitter<KeyTransportEvents, KeyTransportEventsHandlerMap>(),
-            { start: vi.fn(), stop: vi.fn(), sendKey: vi.fn(async () => {}) },
-        );
+        const transport = Object.assign(new TypedEventEmitter<KeyTransportEvents, KeyTransportEventsHandlerMap>(), {
+            start: vi.fn(),
+            stop: vi.fn(),
+            sendKey: vi.fn(async () => {}),
+        }) satisfies IKeyTransport;
         const manager = new RTCEncryptionManager(
             { userId: "@alice:example.org", deviceId: "ALICE", memberId: "alice-session" },
             () => memberships,
