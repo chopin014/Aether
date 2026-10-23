@@ -275,6 +275,15 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         min-width: 0;
     }
 
+    /* Compound's image has its own size; keep it inside the resized desktop avatar frame. */
+    .mx_SpacePanel .mx_SpaceButton_narrow .mx_BaseAvatar > img,
+    .mx_RoomHeader .mx_BaseAvatar > img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        border-radius: inherit;
+    }
+
     /*
      * The server rail, after Discord's: 48px icons in a 72px rail, circles that round into squares when hovered or
      * selected, and a pill at the rail's edge for unread (8px), hover (20px) and selected (40px).
@@ -380,8 +389,7 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
                 color: var(--cpd-color-icon-on-solid-primary);
             }
 
-            .mx_BaseAvatar,
-            .mx_BaseAvatar_image {
+            .mx_BaseAvatar {
                 --cpd-avatar-size: var(--mx-desktop-rail-icon);
 
                 width: var(--mx-desktop-rail-icon);
@@ -471,8 +479,7 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
             color: var(--cpd-color-text-secondary);
         }
 
-        .mx_BaseAvatar,
-        .mx_BaseAvatar_image {
+        .mx_BaseAvatar {
             width: 28px;
             height: 28px;
         }
