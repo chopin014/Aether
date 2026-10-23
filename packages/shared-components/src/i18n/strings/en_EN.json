@@ -296,6 +296,8 @@
             "label": "Section name"
         },
         "section_header": {
+            "create_text_channel": "Create text channel",
+            "create_voice_channel": "Create voice channel",
             "edit_section": "Edit section",
             "more_options": "More options",
             "remove_section": "Remove section",

@@ -132,6 +132,12 @@
     display: none;
 }
 
+/* The desktop category's "+" stays visible, as in Discord, at the end of the header. */
+.createChannel {
+    flex: none;
+    margin-inline-start: auto;
+}
+
 .dragging {
     outline: 1px solid var(--cpd-color-border-interactive-hovered);
     background-color: color-mix(in srgb, var(--cpd-color-bg-action-tertiary-hovered) 95%, transparent);

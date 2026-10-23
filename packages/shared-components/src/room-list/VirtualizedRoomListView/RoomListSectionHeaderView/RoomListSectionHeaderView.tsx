@@ -50,6 +50,8 @@ export interface RoomListSectionHeaderViewSnapshot {
      * room decides rather than a drop.
      */
     acceptedRoomKind: AcceptedRoomKind;
+    /** The kind of channel this desktop category creates from its header; absent when it creates none. */
+    createChannelKind?: "text" | "voice";
 }
 
 /**
@@ -62,6 +64,8 @@ export interface RoomListSectionHeaderActions {
     editSection: () => void;
     /** Handler invoked when the remove section button is clicked  */
     removeSection: () => void;
+    /** Create a channel of the category's kind in the current Space. */
+    createChannel?: () => void;
 }
 
 /**
