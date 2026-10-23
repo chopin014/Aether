@@ -231,6 +231,15 @@ export class RoomListItemViewModel
         };
     }
 
+    /** When the earliest membership still in the room's call was created, so the channel can show how long it has been in use. */
+    private static callStartedAt(room: Room, client: MatrixClient): number | undefined {
+        const joined = client.matrixRTC
+            .getRoomSession(room)
+            .memberships.map((membership) => membership.createdTs())
+            .filter((ts) => ts > 0);
+        return joined.length ? Math.min(...joined) : undefined;
+    }
+
     /**
      * Listen to participant changes for the current call in this room (if any) to trigger updates when participants join/leave the call.
      */
@@ -474,6 +483,7 @@ export class RoomListItemViewModel
             isDm,
             channelKind,
             callParticipants,
+            callStartedAt: callParticipants?.length ? RoomListItemViewModel.callStartedAt(room, client) : undefined,
             canInvite,
             canCopyRoomLink,
             canMarkAsRead,

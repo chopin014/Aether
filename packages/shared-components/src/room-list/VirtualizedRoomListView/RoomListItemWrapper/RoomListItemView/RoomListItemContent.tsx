@@ -8,7 +8,7 @@
 import React, { type JSX, memo, type ReactNode } from "react";
 import { Text, Tooltip } from "@vector-im/compound-web";
 import classNames from "classnames";
-import { RoomIcon, VolumeOnIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
+import { RoomIcon, VolumeOnIcon, VolumeOnSolidIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { Flex } from "../../../../core/utils/Flex";
 import { useViewModel } from "../../../../core/viewmodel";
@@ -16,6 +16,7 @@ import { NotificationDecoration } from "./NotificationDecoration";
 import { RoomListItemHoverMenu } from "./RoomListItemHoverMenu";
 import { type Room, type RoomListItemViewModel } from "./RoomListItemView";
 import styles from "./RoomListItemView.module.css";
+import { VoiceChannelDuration } from "./VoiceChannelDuration";
 
 /**
  * Props for {@link RoomListItemContent}.
@@ -40,6 +41,8 @@ export const RoomListItemContent = memo(function RoomListItemContent({
     isDragging = false,
 }: RoomListItemContentProps): JSX.Element {
     const item = useViewModel(vm);
+    // An occupied voice channel stands out from empty ones, and shows how long it has been occupied.
+    const occupied = item.channelKind === "voice" && !!item.callParticipants?.length;
 
     return (
         <Flex
@@ -51,7 +54,9 @@ export const RoomListItemContent = memo(function RoomListItemContent({
             align="center"
         >
             {item.channelKind ? (
-                item.channelKind === "voice" ? (
+                occupied ? (
+                    <VolumeOnSolidIcon className={classNames(styles.channelIcon, styles.occupied)} aria-hidden />
+                ) : item.channelKind === "voice" ? (
                     <VolumeOnIcon className={styles.channelIcon} aria-hidden />
                 ) : (
                     <RoomIcon className={styles.channelIcon} aria-hidden />
@@ -89,7 +94,14 @@ export const RoomListItemContent = memo(function RoomListItemContent({
 
                 {/* aria-hidden because we summarise the unread count/notification status in a11yLabel */}
                 <div className={styles.notificationDecoration} aria-hidden={true}>
-                    <NotificationDecoration {...item.notification} />
+                    {occupied && item.callStartedAt !== undefined && (
+                        <VoiceChannelDuration since={item.callStartedAt} />
+                    )}
+                    {/* The occupied channel's own icon already says there is a call in it. */}
+                    <NotificationDecoration
+                        {...item.notification}
+                        callType={occupied ? undefined : item.notification.callType}
+                    />
                 </div>
             </Flex>
         </Flex>

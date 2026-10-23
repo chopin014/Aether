@@ -27,6 +27,7 @@ const {
     WithHoverMenu,
     WithoutHoverMenu,
     DesktopVoiceParticipantSpeaking,
+    DesktopVoiceChannelOccupied,
     DesktopVoiceParticipantsSilent,
     DesktopVoiceParticipantsMultipleSpeaking,
     DesktopVoiceParticipantsMutedAndDeafened,
@@ -50,6 +51,26 @@ describe("<RoomListItemView />", () => {
         expect(group).toBeVisible();
         await user.click(screen.getByRole("button", { name: "Bob" }));
         expect(onProfile).toHaveBeenCalledWith("@bob:example.org");
+    });
+
+    it("shows how long an occupied voice channel has had people in it", async () => {
+        vi.useFakeTimers({ now: new Date("2026-10-23T12:00:00Z"), toFake: ["Date", "setInterval", "clearInterval"] });
+        try {
+            render(<DesktopVoiceChannelOccupied callStartedAt={Date.now() - 754_000} />);
+            expect(screen.getByText("12:34")).toHaveAttribute("title", "People have been here for 12:34");
+            // The channel's own icon replaces the call decoration
+            expect(screen.queryByTestId("notification-decoration")?.querySelector("svg")).toBeFalsy();
+
+            vi.advanceTimersByTime(3_600_000);
+            expect(await screen.findByText("1:12:34")).toBeInTheDocument();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("shows no duration while a voice channel is empty", () => {
+        render(<Default channelKind="voice" callStartedAt={Date.now()} />);
+        expect(document.querySelector("time")).toBeNull();
     });
 
     it("marks only the participants who are speaking", () => {

@@ -104,6 +104,8 @@ export interface RoomListItemViewSnapshot {
         isMuted?: boolean;
         isDeafened?: boolean;
     }[];
+    /** When people started gathering in an occupied voice channel, in milliseconds since the epoch. */
+    callStartedAt?: number;
     /** Can invite other users in the room */
     canInvite: boolean;
     /** Can copy the room link */

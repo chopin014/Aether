@@ -251,6 +251,25 @@
     color: var(--cpd-color-icon-secondary);
 }
 
+.notificationDecoration {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-1x);
+}
+
+/* A voice channel with people in it. */
+.channelIcon.occupied {
+    color: var(--cpd-color-icon-success-primary);
+}
+
+/* How long an occupied voice channel has had people in it. */
+.callDuration {
+    color: var(--cpd-color-text-success-primary);
+    font: var(--cpd-font-body-xs-medium);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
 .channel {
     min-height: var(--cpd-space-8x);
     gap: var(--cpd-space-2x);

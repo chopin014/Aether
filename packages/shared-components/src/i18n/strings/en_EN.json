@@ -93,6 +93,7 @@
             "deafen": "Deafen",
             "disconnect": "Disconnect",
             "mute": "Mute",
+            "occupied_for": "People have been here for %(duration)s",
             "participant_deafened": "%(name)s (deafened)",
             "participant_muted": "%(name)s (muted)",
             "participant_speaking": "%(name)s (speaking)",

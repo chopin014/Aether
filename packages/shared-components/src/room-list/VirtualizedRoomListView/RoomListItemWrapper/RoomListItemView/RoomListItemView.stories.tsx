@@ -342,6 +342,20 @@ export const DesktopVoiceParticipants: Story = {
     },
 };
 
+/** An occupied voice channel gets a filled icon and shows how long people have been in it. */
+export const DesktopVoiceChannelOccupied: Story = {
+    args: {
+        channelKind: "voice",
+        callParticipants: [
+            { userId: "@alice:example.org", name: "Alice" },
+            { userId: "@bob:example.org", name: "Bob" },
+        ],
+        callStartedAt: Date.now() - (12 * 60 + 34) * 1000,
+        notification: { ...defaultSnapshot.notification, hasAnyNotificationOrActivity: true, callType: "voice" },
+        onViewCallParticipant: fn(),
+    },
+};
+
 /** A participant who is talking gets an activity ring and soft pulse around their avatar. */
 export const DesktopVoiceParticipantSpeaking: Story = {
     args: {

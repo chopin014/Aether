@@ -104,6 +104,33 @@ describe("RoomListItemViewModel", () => {
         vi.restoreAllMocks();
     });
 
+    it("dates an occupied voice channel from its oldest call membership", () => {
+        const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+        vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
+            setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+        );
+        vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+        const alice = new RoomMember(room.roomId, "@alice:server");
+        const call = Object.assign(new EventEmitter(), {
+            participants: new Map([[alice, new Set(["device1"])]]),
+            callType: CallType.Voice,
+            speakingUserIds: new Set<string>(),
+            voiceStates: new Map<string, VoiceState>(),
+        });
+        vi.mocked(CallStore.instance.getCall).mockReturnValue(call as unknown as Call);
+        const memberships = [{ createdTs: () => 2_000 }, { createdTs: () => 1_000 }, { createdTs: () => 3_000 }];
+        vi.mocked(matrixClient.matrixRTC.getRoomSession).mockReturnValue({
+            memberships,
+        } as unknown as ReturnType<MatrixClient["matrixRTC"]["getRoomSession"]>);
+
+        viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+        expect(viewModel.getSnapshot().callStartedAt).toBe(1_000);
+
+        call.participants.clear();
+        call.emit(CallEvent.Participants, call.participants);
+        expect(viewModel.getSnapshot().callStartedAt).toBeUndefined();
+    });
+
     it("shows distinct call members before joining and updates every join and leave", () => {
         const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
         vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
