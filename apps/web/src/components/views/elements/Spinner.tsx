@@ -10,6 +10,7 @@ import React from "react";
 import { InlineSpinner } from "@vector-im/compound-web";
 
 import { _t } from "../../../languageHandler";
+import SettingsStore from "../../../settings/SettingsStore";
 
 interface IProps {
     size?: number;
@@ -36,7 +37,23 @@ export default class Spinner extends React.PureComponent<IProps> {
                         <div className="mx_Spinner_Msg">{message}</div>&nbsp;
                     </React.Fragment>
                 )}
-                <InlineSpinner size={size} aria-label={_t("common|loading")} role="progressbar" data-testid="spinner" />
+                {SettingsStore.getValue("feature_desktop_shell") ? (
+                    // Aether's own spinner: a body orbiting a faint ring, after the brand symbol.
+                    <span
+                        className="mx_DesktopShell_spinner"
+                        style={{ width: size, height: size }}
+                        aria-label={_t("common|loading")}
+                        role="progressbar"
+                        data-testid="spinner"
+                    />
+                ) : (
+                    <InlineSpinner
+                        size={size}
+                        aria-label={_t("common|loading")}
+                        role="progressbar"
+                        data-testid="spinner"
+                    />
+                )}
             </Component>
         );
     }

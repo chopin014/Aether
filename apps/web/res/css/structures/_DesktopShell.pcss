@@ -570,6 +570,53 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
     }
 }
 
+/*
+ * Aether's loading spinner: a body orbiting a faint ring. It also appears before sign-in, where the
+ * Aether colour roles are not defined yet, so it falls back to the Polar primitive.
+ */
+.mx_DesktopShell_spinner {
+    --mx-desktop-spinner-colour: var(--ae-accent, #8ed8ea);
+
+    position: relative;
+    display: inline-block;
+    flex: none;
+    animation: mx_DesktopShell_orbit 1.1s linear infinite;
+
+    &::after {
+        content: "";
+        position: absolute;
+        inset: 12.5%;
+        border: 2px solid color-mix(in srgb, var(--mx-desktop-spinner-colour) 24%, transparent);
+        border-radius: 50%;
+    }
+
+    /* Centred on the ring's top edge. */
+    &::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 37.5%;
+        width: 25%;
+        height: 25%;
+        border-radius: 50%;
+        background: var(--mx-desktop-spinner-colour);
+        box-shadow: 0 0 6px var(--mx-desktop-spinner-colour);
+    }
+}
+
+@keyframes mx_DesktopShell_orbit {
+    to {
+        transform: rotate(1turn);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* Loading still needs a visible cue, so the orbit slows rather than stops. */
+    .mx_DesktopShell_spinner {
+        animation-duration: 4s;
+    }
+}
+
 .mx_DesktopShell_accountDock {
     position: absolute;
     inset-inline-start: 8px;
