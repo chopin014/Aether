@@ -83,13 +83,14 @@
 
 /*
  * A muted microphone or deafened participant. Grey, because red suggests a moderator did it, as in Discord. The
- * slot is as wide as the channel row's 20px icons so their centres line up.
+ * End padding keeps the last 16px icon centred with the channel row's 20px icons.
  */
 .participantVoiceStatus {
     display: inline-flex;
     flex: none;
-    justify-content: center;
-    width: var(--cpd-space-5x);
+    align-items: center;
+    gap: var(--cpd-space-1x);
+    padding-inline: calc(var(--cpd-space-1x) / 2);
     color: var(--cpd-color-icon-tertiary);
 
     svg {

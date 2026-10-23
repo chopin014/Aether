@@ -201,18 +201,20 @@ type CallParticipant = NonNullable<RoomListItemViewSnapshot["callParticipants"]>
  * region, so screen readers only hear it when the participant is focused.
  */
 function participantLabel({ name, isSpeaking, isMuted, isDeafened }: CallParticipant): string {
+    if (isMuted && isDeafened) return _t("desktop|voice|participant_muted_and_deafened", { name });
     if (isDeafened) return _t("desktop|voice|participant_deafened", { name });
     if (isMuted) return _t("desktop|voice|participant_muted", { name });
     if (isSpeaking) return _t("desktop|voice|participant_speaking", { name });
     return name;
 }
 
-/** Deafened implies a muted microphone, so it takes the one slot at the end of the row. */
+/** Show each active voice status at the end of the participant's row. */
 function ParticipantVoiceStatus({ muted, deafened }: { muted?: boolean; deafened?: boolean }): JSX.Element | null {
     if (!muted && !deafened) return null;
     return (
         <span className={styles.participantVoiceStatus} aria-hidden="true">
-            {deafened ? <HeadphonesOffSolidIcon /> : <MicOffSolidIcon />}
+            {muted && <MicOffSolidIcon data-testid="participant-muted" />}
+            {deafened && <HeadphonesOffSolidIcon data-testid="participant-deafened" />}
         </span>
     );
 }

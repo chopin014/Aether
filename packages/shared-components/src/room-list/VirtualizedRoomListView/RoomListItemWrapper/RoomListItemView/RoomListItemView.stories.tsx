@@ -389,7 +389,7 @@ export const DesktopVoiceParticipantsSilent: Story = {
     },
 };
 
-/** A muted microphone or deafened participant is marked at the end of their row, as in Discord. */
+/** Muted and deafened icons appear together when both statuses are active. */
 export const DesktopVoiceParticipantsMutedAndDeafened: Story = {
     args: {
         channelKind: "voice",

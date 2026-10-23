@@ -6,7 +6,7 @@
  */
 
 import React from "react";
-import { render, screen, waitFor } from "@test-utils";
+import { render, screen, waitFor, within } from "@test-utils";
 import userEvent from "@testing-library/user-event";
 import { composeStories } from "@storybook/react-vite";
 import { describe, it, expect, vi } from "vitest";
@@ -102,9 +102,26 @@ describe("<RoomListItemView />", () => {
         render(<DesktopVoiceParticipantsMutedAndDeafened />);
         expect(screen.getByRole("button", { name: "Alice (speaking)" })).toBeVisible();
         expect(screen.getByRole("button", { name: "Bob (muted)" })).toBeVisible();
-        expect(screen.getByRole("button", { name: "Charlie (deafened)" })).toBeVisible();
+        expect(screen.getByRole("button", { name: "Charlie (muted and deafened)" })).toBeVisible();
         expect(screen.getByText("Charlie")).toBeVisible();
         expect(document.querySelector("[aria-live]")).toBeNull();
+    });
+
+    it.each([
+        { isMuted: false, isDeafened: false, label: "Alice" },
+        { isMuted: true, isDeafened: false, label: "Alice (muted)" },
+        { isMuted: false, isDeafened: true, label: "Alice (deafened)" },
+        { isMuted: true, isDeafened: true, label: "Alice (muted and deafened)" },
+    ])("shows the active voice icons for $label", ({ isMuted, isDeafened, label }) => {
+        render(
+            <Default
+                channelKind="voice"
+                callParticipants={[{ userId: "@alice:example.org", name: "Alice", isMuted, isDeafened }]}
+            />,
+        );
+        const participant = within(screen.getByRole("button", { name: label }));
+        expect(!!participant.queryByTestId("participant-muted")).toBe(isMuted);
+        expect(!!participant.queryByTestId("participant-deafened")).toBe(isDeafened);
     });
 
     it("shows no speaking indicator when everyone is silent", () => {
