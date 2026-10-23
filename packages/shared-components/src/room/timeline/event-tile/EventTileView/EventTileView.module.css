@@ -1872,7 +1872,7 @@
         height: auto;
         flex: none;
         font: var(--cpd-font-body-sm-regular);
-        color: var(--cpd-color-text-tertiary);
+        color: var(--cpd-color-text-tertiary, var(--cpd-color-text-secondary));
 
         > * {
             font-size: var(--cpd-font-size-body-sm);

@@ -89,6 +89,30 @@ describe("ElectronPlatform", () => {
         expect(platform.getOAuthClientState()).toMatchInlineSnapshot(`":element-desktop-ssoid:session-id"`);
     });
 
+    it.each(["aether", "io.element.desktop"])("uses the configured %s protocol for SSO callbacks", async (protocol) => {
+        initialiseValues.mockReturnValueOnce({
+            protocol,
+            sessionId: "session-id",
+            config: {},
+            supportedSettings: {},
+            supportsBadgeOverlay: false,
+        });
+        const locationSpy = vi.spyOn(window, "location", "get").mockReturnValue({
+            href: "vector://vector/webapp/?existing=value#/login",
+        } as Location);
+
+        try {
+            const platform = new ElectronPlatform();
+            await platform.initialised;
+
+            expect(platform.getSSOCallbackUrl("/room/!room:example.org").href).toBe(
+                `${protocol}://vector/webapp/?existing=value&element-desktop-ssoid=session-id#/room/!room:example.org`,
+            );
+        } finally {
+            locationSpy.mockRestore();
+        }
+    });
+
     it("dispatches view settings action on preferences event", () => {
         new ElectronPlatform();
         const [event, handler] = getElectronEventHandlerCall("preferences")!;

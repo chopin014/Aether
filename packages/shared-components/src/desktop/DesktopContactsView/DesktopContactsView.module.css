@@ -206,7 +206,7 @@ Please see LICENSE in the repository root for full details.
     gap: var(--cpd-space-4x);
     min-height: 300px;
     height: 65%;
-    color: var(--cpd-color-text-tertiary);
+    color: var(--cpd-color-text-tertiary, var(--cpd-color-text-secondary));
     text-align: center;
 }
 .empty svg {
@@ -256,13 +256,15 @@ Please see LICENSE in the repository root for full details.
     align-items: center;
     justify-content: space-between;
     padding: var(--cpd-space-4x) var(--cpd-space-2x) var(--cpd-space-1x);
-    color: var(--cpd-color-text-tertiary);
+    color: var(--cpd-color-text-tertiary, var(--cpd-color-text-secondary));
 }
+
 @media (max-width: 1100px) {
     .activity {
         display: none;
     }
 }
+
 @media (max-width: 720px) {
     .tabs {
         gap: 0;

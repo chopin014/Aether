@@ -13,7 +13,7 @@ import {
     type Section,
     type UserStatus,
 } from "@element-hq/web-shared-components";
-import { ClientEvent, KnownMembership, RoomEvent, RoomMemberEvent } from "matrix-js-sdk/src/matrix";
+import { ClientEvent, KnownMembership, RoomEvent, RoomStateEvent } from "matrix-js-sdk/src/matrix";
 import { CallType } from "matrix-js-sdk/src/webrtc/call";
 import { logger } from "matrix-js-sdk/src/logger";
 
@@ -136,8 +136,7 @@ export class RoomListItemViewModel
         // Subscribe to room-specific events
         this.disposables.trackListener(props.room, RoomEvent.Name, this.onRoomChanged);
         this.disposables.trackListener(props.room, RoomEvent.Tags, this.onRoomChanged);
-        this.disposables.trackListener(props.client, RoomMemberEvent.Name, this.onParticipantProfileChanged);
-        this.disposables.trackListener(props.client, RoomMemberEvent.Avatar, this.onParticipantProfileChanged);
+        this.disposables.trackListener(props.room, RoomStateEvent.Members, this.onParticipantProfileChanged);
 
         // Rebuild the available sections when their order changes or when one is created/renamed/removed
         const orderSectionsRef = SettingsStore.watchSetting("RoomList.OrderedCustomSections", null, () =>
@@ -243,8 +242,8 @@ export class RoomListItemViewModel
         }
     };
 
-    private readonly onParticipantProfileChanged = (_event: unknown, member: RoomMember): void => {
-        if (member.roomId === this.props.room.roomId && this.snapshot.current.channelKind === "voice") {
+    private readonly onParticipantProfileChanged = (): void => {
+        if (this.snapshot.current.channelKind === "voice") {
             this.updateItem();
         }
     };
