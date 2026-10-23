@@ -333,6 +333,87 @@ describe("RoomView", () => {
         expect(asFragment()).toMatchSnapshot();
     });
 
+    describe("desktop pinned messages", () => {
+        let desktopShell: boolean;
+        let pinnedEvent: MatrixEvent;
+        let restoreSettings: () => void;
+
+        beforeEach(() => {
+            desktopShell = true;
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            const setting = vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) => {
+                return name === "feature_desktop_shell" ? desktopShell : getValue(name, ...args);
+            });
+            restoreSettings = () => setting.mockRestore();
+            vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+            pinnedEvent = new MatrixEvent({
+                type: EventType.RoomMessage,
+                sender: "@alice:example.org",
+                content: { body: "A pinned channel message", msgtype: "m.text" },
+                room_id: room.roomId,
+                origin_server_ts: 0,
+                event_id: "$pinnedEvent",
+            });
+            room.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.RoomPinnedEvents,
+                    state_key: "",
+                    room_id: room.roomId,
+                    content: { pinned: [pinnedEvent.getId()!] },
+                }),
+            ]);
+            vi.spyOn(pinnedEventHooks, "useSortedFetchedPinnedEvents").mockReturnValue([pinnedEvent]);
+        });
+
+        afterEach(() => {
+            restoreSettings();
+        });
+
+        it("should not mount the banner or open the pins panel by default in desktop text channels", async () => {
+            await mountRoomView();
+
+            expect(screen.getByTestId("timeline")).toBeInTheDocument();
+            expect(screen.queryByTestId("pinned-message-banner")).not.toBeInTheDocument();
+            expect(screen.queryByText("A pinned channel message")).not.toBeInTheDocument();
+            expect(stores.rightPanelStore.currentCardForRoom(room.roomId).phase).not.toBe(
+                RightPanelPhases.PinnedMessages,
+            );
+            expect(pinnedEventHooks.useSortedFetchedPinnedEvents).not.toHaveBeenCalled();
+            expect(room.currentState.getStateEvents(EventType.RoomPinnedEvents, "")?.getContent().pinned).toEqual([
+                pinnedEvent.getId(),
+            ]);
+        });
+
+        it("should open and close the pinned messages panel from the desktop header", async () => {
+            cli.relations.mockResolvedValue({ originalEvent: pinnedEvent, events: [] });
+            cli.setRoomAccountData.mockResolvedValue({});
+            const user = userEvent.setup();
+            await mountRoomView();
+
+            await user.click(screen.getByRole("button", { name: "Pinned messages" }));
+
+            expect(stores.rightPanelStore.currentCardForRoom(room.roomId).phase).toBe(RightPanelPhases.PinnedMessages);
+            expect(stores.rightPanelStore.isOpenForRoom(room.roomId)).toBe(true);
+            expect(await screen.findByRole("heading", { name: "1 Pinned message" })).toBeInTheDocument();
+            expect(screen.getByText("A pinned channel message")).toBeInTheDocument();
+            expect(screen.queryByTestId("pinned-message-banner")).not.toBeInTheDocument();
+
+            await user.click(screen.getByRole("button", { name: "Pinned messages" }));
+
+            expect(stores.rightPanelStore.isOpenForRoom(room.roomId)).toBe(false);
+            expect(screen.queryByText("A pinned channel message")).not.toBeInTheDocument();
+            expect(screen.queryByTestId("pinned-message-banner")).not.toBeInTheDocument();
+        });
+
+        it("should retain the automatic pinned message banner outside the desktop shell", async () => {
+            desktopShell = false;
+            await mountRoomView();
+
+            expect(await screen.findByTestId("pinned-message-banner")).toBeInTheDocument();
+            expect(screen.getByText("A pinned channel message")).toBeInTheDocument();
+        });
+    });
+
     describe("enableReadReceiptsAndMarkersOnActivity", () => {
         it.each([
             {

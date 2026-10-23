@@ -2515,9 +2515,11 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             </AuxPanel>
         );
 
-        const pinnedMessageBanner = !this.props.hidePinnedMessageBanner && (
-            <PinnedMessageBanner room={this.state.room} permalinkCreator={this.permalinkCreator} />
-        );
+        // Desktop pins are available on demand through the header's pinned messages panel.
+        const pinnedMessageBanner = !SettingsStore.getValue("feature_desktop_shell") &&
+            !this.props.hidePinnedMessageBanner && (
+                <PinnedMessageBanner room={this.state.room} permalinkCreator={this.permalinkCreator} />
+            );
 
         let messageComposer;
         const showComposer =
