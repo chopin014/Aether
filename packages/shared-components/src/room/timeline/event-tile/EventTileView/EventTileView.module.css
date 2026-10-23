@@ -1831,12 +1831,19 @@
 
 /* Channel presentation keeps the existing event slots and actions while changing their geometry. */
 .root.layoutGroup:has(> .desktopMessage) {
-    padding-block-start: var(--cpd-space-4x);
+    /* Message text sits a step below Compound's large body size so more of the conversation fits. */
+    --desktop-message-font-size: 0.9375rem;
+    --desktop-message-line-height: 1.375rem;
+
+    /* Space between one person's messages and the next person's, so groups read apart. */
+    padding-block-start: var(--cpd-space-5x);
     font: var(--cpd-font-body-lg-regular);
+    font-size: var(--desktop-message-font-size);
+    line-height: var(--desktop-message-line-height);
 
     .slotAvatar {
         inset-inline-start: var(--cpd-space-4x);
-        inset-block-start: var(--cpd-space-4x);
+        inset-block-start: var(--cpd-space-5x);
         width: var(--cpd-space-10x);
         height: var(--cpd-space-10x);
 
@@ -1863,6 +1870,7 @@
             margin: 0;
             max-width: 100%;
             font: var(--cpd-font-body-lg-semibold);
+            font-size: var(--desktop-message-font-size);
         }
     }
 
