@@ -178,9 +178,20 @@ export function UserMenuView({ vm, className, presentation = "rail" }: UserMenuV
                     <Text as="span" size="sm" weight="semibold">
                         {displayName}
                     </Text>
-                    <Text as="span" size="xs" className={styles.matrixId}>
-                        {userId}
-                    </Text>
+                    {presence ? (
+                        <span className={styles.secondaryLine}>
+                            <span className={styles.dockStatus}>
+                                <PresenceSummaryView vm={presence} />
+                            </span>
+                            <Text as="span" size="xs" className={styles.dockMatrixId}>
+                                {userId}
+                            </Text>
+                        </span>
+                    ) : (
+                        <Text as="span" size="xs" className={styles.matrixId}>
+                            {userId}
+                        </Text>
+                    )}
                 </span>
             )}
         </button>

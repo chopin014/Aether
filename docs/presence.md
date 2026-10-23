@@ -7,15 +7,19 @@ Please see LICENSE in the repository root for full details.
 
 # Presence in the account profile
 
-Open the account avatar/name and its requested-status submenu to choose **Online (automatic)**,
+Open the account avatar/name and its status submenu to choose **Online** (automatic),
 **Away**, or **Appear offline**. Online becomes Away after three minutes without activity;
 activity on this client does not override manual Away or Appear offline. The choice is stored
 locally for the homeserver, account and device. Logging out disposes its listeners and timers;
 a new device starts with the automatic setting.
 
 The requested choice is separate from the presence most recently received from the server.
-A successful request does not fabricate a presence event or a green self indicator. The dock
-shows a presence dot only after receiving presence. Failed requests keep the requested choice
+A successful request does not fabricate a presence event. Your dock always shows your selected
+status with an avatar badge and a status line. Hovering or focusing the identity reveals your
+Matrix ID in the same line without moving the controls. In automatic mode, received Away
+presence is reflected in the dock. A tooltip distinguishes the selected status from missing
+server data. Other people's indicators remain based on received presence only.
+Failed requests keep the requested choice
 and show an explicit retry action; activity does not repeatedly retry them.
 
 Matrix supports `online`, `unavailable` and `offline` in both presence requests and sync.

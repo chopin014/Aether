@@ -68,10 +68,10 @@ describe("UserMenu presence controls", () => {
 
     it("should expose real presence choices from the profile menu", async () => {
         const presence = presenceModel();
-        const { getByRole, getByText, queryByText } = render(<Open presence={presence} />);
-        await userEvent.click(getByRole("menuitem", { name: "Requested: Online (automatic)" }));
-        expect(getByText("Status unknown")).toBeVisible();
-        expect(getByRole("menuitemradio", { name: "Online (automatic)" })).toHaveAttribute("aria-checked", "true");
+        const { getByRole, queryByText } = render(<Open presence={presence} />);
+        await userEvent.click(getByRole("menuitem", { name: "Online" }));
+        expect(queryByText("Status unknown")).toBeNull();
+        expect(getByRole("menuitemradio", { name: "Online" })).toHaveAttribute("aria-checked", "true");
         expect(queryByText("Do not disturb")).toBeNull();
         await userEvent.click(getByRole("menuitemradio", { name: "Appear offline" }));
         expect(presence.setPreference).toHaveBeenCalledWith("offline");
@@ -89,7 +89,7 @@ describe("UserMenu presence controls", () => {
     it("should retain requested intent, expose errors and allow retry", async () => {
         const presence = presenceModel({ preference: "offline", error: "Could not update presence" });
         const { getByRole } = render(<Open presence={presence} />);
-        await userEvent.click(getByRole("menuitem", { name: "Requested: Appear offline" }));
+        await userEvent.click(getByRole("menuitem", { name: "Appear offline" }));
         expect(getByRole("alert")).toHaveTextContent("Could not update presence");
         await userEvent.click(getByRole("menuitem", { name: "Retry presence update" }));
         expect(presence.retry).toHaveBeenCalledOnce();

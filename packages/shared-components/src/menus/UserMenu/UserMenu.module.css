@@ -224,3 +224,32 @@
 .matrixId {
     color: var(--cpd-color-text-secondary);
 }
+
+/* Both lines occupy the same cell so revealing the account ID never moves the dock controls. */
+.secondaryLine {
+    display: grid;
+    min-width: 0;
+    color: var(--cpd-color-text-secondary);
+
+    > span {
+        grid-area: 1 / 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
+.dockMatrixId {
+    visibility: hidden;
+}
+
+.dockTrigger:hover,
+.dockTrigger:focus-visible {
+    .dockStatus {
+        visibility: hidden;
+    }
+
+    .dockMatrixId {
+        visibility: visible;
+    }
+}

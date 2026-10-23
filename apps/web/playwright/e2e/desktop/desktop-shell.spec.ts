@@ -241,6 +241,7 @@ test("opens native account settings and room search using the existing actions",
         )
         .toBe(true);
     const account = page.getByRole("group", { name: "User menu" });
+    await account.getByRole("button", { name: "User menu", exact: true }).hover();
     await expect(account.getByText(user.userId, { exact: true })).toBeVisible();
     await account.getByRole("button", { name: "All settings" }).click();
     await expect(page.getByRole("dialog")).toBeVisible();

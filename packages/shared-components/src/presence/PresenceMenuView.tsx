@@ -6,7 +6,9 @@ Please see LICENSE in the repository root for full details.
 */
 
 import React, { type JSX } from "react";
-import { MenuItem, MenuTitle, RadioMenuItem, SubMenu, Text } from "@vector-im/compound-web";
+import { MenuItem, SubMenu, Text } from "@vector-im/compound-web";
+import { CheckIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
+import classNames from "classnames";
 
 import { type ViewModel, useViewModel } from "../core/viewmodel";
 import { useI18n } from "../core/i18n/i18nContext";
@@ -33,41 +35,61 @@ export type PresenceViewModel = ViewModel<
     }
 >;
 
-/** Current server observation, also used in the account dock. No dot is shown for unknown status. */
+/** The account's chosen status, with received idle status used in automatic mode. */
 export function PresenceSummaryView({
     vm,
     compact = false,
 }: {
     vm: PresenceViewModel;
     compact?: boolean;
-}): JSX.Element | null {
-    const { enabled, current } = useViewModel(vm);
+}): JSX.Element {
+    const { enabled, preference, current } = useViewModel(vm);
     const { translate: _t } = useI18n();
     const labels = {
         online: _t("presence_controls|online"),
         unavailable: _t("presence_controls|away"),
-        offline: _t("presence_controls|offline"),
+        offline: _t("presence_controls|invisible"),
     };
-    const label = !enabled
-        ? _t("presence_controls|disabled_short")
-        : current
-          ? labels[current]
-          : _t("presence_controls|unknown");
+    const status = preference === "online" && current === "unavailable" ? current : preference;
+    const label = enabled ? labels[status] : _t("presence_controls|disabled_short");
+    const detail = !enabled
+        ? _t("presence_controls|disabled")
+        : !current
+          ? _t("presence_controls|unknown_hint")
+          : _t("presence_controls|selected_hint");
     if (compact)
-        return enabled && current ? (
-            <span className={styles.compactSummary} role="img" aria-label={label} title={label}>
-                <span className={styles.dot} data-presence={current} />
+        return (
+            <span className={styles.compactSummary} role="img" aria-label={label} title={`${label} · ${detail}`}>
+                <PresenceIcon status={enabled ? status : undefined} />
             </span>
-        ) : null;
+        );
     return (
-        <Text as="span" size="xs" className={styles.summary}>
-            {enabled && current && <span className={styles.dot} data-presence={current} aria-hidden="true" />}
-            {!enabled
-                ? _t("presence_controls|disabled_short")
-                : current
-                  ? labels[current]
-                  : _t("presence_controls|unknown")}
+        <Text as="span" size="xs" className={styles.summary} title={detail}>
+            {label}
         </Text>
+    );
+}
+
+function PresenceIcon({
+    status,
+    ...props
+}: React.SVGProps<SVGSVGElement> & { status?: PresencePreference }): JSX.Element {
+    return (
+        <svg
+            {...props}
+            className={classNames(styles.dot, props.className)}
+            data-presence={status}
+            viewBox="0 0 16 16"
+            aria-hidden="true"
+        >
+            {status === "online" ? (
+                <circle cx="8" cy="8" r="7" fill="currentColor" />
+            ) : status === "unavailable" ? (
+                <path d="M15 8a7 7 0 1 1-7-7 5.5 5.5 0 0 0 7 7Z" fill="currentColor" />
+            ) : (
+                <circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" strokeWidth="4" />
+            )}
+        </svg>
     );
 }
 
@@ -76,7 +98,7 @@ export function PresenceMenuView({ vm }: { vm: PresenceViewModel }): JSX.Element
     const { enabled, preference, busy, error } = useViewModel(vm);
     const { translate: _t } = useI18n();
     const choices = {
-        online: _t("presence_controls|automatic"),
+        online: _t("presence_controls|online"),
         unavailable: _t("presence_controls|away"),
         offline: _t("presence_controls|invisible"),
     };
@@ -84,41 +106,44 @@ export function PresenceMenuView({ vm }: { vm: PresenceViewModel }): JSX.Element
         <SubMenu
             trigger={
                 <MenuItem
-                    label={
-                        enabled
-                            ? _t("presence_controls|requested", { status: choices[preference] })
-                            : _t("presence_controls|disabled_short")
-                    }
+                    className={styles.trigger}
+                    Icon={<PresenceIcon status={enabled ? preference : undefined} />}
+                    label={enabled ? choices[preference] : _t("presence_controls|disabled_short")}
                     onSelect={null}
                 />
             }
         >
             <section className={styles.root} aria-label={_t("presence_controls|title")}>
-                <MenuTitle title={_t("presence_controls|title")} />
-                <div className={styles.description} role="status" aria-live="polite">
-                    <PresenceSummaryView vm={vm} />
-                    <Text as="span" size="xs">
-                        {enabled ? _t("presence_controls|server_hint") : _t("presence_controls|disabled")}
+                {!enabled && (
+                    <Text as="p" size="sm" className={styles.description}>
+                        {_t("presence_controls|disabled")}
                     </Text>
-                </div>
+                )}
                 {enabled && (
                     <>
                         {(Object.keys(choices) as PresencePreference[]).map((value) => (
-                            <RadioMenuItem
+                            <MenuItem
                                 key={value}
+                                as="div"
+                                role="menuitemradio"
+                                aria-checked={preference === value}
+                                Icon={<PresenceIcon status={value} />}
                                 label={choices[value]}
-                                checked={preference === value}
+                                className={styles.choice}
                                 disabled={busy}
                                 onSelect={(event) => {
                                     event.preventDefault();
                                     void vm.setPreference(value);
                                 }}
-                            />
+                            >
+                                {preference === value && <CheckIcon className={styles.check} aria-hidden="true" />}
+                            </MenuItem>
                         ))}
-                        <Text as="p" size="xs" className={styles.description}>
-                            {_t("presence_controls|requested", { status: choices[preference] })}
-                            {busy && ` · ${_t("presence_controls|saving")}`}
-                        </Text>
+                        {busy && (
+                            <Text as="p" size="xs" role="status" className={styles.description}>
+                                {_t("presence_controls|saving")}
+                            </Text>
+                        )}
                         {error && (
                             <>
                                 <Text as="p" size="xs" role="alert" className={styles.error}>

@@ -62,6 +62,8 @@
         "server_hint": "Disponível muda para Ausente após 3 minutos de inatividade. Seu servidor pode não fornecer presença; outros dispositivos podem afetar o status informado.",
         "requested": "Solicitado: %(status)s",
         "saving": "Atualizando…",
-        "retry": "Tentar atualizar presença novamente"
+        "retry": "Tentar atualizar presença novamente",
+        "unknown_hint": "Seu status selecionado; status do servidor indisponível.",
+        "selected_hint": "Seu status selecionado neste dispositivo."
     }
 }
