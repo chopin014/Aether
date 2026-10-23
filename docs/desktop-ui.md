@@ -97,6 +97,14 @@ Space categories are presentation-only projections of actual room types. They do
 
 ## Reference-to-implementation status
 
+The [desktop UX map](desktop-ux-map.md) compares the 99-state Discord study with current
+Element owners, defines the popover/panel/settings interaction model and orders the remaining
+UX work. Sync architecture and new backend services are outside this phase.
+
+The account profile menu now offers Online (automatic), Away and Appear offline using the
+existing Matrix presence APIs. Requested status stays separate from received presence;
+missing data is neutral rather than Offline. See [presence behavior and limits](presence.md).
+
 The acceptance target is the captured Discord desktop interface and its interactions, not a recolored Element. These statuses distinguish working integration from finished visual parity.
 
 | Captured surface                | Current implementation                                                                                | Still required                                                                             |
