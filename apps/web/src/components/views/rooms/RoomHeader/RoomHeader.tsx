@@ -18,7 +18,7 @@ import NotificationsIcon from "@vector-im/compound-design-tokens/assets/web/icon
 import VerifiedIcon from "@vector-im/compound-design-tokens/assets/web/icons/verified";
 import ErrorIcon from "@vector-im/compound-design-tokens/assets/web/icons/error-solid";
 import PublicIcon from "@vector-im/compound-design-tokens/assets/web/icons/public";
-import { HistoryVisibility, JoinRule, type Room } from "matrix-js-sdk/src/matrix";
+import { EventType, HistoryVisibility, JoinRule, type Room } from "matrix-js-sdk/src/matrix";
 import { Flex, Box, StatusTextView } from "@element-hq/web-shared-components";
 import { CallType } from "matrix-js-sdk/src/webrtc/call";
 import {
@@ -484,6 +484,11 @@ export default function RoomHeader({
     const roomName = useRoomName(room);
     const joinRule = useRoomState(room, (state) => state.getJoinRule());
     const historyVisibility = useRoomState(room, (state) => state.getHistoryVisibility());
+    // A desktop channel's room avatar is its custom icon.
+    const hasChannelIcon = useRoomState(
+        room,
+        (state) => !!state.getStateEvents(EventType.RoomAvatar, "")?.getContent().url,
+    );
     const dmMember = useDmMember(room);
     const isDirectMessage = !!dmMember;
     const dmUserStatus = useUserStatus(dmMember?.userId);
@@ -502,7 +507,9 @@ export default function RoomHeader({
         <CurrentRightPanelPhaseContextProvider roomId={room.roomId}>
             <Flex as="header" align="center" gap="var(--cpd-space-3x)" className="mx_RoomHeader light-panel">
                 {desktopChannel ? (
-                    room.isCallRoom() || room.isElementVideoRoom() ? (
+                    hasChannelIcon ? (
+                        <RoomAvatar room={room} size="24px" className="mx_DesktopShell_channelIcon" />
+                    ) : room.isCallRoom() || room.isElementVideoRoom() ? (
                         <VolumeOnIcon className="mx_DesktopShell_channelIcon" aria-hidden />
                     ) : (
                         <RoomIcon className="mx_DesktopShell_channelIcon" aria-hidden />

@@ -48,6 +48,23 @@ describe("<RoomListItemMoreOptionsMenu />", () => {
         expect(screen.getByRole("menu")).toBeInTheDocument();
     });
 
+    it("opens the channel settings from Edit channel", async () => {
+        const user = userEvent.setup();
+        renderMenu({ channelKind: "text", canEditChannel: true });
+
+        await user.click(screen.getByRole("button", { name: "More Options" }));
+        await user.click(screen.getByRole("menuitem", { name: "Edit channel" }));
+        expect(mockCallbacks.onEditChannel).toHaveBeenCalled();
+    });
+
+    it("hides Edit channel from those who may not edit it", async () => {
+        const user = userEvent.setup();
+        renderMenu({ channelKind: "text", canEditChannel: false });
+
+        await user.click(screen.getByRole("button", { name: "More Options" }));
+        expect(screen.queryByRole("menuitem", { name: "Edit channel" })).not.toBeInTheDocument();
+    });
+
     it("should show mark as read option when canMarkAsRead is true", async () => {
         const user = userEvent.setup();
         renderMenu({ canMarkAsRead: true });

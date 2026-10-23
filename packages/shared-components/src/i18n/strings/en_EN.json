@@ -274,6 +274,7 @@
         "list_title": "Room list",
         "more_options": {
             "copy_link": "Copy link",
+            "edit_channel": "Edit channel",
             "favourited": "Favourited",
             "leave_room": "Leave room",
             "low_priority": "Low priority",

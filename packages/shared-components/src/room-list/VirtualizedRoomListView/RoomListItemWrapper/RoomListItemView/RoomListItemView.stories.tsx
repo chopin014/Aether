@@ -356,6 +356,15 @@ export const DesktopVoiceChannelOccupied: Story = {
     },
 };
 
+/** A channel with a room avatar shows it as its custom icon. */
+export const DesktopChannelWithIcon: Story = {
+    args: {
+        channelKind: "text",
+        channelIconUrl:
+            "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'><rect width='20' height='20' fill='%238ed8ea'/></svg>",
+    },
+};
+
 /** A participant who is talking gets an activity ring and soft pulse around their avatar. */
 export const DesktopVoiceParticipantSpeaking: Story = {
     args: {

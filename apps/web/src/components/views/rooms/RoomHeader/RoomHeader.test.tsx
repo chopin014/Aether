@@ -161,6 +161,28 @@ describe("RoomHeader", () => {
         }
     });
 
+    it("shows a desktop channel's room avatar as its icon", () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const setting = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        try {
+            room.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.RoomAvatar,
+                    state_key: "",
+                    room_id: ROOM_ID,
+                    sender: "@alice:example.org",
+                    content: { url: "mxc://example.org/icon" },
+                }),
+            ]);
+            const { container } = render(<RoomHeader room={room} />, getWrapper());
+            expect(container.querySelector(".mx_BaseAvatar.mx_DesktopShell_channelIcon")).toBeInTheDocument();
+        } finally {
+            setting.mockRestore();
+        }
+    });
+
     it("opens the room summary", async () => {
         const user = userEvent.setup();
         const { container } = render(<RoomHeader room={room} />, getWrapper());

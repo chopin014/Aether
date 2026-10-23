@@ -11,7 +11,8 @@ import EventEmitter from "node:events";
 import { vi, describe, it, expect, beforeEach, afterEach, type Mock } from "vitest";
 import {
     type MatrixClient,
-    type MatrixEvent,
+    MatrixEvent,
+    EventType,
     KnownMembership,
     Room,
     RoomEvent,
@@ -40,6 +41,7 @@ import RoomListStoreV3 from "../../stores/room-list-v3/RoomListStoreV3";
 import * as tagRoomModule from "../../utils/room/tagRoom";
 import { CHATS_TAG } from "../../stores/room-list-v3/section";
 import { type VoiceState } from "@element-hq/element-call-component/api";
+import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
 
 vi.mock("./utils", () => ({
     hasAccessToOptionsMenu: vi.fn().mockReturnValue(true),
@@ -102,6 +104,67 @@ describe("RoomListItemViewModel", () => {
     afterEach(() => {
         viewModel?.dispose();
         vi.restoreAllMocks();
+    });
+
+    describe("desktop channel customisation", () => {
+        beforeEach(() => {
+            const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+            vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
+                setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+            );
+            vi.spyOn(MatrixClientPeg, "safeGet").mockReturnValue(matrixClient);
+        });
+
+        it("uses the room avatar as the channel icon and follows its changes", () => {
+            const avatar = vi.spyOn(room, "getMxcAvatarUrl").mockReturnValue(null);
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            expect(viewModel.getSnapshot().channelIconUrl).toBeUndefined();
+
+            avatar.mockReturnValue("mxc://example.org/icon");
+            room.emit(
+                RoomStateEvent.Events,
+                new MatrixEvent({ type: EventType.RoomAvatar, state_key: "" }),
+                room.currentState,
+                null,
+            );
+            expect(viewModel.getSnapshot().channelIconUrl).toBe(
+                mediaFromMxc("mxc://example.org/icon").getThumbnailOfSourceHttp(40, 40, "crop"),
+            );
+        });
+
+        it("offers channel editing only to those who may rename the room", () => {
+            const maySend = vi.spyOn(room.currentState, "maySendStateEvent").mockReturnValue(false);
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            expect(viewModel.getSnapshot().canEditChannel).toBe(false);
+
+            maySend.mockReturnValue(true);
+            room.emit(
+                RoomStateEvent.Events,
+                new MatrixEvent({ type: EventType.RoomPowerLevels, state_key: "" }),
+                room.currentState,
+                null,
+            );
+            expect(viewModel.getSnapshot().canEditChannel).toBe(true);
+            expect(maySend).toHaveBeenCalledWith(EventType.RoomName, matrixClient.getSafeUserId());
+        });
+
+        it("opens the channel's general settings to edit it", () => {
+            const dispatch = vi.spyOn(dispatcher, "dispatch");
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel.onEditChannel();
+            expect(dispatch).toHaveBeenCalledWith({
+                action: "open_room_settings",
+                room_id: room.roomId,
+                initial_tab_id: RoomSettingsTab.General,
+            });
+        });
+
+        it("leaves direct messages without a channel icon or edit entry", () => {
+            vi.mocked(DMRoomMap.shared().getUserIdForRoomId).mockReturnValue("@alice:server");
+            vi.spyOn(room, "getMxcAvatarUrl").mockReturnValue("mxc://example.org/alice");
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            expect(viewModel.getSnapshot()).toMatchObject({ channelIconUrl: undefined, canEditChannel: false });
+        });
     });
 
     it("dates an occupied voice channel from its oldest call membership", () => {

@@ -19,6 +19,7 @@ import {
     ArrowRightIcon,
     CheckIcon,
     MinusIcon,
+    EditIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { _t } from "../../../../core/i18n/i18n";
@@ -118,6 +119,15 @@ export function MoreOptionContent({ vm }: MoreOptionContentProps): JSX.Element {
                 </>
             )}
             <Separator />
+            {snapshot.canEditChannel && vm.onEditChannel && (
+                <MenuItem
+                    Icon={EditIcon}
+                    label={_t("room_list|more_options|edit_channel")}
+                    onSelect={vm.onEditChannel}
+                    onClick={(evt) => evt.stopPropagation()}
+                    hideChevron={true}
+                />
+            )}
             {snapshot.canInvite && (
                 <MenuItem
                     Icon={UserAddIcon}

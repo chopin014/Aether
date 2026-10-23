@@ -54,7 +54,13 @@ export const RoomListItemContent = memo(function RoomListItemContent({
             align="center"
         >
             {item.channelKind ? (
-                occupied ? (
+                item.channelIconUrl ? (
+                    <img
+                        className={classNames(styles.channelIcon, styles.channelImage, { [styles.occupied]: occupied })}
+                        src={item.channelIconUrl}
+                        alt=""
+                    />
+                ) : occupied ? (
                     <VolumeOnSolidIcon className={classNames(styles.channelIcon, styles.occupied)} aria-hidden />
                 ) : item.channelKind === "voice" ? (
                     <VolumeOnIcon className={styles.channelIcon} aria-hidden />

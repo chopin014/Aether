@@ -14,11 +14,11 @@ import {
     type Section,
     type UserStatus,
 } from "@element-hq/web-shared-components";
-import { ClientEvent, KnownMembership, RoomEvent, RoomStateEvent } from "matrix-js-sdk/src/matrix";
+import { ClientEvent, EventType, KnownMembership, RoomEvent, RoomStateEvent } from "matrix-js-sdk/src/matrix";
 import { CallType } from "matrix-js-sdk/src/webrtc/call";
 import { logger } from "matrix-js-sdk/src/logger";
 
-import type { Room, MatrixClient, ClientEventHandlerMap } from "matrix-js-sdk/src/matrix";
+import type { Room, MatrixClient, ClientEventHandlerMap, MatrixEvent } from "matrix-js-sdk/src/matrix";
 import type { RoomNotificationState } from "../../stores/notifications/RoomNotificationState";
 import { RoomNotificationStateStore } from "../../stores/notifications/RoomNotificationStateStore";
 import { NotificationStateEvents } from "../../stores/notifications/NotificationState";
@@ -47,6 +47,7 @@ import { _t } from "../../languageHandler";
 import { fetchUserStatus } from "../../utils/userStatus";
 import { mediaFromMxc } from "../../customisations/Media";
 import { type ViewUserPayload } from "../../dispatcher/payloads/ViewUserPayload";
+import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
 
 /**
  * View section type without `isSelected` field
@@ -140,6 +141,7 @@ export class RoomListItemViewModel
         this.disposables.trackListener(props.room, RoomEvent.Name, this.onRoomChanged);
         this.disposables.trackListener(props.room, RoomEvent.Tags, this.onRoomChanged);
         this.disposables.trackListener(props.room, RoomStateEvent.Members, this.onParticipantProfileChanged);
+        this.disposables.trackListener(props.room, RoomStateEvent.Events, this.onRoomStateEvent);
 
         // Rebuild the available sections when their order changes or when one is created/renamed/removed
         const orderSectionsRef = SettingsStore.watchSetting("RoomList.OrderedCustomSections", null, () =>
@@ -288,6 +290,23 @@ export class RoomListItemViewModel
 
     private onRoomChanged = (): void => {
         this.updateItem();
+    };
+
+    /** A desktop channel shows the room avatar as its icon, and its edit entry follows power level changes. */
+    private readonly onRoomStateEvent = (...args: unknown[]): void => {
+        if (!this.snapshot.current.channelKind) return;
+        // trackListener types its listeners loosely; RoomStateEvent.Events passes the event first.
+        const [event] = args as [MatrixEvent];
+        const type = event.getType();
+        if (type === EventType.RoomAvatar || type === EventType.RoomPowerLevels) this.updateItem();
+    };
+
+    public onEditChannel = (): void => {
+        dispatcher.dispatch({
+            action: "open_room_settings",
+            room_id: this.props.room.roomId,
+            initial_tab_id: RoomSettingsTab.General,
+        });
     };
 
     /**
@@ -457,6 +476,13 @@ export class RoomListItemViewModel
                       })
                       .sort((a, b) => a.name.localeCompare(b.name) || a.userId.localeCompare(b.userId))
                 : undefined;
+        // A channel's Matrix room avatar is its custom icon.
+        const channelAvatarMxc = channelKind ? room.getMxcAvatarUrl() : null;
+        const channelIconUrl = channelAvatarMxc
+            ? (mediaFromMxc(channelAvatarMxc).getThumbnailOfSourceHttp(40, 40, "crop") ?? undefined)
+            : undefined;
+        const canEditChannel =
+            !!channelKind && room.currentState.maySendStateEvent(EventType.RoomName, client.getSafeUserId());
 
         return {
             id: room.roomId,
@@ -482,6 +508,8 @@ export class RoomListItemViewModel
             isLowPriority,
             isDm,
             channelKind,
+            channelIconUrl,
+            canEditChannel,
             callParticipants,
             callStartedAt: callParticipants?.length ? RoomListItemViewModel.callStartedAt(room, client) : undefined,
             canInvite,

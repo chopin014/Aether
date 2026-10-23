@@ -28,6 +28,7 @@ const {
     WithoutHoverMenu,
     DesktopVoiceParticipantSpeaking,
     DesktopVoiceChannelOccupied,
+    DesktopChannelWithIcon,
     DesktopVoiceParticipantsSilent,
     DesktopVoiceParticipantsMultipleSpeaking,
     DesktopVoiceParticipantsMutedAndDeafened,
@@ -66,6 +67,15 @@ describe("<RoomListItemView />", () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it("shows a channel's custom icon instead of its symbol", () => {
+        const { container } = render(<DesktopChannelWithIcon />);
+        const icon = container.querySelector("img");
+        expect(icon).toHaveAttribute("src", DesktopChannelWithIcon.args.channelIconUrl);
+        // The image takes the place of the channel symbol, before the name
+        expect(icon?.previousElementSibling).toBeNull();
+        expect(icon?.nextElementSibling).toHaveTextContent("General");
     });
 
     it("shows no duration while a voice channel is empty", () => {

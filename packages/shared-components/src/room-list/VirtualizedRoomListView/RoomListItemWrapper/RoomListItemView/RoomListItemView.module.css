@@ -257,6 +257,20 @@
     gap: var(--cpd-space-1x);
 }
 
+/* A custom channel icon from the room avatar. */
+.channelImage {
+    width: var(--cpd-space-5x);
+    height: var(--cpd-space-5x);
+    margin: var(--cpd-space-0-5x);
+    border-radius: var(--cpd-space-1x);
+    object-fit: cover;
+
+    &.occupied {
+        outline: var(--cpd-border-width-2) solid var(--cpd-color-border-success-primary);
+        outline-offset: var(--cpd-border-width-1);
+    }
+}
+
 /* A voice channel with people in it. */
 .channelIcon.occupied {
     color: var(--cpd-color-icon-success-primary);

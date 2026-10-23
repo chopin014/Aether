@@ -91,6 +91,10 @@ export interface RoomListItemViewSnapshot {
     isDm: boolean;
     /** Desktop channel symbol; direct messages retain their profile avatars. */
     channelKind?: "text" | "voice";
+    /** A desktop channel's custom icon, taken from its room avatar, replacing the channel symbol. */
+    channelIconUrl?: string;
+    /** Whether the user may rename the channel and change its icon. */
+    canEditChannel?: boolean;
     /**
      * Distinct users with live MatrixRTC memberships, visible before joining a voice room.
      * `isSpeaking` draws an activity ring around the participant's avatar while they talk; `isMuted` and
@@ -134,6 +138,8 @@ export interface RoomListItemViewSnapshot {
 export interface RoomListItemViewActions {
     /** Open a voice participant's real Matrix profile. */
     onViewCallParticipant?: (userId: string) => void;
+    /** Open the channel's settings, where its name, topic and icon are changed. */
+    onEditChannel?: () => void;
     /** Called when the room should be opened */
     onOpenRoom: () => void;
     /** Called when the room should be marked as read */
