@@ -1,0 +1,409 @@
+diff --git a/dist/element-call.js b/dist/element-call.js
+--- a/dist/element-call.js
++++ b/dist/element-call.js
+@@ -41380,7 +41380,7 @@
+ var C2 = (e) => {
+ 	let t = I(116), n, r, i, a, o, s, c, l, u, d, f, p, m, h, g, _, v, y, b, x, S, C, w, T, E, D, O, k, A, j, ee;
+ 	t[0] === e ? (n = t[1], r = t[2], i = t[3], a = t[4], o = t[5], s = t[6], c = t[7], l = t[8], u = t[9], d = t[10], f = t[11], p = t[12], m = t[13], h = t[14], g = t[15], _ = t[16], v = t[17], y = t[18], b = t[19], x = t[20], S = t[21], C = t[22], w = t[23], T = t[24], E = t[25], D = t[26], O = t[27], k = t[28], A = t[29], j = t[30], ee = t[31]) : ({ref: h, className: r, style: x, targetWidth: T, targetHeight: w, video: O, videoFit: A, mirror: c, soundWaves: y, userId: D, videoEnabled: k, unencryptedWarning: E, showNameTags: v, nameTagLeadingIcon: u, displayName: a, mxcAvatarUrl: l, avatarStyle: S, background: C, focusable: s, primaryButton: d, status: b, raisedHandTime: m, currentReaction: i, raisedHandOnClick: p, waitingForMedia: ee, audioStreamStats: n, videoStreamStats: j, rtcBackendIdentity: g, focusUrl: o, setVideoAspectRatio: _, ...f} = e, t[0] = e, t[1] = n, t[2] = r, t[3] = i, t[4] = a, t[5] = o, t[6] = s, t[7] = c, t[8] = l, t[9] = u, t[10] = d, t[11] = f, t[12] = p, t[13] = m, t[14] = h, t[15] = g, t[16] = _, t[17] = v, t[18] = y, t[19] = b, t[20] = x, t[21] = S, t[22] = C, t[23] = w, t[24] = T, t[25] = E, t[26] = D, t[27] = O, t[28] = k, t[29] = A, t[30] = j, t[31] = ee);
+-	let te = S === void 0 ? "solid" : S, ne = C === void 0 ? "solid" : C, { t: re } = Je(), [M] = Ze(Ge), [ie] = Ze(Et), ae = Math.round(Math.min(T, w) * (y === void 0 ? .5 : .38)), [oe, se] = B(NaN), ce = T / w, le;
++	let te = S === void 0 ? "solid" : S, ne = C === void 0 ? "solid" : C, { t: re } = Je(), [M] = Ze(Ge), [ie] = Ze(Et), ae = aetherDesktopShell() ? T < 124 ? 40 : 80 : Math.round(Math.min(T, w) * (y === void 0 ? .5 : .38)), [oe, se] = B(NaN), ce = T / w, le;
+ 	t[32] === _ ? le = t[33] : (le = (e) => {
+ 		se(e), _?.(e);
+ 	}, t[32] = _, t[33] = le);
+@@ -41565,7 +41565,7 @@
+ }, D2 = (e) => {
+ 	let t = I(67), n, r, i, a, o, s, c, l, u, d, f, p, m, h, g;
+ 	t[0] === e ? (n = t[1], r = t[2], i = t[3], a = t[4], o = t[5], s = t[6], c = t[7], l = t[8], u = t[9], d = t[10], f = t[11], p = t[12], m = t[13], h = t[14], g = t[15]) : ({ref: d, vm: h, showSpeakingIndicators: f, playbackMuted: c, waitingForMedia: g, primaryButton: l, menu: o, className: n, focusUrl: i, displayName: r, mxcAvatarUrl: s, focusable: a, targetWidth: m, targetHeight: p, ...u} = e, t[0] = e, t[1] = n, t[2] = r, t[3] = i, t[4] = a, t[5] = o, t[6] = s, t[7] = c, t[8] = l, t[9] = u, t[10] = d, t[11] = f, t[12] = p, t[13] = m, t[14] = h, t[15] = g);
+-	let { toggleRaisedHand: _ } = rZ(), { t: v } = Je(), y = P(h.video$), b = P(h.unencryptedWarning$), x = P(h.audioStreamStats$), S = P(h.videoStreamStats$), C = P(h.audioEnabled$), w = P(h.videoEnabled$), T = P(h.speaking$), E = h.rtcBackendIdentity, D = P(h.handRaised$), O = P(h.reaction$), k = c ? Br : C ? xr : yr, A;
++	let { toggleRaisedHand: _ } = rZ(), { t: v } = Je(), y = P(h.video$), b = P(h.unencryptedWarning$), x = P(h.audioStreamStats$), S = P(h.videoStreamStats$), C = P(h.audioEnabled$), w = P(h.videoEnabled$), T = P(aetherSpeakingActivity(h)), E = h.rtcBackendIdentity, D = P(h.handRaised$), O = P(h.reaction$), k = c ? Br : C ? xr : yr, A;
+ 	t[16] !== C || t[17] !== c || t[18] !== v ? (A = v(c ? "video_tile.muted_for_me" : C ? "microphone_on" : "microphone_off"), t[16] = C, t[17] = c, t[18] = v, t[19] = A) : A = t[19];
+ 	let j = A, [ee, te] = B(!1), ne;
+ 	t[20] === v ? ne = t[21] : (ne = v("common.options"), t[20] = v, t[21] = ne);
+@@ -41583,7 +41583,7 @@
+ 	}), t[23] = ne, t[24] = re, t[25] = ie) : ie = t[25];
+ 	let ae = ie, oe;
+ 	t[26] !== _ || t[27] !== h.local ? (oe = h.local ? () => void _() : void 0, t[26] = _, t[27] = h.local, t[28] = oe) : oe = t[28];
+-	let se = oe, ce = f && T, le = h.userId, ue = !ce && D, de;
++	let se = oe, ce = (f || !w) && T && C, le = h.userId, ue = !ce && D, de;
+ 	t[29] !== n || t[30] !== ce || t[31] !== ue ? (de = (0, JT.default)(n, lQ.tile, {
+ 		[lQ.speaking]: ce,
+ 		[lQ.handRaised]: ue
+@@ -41613,6 +41613,8 @@
+ 		userId: le,
+ 		unencryptedWarning: b,
+ 		videoEnabled: w,
++		soundWaves: w ? void 0 : ce,
++		"data-speaking": ce,
+ 		className: de,
+ 		nameTagLeadingIcon: pe,
+ 		displayName: r,
+@@ -42138,7 +42140,7 @@
+ }
+ function f4({ windowMode: e, layoutMode: t, spotlightExpanded: n, oneOnOne: r, localVideoEnabled: i, spotlight: a, grid: o, pip: s, desktop: c }) {
+ 	switch (e) {
+-		case "normal": return t === "grid" ? r === null ? m4(a, o) : h4(r) : n ? g4(!1, a, s) : _4(!1, a, o);
++		case "normal": return t === "grid" ? r === null || aetherDesktopShell() ? m4(a, o) : h4(r) : n ? g4(!1, a, s) : _4(!1, a, o);
+ 		case "narrow": return r === null ? o.length > l4 || p4(a) ? y4(a, o) : m4(a, o) : v4(r, i);
+ 		case "flat": return r === null ? t === "grid" ? _4(!0, a, o) : g4(!0, a, s) : v4(r, i);
+ 		case "pip": return {
+@@ -42634,8 +42636,32 @@
+ }
+ //#endregion
+ //#region src/state/CallViewModel/remoteMembers/ConnectionFactory.ts
++// Initialize capture first: LiveKit attaches its AudioContext before a processor can be installed.
++async function aetherCreateMicrophoneTracks(room, createTracks, options, hostBridge) {
++	let canProcess = false;
++	try {
++		await room.acquireAudioContext();
++		canProcess = !!room.audioContext;
++	} catch (error) {
++		V.warn("Could not initialize microphone processing; using browser audio", error);
++	}
++	const tracks = await createTracks(options);
++	if (!canProcess) return tracks;
++	for (const track of tracks) {
++		if (track.kind !== Z.Kind.Audio) continue;
++		const processor = hostBridge.createMicrophoneProcessor?.();
++		if (!processor) continue;
++		try {
++			await track.setProcessor(processor);
++		} catch (error) {
++			await Promise.resolve(processor.destroy?.()).catch(() => {});
++			V.warn("Could not process the microphone; using browser audio", error);
++		}
++	}
++	return tracks;
++}
+ var U4 = class {
+-	constructor(e, t, n, r, i, a, o) {
++	constructor(e, t, n, r, i, a, o, hostBridge) {
+ 		this.client = e, this.roomId = t, this.devices = n, this.processorState$ = r, this.controlledAudioDevices = a;
+ 		let s = () => {
+ 			let e = W4({
+@@ -42647,7 +42673,13 @@
+ 				},
+ 				controlledAudioDevices: this.controlledAudioDevices
+ 			});
+-			return V.info("[ECConnectionFactory] livekit room options: ", e), new JS(e);
++			V.info("[ECConnectionFactory] livekit room options: ", e);
++			const room = new JS(e);
++			if (hostBridge?.createMicrophoneProcessor) {
++				const createTracks = room.localParticipant.createTracks.bind(room.localParticipant);
++				room.localParticipant.createTracks = (options) => aetherCreateMicrophoneTracks(room, createTracks, options, hostBridge);
++			}
++			return room;
+ 		};
+ 		this.livekitRoomFactory = o ?? s;
+ 	}
+@@ -42704,6 +42736,17 @@
+ }
+ //#endregion
+ //#region src/state/CallViewModel/remoteMembers/MatrixLivekitMembers.ts
++// A stale Matrix membership must not add a waiting tile beside the same user's live device.
++function aetherObserveVisibleCallMembers(members) {
++	if (members.length === 0) return Ck([]);
++	return Lk(members.map((member) => member.participant.value$)).pipe(
++		F((participants) => {
++			const connectedUsers = new Set(members.filter((member, index) => member.participant.type === "local" || participants[index] != null).map((member) => member.userId));
++			return members.filter((member, index) => member.participant.type === "local" || participants[index] != null || !connectedUsers.has(member.userId));
++		}),
++		$e((previous, next) => previous.length === next.length && previous.every((member, index) => member === next[index]))
++	);
++}
+ function G4({ scope: e, membershipsWithTransport$: t, connectionManager: n, localUser: r }) {
+ 	return e.behavior(Lk([t, n.connectionManagerData$]).pipe(aA((e) => e.every((t) => t.epoch === e[0].epoch)), F(([e, t]) => new xL([e.value, t.value], e.epoch)), NL("RemoteMatrixLivekitMembers", function* ([e, t]) {
+ 		for (let { membership: n, transport: i } of e) {
+@@ -43118,8 +43161,102 @@
+ }
+ //#endregion
+ //#region src/state/media/UserMediaViewModel.ts
++// Aether's sidebar observes existing microphone tracks instead of delayed SFU speaker notifications.
++let aetherSpeakingContext;
++function aetherObserveSpeaking(participant, fallback$) {
++	return new C((observer) => {
++		let contextEntry, source, analyser, track, samples, lastVoice = -Infinity, reported, fallback = false;
++		const report = (speaking) => {
++			if (speaking !== reported) {
++				reported = speaking;
++				observer.next(speaking);
++			}
++		};
++		const disconnect = () => {
++			source?.disconnect();
++			analyser?.disconnect();
++			source = analyser = samples = undefined;
++		};
++		const sample = () => {
++			const publication = participant.getTrackPublication(Z.Source.Microphone);
++			const nextTrack = publication?.track?.mediaStreamTrack;
++			if (publication?.isMuted !== false || !nextTrack || !nextTrack.enabled || nextTrack.readyState !== "live") {
++				lastVoice = -Infinity;
++				disconnect();
++				track = undefined;
++				report(false);
++				return;
++			}
++			if (nextTrack !== track) {
++				disconnect();
++				track = nextTrack;
++				lastVoice = -Infinity;
++			}
++			try {
++				if (!contextEntry) {
++					const Context = globalThis.AudioContext || globalThis.webkitAudioContext;
++					if (!Context) {
++						report(fallback);
++						return;
++					}
++					if (!aetherSpeakingContext || aetherSpeakingContext.context.state === "closed") {
++						aetherSpeakingContext = { context: new Context({ latencyHint: "interactive" }), users: 0 };
++					}
++					contextEntry = aetherSpeakingContext;
++					contextEntry.users++;
++					if (contextEntry.context.state === "suspended") {
++						Promise.resolve(contextEntry.context.resume()).catch(() => {});
++					}
++				}
++				if (contextEntry.context.state !== "running") {
++					report(fallback);
++					return;
++				}
++				if (!source) {
++					analyser = contextEntry.context.createAnalyser();
++					analyser.fftSize = 1024;
++					samples = new Float32Array(analyser.fftSize);
++					source = contextEntry.context.createMediaStreamSource(new MediaStream([track]));
++					source.connect(analyser);
++				}
++				analyser.getFloatTimeDomainData(samples);
++				let energy = 0;
++				for (const value of samples) energy += value * value;
++				const now = performance.now();
++				if (Math.sqrt(energy / samples.length) >= 0.015) lastVoice = now;
++				report(now - lastVoice < 120);
++			} catch {
++				disconnect();
++				report(fallback);
++			}
++		};
++		const subscription = fallback$.subscribe((speaking) => {
++			fallback = speaking;
++			sample();
++		});
++		sample();
++		const timer = setInterval(sample, 40);
++		return () => {
++			clearInterval(timer);
++			subscription.unsubscribe();
++			disconnect();
++			if (contextEntry && --contextEntry.users === 0) {
++				if (aetherSpeakingContext === contextEntry) aetherSpeakingContext = undefined;
++				Promise.resolve(contextEntry.context.close()).catch(() => {});
++			}
++		};
++	});
++}
++function aetherCreateSpeakingBehavior(scope, participant$, fallback$) {
++	return scope.behavior(participant$.pipe(wA((participant) => participant ? aetherObserveSpeaking(participant, fallback$) : Ck(false))));
++}
++function aetherSpeakingActivity(media) {
++	return media.instantSpeaking$ ?? media.speaking$;
++}
+ function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType: i, ...a }) {
+ 	let { participant$: o } = a, s = e.behavior(o.pipe(wA((e) => (e && aL(e)) ?? Ck(void 0)))), c = new He(), l = new Rt(NaN), u = (e, t) => e.behavior(Lk([o, Et.value$]).pipe(wA(([e, n]) => e && n ? p3(e, t, i) : Ck(void 0))));
++	const speaking$ = e.behavior(o.pipe(wA((participant) => participant ? iL(participant, J.IsSpeakingChanged).pipe(F((participant) => participant.isSpeaking)) : Ck(false))));
++	const instantSpeaking$ = aetherCreateSpeakingBehavior(e, o, speaking$);
+ 	return {
+ 		...h3(e, {
+ 			...a,
+@@ -43127,7 +43264,9 @@
+ 			videoSource: Z.Source.Camera
+ 		}),
+ 		type: "user",
+-		speaking$: e.behavior(o.pipe(wA((e) => e ? iL(e, J.IsSpeakingChanged).pipe(F((e) => e.isSpeaking)) : Ck(!1)))),
++		microphoneParticipant$: o,
++		speaking$,
++		instantSpeaking$,
+ 		audioEnabled$: e.behavior(s.pipe(F((e) => e?.microphoneTrack?.isMuted === !1))),
+ 		videoEnabled$: e.behavior(s.pipe(F((e) => e?.cameraTrack?.isMuted === !1))),
+ 		videoOrientation$: e.behavior(l.pipe(F((e) => e > 1 ? "landscape" : "portrait")), "portrait"),
+@@ -43253,6 +43392,7 @@
+ }
+ //#endregion
+ //#region src/state/media/WrappedUserMediaViewModel.ts
++// A published but muted screen track must not leave an empty spotlight panel.
+ function T3(e, { participant: t, mediaDevices: n, pretendToBeDisconnected$: r, ...i }) {
+ 	let a = t.type === "local" ? y3(e, {
+ 		participant$: t.value$,
+@@ -43262,8 +43402,8 @@
+ 		participant$: t.value$,
+ 		pretendToBeDisconnected$: r,
+ 		...i
+-	}), o = t.value$, s = e.behavior(o.pipe(wA((e) => e === null ? Ck([]) : iL(e, J.TrackPublished, J.TrackUnpublished, J.LocalTrackPublished, J.LocalTrackUnpublished).pipe(ML(`${i.id} screenShares$`, function* (e) {
+-		e.isScreenShareEnabled && (yield {
++	}), o = t.value$, s = e.behavior(o.pipe(wA((e) => e === null ? Ck([]) : iL(e, J.TrackPublished, J.TrackUnpublished, J.LocalTrackPublished, J.LocalTrackUnpublished, J.TrackMuted, J.TrackUnmuted).pipe(ML(`${i.id} screenShares$`, function* (e) {
++		e.getTrackPublication(Z.Source.ScreenShare)?.isMuted === false && (yield {
+ 			keys: ["screen-share"],
+ 			data: void 0
+ 		});
+@@ -43329,7 +43469,7 @@
+ 		matrixRTCMode: S
+ 	})), O = J4({
+ 		scope: e,
+-		connectionFactory: a.connectionFactory ?? new U4(u, n.roomId, r, c, b, m, a.livekitRoomFactory),
++		connectionFactory: a.connectionFactory ?? new U4(u, n.roomId, r, c, b, m, a.livekitRoomFactory, p),
+ 		localTransport$: D,
+ 		remoteTransports$: T.transports$,
+ 		logger: l,
+@@ -43374,7 +43514,7 @@
+ 		},
+ 		connection$: A.connection$,
+ 		userId: d
+-	}))), te = e.behavior(Lk([ee, k], (e, t) => [...e === null ? [] : [e], ...t.value])), ne = i3(e, n), re = o3(e, e.behavior(C.pipe(F((e) => e.value))), ne), { ringAttempts$: M, autoLeave$: ie } = Q4({
++	}))), te = e.behavior(Lk([ee, k], (e, t) => [...e === null ? [] : [e], ...t.value]).pipe(wA(aetherObserveVisibleCallMembers))), ne = i3(e, n), re = o3(e, e.behavior(C.pipe(F((e) => e.value))), ne), { ringAttempts$: M, autoLeave$: ie } = Q4({
+ 		scope: e,
+ 		memberships$: C,
+ 		matrixRoomMembers$: ne,
+@@ -43611,6 +43751,24 @@
+ 		let t = {};
+ 		return e instanceof hX ? { transportError: e } : e === C4.Waiting ? null : (e.matrix instanceof hX && (t.matrixError = e.matrix), e.media instanceof hX ? t.publishError = e.media : typeof e.media == "object" && e.media.connection instanceof hX && (t.connectionError = e.media.connection), t);
+ 	})), null);
++	// Forward real, unmuted speech activity to component hosts such as Aether's channel list.
++	if (p.notifySpeakingUsers) {
++		const notifySpeakingUsers = (userIds) => {
++			Promise.resolve(p.notifySpeakingUsers(userIds)).catch((error) => l.warn("Could not send speaking users to the host", error));
++		};
++		ue.pipe(
++			wA((media) => media.length === 0 ? Ck([]) : Lk(media.map((item) => {
++				const speaking$ = item.instantSpeaking$ ?? (item.microphoneParticipant$
++					? item.microphoneParticipant$.pipe(wA((participant) => participant ? aetherObserveSpeaking(participant, item.speaking$) : Ck(false)))
++					: item.speaking$);
++				return Lk([speaking$, item.audioEnabled$], (speaking, enabled) => speaking && enabled ? item.userId : null);
++			}))),
++			F((userIds) => [...new Set(userIds.filter((userId) => userId !== null))].sort()),
++			$e((previous, next) => previous.length === next.length && previous.every((userId, index) => userId === next[index])),
++			e.bind()
++		).subscribe(notifySpeakingUsers);
++		e.onEnd(() => notifySpeakingUsers([]));
++	}
+ 	return {
+ 		autoLeave$: ie,
+ 		ringingVm$: de,
+@@ -44840,11 +44998,12 @@
+ }, C8 = (e) => {
+ 	let t = I(15), n, r, i, a;
+ 	t[0] === e ? (n = t[1], r = t[2], i = t[3], a = t[4]) : ({vm: a, targetWidth: i, targetHeight: r, ...n} = e, t[0] = e, t[1] = n, t[2] = r, t[3] = i, t[4] = a);
+-	let o = P(a.videoEnabled$), s = P(a.speaking$), c = n.background === "transparent" ? s : void 0, l;
++	let o = P(a.videoEnabled$), s = P(aetherSpeakingActivity(a)), audioEnabled = P(a.audioEnabled$), c = o ? void 0 : s && audioEnabled, l;
+ 	t[5] !== n || t[6] !== c || t[7] !== r || t[8] !== i || t[9] !== o || t[10] !== a.setVideoAspectRatio ? (l = {
+ 		setVideoAspectRatio: a.setVideoAspectRatio,
+ 		videoEnabled: o,
+ 		soundWaves: c,
++		"data-speaking": !!c,
+ 		targetWidth: i,
+ 		targetHeight: r,
+ 		...n
+@@ -45127,7 +45286,36 @@
+ 	scrolling: "_scrolling_1s6z9_9",
+ 	slot: "_slot_1s6z9_21"
+ }, M8 = 17 / 9, N8 = 4 / 3;
++// Aether's desktop shell sizes tiles like Discord: the largest 16:9 tile that fits every participant.
++function aetherDesktopShell() {
++	return typeof document !== "undefined" && document.body.classList.contains("mx_DesktopShell");
++}
++function aetherGridTiles(width, height, count) {
++	const gap = 8, padding = 16, minWidth = 160, tiles = Math.max(1, count);
++	const availableWidth = width - 2 * padding, availableHeight = height - 2 * padding;
++	let tileWidth = 0, columns = 1;
++	for (let candidate = 1; candidate <= tiles; candidate++) {
++		const rows = Math.ceil(tiles / candidate);
++		const fit = Math.min((availableWidth - (candidate - 1) * gap) / candidate, (availableHeight - (rows - 1) * gap) / rows * 16 / 9);
++		if (fit > tileWidth) {
++			tileWidth = fit;
++			columns = candidate;
++		}
++	}
++	// Past the point where tiles become unreadable, keep a minimum size and let the grid scroll.
++	if (tileWidth < minWidth) {
++		columns = Math.max(1, Math.floor((availableWidth + gap) / (minWidth + gap)));
++		tileWidth = Math.min(minWidth, (availableWidth - (columns - 1) * gap) / columns);
++	}
++	return {
++		tileWidth,
++		tileHeight: tileWidth * 9 / 16,
++		gap,
++		columns
++	};
++}
+ function P8(e, t, n) {
++	if (aetherDesktopShell()) return aetherGridTiles(e, t, n);
+ 	let r = e < 800 ? 16 : 20, i = e * t, a = (Math.sqrt(i) / 8 + 125) ** 2, o = Math.min(n, i / a), s = Math.min(o, Math.round(Math.sqrt(e / t / N8 * o))), c = o / s;
+ 	o === n && (c = Math.ceil(c), s = Math.ceil(n / c));
+ 	let l = (e - (s + 1) * r) / s, u = (t - (c - 1) * r) / c, d = l / u;
+@@ -48045,10 +48233,14 @@
+ 		notifyDeviceMute: async (e) => {
+ 			await r.current.notifyDeviceMute?.(e);
+ 		},
++		notifySpeakingUsers: async (userIds) => {
++			await r.current.notifySpeakingUsers?.(userIds);
++		},
+ 		get close() {
+ 			let e = r.current.close;
+ 			return e === void 0 ? void 0 : async () => await e();
+ 		},
++		createMicrophoneProcessor: () => r.current.createMicrophoneProcessor?.(),
+ 		get supportsReactions() {
+ 			return r.current.supportsReactions ?? !0;
+ 		},
+diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
+--- a/dist/types/component/host.d.ts
++++ b/dist/types/component/host.d.ts
+@@ -1,3 +1,4 @@
++import type { Track, TrackProcessor } from "livekit-client";
+ /**
+  * How a host application and the Element Call component talk to each other.
+  *
+@@ -20,6 +21,8 @@
+  * recently given, so this may be written inline.
+  */
+ export interface ElementCallHostBridge {
++    /** Creates a processor for outgoing microphone capture, before publishing. */
++    createMicrophoneProcessor?(): TrackProcessor<Track.Kind.Audio> | undefined;
+     /**
+      * Asks the host to keep Element Call on screen (or stop doing so), so that a
+      * call in progress is not torn down when the user navigates elsewhere.
+@@ -33,6 +36,8 @@
+     notifyHungUp?(): Promise<void>;
+     /** Tells the host the user's current audio and video mute state. */
+     notifyDeviceMute?(state: DeviceMuteState): Promise<void>;
++    /** Real, unmuted speaking Matrix users, deduplicated across devices. Empty when the call ends. */
++    notifySpeakingUsers?(userIds: string[]): Promise<void>;
+     /**
+      * Asks the host to close Element Call: to unmount the component. Its
+      * presence is what makes Element Call offer a close button on its error
+diff --git a/dist/types/src/HostBridge.d.ts b/dist/types/src/HostBridge.d.ts
+--- a/dist/types/src/HostBridge.d.ts
++++ b/dist/types/src/HostBridge.d.ts
+@@ -1,3 +1,4 @@
++import type { Track, TrackProcessor } from "livekit-client";
+ import { type Observable } from "rxjs";
+ import { type JoinCallData, type WidgetHelpers } from "./widget";
+ /** The mute state Element Call and its host exchange. */
+@@ -35,6 +36,8 @@
+  * The Matrix client it talks to is supplied separately, at startup.
+  */
+ export interface HostBridge {
++    /** Creates a processor for outgoing microphone capture, before publishing. */
++    createMicrophoneProcessor?(): TrackProcessor<Track.Kind.Audio> | undefined;
+     /**
+      * Asks the host to keep Element Call on screen (or stop doing so), so that a
+      * call in progress is not torn down when the user navigates elsewhere.
+@@ -48,6 +51,8 @@
+     notifyHungUp(): Promise<void>;
+     /** Tells the host the user's current audio and video mute state. */
+     notifyDeviceMute(state: DeviceMuteState): Promise<void>;
++    /** Real, unmuted speaking Matrix users, deduplicated across devices. Empty when the call ends. */
++    notifySpeakingUsers?(userIds: string[]): Promise<void>;
+     /**
+      * Asks the host to close Element Call, and stops communicating with it. No
+      * further calls should be made on this bridge afterwards.

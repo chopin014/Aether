@@ -6,6 +6,7 @@ Please see LICENSE in the repository root for full details.
 */
 
 import { type Page, type Request, type Response } from "@playwright/test";
+import { fileURLToPath } from "node:url";
 import {
     closeReleaseAnnouncementIfExists,
     populateLocalStorageWithCredentials,
@@ -21,6 +22,17 @@ test.use({
     lockLeftPanelWidth: false,
     displayName: "Alice",
     permissions: ["microphone", "camera"],
+    launchOptions: {
+        args: [
+            "--use-fake-ui-for-media-stream",
+            "--use-fake-device-for-media-stream",
+            "--mute-audio",
+            // A synthetic speech fixture exercises suppression without relying on Chromium's test tone.
+            `--use-file-for-fake-audio-capture=${fileURLToPath(
+                new URL("../../../src/audio/__fixtures__/speech.wav", import.meta.url),
+            )}`,
+        ],
+    },
     config: {
         default_theme: "dark",
         features: {
@@ -46,6 +58,14 @@ async function observePeers(page: Page): Promise<void> {
         if ("__desktopVoicePeers" in window) return;
         const peers: RTCPeerConnection[] = [];
         Object.defineProperty(window, "__desktopVoicePeers", { value: peers });
+        const processedTracks = new Set<MediaStreamTrack>();
+        Object.defineProperty(window, "__desktopVoiceProcessedTracks", { value: processedTracks });
+        const createDestination = AudioContext.prototype.createMediaStreamDestination;
+        AudioContext.prototype.createMediaStreamDestination = function () {
+            const destination = createDestination.call(this);
+            for (const track of destination.stream.getAudioTracks()) processedTracks.add(track);
+            return destination;
+        };
         const Original = window.RTCPeerConnection;
         window.RTCPeerConnection = class extends Original {
             public constructor(configuration?: RTCConfiguration) {
@@ -56,6 +76,26 @@ async function observePeers(page: Page): Promise<void> {
     };
     await page.addInitScript(instrument);
     await page.evaluate(instrument);
+}
+
+/** Check the Web Audio output actually reaches the microphone sender, rather than only loading a filter. */
+async function hasProcessedMicrophone(page: Page): Promise<boolean> {
+    return page.evaluate(() => {
+        const state = window as Window & {
+            __desktopVoicePeers?: RTCPeerConnection[];
+            __desktopVoiceProcessedTracks?: Set<MediaStreamTrack>;
+        };
+        return (state.__desktopVoicePeers ?? []).some((peer) =>
+            peer
+                .getSenders()
+                .some(
+                    (sender) =>
+                        sender.track?.kind === "audio" &&
+                        sender.track.readyState === "live" &&
+                        state.__desktopVoiceProcessedTracks?.has(sender.track),
+                ),
+        );
+    });
 }
 
 async function receivedAudioBytes(page: Page): Promise<number> {
@@ -87,6 +127,62 @@ async function decodedAudioEnergy(page: Page): Promise<number> {
     });
 }
 
+/** Count decoded remote video frames: encrypted packets alone do not prove a working screen share. */
+async function decodedVideoFrames(page: Page): Promise<number> {
+    return page.evaluate(async () => {
+        const peers = (window as Window & { __desktopVoicePeers?: RTCPeerConnection[] }).__desktopVoicePeers ?? [];
+        let frames = 0;
+        for (const peer of peers) {
+            const stats = await peer.getStats();
+            stats.forEach((entry) => {
+                if (entry.type === "inbound-rtp" && entry.kind === "video") frames += entry.framesDecoded ?? 0;
+            });
+        }
+        return frames;
+    });
+}
+
+test(
+    "publishes a noise-suppressed microphone and preserves mute and disconnect controls",
+    { tag: ["@no-firefox", "@no-webkit"] },
+    async ({ page, app, user }) => {
+        test.setTimeout(90_000);
+        await settle(page);
+        await observePeers(page);
+        const roomId = await app.client.createRoom({
+            name: "Noise suppression",
+            creation_content: { type: "org.matrix.msc3417.call" },
+        });
+        await app.viewRoomById(roomId);
+        const dock = page.getByRole("group", { name: "User menu" });
+        await expect(dock.getByText("Voice Connected", { exact: true })).toBeVisible({ timeout: 30_000 });
+        await expect.poll(() => hasProcessedMicrophone(page), { timeout: 30_000 }).toBe(true);
+        await expect
+            .poll(() =>
+                page.evaluate(async () => {
+                    const peers =
+                        (window as Window & { __desktopVoicePeers?: RTCPeerConnection[] }).__desktopVoicePeers ?? [];
+                    let bytes = 0;
+                    for (const peer of peers) {
+                        const stats = await peer.getStats();
+                        stats.forEach((entry) => {
+                            if (entry.type === "outbound-rtp" && entry.kind === "audio") bytes += entry.bytesSent ?? 0;
+                        });
+                    }
+                    return bytes;
+                }),
+            )
+            .toBeGreaterThan(0);
+        await dock.getByRole("button", { name: "Mute", exact: true }).click();
+        await expect(dock.getByRole("button", { name: "Unmute", exact: true })).toBeVisible();
+        await dock.getByRole("button", { name: "Unmute", exact: true }).click();
+        await expect(dock.getByRole("button", { name: "Mute", exact: true })).toBeVisible();
+        await expect.poll(() => hasProcessedMicrophone(page)).toBe(true);
+        await dock.getByRole("button", { name: "Disconnect", exact: true }).click();
+        await expect.poll(() => hasProcessedMicrophone(page)).toBe(false);
+    },
+);
+
 test(
     "two members use a persistent Element Call voice room without Jitsi",
     { tag: ["@no-firefox", "@no-webkit"] },
@@ -108,6 +204,8 @@ test(
         const bob = await homeserver.registerUser("bob-desktop-voice", "password", "Bob");
         const bobContext = await browser.newContext({
             baseURL: new URL(page.url()).origin,
+            // Keep the desktop call layout wide enough to show both tiles alongside the room chat.
+            viewport: { width: 1600, height: 900 },
             permissions: ["microphone", "camera"],
         });
         bobContext.on("request", onRequest);
@@ -176,10 +274,14 @@ test(
                 .toBe("org.matrix.msc3417.call");
             await bobPage.goto(`/#/room/${roomId}`);
             for (const memberPage of [page, bobPage]) {
+                const memberDock = memberPage.getByRole("group", { name: "User menu" });
+                await expect(memberDock.getByText("Voice Connected", { exact: true })).toBeVisible({ timeout: 60_000 });
+                await memberDock.getByRole("button", { name: /Voice Connected/ }).click();
                 await expect(memberPage.getByTestId("videoTile")).toHaveCount(2, { timeout: 30_000 });
                 await expect(memberPage.locator("video").filter({ visible: true })).toHaveCount(0);
                 await expect.poll(() => receivedAudioBytes(memberPage), { timeout: 30_000 }).toBeGreaterThan(0);
                 await expect.poll(() => decodedAudioEnergy(memberPage), { timeout: 30_000 }).toBeGreaterThan(0);
+                await expect.poll(() => hasProcessedMicrophone(memberPage)).toBe(true);
                 await expect
                     .poll(() =>
                         memberPage.locator("audio").evaluateAll((elements) => {
@@ -189,9 +291,103 @@ test(
                     )
                     .toBe(true);
             }
+            // Reproduce an abandoned login's advertised membership without a corresponding media connection.
+            const staleMembershipKey = await app.client.evaluate(async (client, roomId) => {
+                const eventType =
+                    "org.matrix.msc3401.call.member" as import("matrix-js-sdk").EventType.GroupCallMemberPrefix;
+                const ownEvent = client
+                    .getRoom(roomId)!
+                    .currentState.getStateEvents(eventType)
+                    .find((event) => event.getContent().device_id === client.getDeviceId())!;
+                const content = ownEvent.getContent() as import("matrix-js-sdk/src/matrixrtc").SessionMembershipData;
+                const deviceId = "AETHER_STALE";
+                const stateKey = `_${client.getUserId()}_${deviceId}_m.call`;
+                await client.sendStateEvent(
+                    roomId,
+                    eventType,
+                    {
+                        ...content,
+                        device_id: deviceId,
+                        membershipID: `${client.getUserId()}:${deviceId}`,
+                        created_ts: Date.now(),
+                    },
+                    stateKey,
+                );
+                return stateKey;
+            }, roomId);
+
+            for (const memberApp of [app, bobApp]) {
+                await expect
+                    .poll(() =>
+                        memberApp.client.evaluate(
+                            (client, roomId) =>
+                                client.matrixRTC.getRoomSession(client.getRoom(roomId)!).memberships.length,
+                            roomId,
+                        ),
+                    )
+                    .toBe(3);
+                await expect(memberApp.page.getByTestId("videoTile")).toHaveCount(2);
+                await expect(memberApp.page.getByText("Waiting for media...", { exact: true })).toHaveCount(0);
+            }
+            await app.client.evaluate(
+                (client, { roomId, stateKey }) =>
+                    client.sendStateEvent(
+                        roomId,
+                        "org.matrix.msc3401.call.member" as import("matrix-js-sdk").EventType.GroupCallMemberPrefix,
+                        {},
+                        stateKey,
+                    ),
+                { roomId, stateKey: staleMembershipKey },
+            );
+
+            // Supply changing screen content without depending on the host's desktop capture picker.
+            // Publishing, encryption, transport, decryption and rendering still use the real call stack.
+            await bobPage.evaluate(() => {
+                navigator.mediaDevices.getDisplayMedia = async () => {
+                    const canvas = document.createElement("canvas");
+                    canvas.width = 640;
+                    canvas.height = 360;
+                    const context = canvas.getContext("2d")!;
+                    let frame = 0;
+                    const draw = (): void => {
+                        context.fillStyle = frame++ % 2 ? "#008080" : "#800080";
+                        context.fillRect(0, 0, canvas.width, canvas.height);
+                    };
+                    draw();
+                    const stream = canvas.captureStream(10);
+                    const timer = window.setInterval(draw, 100);
+                    const track = stream.getVideoTracks()[0];
+                    const stop = track.stop.bind(track);
+                    track.stop = (): void => {
+                        window.clearInterval(timer);
+                        stop();
+                    };
+                    return stream;
+                };
+            });
+            const shareScreen = bobPage.getByRole("switch", { name: /^(Share screen|Sharing screen)$/ });
+            await shareScreen.click();
+            await expect(shareScreen).toBeChecked();
+            const remoteScreen = page.locator("video").filter({ visible: true });
+            await expect(remoteScreen).toHaveCount(1, { timeout: 30_000 });
+            await expect.poll(() => remoteScreen.evaluate((video: HTMLVideoElement) => video.videoWidth)).toBe(640);
+            await expect
+                .poll(() => remoteScreen.evaluate((video: HTMLVideoElement) => video.currentTime))
+                .toBeGreaterThan(0);
+            await expect.poll(() => decodedVideoFrames(page), { timeout: 30_000 }).toBeGreaterThan(0);
+            const firstFrames = await decodedVideoFrames(page);
+            await expect.poll(() => decodedVideoFrames(page)).toBeGreaterThan(firstFrames);
+            await shareScreen.click();
+            await expect(shareScreen).not.toBeChecked();
+            await expect(remoteScreen).toHaveCount(0);
+
             const participants = page.getByRole("group", { name: "People in Lounge" });
-            await expect(participants.getByRole("button", { name: "Alice", exact: true })).toBeVisible();
-            await expect(participants.getByRole("button", { name: "Bob", exact: true })).toBeVisible();
+            await expect(participants.getByRole("button", { name: "Alice (speaking)", exact: true })).toBeVisible();
+            await expect(participants.getByRole("button", { name: "Bob (speaking)", exact: true })).toBeVisible();
+            for (const name of ["Alice", "Bob"]) {
+                const tile = page.getByTestId("videoTile").filter({ has: page.getByText(name, { exact: true }) });
+                await expect(tile).toHaveAttribute("data-speaking", "true");
+            }
             expect(jitsiRequests).toEqual([]);
             const dock = page.getByRole("group", { name: "User menu" });
             await expect(dock.getByText("Voice Connected", { exact: true })).toBeVisible();
@@ -200,6 +396,7 @@ test(
                 "aria-pressed",
                 "true",
             );
+            await expect(participants.getByRole("button", { name: "Alice", exact: true })).toBeVisible();
             await dock.getByRole("button", { name: "Unmute", exact: true }).click();
             await dock.getByRole("button", { name: "Deafen", exact: true }).click();
             await expect(dock.getByRole("button", { name: "Undeafen", exact: true })).toHaveAttribute(

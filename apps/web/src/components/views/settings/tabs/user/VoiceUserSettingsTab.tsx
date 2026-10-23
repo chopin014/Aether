@@ -26,6 +26,7 @@ import { SettingsSection } from "../../shared/SettingsSection";
 import { SettingsSubsection } from "../../shared/SettingsSubsection";
 import MatrixClientContext from "../../../../../contexts/MatrixClientContext";
 import SdkConfig from "../../../../../SdkConfig";
+import { MicrophoneSettings } from "../../MicrophoneSettings";
 
 interface IState {
     mediaDevices: IMediaDevices | null;
@@ -260,9 +261,15 @@ export default class VoiceUserSettingsTab extends React.Component<EmptyObject, I
                     }}
                 >
                     <SettingsSection heading={_t("settings|voip|voice_input_section")}>
-                        {_t("settings|voip|voice_input_description")}
-                        {requestButton}
-                        {microphoneDropdown}
+                        {SettingsStore.getValue("feature_element_call_react") ? (
+                            <MicrophoneSettings />
+                        ) : (
+                            <>
+                                {_t("settings|voip|voice_input_description")}
+                                {requestButton}
+                                {microphoneDropdown}
+                            </>
+                        )}
                     </SettingsSection>
                     {SettingsStore.getValue("feature_desktop_shell") && (
                         <SettingsSection heading={_t("desktop|voice|sound_section")}>

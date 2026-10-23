@@ -26,6 +26,9 @@ const {
     NoMessagePreview,
     WithHoverMenu,
     WithoutHoverMenu,
+    DesktopVoiceParticipantSpeaking,
+    DesktopVoiceParticipantsSilent,
+    DesktopVoiceParticipantsMultipleSpeaking,
 } = composeStories(stories);
 
 describe("<RoomListItemView />", () => {
@@ -44,8 +47,41 @@ describe("<RoomListItemView />", () => {
         );
         const group = screen.getByRole("group", { name: "People in General" });
         expect(group).toBeVisible();
-        await user.click(screen.getByRole("button", { name: "Bob", exact: true }));
+        await user.click(screen.getByRole("button", { name: "Bob" }));
         expect(onProfile).toHaveBeenCalledWith("@bob:example.org");
+    });
+
+    it("marks only the participants who are speaking", () => {
+        render(<DesktopVoiceParticipantsMultipleSpeaking />);
+        const alice = screen.getByRole("button", { name: "Alice (speaking)" });
+        const bob = screen.getByRole("button", { name: "Bob" });
+        const charlie = screen.getByRole("button", { name: "Charlie (speaking)" });
+
+        expect(alice).toHaveAttribute("data-speaking", "true");
+        expect(charlie).toHaveAttribute("data-speaking", "true");
+        expect(bob).not.toHaveAttribute("data-speaking");
+        // The visible name stays the plain display name
+        expect(screen.queryByText("Alice (speaking)")).toBeNull();
+        // Speaking changes must not be announced as they happen
+        expect(document.querySelector("[aria-live]")).toBeNull();
+    });
+
+    it("shows no speaking indicator when everyone is silent", () => {
+        render(<DesktopVoiceParticipantsSilent />);
+        for (const name of ["Alice", "Bob"]) {
+            const participant = screen.getByRole("button", { name });
+            expect(participant).not.toHaveAttribute("data-speaking");
+        }
+        expect(document.querySelector("[data-speaking]")).toBeNull();
+    });
+
+    it("clears the speaking indicator when a participant stops talking", () => {
+        const participants = [{ userId: "@alice:example.org", name: "Alice", isSpeaking: true }];
+        const { rerender } = render(<DesktopVoiceParticipantSpeaking callParticipants={participants} />);
+        expect(screen.getByRole("button", { name: "Alice (speaking)" })).toHaveAttribute("data-speaking", "true");
+
+        rerender(<DesktopVoiceParticipantSpeaking callParticipants={[{ ...participants[0], isSpeaking: false }]} />);
+        expect(screen.getByRole("button", { name: "Alice" })).not.toHaveAttribute("data-speaking");
     });
 
     it.each(["text", "voice"] as const)("renders a %s channel without a message preview or profile avatar", (kind) => {

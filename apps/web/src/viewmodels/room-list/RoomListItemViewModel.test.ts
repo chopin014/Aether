@@ -31,7 +31,7 @@ import DMRoomMap from "../../utils/DMRoomMap";
 import { DefaultTagID } from "../../stores/room-list-v3/skip-list/tag";
 import dispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
-import { CallStore } from "../../stores/CallStore";
+import { CallStore, CallStoreEvent } from "../../stores/CallStore";
 import { CallEvent, type Call } from "../../models/Call";
 import { RoomListItemViewModel } from "./RoomListItemViewModel";
 import RoomListStoreV3 from "../../stores/room-list-v3/RoomListStoreV3";
@@ -54,6 +54,7 @@ vi.mock("../../stores/CallStore", () => ({
         },
     },
     CallStoreEvent: {
+        Call: "call",
         ConnectedCalls: "connected_calls",
     },
 }));
@@ -113,20 +114,27 @@ describe("RoomListItemViewModel", () => {
         const call = Object.assign(new EventEmitter(), {
             participants: new Map([[alice, new Set(["device1", "device2"])]]),
             callType: CallType.Voice,
+            speakingUserIds: new Set<string>(),
         });
         vi.mocked(CallStore.instance.getCall).mockReturnValue(call as unknown as Call);
         viewModel = new RoomListItemViewModel({ room, client: matrixClient });
         expect(viewModel.getSnapshot().callParticipants).toEqual([
-            { userId: alice.userId, name: "Alice", avatarUrl: undefined },
+            { userId: alice.userId, name: "Alice", avatarUrl: undefined, isSpeaking: false },
         ]);
         call.participants.set(bob, new Set(["device3"]));
         call.emit(CallEvent.Participants, call.participants);
         expect(viewModel.getSnapshot().callParticipants?.map((member) => member.name)).toEqual(["Alice", "Bob"]);
+        call.speakingUserIds = new Set([alice.userId, bob.userId]);
+        call.emit(CallEvent.SpeakingUsers, call.speakingUserIds);
+        expect(viewModel.getSnapshot().callParticipants?.map((member) => member.isSpeaking)).toEqual([true, true]);
+        call.speakingUserIds = new Set([bob.userId]);
+        call.emit(CallEvent.SpeakingUsers, call.speakingUserIds);
+        expect(viewModel.getSnapshot().callParticipants?.map((member) => member.isSpeaking)).toEqual([false, true]);
         call.participants.delete(alice);
         call.emit(CallEvent.Participants, call.participants);
         expect(viewModel.getSnapshot().callParticipants?.map((member) => member.name)).toEqual(["Bob"]);
         bob.name = "Robert";
-        matrixClient.emit(RoomMemberEvent.Name, undefined as unknown as MatrixEvent, bob);
+        matrixClient.emit(RoomMemberEvent.Name, undefined as unknown as MatrixEvent, bob, "Bob");
         expect(viewModel.getSnapshot().callParticipants?.[0].name).toBe("Robert");
         vi.spyOn(room, "getMember").mockReturnValue(bob);
         const dispatch = vi.spyOn(dispatcher, "dispatch");
@@ -137,6 +145,39 @@ describe("RoomListItemViewModel", () => {
         expect(viewModel.getSnapshot().callParticipants).toEqual([]);
         viewModel.dispose();
         expect(call.listenerCount(CallEvent.Participants)).toBe(0);
+        expect(call.listenerCount(CallEvent.SpeakingUsers)).toBe(0);
+    });
+
+    it("replaces speaking listeners when the room's call changes", () => {
+        const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+        vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
+            setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+        );
+        vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+        const alice = new RoomMember(room.roomId, "@alice:server");
+        const makeCall = () =>
+            Object.assign(new EventEmitter(), {
+                participants: new Map([[alice, new Set(["device1"])]]),
+                callType: CallType.Voice,
+                speakingUserIds: new Set([alice.userId]),
+            });
+        const firstCall = makeCall();
+        vi.mocked(CallStore.instance.getCall).mockReturnValue(firstCall as unknown as Call);
+        viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+        expect(viewModel.getSnapshot().callParticipants?.[0].isSpeaking).toBe(true);
+        const secondCall = makeCall();
+        vi.mocked(CallStore.instance.getCall).mockReturnValue(secondCall as unknown as Call);
+        const callback = vi
+            .mocked(CallStore.instance.on)
+            .mock.calls.find(([event]) => event === CallStoreEvent.Call)![1];
+        callback();
+        expect(firstCall.listenerCount(CallEvent.SpeakingUsers)).toBe(0);
+        expect(secondCall.listenerCount(CallEvent.SpeakingUsers)).toBe(1);
+        secondCall.speakingUserIds.clear();
+        secondCall.emit(CallEvent.SpeakingUsers, secondCall.speakingUserIds);
+        expect(viewModel.getSnapshot().callParticipants?.[0].isSpeaking).toBe(false);
+        viewModel.dispose();
+        expect(secondCall.listenerCount(CallEvent.SpeakingUsers)).toBe(0);
     });
 
     describe("Initialization", () => {

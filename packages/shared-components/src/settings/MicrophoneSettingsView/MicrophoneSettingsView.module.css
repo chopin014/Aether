@@ -1,0 +1,125 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.view {
+    width: 100%;
+    min-width: 0;
+    color: var(--cpd-color-text-primary);
+}
+
+.view h3,
+.view h4,
+.view p {
+    margin: 0;
+}
+
+.controls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--cpd-space-6x) var(--cpd-space-4x);
+    width: 100%;
+}
+
+.field {
+    min-width: 0;
+}
+
+.select {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: var(--cpd-space-12x);
+    padding: var(--cpd-space-3x);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-primary);
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-subtle-secondary);
+    color: var(--cpd-color-text-primary);
+    font: var(--cpd-font-body-md-regular);
+    text-overflow: ellipsis;
+}
+
+.select:disabled {
+    color: var(--cpd-color-text-disabled);
+}
+
+.range {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: var(--cpd-space-8x);
+    margin: 0;
+    accent-color: var(--cpd-color-bg-action-primary-rest);
+    cursor: pointer;
+}
+
+.range:focus-visible,
+.select:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: var(--cpd-space-1x);
+}
+
+.value {
+    color: var(--cpd-color-text-secondary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.secondary {
+    color: var(--cpd-color-text-secondary);
+}
+
+.testSection,
+.sensitivitySection {
+    box-sizing: border-box;
+    width: 100%;
+    padding-block-start: var(--cpd-space-6x);
+    border-block-start: var(--cpd-border-width-1) solid var(--cpd-color-border-disabled);
+}
+
+.meterColumn {
+    min-width: var(--cpd-space-32x);
+}
+
+.meter {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(40, minmax(0, 1fr));
+    gap: var(--cpd-space-0-5x);
+    height: var(--cpd-space-6x);
+    margin-block: var(--cpd-space-2x);
+}
+
+.segment {
+    border-radius: var(--cpd-space-0-5x);
+    background: var(--cpd-color-bg-subtle-secondary);
+}
+
+.meter[data-active="true"] .segment[data-filled="true"] {
+    background: var(--cpd-color-icon-secondary);
+}
+
+.meter[data-voice-detected="true"] .segment[data-filled="true"] {
+    background: var(--cpd-color-icon-success-primary);
+}
+
+.threshold {
+    position: absolute;
+    inset-block: calc(-1 * var(--cpd-space-1x));
+    /* Keep the threshold visible at both ends of the meter, including 0 dB. */
+    inset-inline-start: clamp(0px, var(--threshold-position), calc(100% - var(--cpd-border-width-2)));
+    width: var(--cpd-border-width-2);
+    border-radius: var(--cpd-space-1x);
+    background: var(--cpd-color-text-primary);
+}
+
+.error {
+    color: var(--cpd-color-text-critical-primary);
+}
+
+@media (max-width: 480px) {
+    .controls {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

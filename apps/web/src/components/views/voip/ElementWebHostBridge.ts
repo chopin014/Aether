@@ -11,6 +11,7 @@ import { CallStore } from "../../../stores/CallStore";
 import { type ElementCall } from "../../../models/Call";
 import { type DeviceMuteState, type ElementCallHostBridge } from "@element-hq/element-call-component/api";
 import { logger } from "matrix-js-sdk/src/logger";
+import { NoiseSuppressionProcessor } from "../../../audio/NoiseSuppressionProcessor";
 
 export interface ElementWebHostBridgeOptions {
     /** The id of the (virtual) widget that is this call's identity in the widget stores. */
@@ -34,6 +35,12 @@ export interface ElementWebHostBridgeOptions {
  */
 export class ElementWebHostBridge implements ElementCallHostBridge {
     public readonly supportsReactions = true;
+
+    /** Give each publishing connection its own microphone processor; screen sharing stays untouched. */
+    public readonly createMicrophoneProcessor = (): NoiseSuppressionProcessor | undefined => {
+        if (typeof AudioWorkletNode === "undefined" || typeof AudioContext === "undefined") return undefined;
+        return new NoiseSuppressionProcessor();
+    };
     /**
      * Element Web chose the intent on the user's behalf (which button they pressed), so a call that skips
      * the lobby may start them unmuted on its strength, as it does when Element Web hosts Element Call as a
@@ -77,6 +84,11 @@ export class ElementWebHostBridge implements ElementCallHostBridge {
 
     public readonly notifyDeviceMute = async (state: DeviceMuteState): Promise<void> => {
         this.call.handleDeviceMute(state);
+    };
+
+    /** Forward real speech activity, already deduplicated across a user's devices. */
+    public readonly notifySpeakingUsers = async (userIds: string[]): Promise<void> => {
+        this.call.handleSpeakingUsers(userIds);
     };
 
     public readonly close = async (): Promise<void> => {

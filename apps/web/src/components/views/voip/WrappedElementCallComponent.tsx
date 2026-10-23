@@ -46,6 +46,7 @@ const RealElementCall = lazy(() =>
         Promise.all([
             import(/* webpackChunkName: "element-call-component" */ "@element-hq/element-call-component"),
             import(/* webpackChunkName: "element-call-component" */ "./ElementCallComponent.css"),
+            import(/* webpackChunkName: "element-call-component" */ "./DesktopCallStage.css"),
         ]).then(([m]) => m),
     ),
 );
