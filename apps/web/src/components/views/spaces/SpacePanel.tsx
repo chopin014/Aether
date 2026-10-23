@@ -377,7 +377,8 @@ const SpacePanel: React.FC = () => {
     const desktopShellEnabled = useSettingValue("feature_desktop_shell");
     const isRoomListCollapsed = useContext(RoomListCollapsedContext);
     const [dragging, setDragging] = useState(false);
-    const [isPanelCollapsed, setPanelCollapsed] = useState(true);
+    const [panelCollapsed, setPanelCollapsed] = useState(true);
+    const isPanelCollapsed = desktopShellEnabled || panelCollapsed;
     const ref = useRef<HTMLDivElement>(null);
     useLayoutEffect(() => {
         if (ref.current) UIStore.instance.trackElementDimensions("SpacePanel", ref.current);
@@ -385,7 +386,7 @@ const SpacePanel: React.FC = () => {
     }, []);
 
     useDispatcher(defaultDispatcher, (payload: ActionPayload) => {
-        if (payload.action === Action.ToggleSpacePanel) {
+        if (payload.action === Action.ToggleSpacePanel && !desktopShellEnabled) {
             setPanelCollapsed(!isPanelCollapsed);
         }
     });
@@ -430,21 +431,23 @@ const SpacePanel: React.FC = () => {
                         {(!desktopShellEnabled || isRoomListCollapsed) && (
                             <UserMenuContainer isPanelCollapsed={isPanelCollapsed} />
                         )}
-                        <AccessibleButton
-                            className={classNames("mx_SpacePanel_toggleCollapse", {
-                                expanded: !isPanelCollapsed,
-                            })}
-                            onClick={() => setPanelCollapsed(!isPanelCollapsed)}
-                            title={isPanelCollapsed ? _t("action|expand") : _t("action|collapse")}
-                            caption={
-                                <KeyboardShortcut
-                                    value={{ ctrlOrCmdKey: true, shiftKey: true, key: "d" }}
-                                    className="mx_SpacePanel_Tooltip_KeyboardShortcut"
-                                />
-                            }
-                        >
-                            <ChevronRightIcon />
-                        </AccessibleButton>
+                        {!desktopShellEnabled && (
+                            <AccessibleButton
+                                className={classNames("mx_SpacePanel_toggleCollapse", {
+                                    expanded: !isPanelCollapsed,
+                                })}
+                                onClick={() => setPanelCollapsed(!isPanelCollapsed)}
+                                title={isPanelCollapsed ? _t("action|expand") : _t("action|collapse")}
+                                caption={
+                                    <KeyboardShortcut
+                                        value={{ ctrlOrCmdKey: true, shiftKey: true, key: "d" }}
+                                        className="mx_SpacePanel_Tooltip_KeyboardShortcut"
+                                    />
+                                }
+                            >
+                                <ChevronRightIcon />
+                            </AccessibleButton>
+                        )}
                         <Droppable droppableId="top-level-spaces">
                             {(provided, snapshot) => (
                                 <InnerSpacePanel

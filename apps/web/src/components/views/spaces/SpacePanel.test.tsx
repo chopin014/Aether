@@ -205,6 +205,35 @@ describe("<SpacePanel />", () => {
         }
     });
 
+    it("keeps the desktop server rail narrow without an expand control or shortcut", () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const settings = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        try {
+            render(<SpacePanel />);
+            const rail = screen.getByRole("navigation", { name: "Spaces" });
+            expect(rail).toHaveClass("collapsed");
+            expect(screen.queryByRole("button", { name: "Expand" })).not.toBeInTheDocument();
+
+            act(() => defaultDispatcher.dispatch({ action: Action.ToggleSpacePanel }, true));
+            expect(rail).toHaveClass("collapsed");
+        } finally {
+            settings.mockRestore();
+        }
+    });
+
+    it("retains the expand control and shortcut outside the desktop shell", () => {
+        render(<SpacePanel />);
+        const rail = screen.getByRole("navigation", { name: "Spaces" });
+        fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+        expect(rail).not.toHaveClass("collapsed");
+
+        act(() => defaultDispatcher.dispatch({ action: Action.ToggleSpacePanel }, true));
+        expect(rail).toHaveClass("collapsed");
+        expect(screen.getByRole("button", { name: "Expand" })).toBeVisible();
+    });
+
     describe("create new space button", () => {
         it("renders create space button when UIComponent.CreateSpaces component should be shown", () => {
             render(<SpacePanel />);
