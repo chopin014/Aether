@@ -9,6 +9,7 @@ import React, { type JSX, memo, useEffect, useRef, useState, type ReactNode, typ
 import classNames from "classnames";
 import { useMergeRefs } from "react-merge-refs";
 import { Avatar } from "@vector-im/compound-web";
+import { HeadphonesOffSolidIcon, MicOffSolidIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { Flex } from "../../../../core/utils/Flex";
 import { type NotificationDecorationData } from "./NotificationDecoration";
@@ -92,9 +93,17 @@ export interface RoomListItemViewSnapshot {
     channelKind?: "text" | "voice";
     /**
      * Distinct users with live MatrixRTC memberships, visible before joining a voice room.
-     * `isSpeaking` draws an activity ring around the participant's avatar while they talk.
+     * `isSpeaking` draws an activity ring around the participant's avatar while they talk; `isMuted` and
+     * `isDeafened` mark a microphone that is off, or a participant who cannot hear the call.
      */
-    callParticipants?: { userId: string; name: string; avatarUrl?: string; isSpeaking?: boolean }[];
+    callParticipants?: {
+        userId: string;
+        name: string;
+        avatarUrl?: string;
+        isSpeaking?: boolean;
+        isMuted?: boolean;
+        isDeafened?: boolean;
+    }[];
     /** Can invite other users in the room */
     canInvite: boolean;
     /** Can copy the room link */
@@ -175,6 +184,29 @@ export interface RoomListItemViewProps extends Omit<React.HTMLAttributes<HTMLBut
     /** Whether this item is the source of an active drag operation */
     isDragSource?: boolean;
     ref?: Ref<Element>;
+}
+
+type CallParticipant = NonNullable<RoomListItemViewSnapshot["callParticipants"]>[number];
+
+/**
+ * A participant's accessible name. Their state is folded into it rather than announced through a live
+ * region, so screen readers only hear it when the participant is focused.
+ */
+function participantLabel({ name, isSpeaking, isMuted, isDeafened }: CallParticipant): string {
+    if (isDeafened) return _t("desktop|voice|participant_deafened", { name });
+    if (isMuted) return _t("desktop|voice|participant_muted", { name });
+    if (isSpeaking) return _t("desktop|voice|participant_speaking", { name });
+    return name;
+}
+
+/** Deafened implies a muted microphone, so it takes the one slot at the end of the row. */
+function ParticipantVoiceStatus({ muted, deafened }: { muted?: boolean; deafened?: boolean }): JSX.Element | null {
+    if (!muted && !deafened) return null;
+    return (
+        <span className={styles.participantVoiceStatus} aria-hidden="true">
+            {deafened ? <HeadphonesOffSolidIcon /> : <MicOffSolidIcon />}
+        </span>
+    );
 }
 
 /**
@@ -281,11 +313,7 @@ export const RoomListItemView = memo(function RoomListItemView({
                         title={participant.name}
                         // Speaking state is folded into the name rather than announced through a live
                         // region, so screen readers only hear it when the participant is focused.
-                        aria-label={
-                            participant.isSpeaking
-                                ? _t("desktop|voice|participant_speaking", { name: participant.name })
-                                : participant.name
-                        }
+                        aria-label={participantLabel(participant)}
                         data-speaking={participant.isSpeaking || undefined}
                     >
                         <span
@@ -301,7 +329,8 @@ export const RoomListItemView = memo(function RoomListItemView({
                                 type="round"
                             />
                         </span>
-                        <span>{participant.name}</span>
+                        <span className={styles.participantName}>{participant.name}</span>
+                        <ParticipantVoiceStatus muted={participant.isMuted} deafened={participant.isDeafened} />
                     </button>
                 ))}
             </div>

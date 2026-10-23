@@ -93,6 +93,8 @@
             "deafen": "Deafen",
             "disconnect": "Disconnect",
             "mute": "Mute",
+            "participant_deafened": "%(name)s (deafened)",
+            "participant_muted": "%(name)s (muted)",
             "participant_speaking": "%(name)s (speaking)",
             "participants": "People in %(roomName)s",
             "start_screen_share": "Share your screen",

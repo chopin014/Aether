@@ -207,16 +207,29 @@ export class RoomListItemViewModel
         if (this.snapshot.current.notification.callType !== undefined) this.updateItem();
     };
 
-    private onSpeakingUsersChanged = (): void => {
+    private onVoiceActivityChanged = (): void => {
         const { callParticipants } = this.snapshot.current;
         if (!callParticipants) return;
         this.snapshot.merge({
             callParticipants: callParticipants.map((member) => ({
                 ...member,
-                isSpeaking: this.currentCall?.speakingUserIds.has(member.userId) ?? false,
+                ...RoomListItemViewModel.voiceActivityOf(this.currentCall, member.userId),
             })),
         });
     };
+
+    /** Whether a call participant is talking, muted or deafened, as far as our own connection can tell. */
+    private static voiceActivityOf(
+        call: Call | null | undefined,
+        userId: string,
+    ): { isSpeaking: boolean; isMuted: boolean; isDeafened: boolean } {
+        const voiceState = call?.voiceStates.get(userId);
+        return {
+            isSpeaking: call?.speakingUserIds.has(userId) ?? false,
+            isMuted: voiceState?.muted ?? false,
+            isDeafened: voiceState?.deafened ?? false,
+        };
+    }
 
     /**
      * Listen to participant changes for the current call in this room (if any) to trigger updates when participants join/leave the call.
@@ -231,7 +244,8 @@ export class RoomListItemViewModel
             if (call) {
                 this.callDisposables.trackListener(call, CallEvent.Participants, this.onCallParticipantsChanged);
                 this.callDisposables.trackListener(call, CallEvent.CallTypeChanged, this.onCallTypeChanged);
-                this.callDisposables.trackListener(call, CallEvent.SpeakingUsers, this.onSpeakingUsersChanged);
+                this.callDisposables.trackListener(call, CallEvent.SpeakingUsers, this.onVoiceActivityChanged);
+                this.callDisposables.trackListener(call, CallEvent.VoiceStates, this.onVoiceActivityChanged);
             }
         }
         this.currentCall = call;
@@ -426,7 +440,7 @@ export class RoomListItemViewModel
                           return {
                               userId: member.userId,
                               name: member.name,
-                              isSpeaking: call?.speakingUserIds.has(member.userId) ?? false,
+                              ...RoomListItemViewModel.voiceActivityOf(call, member.userId),
                               avatarUrl: mxc
                                   ? (mediaFromMxc(mxc).getThumbnailOfSourceHttp(48, 48, "crop") ?? undefined)
                                   : undefined,

@@ -29,6 +29,7 @@ const {
     DesktopVoiceParticipantSpeaking,
     DesktopVoiceParticipantsSilent,
     DesktopVoiceParticipantsMultipleSpeaking,
+    DesktopVoiceParticipantsMutedAndDeafened,
 } = composeStories(stories);
 
 describe("<RoomListItemView />", () => {
@@ -63,6 +64,15 @@ describe("<RoomListItemView />", () => {
         // The visible name stays the plain display name
         expect(screen.queryByText("Alice (speaking)")).toBeNull();
         // Speaking changes must not be announced as they happen
+        expect(document.querySelector("[aria-live]")).toBeNull();
+    });
+
+    it("names muted and deafened participants without announcing the change", () => {
+        render(<DesktopVoiceParticipantsMutedAndDeafened />);
+        expect(screen.getByRole("button", { name: "Alice (speaking)" })).toBeVisible();
+        expect(screen.getByRole("button", { name: "Bob (muted)" })).toBeVisible();
+        expect(screen.getByRole("button", { name: "Charlie (deafened)" })).toBeVisible();
+        expect(screen.getByText("Charlie")).toBeVisible();
         expect(document.querySelector("[aria-live]")).toBeNull();
     });
 

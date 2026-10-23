@@ -366,6 +366,19 @@ export const DesktopVoiceParticipantsSilent: Story = {
     },
 };
 
+/** A muted microphone or deafened participant is marked at the end of their row, as in Discord. */
+export const DesktopVoiceParticipantsMutedAndDeafened: Story = {
+    args: {
+        channelKind: "voice",
+        callParticipants: [
+            { userId: "@alice:example.org", name: "Alice", isSpeaking: true },
+            { userId: "@bob:example.org", name: "Bob", isMuted: true },
+            { userId: "@charlie:example.org", name: "Charlie", isMuted: true, isDeafened: true },
+        ],
+        onViewCallParticipant: fn(),
+    },
+};
+
 /** Several participants talking over each other each show their own ring. */
 export const DesktopVoiceParticipantsMultipleSpeaking: Story = {
     args: {

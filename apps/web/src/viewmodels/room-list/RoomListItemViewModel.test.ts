@@ -39,6 +39,7 @@ import { mediaFromMxc } from "../../customisations/Media";
 import RoomListStoreV3 from "../../stores/room-list-v3/RoomListStoreV3";
 import * as tagRoomModule from "../../utils/room/tagRoom";
 import { CHATS_TAG } from "../../stores/room-list-v3/section";
+import { type VoiceState } from "@element-hq/element-call-component/api";
 
 vi.mock("./utils", () => ({
     hasAccessToOptionsMenu: vi.fn().mockReturnValue(true),
@@ -117,13 +118,27 @@ describe("RoomListItemViewModel", () => {
             participants: new Map([[alice, new Set(["device1", "device2"])]]),
             callType: CallType.Voice,
             speakingUserIds: new Set<string>(),
+            voiceStates: new Map<string, VoiceState>(),
         });
         vi.mocked(CallStore.instance.getCall).mockReturnValue(call as unknown as Call);
         const profileListeners = room.listeners(RoomStateEvent.Members);
         viewModel = new RoomListItemViewModel({ room, client: matrixClient });
         expect(viewModel.getSnapshot().callParticipants).toEqual([
-            { userId: alice.userId, name: "Alice", avatarUrl: undefined, isSpeaking: false },
+            {
+                userId: alice.userId,
+                name: "Alice",
+                avatarUrl: undefined,
+                isSpeaking: false,
+                isMuted: false,
+                isDeafened: false,
+            },
         ]);
+        call.voiceStates = new Map([[alice.userId, { userId: alice.userId, muted: true, deafened: true }]]);
+        call.emit(CallEvent.VoiceStates, call.voiceStates);
+        expect(viewModel.getSnapshot().callParticipants?.[0]).toMatchObject({ isMuted: true, isDeafened: true });
+        call.voiceStates = new Map();
+        call.emit(CallEvent.VoiceStates, call.voiceStates);
+        expect(viewModel.getSnapshot().callParticipants?.[0]).toMatchObject({ isMuted: false, isDeafened: false });
         call.participants.set(bob, new Set(["device3"]));
         call.emit(CallEvent.Participants, call.participants);
         expect(viewModel.getSnapshot().callParticipants?.map((member) => member.name)).toEqual(["Alice", "Bob"]);
@@ -156,6 +171,7 @@ describe("RoomListItemViewModel", () => {
         expect(room.listeners(RoomStateEvent.Members)).toEqual(profileListeners);
         expect(call.listenerCount(CallEvent.Participants)).toBe(0);
         expect(call.listenerCount(CallEvent.SpeakingUsers)).toBe(0);
+        expect(call.listenerCount(CallEvent.VoiceStates)).toBe(0);
     });
 
     it("replaces speaking listeners when the room's call changes", () => {
@@ -170,6 +186,7 @@ describe("RoomListItemViewModel", () => {
                 participants: new Map([[alice, new Set(["device1"])]]),
                 callType: CallType.Voice,
                 speakingUserIds: new Set([alice.userId]),
+                voiceStates: new Map<string, VoiceState>(),
             });
         const firstCall = makeCall();
         vi.mocked(CallStore.instance.getCall).mockReturnValue(firstCall as unknown as Call);
