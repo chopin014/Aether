@@ -228,6 +228,15 @@ export abstract class Call extends TypedEventEmitter<CallEvent, CallEventHandler
         this._presented = value;
     }
 
+    /**
+     * Whether the call should float over the app while it is off screen. A call whose controls live
+     * elsewhere may only float when there is something to watch; it emits {@link CallEvent.ScreenShare}
+     * when that changes.
+     */
+    public get floatsOffScreen(): boolean {
+        return true;
+    }
+
     protected constructor(
         /**
          * The widget used to access this call.
@@ -1248,6 +1257,14 @@ export class ElementCall extends Call {
     /** Whether screen sharing is possible, whether we are sharing, and who else is. */
     public get screenShare(): ScreenShareState {
         return this._screenShare;
+    }
+
+    /**
+     * The component's controls are in the sidebar, so it only floats while someone else's screen is
+     * there to watch. The widget embedding cannot report screen shares and keeps its own controls.
+     */
+    public get floatsOffScreen(): boolean {
+        return !ElementCall.usesReactComponent || this._screenShare.remoteSharerIds.length > 0;
     }
 
     /** Starts or stops sharing our screen, using Element Call's own screen picker. */

@@ -1249,6 +1249,17 @@ describe("ElementCall with the React component embedding", () => {
             expect(call.screenShare.sharing).toBe(true);
         });
 
+        it("floats only while someone else is sharing a screen", () => {
+            expect(call.floatsOffScreen).toBe(false);
+            call.handleScreenShare({ ...sharing, remoteSharerIds: [], sharing: true });
+            expect(call.floatsOffScreen).toBe(false);
+            call.handleScreenShare(sharing);
+            expect(call.floatsOffScreen).toBe(true);
+            enabledSettings.delete("feature_element_call_react");
+            call.handleScreenShare(NO_SCREEN_SHARE);
+            expect(call.floatsOffScreen).toBe(true);
+        });
+
         it("toggles our screen share through the component handle", async () => {
             const toggleScreenSharing = vi.fn(async () => {});
             call.setComponentHandle({ toggleScreenSharing } as unknown as ElementCallHandle);
