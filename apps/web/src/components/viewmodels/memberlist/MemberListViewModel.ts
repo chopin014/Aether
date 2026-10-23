@@ -19,7 +19,7 @@ import {
     UserEvent,
 } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
-import { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { throttle } from "lodash";
 
 import { type RoomMember } from "../../../models/rooms/RoomMember";
@@ -37,7 +37,6 @@ import { isValid3pidInvite } from "../../../RoomInvite";
 import { type ThreePIDInvite } from "../../../models/rooms/ThreePIDInvite";
 import { type XOR } from "../../../@types/common";
 import { useTypedEventEmitter } from "../../../hooks/useEventEmitter";
-import { useRoomMemberCount } from "../../../hooks/useRoomMembers";
 
 type Member = XOR<{ member: RoomMember }, { threePidInvite: ThreePIDInvite }>;
 
@@ -124,24 +123,28 @@ export function useMemberListViewModel(roomId: string): MemberListViewState {
     // This is the last known total number of members in this room.
     const [totalMemberCount, setTotalMemberCount] = useState(0);
 
-    const memberCountWithout3Pid = useRoomMemberCount(room, { includeInvited: true });
-
     /**
      * This is the current number of members in the list.
      * This number will be less than the total number of members
      * in the room when the search functionality is used.
      */
     const [memberCount, setMemberCount] = useState(0);
+    const activeSearch = useRef({ roomId, query: "" });
+    const loadSequence = useRef(0);
 
     const loadMembers = useMemo(
         () =>
             throttle(
-                async (searchQuery?: string): Promise<void> => {
+                async (): Promise<void> => {
+                    if (activeSearch.current.roomId !== roomId) activeSearch.current = { roomId, query: "" };
+                    const searchQuery = activeSearch.current.query;
+                    const sequence = ++loadSequence.current;
                     const { joined: joinedSdk, invited: invitedSdk } = await sdkContext.memberListStore.loadMemberList(
                         roomId,
                         searchQuery,
                     );
                     const threePidInvited = getPending3PidInvites(room, searchQuery);
+                    if (sequence !== loadSequence.current) return;
 
                     const newMemberMap = new Map<string, MemberWithSeparator>();
 
@@ -168,22 +171,37 @@ export function useMemberListViewModel(roomId: string): MemberListViewState {
                     }
 
                     setMemberMap(newMemberMap);
-                    setMemberCount(memberCountWithout3Pid + threePidInvited.length);
+                    setMemberCount(joinedSdk.length + invitedSdk.length + threePidInvited.length);
                     if (!searchQuery) {
                         /**
                          * Since searching for members only gives you the relevant
                          * members matching the query, do not update the totalMemberCount!
                          **/
-                        setTotalMemberCount(newMemberMap.size);
+                        setTotalMemberCount(joinedSdk.length + invitedSdk.length + threePidInvited.length);
                     }
                 },
                 500,
                 { leading: true, trailing: true },
             ),
-        [sdkContext.memberListStore, roomId, room, memberCountWithout3Pid],
+        [sdkContext.memberListStore, roomId, room],
     );
     // Drop any pending trailing call so it cannot run after unmount or against a stale room
-    useEffect(() => () => loadMembers.cancel(), [loadMembers]);
+    useEffect(
+        () => () => {
+            loadMembers.cancel();
+            // An in-flight lazy load must not publish rows after unmount or a room/query change.
+            ++loadSequence.current;
+        },
+        [loadMembers],
+    );
+    const search = useCallback(
+        (query: string): void => {
+            activeSearch.current = { roomId, query };
+            ++loadSequence.current;
+            void loadMembers();
+        },
+        [roomId, loadMembers],
+    );
 
     const isPresenceEnabled = useMemo(
         () => sdkContext.memberListStore.isPresenceEnabled(),
@@ -208,7 +226,13 @@ export function useMemberListViewModel(roomId: string): MemberListViewState {
     };
 
     useTypedEventEmitter(cli, RoomStateEvent.Events, (event: MatrixEvent) => {
-        if (event.getRoomId() === roomId && event.getType() === EventType.RoomThirdPartyInvite) {
+        const type = event.getType();
+        if (
+            event.getRoomId() === roomId &&
+            (type === EventType.RoomThirdPartyInvite ||
+                type === EventType.RoomMember ||
+                type === EventType.RoomPowerLevels)
+        ) {
             void loadMembers();
             const newCanInvite = getCanUserInviteToThisRoom();
             setCanInvite(newCanInvite);
@@ -225,6 +249,14 @@ export function useMemberListViewModel(roomId: string): MemberListViewState {
     });
 
     useTypedEventEmitter(cli, RoomMemberEvent.Name, (_: MatrixEvent, member: SdkRoomMember) => {
+        if (member.roomId === roomId) void loadMembers();
+    });
+
+    useTypedEventEmitter(cli, RoomMemberEvent.Membership, (_: MatrixEvent, member: SdkRoomMember) => {
+        if (member.roomId === roomId) void loadMembers();
+    });
+
+    useTypedEventEmitter(cli, RoomMemberEvent.PowerLevel, (_: MatrixEvent, member: SdkRoomMember) => {
         if (member.roomId === roomId) void loadMembers();
     });
 
@@ -246,11 +278,11 @@ export function useMemberListViewModel(roomId: string): MemberListViewState {
     });
 
     useTypedEventEmitter(cli, UserEvent.Presence, (_: MatrixEvent | undefined, user: User) => {
-        if (memberMap.has(user.userId)) void loadMembers();
+        if (room.getMember(user.userId)) void loadMembers();
     });
 
     useTypedEventEmitter(cli, UserEvent.CurrentlyActive, (_: MatrixEvent | undefined, user: User) => {
-        if (memberMap.has(user.userId)) void loadMembers();
+        if (room.getMember(user.userId)) void loadMembers();
     });
 
     // Initial load of the memberlist
@@ -269,7 +301,7 @@ export function useMemberListViewModel(roomId: string): MemberListViewState {
     return {
         members: Array.from(memberMap.values()),
         memberCount,
-        search: loadMembers,
+        search,
         shouldShowInvite,
         isPresenceEnabled,
         isLoading,

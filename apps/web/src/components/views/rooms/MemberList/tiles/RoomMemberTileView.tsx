@@ -29,6 +29,8 @@ interface IProps {
     index: number;
     memberCount: number;
     showPresence?: boolean;
+    /** Whether to display the member's channel role next to their name. Defaults to true. */
+    showRole?: boolean;
     focused?: boolean;
     tabIndex?: number;
     onFocus: (item: MemberWithSeparator, e: React.FocusEvent) => void;

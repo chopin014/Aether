@@ -111,7 +111,7 @@ export async function renderMemberList(
     };
     memberListRoom.currentState = {
         members: {},
-        getMember: vi.fn(),
+        getMember: vi.fn((userId: string) => memberListRoom.currentState.members[userId] ?? null),
         getStateEvents: TestUtils.mockStateEventImplementation(threePidEvents),
         getInviteForThreePidToken: vi.fn().mockReturnValue(null),
         getInvitedMemberCount: vi.fn().mockReturnValue(0),
