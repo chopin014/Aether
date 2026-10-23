@@ -1280,17 +1280,46 @@ describe("ElementCall with the React component embedding", () => {
         });
     });
 
-    it("mutes playback through Element Call's host audio API", () => {
+    it("mutes playback through Element Call's host audio API and announces the deafen", () => {
         const setAudioEnabled = vi.fn();
+        const setDeafened = vi.fn(async () => {});
         vi.stubGlobal("controls", { setAudioEnabled });
+        call.setComponentHandle({ setDeafened } as unknown as ElementCallHandle);
         try {
             call.setAudioOutputEnabled(false);
             expect(setAudioEnabled).toHaveBeenLastCalledWith(false);
+            expect(setDeafened).toHaveBeenLastCalledWith(true);
             call.setAudioOutputEnabled(true);
             expect(setAudioEnabled).toHaveBeenLastCalledWith(true);
+            expect(setDeafened).toHaveBeenLastCalledWith(false);
         } finally {
             vi.unstubAllGlobals();
         }
+    });
+
+    describe("voice states", () => {
+        const alice = { userId: "@alice:example.org", muted: true, deafened: false };
+
+        it("publishes each change in who is muted or deafened once", () => {
+            const changed = vi.fn();
+            call.on(CallEvent.VoiceStates, changed);
+            expect(call.voiceStates.size).toBe(0);
+            call.handleVoiceStates([alice]);
+            call.handleVoiceStates([{ ...alice }]);
+            expect(changed).toHaveBeenCalledTimes(1);
+            expect(call.voiceStates.get(alice.userId)).toEqual(alice);
+            call.handleVoiceStates([{ ...alice, deafened: true }]);
+            expect(changed).toHaveBeenCalledTimes(2);
+            expect(call.voiceStates.get(alice.userId)?.deafened).toBe(true);
+        });
+
+        it.each(["unmount", "close"])("forgets voice states on %s", (reason) => {
+            call.setComponentHandle({} as ElementCallHandle);
+            call.handleVoiceStates([alice]);
+            if (reason === "unmount") call.setComponentHandle(null);
+            else call.handleClose();
+            expect(call.voiceStates.size).toBe(0);
+        });
     });
 
     it("times out if the component never reports ready", async () => {

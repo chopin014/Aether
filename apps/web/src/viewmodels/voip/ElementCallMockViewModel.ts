@@ -246,6 +246,10 @@ export class ElementCallMockViewModel
             this.sharingScreen = !this.sharingScreen;
             await this.notifyScreenShare();
         },
+        setDeafened: async (deafened) => {
+            // The mock has no other participants to tell, so the request is only logged.
+            this.append(`← setDeafened(${deafened})`);
+        },
     };
 
     /** Whether the host has asked the mock to "share" a screen. */

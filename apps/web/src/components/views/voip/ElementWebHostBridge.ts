@@ -13,6 +13,7 @@ import {
     type DeviceMuteState,
     type ElementCallHostBridge,
     type ScreenShareState,
+    type VoiceState,
 } from "@element-hq/element-call-component/api";
 import { logger } from "matrix-js-sdk/src/logger";
 
@@ -92,6 +93,11 @@ export class ElementWebHostBridge implements ElementCallHostBridge {
     /** Forward screen sharing, so the sidebar can offer it and the floating call only shows a share. */
     public readonly notifyScreenShare = async (state: ScreenShareState): Promise<void> => {
         this.call.handleScreenShare(state);
+    };
+
+    /** Forward who is muted or deafened, so the channel list can show it beside each person. */
+    public readonly notifyVoiceStates = async (states: VoiceState[]): Promise<void> => {
+        this.call.handleVoiceStates(states);
     };
 
     public readonly close = async (): Promise<void> => {

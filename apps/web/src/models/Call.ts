@@ -58,6 +58,7 @@ import {
     type ElementCallConfiguration,
     type ElementCallHandle,
     type ScreenShareState,
+    type VoiceState,
     type UserIntent,
 } from "@element-hq/element-call-component/api";
 
@@ -106,6 +107,7 @@ export enum CallEvent {
     DeviceMute = "device_mute",
     SpeakingUsers = "speaking_users",
     ScreenShare = "screen_share",
+    VoiceStates = "voice_states",
 }
 
 interface CallEventHandlerMap {
@@ -120,7 +122,10 @@ interface CallEventHandlerMap {
     [CallEvent.DeviceMute]: (state: DeviceMuteState) => void;
     [CallEvent.SpeakingUsers]: (userIds: ReadonlySet<string>) => void;
     [CallEvent.ScreenShare]: (state: ScreenShareState) => void;
+    [CallEvent.VoiceStates]: (states: ReadonlyMap<string, VoiceState>) => void;
 }
+
+const NO_VOICE_STATES: ReadonlyMap<string, VoiceState> = new Map();
 
 /** Screen sharing as reported before Element Call says otherwise, and after it unmounts. */
 export const NO_SCREEN_SHARE: ScreenShareState = Object.freeze({
@@ -235,6 +240,14 @@ export abstract class Call extends TypedEventEmitter<CallEvent, CallEventHandler
      */
     public get floatsOffScreen(): boolean {
         return true;
+    }
+
+    /**
+     * Who in the call is muted or deafened on all of their devices, by user ID, when the call can tell; it
+     * emits {@link CallEvent.VoiceStates} when that changes.
+     */
+    public get voiceStates(): ReadonlyMap<string, VoiceState> {
+        return NO_VOICE_STATES;
     }
 
     protected constructor(
@@ -731,6 +744,7 @@ export class ElementCall extends Call {
         if (!handle) {
             this.speakingUserIds = new Set();
             this.handleScreenShare(NO_SCREEN_SHARE);
+            this.handleVoiceStates([]);
         }
     };
 
@@ -1151,6 +1165,7 @@ export class ElementCall extends Call {
         this.frozenComponentOptions = null;
         this._deviceMuteState = undefined;
         this.handleScreenShare(NO_SCREEN_SHARE);
+        this.handleVoiceStates([]);
         super.close();
         // A voice call in PiP has no CallView to stop presenting it on close
         // (whether the widget asked to close or its messaging just stopped),
@@ -1245,12 +1260,38 @@ export class ElementCall extends Call {
         return state;
     };
 
-    /** Mutes call playback using Element Call's host audio controls. */
+    /**
+     * Mutes call playback using Element Call's host audio controls, and tells everyone in the call that we
+     * are deafened while it is muted.
+     */
     public setAudioOutputEnabled = (enabled: boolean): void => {
         const controls = (window as Window & { controls?: { setAudioEnabled: (enabled: boolean) => void } }).controls;
         if (!controls) throw new Error("Element Call audio output is not ready");
         controls.setAudioEnabled(enabled);
+        this.componentHandle?.setDeafened(!enabled).catch((error) => logger.warn("Could not announce deafen", error));
     };
+
+    private _voiceStates: ReadonlyMap<string, VoiceState> = NO_VOICE_STATES;
+
+    public get voiceStates(): ReadonlyMap<string, VoiceState> {
+        return this._voiceStates;
+    }
+
+    /** Element Call reports who is muted or deafened (`HostBridge.notifyVoiceStates`). */
+    public handleVoiceStates(states: readonly VoiceState[]): void {
+        const previous = this._voiceStates;
+        if (
+            states.length === previous.size &&
+            states.every((state) => {
+                const before = previous.get(state.userId);
+                return before?.muted === state.muted && before.deafened === state.deafened;
+            })
+        ) {
+            return;
+        }
+        this._voiceStates = new Map(states.map((state) => [state.userId, state]));
+        this.emit(CallEvent.VoiceStates, this._voiceStates);
+    }
 
     private _screenShare: ScreenShareState = NO_SCREEN_SHARE;
 

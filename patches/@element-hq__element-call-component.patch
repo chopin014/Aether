@@ -102,7 +102,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  		speaking$: e.behavior(o.pipe(wA((e) => e ? iL(e, J.IsSpeakingChanged).pipe(F((e) => e.isSpeaking)) : Ck(!1)))),
  		audioEnabled$: e.behavior(s.pipe(F((e) => e?.microphoneTrack?.isMuted === !1))),
  		videoEnabled$: e.behavior(s.pipe(F((e) => e?.cameraTrack?.isMuted === !1))),
-@@ -43611,6 +43698,43 @@
+@@ -43611,6 +43698,76 @@
  		let t = {};
  		return e instanceof hX ? { transportError: e } : e === C4.Waiting ? null : (e.matrix instanceof hX && (t.matrixError = e.matrix), e.media instanceof hX ? t.publishError = e.media : typeof e.media == "object" && e.media.connection instanceof hX && (t.connectionError = e.media.connection), t);
  	})), null);
@@ -143,20 +143,54 @@ diff --git a/dist/element-call.js b/dist/element-call.js
 +		vt?.();
 +		reply({});
 +	});
++	// Aether: deafening only silences the deafened device, so each device announces it as a LiveKit attribute.
++	const aetherDeafenedAttribute = "io.aether.deafened";
++	const aetherDeafened$ = (participant) => participant ? nA(Ck(null), iL(participant, J.AttributesChanged)).pipe(F(() => participant.attributes?.[aetherDeafenedAttribute] === "true")) : Ck(false);
++	// Report who is muted or deafened on every one of their devices, so hosts can show it beside each person.
++	if (p.notifyVoiceStates) {
++		const notifyVoiceStates = (states) => {
++			Promise.resolve(p.notifyVoiceStates(states)).catch((error) => l.warn("Could not send voice states to the host", error));
++		};
++		ue.pipe(
++			wA((media) => media.length === 0 ? Ck([]) : Lk(media.map((item) => Lk([item.audioEnabled$, item.microphoneParticipant$ ? item.microphoneParticipant$.pipe(wA(aetherDeafened$)) : Ck(false)], (enabled, deafened) => ({
++				userId: item.userId,
++				muted: !enabled,
++				deafened
++			}))))),
++			F((devices) => {
++				const users = new Map();
++				for (const device of devices) {
++					const user = users.get(device.userId) ?? { userId: device.userId, muted: true, deafened: true };
++					user.muted = user.muted && device.muted;
++					user.deafened = user.deafened && device.deafened;
++					users.set(device.userId, user);
++				}
++				return [...users.values()].sort((a, b) => a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0);
++			}),
++			$e((previous, next) => previous.length === next.length && previous.every((state, index) => state.userId === next[index].userId && state.muted === next[index].muted && state.deafened === next[index].deafened)),
++			e.bind()
++		).subscribe(notifyVoiceStates);
++		e.onEnd(() => notifyVoiceStates([]));
++	}
++	if (p.deafen$) Lk([ue.pipe(wA((media) => media.find((item) => item.local)?.microphoneParticipant$ ?? Ck(null))), p.deafen$]).pipe(e.bind()).subscribe(([participant, { data, reply }]) => {
++		reply({});
++		if (participant?.setAttributes) Promise.resolve(participant.setAttributes({ [aetherDeafenedAttribute]: data.deafened ? "true" : "false" })).catch((error) => l.warn("Could not announce deafening to the call", error));
++	});
  	return {
  		autoLeave$: ie,
  		ringingVm$: de,
-@@ -48021,7 +48145,8 @@
+@@ -48021,7 +48178,9 @@
  		themeChange$: new FO(1),
  		join$: new He(),
  		hangUp$: new He(),
 -		deviceMute$: new He()
 +		deviceMute$: new He(),
-+		screenShareToggle$: new He()
++		screenShareToggle$: new He(),
++		deafen$: new FO(1)
  	}));
  	z(() => {
  		n !== void 0 && i.themeChange$.next({
-@@ -48045,6 +48170,13 @@
+@@ -48045,6 +48204,17 @@
  		notifyDeviceMute: async (e) => {
  			await r.current.notifyDeviceMute?.(e);
  		},
@@ -167,10 +201,14 @@ diff --git a/dist/element-call.js b/dist/element-call.js
 +			let e = r.current.notifyScreenShare;
 +			return e === void 0 ? void 0 : async (state) => await e(state);
 +		},
++		get notifyVoiceStates() {
++			let e = r.current.notifyVoiceStates;
++			return e === void 0 ? void 0 : async (states) => await e(states);
++		},
  		get close() {
  			let e = r.current.close;
  			return e === void 0 ? void 0 : async () => await e();
-@@ -48061,7 +48193,10 @@
+@@ -48061,7 +48231,17 @@
  	return on(t, () => ({
  		join: async (e) => await A7(i.join$, "join a call", e),
  		hangUp: async () => await A7(i.hangUp$, "hang up", {}),
@@ -178,6 +216,13 @@ diff --git a/dist/element-call.js b/dist/element-call.js
 +		setDeviceMute: async (e) => await A7(i.deviceMute$, "change the mute state", e),
 +		toggleScreenSharing: async () => {
 +			await A7(i.screenShareToggle$, "share a screen", {});
++		},
++		// Remembered until the call has a device to announce it from, so it may be set before joining.
++		setDeafened: async (deafened) => {
++			i.deafen$.next({
++				data: { deafened },
++				reply: () => {}
++			});
 +		}
  	}), [i]), a;
  }
@@ -190,7 +235,7 @@ diff --git a/dist/types/component/api.d.ts b/dist/types/component/api.d.ts
  import type { ElementCallHandle, ElementCallHostBridge } from "./host";
  import { BackgroundStyle, configurationForIntent, HeaderStyle, type UrlConfiguration, UserIntent } from "../src/UrlConfiguration";
 -export type { ElementCallHandle, ElementCallHostBridge } from "./host";
-+export type { ElementCallHandle, ElementCallHostBridge, ScreenShareState } from "./host";
++export type { ElementCallHandle, ElementCallHostBridge, ScreenShareState, VoiceState } from "./host";
  export type { DeviceMuteRequest, DeviceMuteState } from "../src/HostBridge";
  export type { JoinCallData } from "../src/widget";
  export type { ConfigOptions } from "../src/config/ConfigOptions";
@@ -202,13 +247,13 @@ diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
   */
  import { type Ref } from "react";
 -import { type DeviceMuteRequest, type DeviceMuteState, type HostBridge } from "../src/HostBridge";
-+import { type DeviceMuteRequest, type DeviceMuteState, type HostBridge, type ScreenShareState } from "../src/HostBridge";
++import { type DeviceMuteRequest, type DeviceMuteState, type HostBridge, type ScreenShareState, type VoiceState } from "../src/HostBridge";
  import { type JoinCallData } from "../src/widget";
-+export type { ScreenShareState };
++export type { ScreenShareState, VoiceState };
  /**
   * What Element Call tells the application hosting it as a component.
   * Everything is optional: a host implements what it wants to hear about.
-@@ -33,6 +34,10 @@
+@@ -33,6 +34,12 @@
      notifyHungUp?(): Promise<void>;
      /** Tells the host the user's current audio and video mute state. */
      notifyDeviceMute?(state: DeviceMuteState): Promise<void>;
@@ -216,10 +261,12 @@ diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
 +    notifySpeakingUsers?(userIds: string[]): Promise<void>;
 +    /** Screen sharing in the call, sent whenever it changes. Nothing is shared or possible once the call ends. */
 +    notifyScreenShare?(state: ScreenShareState): Promise<void>;
++    /** Who is muted or deafened, sorted by user, sent whenever it changes. Empty once the call ends. */
++    notifyVoiceStates?(states: VoiceState[]): Promise<void>;
      /**
       * Asks the host to close Element Call: to unmount the component. Its
       * presence is what makes Element Call offer a close button on its error
-@@ -74,6 +79,11 @@
+@@ -74,6 +81,16 @@
       * reports the state that results.
       */
      setDeviceMute(request: DeviceMuteRequest): Promise<DeviceMuteState>;
@@ -228,13 +275,18 @@ diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
 +     * button, or stops sharing it. The result arrives as `notifyScreenShare`.
 +     */
 +    toggleScreenSharing(): Promise<void>;
++    /**
++     * Tells everyone in the call whether the user has deafened themselves, which
++     * only the host can do. Remembered for later calls, so it may be set at any time.
++     */
++    setDeafened(deafened: boolean): Promise<void>;
  }
  /**
   * The {@link HostBridge} the rest of Element Call sees, built from what a
 diff --git a/dist/types/src/HostBridge.d.ts b/dist/types/src/HostBridge.d.ts
 --- a/dist/types/src/HostBridge.d.ts
 +++ b/dist/types/src/HostBridge.d.ts
-@@ -1,5 +1,14 @@
+@@ -1,5 +1,22 @@
  import { type Observable } from "rxjs";
  import { type JoinCallData, type WidgetHelpers } from "./widget";
 +/** Screen sharing in a call, as a component host is told about it. */
@@ -246,10 +298,18 @@ diff --git a/dist/types/src/HostBridge.d.ts b/dist/types/src/HostBridge.d.ts
 +    /** The other Matrix users sharing a screen, sorted and deduplicated across devices. */
 +    readonly remoteSharerIds: readonly string[];
 +}
++/** Whether a Matrix user in the call can be heard, and can hear, across all of their devices. */
++export interface VoiceState {
++    readonly userId: string;
++    /** Every one of their devices has its microphone off. */
++    readonly muted: boolean;
++    /** Every one of their devices has announced that it is deafened. */
++    readonly deafened: boolean;
++}
  /** The mute state Element Call and its host exchange. */
  export type DeviceMuteState = {
      audio_enabled: boolean;
-@@ -48,6 +57,10 @@
+@@ -48,6 +65,12 @@
      notifyHungUp(): Promise<void>;
      /** Tells the host the user's current audio and video mute state. */
      notifyDeviceMute(state: DeviceMuteState): Promise<void>;
@@ -257,15 +317,21 @@ diff --git a/dist/types/src/HostBridge.d.ts b/dist/types/src/HostBridge.d.ts
 +    notifySpeakingUsers?(userIds: string[]): Promise<void>;
 +    /** Screen sharing in the call, for component hosts that want to hear about it. */
 +    readonly notifyScreenShare?: (state: ScreenShareState) => Promise<void>;
++    /** Who is muted or deafened in the call, for component hosts that want to hear about it. */
++    readonly notifyVoiceStates?: (states: VoiceState[]) => Promise<void>;
      /**
       * Asks the host to close Element Call, and stops communicating with it. No
       * further calls should be made on this bridge afterwards.
-@@ -67,6 +80,8 @@
+@@ -67,6 +90,12 @@
      hangUp$: Observable<HostRequest<Record<string, never>>>;
      /** The host wants to change, or read back, the device mute state. */
      deviceMute$: Observable<HostRequest<DeviceMuteRequest, DeviceMuteState>>;
 +    /** A component host wants to start or stop sharing the screen. */
 +    screenShareToggle$?: Observable<HostRequest<Record<string, never>>>;
++    /** A component host has deafened or undeafened the user, replayed to each call it joins. */
++    deafen$?: Observable<HostRequest<{
++        deafened: boolean;
++    }>>;
      /**
       * Whether Element Call may offer to change the user's profile — their
       * display name and avatar. Only when the account is Element Call's own,
