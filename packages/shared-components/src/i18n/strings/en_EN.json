@@ -439,6 +439,7 @@
         }
     },
     "user_menu": {
+        "edit_profile": "Edit profile",
         "link_new_device": "Link new device",
         "open_feedback": "Feedback",
         "open_home": "Home",

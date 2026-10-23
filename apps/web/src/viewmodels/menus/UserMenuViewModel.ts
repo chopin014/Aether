@@ -62,6 +62,7 @@ export class UserMenuViewModel
             showUserStatus: SettingsStore.getValue("feature_user_status") && isAuthenticated,
             setStatusViewModel,
             actions: {
+                editProfile: isAuthenticated,
                 createAccount: !isAuthenticated,
                 signIn: !isAuthenticated,
                 openHomePage: hasHomePage,
@@ -103,6 +104,14 @@ export class UserMenuViewModel
 
     public readonly setExpanded = (expanded: boolean): void => {
         this.snapshot.merge({ expanded });
+    };
+
+    public readonly editProfile = (): void => {
+        this.setOpen(false);
+        this.dispatcher.dispatch({
+            action: Action.ViewUserSettings,
+            initialTabId: UserTab.Account,
+        });
     };
 
     public readonly createAccount = (): void => {

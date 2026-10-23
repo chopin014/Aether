@@ -43,6 +43,7 @@ function DockStory({
     });
     const vm = useMockedViewModel<UserMenuViewSnapshot, UserMenuViewActions>(snapshot, {
         setOpen: fn(),
+        editProfile: fn(),
         createAccount: fn(),
         signIn: fn(),
         linkNewDevice: fn(),
@@ -68,7 +69,7 @@ const meta = {
         displayName: "Alice",
         userId: "@alice:example.org",
         setStatusViewModel: statusVm,
-        actions: { openSettings: true, openSecurity: true, linkNewDevice: true },
+        actions: { editProfile: true, openSettings: true, openSecurity: true, linkNewDevice: true },
     },
 } satisfies Meta<typeof DockStory>;
 

@@ -23,6 +23,7 @@ class MockSetStatusViewModel extends MockViewModel<SetStatusViewSnapshot> {
 const UserMenuWrapperImpl = (snapshot: UserMenuViewSnapshot): JSX.Element => {
     const vm = useMockedViewModel<UserMenuViewSnapshot, UserMenuViewActions>(snapshot, {
         setOpen: fn(),
+        editProfile: fn(),
         createAccount: fn(),
         signIn: fn(),
         linkNewDevice: fn(),
@@ -49,6 +50,7 @@ const meta = {
         userId: "@person-name:homeserver.com",
         expanded: true,
         actions: {
+            editProfile: true,
             linkNewDevice: true,
             openSecurity: true,
             openFeedback: true,
