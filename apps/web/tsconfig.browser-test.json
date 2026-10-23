@@ -4,5 +4,12 @@
         "types": ["node", "modernizr", "@vitest/browser/matchers"]
     },
     "exclude": [],
-    "include": ["./src/**/*.test.browser.ts", "./src/@types/png.d.ts", "./src/@types/vitest-browser.d.ts"]
+    "include": [
+        "./src/**/*.test.browser.ts",
+        "./src/**/*.test.browser.tsx",
+        "./src/@types/*.d.ts",
+        "./src/@types/polyfill.ts",
+        "./node_modules/matrix-js-sdk/src/@types/*.d.ts",
+        "./@types/*.d.ts"
+    ]
 }
