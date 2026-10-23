@@ -6,12 +6,25 @@
         "delete": "Excluir",
         "dismiss": "Dispensar",
         "explore_rooms": "Explorar salas",
+        "invite": "Convidar",
+        "new_room": "Nova sala",
+        "new_voice_room": "Nova sala de voz",
         "pause": "Pausar",
         "play": "Reproduzir",
         "search": "Buscar"
     },
+    "common": {
+        "preferences": "Preferências"
+    },
     "left_panel": {
         "open_dial_pad": "Abrir o teclado de discagem"
+    },
+    "room_list": {
+        "open_space_menu": "Abrir menu do espaço",
+        "space_menu": {
+            "home": "Página inicial do espaço",
+            "space_settings": "Configurações do espaço"
+        }
     },
     "time": {
         "about_day_ago": "há aproximadamente um dia",

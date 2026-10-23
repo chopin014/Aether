@@ -136,6 +136,8 @@ export default defineConfig({
             "vite-plugin-node-polyfills/shims/buffer",
             "vite-plugin-node-polyfills/shims/process",
             "@vector-im/compound-design-tokens/assets/web/icons",
+            "@vector-im/compound-design-tokens/assets/web/icons/audio",
+            "@vector-im/compound-design-tokens/assets/web/icons/chat-new",
             "storybook/preview-api",
             // The room-list view pulls in a heavy dnd-kit + react-virtuoso graph. If these are left to
             // runtime discovery, the browser-mode dep optimizer can re-bundle mid-run and reload the page,

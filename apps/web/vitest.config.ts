@@ -121,7 +121,9 @@ export default defineProject({
                         "@vector-im/compound-web",
                         "@vector-im/compound-design-tokens/assets/web/icons",
                         ...[
+                            "audio",
                             "chat",
+                            "chat-new",
                             "chevron-down",
                             "home",
                             "overflow-horizontal",
