@@ -183,6 +183,30 @@ describe("RoomHeader", () => {
         }
     });
 
+    it("shows a desktop channel's topic beside its name", () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const setting = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        try {
+            room.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.RoomTopic,
+                    state_key: "",
+                    room_id: ROOM_ID,
+                    sender: "@alice:example.org",
+                    content: { topic: "Plans for the weekend" },
+                }),
+            ]);
+            render(<RoomHeader room={room} />, getWrapper());
+            expect(screen.getByText("Plans for the weekend")).toHaveClass("mx_DesktopShell_channelTopic");
+            // The topic is not part of the channel's heading
+            expect(screen.getByRole("heading", { level: 1 })).not.toHaveTextContent("Plans for the weekend");
+        } finally {
+            setting.mockRestore();
+        }
+    });
+
     it("opens the room summary", async () => {
         const user = userEvent.setup();
         const { container } = render(<RoomHeader room={room} />, getWrapper());

@@ -43,6 +43,7 @@ import { useEncryptionStatus } from "../../../../hooks/useEncryptionStatus.ts";
 import { E2EStatus } from "../../../../utils/ShieldUtils.ts";
 import FacePile from "../../elements/FacePile.tsx";
 import { useRoomState } from "../../../../hooks/useRoomState.ts";
+import { useTopic } from "../../../../hooks/room/useTopic";
 import RoomAvatar from "../../avatars/RoomAvatar";
 import { formatCount } from "../../../../utils/FormattingUtils.ts";
 import PosthogTrackers from "../../../../PosthogTrackers.ts";
@@ -496,6 +497,8 @@ export default function RoomHeader({
     const e2eStatus = useEncryptionStatus(sdkContext.client!, room);
     const askToJoinEnabled = useFeatureEnabled("feature_ask_to_join");
     const desktopChannel = useFeatureEnabled("feature_desktop_shell") && !isDirectMessage;
+    // A desktop channel shows its topic beside the name, as in Discord.
+    const topic = useTopic(room);
     const onAvatarClick = (): void => {
         defaultDispatcher.dispatch({
             action: "open_room_settings",
@@ -592,6 +595,11 @@ export default function RoomHeader({
 
                             {isRoomEncrypted && historyVisibilityIcon(historyVisibility)}
                         </Text>
+                        {desktopChannel && topic?.text && (
+                            <span className="mx_DesktopShell_channelTopic" title={topic.text} dir="auto">
+                                {topic.text}
+                            </span>
+                        )}
                     </Box>
                 </button>
                 {/* If the room is local-only then we don't want to show any additional buttons, as it won't work */}

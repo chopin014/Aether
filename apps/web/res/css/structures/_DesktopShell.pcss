@@ -351,6 +351,23 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
             font: var(--cpd-font-body-md-semibold);
         }
 
+        .mx_RoomHeader_info:has(.mx_DesktopShell_channelTopic) {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .mx_DesktopShell_channelTopic {
+            min-width: 0;
+            padding-inline-start: 12px;
+            border-inline-start: 1px solid var(--cpd-color-border-interactive-secondary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font: var(--cpd-font-body-sm-regular);
+            color: var(--cpd-color-text-secondary);
+        }
+
         .mx_BaseAvatar,
         .mx_BaseAvatar_image {
             width: 28px;
