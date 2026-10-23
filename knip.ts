@@ -71,6 +71,8 @@ export default {
                 "!scripts/**!",
                 "!src/test/**!",
                 "!recorder-worklet-loader.cjs!",
+                // Webpack resolves this loader by file path rather than a module import.
+                "!src/audio/voice-gate-worklet-loader.cjs!",
                 "!src/**/*-{mock,mocks,snapshot,actions}.*!",
             ],
             ignoreDependencies: [
