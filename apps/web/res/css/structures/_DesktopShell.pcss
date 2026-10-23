@@ -300,6 +300,17 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
                 border-radius: 12px;
             }
 
+            /* The Aether mark is twice as wide as it is tall, so it may use the icon's padding to read clearly. */
+            .mx_SpaceButton_icon svg.mx_DesktopShell_homeSymbol {
+                width: 30px;
+                margin-inline: -3px;
+                color: var(--cpd-color-text-primary);
+            }
+
+            &.mx_SpaceButton_active .mx_SpaceButton_icon svg.mx_DesktopShell_homeSymbol {
+                color: var(--cpd-color-icon-on-solid-primary);
+            }
+
             .mx_BaseAvatar,
             .mx_BaseAvatar_image {
                 width: 40px;

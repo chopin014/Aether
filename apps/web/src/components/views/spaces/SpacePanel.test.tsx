@@ -187,6 +187,20 @@ describe("<SpacePanel />", () => {
         settings.mockRestore();
     });
 
+    it("marks Home with the Aether symbol in the desktop shell", () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const settings = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        try {
+            render(<SpacePanel />);
+            const homeButtons = screen.getAllByRole("button", { name: "Home" });
+            expect(homeButtons.some((button) => button.querySelector(".mx_DesktopShell_homeSymbol"))).toBe(true);
+        } finally {
+            settings.mockRestore();
+        }
+    });
+
     describe("create new space button", () => {
         it("renders create space button when UIComponent.CreateSpaces component should be shown", () => {
             render(<SpacePanel />);

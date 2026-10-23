@@ -78,6 +78,7 @@ import { UserMenuContainer } from "../menus/UserMenuContainer.tsx";
 import { RoomListCollapsedContext } from "../../../contexts/RoomListCollapsedContext";
 import { SDKContext } from "../../../contexts/SDKContext.ts";
 import { type SDKContextClass } from "../../../contexts/SDKContextClass.ts";
+import AetherSymbolIcon from "../../../../res/img/aether/symbol-mono.svg?react";
 
 const useSpaces = (): [Room[], MetaSpace[], Room[], SpaceKey] => {
     const sdkContext = useContext(SDKContext);
@@ -163,6 +164,8 @@ const HomeButton: React.FC<MetaSpaceButtonProps> = ({ selected, isPanelCollapsed
     }, [sdkContext]);
     useEffect(updateNotificationState, [updateNotificationState, allRoomsInHome]);
     useEventEmitter(sdkContext.roomNotificationStateStore, UPDATE_STATUS_INDICATOR, updateNotificationState);
+    // In the desktop shell, Home is where friends and direct messages live, so it carries the Aether mark
+    const desktopShellEnabled = useSettingValue("feature_desktop_shell");
 
     return (
         <MetaSpaceButton
@@ -174,7 +177,13 @@ const HomeButton: React.FC<MetaSpaceButtonProps> = ({ selected, isPanelCollapsed
             ContextMenuComponent={HomeButtonContextMenu}
             contextMenuTooltip={_t("common|options")}
             size="32px"
-            icon={<HomeSolidIcon />}
+            icon={
+                desktopShellEnabled ? (
+                    <AetherSymbolIcon className="mx_DesktopShell_homeSymbol" aria-hidden />
+                ) : (
+                    <HomeSolidIcon />
+                )
+            }
         />
     );
 };
