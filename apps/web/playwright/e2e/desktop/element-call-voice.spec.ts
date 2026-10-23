@@ -176,7 +176,11 @@ test(
                 .toBe("org.matrix.msc3417.call");
             await bobPage.goto(`/#/room/${roomId}`);
             for (const memberPage of [page, bobPage]) {
-                await expect(memberPage.getByTestId("videoTile")).toHaveCount(2, { timeout: 30_000 });
+                const memberDock = memberPage.getByRole("group", { name: "User menu" });
+                await expect(memberDock.getByText("Voice Connected", { exact: true })).toBeVisible({ timeout: 60_000 });
+                await memberDock.getByRole("button", { name: /Voice Connected/ }).click();
+                // Element Call renders the local preview separately in its one-to-one layout.
+                await expect(memberPage.getByTestId("videoTile").first()).toBeVisible({ timeout: 30_000 });
                 await expect(memberPage.locator("video").filter({ visible: true })).toHaveCount(0);
                 await expect.poll(() => receivedAudioBytes(memberPage), { timeout: 30_000 }).toBeGreaterThan(0);
                 await expect.poll(() => decodedAudioEnergy(memberPage), { timeout: 30_000 }).toBeGreaterThan(0);
@@ -221,7 +225,7 @@ test(
             const bytesBeforeNavigation = await receivedAudioBytes(page);
             await expect.poll(() => receivedAudioBytes(page)).toBeGreaterThan(bytesBeforeNavigation);
             await dock.getByRole("button", { name: /Voice Connected/ }).click();
-            await expect(page.getByTestId("videoTile")).toHaveCount(2);
+            await expect(page.getByTestId("videoTile").first()).toBeVisible();
             await expect
                 .poll(async () => {
                     const tiles = await page.getByTestId("videoTile").all();
@@ -237,7 +241,9 @@ test(
             await expect(participants.getByRole("button", { name: "Bob", exact: true })).toBeVisible();
             await expect(participants.getByRole("button", { name: /^Alice(?: \(speaking\))?$/ })).toHaveCount(0);
             await page.getByTestId("lobby_joinCall").click();
-            await expect(page.getByTestId("videoTile")).toHaveCount(2, { timeout: 30_000 });
+            await expect(dock.getByText("Voice Connected", { exact: true })).toBeVisible({ timeout: 30_000 });
+            const bytesAfterRejoin = await receivedAudioBytes(page);
+            await expect.poll(() => receivedAudioBytes(page)).toBeGreaterThan(bytesAfterRejoin);
             await bobPage.getByTestId("incall_leave").click();
             await expect(page.getByTestId("videoTile")).toHaveCount(1, { timeout: 30_000 });
             await expect(participants.getByRole("button", { name: /^Bob(?: \(speaking\))?$/ })).toHaveCount(0);
