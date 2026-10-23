@@ -32,6 +32,7 @@ import {
     JitsiCall,
     ElementCall,
     ElementCallIntent,
+    NO_SCREEN_SHARE,
 } from "./Call";
 import { WidgetMessagingStore } from "../stores/widgets/WidgetMessagingStore";
 import ActiveWidgetStore, { ActiveWidgetStoreEvent } from "../stores/ActiveWidgetStore";
@@ -1230,6 +1231,41 @@ describe("ElementCall with the React component embedding", () => {
             else if (reason === "unmount") call.setComponentHandle(null);
             else call.handleClose();
             expect(call.speakingUserIds.size).toBe(0);
+        });
+    });
+
+    describe("screen sharing", () => {
+        const sharing = { available: true, sharing: false, remoteSharerIds: ["@alice:example.org"] };
+
+        it("publishes each change in screen sharing once", () => {
+            const changed = vi.fn();
+            call.on(CallEvent.ScreenShare, changed);
+            expect(call.screenShare).toEqual(NO_SCREEN_SHARE);
+            call.handleScreenShare(sharing);
+            call.handleScreenShare({ ...sharing, remoteSharerIds: ["@alice:example.org"] });
+            expect(changed).toHaveBeenCalledExactlyOnceWith(sharing);
+            call.handleScreenShare({ ...sharing, sharing: true });
+            expect(changed).toHaveBeenCalledTimes(2);
+            expect(call.screenShare.sharing).toBe(true);
+        });
+
+        it("toggles our screen share through the component handle", async () => {
+            const toggleScreenSharing = vi.fn(async () => {});
+            call.setComponentHandle({ toggleScreenSharing } as unknown as ElementCallHandle);
+            await call.toggleScreenShare();
+            expect(toggleScreenSharing).toHaveBeenCalledOnce();
+        });
+
+        it("reports a missing component rather than pretending to share", async () => {
+            await expect(call.toggleScreenShare()).rejects.toThrow("not ready");
+        });
+
+        it.each(["unmount", "close"])("forgets screen sharing on %s", (reason) => {
+            call.setComponentHandle({} as ElementCallHandle);
+            call.handleScreenShare(sharing);
+            if (reason === "unmount") call.setComponentHandle(null);
+            else call.handleClose();
+            expect(call.screenShare).toEqual(NO_SCREEN_SHARE);
         });
     });
 

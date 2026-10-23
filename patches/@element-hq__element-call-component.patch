@@ -102,7 +102,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  		speaking$: e.behavior(o.pipe(wA((e) => e ? iL(e, J.IsSpeakingChanged).pipe(F((e) => e.isSpeaking)) : Ck(!1)))),
  		audioEnabled$: e.behavior(s.pipe(F((e) => e?.microphoneTrack?.isMuted === !1))),
  		videoEnabled$: e.behavior(s.pipe(F((e) => e?.cameraTrack?.isMuted === !1))),
-@@ -43611,6 +43698,24 @@
+@@ -43611,6 +43698,43 @@
  		let t = {};
  		return e instanceof hX ? { transportError: e } : e === C4.Waiting ? null : (e.matrix instanceof hX && (t.matrixError = e.matrix), e.media instanceof hX ? t.publishError = e.media : typeof e.media == "object" && e.media.connection instanceof hX && (t.connectionError = e.media.connection), t);
  	})), null);
@@ -124,40 +124,148 @@ diff --git a/dist/element-call.js b/dist/element-call.js
 +		).subscribe(notifySpeakingUsers);
 +		e.onEnd(() => notifySpeakingUsers([]));
 +	}
++	// Let component hosts such as Aether's sidebar offer screen sharing, and float the call only for other people's shares.
++	if (p.notifyScreenShare) {
++		const notifyScreenShare = (state) => {
++			Promise.resolve(p.notifyScreenShare(state)).catch((error) => l.warn("Could not send screen sharing to the host", error));
++		};
++		Lk([fe, _t], (shares, sharing) => ({
++			available: vt !== null,
++			sharing,
++			remoteSharerIds: [...new Set(shares.filter((share) => !share.local).map((share) => share.userId))].sort()
++		})).pipe(
++			$e((previous, next) => previous.available === next.available && previous.sharing === next.sharing && previous.remoteSharerIds.length === next.remoteSharerIds.length && previous.remoteSharerIds.every((userId, index) => userId === next.remoteSharerIds[index])),
++			e.bind()
++		).subscribe(notifyScreenShare);
++		e.onEnd(() => notifyScreenShare({ available: false, sharing: false, remoteSharerIds: [] }));
++	}
++	p.screenShareToggle$?.pipe(e.bind()).subscribe(({ reply }) => {
++		vt?.();
++		reply({});
++	});
  	return {
  		autoLeave$: ie,
  		ringingVm$: de,
-@@ -48045,6 +48150,9 @@
+@@ -48021,7 +48145,8 @@
+ 		themeChange$: new FO(1),
+ 		join$: new He(),
+ 		hangUp$: new He(),
+-		deviceMute$: new He()
++		deviceMute$: new He(),
++		screenShareToggle$: new He()
+ 	}));
+ 	z(() => {
+ 		n !== void 0 && i.themeChange$.next({
+@@ -48045,6 +48170,13 @@
  		notifyDeviceMute: async (e) => {
  			await r.current.notifyDeviceMute?.(e);
  		},
 +		notifySpeakingUsers: async (userIds) => {
 +			await r.current.notifySpeakingUsers?.(userIds);
 +		},
++		get notifyScreenShare() {
++			let e = r.current.notifyScreenShare;
++			return e === void 0 ? void 0 : async (state) => await e(state);
++		},
  		get close() {
  			let e = r.current.close;
  			return e === void 0 ? void 0 : async () => await e();
+@@ -48061,7 +48193,10 @@
+ 	return on(t, () => ({
+ 		join: async (e) => await A7(i.join$, "join a call", e),
+ 		hangUp: async () => await A7(i.hangUp$, "hang up", {}),
+-		setDeviceMute: async (e) => await A7(i.deviceMute$, "change the mute state", e)
++		setDeviceMute: async (e) => await A7(i.deviceMute$, "change the mute state", e),
++		toggleScreenSharing: async () => {
++			await A7(i.screenShareToggle$, "share a screen", {});
++		}
+ 	}), [i]), a;
+ }
+ //#endregion
+diff --git a/dist/types/component/api.d.ts b/dist/types/component/api.d.ts
+--- a/dist/types/component/api.d.ts
++++ b/dist/types/component/api.d.ts
+@@ -21,7 +21,7 @@
+ import type { UrlProperties } from "../src/UrlParams";
+ import type { ElementCallHandle, ElementCallHostBridge } from "./host";
+ import { BackgroundStyle, configurationForIntent, HeaderStyle, type UrlConfiguration, UserIntent } from "../src/UrlConfiguration";
+-export type { ElementCallHandle, ElementCallHostBridge } from "./host";
++export type { ElementCallHandle, ElementCallHostBridge, ScreenShareState } from "./host";
+ export type { DeviceMuteRequest, DeviceMuteState } from "../src/HostBridge";
+ export type { JoinCallData } from "../src/widget";
+ export type { ConfigOptions } from "../src/config/ConfigOptions";
 diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
 --- a/dist/types/component/host.d.ts
 +++ b/dist/types/component/host.d.ts
-@@ -33,6 +33,8 @@
+@@ -10,8 +10,9 @@
+  * call `play()` on a video element. This module adapts the one to the other.
+  */
+ import { type Ref } from "react";
+-import { type DeviceMuteRequest, type DeviceMuteState, type HostBridge } from "../src/HostBridge";
++import { type DeviceMuteRequest, type DeviceMuteState, type HostBridge, type ScreenShareState } from "../src/HostBridge";
+ import { type JoinCallData } from "../src/widget";
++export type { ScreenShareState };
+ /**
+  * What Element Call tells the application hosting it as a component.
+  * Everything is optional: a host implements what it wants to hear about.
+@@ -33,6 +34,10 @@
      notifyHungUp?(): Promise<void>;
      /** Tells the host the user's current audio and video mute state. */
      notifyDeviceMute?(state: DeviceMuteState): Promise<void>;
 +    /** Real, unmuted speaking Matrix users, deduplicated across devices. Empty when the call ends. */
 +    notifySpeakingUsers?(userIds: string[]): Promise<void>;
++    /** Screen sharing in the call, sent whenever it changes. Nothing is shared or possible once the call ends. */
++    notifyScreenShare?(state: ScreenShareState): Promise<void>;
      /**
       * Asks the host to close Element Call: to unmount the component. Its
       * presence is what makes Element Call offer a close button on its error
+@@ -74,6 +79,11 @@
+      * reports the state that results.
+      */
+     setDeviceMute(request: DeviceMuteRequest): Promise<DeviceMuteState>;
++    /**
++     * Starts sharing the screen, through the same picker as the call's own
++     * button, or stops sharing it. The result arrives as `notifyScreenShare`.
++     */
++    toggleScreenSharing(): Promise<void>;
+ }
+ /**
+  * The {@link HostBridge} the rest of Element Call sees, built from what a
 diff --git a/dist/types/src/HostBridge.d.ts b/dist/types/src/HostBridge.d.ts
 --- a/dist/types/src/HostBridge.d.ts
 +++ b/dist/types/src/HostBridge.d.ts
-@@ -48,6 +48,8 @@
+@@ -1,5 +1,14 @@
+ import { type Observable } from "rxjs";
+ import { type JoinCallData, type WidgetHelpers } from "./widget";
++/** Screen sharing in a call, as a component host is told about it. */
++export interface ScreenShareState {
++    /** Whether the user can share their screen from this device. */
++    readonly available: boolean;
++    /** Whether the user is sharing their screen. */
++    readonly sharing: boolean;
++    /** The other Matrix users sharing a screen, sorted and deduplicated across devices. */
++    readonly remoteSharerIds: readonly string[];
++}
+ /** The mute state Element Call and its host exchange. */
+ export type DeviceMuteState = {
+     audio_enabled: boolean;
+@@ -48,6 +57,10 @@
      notifyHungUp(): Promise<void>;
      /** Tells the host the user's current audio and video mute state. */
      notifyDeviceMute(state: DeviceMuteState): Promise<void>;
 +    /** Real, unmuted speaking Matrix users, deduplicated across devices. Empty when the call ends. */
 +    notifySpeakingUsers?(userIds: string[]): Promise<void>;
++    /** Screen sharing in the call, for component hosts that want to hear about it. */
++    readonly notifyScreenShare?: (state: ScreenShareState) => Promise<void>;
      /**
       * Asks the host to close Element Call, and stops communicating with it. No
       * further calls should be made on this bridge afterwards.
+@@ -67,6 +80,8 @@
+     hangUp$: Observable<HostRequest<Record<string, never>>>;
+     /** The host wants to change, or read back, the device mute state. */
+     deviceMute$: Observable<HostRequest<DeviceMuteRequest, DeviceMuteState>>;
++    /** A component host wants to start or stop sharing the screen. */
++    screenShareToggle$?: Observable<HostRequest<Record<string, never>>>;
+     /**
+      * Whether Element Call may offer to change the user's profile — their
+      * display name and avatar. Only when the account is Element Call's own,

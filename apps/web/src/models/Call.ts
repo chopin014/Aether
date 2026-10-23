@@ -57,6 +57,7 @@ import {
     type DeviceMuteRequest,
     type ElementCallConfiguration,
     type ElementCallHandle,
+    type ScreenShareState,
     type UserIntent,
 } from "@element-hq/element-call-component/api";
 
@@ -104,6 +105,7 @@ export enum CallEvent {
     CallTypeChanged = "call_type_changed",
     DeviceMute = "device_mute",
     SpeakingUsers = "speaking_users",
+    ScreenShare = "screen_share",
 }
 
 interface CallEventHandlerMap {
@@ -117,7 +119,15 @@ interface CallEventHandlerMap {
     [CallEvent.CallTypeChanged]: (callType: CallType) => void;
     [CallEvent.DeviceMute]: (state: DeviceMuteState) => void;
     [CallEvent.SpeakingUsers]: (userIds: ReadonlySet<string>) => void;
+    [CallEvent.ScreenShare]: (state: ScreenShareState) => void;
 }
+
+/** Screen sharing as reported before Element Call says otherwise, and after it unmounts. */
+export const NO_SCREEN_SHARE: ScreenShareState = Object.freeze({
+    available: false,
+    sharing: false,
+    remoteSharerIds: [],
+});
 
 /**
  * A group call accessed through a widget.
@@ -709,7 +719,10 @@ export class ElementCall extends Call {
      */
     public readonly setComponentHandle = (handle: ElementCallHandle | null): void => {
         this.componentHandle = handle;
-        if (!handle) this.speakingUserIds = new Set();
+        if (!handle) {
+            this.speakingUserIds = new Set();
+            this.handleScreenShare(NO_SCREEN_SHARE);
+        }
     };
 
     /**
@@ -1128,6 +1141,7 @@ export class ElementCall extends Call {
         this.ready = Promise.withResolvers<void>();
         this.frozenComponentOptions = null;
         this._deviceMuteState = undefined;
+        this.handleScreenShare(NO_SCREEN_SHARE);
         super.close();
         // A voice call in PiP has no CallView to stop presenting it on close
         // (whether the widget asked to close or its messaging just stopped),
@@ -1228,6 +1242,34 @@ export class ElementCall extends Call {
         if (!controls) throw new Error("Element Call audio output is not ready");
         controls.setAudioEnabled(enabled);
     };
+
+    private _screenShare: ScreenShareState = NO_SCREEN_SHARE;
+
+    /** Whether screen sharing is possible, whether we are sharing, and who else is. */
+    public get screenShare(): ScreenShareState {
+        return this._screenShare;
+    }
+
+    /** Starts or stops sharing our screen, using Element Call's own screen picker. */
+    public toggleScreenShare = async (): Promise<void> => {
+        if (!this.componentHandle) throw new Error("Element Call component is not ready");
+        await this.componentHandle.toggleScreenSharing();
+    };
+
+    /** Element Call reports a change in screen sharing (`HostBridge.notifyScreenShare`). */
+    public handleScreenShare(state: ScreenShareState): void {
+        const previous = this._screenShare;
+        if (
+            state.available === previous.available &&
+            state.sharing === previous.sharing &&
+            state.remoteSharerIds.length === previous.remoteSharerIds.length &&
+            state.remoteSharerIds.every((userId, index) => userId === previous.remoteSharerIds[index])
+        ) {
+            return;
+        }
+        this._screenShare = state;
+        this.emit(CallEvent.ScreenShare, state);
+    }
 
     /** Element Call reports its mute state (`HostBridge.notifyDeviceMute` / `io.element.device_mute`). */
     public handleDeviceMute(state?: DeviceMuteState): void {
