@@ -59,7 +59,7 @@ Close the Electron window to finish the review and release the test services. Th
 
 ## Presentation and backend mappings
 
-Implemented surfaces include a titlebar following the selected Matrix Space, the compact Space rail, a server-name menu, collapsible text/voice categories, channel symbols, an account dock spanning the rail and sidebar, grouped message metadata, left-side attachments, channel-header controls and a notification bell using actual Matrix push rules, the centered server welcome, a compact presence-grouped member panel, contacts Home, connected-call status and device controls, portal theme inheritance and the captured floating settings frame. Light and high-contrast themes retain their Compound colors.
+Implemented surfaces include window controls drawn over the app in place of the system title bar on Linux and Windows, a Discord-sized Space rail, a server-name menu, collapsible text/voice categories, channel symbols, an account dock spanning the rail and sidebar, grouped message metadata, left-side attachments, channel-header controls and a notification bell using actual Matrix push rules, the centered server welcome, a compact presence-grouped member panel, contacts Home, connected-call status and device controls, portal theme inheritance and the captured floating settings frame. Light and high-contrast themes retain their Compound colors.
 
 The contacts page uses `m.direct` conversations as contacts. Online and All reflect actual SDK presence; Pending contains actual incoming room invitations; Blocked uses Matrix ignored-user account data. Accept joins the invited Matrix room, Ignore leaves it, and Unblock updates ignored users. Add Friend opens Element’s existing Matrix user lookup and direct-chat flow. This is an explicit compatibility mapping; it does not add a separate mutual-friend protocol or Discord’s relationship graph. Home keeps existing rooms reachable, including rooms outside Spaces.
 
@@ -116,3 +116,21 @@ Voice Channels categories carry a "+" that creates a channel of that kind in the
 Messages and the composer use 15px text, with 20px between one sender's group and the next. Conversations use 42px
 rows, channels 34px rows with 2px gaps, and members 48px rows. Loading uses an Aether orbit spinner, and timeline
 files, audio and voice messages appear as Aether media cards.
+
+## Window and server rail
+
+On Linux and Windows the desktop shell has no system title bar: Electron draws the window controls over the top
+right of the header row (`titleBarOverlay`, 48px). The header row moves the window, and the room header, contacts
+header and member list keep the controls' corner clear. The overlay uses Aether's dark header colours in every theme.
+macOS keeps Element's own title bar.
+
+The server rail is 72px wide with 48px icons that round from circles into squares when hovered or selected. A pill at
+the rail's edge marks unread (8px), hovered (20px) and selected (40px) servers; mention counts stay as a badge.
+A divider separates Home from the user's Spaces.
+
+## Muted and deafened participants
+
+Muted and deafened icons beside voice participants are grey, in the channel icons' column; red is kept for actions
+taken by others. Each device announces its deafen both as a LiveKit attribute and as a LiveKit data message, repeated
+every 10 seconds while deafened, because the attribute needs a JWT service that lets participants update their own
+metadata (`lk-jwt-service` since July 2026). The local user's own row follows this device directly.
