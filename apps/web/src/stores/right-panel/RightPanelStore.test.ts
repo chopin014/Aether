@@ -284,6 +284,43 @@ describe("RightPanelStore", () => {
         });
     });
 
+    describe("in the desktop shell", () => {
+        beforeEach(async () => {
+            await SettingsStore.setValue("feature_desktop_shell", null, SettingLevel.DEVICE, true);
+        });
+
+        it("opens a text channel on its member list", async () => {
+            await viewRoom("!channel:example.org");
+            expect(store.isOpen).toEqual(true);
+            expect(store.currentCard.phase).toEqual(RightPanelPhases.MemberList);
+        });
+
+        it("keeps a channel closed once the user has closed it", async () => {
+            await viewRoom("!channel:example.org");
+            store.togglePanel(null);
+            await viewRoom("!other:example.org");
+            await viewRoom("!channel:example.org");
+            expect(store.isOpen).toEqual(false);
+        });
+
+        it.each([
+            ["a voice channel", "isCallRoom"],
+            ["a Space", "isSpaceRoom"],
+        ] as const)("leaves %s closed", async (_, kind) => {
+            const room = cli.getRoom("!voice:example.org")!;
+            vi.mocked(room[kind]).mockReturnValue(true);
+            cli.getRoom.mockReturnValue(room);
+            await viewRoom("!voice:example.org");
+            expect(store.isOpen).toEqual(false);
+        });
+
+        it("leaves a direct message closed", async () => {
+            vi.spyOn(DMRoomMap.shared(), "getUserIdForRoomId").mockReturnValue("@alice:example.org");
+            await viewRoom("!dm:example.org");
+            expect(store.isOpen).toEqual(false);
+        });
+    });
+
     it("doesn't restore member info cards when switching back to a room", async () => {
         await viewRoom("!1:example.org");
         store.setCards(

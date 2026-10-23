@@ -8,6 +8,7 @@ Please see LICENSE files in the repository root for full details.
 
 import { logger } from "matrix-js-sdk/src/logger";
 import { CryptoEvent } from "matrix-js-sdk/src/crypto-api";
+import { type Room } from "matrix-js-sdk/src/matrix";
 
 import defaultDispatcher from "../../dispatcher/dispatcher";
 import { pendingVerificationRequestForUser } from "../../verification";
@@ -29,6 +30,7 @@ import { type ActiveRoomChangedPayload } from "../../dispatcher/payloads/ActiveR
 import { type OpenDocumentViewerPayload } from "../../dispatcher/payloads/OpenDocumentViewerPayload";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
+import DMRoomMap from "../../utils/DMRoomMap";
 
 /**
  * @see RightPanelStore#generateHistoryForPhase
@@ -322,13 +324,24 @@ export default class RightPanelStore extends ReadyWatchingStore {
                 this.byRoom[this.viewedRoomId] =
                     this.byRoom[this.viewedRoomId] ??
                     convertToStatePanel(SettingsStore.getValue("RightPanel.phases", this.viewedRoomId), room) ??
-                    undefined;
+                    RightPanelStore.defaultPanelForRoom(room);
             } else {
                 logger.warn(
                     "Could not restore the right panel after load because there was no associated room object.",
                 );
             }
         }
+    }
+
+    /**
+     * In the desktop shell a text channel shows its members until the user closes the panel, as in Discord.
+     * Direct messages, voice channels and Spaces keep Element's closed default.
+     */
+    private static defaultPanelForRoom(room: Room): IRightPanelForRoom | undefined {
+        if (!SettingsStore.getValue("feature_desktop_shell")) return undefined;
+        if (room.isSpaceRoom() || room.isCallRoom() || room.isElementVideoRoom()) return undefined;
+        if (DMRoomMap.shared()?.getUserIdForRoomId(room.roomId)) return undefined;
+        return { history: [{ phase: RightPanelPhases.MemberList, state: {} }], isOpen: true };
     }
 
     private emitAndUpdateSettings(): void {
