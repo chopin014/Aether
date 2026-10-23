@@ -1,12 +1,42 @@
 diff --git a/dist/element-call.js b/dist/element-call.js
 --- a/dist/element-call.js
 +++ b/dist/element-call.js
-@@ -43118,6 +43118,92 @@
+@@ -43118,6 +43118,122 @@
  }
  //#endregion
  //#region src/state/media/UserMediaViewModel.ts
 +// Aether's sidebar observes existing microphone tracks instead of delayed SFU speaker notifications.
 +let aetherSpeakingContext;
++// Aether: how a remote device announces its deafen, as a LiveKit attribute or, where the JWT service does not let
++// participants update their own metadata, as a data message.
++const aetherDeafenedAttribute = "io.aether.deafened";
++const aetherVoiceStateType = "io.aether.voice_state";
++const aetherVoiceStateTopic = "io.aether.voice";
++// The deafen each remote participant last sent, kept per participant so it outlives any one subscription.
++const aetherAnnouncedDeafen = new WeakMap();
++function aetherObserveDeafened(participant) {
++	return new C((observer) => {
++		const report = () => observer.next(aetherAnnouncedDeafen.get(participant) ?? participant.attributes?.[aetherDeafenedAttribute] === "true");
++		const onData = (payload) => {
++			let message;
++			try {
++				message = JSON.parse(new TextDecoder().decode(payload));
++			} catch {
++				return;
++			}
++			if (message?.type !== aetherVoiceStateType || typeof message.deafened !== "boolean") return;
++			aetherAnnouncedDeafen.set(participant, message.deafened);
++			report();
++		};
++		participant.on(J.AttributesChanged, report);
++		participant.on(J.DataReceived, onData);
++		report();
++		return () => {
++			participant.off(J.AttributesChanged, report);
++			participant.off(J.DataReceived, onData);
++		};
++	});
++}
 +function aetherObserveSpeaking(participant, fallback$) {
 +	return new C((observer) => {
 +		let contextEntry, source, analyser, track, samples, lastVoice = -Infinity, reported, fallback = false;
@@ -94,7 +124,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType: i, ...a }) {
  	let { participant$: o } = a, s = e.behavior(o.pipe(wA((e) => (e && aL(e)) ?? Ck(void 0)))), c = new He(), l = new Rt(NaN), u = (e, t) => e.behavior(Lk([o, Et.value$]).pipe(wA(([e, n]) => e && n ? p3(e, t, i) : Ck(void 0))));
  	return {
-@@ -43127,6 +43213,7 @@
+@@ -43127,6 +43243,7 @@
  			videoSource: Z.Source.Camera
  		}),
  		type: "user",
@@ -102,7 +132,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  		speaking$: e.behavior(o.pipe(wA((e) => e ? iL(e, J.IsSpeakingChanged).pipe(F((e) => e.isSpeaking)) : Ck(!1)))),
  		audioEnabled$: e.behavior(s.pipe(F((e) => e?.microphoneTrack?.isMuted === !1))),
  		videoEnabled$: e.behavior(s.pipe(F((e) => e?.cameraTrack?.isMuted === !1))),
-@@ -43611,6 +43698,76 @@
+@@ -43611,6 +43728,91 @@
  		let t = {};
  		return e instanceof hX ? { transportError: e } : e === C4.Waiting ? null : (e.matrix instanceof hX && (t.matrixError = e.matrix), e.media instanceof hX ? t.publishError = e.media : typeof e.media == "object" && e.media.connection instanceof hX && (t.connectionError = e.media.connection), t);
  	})), null);
@@ -143,16 +173,20 @@ diff --git a/dist/element-call.js b/dist/element-call.js
 +		vt?.();
 +		reply({});
 +	});
-+	// Aether: deafening only silences the deafened device, so each device announces it as a LiveKit attribute.
-+	const aetherDeafenedAttribute = "io.aether.deafened";
-+	const aetherDeafened$ = (participant) => participant ? nA(Ck(null), iL(participant, J.AttributesChanged)).pipe(F(() => participant.attributes?.[aetherDeafenedAttribute] === "true")) : Ck(false);
++	// Aether: deafening only silences the deafened device, so each device announces it to the call. A LiveKit
++	// attribute needs the JWT service to let participants update their own metadata, which not every deployment
++	// grants, so each device also sends it as a data message, repeated while deafened for people who join later.
++	const aetherAnnounceIntervalMs = 1e4;
++	const aetherDeafened$ = (participant) => participant ? aetherObserveDeafened(participant).pipe($e((a, b) => a === b)) : Ck(false);
++	// This device knows its own deafen without hearing it back from the call.
++	const aetherLocalDeafened$ = p.deafen$ ? nA(Ck(false), p.deafen$.pipe(F(({ data }) => data.deafened))) : Ck(false);
 +	// Report who is muted or deafened on every one of their devices, so hosts can show it beside each person.
 +	if (p.notifyVoiceStates) {
 +		const notifyVoiceStates = (states) => {
 +			Promise.resolve(p.notifyVoiceStates(states)).catch((error) => l.warn("Could not send voice states to the host", error));
 +		};
 +		ue.pipe(
-+			wA((media) => media.length === 0 ? Ck([]) : Lk(media.map((item) => Lk([item.audioEnabled$, item.microphoneParticipant$ ? item.microphoneParticipant$.pipe(wA(aetherDeafened$)) : Ck(false)], (enabled, deafened) => ({
++			wA((media) => media.length === 0 ? Ck([]) : Lk(media.map((item) => Lk([item.audioEnabled$, item.local ? aetherLocalDeafened$ : item.microphoneParticipant$ ? item.microphoneParticipant$.pipe(wA(aetherDeafened$)) : Ck(false)], (enabled, deafened) => ({
 +				userId: item.userId,
 +				muted: !enabled,
 +				deafened
@@ -172,14 +206,25 @@ diff --git a/dist/element-call.js b/dist/element-call.js
 +		).subscribe(notifyVoiceStates);
 +		e.onEnd(() => notifyVoiceStates([]));
 +	}
-+	if (p.deafen$) Lk([ue.pipe(wA((media) => media.find((item) => item.local)?.microphoneParticipant$ ?? Ck(null))), p.deafen$]).pipe(e.bind()).subscribe(([participant, { data, reply }]) => {
-+		reply({});
-+		if (participant?.setAttributes) Promise.resolve(participant.setAttributes({ [aetherDeafenedAttribute]: data.deafened ? "true" : "false" })).catch((error) => l.warn("Could not announce deafening to the call", error));
-+	});
++	if (p.deafen$) {
++		let aetherAnnounceTimer;
++		// Also runs again whenever the call's media changes, such as someone joining, so they hear it at once.
++		Lk([ue.pipe(wA((media) => media.find((item) => item.local)?.microphoneParticipant$ ?? Ck(null))), p.deafen$]).pipe(e.bind()).subscribe(([participant, { data, reply }]) => {
++			reply({});
++			if (participant?.setAttributes) Promise.resolve(participant.setAttributes({ [aetherDeafenedAttribute]: data.deafened ? "true" : "false" })).catch((error) => l.debug("The call did not accept deafening as an attribute", error));
++			clearInterval(aetherAnnounceTimer);
++			if (!participant?.publishData) return;
++			const payload = new TextEncoder().encode(JSON.stringify({ type: aetherVoiceStateType, deafened: data.deafened }));
++			const announce = () => Promise.resolve(participant.publishData(payload, { reliable: true, topic: aetherVoiceStateTopic })).catch((error) => l.warn("Could not send deafening to the call", error));
++			announce();
++			if (data.deafened) aetherAnnounceTimer = setInterval(announce, aetherAnnounceIntervalMs);
++		});
++		e.onEnd(() => clearInterval(aetherAnnounceTimer));
++	}
  	return {
  		autoLeave$: ie,
  		ringingVm$: de,
-@@ -48021,7 +48178,9 @@
+@@ -48021,7 +48223,9 @@
  		themeChange$: new FO(1),
  		join$: new He(),
  		hangUp$: new He(),
@@ -190,7 +235,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  	}));
  	z(() => {
  		n !== void 0 && i.themeChange$.next({
-@@ -48045,6 +48204,17 @@
+@@ -48045,6 +48249,17 @@
  		notifyDeviceMute: async (e) => {
  			await r.current.notifyDeviceMute?.(e);
  		},
@@ -208,7 +253,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  		get close() {
  			let e = r.current.close;
  			return e === void 0 ? void 0 : async () => await e();
-@@ -48061,7 +48231,17 @@
+@@ -48061,7 +48276,17 @@
  	return on(t, () => ({
  		join: async (e) => await A7(i.join$, "join a call", e),
  		hangUp: async () => await A7(i.hangUp$, "hang up", {}),
