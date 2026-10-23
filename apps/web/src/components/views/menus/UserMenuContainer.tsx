@@ -18,6 +18,7 @@ import { UserMenuViewModel } from "../../../viewmodels/menus/UserMenuViewModel";
 import { OwnProfileStore } from "../../../stores/OwnProfileStore";
 import defaultDispatcher from "../../../dispatcher/dispatcher";
 import { useDispatcher } from "../../../hooks/useDispatcher";
+import { useHeightCustomProperty } from "../../../hooks/useHeightCustomProperty";
 import { type ResizerViewModel } from "../../../viewmodels/structures/ResizerViewModel";
 
 import { CallStore } from "../../../stores/CallStore";
@@ -67,9 +68,15 @@ function DesktopDockWithVoice({ vm }: { vm: UserMenuViewModel }): JSX.Element {
 /** Positions the account controls across the rail and the measured, resizable channel sidebar. */
 export function DesktopAccountDockContainer({ vm }: { vm: ResizerViewModel }): JSX.Element | null {
     const { isCollapsed, leftPanelWidth } = useViewModel(vm);
+    // The lists the dock floats over keep their last rows clear of it, however tall the voice controls make it.
+    const dockRef = useHeightCustomProperty("--mx-desktop-dock-height");
     if (isCollapsed) return null;
     return (
-        <div className="mx_DesktopShell_accountDock" style={{ width: (leftPanelWidth ?? 310) + 64 - 16 }}>
+        <div
+            ref={dockRef}
+            className="mx_DesktopShell_accountDock"
+            style={{ width: (leftPanelWidth ?? 310) + 64 - 16 }}
+        >
             <UserMenuContainer isPanelCollapsed={false} desktopDock />
         </div>
     );

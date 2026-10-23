@@ -37,6 +37,8 @@ body.mx_DesktopShell {
     --mx-desktop-room-margin: 8px;
     --mx-desktop-room-radius: 6px;
     --mx-desktop-room-marker: transparent;
+    /* The account dock floats 8px above the bottom; its height is measured by DesktopAccountDockContainer. */
+    --mx-desktop-dock-clearance: calc(var(--mx-desktop-dock-height, 56px) + 16px);
 
     /* Compound's search field must not inherit the legacy text-input border and margin. */
     [data-desktop-contacts] label > input[type="search"] {
@@ -252,7 +254,7 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         background: var(--mx-desktop-shell-frame);
         border-inline-end: none;
         padding-block-start: var(--cpd-space-2x);
-        padding-block-end: 72px;
+        padding-block-end: var(--mx-desktop-dock-clearance);
 
         &.collapsed {
             width: 64px;
@@ -317,13 +319,8 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
     .mx_RoomListPanel {
         --grouped-list-header-background: var(--mx-desktop-shell-frame);
         min-height: 0;
-        padding-block-end: 72px;
+        padding-block-end: var(--mx-desktop-dock-clearance);
         background: var(--mx-desktop-shell-frame);
-    }
-
-    &:has([data-voice-connected]) .mx_RoomListPanel,
-    &:has([data-voice-connected]) .mx_SpacePanel {
-        padding-block-end: 128px;
     }
 
     .mx_RoomView_wrapper,
