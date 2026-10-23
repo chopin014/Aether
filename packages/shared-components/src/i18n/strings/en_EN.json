@@ -87,13 +87,16 @@
             "unblock": "Unblock"
         },
         "voice": {
-            "audio_settings": "Voice & Video settings",
+            "camera_off": "Turn off camera",
+            "camera_on": "Turn on camera",
             "connected": "Voice Connected",
             "deafen": "Deafen",
             "disconnect": "Disconnect",
             "mute": "Mute",
             "participant_speaking": "%(name)s (speaking)",
             "participants": "People in %(roomName)s",
+            "start_screen_share": "Share your screen",
+            "stop_screen_share": "Stop sharing your screen",
             "undeafen": "Undeafen",
             "unmute": "Unmute"
         }

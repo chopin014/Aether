@@ -771,6 +771,8 @@
         "text_channels": "Text Channels",
         "voice": {
             "action_failed": "The audio control could not be changed. Please try again.",
+            "camera_failed": "The camera could not be changed. Please try again.",
+            "screen_share_failed": "Screen sharing could not be changed. Please try again.",
             "sound_section": "Sounds",
             "sounds": "Play voice control sounds"
         },

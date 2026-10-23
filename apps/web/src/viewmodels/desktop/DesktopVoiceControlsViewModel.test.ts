@@ -14,7 +14,7 @@ import { Room, type MatrixClient } from "matrix-js-sdk/src/matrix";
 import { stubClient } from "test-utils";
 
 import { DesktopVoiceControlsViewModel } from "./DesktopVoiceControlsViewModel";
-import { Call, CallEvent, ElementCall } from "../../models/Call";
+import { Call, CallEvent, ElementCall, NO_SCREEN_SHARE } from "../../models/Call";
 import { CallStoreEvent } from "../../stores/CallStore";
 import SettingsStore from "../../settings/SettingsStore";
 
@@ -49,6 +49,10 @@ describe("DesktopVoiceControlsViewModel", () => {
         Object.defineProperty(call, "roomId", { value: "!voice:example.org" });
         // This transport fixture skips the constructor that initializes speaking state.
         Object.defineProperty(call, "speakingUserIds", { value: new Set<string>(), writable: true });
+        Object.defineProperty(call, "_screenShare", { value: NO_SCREEN_SHARE, writable: true });
+        call.toggleScreenShare = vi.fn(async () => {
+            call.handleScreenShare({ ...call.screenShare, sharing: !call.screenShare.sharing });
+        });
         call.setDeviceMute = vi.fn(async (request) => {
             const state = { audio_enabled: true, video_enabled: false, ...call.deviceMuteState, ...request };
             call.handleDeviceMute(state);
@@ -174,6 +178,36 @@ describe("DesktopVoiceControlsViewModel", () => {
         vm.dispose();
         expect(store.listenerCount(CallStoreEvent.ConnectedCalls)).toBe(0);
         expect(call.listenerCount(CallEvent.DeviceMute)).toBe(0);
+        expect(call.listenerCount(CallEvent.ScreenShare)).toBe(0);
         expect(SettingsStore.unwatchSetting).toHaveBeenCalledTimes(2);
+    });
+    it("turns the camera on and off in the real call", async () => {
+        await connect();
+        expect(vm.getSnapshot().videoEnabled).toBe(false);
+        await vm.toggleVideo();
+        expect(call.setDeviceMute).toHaveBeenLastCalledWith({ video_enabled: true });
+        expect(vm.getSnapshot().videoEnabled).toBe(true);
+        await vm.toggleVideo();
+        expect(call.setDeviceMute).toHaveBeenLastCalledWith({ video_enabled: false });
+        expect(vm.getSnapshot().videoEnabled).toBe(false);
+    });
+    it("follows screen sharing as the call reports it, and toggles it through the call", async () => {
+        await connect();
+        expect(vm.getSnapshot()).toMatchObject({ screenShareAvailable: false, screenSharing: false });
+        call.handleScreenShare({ available: true, sharing: false, remoteSharerIds: [] });
+        expect(vm.getSnapshot()).toMatchObject({ screenShareAvailable: true, screenSharing: false });
+        await vm.toggleScreenShare();
+        expect(call.toggleScreenShare).toHaveBeenCalledOnce();
+        expect(vm.getSnapshot().screenSharing).toBe(true);
+    });
+    it("explains a screen share that could not start", async () => {
+        await connect();
+        vi.mocked(call.toggleScreenShare).mockRejectedValueOnce(new Error("Picker dismissed"));
+        await vm.toggleScreenShare();
+        expect(vm.getSnapshot()).toMatchObject({
+            screenSharing: false,
+            busy: false,
+            error: "Screen sharing could not be changed. Please try again.",
+        });
     });
 });
