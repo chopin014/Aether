@@ -403,6 +403,81 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         line-height: 22px;
     }
 
+    /*
+     * Attachments in the timeline become Aether media cards: a soft accent wash, a rounded tile for the
+     * file icon and an accent play button and progress. Composer previews keep Element's style.
+     */
+    .mx_EventTile .mx_MediaBody {
+        max-width: 400px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--cpd-color-bg-accent-rest) 12%, var(--cpd-color-bg-subtle-primary)),
+            var(--cpd-color-bg-subtle-primary) 65%
+        );
+        transition: border-color 120ms ease-out;
+
+        &:hover {
+            border-color: color-mix(in srgb, var(--cpd-color-bg-accent-rest) 45%, transparent);
+        }
+    }
+
+    .mx_EventTile .mx_MFileBody [data-type="info"] > button {
+        align-items: center;
+
+        > svg {
+            width: 20px;
+            height: 20px;
+            padding: 10px;
+            border-radius: 10px;
+            color: var(--cpd-color-icon-accent-primary);
+            background: color-mix(in srgb, var(--cpd-color-bg-accent-rest) 18%, transparent);
+        }
+
+        > span {
+            font: var(--cpd-font-body-md-medium);
+        }
+    }
+
+    .mx_EventTile :is(.mx_MAudioBody, .mx_MVoiceMessageBody) .mx_MediaBody {
+        /* The seek bar paints with these Compound greys; scoped here they take the accent. */
+        --cpd-color-gray-600: var(--cpd-color-border-interactive-secondary);
+        --cpd-color-gray-800: var(--cpd-color-bg-accent-rest);
+
+        button[aria-label] {
+            /* Compound's icon button colours its icon from these. */
+            --cpd-color-icon-primary: var(--cpd-color-icon-on-solid-primary);
+            --cpd-color-icon-secondary: var(--cpd-color-icon-on-solid-primary);
+            --cpd-color-icon-tertiary: var(--cpd-color-icon-on-solid-primary);
+
+            background: var(--cpd-color-bg-accent-rest);
+
+            &:hover:not([disabled]) {
+                background: var(--cpd-color-bg-accent-hovered);
+            }
+        }
+
+        input[type="range"] {
+            height: 4px;
+            border-radius: 2px;
+
+            &::before {
+                height: 4px;
+                border-radius: 2px;
+            }
+
+            &::-webkit-slider-thumb {
+                width: 12px;
+                height: 12px;
+            }
+        }
+
+        .mx_Waveform_bar_100pct {
+            background-color: var(--cpd-color-bg-accent-rest);
+        }
+    }
+
     .mx_NewRoomIntro {
         margin: 32px 16px 32px 16px;
 
