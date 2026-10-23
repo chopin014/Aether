@@ -6,6 +6,7 @@ Please see LICENSE in the repository root for full details.
 */
 
 import { closeReleaseAnnouncementIfExists, rejectToast } from "@element-hq/element-web-playwright-common";
+import type { Preset, Visibility } from "matrix-js-sdk/src/matrix";
 
 import { test, expect } from "../../element-web-test";
 
@@ -23,6 +24,50 @@ test.beforeEach(async ({ page, user }) => {
     await rejectToast(page, "Verify this device");
     await rejectToast(page, "Notifications");
     await closeReleaseAnnouncementIfExists(page, "Introducing Sections");
+});
+
+test("discovers and joins public Spaces from a separate rail button", async ({ page, app, bot }, testInfo) => {
+    const name = "Aether discovery test space";
+    const roomName = "Aether discovery test room";
+    const spaceId = await bot.createRoom({
+        name,
+        visibility: "public" as Visibility,
+        preset: "public_chat" as Preset,
+        creation_content: { type: "m.space" },
+        initial_state: [
+            { type: "m.room.history_visibility", state_key: "", content: { history_visibility: "joined" } },
+        ],
+    });
+    await bot.createRoom({ name: roomName, visibility: "public" as Visibility, preset: "public_chat" as Preset });
+
+    const rail = page.getByRole("navigation", { name: "Spaces", exact: true });
+    await rail.getByRole("button", { name: "Create a space", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Create a space", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    const create = rail.getByRole("button", { name: "Create a space", exact: true });
+    const discover = rail.getByRole("button", { name: "Discover public spaces", exact: true });
+    await discover.hover();
+    await expect(page.getByRole("tooltip")).toHaveText("Discover public spaces");
+    const createBounds = await create.boundingBox();
+    const discoverBounds = await discover.boundingBox();
+    expect(discoverBounds!.y).toBeGreaterThan(createBounds!.y + createBounds!.height - 1);
+    await rail.screenshot({ path: testInfo.outputPath("discover-rail.png") });
+    await discover.click();
+
+    const dialog = page.getByRole("dialog", { name: "Search Dialog" });
+    await expect(dialog.getByText("Public spaces", { exact: true })).toBeVisible();
+    await dialog.getByRole("textbox", { name: "Search", exact: true }).fill("Aether discovery test");
+    const result = dialog.getByRole("option", { name, exact: true });
+    await expect(result).toBeVisible();
+    await expect(dialog.getByRole("option", { name: roomName, exact: true })).not.toBeAttached();
+    await result.getByRole("button", { name: "Join", exact: true }).click();
+
+    await expect(dialog).not.toBeVisible();
+    await expect
+        .poll(() => app.client.evaluate((client, id) => client.getRoom(id)?.getMyMembership(), spaceId))
+        .toBe("join");
+    await expect(rail.getByRole("button", { name, exact: true })).toBeVisible();
 });
 
 test("sends through Matrix, receives another member's message and preserves room drafts", async ({

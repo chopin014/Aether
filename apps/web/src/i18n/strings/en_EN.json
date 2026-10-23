@@ -3213,6 +3213,7 @@
             "manage_and_explore": "Manage & explore rooms",
             "options": "Space options"
         },
+        "discover_public_spaces": "Discover public spaces",
         "failed_load_rooms": "Failed to load list of rooms.",
         "failed_remove_rooms": "Failed to remove some rooms. Try again later",
         "incompatible_server_hierarchy": "Your account provider does not support showing space hierarchies.",

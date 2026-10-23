@@ -11,6 +11,7 @@ Please see LICENSE files in the repository root for full details.
 
 import { vi, describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
 import React from "react";
+import userEvent from "@testing-library/user-event";
 import { render, screen, fireEvent, act, cleanup, waitFor, within } from "test-utils-rtl";
 import { type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
 import { mkStubRoom, wrapInMatrixClientContext, wrapInSdkContext, TestSDKContext } from "test-utils";
@@ -26,6 +27,7 @@ import SettingsStore from "../../../settings/SettingsStore";
 import UnwrappedSpacePanel from "./SpacePanel";
 import defaultDispatcher from "../../../dispatcher/dispatcher";
 import { Action } from "../../../dispatcher/actions";
+import { Filter } from "../dialogs/spotlight/Filter";
 
 // DND test utilities based on
 // https://github.com/colinrobertbrooks/react-beautiful-dnd-test-utils/issues/18#issuecomment-1373388693
@@ -225,6 +227,7 @@ describe("<SpacePanel />", () => {
 
     it("retains the expand control and shortcut outside the desktop shell", () => {
         render(<SpacePanel />);
+        expect(screen.queryByRole("button", { name: "Discover public spaces" })).not.toBeInTheDocument();
         const rail = screen.getByRole("navigation", { name: "Spaces" });
         fireEvent.click(screen.getByRole("button", { name: "Expand" }));
         expect(rail).not.toHaveClass("collapsed");
@@ -232,6 +235,79 @@ describe("<SpacePanel />", () => {
         act(() => defaultDispatcher.dispatch({ action: Action.ToggleSpacePanel }, true));
         expect(rail).toHaveClass("collapsed");
         expect(screen.getByRole("button", { name: "Expand" })).toBeVisible();
+    });
+
+    describe("desktop Space discovery", () => {
+        let settings: { mockRestore: () => void };
+
+        beforeEach(() => {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            settings = vi
+                .spyOn(SettingsStore, "getValue")
+                .mockImplementation((name, ...args) =>
+                    name === "feature_desktop_shell" ? true : getValue(name, ...args),
+                );
+        });
+
+        afterEach(() => settings.mockRestore());
+
+        it("should show an accessible Discover button immediately below Create a space", async () => {
+            render(<SpacePanel />);
+            const tree = screen.getByRole("tree", { name: "Spaces" });
+            const create = within(tree).getByRole("button", { name: "Create a space" });
+            const discover = within(tree).getByRole("button", { name: "Discover public spaces" });
+
+            expect(discover).toBeVisible();
+            expect(create.closest("li")?.nextElementSibling).toBe(discover.closest("li"));
+            expect(discover).toHaveClass("mx_SpaceButton_narrow");
+            await userEvent.hover(discover);
+            expect(await screen.findByRole("tooltip")).toHaveTextContent("Discover public spaces");
+        });
+
+        it("should open public Spaces discovery without opening Create a space", () => {
+            const dispatch = vi.spyOn(defaultDispatcher, "dispatch");
+            try {
+                render(<SpacePanel />);
+                fireEvent.click(screen.getByRole("button", { name: "Discover public spaces" }));
+                expect(dispatch).toHaveBeenCalledWith({
+                    action: Action.OpenSpotlight,
+                    initialFilter: Filter.PublicSpaces,
+                });
+                expect(screen.getByRole("button", { name: "Create a space" })).toBeVisible();
+                expect(screen.queryByRole("heading", { name: "Create a space" })).not.toBeInTheDocument();
+            } finally {
+                dispatch.mockRestore();
+            }
+        });
+
+        it("should retain the separate Create a space menu", () => {
+            const dispatch = vi.spyOn(defaultDispatcher, "dispatch");
+            try {
+                render(<SpacePanel />);
+                fireEvent.click(screen.getByRole("button", { name: "Create a space" }));
+                expect(screen.getByRole("heading", { name: "Create a space" })).toBeVisible();
+                expect(screen.getByRole("button", { name: /^Public/ })).toBeVisible();
+                expect(screen.getByRole("button", { name: /^Private/ })).toBeVisible();
+                expect(screen.getByRole("button", { name: "Discover public spaces" })).toBeVisible();
+                expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ action: Action.OpenSpotlight }));
+            } finally {
+                dispatch.mockRestore();
+            }
+        });
+
+        it("should offer discovery independently of the permission to create Spaces", () => {
+            vi.mocked(shouldShowComponent).mockImplementation((component) => component !== UIComponent.CreateSpaces);
+            render(<SpacePanel />);
+            expect(screen.queryByRole("button", { name: "Create a space" })).not.toBeInTheDocument();
+            expect(screen.getByRole("button", { name: "Discover public spaces" })).toBeVisible();
+        });
+
+        it("should respect the directory visibility configuration", () => {
+            vi.mocked(shouldShowComponent).mockImplementation((component) => component !== UIComponent.ExploreRooms);
+            render(<SpacePanel />);
+            expect(screen.queryByRole("button", { name: "Discover public spaces" })).not.toBeInTheDocument();
+            expect(screen.getByRole("button", { name: "Create a space" })).toBeVisible();
+        });
     });
 
     describe("create new space button", () => {

@@ -30,6 +30,7 @@ import {
     VideoCallSolidIcon,
     PlusIcon,
     ChevronRightIcon,
+    ExploreIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { _t } from "../../../languageHandler";
@@ -63,6 +64,8 @@ import { useDispatcher } from "../../../hooks/useDispatcher";
 import defaultDispatcher from "../../../dispatcher/dispatcher";
 import { type ActionPayload } from "../../../dispatcher/payloads";
 import { Action } from "../../../dispatcher/actions";
+import { type OpenSpotlightPayload } from "../../../dispatcher/payloads/OpenSpotlightPayload";
+import { Filter } from "../dialogs/spotlight/Filter";
 import { type NotificationState } from "../../../stores/notifications/NotificationState";
 import { KeyBindingAction } from "../../../accessibility/KeyboardShortcuts";
 import { getKeyBindingsManager } from "../../../KeyBindingsManager";
@@ -269,6 +272,28 @@ const CreateSpaceButton: React.FC<Pick<IInnerSpacePanelProps, "isPanelCollapsed"
     );
 };
 
+const DiscoverSpacesButton: React.FC = () => {
+    const onDiscoverClick = (): void => {
+        defaultDispatcher.dispatch<OpenSpotlightPayload>({
+            action: Action.OpenSpotlight,
+            initialFilter: Filter.PublicSpaces,
+        });
+    };
+
+    return (
+        <li className="mx_SpaceItem mx_SpaceItem_discover collapsed" role="treeitem" aria-selected={false}>
+            <SpaceButton
+                className="mx_SpaceButton_discover"
+                label={_t("space|discover_public_spaces")}
+                onClick={onDiscoverClick}
+                isNarrow
+                size="32px"
+                icon={<ExploreIcon />}
+            />
+        </li>
+    );
+};
+
 const metaSpaceComponentMap: Record<MetaSpace, typeof HomeButton> = {
     [MetaSpace.Home]: HomeButton,
     [MetaSpace.Orphans]: OrphansButton,
@@ -287,6 +312,7 @@ interface IInnerSpacePanelProps extends DroppableProvidedProps {
 const InnerSpacePanel = React.memo<IInnerSpacePanelProps>(
     ({ children, isPanelCollapsed, setPanelCollapsed, isDraggingOver, innerRef, ...props }) => {
         const sdkContext = useContext(SDKContext);
+        const desktopShellEnabled = useSettingValue("feature_desktop_shell");
         const [invites, metaSpaces, actualSpaces, activeSpace] = useSpaces();
         const activeSpaces = activeSpace ? [activeSpace] : [];
 
@@ -367,6 +393,7 @@ const InnerSpacePanel = React.memo<IInnerSpacePanelProps>(
                 {shouldShowComponent(UIComponent.CreateSpaces) && (
                     <CreateSpaceButton isPanelCollapsed={isPanelCollapsed} setPanelCollapsed={setPanelCollapsed} />
                 )}
+                {desktopShellEnabled && shouldShowComponent(UIComponent.ExploreRooms) && <DiscoverSpacesButton />}
             </IndicatorScrollbar>
         );
     },

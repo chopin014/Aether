@@ -2971,6 +2971,7 @@
     },
     "sliding_sync_legacy_no_longer_supported": "A sliding sync antiga não é mais suportada: saia e entre novamente para ativar o novo sinalizador de sliding sync",
     "space": {
+        "discover_public_spaces": "Descubra espaços públicos",
         "add_existing_room_space": {
             "create": "Quer​•​adicionar​•​uma​•​nova​•​sala?",
             "create_prompt": "Criar uma nova sala",
