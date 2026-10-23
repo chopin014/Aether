@@ -7,6 +7,19 @@ Please see LICENSE in the repository root for full details.
 
 /* Theme aliases inherit into portal roots, including settings and verification dialogs. */
 body.mx_DesktopShell {
+    /* Aether colour primitives from the identity package (tokens/aether-tokens.css). Use the semantic roles. */
+    --ae-vacuo: #090a12;
+    --ae-orbita: #12142a;
+    --ae-orbita-alta: #1c1f38;
+    --ae-poeira: #2a2d4a;
+    --ae-lunar: #9a9cc0;
+    --ae-lunar-700: #4c5070;
+    --ae-gelo: #eceaf6;
+    --ae-branco: #ffffff;
+    --ae-nevoa: #f6f5fb;
+    --ae-nevoa-300: #dadce6;
+    --ae-polar: #8ed8ea;
+    --ae-polar-800: #1f6577;
     --mx-desktop-shell-header-height: 49px;
     --mx-desktop-shell-frame: var(--cpd-color-bg-subtle-secondary);
     --mx-desktop-header-border: 1px solid var(--cpd-color-border-interactive-secondary);
@@ -142,31 +155,67 @@ body.mx_DesktopShell {
     }
 }
 
-/* Preserve light, high-contrast and system theme selection. */
+/* Semantic roles from aether-tokens.css. High-contrast themes keep Compound colours. */
 body.mx_DesktopShell.cpd-theme-dark {
-    --mx-desktop-shell-frame: #121214;
-    --cpd-color-bg-canvas-default: #1a1a1e;
-    --cpd-color-bg-subtle-primary: #232327;
-    --cpd-color-bg-subtle-secondary: #121214;
-    --cpd-color-bg-action-tertiary-hovered: #2c2c31;
-    --cpd-color-bg-action-tertiary-selected: #323237;
-    --cpd-color-text-primary: #f2f2f3;
-    --cpd-color-text-secondary: #b5b5bd;
-    --cpd-color-text-tertiary: #97979f;
-    --cpd-color-icon-primary: #b5b5bd;
-    --cpd-color-icon-secondary: #97979f;
-    --cpd-color-border-interactive-secondary: #ffffff0c;
-    --cpd-color-bg-accent-rest: #5865f2;
-    --cpd-color-bg-accent-hovered: #4752c4;
-    --cpd-color-bg-accent-pressed: #3c45a5;
-    --cpd-color-bg-action-primary-rest: #5865f2;
-    --cpd-color-bg-action-primary-hovered: #4752c4;
-    --cpd-color-bg-action-primary-pressed: #3c45a5;
-    --cpd-color-text-on-solid-primary: #ffffff;
-    --cpd-color-icon-on-solid-primary: #ffffff;
-    --cpd-color-icon-accent-tertiary: #5865f2;
-    --cpd-color-text-action-accent: #a3abff;
-    --cpd-color-icon-accent-primary: #a3abff;
+    --ae-bg: var(--ae-vacuo);
+    --ae-surface: var(--ae-orbita);
+    --ae-surface-raised: var(--ae-orbita-alta);
+    --ae-border: var(--ae-poeira);
+    --ae-text: var(--ae-gelo);
+    --ae-text-muted: var(--ae-lunar);
+    --ae-accent: var(--ae-polar);
+    --ae-on-accent: var(--ae-vacuo);
+    --ae-focus: var(--ae-polar);
+    /* Not in the manual: Polar shaded towards Vácuo, keeping Vácuo text above 7:1. */
+    --ae-accent-hovered: #7ab9ca;
+    --ae-accent-pressed: #6da5b4;
+    /* The darker surface frames the content area. */
+    --mx-desktop-shell-frame: var(--ae-bg);
+    --cpd-color-bg-canvas-default: var(--ae-surface);
+    --cpd-color-bg-subtle-secondary: var(--ae-bg);
+}
+
+body.mx_DesktopShell.cpd-theme-light {
+    --ae-bg: var(--ae-branco);
+    --ae-surface: var(--ae-nevoa);
+    --ae-surface-raised: var(--ae-gelo);
+    --ae-border: var(--ae-nevoa-300);
+    --ae-text: var(--ae-vacuo);
+    --ae-text-muted: var(--ae-lunar-700);
+    --ae-accent: var(--ae-polar-800);
+    --ae-on-accent: var(--ae-branco);
+    --ae-focus: var(--ae-polar-800);
+    /* Not in the manual: Polar 800 shaded towards Vácuo, raising white text contrast. */
+    --ae-accent-hovered: #1c5768;
+    --ae-accent-pressed: #1a4e5e;
+    --mx-desktop-shell-frame: var(--ae-surface);
+    --cpd-color-bg-canvas-default: var(--ae-bg);
+    --cpd-color-bg-subtle-secondary: var(--ae-surface);
+}
+
+body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
+    --cpd-color-bg-subtle-primary: var(--ae-surface-raised);
+    --cpd-color-bg-action-tertiary-hovered: var(--ae-surface-raised);
+    --cpd-color-bg-action-tertiary-selected: var(--ae-border);
+    --cpd-color-text-primary: var(--ae-text);
+    --cpd-color-text-secondary: var(--ae-text-muted);
+    --cpd-color-text-tertiary: var(--ae-text-muted);
+    --cpd-color-icon-primary: var(--ae-text-muted);
+    --cpd-color-icon-secondary: var(--ae-text-muted);
+    --cpd-color-border-interactive-secondary: var(--ae-border);
+    --cpd-color-border-focused: var(--ae-focus);
+    --cpd-color-bg-accent-rest: var(--ae-accent);
+    --cpd-color-bg-accent-hovered: var(--ae-accent-hovered);
+    --cpd-color-bg-accent-pressed: var(--ae-accent-pressed);
+    --cpd-color-bg-action-primary-rest: var(--ae-accent);
+    --cpd-color-bg-action-primary-hovered: var(--ae-accent-hovered);
+    --cpd-color-bg-action-primary-pressed: var(--ae-accent-pressed);
+    --cpd-color-text-on-solid-primary: var(--ae-on-accent);
+    --cpd-color-icon-on-solid-primary: var(--ae-on-accent);
+    --cpd-color-icon-accent-tertiary: var(--ae-accent);
+    --cpd-color-text-action-accent: var(--ae-accent);
+    --cpd-color-icon-accent-primary: var(--ae-accent);
+    --cpd-color-text-link-external: var(--ae-accent);
 }
 
 .mx_DesktopShell_titlebar {
@@ -235,6 +284,11 @@ body.mx_DesktopShell.cpd-theme-dark {
                     border-radius: 0 4px 4px 0;
                     background: var(--cpd-color-text-primary);
                 }
+            }
+
+            /* Icons on the accent fill take the on-accent colour. */
+            &.mx_SpaceButton_active .mx_SpaceButton_icon svg {
+                color: var(--cpd-color-icon-on-solid-primary);
             }
 
             .mx_SpaceButton_icon {

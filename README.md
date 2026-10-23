@@ -1,11 +1,16 @@
-# Aether
+<h1>
+    <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/img/aether/aether-assinatura-horizontal-positivo.svg" />
+        <img alt="Aether" src="docs/img/aether/aether-assinatura-horizontal-inverso.svg" height="48" />
+    </picture>
+</h1>
 
 A desktop Matrix client with a Discord-style interface, built on Element Desktop.
 Linux and Windows are the first release targets. Voice rooms use Element Call.
 
 **In development:** UI migration is incomplete. There is no production release yet.
-The application icon and palette are temporary. See [implementation status](docs/desktop-ui.md)
-and [Aether builds](docs/aether-releases.md).
+The icon and core palette follow the Aether brand manual; the interface design is not final.
+See [implementation status](docs/desktop-ui.md) and [Aether builds](docs/aether-releases.md).
 
 - [Project page](https://chopin014.github.io/Aether/)
 - [Issues](https://github.com/chopin014/Aether/issues)

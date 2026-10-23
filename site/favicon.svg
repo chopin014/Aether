@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+    <title>Aether</title>
+    <rect width="512" height="512" rx="115.2" fill="#090A12"/>
+    <!-- logo/aether-simbolo-compacto-positivo.svg from the Aether identity package, unchanged. -->
+    <g transform="translate(16 16) scale(4)">
+        <path fill="#ECEAF6" d="M40.998 74.66A24 24 0 1 1 83.883 62.362A41.5 10.5 -16 0 1 40.998 74.66Z"/>
+        <path fill="#8ED8EA" fill-rule="evenodd" d="M113.35 44.702A55.5 24.5 -16 0 1 6.65 75.298A55.5 24.5 -16 0 1 113.35 44.702ZM68.016 37.378A51.3 20.3 -16 1 1 41.215 45.063A24 24 0 0 1 68.016 37.378Z"/>
+        <path fill="#8ED8EA" fill-rule="evenodd" d="M72.167 39.313A48.7 17.7 -16 1 1 38.719 48.904A24 24 0 0 0 36.694 54.272A44.5 13.5 -16 1 0 76.729 42.792A24 24 0 0 0 72.167 39.313Z"/>
+    </g>
+</svg>
