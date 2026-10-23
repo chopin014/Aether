@@ -28,7 +28,37 @@ env -u ELECTRON_RUN_AS_NODE pnpm exec electron . --config config.desktop.json
 
 This loads the locally built renderer through `vector://`, retaining Element's preload, isolation, native window controls and IPC. Sign in with a Matrix account. Discord credentials cannot authenticate a Matrix account.
 
-`config.desktop.json` enables `feature_desktop_shell`, selects the dark theme, and enables the embedded Element Call component. The feature remains disabled by default for other configurations. Rebuild after source changes before reopening the desktop app.
+`config.desktop.json` enables `feature_desktop_shell`, selects the dark theme, and enables the embedded Element Call component. The feature remains disabled by default for other configurations.
+
+## Preview changes without packaging
+
+Electron loads `apps/desktop/webapp.asar` before `apps/desktop/webapp`. If an archive exists from an earlier build,
+move it outside the checkout before previewing changes; otherwise Electron keeps showing that archived renderer.
+For example, run `mv -i apps/desktop/webapp.asar /tmp/aether-webapp.asar` from the root when the archive exists.
+Ensure `apps/desktop/webapp` is a symlink to `../web/webapp`, rather than a copy from an earlier packaged build.
+
+Start the renderer watcher in one terminal:
+
+```sh
+cd apps/web
+pnpm start
+```
+
+Once webpack finishes compiling, run these commands from the monorepo root in another terminal:
+
+```sh
+cp apps/desktop/config.desktop.json apps/web/webapp/config.json
+pnpm exec nx run-many -t build:ts,build:res -p element-desktop
+cd apps/desktop
+env -u ELECTRON_RUN_AS_NODE pnpm exec electron . --config config.desktop.json --profile dev
+```
+
+The `dev` profile is separate from the installed app and needs its own sign-in. To use the installed app's account,
+quit that app first and omit `--profile dev`; both builds must not use the same profile simultaneously.
+Keep the watcher running; it writes renderer changes to the shared `webapp` folder. Press Ctrl+R in Electron after
+compilation to load them.
+For changes to the Electron host, including window controls and tray behaviour, rerun the `build:ts,build:res`
+command and restart Electron. AppImage or installer packaging is only needed to test the distribution itself.
 
 ## Matrix and calling
 
