@@ -11,19 +11,26 @@ Please see LICENSE in the repository root for full details.
     align-items: stretch;
     flex-direction: column;
     box-sizing: border-box;
-    gap: var(--cpd-space-1x);
     min-width: 0;
-    padding: var(--cpd-space-1x) var(--cpd-space-2x);
     margin: 0;
     border: 1px solid var(--cpd-color-border-interactive-secondary);
     border-radius: var(--cpd-space-2x);
     background: var(--cpd-color-bg-subtle-primary);
-    min-height: 58px;
 }
 
 .identityRow {
     display: flex;
     align-items: center;
-    gap: var(--cpd-space-1x);
-    min-height: var(--cpd-space-11x);
+    gap: var(--cpd-space-2x);
+    height: 56px;
+    box-sizing: border-box;
+    padding: var(--cpd-space-2x);
+}
+
+/* Square-cornered controls, matching the voice buttons beside them. */
+.identityRow > button {
+    width: var(--cpd-space-8x);
+    height: var(--cpd-space-8x);
+    padding: var(--cpd-space-1-5x);
+    border-radius: var(--cpd-space-2x);
 }
