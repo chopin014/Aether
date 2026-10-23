@@ -311,7 +311,7 @@ body.mx_DesktopShell.cpd-theme-dark {
         border: 1px solid var(--cpd-color-border-interactive-secondary);
         border-radius: 8px;
         background: var(--mx-desktop-shell-frame);
-        color: var(--cpd-color-text-tertiary);
+        color: var(--cpd-color-text-tertiary, var(--cpd-color-text-secondary));
         font: var(--cpd-font-body-md-regular);
         cursor: text;
 
@@ -474,7 +474,7 @@ body.mx_DesktopShell.cpd-theme-dark {
         height: 44px;
         box-sizing: border-box;
         font: var(--cpd-font-body-sm-medium);
-        color: var(--cpd-color-text-tertiary);
+        color: var(--cpd-color-text-tertiary, var(--cpd-color-text-secondary));
     }
 
     .mx_EntityTile {
@@ -505,7 +505,7 @@ body.mx_DesktopShell.cpd-theme-dark {
 .mx_DesktopShell_accountDock {
     position: absolute;
     inset-inline-start: 8px;
-    inset-block-end: 6px;
+    inset-block-end: 8px;
     z-index: 20;
     max-width: calc(100% - 16px);
 }

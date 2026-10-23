@@ -11,28 +11,36 @@ Please see LICENSE in the repository root for full details.
     align-items: center;
     gap: var(--cpd-space-1x);
 }
-.buttons > button {
+.buttons > button,
+.connectionRow > button:not(.callIdentity) {
     width: var(--cpd-space-8x);
     height: var(--cpd-space-8x);
-    padding: var(--cpd-space-1x);
+    padding: var(--cpd-space-1-5x);
+    border-radius: var(--cpd-space-2x);
 }
 .buttons > button[data-muted="true"] {
     color: var(--cpd-color-icon-critical-primary);
+    background: color-mix(in srgb, var(--cpd-color-icon-critical-primary) 12%, transparent);
+}
+.buttons > button[data-muted="true"]:hover {
+    background: color-mix(in srgb, var(--cpd-color-icon-critical-primary) 24%, transparent);
 }
 .connection {
-    padding-block: var(--cpd-space-2x);
+    padding: var(--cpd-space-3x);
     border-block-end: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
 }
 .connectionRow {
     display: flex;
     align-items: center;
     gap: var(--cpd-space-1x);
+    min-height: var(--cpd-space-8x);
 }
 .callIdentity {
     flex: 1;
     min-width: 0;
     display: flex;
     flex-direction: column;
+    gap: 2px;
     text-align: start;
     border: 0;
     padding: 0;
@@ -47,6 +55,10 @@ Please see LICENSE in the repository root for full details.
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+.callIdentity:hover > :last-child {
+    color: var(--cpd-color-text-primary);
+    text-decoration: underline;
+}
 .connectedLabel {
     display: flex;
     align-items: center;
@@ -54,6 +66,7 @@ Please see LICENSE in the repository root for full details.
     color: var(--cpd-color-text-success-primary);
 }
 .connectedLabel svg {
+    flex: none;
     width: var(--cpd-space-4x);
     height: var(--cpd-space-4x);
 }
