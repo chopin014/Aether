@@ -100,3 +100,19 @@ The sidebar observes existing tracks without changing capture, gain, or noise pr
 clear their ring. Reduced motion keeps a steady ring. Remote mute badges are not inferred from room membership.
 Original Aether sound cues accompany successful microphone/deafen controls and real call connection changes.
 Voice settings include a device-level switch for the cues. See [packaging and release work](aether-releases.md).
+
+## Server and channel presentation
+
+Opening a server lands in its last channel, or its first text channel on a first visit. Text channels open with the
+member list on the right until the user closes it; that choice is kept per channel. Direct messages, voice channels
+and Spaces keep Element's closed default.
+
+An occupied voice channel shows a filled speaker icon and how long people have been in it, counted from the oldest
+MatrixRTC membership still in the call. A channel's Matrix room avatar is its custom icon in the channel list and
+header, and its topic sits beside its name in the header. Edit channel, in a channel's menu, opens the room settings
+where the name, topic and icon are changed; it is offered to users who may rename the room. The Text Channels and
+Voice Channels categories carry a "+" that creates a channel of that kind in the Space for users who may add rooms.
+
+Messages and the composer use 15px text, with 20px between one sender's group and the next. Conversations use 42px
+rows, channels 34px rows with 2px gaps, and members 48px rows. Loading uses an Aether orbit spinner, and timeline
+files, audio and voice messages appear as Aether media cards.
