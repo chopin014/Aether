@@ -44,7 +44,7 @@ describe("<RoomListItemView />", () => {
         );
         const group = screen.getByRole("group", { name: "People in General" });
         expect(group).toBeVisible();
-        await user.click(screen.getByRole("button", { name: "Bob", exact: true }));
+        await user.click(screen.getByRole("button", { name: "Bob" }));
         expect(onProfile).toHaveBeenCalledWith("@bob:example.org");
     });
 
