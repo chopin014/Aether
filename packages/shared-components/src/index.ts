@@ -119,5 +119,3 @@ export * from "./desktop/DesktopAccountDockView";
 export * from "./desktop/DesktopContactsView";
 
 export * from "./desktop/DesktopVoiceControlsView";
-
-export * from "./desktop/DesktopTitlebarView";

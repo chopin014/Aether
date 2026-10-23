@@ -119,7 +119,8 @@ describe("<LoggedInView />", () => {
             const { container, unmount } = getComponent();
             expect(document.body).toHaveClass("mx_DesktopShell");
             expect(container.querySelector(".mx_MatrixChat_wrapper")).toHaveClass("mx_MatrixChat_desktopShell");
-            expect(container.querySelector(".mx_DesktopShell_titlebar")).toHaveAttribute("aria-hidden", "true");
+            // The window controls replace a title bar, so the shell draws none of its own
+            expect(container.querySelector(".mx_DesktopShell_titlebar")).toBeNull();
             unmount();
             expect(document.body).not.toHaveClass("mx_DesktopShell");
         });

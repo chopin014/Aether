@@ -27,7 +27,6 @@ import classNames from "classnames";
 import { GroupView, SeparatorView, Panel, LeftResizablePanelView } from "@element-hq/web-shared-components";
 
 import { isOnlyCtrlOrCmdKeyEvent, Key } from "../../Keyboard";
-import { DesktopTitlebarContainer } from "./DesktopTitlebarContainer";
 import PageTypes from "../../PageTypes";
 import MediaDeviceHandler from "../../MediaDeviceHandler";
 import dis from "../../dispatcher/dispatcher";
@@ -745,11 +744,6 @@ class LoggedInView extends React.Component<IProps, IState> {
                     aria-hidden={this.props.hideToSRUsers}
                 >
                     <ToastContainer />
-                    {this.desktopShellEnabled && (
-                        <div className="mx_DesktopShell_titlebar" aria-hidden="true">
-                            <DesktopTitlebarContainer />
-                        </div>
-                    )}
                     <div className={bodyClasses}>{content}</div>
                 </div>
                 <PipContainer />

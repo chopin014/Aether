@@ -222,18 +222,6 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
     --cpd-color-text-link-external: var(--ae-accent);
 }
 
-.mx_DesktopShell_titlebar {
-    height: 32px;
-    flex: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--cpd-color-text-secondary);
-    font: var(--cpd-font-body-sm-semibold);
-    user-select: none;
-    -webkit-app-region: drag;
-}
-
 .mx_MatrixChat_wrapper.mx_MatrixChat_desktopShell {
     background: var(--mx-desktop-shell-frame);
     flex-direction: column;
@@ -245,6 +233,41 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
 
         min-height: 0;
         height: auto;
+    }
+
+    /*
+     * On Linux and Windows the system title bar is replaced by window controls drawn over the top right
+     * (titleBarOverlay in the desktop app). The env() values exist only then, so elsewhere these rules add nothing.
+     * The header row is the window's drag handle; anything clickable inside it opts out.
+     */
+    :is(.mx_RoomHeader, [data-testid="room-list-header"], [data-desktop-contacts] > header) {
+        -webkit-app-region: drag;
+
+        :is(button:not(.mx_RoomHeader_infoWrapper), a, input, select, [role="button"], [role="menuitem"]) {
+            -webkit-app-region: no-drag;
+        }
+    }
+
+    /* The channel name opens the room summary, but the empty space after it moves the window. */
+    .mx_RoomHeader_infoWrapper {
+        -webkit-app-region: drag;
+
+        :is(.mx_RoomHeader_heading, .mx_DesktopShell_channelTopic) {
+            -webkit-app-region: no-drag;
+        }
+    }
+
+    /* Whatever reaches the top right corner keeps clear of the window controls. */
+    .mx_RoomView:not(:has(.mx_RightPanel)) .mx_RoomHeader {
+        padding-inline-end: calc(
+            var(--cpd-space-3x) + 100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)
+        );
+    }
+
+    [data-desktop-contacts] > header {
+        padding-inline-end: calc(
+            var(--cpd-space-4x) + 100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)
+        );
     }
 
     /* The resizable panel's inner flex item must shrink to zero when collapsed. */
@@ -593,13 +616,31 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         }
     }
 
+    /*
+     * The member list starts below the header row, which carries the window controls above it when the system
+     * title bar is replaced (see the header row rules above). The header's bottom border is carried across and
+     * sits out of view without the controls.
+     */
     .mx_RightPanel {
-        background: var(--mx-desktop-shell-frame);
+        padding-block-start: env(titlebar-area-height, 0px);
+        background-color: var(--mx-desktop-shell-frame);
+        background-image: linear-gradient(
+            var(--cpd-color-border-interactive-secondary),
+            var(--cpd-color-border-interactive-secondary)
+        );
+        background-position: 0 env(titlebar-area-height, -1px);
+        background-size: 100% 1px;
+        background-repeat: no-repeat;
         border-inline-start: 1px solid var(--cpd-color-border-interactive-secondary);
+        -webkit-app-region: drag;
+
+        > * {
+            -webkit-app-region: no-drag;
+        }
     }
 
     .mx_RightPanel:has(.mx_MemberListView) {
-        background: var(--cpd-color-bg-canvas-default);
+        background-color: var(--cpd-color-bg-canvas-default);
     }
 
     .mx_MemberListView {

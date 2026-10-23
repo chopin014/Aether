@@ -49,6 +49,7 @@ import { getAsarPath } from "./asar.js";
 import { getIconPath } from "./icon.js";
 import { getArgs } from "./args.js";
 import { type ConfigOptions, loadConfig } from "./config.js";
+import { getDesktopShellTitleBarOptions } from "./desktop-shell-titlebar.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -253,6 +254,7 @@ app.on("ready", async () => {
 
         titleBarStyle: process.platform === "darwin" ? "hidden" : "default",
         trafficLightPosition: { x: 12, y: 8 },
+        ...getDesktopShellTitleBarOptions(config, process.platform),
 
         icon: await getIconPath(),
         show: false,
