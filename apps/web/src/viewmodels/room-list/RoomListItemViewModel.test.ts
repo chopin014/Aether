@@ -153,8 +153,8 @@ describe("RoomListItemViewModel", () => {
         call.emit(CallEvent.Participants, call.participants);
         expect(viewModel.getSnapshot().callParticipants).toEqual([]);
         viewModel.dispose();
-        expect(call.listenerCount(CallEvent.Participants)).toBe(0);
         expect(room.listeners(RoomStateEvent.Members)).toEqual(profileListeners);
+        expect(call.listenerCount(CallEvent.Participants)).toBe(0);
         expect(call.listenerCount(CallEvent.SpeakingUsers)).toBe(0);
     });
 
