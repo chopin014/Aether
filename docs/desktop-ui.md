@@ -7,7 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 # Desktop UI development
 
-Aether’s `ui/desktop-shell` branch implements the Discord-derived desktop presentation in Element's real Electron application. The application is named Aether. Linux and Windows are the first release targets; the icon and palette remain provisional. The research gallery and synthetic prototype live outside this repository; neither is the desktop client.
+Aether’s `ui/desktop-shell` branch implements the Discord-derived desktop presentation in Element's real Electron application. The application is named Aether. Linux and Windows are the first release targets; the icon and core palette follow the Aether brand manual v1.1, while the rest of the visual design is provisional. The research gallery and synthetic prototype live outside this repository; neither is the desktop client.
 
 ## Launch the actual application
 

@@ -27,7 +27,7 @@ Use the Aether desktop workflow for reproducible platform builds. It creates art
 Set `VERSION` to a valid Aether semver before release; the development default is `0.1.0-dev.1`.
 `--publish never` and `publish: null` prevent accidental uploads.
 The renderer config deliberately has no Element update feed,
-telemetry, or crash upload endpoint. The final icon/colors, Windows signing, Aether update delivery, installed-package
+telemetry, or crash upload endpoint. Windows signing, Aether update delivery, installed-package
 smoke tests and UI completion are required before announcing a production release.
 
 ## Voice feedback

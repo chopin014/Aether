@@ -1,12 +1,15 @@
 /* Copyright 2026 Gabriel. SPDX-License-Identifier: AGPL-3.0-only */
 :root {
     color-scheme: dark;
-    --bg: #161617;
-    --surface: #202022;
-    --ink: #f2f1ec;
-    --muted: #aaa9a6;
-    --line: #363638;
-    --accent: #dbe5ca;
+    /* Aether brand manual v1.1, dark theme roles. */
+    --bg: #090a12;
+    --surface: #12142a;
+    --ink: #eceaf6;
+    --muted: #9a9cc0;
+    --line: #2a2d4a;
+    --accent: #8ed8ea;
+    --accent-hovered: #7ab9ca;
+    --on-accent: #090a12;
     font-family: Inter, "Segoe UI", system-ui, sans-serif;
     background: var(--bg);
     color: var(--ink);
@@ -26,7 +29,7 @@ a:hover {
     text-underline-offset: 5px;
 }
 a:focus-visible {
-    outline: 2px solid var(--ink);
+    outline: 2px solid var(--accent);
     outline-offset: 6px;
 }
 header,
@@ -43,9 +46,11 @@ header {
     font-size: 14px;
 }
 .wordmark {
-    font-size: 30px;
-    letter-spacing: -1.5px;
-    font-weight: 650;
+    display: block;
+}
+.wordmark img {
+    display: block;
+    height: 32px;
 }
 main {
     padding: 66px 48px 0;
@@ -101,17 +106,18 @@ h1 {
     display: flex;
     gap: 36px;
     align-items: center;
-    border: 1px solid var(--ink);
+    border: 1px solid var(--accent);
     padding: 16px 20px;
-    color: var(--bg);
-    background: var(--ink);
+    color: var(--on-accent);
+    background: var(--accent);
     font-size: 14px;
     font-weight: 600;
     border-radius: 5px;
 }
 .primary:hover {
     text-decoration: none;
-    background: var(--accent);
+    border-color: var(--accent-hovered);
+    background: var(--accent-hovered);
 }
 .details {
     display: grid;
