@@ -1047,6 +1047,46 @@ describe("ElementCall", () => {
             call.off(CallEvent.CallTypeChanged, onCallTypeChanged);
         });
 
+        it.each([undefined, RoomType.ElementVideo, RoomType.UnstableCall])(
+            "keeps a connected call alive when navigating away with no echoed memberships (%s)",
+            async (roomType) => {
+                vi.spyOn(room, "getType").mockReturnValue(roomType);
+                call.presented = true;
+                await connect(call, widgetApi);
+                ActiveWidgetStore.instance.setWidgetPersistence(call.widget.id, room.roomId, true);
+                const onDestroy = vi.fn();
+                call.on(CallEvent.Destroy, onDestroy);
+                expect(call.session.memberships).toHaveLength(0);
+
+                call.presented = false;
+
+                expect(onDestroy).not.toHaveBeenCalled();
+                expect(call.connected).toBe(true);
+                expect(ActiveWidgetStore.instance.getWidgetPersistence(call.widget.id, room.roomId)).toBe(true);
+            },
+        );
+
+        it("keeps a connected off-screen call alive when the session manager reports an empty session", async () => {
+            await connect(call, widgetApi);
+            const onDestroy = vi.fn();
+            call.on(CallEvent.Destroy, onDestroy);
+
+            client.matrixRTC.emit(MatrixRTCSessionManagerEvents.SessionEnded, room.roomId, call.session);
+
+            expect(onDestroy).not.toHaveBeenCalled();
+            expect(call.connected).toBe(true);
+        });
+
+        it("still destroys an empty lobby when navigating away", () => {
+            call.presented = true;
+            const onDestroy = vi.fn();
+            call.on(CallEvent.Destroy, onDestroy);
+
+            call.presented = false;
+
+            expect(onDestroy).toHaveBeenCalledOnce();
+        });
+
         it("ends the call immediately if the session ended", async () => {
             await connect(call, widgetApi);
             const onDestroy = vi.fn();

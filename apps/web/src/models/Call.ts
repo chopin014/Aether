@@ -1191,9 +1191,11 @@ export class ElementCall extends Call {
     }
 
     private checkDestroy = (): void => {
-        // A call ceases to exist as soon as all participants leave and also the
-        // user isn't looking at it (for example, waiting in an empty lobby)
-        if (this.session.memberships.length === 0 && !this.presented && !this.room.isCallRoom()) this.destroy();
+        // Synced memberships can be empty while the local call is still connected.
+        // Only discard an empty call once we have left it and stopped viewing it.
+        if (!this.connected && this.session.memberships.length === 0 && !this.presented && !this.room.isCallRoom()) {
+            this.destroy();
+        }
     };
 
     private readonly onMembershipChanged = (): void => {
@@ -1229,6 +1231,9 @@ export class ElementCall extends Call {
 
     /** The user has joined the call (`HostBridge.notifyJoined` / `io.element.join`). */
     public handleJoined(): void {
+        // Joining and requesting persistence are separate callbacks. Keep the mounted call alive
+        // before connected listeners can navigate away, even if the persistence request is delayed.
+        ActiveWidgetStore.instance.setWidgetPersistence(this.widget.id, this.widget.roomId, true);
         this.setConnected();
     }
 
