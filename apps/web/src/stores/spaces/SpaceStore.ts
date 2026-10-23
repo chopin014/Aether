@@ -238,18 +238,23 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         window.localStorage.setItem(ACTIVE_SPACE_LS_KEY, (this._activeSpace = space)); // Update & persist selected space
 
         if (contextSwitch) {
-            // view last selected room from space
-            const roomId = this.getLastSelectedRoomIdForSpace(space);
+            const canView = (roomId: string | null): roomId is string =>
+                !!roomId &&
+                cliSpace?.getMyMembership() !== KnownMembership.Invite &&
+                this.matrixClient!.getRoom(roomId)?.getMyMembership() === KnownMembership.Join &&
+                this.isRoomInSpace(space, roomId);
+            // view last selected room from space; without one, the desktop shell opens the space's first text
+            // channel, so that opening a server lands in a chat rather than the space overview
+            const lastRoomId = this.getLastSelectedRoomIdForSpace(space);
+            const roomId =
+                canView(lastRoomId) || !cliSpace || !SettingsStore.getValue("feature_desktop_shell")
+                    ? lastRoomId
+                    : this.getFirstTextChannel(cliSpace.roomId);
 
             // if the space being selected is an invite then always view that invite
-            // else if the last viewed room in this space is joined then view that
+            // else if the last viewed room (or first channel) in this space is joined then view that
             // else view space home or home depending on what is being clicked on
-            if (
-                roomId &&
-                cliSpace?.getMyMembership() !== KnownMembership.Invite &&
-                this.matrixClient.getRoom(roomId)?.getMyMembership() === KnownMembership.Join &&
-                this.isRoomInSpace(space, roomId)
-            ) {
+            if (canView(roomId)) {
                 this.dispatcher.dispatch<ViewRoomPayload>({
                     action: Action.ViewRoom,
                     room_id: roomId,
@@ -382,6 +387,15 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
     public getChildRooms(spaceId: string): Room[] {
         return this.getChildren(spaceId).filter((r) => !r.isSpaceRoom());
+    }
+
+    /** The first joined room of a space, in the space's own order, that is a chat rather than a call. */
+    private getFirstTextChannel(spaceId: string): string | null {
+        const channel = this.getChildRooms(spaceId).find(
+            (room) =>
+                room.getMyMembership() === KnownMembership.Join && !room.isCallRoom() && !room.isElementVideoRoom(),
+        );
+        return channel?.roomId ?? null;
     }
 
     public getChildSpaces(spaceId: string): Room[] {
