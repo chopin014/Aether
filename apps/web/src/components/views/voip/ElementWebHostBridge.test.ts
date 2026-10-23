@@ -26,6 +26,7 @@ describe("ElementWebHostBridge", () => {
         handleHangup: ReturnType<typeof vi.fn>;
         handleClose: ReturnType<typeof vi.fn>;
         handleDeviceMute: ReturnType<typeof vi.fn>;
+        handleSpeakingUsers: ReturnType<typeof vi.fn>;
     };
     let setWidgetPersistence: ReturnType<typeof vi.spyOn>;
     let bridge: ElementWebHostBridge;
@@ -38,6 +39,7 @@ describe("ElementWebHostBridge", () => {
             handleHangup: vi.fn(),
             handleClose: vi.fn(),
             handleDeviceMute: vi.fn(),
+            handleSpeakingUsers: vi.fn(),
         };
         setWidgetPersistence = vi
             .spyOn(ActiveWidgetStore.instance, "setWidgetPersistence")
@@ -58,6 +60,10 @@ describe("ElementWebHostBridge", () => {
         expect(call.handleHangup).toHaveBeenCalled();
         await bridge.notifyDeviceMute({ audio_enabled: false, video_enabled: true });
         expect(call.handleDeviceMute).toHaveBeenCalledWith({ audio_enabled: false, video_enabled: true });
+        await bridge.notifySpeakingUsers(["@alice:example.org", "@bob:example.org"]);
+        expect(call.handleSpeakingUsers).toHaveBeenCalledWith(["@alice:example.org", "@bob:example.org"]);
+        await bridge.notifySpeakingUsers([]);
+        expect(call.handleSpeakingUsers).toHaveBeenLastCalledWith([]);
         await bridge.close();
         expect(call.handleClose).toHaveBeenCalled();
     });

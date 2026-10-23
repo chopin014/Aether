@@ -47,6 +47,8 @@ describe("DesktopVoiceControlsViewModel", () => {
         // Retain the real model's mute notifications while replacing transport operations.
         call = Object.create(ElementCall.prototype) as ElementCall;
         Object.defineProperty(call, "roomId", { value: "!voice:example.org" });
+        // This transport fixture skips the constructor that initializes speaking state.
+        Object.defineProperty(call, "speakingUserIds", { value: new Set<string>(), writable: true });
         call.setDeviceMute = vi.fn(async (request) => {
             const state = { audio_enabled: true, video_enabled: false, ...call.deviceMuteState, ...request };
             call.handleDeviceMute(state);

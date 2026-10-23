@@ -108,6 +108,8 @@ allowBuilds:
     pkcs11js: false
 
 patchedDependencies:
+    # Report microphone activity to the sidebar without changing capture or the call UI.
+    "@element-hq/element-call-component@0.0.0": patches/@element-hq__element-call-component.patch
     # Workaround for missing types export
     "@vector-im/matrix-wysiwyg": patches/@vector-im__matrix-wysiwyg.patch
     # Workaround for lack of React 19 support

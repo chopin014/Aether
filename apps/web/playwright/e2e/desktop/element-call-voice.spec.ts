@@ -190,8 +190,8 @@ test(
                     .toBe(true);
             }
             const participants = page.getByRole("group", { name: "People in Lounge" });
-            await expect(participants.getByRole("button", { name: "Alice", exact: true })).toBeVisible();
-            await expect(participants.getByRole("button", { name: "Bob", exact: true })).toBeVisible();
+            await expect(participants.getByRole("button", { name: "Alice (speaking)", exact: true })).toBeVisible();
+            await expect(participants.getByRole("button", { name: "Bob (speaking)", exact: true })).toBeVisible();
             expect(jitsiRequests).toEqual([]);
             const dock = page.getByRole("group", { name: "User menu" });
             await expect(dock.getByText("Voice Connected", { exact: true })).toBeVisible();
@@ -200,7 +200,9 @@ test(
                 "aria-pressed",
                 "true",
             );
+            await expect(participants.getByRole("button", { name: "Alice", exact: true })).toBeVisible();
             await dock.getByRole("button", { name: "Unmute", exact: true }).click();
+            await expect(participants.getByRole("button", { name: "Alice (speaking)", exact: true })).toBeVisible();
             await dock.getByRole("button", { name: "Deafen", exact: true }).click();
             await expect(dock.getByRole("button", { name: "Undeafen", exact: true })).toHaveAttribute(
                 "aria-pressed",
@@ -233,12 +235,12 @@ test(
             await dock.getByRole("button", { name: "Disconnect", exact: true }).click();
             await expect(page.getByTestId("lobby_joinCall")).toBeVisible();
             await expect(participants.getByRole("button", { name: "Bob", exact: true })).toBeVisible();
-            await expect(participants.getByRole("button", { name: "Alice", exact: true })).toHaveCount(0);
+            await expect(participants.getByRole("button", { name: /^Alice(?: \(speaking\))?$/ })).toHaveCount(0);
             await page.getByTestId("lobby_joinCall").click();
             await expect(page.getByTestId("videoTile")).toHaveCount(2, { timeout: 30_000 });
             await bobPage.getByTestId("incall_leave").click();
             await expect(page.getByTestId("videoTile")).toHaveCount(1, { timeout: 30_000 });
-            await expect(participants.getByRole("button", { name: "Bob", exact: true })).toHaveCount(0);
+            await expect(participants.getByRole("button", { name: /^Bob(?: \(speaking\))?$/ })).toHaveCount(0);
             await dock.getByRole("button", { name: "Disconnect", exact: true }).click();
             await expect(page.getByTestId("lobby_joinCall")).toBeVisible();
             await page.getByRole("button", { name: "User menu", exact: true }).click();

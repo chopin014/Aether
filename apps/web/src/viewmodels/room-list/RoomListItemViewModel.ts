@@ -7,6 +7,7 @@ Please see LICENSE files in the repository root for full details.
 
 import {
     BaseViewModel,
+    Disposables,
     RoomNotifState,
     type RoomListItemViewSnapshot,
     type RoomListItemViewActions,
@@ -17,7 +18,7 @@ import { ClientEvent, KnownMembership, RoomEvent, RoomStateEvent } from "matrix-
 import { CallType } from "matrix-js-sdk/src/webrtc/call";
 import { logger } from "matrix-js-sdk/src/logger";
 
-import type { Room, MatrixClient, RoomMember, ClientEventHandlerMap } from "matrix-js-sdk/src/matrix";
+import type { Room, MatrixClient, ClientEventHandlerMap } from "matrix-js-sdk/src/matrix";
 import type { RoomNotificationState } from "../../stores/notifications/RoomNotificationState";
 import { RoomNotificationStateStore } from "../../stores/notifications/RoomNotificationStateStore";
 import { NotificationStateEvents } from "../../stores/notifications/NotificationState";
@@ -68,9 +69,10 @@ export class RoomListItemViewModel
 {
     private notifState: RoomNotificationState;
     /**
-     * Track the current call for this room to manager listeners
+     * Track the current call for this room to manage listeners
      */
     private currentCall: Call | null = null;
+    private callDisposables = new Disposables();
     /**
      * The sections available in the "Move to section" submenu (tag + display name), identical
      * for every update of this item. Computing it reads the custom section settings, so it is
@@ -130,6 +132,7 @@ export class RoomListItemViewModel
 
         // Subscribe to call state changes
         this.disposables.trackListener(CallStore.instance, CallStoreEvent.Call, this.onCallStateChanged);
+        this.disposables.track(() => this.callDisposables.dispose());
         // If there is an active call for this room, listen to participant changes
         this.listenToCallParticipants();
 
@@ -165,12 +168,6 @@ export class RoomListItemViewModel
         }
     }
 
-    public dispose(): void {
-        super.dispose();
-        this.currentCall?.off(CallEvent.Participants, this.onCallParticipantsChanged);
-        this.currentCall?.off(CallEvent.CallTypeChanged, this.onCallTypeChanged);
-    }
-
     private onNotificationChanged = (): void => {
         this.updateItem();
     };
@@ -189,17 +186,16 @@ export class RoomListItemViewModel
     };
 
     /**
-     * Handler for call participant changes. Only updates the item if the call moves between having participants and not having participants, to avoid unnecessary updates.
-     * @param participants The current call participants
+     * Refresh voice participants on every membership change. Other rooms only refresh when call presence changes.
      */
-    private onCallParticipantsChanged = (participants: Map<RoomMember, Set<string>>): void => {
+    private onCallParticipantsChanged = (): void => {
         if (this.snapshot.current.channelKind === "voice") {
             this.updateItem();
             return;
         }
         const hasCall = Boolean(this.snapshot.current.notification.callType);
         // There is already an active call, we don't need to update the item
-        if (hasCall && participants.size > 0) return;
+        if (hasCall && (this.currentCall?.participants.size ?? 0) > 0) return;
 
         this.updateItem();
     };
@@ -211,6 +207,17 @@ export class RoomListItemViewModel
         if (this.snapshot.current.notification.callType !== undefined) this.updateItem();
     };
 
+    private onSpeakingUsersChanged = (): void => {
+        const { callParticipants } = this.snapshot.current;
+        if (!callParticipants) return;
+        this.snapshot.merge({
+            callParticipants: callParticipants.map((member) => ({
+                ...member,
+                isSpeaking: this.currentCall?.speakingUserIds.has(member.userId) ?? false,
+            })),
+        });
+    };
+
     /**
      * Listen to participant changes for the current call in this room (if any) to trigger updates when participants join/leave the call.
      */
@@ -219,10 +226,13 @@ export class RoomListItemViewModel
 
         // Remove listeners from previous call (if any) and add to new call to track changes
         if (call !== this.currentCall) {
-            this.currentCall?.off(CallEvent.Participants, this.onCallParticipantsChanged);
-            this.currentCall?.off(CallEvent.CallTypeChanged, this.onCallTypeChanged);
-            call?.on(CallEvent.Participants, this.onCallParticipantsChanged);
-            call?.on(CallEvent.CallTypeChanged, this.onCallTypeChanged);
+            this.callDisposables.dispose();
+            this.callDisposables = new Disposables();
+            if (call) {
+                this.callDisposables.trackListener(call, CallEvent.Participants, this.onCallParticipantsChanged);
+                this.callDisposables.trackListener(call, CallEvent.CallTypeChanged, this.onCallTypeChanged);
+                this.callDisposables.trackListener(call, CallEvent.SpeakingUsers, this.onSpeakingUsersChanged);
+            }
         }
         this.currentCall = call;
     }
@@ -416,6 +426,7 @@ export class RoomListItemViewModel
                           return {
                               userId: member.userId,
                               name: member.name,
+                              isSpeaking: call?.speakingUserIds.has(member.userId) ?? false,
                               avatarUrl: mxc
                                   ? (mediaFromMxc(mxc).getThumbnailOfSourceHttp(48, 48, "crop") ?? undefined)
                                   : undefined,
