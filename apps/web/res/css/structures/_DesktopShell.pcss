@@ -455,6 +455,11 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         min-height: 0;
         padding-block-end: var(--mx-desktop-dock-clearance);
         background: var(--mx-desktop-shell-frame);
+
+        /* Give server categories breathing room below the header without changing row or dock spacing. */
+        > [data-testid="room-list-header"] + * {
+            padding-block-start: var(--cpd-space-4x);
+        }
     }
 
     .mx_RoomView_wrapper,
