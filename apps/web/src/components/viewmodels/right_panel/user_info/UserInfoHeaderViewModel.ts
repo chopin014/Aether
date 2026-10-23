@@ -4,9 +4,11 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only
 Please see LICENSE files in the repository root for full details.
 */
 
-import { RoomMember, type User } from "matrix-js-sdk/src/matrix";
-import { useCallback, useContext } from "react";
+import { RoomMember, type User, UserEvent, ClientEvent } from "matrix-js-sdk/src/matrix";
+import { useCallback, useContext, useReducer } from "react";
 
+import { useTypedEventEmitter } from "../../../../hooks/useEventEmitter";
+import { getKnownPresence } from "../../../../utils/knownPresence";
 import { mediaFromMxc } from "../../../../customisations/Media";
 import Modal from "../../../../Modal";
 import ImageView from "../../../views/elements/ImageView";
@@ -61,6 +63,15 @@ interface UserInfoHeaderViewModelProps {
 export function useUserfoHeaderViewModel({ member, roomId }: UserInfoHeaderViewModelProps): UserInfoHeaderState {
     const cli = useContext(MatrixClientContext);
 
+    const [, refreshPresence] = useReducer((value: number) => value + 1, 0);
+    const user = member instanceof RoomMember ? (member.user ?? cli.getUser(member.userId)) : member;
+    useTypedEventEmitter(user ?? undefined, UserEvent.LastPresenceTs, refreshPresence);
+    useTypedEventEmitter(cli, UserEvent.LastPresenceTs, (_event, updatedUser) => {
+        if (updatedUser.userId === member.userId) refreshPresence();
+    });
+    useTypedEventEmitter(cli, ClientEvent.Event, (event) => {
+        if (event.getType() === "m.presence" && event.getSender() === member.userId) refreshPresence();
+    });
     let showPresence = true;
 
     const precenseInfo: PresenceInfo = {
@@ -91,10 +102,10 @@ export function useUserfoHeaderViewModel({ member, roomId }: UserInfoHeaderViewM
         Modal.createDialog(ImageView, params, "mx_Dialog_lightbox", undefined, true);
     }, [member]);
 
-    if (member instanceof RoomMember && member.user) {
-        precenseInfo.state = member.user.presence;
-        precenseInfo.lastActiveAgo = member.user.lastActiveAgo;
-        precenseInfo.currentlyActive = member.user.currentlyActive;
+    if (getKnownPresence(user)) {
+        precenseInfo.state = getKnownPresence(user);
+        precenseInfo.lastActiveAgo = user?.lastActiveAgo;
+        precenseInfo.currentlyActive = user?.currentlyActive;
     }
 
     if (enablePresenceByHsUrl && enablePresenceByHsUrl[cli.baseUrl] !== undefined) {

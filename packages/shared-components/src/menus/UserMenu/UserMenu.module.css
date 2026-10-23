@@ -130,6 +130,7 @@
 }
 
 .avatarWrapper {
+    position: relative;
     display: inline-flex;
     flex-direction: column;
     align-items: center;

@@ -24,6 +24,8 @@ import { _t, UserFriendlyError } from "./languageHandler";
 import MatrixClientBackedController from "./settings/controllers/MatrixClientBackedController";
 import ErrorDialog from "./components/views/dialogs/ErrorDialog";
 import PlatformPeg from "./PlatformPeg";
+import { isPresenceEnabled } from "./utils/presence";
+import { readPresencePreference } from "./utils/presencePreference";
 import SdkConfig from "./SdkConfig";
 import { setDeviceIsolationMode } from "./settings/controllers/DeviceIsolationModeController.ts";
 import { initialiseDehydrationIfEnabled } from "./utils/device/dehydration";
@@ -355,6 +357,14 @@ class MatrixClientPegClass implements IMatrixClientPeg {
 
         logger.log(`MatrixClientPeg: really starting MatrixClient`);
         await this.matrixClient!.startClient(opts);
+        // Apply persisted intent as soon as the SDK creates its sync API.
+        if (
+            !this.matrixClient!.isGuest() &&
+            isPresenceEnabled(this.matrixClient!) &&
+            !SettingsStore.getValue("lowBandwidth")
+        ) {
+            await this.matrixClient!.setSyncPresence(readPresencePreference(this.matrixClient!));
+        }
         logger.log(`MatrixClientPeg: MatrixClient started`);
     }
 }

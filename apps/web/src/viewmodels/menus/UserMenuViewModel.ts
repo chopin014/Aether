@@ -8,6 +8,7 @@
 import { BaseViewModel, type UserMenuSnapshot, type UserMenuViewActions } from "@element-hq/web-shared-components";
 import { logger } from "matrix-js-sdk/src/logger";
 
+import Presence from "../../Presence";
 import { type OwnProfileStore } from "../../stores/OwnProfileStore";
 import { UPDATE_EVENT } from "../../stores/AsyncStore";
 import type { MatrixDispatcher } from "../../dispatcher/dispatcher";
@@ -53,6 +54,7 @@ export class UserMenuViewModel
 
         return {
             open: false,
+            presence: isAuthenticated ? Presence.forClient(client) : undefined,
             userId,
             displayName,
             avatarUrl,

@@ -41,6 +41,15 @@ export function groupDesktopMembers(
     const roles = new Map<number, { heading: string; members: MemberWithSeparator[] }>();
     const others: MemberWithSeparator[] = [];
     const offline: MemberWithSeparator[] = [];
+    const unknown: MemberWithSeparator[] = [];
+    const hasKnownPresence =
+        isPresenceEnabled &&
+        members.some(
+            (item) =>
+                item !== SEPARATOR &&
+                !item.member?.isInvite &&
+                ["online", "unavailable", "offline"].includes(item.member?.presenceState ?? ""),
+        );
     const invited: MemberWithSeparator[] = [];
     const seen = new Set<string>();
     for (const item of members) {
@@ -53,8 +62,12 @@ export function groupDesktopMembers(
             invited.push(item);
             continue;
         }
-        if (isPresenceEnabled && member.presenceState !== "online" && member.presenceState !== "unavailable") {
+        if (hasKnownPresence && member.presenceState === "offline") {
             offline.push(item);
+            continue;
+        }
+        if (hasKnownPresence && member.presenceState !== "online" && member.presenceState !== "unavailable") {
+            unknown.push(item);
             continue;
         }
         const spaceMember = roleSpace?.getMember(member.userId);
@@ -92,10 +105,11 @@ export function groupDesktopMembers(
         append(`role-${level}`, group.heading, group.members);
     }
     append(
-        isPresenceEnabled ? "online" : "members",
-        isPresenceEnabled ? _t("desktop|contacts|online") : _t("member_list|list_title"),
+        hasKnownPresence ? "online" : "members",
+        hasKnownPresence ? _t("desktop|contacts|online") : _t("member_list|list_title"),
         others,
     );
+    append("unknown", _t("presence|unknown_members"), unknown);
     append("offline", _t("desktop|contacts|offline"), offline);
     append("invited", _t("desktop|members|invited"), invited);
     return result;

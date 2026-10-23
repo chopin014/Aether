@@ -10,7 +10,15 @@ Please see LICENSE files in the repository root for full details.
 
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { act, render, renderHook, waitFor } from "test-utils-rtl";
-import { type MatrixClient, PendingEventOrdering, Room, RoomMember, User, UserEvent } from "matrix-js-sdk/src/matrix";
+import {
+    MatrixEvent,
+    type MatrixClient,
+    PendingEventOrdering,
+    Room,
+    RoomMember,
+    User,
+    UserEvent,
+} from "matrix-js-sdk/src/matrix";
 import React from "react";
 import { getMockClientWithEventEmitter, stubClient } from "test-utils";
 
@@ -81,7 +89,7 @@ describe("WithPresenceIndicator", () => {
         room.getMember = vi.fn((userId) => {
             const member = new RoomMember(room.roomId, userId);
             member.user = new User(userId);
-            member.user.presence = presenceStr;
+            member.user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: presenceStr } }));
             return member;
         });
 
@@ -112,7 +120,7 @@ describe("usePresence", () => {
         vi.mocked(getJoinedNonFunctionalMembers).mockReturnValue([1, 2] as any);
 
         user = new User(DM_USER_ID);
-        user.presence = "online";
+        user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "online" } }));
         member = new RoomMember(ROOM_ID, DM_USER_ID);
         member.user = user;
     });
@@ -133,6 +141,13 @@ describe("usePresence", () => {
         expect(result.current).toBeNull();
     });
 
+    it("returns no indicator for the SDK's offline default without a received event", () => {
+        delete user.events.presence;
+        user.presence = "offline";
+        const { result } = renderHook(() => usePresence(room, member));
+        expect(result.current).toBeNull();
+    });
+
     it("returns null when member is null", () => {
         const { result } = renderHook(() => usePresence(room, null));
         expect(result.current).toBeNull();
@@ -144,33 +159,33 @@ describe("usePresence", () => {
         ["unavailable", Presence.Away],
         ["busy", Presence.Busy],
     ])("returns correct presence for user with '%s' presence state", (presenceStr, expectedPresence) => {
-        user.presence = presenceStr;
+        user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: presenceStr } }));
         const { result } = renderHook(() => usePresence(room, member));
         expect(result.current).toBe(expectedPresence);
     });
 
-    it("returns Online when user.currentlyActive is true regardless of presence string", () => {
-        user.presence = "offline";
+    it("preserves explicit offline presence even if currentlyActive is stale", () => {
+        user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "offline" } }));
         user.currentlyActive = true;
         const { result } = renderHook(() => usePresence(room, member));
-        expect(result.current).toBe(Presence.Online);
+        expect(result.current).toBe(Presence.Offline);
     });
 
     it("updates when UserEvent.Presence fires on member.user", async () => {
-        user.presence = "online";
+        user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "online" } }));
         const { result } = renderHook(() => usePresence(room, member));
         expect(result.current).toBe(Presence.Online);
 
         act(() => {
-            user.presence = "offline";
+            user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "offline" } }));
             user.emit(UserEvent.Presence, null as any, user);
         });
 
         await waitFor(() => expect(result.current).toBe(Presence.Offline));
     });
 
-    it("updates when UserEvent.CurrentlyActive fires on member.user", async () => {
-        user.presence = "offline";
+    it("does not infer Online from an activity flag while explicitly offline", async () => {
+        user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "offline" } }));
         user.currentlyActive = false;
         const { result } = renderHook(() => usePresence(room, member));
         expect(result.current).toBe(Presence.Offline);
@@ -180,14 +195,14 @@ describe("usePresence", () => {
             user.emit(UserEvent.CurrentlyActive, null as any, user);
         });
 
-        await waitFor(() => expect(result.current).toBe(Presence.Online));
+        await waitFor(() => expect(result.current).toBe(Presence.Offline));
     });
 
     it("returns correct presence when member.user is not linked but client has user data", () => {
         member.user = undefined;
         vi.mocked(mockClient.getUser).mockImplementation((userId) => (userId === DM_USER_ID ? user : null));
 
-        user.presence = "online";
+        user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "online" } }));
         const { result } = renderHook(() => usePresence(room, member));
         expect(result.current).toBe("online");
     });
@@ -195,13 +210,13 @@ describe("usePresence", () => {
     it("updates via client-level UserEvent.Presence when member.user is not yet linked", async () => {
         member.user = undefined;
         vi.mocked(mockClient.getUser).mockImplementation((userId) => (userId === DM_USER_ID ? user : null));
-        user.presence = "online";
+        user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "online" } }));
 
         const { result } = renderHook(() => usePresence(room, member));
         expect(result.current).toBe(Presence.Online);
 
         act(() => {
-            user.presence = "offline";
+            user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "offline" } }));
             mockClient.emit(UserEvent.Presence, null as any, user);
         });
 
@@ -209,13 +224,13 @@ describe("usePresence", () => {
     });
 
     it("does not update when client emits UserEvent.Presence for a different user", async () => {
-        user.presence = "online";
+        user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "online" } }));
         const { result } = renderHook(() => usePresence(room, member));
         expect(result.current).toBe(Presence.Online);
 
         act(() => {
             const otherUser = new User("@other:foo.bar");
-            otherUser.presence = "offline";
+            otherUser.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "offline" } }));
             mockClient.emit(UserEvent.Presence, null as any, otherUser);
         });
 

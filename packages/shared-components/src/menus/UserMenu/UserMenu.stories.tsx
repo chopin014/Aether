@@ -13,6 +13,7 @@ import { UserMenuView, type UserMenuViewSnapshot, type UserMenuViewActions } fro
 import avatarUrl from "../../../static/element.png";
 import { MockViewModel, useMockedViewModel } from "../../core/viewmodel";
 import { withViewDocs } from "../../../.storybook/withViewDocs";
+import { type PresenceSnapshot } from "../../presence/PresenceMenuView";
 import { type SetStatusViewSnapshot } from "../..";
 
 class MockSetStatusViewModel extends MockViewModel<SetStatusViewSnapshot> {
@@ -232,5 +233,35 @@ export const WithStatusOpen: Story = {
                 rules: MENU_OPEN_A11Y_RULES,
             },
         },
+    },
+};
+
+/** Requested presence remains separate from a server observation while sync has no presence data. */
+export const PresenceUnknown: Story = {
+    args: {
+        ...Open.args,
+        presence: Object.assign(
+            new MockViewModel<PresenceSnapshot>({
+                enabled: true,
+                preference: "offline",
+                busy: false,
+            }),
+            { setPreference: fn(), retry: fn() },
+        ),
+    },
+};
+
+/** An explicit configuration opt-out explains why this account cannot change presence. */
+export const PresenceDisabled: Story = {
+    args: {
+        ...Open.args,
+        presence: Object.assign(
+            new MockViewModel<PresenceSnapshot>({
+                enabled: false,
+                preference: "online",
+                busy: false,
+            }),
+            { setPreference: fn(), retry: fn() },
+        ),
     },
 };

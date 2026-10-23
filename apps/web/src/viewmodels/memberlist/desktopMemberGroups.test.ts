@@ -43,6 +43,23 @@ function names(items: DesktopMemberListItem[]) {
 }
 
 describe("groupDesktopMembers", () => {
+    it("should use roles and neutral Members when no presence is available", () => {
+        const admin: { member: RoomMember } = member("Admin", 100);
+        const regular: { member: RoomMember } = member("Regular");
+        delete admin.member.presenceState;
+        delete regular.member.presenceState;
+        expect(headings(groupDesktopMembers([admin, regular], true, null, "en"))).toEqual([
+            ["Admin", 1],
+            ["Member list", 1],
+        ]);
+    });
+
+    it("should preserve all genuinely offline users without assuming a disabled server", () => {
+        expect(headings(groupDesktopMembers([member("Offline", 0, "offline")], true, null, "en"))).toEqual([
+            ["Offline", 1],
+        ]);
+    });
+
     it("should group available members by highest standard role, then online members and all offline roles", () => {
         const items = groupDesktopMembers(
             [
@@ -119,7 +136,7 @@ describe("groupDesktopMembers", () => {
         expect(serverAdmin.member.roomId).toBe("!channel:example.org");
     });
 
-    it("should keep unknown, unreachable and absent presence in Offline", () => {
+    it("should distinguish unknown and unreachable members from received offline presence", () => {
         const missingPresence: { member: RoomMember } = member("Missing", 100);
         delete missingPresence.member.presenceState;
         const items = groupDesktopMembers(
@@ -128,7 +145,10 @@ describe("groupDesktopMembers", () => {
             null,
             "en",
         );
-        expect(headings(items)).toEqual([["Offline", 3]]);
+        expect(headings(items)).toEqual([
+            ["Status unknown", 2],
+            ["Offline", 1],
+        ]);
     });
 
     it("should use neutral role and member groups when the homeserver disables presence", () => {

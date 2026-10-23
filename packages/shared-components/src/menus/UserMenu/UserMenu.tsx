@@ -18,6 +18,8 @@ import {
 } from "@vector-im/compound-design-tokens/assets/web/icons";
 import classNames from "classnames";
 
+import { PresenceMenuView, PresenceSummaryView, type PresenceViewModel } from "../../presence/PresenceMenuView";
+
 import styles from "./UserMenu.module.css";
 import { useViewModel, type ViewModel } from "../../core/viewmodel";
 import { useI18n } from "../../core/i18n/i18nContext";
@@ -29,6 +31,8 @@ export interface UserMenuViewSnapshot {
      * Is the menu open or closed.
      */
     open: boolean;
+    /** Presence controls for authenticated accounts, independent of the custom status text. */
+    presence?: PresenceViewModel;
     /**
      * Is the menu toggle expanded (avatar + displayname) or collapsed (avatar).
      */
@@ -138,6 +142,7 @@ export function UserMenuView({ vm, className, presentation = "rail" }: UserMenuV
         avatarUrl,
         expanded,
         open,
+        presence,
         actions,
         showAvatar,
         userStatus,
@@ -166,6 +171,7 @@ export function UserMenuView({ vm, className, presentation = "rail" }: UserMenuV
                         {userStatus.emoji}
                     </Text>
                 )}
+                {isDock && presence && <PresenceSummaryView vm={presence} compact />}
             </div>
             {isDock && (
                 <span className={styles.identity}>
@@ -253,6 +259,12 @@ export function UserMenuView({ vm, className, presentation = "rail" }: UserMenuV
                         </Text>
                     )}
                 </section>
+                {presence && (
+                    <>
+                        <Separator />
+                        <PresenceMenuView vm={presence} />
+                    </>
+                )}
                 <Separator />
                 <section className={styles.actions}>
                     {actions.editProfile && (

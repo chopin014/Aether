@@ -14,6 +14,40 @@ test.describe("Presence tests", () => {
         botCreateOpts: { displayName: "Bob" },
     });
 
+    test("changes presence from the account profile and retains invisible intent across reload", async ({
+        page,
+        app,
+        user,
+    }) => {
+        await expect(page.getByRole("button", { name: "User menu", exact: true })).toBeVisible();
+        await app.client.createRoom({ name: `Presence controls for ${user.displayName}` });
+        await page.getByRole("button", { name: "User menu", exact: true }).click();
+        await page.getByRole("menuitem", { name: "Requested: Online (automatic)" }).click();
+        const request = page.waitForResponse((response) => {
+            const request = response.request();
+            return (
+                request.method() === "PUT" &&
+                request.url().includes("/presence/") &&
+                request.postDataJSON().presence === "offline"
+            );
+        });
+        await page.getByRole("menuitemradio", { name: "Appear offline" }).click();
+        expect((await request).ok()).toBe(true);
+        await expect(page.getByRole("menuitemradio", { name: "Appear offline" })).toHaveAttribute(
+            "aria-checked",
+            "true",
+        );
+        await page.keyboard.press("Escape");
+        await page.keyboard.press("Escape");
+        await page.getByRole("button", { name: "User menu", exact: true }).click();
+        await expect(page.getByRole("menuitem", { name: "Requested: Appear offline" })).toBeVisible();
+        await page.reload();
+        await page.getByRole("button", { name: "User menu", exact: true }).click();
+        await page.getByRole("menuitem", { name: "Requested: Appear offline" }).click();
+        await page.getByRole("menuitemradio", { name: "Away" }).click();
+        await expect(page.getByRole("menuitemradio", { name: "Away" })).toHaveAttribute("aria-checked", "true");
+    });
+
     test.describe("bob unreachable", () => {
         // This is failing on CI (https://github.com/element-hq/element-web/issues/27270)
         // but not locally, so debugging this is going to be tricky. Let's disable it for now.

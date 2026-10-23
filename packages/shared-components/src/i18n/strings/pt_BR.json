@@ -48,5 +48,20 @@
             "error_downloading_audio": "Erro ao baixar o áudio",
             "unnamed_audio": "Áudio sem nome"
         }
+    },
+    "presence_controls": {
+        "title": "Presença",
+        "online": "Disponível",
+        "away": "Ausente",
+        "offline": "Offline",
+        "automatic": "Disponível (automático)",
+        "invisible": "Invisível",
+        "unknown": "Status desconhecido",
+        "disabled_short": "Presença desativada",
+        "disabled": "A presença está desativada na configuração deste cliente.",
+        "server_hint": "Disponível muda para Ausente após 3 minutos de inatividade. Seu servidor pode não fornecer presença; outros dispositivos podem afetar o status informado.",
+        "requested": "Solicitado: %(status)s",
+        "saving": "Atualizando…",
+        "retry": "Tentar atualizar presença novamente"
     }
 }

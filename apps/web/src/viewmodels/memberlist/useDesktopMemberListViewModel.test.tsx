@@ -13,6 +13,7 @@ import { act, renderHook, waitFor } from "test-utils-rtl";
 import { stubClient, TestSDKContext } from "test-utils";
 import {
     EventType,
+    ClientEvent,
     MatrixEvent,
     Room,
     RoomMember,
@@ -65,7 +66,7 @@ function setup(inSpace = false, enabled = true, loadSpace: () => Promise<boolean
         member.powerLevel = level;
         member.membership = KnownMembership.Join;
         member.user = User.createUser(member.userId, client);
-        member.user.presence = presence;
+        member.user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence } }));
         target.currentState.members[member.userId] = member;
         return member;
     };
@@ -111,6 +112,38 @@ function setup(inSpace = false, enabled = true, loadSpace: () => Promise<boolean
 }
 
 describe("useDesktopMemberListViewModel", () => {
+    it("should keep SDK defaults neutral and react to a first offline event without a value change", async () => {
+        const { result, client, ada, bob, cy } = setup();
+        await waitFor(() => expect(result.current.vm.isLoading).toBe(false));
+        act(() => {
+            for (const member of [ada, bob, cy]) {
+                delete member.user!.events.presence;
+                member.user!.presence = "offline";
+                client.emit(UserEvent.LastPresenceTs, undefined, member.user!);
+            }
+        });
+        await waitFor(() =>
+            expect(headings(result.current.items)).toEqual([
+                ["Admin", 1],
+                ["Moderator", 1],
+                ["Member list", 1],
+            ]),
+        );
+        expect(memberRows(result.current.items).every((member) => member.presenceState === undefined)).toBe(true);
+        act(() => {
+            cy.user = new User(cy.userId);
+            const event = new MatrixEvent({ type: "m.presence", sender: cy.userId, content: { presence: "offline" } });
+            cy.user.setPresenceEvent(event);
+            client.emit(ClientEvent.Event, event);
+        });
+        await waitFor(() =>
+            expect(headings(result.current.items)).toEqual([
+                ["Status unknown", 2],
+                ["Offline", 1],
+            ]),
+        );
+    });
+
     afterEach(() => vi.restoreAllMocks());
 
     it("should update membership, presence, role and profile groups without duplicates or empty headings", async () => {

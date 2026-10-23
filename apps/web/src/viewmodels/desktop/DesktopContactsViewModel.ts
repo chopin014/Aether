@@ -14,6 +14,7 @@ import {
 } from "@element-hq/web-shared-components";
 import {
     ClientEvent,
+    MatrixEvent,
     RoomEvent,
     RoomMemberEvent,
     User,
@@ -23,6 +24,8 @@ import {
 } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 
+import { getKnownPresence } from "../../utils/knownPresence";
+import { isPresenceEnabled } from "../../utils/presence";
 import DMRoomMap from "../../utils/DMRoomMap";
 import defaultDispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
@@ -51,24 +54,31 @@ export class DesktopContactsViewModel
             RoomEvent.Name,
             RoomMemberEvent.Name,
             UserEvent.Presence,
+            UserEvent.LastPresenceTs,
             UserEvent.DisplayName,
             UserEvent.AvatarUrl,
         ]) {
             this.disposables.trackListener(props.client, event, this.refresh);
         }
+        this.disposables.trackListener(props.client, ClientEvent.Event, this.onPresenceEvent);
         this.refresh();
     }
+
+    private onPresenceEvent = (event: unknown): void => {
+        if (event instanceof MatrixEvent && event.getType() === "m.presence") this.refresh();
+    };
 
     private contactFor = (userId: string, room?: Room): DesktopContact => {
         const user = this.props.client.getUser(userId);
         const member = room?.getMember(userId);
         const mxc = member?.getMxcAvatarUrl() ?? user?.avatarUrl;
+        const presence = isPresenceEnabled(this.props.client) ? getKnownPresence(user) : undefined;
         return {
             userId,
             name: member?.rawDisplayName || user?.displayName || userId,
             avatarUrl: mxc ? (mediaFromMxc(mxc).getThumbnailOfSourceHttp(64, 64, "crop") ?? undefined) : undefined,
             presence:
-                user?.presence === "online" ? "online" : user?.presence === "unavailable" ? "unavailable" : "offline",
+                presence === "online" || presence === "unavailable" || presence === "offline" ? presence : "unknown",
             roomId: room?.roomId,
         };
     };
@@ -107,7 +117,9 @@ export class DesktopContactsViewModel
         ];
         this.snapshot.merge({
             pendingCount: pending.length,
-            onlineContacts: [...contacts.values()].filter((contact) => contact.presence !== "offline"),
+            onlineContacts: [...contacts.values()].filter(
+                (contact) => contact.presence === "online" || contact.presence === "unavailable",
+            ),
         });
         this.filterContacts();
     };
@@ -122,7 +134,9 @@ export class DesktopContactsViewModel
                         ? contact.blocked
                         : tab === "pending"
                           ? contact.invited
-                          : !contact.blocked && !contact.invited && (tab === "all" || contact.presence !== "offline");
+                          : !contact.blocked &&
+                            !contact.invited &&
+                            (tab === "all" || contact.presence === "online" || contact.presence === "unavailable");
                 return (
                     tabMatches &&
                     (!lowerQuery || `${contact.name} ${contact.userId}`.toLocaleLowerCase().includes(lowerQuery))

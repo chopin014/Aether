@@ -1716,7 +1716,10 @@
         "online_for": "Online há %(duration)s",
         "unknown": "Desconhecido",
         "unknown_for": "Status desconhecido há %(duration)s",
-        "unreachable": "Servidor do usuário inacessível"
+        "unreachable": "Servidor do usuário inacessível",
+        "unknown_members": "Status desconhecido",
+        "update_failed": "Não foi possível atualizar a presença. O status solicitado foi mantido; tente enviá-lo novamente.",
+        "save_failed": "Não foi possível salvar sua preferência de presença neste dispositivo."
     },
     "quick_settings": {
         "all_settings": "Todas as configurações",

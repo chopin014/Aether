@@ -1,0 +1,56 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.root {
+    max-width: calc(var(--cpd-space-16x) * 5);
+    padding-block: var(--cpd-space-2x);
+}
+
+.summary {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cpd-space-1x);
+    color: var(--cpd-color-text-secondary);
+}
+
+.description {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-1x);
+    margin: var(--cpd-space-2x) var(--cpd-space-4x);
+    color: var(--cpd-color-text-secondary);
+}
+
+.error {
+    margin: var(--cpd-space-2x) var(--cpd-space-4x);
+    color: var(--cpd-color-text-critical-primary);
+}
+
+.dot {
+    width: var(--cpd-space-2x);
+    height: var(--cpd-space-2x);
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-icon-secondary);
+}
+
+.dot[data-presence="online"] {
+    background: var(--cpd-color-icon-success-primary);
+}
+
+.dot[data-presence="unavailable"] {
+    background: var(--cpd-color-icon-warning-primary);
+}
+
+.compactSummary {
+    position: absolute;
+    inset-inline-end: 0;
+    inset-block-end: 0;
+    display: flex;
+    padding: var(--cpd-space-0-5x);
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-subtle-primary);
+}

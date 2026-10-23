@@ -179,6 +179,21 @@
         "zoom_in": "Zoom in",
         "zoom_out": "Zoom out"
     },
+    "presence_controls": {
+        "automatic": "Online (automatic)",
+        "away": "Away",
+        "disabled": "Presence is disabled in this client’s configuration.",
+        "disabled_short": "Presence disabled",
+        "invisible": "Appear offline",
+        "offline": "Offline",
+        "online": "Online",
+        "requested": "Requested: %(status)s",
+        "retry": "Retry presence update",
+        "saving": "Updating…",
+        "server_hint": "Online switches to Away after 3 minutes idle. Your server may not provide presence; other devices can affect your reported status.",
+        "title": "Presence",
+        "unknown": "Status unknown"
+    },
     "release_announcement": {
         "room_list_section_close": "Ok",
         "room_list_section_description": "Group your chats into sections to keep conversations organised and easy to navigate.",

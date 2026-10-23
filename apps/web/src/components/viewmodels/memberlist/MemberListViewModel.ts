@@ -26,6 +26,7 @@ import { type RoomMember } from "../../../models/rooms/RoomMember";
 import { mediaFromMxc } from "../../../customisations/Media";
 import { shouldShowComponent } from "../../../customisations/helpers/UIComponents";
 import { UIComponent } from "../../../settings/UIFeature";
+import { getKnownPresence } from "../../../utils/knownPresence";
 import { type PresenceState } from "../../../models/rooms/PresenceState";
 import { useMatrixClientContext } from "../../../contexts/MatrixClientContext";
 import { SDKContext } from "../../../contexts/SDKContext";
@@ -75,7 +76,7 @@ export function sdkRoomMemberToRoomMember(member: SdkRoomMember): Member {
     const user = member.user;
     let presenceState: PresenceState | undefined;
     if (user) {
-        presenceState = (user.presence as PresenceState) || undefined;
+        presenceState = getKnownPresence(user) as PresenceState | undefined;
     }
 
     return {
@@ -278,6 +279,16 @@ export function useMemberListViewModel(roomId: string): MemberListViewState {
     });
 
     useTypedEventEmitter(cli, UserEvent.Presence, (_: MatrixEvent | undefined, user: User) => {
+        if (room.getMember(user.userId)) void loadMembers();
+    });
+
+    // The SDK's own User can predate its user-event re-emitter. Sync still emits the received Matrix event.
+    useTypedEventEmitter(cli, ClientEvent.Event, (event: MatrixEvent) => {
+        if (event.getType() === "m.presence" && room.getMember(event.getSender() ?? "")) void loadMembers();
+    });
+
+    // The first received offline event may leave the SDK value unchanged.
+    useTypedEventEmitter(cli, UserEvent.LastPresenceTs, (_: MatrixEvent | undefined, user: User) => {
         if (room.getMember(user.userId)) void loadMembers();
     });
 

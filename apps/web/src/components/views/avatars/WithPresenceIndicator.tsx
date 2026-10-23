@@ -10,12 +10,14 @@ import React, { type JSX, type ReactNode, useEffect, useState } from "react";
 import {
     ClientEvent,
     type Room,
+    type MatrixEvent,
     type RoomMember,
     RoomStateEvent,
     type User,
     UserEvent,
 } from "matrix-js-sdk/src/matrix";
 
+import { getKnownPresence } from "../../../utils/knownPresence";
 import { isPresenceEnabled } from "../../../utils/presence";
 import DMRoomMap from "../../../utils/DMRoomMap";
 import { getJoinedNonFunctionalMembers } from "../../../utils/room/getJoinedNonFunctionalMembers";
@@ -60,8 +62,9 @@ export const useDmMember = (room?: Room): RoomMember | null => {
 function getPresenceFromUser(user: User | null | undefined): Presence | null {
     if (!user) return null;
 
-    const presence = user.presence;
-    const isOnline = user.currentlyActive || presence === "online";
+    const presence = getKnownPresence(user);
+    if (!presence) return null;
+    const isOnline = presence === "online";
     if (BUSY_PRESENCE_NAME.matches(presence)) {
         return Presence.Busy;
     }
@@ -91,10 +94,16 @@ export const usePresence = (room: Room, member: RoomMember | null): Presence | n
     };
 
     useEventEmitter(member?.user, UserEvent.Presence, updatePresence);
-    useEventEmitter(member?.user, UserEvent.CurrentlyActive, updatePresence);
+    useEventEmitter(member?.user, UserEvent.LastPresenceTs, updatePresence);
     // Also listen at client level to catch presence events when member.user is not yet linked
     useEventEmitter(room.client, UserEvent.Presence, (_event: unknown, user: User) => {
         if (user?.userId === member?.userId) updatePresence();
+    });
+    useEventEmitter(room.client, UserEvent.LastPresenceTs, (_event: unknown, user: User) => {
+        if (user?.userId === member?.userId) updatePresence();
+    });
+    useEventEmitter(room.client, ClientEvent.Event, (event: MatrixEvent) => {
+        if (event.getType() === "m.presence" && event.getSender() === member?.userId) updatePresence();
     });
     useEffect(updatePresence, [room, member]);
 
