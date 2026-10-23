@@ -6,7 +6,7 @@ Please see LICENSE in the repository root for full details.
 */
 
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import config from "../aether-builder.ts";
 
@@ -37,6 +37,16 @@ describe("Aether distribution identity", () => {
         // A width byte of 0 means 256 px in the ICO directory.
         const sizes = Array.from({ length: ico.readUInt16LE(4) }, (_, i) => ico[6 + i * 16] || 256);
         expect(sizes).toEqual([16, 24, 32, 48, 64, 128, 256]);
+    });
+    it("brands the sign-in screens with files the web app serves", () => {
+        const { branding } = JSON.parse(readFileSync("config.desktop.json", "utf8"));
+        expect(branding).toEqual({
+            auth_header_logo_url: "themes/aether/symbol.svg",
+            welcome_background_url: "themes/aether/background.svg",
+        });
+        for (const url of Object.values<string>(branding)) {
+            expect(existsSync(`../web/res/${url}`)).toBe(true);
+        }
     });
     it("ships the Matrix desktop shell and Element Call without an upstream update feed", () => {
         const renderer = JSON.parse(readFileSync("config.desktop.json", "utf8"));
