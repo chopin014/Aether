@@ -106,6 +106,13 @@ Matrix presence APIs. The account dock always shows the selected status badge an
 Matrix ID on hover or keyboard focus. Requested status stays separate from received presence;
 missing data for other members is neutral rather than Offline. See [presence behavior and limits](presence.md).
 
+The desktop header pin button opens an anchored, nonmodal message browser without replacing
+members or changing the active channel. Cards retain Element's authenticated message and attachment
+rendering, original-event jumps, live edits and permission-checked unpin actions. Loading, unavailable
+messages and failed requests have explicit states and retry actions. Escape, outside click and the
+header button dismiss the browser; explicit dismissal returns focus to the button. Other pin entry
+points and the non-desktop shell retain the existing card.
+
 The acceptance target is the captured Discord desktop interface and its interactions, not a recolored Element. These statuses distinguish working integration from finished visual parity.
 
 | Captured surface                | Current implementation                                                                                | Still required                                                                             |
