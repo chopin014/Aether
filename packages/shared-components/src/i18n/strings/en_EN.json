@@ -179,6 +179,17 @@
         "zoom_in": "Zoom in",
         "zoom_out": "Zoom out"
     },
+    "pinned_messages": {
+        "empty_description": "Pin a message from its menu to keep it handy here.",
+        "empty_title": "No pinned messages yet",
+        "jump": "Jump to message",
+        "load_error": "Some pinned messages could not be loaded. Try again.",
+        "loading": "Loading pinned messages…",
+        "title": "Pinned messages",
+        "unavailable": "This message is unavailable. It may have been removed or you may not have access.",
+        "unpin": "Unpin",
+        "unpin_error": "The message could not be unpinned. Try again."
+    },
     "presence_controls": {
         "away": "Away",
         "disabled": "Presence is disabled in this client’s configuration.",

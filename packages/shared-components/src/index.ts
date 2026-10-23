@@ -121,3 +121,4 @@ export * from "./desktop/DesktopContactsView";
 export * from "./desktop/DesktopVoiceControlsView";
 
 export * from "./presence/PresenceMenuView";
+export * from "./room/PinnedMessagesView";

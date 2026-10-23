@@ -25,7 +25,6 @@ import {
     HistoryIcon,
     UserProfileSolidIcon,
     RoomIcon,
-    PinIcon,
     SearchIcon,
     GroupIcon,
     VolumeOnIcon,
@@ -60,6 +59,7 @@ import { Action } from "../../../../dispatcher/actions";
 import defaultDispatcher from "../../../../dispatcher/dispatcher.ts";
 import { RoomSettingsTab } from "../../dialogs/RoomSettingsDialog-tab";
 import { useScopedRoomContext } from "../../../../contexts/ScopedRoomContext.tsx";
+import { PinnedMessagesPopover } from "./PinnedMessagesPopover";
 import { ToggleableIcon } from "./toggle/ToggleableIcon.tsx";
 import { CurrentRightPanelPhaseContextProvider } from "../../../../contexts/CurrentRightPanelPhaseContext.tsx";
 import { LocalRoom } from "../../../../models/LocalRoom.ts";
@@ -384,16 +384,7 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
                 </Tooltip>
             )}
 
-            {desktopShell && (
-                <Tooltip label={_t("right_panel|pinned_messages_button")}>
-                    <IconButton
-                        aria-label={_t("right_panel|pinned_messages_button")}
-                        onClick={() => sdkContext.rightPanelStore.showOrHidePhase(RightPanelPhases.PinnedMessages)}
-                    >
-                        <ToggleableIcon Icon={PinIcon} phase={RightPanelPhases.PinnedMessages} />
-                    </IconButton>
-                </Tooltip>
-            )}
+            {desktopShell && <PinnedMessagesPopover key={room.roomId} room={room} />}
             {!isDirectMessage && desktopShell && (
                 <Tooltip label={_t("common|n_members", { count: memberCount })}>
                     <IconButton
