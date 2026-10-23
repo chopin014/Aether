@@ -7,6 +7,10 @@
         "esModuleInterop": true,
         "moduleResolution": "bundler",
         "module": "ESNext",
+        "paths": {
+            "matrix-js-sdk": ["../node_modules/matrix-js-sdk/src/matrix.ts"],
+            "matrix-js-sdk/lib/*": ["../node_modules/matrix-js-sdk/src/*"]
+        },
         "allowImportingTsExtensions": true,
         "strict": true,
         "noUnusedLocals": true,
