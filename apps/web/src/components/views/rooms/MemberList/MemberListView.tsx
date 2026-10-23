@@ -30,6 +30,8 @@ interface IProps {
  * Height of a single member list item
  */
 const MEMBER_LIST_ITEM_HEIGHT = 56;
+/** Height of a desktop shell member or presence heading, matching `_DesktopShell.pcss`. */
+const DESKTOP_MEMBER_LIST_ITEM_HEIGHT = 48;
 type MemberListItem = MemberWithSeparator | { heading: string; count: number; key: string };
 const isHeading = (item: MemberListItem): item is { heading: string; count: number; key: string } =>
     typeof item === "object" && "heading" in item;
@@ -156,7 +158,7 @@ const MemberListView: React.FC<IProps> = (props: IProps) => {
                     isItemFocusable={isItemFocusable}
                     role="listbox"
                     aria-label={_t("member_list|list_title")}
-                    fixedItemHeight={desktopShell ? 44 : MEMBER_LIST_ITEM_HEIGHT}
+                    fixedItemHeight={desktopShell ? DESKTOP_MEMBER_LIST_ITEM_HEIGHT : MEMBER_LIST_ITEM_HEIGHT}
                     increaseViewportBy={{
                         bottom: EXTENDED_VIEWPORT_HEIGHT,
                         top: EXTENDED_VIEWPORT_HEIGHT,

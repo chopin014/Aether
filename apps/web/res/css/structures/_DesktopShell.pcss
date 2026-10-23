@@ -30,9 +30,11 @@ body.mx_DesktopShell {
     --mx-desktop-search-padding: 8px 10px;
     --mx-desktop-search-button-padding: 8px;
     --mx-desktop-search-background: var(--cpd-color-bg-subtle-primary);
-    --mx-desktop-room-content-height: 32px;
-    --mx-desktop-channel-row-gap: 1px;
-    --mx-desktop-category-padding: 12px;
+    /* Direct messages carry a profile avatar; channels a 24px symbol. Both keep 2px between rows. */
+    --mx-desktop-room-content-height: 42px;
+    --mx-desktop-channel-content-height: 34px;
+    --mx-desktop-channel-row-gap: 2px;
+    --mx-desktop-category-padding: 14px;
     --mx-desktop-category-inner-padding: 2px 8px 2px 4px;
     --mx-desktop-room-margin: 8px;
     --mx-desktop-room-radius: 6px;
@@ -509,13 +511,14 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
     }
 
     .mx_MemberListView {
-        padding-inline: 8px;
+        padding-inline: 12px;
 
         .mx_MemberTileView {
-            height: 44px;
-            padding: 6px 8px;
+            /* DESKTOP_MEMBER_LIST_ITEM_HEIGHT in MemberListView, shared with the presence headings. */
+            height: 48px;
+            padding: 6px 10px;
             border: 0;
-            border-radius: 6px;
+            border-radius: 8px;
 
             &:hover,
             &:focus-visible {
@@ -535,8 +538,8 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
 
     .mx_DesktopShell_memberHeading {
         margin: 0;
-        padding: 18px 4px 4px;
-        height: 44px;
+        padding: 20px 10px 6px;
+        height: 48px;
         box-sizing: border-box;
         font: var(--cpd-font-body-sm-medium);
         color: var(--cpd-color-text-tertiary, var(--cpd-color-text-secondary));

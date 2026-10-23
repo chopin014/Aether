@@ -24,6 +24,14 @@
     /* 44px height + padding */
     min-height: calc(var(--mx-desktop-room-content-height, 44px) + var(--padding-top) + var(--padding-bottom));
 
+    /* Desktop channels are denser than conversations with profile avatars. */
+    &:has(> .channel) {
+        min-height: calc(
+            var(--mx-desktop-channel-content-height, var(--mx-desktop-room-content-height, 44px)) + var(--padding-top) +
+                var(--padding-bottom)
+        );
+    }
+
     font: var(--cpd-font-body-md-regular);
     letter-spacing: var(--cpd-font-letter-spacing-body-md);
     color: var(--cpd-color-text-secondary);
