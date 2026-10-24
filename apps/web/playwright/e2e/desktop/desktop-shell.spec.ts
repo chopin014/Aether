@@ -70,6 +70,39 @@ test("discovers and joins public Spaces from a separate rail button", async ({ p
     await expect(rail.getByRole("button", { name, exact: true })).toBeVisible();
 });
 
+test("centres Home, servers, the divider and actions on the server rail", async ({ page, app }) => {
+    await app.client.createSpace({ name: "Rail alignment space" });
+    const rail = page.getByRole("navigation", { name: "Spaces", exact: true });
+    await expect(rail.getByRole("button", { name: "Rail alignment space", exact: true })).toBeVisible();
+
+    const geometry = await rail.evaluate((nav) => {
+        const railBox = nav.getBoundingClientRect();
+        const centre = (box: DOMRect): number => box.left + box.width / 2 - railBox.left;
+        const tiles = [...nav.querySelectorAll(".mx_SpaceButton_selectionWrapper")].map((tile) => ({
+            centre: centre(tile.getBoundingClientRect()),
+            width: tile.getBoundingClientRect().width,
+            content: centre(tile.firstElementChild!.getBoundingClientRect()),
+        }));
+        const meta = [...nav.querySelectorAll(".mx_SpaceItem_meta")].at(-1)!;
+        const divider = getComputedStyle(meta, "::after");
+        const dividerCentre =
+            meta.getBoundingClientRect().left -
+            railBox.left +
+            parseFloat(divider.marginLeft) +
+            parseFloat(divider.width) / 2;
+        return { railWidth: railBox.width, tiles, dividerCentre };
+    });
+
+    const middle = geometry.railWidth / 2;
+    expect(geometry.tiles.length).toBeGreaterThanOrEqual(3);
+    for (const tile of geometry.tiles) {
+        expect(tile.width).toBe(48);
+        expect(tile.centre).toBeCloseTo(middle, 0);
+        expect(tile.content).toBeCloseTo(middle, 0);
+    }
+    expect(geometry.dividerCentre).toBeCloseTo(middle, 0);
+});
+
 test("sends through Matrix, receives another member's message and preserves room drafts", async ({
     page,
     app,

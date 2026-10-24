@@ -316,17 +316,23 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
             display: block;
             width: 32px;
             height: 2px;
-            margin: 4px auto;
+            /* Centre under the icons; the meta item is narrower than the rail. */
+            margin-block: 4px;
+            margin-inline-start: calc(var(--mx-desktop-rail-inset) + (var(--mx-desktop-rail-icon) - 32px) / 2);
             border-radius: 1px;
             background: var(--cpd-color-border-interactive-secondary);
         }
 
-        .mx_SpaceButton_narrow {
+        /* Element's tree gutter and trailing padding would shift the icons off the rail's centre line. */
+        .mx_SpaceButton_narrow,
+        .mx_SpaceItem:not(.hasSubSpaces) > .mx_SpaceButton_narrow {
             margin-inline-start: var(--mx-desktop-rail-inset);
             padding-block: 4px;
+            padding-inline: 0;
             min-width: var(--mx-desktop-rail-icon);
 
             .mx_SpaceButton_selectionWrapper {
+                flex: none;
                 width: var(--mx-desktop-rail-icon);
                 padding: 0;
                 border: 0;
