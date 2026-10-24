@@ -9,7 +9,7 @@ import { EventType, JoinRule, type MatrixEvent, type Room, RoomEvent } from "mat
 import { useEffect, useState } from "react";
 
 import { useTypedEventEmitter, useTypedEventEmitterState } from "../../../hooks/useEventEmitter";
-import { useDmMember, usePresence, type Presence } from "../../views/avatars/WithPresenceIndicator";
+import { useDmMember, usePresenceDetails, type Presence } from "../../views/avatars/WithPresenceIndicator";
 import { DefaultTagID } from "../../../stores/room-list-v3/skip-list/tag";
 
 export enum AvatarBadgeDecoration {
@@ -27,6 +27,12 @@ export interface RoomAvatarViewState {
     presence: Presence | null;
 
     /**
+     * Wording for the presence decoration when the standard name would overstate what is known,
+     * e.g. "Active 12m ago" for seen activity.
+     */
+    presenceLabel?: string;
+
+    /**
      * The decoration that should be rendered.
      */
     badgeDecoration?: AvatarBadgeDecoration;
@@ -39,7 +45,7 @@ export interface RoomAvatarViewState {
 export function useRoomAvatarViewModel(room: Room): RoomAvatarViewState {
     const isVideoRoom = room.isElementVideoRoom() || room.isCallRoom();
     const roomMember = useDmMember(room);
-    const presence = usePresence(room, roomMember);
+    const { presence, label: presenceLabel } = usePresenceDetails(room, roomMember);
     const isPublic = useIsPublic(room);
     const isLowPriority = useTypedEventEmitterState(room, RoomEvent.Tags, () => !!room.tags[DefaultTagID.LowPriority]);
 
@@ -54,7 +60,7 @@ export function useRoomAvatarViewModel(room: Room): RoomAvatarViewState {
         badgeDecoration = AvatarBadgeDecoration.Presence;
     }
 
-    return { badgeDecoration, presence };
+    return { badgeDecoration, presence, presenceLabel };
 }
 
 /**

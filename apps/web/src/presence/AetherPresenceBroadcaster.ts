@@ -18,6 +18,9 @@ import { selectPresenceRecipients } from "./AetherPresenceRecipients";
 
 const MIN_BACKOFF_MS = 30 * 1000;
 
+/** First wait before looking again when there is nobody to tell yet, e.g. while rooms are still loading. */
+const NO_RECIPIENTS_RETRY_MS = 10 * 1000;
+
 function toWireState(presence: SetPresence): AetherPresenceState {
     switch (presence) {
         case SetPresence.Unavailable:
@@ -45,6 +48,7 @@ export class AetherPresenceBroadcaster {
     private sending = false;
     private resend = false;
     private failures = 0;
+    private emptyChecks = 0;
     private lastSent?: AetherPresenceState;
 
     public constructor(private readonly client: MatrixClient) {}
@@ -62,6 +66,7 @@ export class AetherPresenceBroadcaster {
         if (!this.running || presence === this.presence) return;
         this.presence = presence;
         this.failures = 0;
+        this.emptyChecks = 0;
         this.trigger();
     }
 
@@ -93,8 +98,14 @@ export class AetherPresenceBroadcaster {
         if (!quiet) {
             this.sending = true;
             try {
-                await this.sendOnce(state);
+                const reached = await this.sendOnce(state);
                 this.failures = 0;
+                if (reached) {
+                    this.emptyChecks = 0;
+                } else {
+                    // The first sync can finish before rooms and DMs are known, so look again soon, then less often.
+                    delay = Math.min(HEARTBEAT_MS, NO_RECIPIENTS_RETRY_MS * 2 ** this.emptyChecks++);
+                }
             } catch (e) {
                 this.failures++;
                 const retryAfter = (e as { data?: { retry_after_ms?: number } }).data?.retry_after_ms;
@@ -120,14 +131,12 @@ export class AetherPresenceBroadcaster {
         this.timer = setTimeout(() => void this.tick(), delay);
     };
 
-    private async sendOnce(state: AetherPresenceState): Promise<void> {
+    /** Returns false when there was nobody to send to. */
+    private async sendOnce(state: AetherPresenceState): Promise<boolean> {
         const crypto = this.client.getCrypto();
-        if (!crypto) return;
+        if (!crypto) return true;
         const recipients = selectPresenceRecipients(this.client);
-        if (!recipients.length) {
-            this.lastSent = state;
-            return;
-        }
+        if (!recipients.length) return false;
         const deviceMap = await crypto.getUserDeviceInfo(recipients, true);
         const devices: { userId: string; deviceId: string }[] = [];
         for (const [userId, userDevices] of deviceMap) {
@@ -141,9 +150,12 @@ export class AetherPresenceBroadcaster {
                 devices,
                 buildAetherPresence(state, Date.now()),
             );
+            // Nothing could be encrypted yet, e.g. the recipients' keys are still being fetched.
+            if (!batch.batch.length) return false;
             // The SDK queue splits large batches and retries with its own back-off, including after 429.
             await this.client.queueToDevice(batch);
         }
         this.lastSent = state;
+        return true;
     }
 }

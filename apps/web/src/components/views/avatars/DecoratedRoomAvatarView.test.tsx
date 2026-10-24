@@ -99,4 +99,17 @@ describe("<DecoratedRoomAvatarView />", () => {
         expect(screen.getByLabelText(label)).toBeInTheDocument();
         expect(asFragment()).toMatchSnapshot();
     });
+
+    it("should label a presence decoration with the override instead of the standard name", () => {
+        vi.mocked(useRoomAvatarViewModel).mockReturnValue({
+            ...defaultValue,
+            badgeDecoration: AvatarBadgeDecoration.Presence,
+            presence: Presence.Online,
+            presenceLabel: "Active 12m ago",
+        });
+        render(<DecoratedRoomAvatarView room={room} />);
+
+        expect(screen.getByLabelText("Active 12m ago")).toBeInTheDocument();
+        expect(screen.queryByLabelText("Online")).not.toBeInTheDocument();
+    });
 });

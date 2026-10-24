@@ -8,6 +8,7 @@ Please see LICENSE in the repository root for full details.
 import { type Room } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 
+import { type RoomMember as Member } from "../../models/rooms/RoomMember";
 import { SEPARATOR, type MemberWithSeparator } from "../../components/viewmodels/memberlist/MemberListViewModel";
 import { _t } from "../../languageHandler";
 import { getPowerLevelRole } from "../../Roles";
@@ -42,14 +43,17 @@ export function groupDesktopMembers(
     const others: MemberWithSeparator[] = [];
     const offline: MemberWithSeparator[] = [];
     const unknown: MemberWithSeparator[] = [];
-    const hasKnownPresence =
-        isPresenceEnabled &&
-        members.some(
-            (item) =>
-                item !== SEPARATOR &&
-                !item.member?.isInvite &&
-                ["online", "unavailable", "offline"].includes(item.member?.presenceState ?? ""),
-        );
+    // Homeserver presence only counts where the config allows it; an Aether client's own report always does.
+    const knownState = (member: Member | undefined): string | undefined =>
+        member?.presenceSource === "aether" || (isPresenceEnabled && !member?.presenceSource)
+            ? member?.presenceState
+            : undefined;
+    const hasKnownPresence = members.some(
+        (item) =>
+            item !== SEPARATOR &&
+            !item.member?.isInvite &&
+            ["online", "unavailable", "busy", "offline"].includes(knownState(item.member) ?? ""),
+    );
     const invited: MemberWithSeparator[] = [];
     const seen = new Set<string>();
     for (const item of members) {
@@ -62,11 +66,12 @@ export function groupDesktopMembers(
             invited.push(item);
             continue;
         }
-        if (hasKnownPresence && member.presenceState === "offline") {
+        if (hasKnownPresence && knownState(member) === "offline") {
             offline.push(item);
             continue;
         }
-        if (hasKnownPresence && member.presenceState !== "online" && member.presenceState !== "unavailable") {
+        const state = knownState(member);
+        if (hasKnownPresence && state !== "online" && state !== "unavailable" && state !== "busy") {
             unknown.push(item);
             continue;
         }

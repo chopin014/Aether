@@ -36,6 +36,25 @@ describe("AetherPresenceBroadcaster", () => {
         return { client, crypto, broadcaster: new AetherPresenceBroadcaster(client) };
     };
 
+    it("looks again soon when nobody is known yet, then sends once rooms have loaded", async () => {
+        const crypto = makeFakeCrypto({ "@bob:example.org": ["A"] });
+        const members: string[] = [];
+        const client = makeFakeClient({ crypto, rooms: [{ id: "!r", members }] });
+        const broadcaster = new AetherPresenceBroadcaster(client);
+        broadcaster.start(SetPresence.Online);
+        await flush();
+        expect(crypto.encryptToDeviceMessages).not.toHaveBeenCalled();
+
+        members.push("@me:example.org", "@bob:example.org");
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(crypto.encryptToDeviceMessages).toHaveBeenCalledTimes(1);
+
+        // Back on the normal heartbeat afterwards.
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
+        expect(crypto.encryptToDeviceMessages).toHaveBeenCalledTimes(2);
+        broadcaster.stop();
+    });
+
     it("sends one encrypted batch to every recipient device on start", async () => {
         const { client, crypto, broadcaster } = setup(makeFakeCrypto({ "@bob:example.org": ["A", "B"] }));
         broadcaster.start(SetPresence.Online);

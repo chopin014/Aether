@@ -11,6 +11,7 @@ import { useCreateAutoDisposedViewModel, DisambiguatedProfileView } from "@eleme
 import { type RoomMember } from "../../../../../models/rooms/RoomMember";
 import { useMemberTileViewModel } from "../../../../viewmodels/memberlist/tiles/MemberTileViewModel";
 import { E2EIconView } from "./common/E2EIconView";
+import { useMergedPresence } from "../../../../../presence/useMergedPresence";
 import AvatarPresenceIconView from "./common/PresenceIconView";
 import BaseAvatar from "../../../avatars/BaseAvatar";
 import { _t } from "../../../../../languageHandler";
@@ -68,10 +69,17 @@ export function RoomMemberTileView(props: IProps): JSX.Element {
     }, [disambiguatedProfileVM, userStatus]);
     const nameJSX = <DisambiguatedProfileView vm={disambiguatedProfileVM} className="mx_DisambiguatedProfile" />;
 
-    const presenceState = member.presenceState;
+    // Desktop shell only: adds seen activity for people with no reported status. Null otherwise.
+    const merged = useMergedPresence(member.isInvite ? undefined : member.userId);
+    const presenceState = merged?.state ?? member.presenceState;
     let presenceJSX: JSX.Element | undefined;
     if (vm.showPresence && presenceState) {
-        presenceJSX = <AvatarPresenceIconView presenceState={presenceState} />;
+        presenceJSX = (
+            <AvatarPresenceIconView
+                presenceState={presenceState}
+                label={merged ? merged.label : member.presenceLabel}
+            />
+        );
     }
 
     let iconJsx;

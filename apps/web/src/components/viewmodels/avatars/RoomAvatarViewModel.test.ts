@@ -42,7 +42,7 @@ describe("RoomAvatarViewModel", () => {
         vi.spyOn(DMRoomMap.shared(), "getUserIdForRoomId").mockReturnValue(undefined);
 
         vi.spyOn(PresenceIndicatorModule, "useDmMember").mockReturnValue(null);
-        vi.spyOn(PresenceIndicatorModule, "usePresence").mockReturnValue(null);
+        vi.spyOn(PresenceIndicatorModule, "usePresenceDetails").mockReturnValue({ presence: null });
     });
 
     it("should have badgeDecoration set to LowPriority", () => {
@@ -69,7 +69,9 @@ describe("RoomAvatarViewModel", () => {
         const roomMember = new RoomMember(room.roomId, "userId");
         roomMember.user = user;
         vi.spyOn(PresenceIndicatorModule, "useDmMember").mockReturnValue(roomMember);
-        vi.spyOn(PresenceIndicatorModule, "usePresence").mockReturnValue(PresenceIndicatorModule.Presence.Online);
+        vi.spyOn(PresenceIndicatorModule, "usePresenceDetails").mockReturnValue({
+            presence: PresenceIndicatorModule.Presence.Online,
+        });
 
         const { result: vm1 } = renderHook(() => useRoomAvatarViewModel(room));
         expect(vm1.current.badgeDecoration).toBe(AvatarBadgeDecoration.Presence);
@@ -110,9 +112,23 @@ describe("RoomAvatarViewModel", () => {
         const roomMember = new RoomMember(room.roomId, "userId");
         roomMember.user = user;
         vi.spyOn(PresenceIndicatorModule, "useDmMember").mockReturnValue(roomMember);
-        vi.spyOn(PresenceIndicatorModule, "usePresence").mockReturnValue(PresenceIndicatorModule.Presence.Online);
+        vi.spyOn(PresenceIndicatorModule, "usePresenceDetails").mockReturnValue({
+            presence: PresenceIndicatorModule.Presence.Online,
+        });
 
         const { result: vm } = renderHook(() => useRoomAvatarViewModel(room));
         expect(vm.current.presence).toBe(PresenceIndicatorModule.Presence.Online);
+        expect(vm.current.presenceLabel).toBeUndefined();
+    });
+
+    it("should pass on the wording for activity", async () => {
+        const roomMember = new RoomMember(room.roomId, "userId");
+        vi.spyOn(PresenceIndicatorModule, "useDmMember").mockReturnValue(roomMember);
+        vi.spyOn(PresenceIndicatorModule, "usePresenceDetails").mockReturnValue({
+            presence: PresenceIndicatorModule.Presence.Online,
+            label: "Active now",
+        });
+        const { result: vm } = renderHook(() => useRoomAvatarViewModel(room));
+        expect(vm.current.presenceLabel).toBe("Active now");
     });
 });

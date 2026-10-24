@@ -88,7 +88,7 @@ const MemberListView: React.FC<IProps> = (props: IProps) => {
                     <RoomMemberTileView
                         item={item}
                         member={item.member}
-                        showPresence={isPresenceEnabled}
+                        showPresence={isPresenceEnabled || desktopShell}
                         showRole={!desktopShell}
                         focused={focused}
                         tabIndex={isRovingItem ? 0 : -1}

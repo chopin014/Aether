@@ -27,6 +27,12 @@ import { mediaFromMxc } from "../../../customisations/Media";
 import { shouldShowComponent } from "../../../customisations/helpers/UIComponents";
 import { UIComponent } from "../../../settings/UIFeature";
 import { getKnownPresence } from "../../../utils/knownPresence";
+import { MatrixClientPeg } from "../../../MatrixClientPeg";
+import { isPresenceEnabled } from "../../../utils/presence";
+import SettingsStore from "../../../settings/SettingsStore";
+import { AetherPresenceService } from "../../../presence/AetherPresenceService";
+import { AetherPresenceStoreEvent } from "../../../presence/AetherPresenceStore";
+import { mergePresence, type PresenceSource } from "../../../presence/mergedPresence";
 import { type PresenceState } from "../../../models/rooms/PresenceState";
 import { useMatrixClientContext } from "../../../contexts/MatrixClientContext";
 import { SDKContext } from "../../../contexts/SDKContext";
@@ -78,6 +84,22 @@ export function sdkRoomMemberToRoomMember(member: SdkRoomMember): Member {
     if (user) {
         presenceState = getKnownPresence(user) as PresenceState | undefined;
     }
+    let presenceSource: PresenceSource | undefined;
+    let presenceLabel: string | undefined;
+    // Where the config disables server presence, whatever the server sent is ignored, so it must not hide a signal.
+    const client = MatrixClientPeg.get();
+    const serverPresenceUsable = !client || isPresenceEnabled(client);
+    if ((!presenceState || !serverPresenceUsable) && SettingsStore.getValue("feature_desktop_shell")) {
+        // Another Aether client's own report. Seen activity is not used here: it must not place anyone in the
+        // Online or Offline groups, so the tile adds it separately.
+        const signal = AetherPresenceService.instance.store?.getSignal(member.userId);
+        const merged = signal ? mergePresence({ aether: signal, now: Date.now() }) : null;
+        if (merged) {
+            presenceState = merged.state;
+            presenceSource = merged.source;
+            presenceLabel = merged.label;
+        }
+    }
 
     return {
         member: {
@@ -91,6 +113,8 @@ export function sdkRoomMemberToRoomMember(member: SdkRoomMember): Member {
             powerLevel: member.powerLevel,
             lastModifiedTime: member.getLastModifiedTime(),
             presenceState,
+            ...(presenceSource ? { presenceSource } : {}),
+            ...(presenceLabel ? { presenceLabel } : {}),
             isInvite: member.membership === KnownMembership.Invite,
         },
     };
@@ -280,6 +304,11 @@ export function useMemberListViewModel(roomId: string): MemberListViewState {
 
     useTypedEventEmitter(cli, UserEvent.Presence, (_: MatrixEvent | undefined, user: User) => {
         if (room.getMember(user.userId)) void loadMembers();
+    });
+
+    // Another Aether client reported a new status.
+    useTypedEventEmitter(AetherPresenceService.instance.store, AetherPresenceStoreEvent.Update, (userId: string) => {
+        if (room.getMember(userId)) void loadMembers();
     });
 
     // The SDK's own User can predate its user-event re-emitter. Sync still emits the received Matrix event.

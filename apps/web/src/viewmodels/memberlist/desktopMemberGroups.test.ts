@@ -16,7 +16,11 @@ import { type RoomMember } from "../../models/rooms/RoomMember";
 import { SEPARATOR } from "../../components/viewmodels/memberlist/MemberListViewModel";
 import { groupDesktopMembers, isMemberHeading, type DesktopMemberListItem } from "./desktopMemberGroups";
 
-function member(name: string, powerLevel = 0, presenceState: RoomMember["presenceState"] = "online") {
+function member(
+    name: string,
+    powerLevel = 0,
+    presenceState: RoomMember["presenceState"] = "online",
+): { member: RoomMember } {
     return {
         member: {
             roomId: "!channel:example.org",
@@ -206,5 +210,58 @@ describe("groupDesktopMembers", () => {
         const rows = groupDesktopMembers([ada], true, null, "en");
         expect(headings(rows)).toEqual([["Admin", 1]]);
         expect(rows[1]).toBe(ada);
+    });
+
+    describe("with Aether-reported presence", () => {
+        const aether = (name: string, state: RoomMember["presenceState"], powerLevel = 0) => {
+            const m = member(name, powerLevel, state);
+            m.member.presenceSource = "aether";
+            return m;
+        };
+        const activity = (name: string) => {
+            const m = member(name, 0, "online");
+            m.member.presenceSource = "activity";
+            return m;
+        };
+
+        it("should group Aether users as online and offline even where the config disables server presence", () => {
+            const items = groupDesktopMembers(
+                [aether("Ada", "online"), aether("Bo", "unavailable"), aether("Cy", "offline"), aether("Di", "busy")],
+                false,
+                null,
+                "en",
+            );
+            expect(headings(items)).toEqual([
+                ["Online", 3],
+                ["Offline", 1],
+            ]);
+        });
+
+        it("should keep users with only seen activity in the unknown group, never online", () => {
+            const items = groupDesktopMembers([aether("Ada", "online"), activity("Seen")], false, null, "en");
+            expect(headings(items)).toEqual([
+                ["Online", 1],
+                ["Status unknown", 1],
+            ]);
+            expect(names(items)).toEqual(["Ada", "Seen"]);
+        });
+
+        it("should not turn the list into presence groups from activity alone", () => {
+            const items = groupDesktopMembers([activity("Seen"), activity("Other")], true, null, "en");
+            expect(headings(items)).toEqual([["Member list", 2]]);
+        });
+
+        it("should ignore server-style presence when the config disables it, but keep Aether users", () => {
+            const items = groupDesktopMembers(
+                [member("Server", 0, "online"), aether("Ada", "offline")],
+                false,
+                null,
+                "en",
+            );
+            expect(headings(items)).toEqual([
+                ["Status unknown", 1],
+                ["Offline", 1],
+            ]);
+        });
     });
 });

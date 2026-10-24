@@ -1872,6 +1872,7 @@
         "last_active_ago": "Last active %(duration)s ago",
         "offline": "Offline",
         "offline_for": "Offline for %(duration)s",
+        "offline_last_seen": "Offline · last seen %(duration)s ago",
         "online": "Online",
         "online_for": "Online for %(duration)s",
         "save_failed": "Could not save your presence preference on this device.",

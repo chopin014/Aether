@@ -1716,6 +1716,7 @@
         "offline": "Offline",
         "offline_for": "Offline há %(duration)s",
         "offline_last_seen": "Offline · visto há %(duration)s",
+        "offline_last_seen": "Offline · visto há %(duration)s",
         "online": "Disponível",
         "online_for": "Online há %(duration)s",
         "unknown": "Desconhecido",

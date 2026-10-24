@@ -24,7 +24,9 @@ import { getMockClientWithEventEmitter, stubClient } from "test-utils";
 
 import { MatrixClientPeg } from "../../../MatrixClientPeg";
 import DMRoomMap from "../../../utils/DMRoomMap";
-import WithPresenceIndicator, { Presence, usePresence } from "./WithPresenceIndicator";
+import WithPresenceIndicator, { Presence, usePresence, usePresenceDetails } from "./WithPresenceIndicator";
+import * as useMergedPresenceModule from "../../../presence/useMergedPresence";
+import * as useSettings from "../../../hooks/useSettings";
 import { isPresenceEnabled } from "../../../utils/presence";
 import { getJoinedNonFunctionalMembers } from "../../../utils/room/getJoinedNonFunctionalMembers";
 
@@ -235,5 +237,58 @@ describe("usePresence", () => {
         });
 
         expect(result.current).toBe(Presence.Online);
+    });
+});
+
+describe("usePresenceDetails with the desktop shell", () => {
+    const DM_USER_ID = "@bob:foo.bar";
+    let room: Room;
+    let member: RoomMember;
+
+    beforeEach(() => {
+        const client = getMockClientWithEventEmitter({
+            getUserId: vi.fn().mockReturnValue("@alice:foo.bar"),
+            getUser: vi.fn().mockReturnValue(null),
+            store: { getPendingEvents: vi.fn().mockResolvedValue([]) },
+        });
+        room = new Room("roomId", client as unknown as MatrixClient, "@alice:foo.bar");
+        member = new RoomMember("roomId", DM_USER_ID);
+        vi.mocked(isPresenceEnabled).mockReturnValue(false);
+        vi.mocked(getJoinedNonFunctionalMembers).mockReturnValue([1, 2] as any);
+        vi.spyOn(useSettings, "useFeatureEnabled").mockReturnValue(true);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it("uses seen activity with its own wording even where server presence is disabled", () => {
+        vi.spyOn(useMergedPresenceModule, "useMergedPresence").mockReturnValue({
+            state: "online",
+            source: "activity",
+            label: "Active now",
+        });
+        const { result } = renderHook(() => usePresenceDetails(room, member));
+        expect(result.current).toEqual({ presence: Presence.Online, label: "Active now" });
+    });
+
+    it("shows nothing when nothing is known", () => {
+        vi.spyOn(useMergedPresenceModule, "useMergedPresence").mockReturnValue(null);
+        const { result } = renderHook(() => usePresenceDetails(room, member));
+        expect(result.current).toEqual({ presence: null });
+    });
+
+    it("shows nothing outside one-to-one rooms", () => {
+        vi.mocked(getJoinedNonFunctionalMembers).mockReturnValue([1, 2, 3] as any);
+        vi.spyOn(useMergedPresenceModule, "useMergedPresence").mockReturnValue({ state: "online", source: "aether" });
+        const { result } = renderHook(() => usePresenceDetails(room, member));
+        expect(result.current.presence).toBeNull();
+    });
+
+    it("ignores the merged status when the flag is off", () => {
+        vi.spyOn(useSettings, "useFeatureEnabled").mockReturnValue(false);
+        vi.spyOn(useMergedPresenceModule, "useMergedPresence").mockReturnValue({ state: "online", source: "aether" });
+        const { result } = renderHook(() => usePresenceDetails(room, member));
+        expect(result.current).toEqual({ presence: null });
     });
 });
