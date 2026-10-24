@@ -41,6 +41,17 @@ async function settle(page: Page): Promise<void> {
     await closeReleaseAnnouncementIfExists(page, "Introducing Sections");
 }
 
+/**
+ * Sends Chromium's fake microphone without noise suppression. Its beep is not speech, so Voice Isolation would
+ * rightly keep it out of the call, while these tests need sound to arrive.
+ */
+async function sendMicrophoneUnprocessed(page: Page): Promise<void> {
+    await page.evaluate(async (level) => {
+        await window.mxSettingsStore.setValue("desktopInputProfile", null, level, "custom");
+        await window.mxSettingsStore.setValue("desktopNoiseSuppression", null, level, "none");
+    }, SettingLevel.DEVICE);
+}
+
 /** Observe actual inbound audio rather than treating a participant tile as proof of media. */
 async function observePeers(page: Page): Promise<void> {
     const instrument = (): void => {
@@ -105,6 +116,7 @@ test(
         const onRequest = (request: Request): void => checkRequest(request.url());
         page.on("request", onRequest);
         await settle(page);
+        await sendMicrophoneUnprocessed(page);
         await observePeers(page);
         const bob = await homeserver.registerUser("bob-desktop-voice", "password", "Bob");
         const bobContext = await browser.newContext({
@@ -119,6 +131,7 @@ test(
             await bobPage.goto("/");
             await bobPage.waitForSelector(".mx_MatrixChat");
             await settle(bobPage);
+            await sendMicrophoneUnprocessed(bobPage);
             await observePeers(bobPage);
             const bobApp = new ElementAppPage(bobPage);
             // Reproduce existing Element clients: a per-join key UUID with a legacy membership/backend ID.

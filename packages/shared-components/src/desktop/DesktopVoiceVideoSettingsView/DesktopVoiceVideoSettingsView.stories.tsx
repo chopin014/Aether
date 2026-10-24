@@ -28,6 +28,9 @@ function SettingsStory(snapshot: DesktopVoiceVideoSettingsViewSnapshot): JSX.Ele
             setSpeakerVolume: fn(),
             toggleMicrophoneTest: fn(),
             setInputProfile: fn(),
+            setNoiseSuppression: fn(),
+            setNoiseSuppressionStrength: fn(),
+            setVoiceDetection: fn(),
             setSensitivityAuto: fn(),
             setSensitivity: fn(),
             setInputMode: fn(),
@@ -88,6 +91,9 @@ const meta = {
         speakerVolume: 60,
         microphoneTest: { active: false, level: null, open: false },
         inputProfile: "custom",
+        noiseSuppression: "enhanced",
+        noiseSuppressionStrength: 100,
+        voiceDetection: true,
         sensitivityAuto: false,
         sensitivity: -50,
         inputMode: "voice_activity",
@@ -122,8 +128,22 @@ export const Default: Story = {};
 export const TestingMicrophone: Story = {
     args: { microphoneTest: { active: true, level: -38, open: true }, sensitivityAuto: false, sensitivity: -45 },
 };
+export const VoiceIsolation: Story = { args: { inputProfile: "voice_isolation", sensitivityAuto: true } };
 export const Studio: Story = {
-    args: { inputProfile: "studio", echoCancellation: false, autoGainControl: false },
+    args: {
+        inputProfile: "studio",
+        noiseSuppression: "none",
+        voiceDetection: false,
+        echoCancellation: false,
+        autoGainControl: false,
+    },
+};
+export const StandardNoiseSuppression: Story = { args: { noiseSuppression: "standard" } };
+export const NoiseSuppressionOverloaded: Story = {
+    args: {
+        microphoneTest: { active: true, level: -38, open: true },
+        noiseSuppressionProblem: "overloaded",
+    },
 };
 export const PushToTalk: Story = { args: { inputMode: "push_to_talk" } };
 export const RecordingKeybind: Story = {

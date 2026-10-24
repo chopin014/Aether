@@ -10,7 +10,7 @@ Please see LICENSE in the repository root for full details.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ElementCallHandle } from "@element-hq/element-call-component/api";
 
-import { DesktopVoicePipeline, getMicrophoneGateConfig } from "./DesktopVoicePipeline";
+import { DesktopVoicePipeline, getBrowserNoiseSuppression, getMicrophoneGateConfig } from "./DesktopVoicePipeline";
 import { DesktopShortcutManager, type DesktopShortcutEvent } from "./DesktopShortcutManager";
 
 import SettingsStore from "../../settings/SettingsStore";
@@ -25,6 +25,9 @@ const defaults: Record<string, unknown> = {
     "desktopMicrophoneVolume": 100,
     "desktopSpeakerVolume": 100,
     "desktopInputProfile": "custom",
+    "desktopNoiseSuppression": "none",
+    "desktopNoiseSuppressionStrength": 100,
+    "desktopVoiceDetection": true,
     "desktopInputSensitivityAuto": true,
     "desktopInputSensitivity": -50,
     "desktopInputMode": "voice_activity",
@@ -54,20 +57,57 @@ describe("getMicrophoneGateConfig", () => {
     });
     afterEach(() => vi.restoreAllMocks());
 
+    const plain = { noiseSuppression: null, voiceDetection: false };
+
     it("follows the automatic sensitivity by default, at full volume", () => {
-        expect(getMicrophoneGateConfig()).toEqual({ volume: 1, threshold: "auto", pushToTalk: false });
+        expect(getMicrophoneGateConfig()).toEqual({ volume: 1, threshold: "auto", pushToTalk: false, ...plain });
     });
 
     it("uses the manual threshold when automatic sensitivity is off", () => {
         values.desktopInputSensitivityAuto = false;
         values.desktopMicrophoneVolume = 40;
-        expect(getMicrophoneGateConfig()).toEqual({ volume: 0.4, threshold: -50, pushToTalk: false });
+        expect(getMicrophoneGateConfig()).toEqual({ volume: 0.4, threshold: -50, pushToTalk: false, ...plain });
     });
 
-    it("never gates in the studio profile", () => {
+    it("never gates or processes in the studio profile", () => {
         values.desktopInputProfile = "studio";
         values.desktopInputSensitivityAuto = false;
-        expect(getMicrophoneGateConfig().threshold).toBeNull();
+        values.desktopNoiseSuppression = "enhanced";
+        expect(getMicrophoneGateConfig()).toEqual(expect.objectContaining({ threshold: null, ...plain }));
+        expect(getBrowserNoiseSuppression()).toBe(false);
+    });
+
+    it("removes noise fully and only lets speech through in the voice isolation profile", () => {
+        values.desktopInputProfile = "voice_isolation";
+        values.desktopInputSensitivityAuto = false;
+        values.desktopNoiseSuppressionStrength = 20;
+        values.desktopVoiceDetection = false;
+        expect(getMicrophoneGateConfig()).toEqual({
+            volume: 1,
+            threshold: "auto",
+            pushToTalk: false,
+            noiseSuppression: 100,
+            voiceDetection: true,
+        });
+        expect(getBrowserNoiseSuppression()).toBe(false);
+    });
+
+    it("uses the chosen noise suppression in the custom profile", () => {
+        values.desktopNoiseSuppression = "enhanced";
+        values.desktopNoiseSuppressionStrength = 60;
+        expect(getMicrophoneGateConfig()).toEqual(
+            expect.objectContaining({ noiseSuppression: 60, voiceDetection: true }),
+        );
+        expect(getBrowserNoiseSuppression()).toBe(false);
+
+        values.desktopVoiceDetection = false;
+        expect(getMicrophoneGateConfig().voiceDetection).toBe(false);
+
+        // The browser's own suppression replaces the model, which then cannot recognise speech either.
+        values.desktopNoiseSuppression = "standard";
+        values.desktopVoiceDetection = true;
+        expect(getMicrophoneGateConfig()).toEqual(expect.objectContaining(plain));
+        expect(getBrowserNoiseSuppression()).toBe(true);
     });
 
     it("keeps push to talk gated even before a key is assigned", () => {
@@ -124,6 +164,7 @@ describe("DesktopVoicePipeline", () => {
             videoInput: "camera-1",
             autoGainControl: false,
             echoCancellation: true,
+            noiseSuppression: false,
             playbackVolume: 0.35,
             mirrorLocalVideo: true,
             microphoneProcessor: pipeline.microphoneProcessor,
@@ -148,7 +189,13 @@ describe("DesktopVoicePipeline", () => {
         pipeline.attach(fakeHandle());
         values.desktopInputSensitivityAuto = false;
         change("desktopInputSensitivityAuto", false);
-        expect(setConfig).toHaveBeenLastCalledWith({ volume: 1, threshold: -50, pushToTalk: false });
+        expect(setConfig).toHaveBeenLastCalledWith({
+            volume: 1,
+            threshold: -50,
+            pushToTalk: false,
+            noiseSuppression: null,
+            voiceDetection: false,
+        });
     });
 
     it("stops listening once the last component is gone", () => {

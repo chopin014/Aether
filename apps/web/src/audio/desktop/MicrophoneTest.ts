@@ -5,12 +5,10 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import { logger } from "matrix-js-sdk/src/logger";
-
 import MediaDeviceHandler from "../../MediaDeviceHandler";
 import SettingsStore from "../../settings/SettingsStore";
-import { getMicrophoneGateConfig } from "./DesktopVoicePipeline";
-import { MicrophoneProcessor } from "./MicrophoneProcessor";
+import { getBrowserNoiseSuppression, getMicrophoneGateConfig } from "./DesktopVoicePipeline";
+import { type DenoiserStatusListener, MicrophoneProcessor } from "./MicrophoneProcessor";
 
 /** Why a media test could not start. */
 export type MediaTestError = "denied" | "unavailable";
@@ -22,19 +20,24 @@ export function mediaTestError(error: unknown): MediaTestError {
 }
 
 /**
- * Plays the microphone back through the speakers, after the same volume and sensitivity a call applies, and
- * reports its loudness. Everything it opens is closed by {@link stop}, which the settings call when the user
- * stops the test or leaves the page.
+ * Plays the microphone back through the speakers, after the same noise suppression, volume and sensitivity a
+ * call applies, and reports its loudness. Everything it opens is closed by {@link stop}, which the settings call
+ * when the user stops the test or leaves the page.
  */
 export class MicrophoneTest {
     private stream?: MediaStream;
-    private context?: AudioContext;
     private playback?: HTMLAudioElement;
     private processor?: MicrophoneProcessor;
     private starting = false;
 
-    /** @param onLevel called for every block of audio with its loudness in dB and whether it would be sent. */
-    public constructor(private readonly onLevel: (levelDb: number, open: boolean) => void) {}
+    /**
+     * @param onLevel called for every block of audio with its loudness in dB and whether it would be sent.
+     * @param onDenoiserStatus called when noise suppression starts, or stops because it failed or was too slow.
+     */
+    public constructor(
+        private readonly onLevel: (levelDb: number, open: boolean) => void,
+        private readonly onDenoiserStatus?: DenoiserStatusListener,
+    ) {}
 
     public get active(): boolean {
         return !!this.stream;
@@ -51,7 +54,7 @@ export class MicrophoneTest {
                     deviceId: deviceId && deviceId !== "default" ? { exact: deviceId } : undefined,
                     echoCancellation: MediaDeviceHandler.getAudioEchoCancellation(),
                     autoGainControl: MediaDeviceHandler.getAudioAutoGainControl(),
-                    noiseSuppression: MediaDeviceHandler.getAudioNoiseSuppression(),
+                    noiseSuppression: getBrowserNoiseSuppression(),
                 },
             });
             // The user may have stopped the test while the browser was asking for permission.
@@ -60,12 +63,11 @@ export class MicrophoneTest {
                 return;
             }
             this.stream = stream;
-            const context = new AudioContext();
-            this.context = context;
             const processor = new MicrophoneProcessor(this.gateConfig());
             processor.onLevel = this.onLevel;
+            processor.onDenoiserStatus = this.onDenoiserStatus;
             this.processor = processor;
-            await processor.init({ kind: "audio", track: stream.getAudioTracks()[0], audioContext: context });
+            await processor.init({ kind: "audio", track: stream.getAudioTracks()[0] });
             await this.play(processor.processedTrack);
         } catch (error) {
             this.stop();
@@ -89,8 +91,7 @@ export class MicrophoneTest {
             this.playback.pause();
             this.playback.srcObject = null;
         }
-        this.context?.close().catch((error) => logger.debug("Could not close the test audio", error));
-        this.stream = this.context = this.playback = this.processor = undefined;
+        this.stream = this.playback = this.processor = undefined;
     }
 
     /** Push to talk is for calls; the test always shows what the sensitivity would let through. */

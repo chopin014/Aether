@@ -96,6 +96,9 @@ test.describe("Voice & Video settings in the desktop shell", () => {
 
     test("tests the microphone with a live meter and releases it when stopped", async ({ page }) => {
         const dialog = await openVoiceVideo(page);
+        // Chromium's fake microphone beeps, which noise suppression removes because it is not speech.
+        await dialog.getByRole("radio", { name: "Custom" }).check();
+        await dialog.getByRole("combobox", { name: "Noise suppression" }).selectOption("none");
         const meter = dialog.getByRole("meter", { name: "Microphone level" });
         await expect(meter).toHaveAttribute("aria-valuenow", "-100");
 
@@ -109,6 +112,31 @@ test.describe("Voice & Video settings in the desktop shell", () => {
 
         await dialog.getByRole("button", { name: "Stop testing" }).click();
         await expect(meter).toHaveAttribute("aria-valuenow", "-100");
+        await expect.poll(() => liveTracks(page)).toBe(0);
+    });
+
+    test("removes noise with enhanced noise suppression during the microphone test", async ({ page }) => {
+        const denoiser = page.waitForResponse((response) => /aether-denoiser\.[^/]*\.wasm$/.test(response.url()));
+        const dialog = await openVoiceVideo(page);
+        await expect(dialog.getByRole("radio", { name: "Voice Isolation" })).toBeChecked();
+        await expect(dialog.getByRole("combobox", { name: "Noise suppression" })).toHaveValue("enhanced");
+        const meter = dialog.getByRole("meter", { name: "Microphone level" });
+
+        await dialog.getByRole("button", { name: "Let's check" }).click();
+        expect((await denoiser).status()).toBe(200);
+        await expect.poll(() => liveTracks(page)).toBeGreaterThan(0);
+        // The fake microphone's beep is noise, so nothing of it is left to be sent.
+        await page.waitForTimeout(2000);
+        await expect(meter).toHaveAttribute("aria-valuenow", "-100");
+        await expect(dialog.getByRole("alert")).toHaveCount(0);
+
+        // Without suppression the same beep comes through, so the silence above was the model's doing.
+        await dialog.getByRole("combobox", { name: "Noise suppression" }).selectOption("none");
+        await expect(dialog.getByRole("radio", { name: "Custom" })).toBeChecked();
+        await expect
+            .poll(async () => Number(await meter.getAttribute("aria-valuenow")), { timeout: 15_000 })
+            .toBeGreaterThan(-100);
+        await dialog.getByRole("button", { name: "Stop testing" }).click();
         await expect.poll(() => liveTracks(page)).toBe(0);
     });
 
@@ -138,16 +166,20 @@ test.describe("Voice & Video settings in the desktop shell", () => {
         const echo = dialog.getByRole("switch", { name: "Echo cancellation" });
         await dialog.getByRole("button", { name: "Show advanced voice settings" }).click();
         const gain = dialog.getByRole("switch", { name: "Automatic gain control" });
+        const voiceIsolation = dialog.getByRole("radio", { name: "Voice Isolation" });
         const custom = dialog.getByRole("radio", { name: "Custom" });
         const studio = dialog.getByRole("radio", { name: "Studio" });
+        const noiseSuppression = dialog.getByRole("combobox", { name: "Noise suppression" });
 
-        await expect(custom).toBeChecked();
+        await expect(voiceIsolation).toBeChecked();
+        await expect(noiseSuppression).toHaveValue("enhanced");
         await expect(echo).toBeChecked();
         await expect(gain).toBeChecked();
 
         await studio.check();
         await expect(echo).not.toBeChecked();
         await expect(gain).not.toBeChecked();
+        await expect(noiseSuppression).toHaveValue("none");
         await expect(dialog.getByRole("slider", { name: "Input sensitivity threshold" })).toBeDisabled();
 
         // Editing a switch by hand leaves the profile that promised there was no processing.
@@ -239,7 +271,7 @@ test.describe("Voice & Video settings in the desktop shell", () => {
         await confirm.getByRole("button", { name: "Reset", exact: true }).click();
         await expect(speaker).toHaveValue("100");
         await expect(dialog.getByRole("switch", { name: "Mute", exact: true })).toBeChecked();
-        await expect(dialog.getByRole("radio", { name: "Custom" })).toBeChecked();
+        await expect(dialog.getByRole("radio", { name: "Voice Isolation" })).toBeChecked();
         await expect(dialog.getByRole("switch", { name: "Echo cancellation" })).toBeChecked();
         await expect(dialog.getByRole("switch", { name: "Mirror my video" })).toBeChecked();
     });

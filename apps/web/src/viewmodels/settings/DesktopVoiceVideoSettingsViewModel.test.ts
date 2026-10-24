@@ -167,8 +167,75 @@ describe("DesktopVoiceVideoSettingsViewModel", () => {
         });
 
         it("keeps Custom when a switch is changed in Custom", async () => {
+            await vm.setInputProfile("custom");
             await vm.setAutoGainControl(false);
             expect(vm.getSnapshot()).toMatchObject({ inputProfile: "custom", autoGainControl: false });
+        });
+
+        it("starts in Voice Isolation, which removes noise and only lets speech through", () => {
+            expect(vm.getSnapshot()).toMatchObject({
+                inputProfile: "voice_isolation",
+                noiseSuppression: "enhanced",
+                noiseSuppressionStrength: 100,
+                voiceDetection: true,
+                sensitivityAuto: true,
+            });
+        });
+
+        it("turns echo cancellation and automatic gain back on for Voice Isolation", async () => {
+            await vm.setInputProfile("studio");
+            expect(vm.getSnapshot()).toMatchObject({ noiseSuppression: "none", voiceDetection: false });
+            await vm.setInputProfile("voice_isolation");
+            expect(vm.getSnapshot()).toMatchObject({
+                inputProfile: "voice_isolation",
+                echoCancellation: true,
+                autoGainControl: true,
+                noiseSuppression: "enhanced",
+            });
+        });
+
+        it("shows a preset's choices without overwriting the custom ones", async () => {
+            await vm.setInputProfile("custom");
+            await vm.setNoiseSuppression("standard");
+            await vm.setInputProfile("voice_isolation");
+            expect(vm.getSnapshot().noiseSuppression).toBe("enhanced");
+            await vm.setInputProfile("custom");
+            expect(vm.getSnapshot().noiseSuppression).toBe("standard");
+        });
+
+        it("carries Voice Isolation over into Custom when one of its settings is edited", async () => {
+            await vm.setInputProfile("custom");
+            await vm.setNoiseSuppression("none");
+            await vm.setSensitivityAuto(false);
+            await vm.setInputProfile("voice_isolation");
+            await vm.setNoiseSuppressionStrength(40);
+            // Only the edited setting changes; the rest stays as Voice Isolation had it.
+            expect(vm.getSnapshot()).toMatchObject({
+                inputProfile: "custom",
+                noiseSuppression: "enhanced",
+                noiseSuppressionStrength: 40,
+                voiceDetection: true,
+                sensitivityAuto: true,
+            });
+        });
+
+        it("stores the noise suppression and voice detection at device level", async () => {
+            await vm.setInputProfile("custom");
+            await vm.setNoiseSuppression("standard");
+            await vm.setVoiceDetection(false);
+            expect(SettingsStore.setValue).toHaveBeenCalledWith(
+                "desktopNoiseSuppression",
+                null,
+                SettingLevel.DEVICE,
+                "standard",
+            );
+            expect(SettingsStore.setValue).toHaveBeenCalledWith(
+                "desktopVoiceDetection",
+                null,
+                SettingLevel.DEVICE,
+                false,
+            );
+            expect(vm.getSnapshot()).toMatchObject({ noiseSuppression: "standard", voiceDetection: false });
         });
     });
 
@@ -360,7 +427,8 @@ describe("DesktopVoiceVideoSettingsViewModel", () => {
             await vm.resetAll();
             expect(vm.getSnapshot()).toMatchObject({
                 microphoneVolume: 100,
-                inputProfile: "custom",
+                inputProfile: "voice_isolation",
+                noiseSuppression: "enhanced",
                 inputMode: "voice_activity",
                 echoCancellation: true,
                 autoGainControl: true,

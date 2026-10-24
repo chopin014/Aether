@@ -33,6 +33,9 @@ const baseSnapshot: DesktopVoiceVideoSettingsViewSnapshot = {
     speakerVolume: 60,
     microphoneTest: { active: false, level: null, open: false },
     inputProfile: "custom",
+    noiseSuppression: "enhanced",
+    noiseSuppressionStrength: 100,
+    voiceDetection: true,
     sensitivityAuto: true,
     sensitivity: -50,
     inputMode: "voice_activity",
@@ -62,6 +65,9 @@ function makeVm(snapshot: Partial<DesktopVoiceVideoSettingsViewSnapshot> = {}) {
         setSpeakerVolume: vi.fn(),
         toggleMicrophoneTest: vi.fn(),
         setInputProfile: vi.fn(),
+        setNoiseSuppression: vi.fn(),
+        setNoiseSuppressionStrength: vi.fn(),
+        setVoiceDetection: vi.fn(),
         setSensitivityAuto: vi.fn(),
         setSensitivity: vi.fn(),
         setInputMode: vi.fn(),
@@ -101,10 +107,9 @@ describe("DesktopVoiceVideoSettingsView", () => {
         }
     });
 
-    it("offers no noise suppression, Krisp or voice isolation", () => {
+    it("names no third-party noise suppression", () => {
         render(<DesktopVoiceVideoSettingsView vm={makeVm()} />);
-        expect(screen.queryByText(/noise/i)).toBeNull();
-        expect(screen.queryByText(/krisp|isolation/i)).toBeNull();
+        expect(screen.queryByText(/krisp/i)).toBeNull();
     });
 
     describe("voice", () => {
@@ -162,9 +167,45 @@ describe("DesktopVoiceVideoSettingsView", () => {
             const vm = makeVm();
             render(<DesktopVoiceVideoSettingsView vm={vm} />);
             const group = screen.getByRole("radiogroup", { name: "Input profile" });
+            expect(within(group).getAllByRole("radio")).toHaveLength(3);
             expect(within(group).getByRole("radio", { name: /Custom/ })).toBeChecked();
             await userEvent.click(within(group).getByRole("radio", { name: /Studio/ }));
             expect(vm.setInputProfile).toHaveBeenCalledWith("studio");
+            await userEvent.click(within(group).getByRole("radio", { name: /Voice Isolation/ }));
+            expect(vm.setInputProfile).toHaveBeenCalledWith("voice_isolation");
+        });
+
+        it("chooses the noise suppression and its strength", async () => {
+            const vm = makeVm();
+            render(<DesktopVoiceVideoSettingsView vm={vm} />);
+            const select = screen.getByRole("combobox", { name: "Noise suppression" });
+            expect(select).toHaveValue("enhanced");
+            await userEvent.selectOptions(select, "standard");
+            expect(vm.setNoiseSuppression).toHaveBeenCalledWith("standard");
+            const strength = screen.getByRole("slider", { name: "Suppression strength" });
+            expect(strength).toHaveAttribute("aria-valuetext", "100%");
+            fireEvent.change(strength, { target: { value: "60" } });
+            expect(vm.setNoiseSuppressionStrength).toHaveBeenCalledWith(60);
+        });
+
+        it("only offers the strength and voice detection with enhanced noise suppression", () => {
+            render(<DesktopVoiceVideoSettingsView vm={makeVm({ noiseSuppression: "standard" })} />);
+            expect(screen.queryByRole("slider", { name: "Suppression strength" })).toBeNull();
+            expect(screen.getByRole("switch", { name: "Advanced voice detection" })).toBeDisabled();
+        });
+
+        it("switches advanced voice detection", async () => {
+            const vm = makeVm();
+            render(<DesktopVoiceVideoSettingsView vm={vm} />);
+            const toggle = screen.getByRole("switch", { name: "Advanced voice detection" });
+            expect(toggle).toBeChecked();
+            await userEvent.click(toggle);
+            expect(vm.setVoiceDetection).toHaveBeenCalledWith(false);
+        });
+
+        it("explains when enhanced noise suppression had to stop", () => {
+            render(<DesktopVoiceVideoSettingsView vm={makeVm({ noiseSuppressionProblem: "overloaded" })} />);
+            expect(screen.getByRole("alert").textContent).toContain("could not keep up");
         });
 
         it("only lets the sensitivity be set by hand when it is not automatic", () => {

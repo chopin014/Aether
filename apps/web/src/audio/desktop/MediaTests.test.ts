@@ -16,6 +16,7 @@ import MediaDeviceHandler from "../../MediaDeviceHandler";
 import SettingsStore from "../../settings/SettingsStore";
 
 vi.mock("./microphoneGateWorkletFactory", () => ({ loadMicrophoneGateWorklet: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("./denoiser/loadDenoiserModule", () => ({ loadDenoiserModule: vi.fn().mockResolvedValue({ compiled: true }) }));
 
 function fakeStream(kind: "audio" | "video"): { stream: MediaStream; track: { stop: ReturnType<typeof vi.fn> } } {
     const track = { stop: vi.fn(), kind };
@@ -45,6 +46,8 @@ describe("MicrophoneTest", () => {
     let play: ReturnType<typeof vi.fn>;
     let pause: ReturnType<typeof vi.fn>;
     let audio: { volume: number; srcObject: unknown; setSinkId: ReturnType<typeof vi.fn> };
+    let values: Record<string, unknown>;
+    let nodeOptions: AudioWorkletNodeOptions | undefined;
 
     beforeEach(() => {
         const mic = fakeStream("audio");
@@ -59,6 +62,9 @@ describe("MicrophoneTest", () => {
                 public port = port;
                 public connect = vi.fn();
                 public disconnect = vi.fn();
+                public constructor(_context: unknown, _name: string, options: AudioWorkletNodeOptions) {
+                    nodeOptions = options;
+                }
             },
         );
         close = vi.fn().mockResolvedValue(undefined);
@@ -98,11 +104,13 @@ describe("MicrophoneTest", () => {
         vi.spyOn(MediaDeviceHandler, "getAudioOutput").mockReturnValue("speaker-2");
         vi.spyOn(MediaDeviceHandler, "getAudioEchoCancellation").mockReturnValue(false);
         vi.spyOn(MediaDeviceHandler, "getAudioAutoGainControl").mockReturnValue(false);
-        vi.spyOn(MediaDeviceHandler, "getAudioNoiseSuppression").mockReturnValue(true);
-        const values: Record<string, unknown> = {
+        values = {
             desktopMicrophoneVolume: 50,
             desktopSpeakerVolume: 40,
             desktopInputProfile: "custom",
+            desktopNoiseSuppression: "standard",
+            desktopNoiseSuppressionStrength: 100,
+            desktopVoiceDetection: true,
             desktopInputSensitivityAuto: false,
             desktopInputSensitivity: -40,
             desktopInputMode: "push_to_talk",
@@ -130,6 +138,24 @@ describe("MicrophoneTest", () => {
         expect(audio.volume).toBeCloseTo(0.4);
         expect(play).toHaveBeenCalled();
         expect(test.active).toBe(true);
+    });
+
+    it("lets you hear enhanced noise suppression and says when it stops working", async () => {
+        values.desktopNoiseSuppression = "enhanced";
+        values.desktopNoiseSuppressionStrength = 70;
+        const onDenoiserStatus = vi.fn();
+        const test = new MicrophoneTest(vi.fn(), onDenoiserStatus);
+        await test.start();
+        // The browser's suppression would only get in the model's way.
+        expect(getUserMedia).toHaveBeenCalledWith({ audio: expect.objectContaining({ noiseSuppression: false }) });
+        expect(nodeOptions?.processorOptions).toEqual(
+            expect.objectContaining({
+                config: expect.objectContaining({ noiseSuppression: 70, voiceDetection: true, pushToTalk: false }),
+                denoiserModule: { compiled: true },
+            }),
+        );
+        port.onmessage!({ data: { denoiser: "overloaded" } });
+        expect(onDenoiserStatus).toHaveBeenCalledWith("overloaded");
     });
 
     it("reports the level and applies the volume and sensitivity, ignoring push to talk", async () => {

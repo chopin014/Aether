@@ -351,6 +351,14 @@
             "mirror_description": "Show your own camera flipped horizontally, like a mirror.",
             "mode_push_to_talk": "Push to talk",
             "mode_voice_activity": "Voice activity",
+            "noise_suppression": "Noise suppression",
+            "noise_suppression_description": "Reduces background noise from your microphone. Enhanced uses a speech model that runs on this device, so your audio is not sent anywhere to be cleaned.",
+            "noise_suppression_enhanced": "Enhanced",
+            "noise_suppression_failed": "Enhanced noise suppression could not run, so your microphone is sent without it.",
+            "noise_suppression_none": "None",
+            "noise_suppression_overloaded": "Enhanced noise suppression was turned off because this computer could not keep up with it.",
+            "noise_suppression_standard": "Standard",
+            "noise_suppression_strength": "Suppression strength",
             "notifications_description": "Turn sounds for new messages and incoming calls on or off.",
             "notifications_title": "Notifications",
             "open_help": "Help & About",
@@ -364,7 +372,9 @@
             "profile_custom": "Custom",
             "profile_custom_description": "Advanced mode: give me all the knobs and meters.",
             "profile_studio": "Studio",
-            "profile_studio_description": "Raw audio: no echo cancellation or automatic gain, and the microphone is always open.",
+            "profile_studio_description": "Raw audio: no noise suppression, echo cancellation or automatic gain, and the microphone is always open.",
+            "profile_voice_isolation": "Voice Isolation",
+            "profile_voice_isolation_description": "Just your voice: let Aether remove the noise around you.",
             "ptt_clear": "Clear keybind",
             "ptt_focus_note": "Manage keybinds in Keyboard settings to check whether this shortcut works across applications.",
             "ptt_needs_key": "Assign a key to speak. Your microphone stays closed until a key is assigned.",
@@ -406,7 +416,9 @@
             "video_preview": "Camera preview",
             "video_test_start": "Test video",
             "video_test_stop": "Stop test",
-            "video_unavailable": "No camera could be opened."
+            "video_unavailable": "No camera could be opened.",
+            "voice_detection": "Advanced voice detection",
+            "voice_detection_description": "Only speech opens your microphone, so claps, typing and music stay out. Needs enhanced noise suppression."
         }
     },
     "devtools": {
