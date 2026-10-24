@@ -591,6 +591,23 @@ describe("<LoggedInView />", () => {
         });
     });
 
+    it("opens the channel menu instead of the right panel for Ctrl+. in the desktop shell", async () => {
+        const original = SETTINGS["feature_desktop_shell"].controller;
+        SETTINGS["feature_desktop_shell"].controller = undefined;
+        await SettingsStore.setValue("feature_desktop_shell", null, SettingLevel.DEVICE, true);
+        try {
+            getComponent({ page_type: "room_view" });
+            vi.spyOn(mockSdkContext.rightPanelStore, "togglePanel");
+            const fired = vi.spyOn(defaultDispatcher, "fire");
+            fireEvent.keyDown(document.body, { key: ".", code: "Period", ctrlKey: true, keyCode: 190 });
+            expect(fired).toHaveBeenCalledWith(Action.ToggleChannelMenu);
+            expect(mockSdkContext.rightPanelStore.togglePanel).not.toHaveBeenCalled();
+        } finally {
+            await SettingsStore.setValue("feature_desktop_shell", null, SettingLevel.DEVICE, false);
+            SETTINGS["feature_desktop_shell"].controller = original;
+        }
+    });
+
     it("should handle KeyBindingAction.ToggleRoomSidePanel", async () => {
         getComponent({ page_type: "room_view" });
         vi.spyOn(mockSdkContext.rightPanelStore, "togglePanel");

@@ -407,6 +407,10 @@ export default class RightPanelStore extends ReadyWatchingStore {
         // or potentially other errors.
         // (A nicer fix could be to indicate, that the right panel is loading if there is missing state data and re-emit if the data is available)
         switch (card.phase) {
+            case RightPanelPhases.RoomSummary:
+                // Also drops a summary stored or kept as a history root, so the desktop shell never offers it as a
+                // card or a "back" destination.
+                return !SettingsStore.getValue("feature_desktop_shell");
             case RightPanelPhases.ThreadView:
                 if (!card.state?.threadHeadEvent) {
                     logger.warn("removed card from right panel because of missing threadHeadEvent in card state");
@@ -463,6 +467,10 @@ export default class RightPanelStore extends ReadyWatchingStore {
     private isPhaseValid(targetPhase: RightPanelPhases | null, isViewingRoom: boolean): boolean {
         if (!targetPhase || !RightPanelPhases[targetPhase]) {
             logger.warn(`Tried to switch right panel to unknown phase: ${targetPhase}`);
+            return false;
+        }
+        if (targetPhase === RightPanelPhases.RoomSummary && SettingsStore.getValue("feature_desktop_shell")) {
+            // The desktop shell replaces the room info card with the channel menu.
             return false;
         }
         if (!isViewingRoom) {

@@ -500,7 +500,9 @@ class LoggedInView extends React.Component<IProps, IState> {
                 break;
             case KeyBindingAction.ToggleRoomSidePanel:
                 if (this.props.page_type === "room_view") {
-                    this.context.rightPanelStore.togglePanel(null);
+                    // The desktop shell has no room info panel; the shortcut opens the channel menu instead.
+                    if (this.desktopShellEnabled) dis.fire(Action.ToggleChannelMenu);
+                    else this.context.rightPanelStore.togglePanel(null);
                     handled = true;
                 }
                 break;

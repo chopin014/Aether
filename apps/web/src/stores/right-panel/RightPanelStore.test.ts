@@ -354,6 +354,24 @@ describe("RightPanelStore", () => {
             await SettingsStore.setValue("feature_desktop_shell", null, SettingLevel.DEVICE, true);
         });
 
+        it("never shows the room summary card, nor offers it as a way back", async () => {
+            await viewRoom("!channel:example.org");
+            store.setCard({ phase: RightPanelPhases.RoomSummary }, true, "!channel:example.org");
+            expect(store.currentCard.phase).not.toEqual(RightPanelPhases.RoomSummary);
+            store.pushCard({ phase: RightPanelPhases.RoomSummary }, true, "!channel:example.org");
+            expect(store.roomPhaseHistory.map((card) => card.phase)).not.toContain(RightPanelPhases.RoomSummary);
+
+            store.setCard({ phase: RightPanelPhases.PinnedMessages }, true, "!channel:example.org");
+            expect(store.roomPhaseHistory.map((card) => card.phase)).toEqual([RightPanelPhases.PinnedMessages]);
+            store.setCards(
+                [{ phase: RightPanelPhases.RoomSummary }, { phase: RightPanelPhases.MemberList }],
+                true,
+                "!channel:example.org",
+            );
+            store.pushCard({ phase: RightPanelPhases.ThreadPanel }, true, "!channel:example.org");
+            expect(store.roomPhaseHistory.map((card) => card.phase)).not.toContain(RightPanelPhases.RoomSummary);
+        });
+
         it("opens a text channel on its member list", async () => {
             await viewRoom("!channel:example.org");
             expect(store.isOpen).toEqual(true);
@@ -407,6 +425,13 @@ describe("RightPanelStore", () => {
         await viewRoom("!2:example.org");
         await viewRoom("!1:example.org");
         expect(store.currentCardForRoom("!1:example.org").phase).toEqual(RightPanelPhases.MemberList);
+    });
+
+    it("still shows the room summary card outside the desktop shell", async () => {
+        await SettingsStore.setValue("feature_desktop_shell", null, SettingLevel.DEVICE, false);
+        await viewRoom("!1:example.org");
+        store.setCard({ phase: RightPanelPhases.RoomSummary }, true, "!1:example.org");
+        expect(store.currentCard.phase).toEqual(RightPanelPhases.RoomSummary);
     });
 
     it("should redirect to verification if set to phase MemberInfo for a user with a pending verification", async () => {

@@ -180,3 +180,59 @@ Muted and deafened icons beside voice participants are grey, in the channel icon
 taken by others. Each device announces its deafen both as a LiveKit attribute and as a LiveKit data message, repeated
 every 10 seconds while deafened, because the attribute needs a JWT service that lets participants update their own
 metadata (`lk-jwt-service` since July 2026). The local user's own row follows this device directly.
+
+## Channel menu and topic
+
+Clicking a channel's name in the header opens an anchored menu beneath it, and right-clicking a channel in the room
+list (or using its "more options" button) opens the same entries at the pointer. Both render one
+`ChannelMenuContent`, driven by one `ChannelMenuViewModel`, so they cannot differ. The header dropdown adds the
+channel icon and name, the topic, an Edit topic entry for people who may change it, and a line each for encryption and
+history visibility that open the room settings' Security tab.
+
+The entries follow the captured Discord order and are shown only when they apply:
+
+| Group  | Entry                                                 | Matrix behaviour                                                                               |
+| ------ | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Read   | Mark as read                                          | Room list item action; disabled when nothing is unread                                         |
+| Tags   | Favourite                                             | Toggles the `m.favourite` tag                                                                  |
+| Share  | Invite to channel, Copy link                          | Existing invite dialog and room permalink copy; hidden without invite rights                   |
+| Notify | Mute channel / Unmute, Notification settings          | The room's push setting; Discord's mute durations have no Matrix equivalent                    |
+| Manage | Edit channel, Create text channel                     | Room settings dialog; the create-room flow, only inside the active Space and with add rights   |
+| Matrix | Files, Polls, Extensions, Export chat, Report channel | `FocusMessageSearch` with `has:file`; poll history, export and report dialogs; Extensions card |
+| Leave  | Leave channel                                         | The existing leave confirmation                                                                |
+
+People, Threads and Pinned messages are not repeated: they have header icons. Discord's Duplicate, Move to and Pin to
+top have no Matrix equivalent and are omitted. Voice channels omit the entries that need a timeline.
+
+The topic beside the name is a button that opens a small dialog with the whole topic and, for people who may change
+it, an Edit topic button that opens the room settings. In a direct message the name opens the profile popout of the
+other person, as in Discord, and the menu does not exist. Discord's "show user profile" toggle, a persistent profile
+column in a DM header, is a follow-up: the popout and `DesktopProfileViewModel` are anchored to the click that opened
+them and would need a column variant first.
+
+`Ctrl+.`, Element's room info shortcut, opens the channel menu (or a direct message's profile) in the desktop shell.
+The `RoomSummary` right-panel card is refused by the right panel store under the flag, so neither a header click, a
+stored panel state nor a history "back" step can show it.
+
+## Right panel audit
+
+With `feature_desktop_shell` on, every `RightPanelPhases` entry has one of these outcomes:
+
+| Phase                | Desktop shell                                                                                                                     |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `MemberList`         | Stays in the right column: it is content, opened by the header members icon, `Ctrl+.` no longer toggles it.                       |
+| `MemberInfo`         | Replaced by the profile popout (`Action.ViewUser`). Only the popout's "moderate" hand-off still lands on this card, for kick/ban. |
+| `ThreePidMemberInfo` | Stays: an invitation by email address has no profile to show.                                                                     |
+| `FilePanel`          | Replaced: the channel menu's Files searches `has:file` and the search results own the display. Not reachable from the header.     |
+| `NotificationPanel`  | Not reachable (the header bell is the channel notification menu). Follow-up: a Discord Inbox popover with Mentions/Unreads tabs.  |
+| `EncryptionPanel`    | Stays: device verification is a multi-step flow started from a toast or a person, and needs the column.                           |
+| `RoomSummary`        | Removed: the channel menu covers every action. The store refuses it, and it is dropped from history roots and stored state.       |
+| `Widget`             | Stays: a widget is content.                                                                                                       |
+| `PinnedMessages`     | Replaced by the pins popover; other entry points keep the card.                                                                   |
+| `Timeline`           | Stays: the chat beside a video room is content.                                                                                   |
+| `Extensions`         | Stays as a card, opened by the channel menu's Extensions.                                                                         |
+| `DocumentViewer`     | Stays: a document is content.                                                                                                     |
+| `ThreadView`         | Stays: the split conversation is content.                                                                                         |
+| `ThreadPanel`        | Replaced by the thread popover.                                                                                                   |
+
+The space and home summaries (`SpaceRoomView`, `HomePage`) are pages, not right-panel phases, and are unchanged.
