@@ -680,7 +680,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             newState.showRightPanel = false;
         }
 
-        const initialEventId = this.roomViewStore.getInitialEventId() ?? this.state.initialEventId;
+        // A cleared target means return to the live timeline; retaining the old ID reopens that permalink.
+        const initialEventId = this.roomViewStore.getInitialEventId();
         if (initialEventId) {
             let initialEvent = room?.findEventById(initialEventId);
             // The event does not exist in the current sync data

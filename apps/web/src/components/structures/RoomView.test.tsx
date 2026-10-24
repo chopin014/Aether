@@ -131,6 +131,8 @@ describe("RoomView", () => {
         vi.spyOn(pinnedEventHooks, "useSortedFetchedPinnedEvents").mockRestore();
 
         cleanup();
+        // Later tests delegate to the real getter; retaining an earlier spy would recurse into itself.
+        vi.spyOn(SettingsStore, "getValue").mockRestore();
     });
 
     const mountRoomView = async (
@@ -222,6 +224,37 @@ describe("RoomView", () => {
         await mountRoomView(ref);
         return ref.current!;
     };
+
+    it("clears an old permalink when returning to the live timeline", async () => {
+        const view = await getRoomViewInstance();
+        const eventId = "$old-permalink";
+        const event = mkEvent({
+            type: EventType.RoomMessage,
+            room: room.roomId,
+            user: cli.getSafeUserId(),
+            event: true,
+            content: { body: "Old" },
+        });
+        vi.spyOn(room, "findEventById").mockReturnValue(event);
+        await act(() =>
+            stores.roomViewStore.viewRoom({
+                action: Action.ViewRoom,
+                room_id: room.roomId,
+                event_id: eventId,
+                highlighted: true,
+                metricsTrigger: undefined,
+            }),
+        );
+        expect(view.state.initialEventId).toBe(eventId);
+        await act(() =>
+            stores.roomViewStore.viewRoom({
+                action: Action.ViewRoom,
+                room_id: room.roomId,
+                metricsTrigger: undefined,
+            }),
+        );
+        expect(view.state.initialEventId).toBeUndefined();
+    });
 
     it("gets a room view store from MultiRoomViewStore when given a room ID", async () => {
         stores.multiRoomViewStore.getRoomViewStoreForRoom = vi.fn().mockReturnValue(stores.roomViewStore);

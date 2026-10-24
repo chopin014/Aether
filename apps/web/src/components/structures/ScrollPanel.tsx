@@ -124,9 +124,8 @@ interface IProps {
  *   - fixed, in which the viewport is conceptually tied at a specific scroll
  *     offset.  We don't save the absolute scroll offset, because that would be
  *     affected by window width, zoom level, amount of scrollback, etc. Instead,
- *     we save an identifier for the last fully-visible message, and the number
- *     of pixels the window was scrolled below it - which is hopefully near
- *     enough.
+ *     we save an identifier for the first visible message and its offset in
+ *     the viewport, so changes to later messages do not move what is being read.
  *
  * The 'stickyBottom' property controls the behaviour when we reach the bottom
  * of the window (either through a user-initiated scroll, or by calling
@@ -177,6 +176,7 @@ export default class ScrollPanel extends React.Component<IProps> {
     // Is that next fill request scheduled because of a props update?
     private pendingFillDueToPropsUpdate = false;
     private scrollState!: IScrollState;
+    private bottomScrollTop?: number;
     private preventShrinkingState: IPreventShrinkingState | null = null;
     private unfillDebouncer: number | null = null;
     private bottomGrowth!: number;
@@ -197,6 +197,24 @@ export default class ScrollPanel extends React.Component<IProps> {
         this.unmounted = false;
         this.context?.resizeNotifier?.on("middlePanelResizedNoisy", this.onResize);
         this.checkScroll();
+    }
+
+    public getSnapshotBeforeUpdate(): null {
+        // Native scrolling can precede its scroll event. Capture leaving the bottom before
+        // React changes the content, while the old scroll height still describes that movement.
+        this.savePendingScroll();
+        return null;
+    }
+
+    private savePendingScroll(): void {
+        if (
+            this.scrollState.stuckAtBottom &&
+            !this.context?.resizeNotifier?.isResizing &&
+            this.getScrollNode().scrollTop < (this.bottomScrollTop ?? 0) &&
+            !this.isAtBottom()
+        ) {
+            this.saveScrollState();
+        }
     }
 
     public componentDidUpdate(): void {
@@ -252,6 +270,8 @@ export default class ScrollPanel extends React.Component<IProps> {
         if (this.unmounted) {
             return;
         }
+        // Media resizing can also reach us before the native scroll event.
+        this.savePendingScroll();
         // We don't care if these two conditions race - they're different trees.
         void this.restoreSavedScrollState();
         void this.checkFillState(0, isFromPropsUpdate);
@@ -537,6 +557,7 @@ export default class ScrollPanel extends React.Component<IProps> {
         this.scrollState = {
             stuckAtBottom: this.props.startAtBottom,
         };
+        this.bottomScrollTop = undefined;
         this.bottomGrowth = 0;
         this.minListHeight = 0;
         this.scrollTimeout = new Timer(100);
@@ -634,30 +655,31 @@ export default class ScrollPanel extends React.Component<IProps> {
     private saveScrollState(): void {
         if (this.props.stickyBottom && this.isAtBottom()) {
             this.scrollState = { stuckAtBottom: true };
+            this.bottomScrollTop = this.getScrollNode().scrollTop;
             debuglog("saved stuckAtBottom state");
             return;
         }
 
         const scrollNode = this.getScrollNode();
         const viewportBottom = scrollNode.scrollHeight - (scrollNode.scrollTop + scrollNode.clientHeight);
+        const viewportTop = viewportBottom + scrollNode.clientHeight;
 
         const itemlist = this.itemlist.current;
         if (!itemlist) return;
         const messages = itemlist.children;
         let node: HTMLElement | null = null;
 
-        // TODO: do a binary search here, as items are sorted by offsetTop
-        // loop backwards, from bottom-most message (as that is the most common case)
-        for (let i = messages.length - 1; i >= 0; --i) {
+        // Anchor the first visible message. Anchoring a later one would pull earlier
+        // visible messages out of view when a message between them grows.
+        for (let i = 0; i < messages.length; ++i) {
             const htmlMessage = messages[i] as HTMLElement;
             if (!htmlMessage.dataset?.scrollTokens) {
                 // dataset is only specified on HTMLElements
                 continue;
             }
             node = htmlMessage;
-            // break at the first message (coming from the bottom)
-            // that has it's offsetTop above the bottom of the viewport.
-            if (this.topFromBottom(node) > viewportBottom) {
+            // Offsets are measured upwards from the bottom of the list.
+            if (this.topFromBottom(node) - node.offsetHeight < viewportTop) {
                 // Use this node as the scrollToken
                 break;
             }
@@ -687,6 +709,7 @@ export default class ScrollPanel extends React.Component<IProps> {
             if (sn.scrollTop !== sn.scrollHeight) {
                 sn.scrollTop = sn.scrollHeight;
             }
+            this.bottomScrollTop = sn.scrollTop;
         } else if (scrollState.trackedScrollToken) {
             const itemlist = this.itemlist.current;
             const trackedNode = this.getTrackedNode();
@@ -752,6 +775,7 @@ export default class ScrollPanel extends React.Component<IProps> {
             if (sn.scrollTop !== sn.scrollHeight) {
                 sn.scrollTop = sn.scrollHeight;
             }
+            this.bottomScrollTop = sn.scrollTop;
             debuglog("updateHeight to", newHeight);
         } else if (scrollState.trackedScrollToken) {
             const trackedNode = this.getTrackedNode();
@@ -760,11 +784,12 @@ export default class ScrollPanel extends React.Component<IProps> {
             // so don't do anything if the node has disappeared from
             // the currently filled piece of the timeline
             if (trackedNode) {
-                const oldTop = trackedNode.offsetTop;
+                const oldTop = trackedNode.getBoundingClientRect().top;
                 if (itemlist && itemlist.style.height !== newHeight) {
                     itemlist.style.height = newHeight;
                 }
-                const newTop = trackedNode.offsetTop;
+                // Include any scroll clamping the browser already applied as the list shrank.
+                const newTop = trackedNode.getBoundingClientRect().top;
                 const topDiff = newTop - oldTop;
                 // important to scroll by a relative amount as
                 // reading scrollTop and then setting it might
