@@ -65,6 +65,7 @@ describe("ElementCallMock", () => {
             notifyJoined: vi.fn(async () => {}),
             notifyHungUp: vi.fn(async () => {}),
             notifyDeviceMute: vi.fn(async () => {}),
+            notifyScreenShare: vi.fn(async () => {}),
             close: vi.fn(async () => {}),
         };
     });
@@ -248,6 +249,32 @@ describe("ElementCallMock", () => {
         expect(bridge.notifyHungUp).toHaveBeenCalled();
         expect(log).toHaveTextContent("← hangUp");
         expect(screen.getByText(/in lobby/)).toBeInTheDocument();
+    });
+
+    it("shares a screen in the call when the host asks, and stops when the call ends", async () => {
+        const user = userEvent.setup();
+        const handle = React.createRef<ElementCallHandle>();
+        render(<ElementCall client={client} roomId={roomId} hostBridge={bridge} ref={handle} />);
+
+        await expect(handle.current!.toggleScreenSharing()).rejects.toThrow("can share a screen");
+        await user.click(screen.getByRole("button", { name: "notifyJoined" }));
+        expect(bridge.notifyScreenShare).toHaveBeenLastCalledWith({
+            available: true,
+            sharing: false,
+            remoteSharerIds: [],
+        });
+        await act(() => handle.current!.toggleScreenSharing());
+        expect(bridge.notifyScreenShare).toHaveBeenLastCalledWith({
+            available: true,
+            sharing: true,
+            remoteSharerIds: [],
+        });
+        await act(() => handle.current!.hangUp());
+        expect(bridge.notifyScreenShare).toHaveBeenLastCalledWith({
+            available: false,
+            sharing: false,
+            remoteSharerIds: [],
+        });
     });
 
     it("talks to whichever host bridge it was most recently given", async () => {

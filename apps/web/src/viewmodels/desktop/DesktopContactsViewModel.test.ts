@@ -12,6 +12,7 @@ import { EventType, MatrixEvent, Room, User, UserEvent, type MatrixClient } from
 import { stubClient } from "test-utils";
 
 import { DesktopContactsViewModel } from "./DesktopContactsViewModel";
+import SdkConfig from "../../SdkConfig";
 import defaultDispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 
@@ -24,7 +25,7 @@ describe("DesktopContactsViewModel", () => {
         client = stubClient();
         user = new User("@bob:example.org");
         user.displayName = "Bob";
-        user.presence = "online";
+        user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "online" } }));
         room = new Room("!dm:example.org", client, client.getSafeUserId());
         vi.spyOn(room, "getMyMembership").mockReturnValue("join");
         vi.mocked(client.getRooms).mockReturnValue([room]);
@@ -39,6 +40,7 @@ describe("DesktopContactsViewModel", () => {
     afterEach(() => {
         vm.dispose();
         vi.restoreAllMocks();
+        SdkConfig.reset();
     });
     it("derives contacts only from actual joined direct rooms, excluding unrelated rooms and duplicate conversations", () => {
         expect(vm.getSnapshot().contacts).toMatchObject([
@@ -57,6 +59,27 @@ describe("DesktopContactsViewModel", () => {
         vm.setQuery("unknown");
         expect(vm.getSnapshot().contacts).toEqual([]);
     });
+    it("should keep missing presence neutral in All and exclude it from Online", () => {
+        delete user.events.presence;
+        user.presence = "offline";
+        client.emit(UserEvent.LastPresenceTs, undefined, user);
+        expect(vm.getSnapshot().onlineContacts).toEqual([]);
+        expect(vm.getSnapshot().contacts).toEqual([]);
+        vm.setTab("all");
+        expect(vm.getSnapshot().contacts[0].presence).toBe("unknown");
+        user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "offline" } }));
+        client.emit(UserEvent.LastPresenceTs, user.events.presence!, user);
+        expect(vm.getSnapshot().contacts[0].presence).toBe("offline");
+    });
+
+    it("should hide known presence when explicitly disabled", () => {
+        SdkConfig.put({ enable_presence_by_hs_url: { [client.baseUrl]: false } });
+        client.emit(UserEvent.LastPresenceTs, user.events.presence!, user);
+        expect(vm.getSnapshot().onlineContacts).toEqual([]);
+        vm.setTab("all");
+        expect(vm.getSnapshot().contacts[0].presence).toBe("unknown");
+    });
+
     it("opens the existing DM rather than creating a replacement room", () => {
         vm.openConversation(user.userId);
         expect(defaultDispatcher.dispatch).toHaveBeenCalledWith({

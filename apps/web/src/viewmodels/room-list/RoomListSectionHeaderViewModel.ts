@@ -5,7 +5,7 @@
  * Please see LICENSE files in the repository root for full details.
  */
 
-import { type Room } from "matrix-js-sdk/src/matrix";
+import { type Room, RoomType } from "matrix-js-sdk/src/matrix";
 import { CallType } from "matrix-js-sdk/src/webrtc/call";
 import {
     type AcceptedRoomKind,
@@ -15,7 +15,10 @@ import {
     type RoomListSectionHeaderViewSnapshot,
 } from "@element-hq/web-shared-components";
 
-import { isDesktopChannelSection } from "./DesktopChannelSections";
+import { DESKTOP_TEXT_CHANNELS, DESKTOP_VOICE_CHANNELS, isDesktopChannelSection } from "./DesktopChannelSections";
+import { hasCreateRoomRights } from "./utils";
+import { MatrixClientPeg } from "../../MatrixClientPeg";
+import { showCreateNewRoom } from "../../utils/space";
 
 import { RoomNotificationStateStore } from "../../stores/notifications/RoomNotificationStateStore";
 import { NotificationStateEvents } from "../../stores/notifications/NotificationState";
@@ -55,6 +58,17 @@ function getAcceptedRoomKind(tag: string): AcceptedRoomKind {
     return "any";
 }
 
+/**
+ * The kind of channel a desktop channel category creates from its header, if the user may add rooms to the Space.
+ */
+function getCreateChannelKind(tag: string, spaceId: string): "text" | "voice" | undefined {
+    const kind = tag === DESKTOP_TEXT_CHANNELS ? "text" : tag === DESKTOP_VOICE_CHANNELS ? "voice" : undefined;
+    if (!kind) return undefined;
+    const client = MatrixClientPeg.get();
+    const space = client?.getRoom(spaceId);
+    return client && space && hasCreateRoomRights(client, space) ? kind : undefined;
+}
+
 interface RoomListSectionHeaderViewModelProps {
     tag: string;
     title: string;
@@ -89,6 +103,7 @@ export class RoomListSectionHeaderViewModel
             displaySectionMenu: !isDefaultSection,
             canBeReordered: isReorderableSection(props.tag, getCustomSectionData()),
             acceptedRoomKind: getAcceptedRoomKind(props.tag),
+            createChannelKind: getCreateChannelKind(props.tag, props.spaceId),
         });
         const sectionWatherRef = SettingsStore.watchSetting("RoomList.CustomSectionData", null, () =>
             this.onCustomSectionDataChange(),
@@ -134,8 +149,15 @@ export class RoomListSectionHeaderViewModel
     public setSpace(spaceId: string): void {
         this.props.spaceId = spaceId;
         const isExpanded = isSectionExpanded(this.props.spaceId, this.props.tag);
-        this.snapshot.merge({ isExpanded });
+        this.snapshot.merge({ isExpanded, createChannelKind: getCreateChannelKind(this.props.tag, spaceId) });
     }
+
+    public createChannel = (): void => {
+        const space = MatrixClientPeg.get()?.getRoom(this.props.spaceId);
+        if (!space) return;
+        const type = this.snapshot.current.createChannelKind === "voice" ? RoomType.UnstableCall : undefined;
+        void showCreateNewRoom(space, type);
+    };
 
     /**
      * Update the rooms tracked by this section header for unread state computation.

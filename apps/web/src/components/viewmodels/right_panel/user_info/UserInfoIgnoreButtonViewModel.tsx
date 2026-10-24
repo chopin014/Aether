@@ -5,7 +5,7 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import React, { useContext, useEffect, useState, useCallback } from "react";
-import { type RoomMember, User, ClientEvent, type MatrixEvent } from "matrix-js-sdk/src/matrix";
+import { type RoomMember, User, ClientEvent, type MatrixEvent, type MatrixClient } from "matrix-js-sdk/src/matrix";
 
 import MatrixClientContext from "../../../../contexts/MatrixClientContext";
 import { _t } from "../../../../languageHandler";
@@ -25,31 +25,39 @@ export interface UserInfoPowerLevelState {
     ignoreButtonClick: (ev: Event) => void;
 }
 
+/** Stop ignoring a user. */
+export async function unignoreUser(cli: MatrixClient, userId: string): Promise<void> {
+    const ignoredUsers = cli.getIgnoredUsers();
+    const index = ignoredUsers.indexOf(userId);
+    if (index !== -1) ignoredUsers.splice(index, 1);
+    await cli.setIgnoredUsers(ignoredUsers);
+}
+
+/** Ask for confirmation, then ignore a user. */
+export async function confirmAndIgnoreUser(cli: MatrixClient, member: User | RoomMember): Promise<void> {
+    const name = (member instanceof User ? member.displayName : member.name) || member.userId;
+    const { finished } = Modal.createDialog(QuestionDialog, {
+        title: _t("user_info|ignore_confirm_title", { user: name }),
+        description: <div>{_t("user_info|ignore_confirm_description")}</div>,
+        button: _t("action|ignore"),
+    });
+    const [confirmed] = await finished;
+
+    if (confirmed) {
+        const ignoredUsers = cli.getIgnoredUsers();
+        ignoredUsers.push(member.userId);
+        await cli.setIgnoredUsers(ignoredUsers);
+    }
+}
+
 export const useUserInfoIgnoreButtonViewModel = (member: User | RoomMember): UserInfoPowerLevelState => {
     const cli = useContext(MatrixClientContext);
 
     const unignore = useCallback(() => {
-        const ignoredUsers = cli.getIgnoredUsers();
-        const index = ignoredUsers.indexOf(member.userId);
-        if (index !== -1) ignoredUsers.splice(index, 1);
-        void cli.setIgnoredUsers(ignoredUsers);
+        void unignoreUser(cli, member.userId);
     }, [cli, member]);
 
-    const ignore = useCallback(async () => {
-        const name = (member instanceof User ? member.displayName : member.name) || member.userId;
-        const { finished } = Modal.createDialog(QuestionDialog, {
-            title: _t("user_info|ignore_confirm_title", { user: name }),
-            description: <div>{_t("user_info|ignore_confirm_description")}</div>,
-            button: _t("action|ignore"),
-        });
-        const [confirmed] = await finished;
-
-        if (confirmed) {
-            const ignoredUsers = cli.getIgnoredUsers();
-            ignoredUsers.push(member.userId);
-            await cli.setIgnoredUsers(ignoredUsers);
-        }
-    }, [cli, member]);
+    const ignore = useCallback(() => confirmAndIgnoreUser(cli, member), [cli, member]);
 
     // Check whether the user is ignored
     const [isIgnored, setIsIgnored] = useState(cli.isUserIgnored(member.userId));

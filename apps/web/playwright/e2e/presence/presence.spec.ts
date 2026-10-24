@@ -12,6 +12,52 @@ test.describe("Presence tests", () => {
     test.use({
         displayName: "Janet",
         botCreateOpts: { displayName: "Bob" },
+        config: { features: { feature_desktop_shell: true } },
+    });
+
+    test("changes presence from the account profile and retains invisible intent across reload", async ({
+        page,
+        app,
+        user,
+    }) => {
+        await expect(page.getByRole("button", { name: "User menu", exact: true })).toBeVisible();
+        await app.client.createRoom({ name: `Presence controls for ${user.displayName}` });
+        const account = page.getByRole("button", { name: "User menu", exact: true });
+        await account.blur();
+        await page.mouse.move(900, 100);
+        await expect(account.getByRole("img", { name: "Online", exact: true })).toBeVisible();
+        await expect(account.getByText("Online", { exact: true })).toBeVisible();
+        const matrixId = account.getByText(user.userId, { exact: true });
+        await expect(matrixId).toBeHidden();
+        const bounds = await account.boundingBox();
+        await account.hover();
+        await expect(matrixId).toBeVisible();
+        expect(await account.boundingBox()).toEqual(bounds);
+        await page.getByRole("button", { name: "User menu", exact: true }).click();
+        await page.getByRole("menuitem", { name: "Online" }).click();
+        const request = page.waitForResponse((response) => {
+            const request = response.request();
+            return (
+                request.method() === "PUT" &&
+                request.url().includes("/presence/") &&
+                request.postDataJSON().presence === "offline"
+            );
+        });
+        await page.getByRole("menuitemradio", { name: "Appear offline" }).click();
+        expect((await request).ok()).toBe(true);
+        await expect(page.getByRole("menuitemradio", { name: "Appear offline" })).toHaveAttribute(
+            "aria-checked",
+            "true",
+        );
+        await page.keyboard.press("Escape");
+        await page.keyboard.press("Escape");
+        await page.getByRole("button", { name: "User menu", exact: true }).click();
+        await expect(page.getByRole("menuitem", { name: "Appear offline" })).toBeVisible();
+        await page.reload();
+        await page.getByRole("button", { name: "User menu", exact: true }).click();
+        await page.getByRole("menuitem", { name: "Appear offline" }).click();
+        await page.getByRole("menuitemradio", { name: "Away" }).click();
+        await expect(page.getByRole("menuitemradio", { name: "Away" })).toHaveAttribute("aria-checked", "true");
     });
 
     test.describe("bob unreachable", () => {

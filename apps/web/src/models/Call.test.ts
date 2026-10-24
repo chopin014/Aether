@@ -32,6 +32,7 @@ import {
     JitsiCall,
     ElementCall,
     ElementCallIntent,
+    NO_SCREEN_SHARE,
 } from "./Call";
 import { WidgetMessagingStore } from "../stores/widgets/WidgetMessagingStore";
 import ActiveWidgetStore, { ActiveWidgetStoreEvent } from "../stores/ActiveWidgetStore";
@@ -1046,6 +1047,46 @@ describe("ElementCall", () => {
             call.off(CallEvent.CallTypeChanged, onCallTypeChanged);
         });
 
+        it.each([undefined, RoomType.ElementVideo, RoomType.UnstableCall])(
+            "keeps a connected call alive when navigating away with no echoed memberships (%s)",
+            async (roomType) => {
+                vi.spyOn(room, "getType").mockReturnValue(roomType);
+                call.presented = true;
+                await connect(call, widgetApi);
+                ActiveWidgetStore.instance.setWidgetPersistence(call.widget.id, room.roomId, true);
+                const onDestroy = vi.fn();
+                call.on(CallEvent.Destroy, onDestroy);
+                expect(call.session.memberships).toHaveLength(0);
+
+                call.presented = false;
+
+                expect(onDestroy).not.toHaveBeenCalled();
+                expect(call.connected).toBe(true);
+                expect(ActiveWidgetStore.instance.getWidgetPersistence(call.widget.id, room.roomId)).toBe(true);
+            },
+        );
+
+        it("keeps a connected off-screen call alive when the session manager reports an empty session", async () => {
+            await connect(call, widgetApi);
+            const onDestroy = vi.fn();
+            call.on(CallEvent.Destroy, onDestroy);
+
+            client.matrixRTC.emit(MatrixRTCSessionManagerEvents.SessionEnded, room.roomId, call.session);
+
+            expect(onDestroy).not.toHaveBeenCalled();
+            expect(call.connected).toBe(true);
+        });
+
+        it("still destroys an empty lobby when navigating away", () => {
+            call.presented = true;
+            const onDestroy = vi.fn();
+            call.on(CallEvent.Destroy, onDestroy);
+
+            call.presented = false;
+
+            expect(onDestroy).toHaveBeenCalledOnce();
+        });
+
         it("ends the call immediately if the session ended", async () => {
             await connect(call, widgetApi);
             const onDestroy = vi.fn();
@@ -1233,17 +1274,114 @@ describe("ElementCall with the React component embedding", () => {
         });
     });
 
-    it("mutes playback through Element Call's host audio API", () => {
+    describe("screen sharing", () => {
+        const sharing = { available: true, sharing: false, remoteSharerIds: ["@alice:example.org"] };
+
+        it("publishes each change in screen sharing once", () => {
+            const changed = vi.fn();
+            call.on(CallEvent.ScreenShare, changed);
+            expect(call.screenShare).toEqual(NO_SCREEN_SHARE);
+            call.handleScreenShare(sharing);
+            call.handleScreenShare({ ...sharing, remoteSharerIds: ["@alice:example.org"] });
+            expect(changed).toHaveBeenCalledExactlyOnceWith(sharing);
+            call.handleScreenShare({ ...sharing, sharing: true });
+            expect(changed).toHaveBeenCalledTimes(2);
+            expect(call.screenShare.sharing).toBe(true);
+        });
+
+        it("floats only while someone else is sharing a screen", () => {
+            expect(call.floatsOffScreen).toBe(false);
+            call.handleScreenShare({ ...sharing, remoteSharerIds: [], sharing: true });
+            expect(call.floatsOffScreen).toBe(false);
+            call.handleScreenShare(sharing);
+            expect(call.floatsOffScreen).toBe(true);
+            enabledSettings.delete("feature_element_call_react");
+            call.handleScreenShare(NO_SCREEN_SHARE);
+            expect(call.floatsOffScreen).toBe(true);
+        });
+
+        it("toggles our screen share through the component handle", async () => {
+            const toggleScreenSharing = vi.fn(async () => {});
+            call.setComponentHandle({ toggleScreenSharing } as unknown as ElementCallHandle);
+            await call.toggleScreenShare();
+            expect(toggleScreenSharing).toHaveBeenCalledOnce();
+        });
+
+        it("reports a missing component rather than pretending to share", async () => {
+            await expect(call.toggleScreenShare()).rejects.toThrow("not ready");
+        });
+
+        it.each(["unmount", "close"])("forgets screen sharing on %s", (reason) => {
+            call.setComponentHandle({} as ElementCallHandle);
+            call.handleScreenShare(sharing);
+            if (reason === "unmount") call.setComponentHandle(null);
+            else call.handleClose();
+            expect(call.screenShare).toEqual(NO_SCREEN_SHARE);
+        });
+    });
+
+    it("mutes playback through Element Call's host audio API and announces the deafen", () => {
         const setAudioEnabled = vi.fn();
+        const setDeafened = vi.fn(async () => {});
         vi.stubGlobal("controls", { setAudioEnabled });
+        call.setComponentHandle({ setDeafened } as unknown as ElementCallHandle);
         try {
             call.setAudioOutputEnabled(false);
             expect(setAudioEnabled).toHaveBeenLastCalledWith(false);
+            expect(setDeafened).toHaveBeenLastCalledWith(true);
             call.setAudioOutputEnabled(true);
             expect(setAudioEnabled).toHaveBeenLastCalledWith(true);
+            expect(setDeafened).toHaveBeenLastCalledWith(false);
         } finally {
             vi.unstubAllGlobals();
         }
+    });
+
+    describe("voice states", () => {
+        const alice = { userId: "@alice:example.org", muted: true, deafened: false };
+
+        it("publishes each change in who is muted or deafened once", () => {
+            const changed = vi.fn();
+            call.on(CallEvent.VoiceStates, changed);
+            expect(call.voiceStates.size).toBe(0);
+            call.handleVoiceStates([alice]);
+            call.handleVoiceStates([{ ...alice }]);
+            expect(changed).toHaveBeenCalledTimes(1);
+            expect(call.voiceStates.get(alice.userId)).toEqual(alice);
+            call.handleVoiceStates([{ ...alice, deafened: true }]);
+            expect(changed).toHaveBeenCalledTimes(2);
+            expect(call.voiceStates.get(alice.userId)?.deafened).toBe(true);
+        });
+
+        it("shows our own deafen at once, whatever the call reports", () => {
+            vi.stubGlobal("controls", { setAudioEnabled: vi.fn() });
+            const ownUserId = client.getUserId()!;
+            const own = { userId: ownUserId, muted: false, deafened: false };
+            const bob = { userId: "@bob:example.org", muted: true, deafened: false };
+            try {
+                call.handleVoiceStates([bob, own]);
+                call.setAudioOutputEnabled(false);
+                expect(call.voiceStates.get(ownUserId)).toEqual({ ...own, muted: true, deafened: true });
+                expect(call.voiceStates.get(bob.userId)).toEqual(bob);
+
+                // A later report from the call keeps our own deafen
+                call.handleVoiceStates([{ ...bob, muted: false }, own]);
+                expect(call.voiceStates.get(ownUserId)?.deafened).toBe(true);
+
+                call.setAudioOutputEnabled(true);
+                expect(call.voiceStates.get(ownUserId)).toEqual(own);
+            } finally {
+                vi.unstubAllGlobals();
+            }
+        });
+
+        it.each(["unmount", "close"])("forgets voice states on %s", (reason) => {
+            call.setComponentHandle({} as ElementCallHandle);
+            call.handleVoiceStates([alice]);
+            if (reason === "unmount") call.setComponentHandle(null);
+            else call.handleClose();
+            expect(call.voiceStates.size).toBe(0);
+        });
     });
 
     it("times out if the component never reports ready", async () => {

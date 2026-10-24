@@ -15,12 +15,15 @@ import { Action } from "../../../../dispatcher/actions";
 import { asyncSome } from "../../../../utils/arrays";
 import { getUserDeviceIds } from "../../../../utils/crypto/deviceInfo";
 import { type RoomMember } from "../../../../models/rooms/RoomMember";
-import { _t, _td } from "../../../../languageHandler";
+import { _t } from "../../../../languageHandler";
 import { E2EStatus } from "../../../../utils/ShieldUtils";
+import { getPowerLevelRole } from "../../../../Roles";
 
 interface MemberTileViewModelProps {
     member: RoomMember;
     showPresence?: boolean;
+    /** Hide channel role badges when the desktop list groups by server role. */
+    showRole?: boolean;
 }
 
 export interface MemberTileViewState extends MemberTileViewModelProps {
@@ -29,18 +32,6 @@ export interface MemberTileViewState extends MemberTileViewModelProps {
     onClick: () => void;
     userLabel?: string;
 }
-
-export enum PowerStatus {
-    Creator = "creator",
-    Admin = "admin",
-    Moderator = "moderator",
-}
-
-const PowerLabel: Record<PowerStatus, TranslationKey> = {
-    [PowerStatus.Creator]: _td("power_level|creator"),
-    [PowerStatus.Admin]: _td("power_level|admin"),
-    [PowerStatus.Moderator]: _td("power_level|moderator"),
-};
 
 export function useMemberTileViewModel(props: MemberTileViewModelProps): MemberTileViewState {
     const [e2eStatus, setE2eStatus] = useState<E2EStatus | undefined>();
@@ -116,26 +107,7 @@ export function useMemberTileViewModel(props: MemberTileViewModelProps): MemberT
     const member = props.member;
     const name = props.member.name;
 
-    const powerStatusMap = new Map([
-        [Infinity, PowerStatus.Creator],
-        [100, PowerStatus.Admin],
-        [50, PowerStatus.Moderator],
-    ]);
-
-    // Find the nearest power level with a badge
-    let powerLevel = props.member.powerLevel;
-    for (const [pl] of powerStatusMap) {
-        if (props.member.powerLevel >= pl) {
-            powerLevel = pl;
-            break;
-        }
-    }
-
-    let userLabel;
-    const powerStatus = powerStatusMap.get(powerLevel);
-    if (powerStatus) {
-        userLabel = _t(PowerLabel[powerStatus]);
-    }
+    let userLabel = props.showRole === false ? undefined : getPowerLevelRole(props.member.powerLevel)?.label;
     if (props.member.isInvite) {
         userLabel = _t("member_list|invited_label");
     }

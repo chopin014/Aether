@@ -6,12 +6,27 @@
         "delete": "Excluir",
         "dismiss": "Dispensar",
         "explore_rooms": "Explorar salas",
+        "invite": "Convidar",
+        "new_room": "Nova sala",
+        "new_voice_room": "Nova sala de voz",
         "pause": "Pausar",
         "play": "Reproduzir",
-        "search": "Buscar"
+        "search": "Buscar",
+        "create": "Criar"
+    },
+    "common": {
+        "preferences": "Preferências",
+        "threads": "Tópicos"
     },
     "left_panel": {
         "open_dial_pad": "Abrir o teclado de discagem"
+    },
+    "room_list": {
+        "open_space_menu": "Abrir menu do espaço",
+        "space_menu": {
+            "home": "Página inicial do espaço",
+            "space_settings": "Configurações do espaço"
+        }
     },
     "time": {
         "about_day_ago": "há aproximadamente um dia",
@@ -35,5 +50,95 @@
             "error_downloading_audio": "Erro ao baixar o áudio",
             "unnamed_audio": "Áudio sem nome"
         }
+    },
+    "presence_controls": {
+        "title": "Presença",
+        "online": "Disponível",
+        "away": "Ausente",
+        "offline": "Offline",
+        "automatic": "Disponível (automático)",
+        "invisible": "Invisível",
+        "unknown": "Status desconhecido",
+        "disabled_short": "Presença desativada",
+        "disabled": "A presença está desativada na configuração deste cliente.",
+        "server_hint": "Disponível muda para Ausente após 3 minutos de inatividade. Seu servidor pode não fornecer presença; outros dispositivos podem afetar o status informado.",
+        "requested": "Solicitado: %(status)s",
+        "saving": "Atualizando…",
+        "retry": "Tentar atualizar presença novamente",
+        "unknown_hint": "Seu status selecionado; status do servidor indisponível.",
+        "selected_hint": "Seu status selecionado neste dispositivo."
+    },
+    "desktop": {
+        "threads": {
+            "search": "Buscar tópicos",
+            "load_error": "Não foi possível carregar os tópicos. Tente novamente.",
+            "no_results": "Nenhum tópico encontrado",
+            "empty_title": "Não há tópicos.",
+            "empty_description": "Mantenha o foco em uma conversa com um tópico.",
+            "search_scope": "A busca inclui os tópicos carregados. Carregue mais para buscar conversas antigas.",
+            "create": "Criar tópico",
+            "replies": {
+                "one": "%(count)s resposta",
+                "other": "%(count)s respostas"
+            },
+            "load_more": "Carregar mais tópicos",
+            "create_description": "A mensagem inicial será publicada neste canal. Sua primeira resposta inicia o tópico. Todos com acesso ao canal podem lê-lo.",
+            "starter": "Mensagem inicial",
+            "first_reply": "Primeira resposta",
+            "starter_sent": "A mensagem inicial foi enviada. Tente novamente para enviar a primeira resposta.",
+            "send_error": "Não foi possível concluir o tópico. Seu rascunho foi salvo. Tente novamente para continuar.",
+            "sending": "Enviando…",
+            "unread": "Não lido",
+            "start": "Iniciar tópico",
+            "open": "Abrir tópico %(title)s"
+        },
+        "profile": {
+            "copy_link": "Copiar link",
+            "ignore": "Ignorar",
+            "unignore": "Deixar de ignorar",
+            "member_since": "Membro desde",
+            "mention": "Mencionar",
+            "message_button": "Mensagem",
+            "message_error": "Não foi possível abrir a conversa. Tente novamente.",
+            "message_label": "Mensagem para %(name)s",
+            "message_placeholder": "Conversar com @%(name)s",
+            "moderate": "Moderar nas informações da sala",
+            "more": "Mais ações",
+            "mutual_error": "Não foi possível carregar as salas em comum.",
+            "mutual_loading": "Carregando salas em comum…",
+            "mutual_rooms": "Salas em comum",
+            "mutual_rooms_count": {
+                "one": "%(count)s sala em comum",
+                "other": "%(count)s salas em comum"
+            },
+            "mutual_rooms_empty": "Vocês não compartilham nenhuma sala.",
+            "mutual_spaces_count": {
+                "one": "%(count)s espaço em comum",
+                "other": "%(count)s espaços em comum"
+            },
+            "mutual_spaces_empty": "Este cliente não conhece nenhum espaço em comum.",
+            "mutual_spaces_note": "Com base nos membros do espaço que este cliente já carregou.",
+            "not_verified": "Não verificado",
+            "presence_offline": "Offline",
+            "presence_online": "Online",
+            "presence_unavailable": "Ausente",
+            "roles": "Cargos",
+            "section": "Perfil de %(name)s",
+            "self_note": "Este é o seu próprio perfil.",
+            "sessions": {
+                "one": "%(count)s sessão",
+                "other": "%(count)s sessões"
+            },
+            "shared_context": "Compartilhado com esta pessoa",
+            "verification": "Verificação",
+            "verified": "Verificado",
+            "verify": "Verificar",
+            "view_full": "Ver perfil completo de %(name)s",
+            "view_full_menu": "Ver perfil completo"
+        }
+    },
+    "threads": {
+        "all_threads": "Todos os tópicos",
+        "my_threads": "Meus tópicos"
     }
 }

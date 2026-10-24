@@ -8,7 +8,7 @@
 // @vitest-environment happy-dom
 
 import { vi, describe, it, expect, beforeEach, afterEach, type Mock } from "vitest";
-import { type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
+import { type MatrixClient, type Room, RoomType } from "matrix-js-sdk/src/matrix";
 import { CallType } from "matrix-js-sdk/src/webrtc/call";
 import { createTestClient, mkRoom } from "test-utils";
 
@@ -23,6 +23,10 @@ import { SettingLevel } from "../../settings/SettingLevel";
 import RoomListStoreV3 from "../../stores/room-list-v3/RoomListStoreV3";
 import { DefaultTagID } from "../../stores/room-list-v3/skip-list/tag";
 import { CHATS_TAG, type SectionExpansionState } from "../../stores/room-list-v3/section";
+import { DESKTOP_TEXT_CHANNELS, DESKTOP_VOICE_CHANNELS } from "./DesktopChannelSections";
+import { MatrixClientPeg } from "../../MatrixClientPeg";
+import * as roomListUtils from "./utils";
+import * as spaceUtils from "../../utils/space";
 
 describe("RoomListSectionHeaderViewModel", () => {
     let onToggleExpanded: Mock;
@@ -250,6 +254,50 @@ describe("RoomListSectionHeaderViewModel", () => {
 
         it("should let the Chats section accept any room when the People section is hidden", () => {
             expect(makeViewModel(CHATS_TAG, false).getSnapshot().acceptedRoomKind).toBe("any");
+        });
+    });
+
+    describe("createChannelKind", () => {
+        let space: Room;
+
+        function makeViewModel(tag: string, spaceId = "!space:server"): RoomListSectionHeaderViewModel {
+            return new RoomListSectionHeaderViewModel({ tag, title: "Channels", spaceId, onToggleExpanded });
+        }
+
+        beforeEach(() => {
+            space = mkRoom(matrixClient, "!space:server");
+            vi.spyOn(MatrixClientPeg, "get").mockReturnValue(matrixClient);
+            vi.mocked(matrixClient.getRoom).mockImplementation((roomId) => (roomId === space.roomId ? space : null));
+            vi.spyOn(roomListUtils, "hasCreateRoomRights").mockReturnValue(true);
+        });
+
+        it.each([
+            [DESKTOP_TEXT_CHANNELS, "text"],
+            [DESKTOP_VOICE_CHANNELS, "voice"],
+            [CHATS_TAG, undefined],
+        ])("is %s's channel kind", (tag, expected) => {
+            expect(makeViewModel(tag).getSnapshot().createChannelKind).toBe(expected);
+        });
+
+        it("is absent without the right to add rooms to the Space", () => {
+            vi.mocked(roomListUtils.hasCreateRoomRights).mockReturnValue(false);
+            expect(makeViewModel(DESKTOP_TEXT_CHANNELS).getSnapshot().createChannelKind).toBeUndefined();
+        });
+
+        it("follows the Space being viewed", () => {
+            const vm = makeViewModel(DESKTOP_TEXT_CHANNELS, "!unknown:server");
+            expect(vm.getSnapshot().createChannelKind).toBeUndefined();
+            vm.setSpace(space.roomId);
+            expect(vm.getSnapshot().createChannelKind).toBe("text");
+        });
+
+        it.each([
+            [DESKTOP_TEXT_CHANNELS, undefined],
+            [DESKTOP_VOICE_CHANNELS, RoomType.UnstableCall],
+        ])("creates a %s room in the Space", (tag, type) => {
+            const showCreateNewRoom = vi.spyOn(spaceUtils, "showCreateNewRoom").mockResolvedValue(true);
+            makeViewModel(tag).createChannel();
+            expect(showCreateNewRoom).toHaveBeenCalledWith(space, type);
         });
     });
 

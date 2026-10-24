@@ -20,6 +20,7 @@ import WidgetCard from "../views/right_panel/WidgetCard";
 import UserInfo from "../views/right_panel/UserInfo";
 import ThirdPartyMemberInfo from "../views/rooms/ThirdPartyMemberInfo";
 import FilePanel from "./FilePanel";
+import SettingsStore from "../../settings/SettingsStore";
 import ThreadView from "./ThreadView";
 import ThreadPanel from "./ThreadPanel";
 import NotificationPanel from "./NotificationPanel";
@@ -125,6 +126,16 @@ export default class RightPanel extends React.Component<Props, IState> {
     };
 
     private onClose = (): void => {
+        if (
+            this.state.phase === RightPanelPhases.ThreadView &&
+            this.props.room &&
+            SettingsStore.getValue("feature_desktop_shell")
+        ) {
+            RightPanelStore.instance.closeThread(this.props.room.roomId);
+            document.querySelector<HTMLButtonElement>("[data-desktop-thread-trigger]")?.focus();
+            return;
+        }
+
         // XXX: There are three different ways of 'closing' this panel depending on what state
         // things are in... this knows far more than it should do about the state of the rest
         // of the app and is generally a bit silly.
@@ -225,6 +236,11 @@ export default class RightPanel extends React.Component<Props, IState> {
                 if (!!this.props.room && !!cardState?.threadHeadEvent) {
                     card = (
                         <ThreadView
+                            key={
+                                SettingsStore.getValue("feature_desktop_shell")
+                                    ? cardState.threadHeadEvent.getId()
+                                    : undefined
+                            }
                             room={this.props.room}
                             resizeNotifier={this.props.resizeNotifier}
                             onClose={this.onClose}

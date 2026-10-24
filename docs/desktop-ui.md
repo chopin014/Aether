@@ -28,7 +28,37 @@ env -u ELECTRON_RUN_AS_NODE pnpm exec electron . --config config.desktop.json
 
 This loads the locally built renderer through `vector://`, retaining Element's preload, isolation, native window controls and IPC. Sign in with a Matrix account. Discord credentials cannot authenticate a Matrix account.
 
-`config.desktop.json` enables `feature_desktop_shell`, selects the dark theme, and enables the embedded Element Call component. The feature remains disabled by default for other configurations. Rebuild after source changes before reopening the desktop app.
+`config.desktop.json` enables `feature_desktop_shell`, selects the dark theme, and enables the embedded Element Call component. The feature remains disabled by default for other configurations.
+
+## Preview changes without packaging
+
+Electron loads `apps/desktop/webapp.asar` before `apps/desktop/webapp`. If an archive exists from an earlier build,
+move it outside the checkout before previewing changes; otherwise Electron keeps showing that archived renderer.
+For example, run `mv -i apps/desktop/webapp.asar /tmp/aether-webapp.asar` from the root when the archive exists.
+Ensure `apps/desktop/webapp` is a symlink to `../web/webapp`, rather than a copy from an earlier packaged build.
+
+Start the renderer watcher in one terminal:
+
+```sh
+cd apps/web
+pnpm start
+```
+
+Once webpack finishes compiling, run these commands from the monorepo root in another terminal:
+
+```sh
+cp apps/desktop/config.desktop.json apps/web/webapp/config.json
+pnpm exec nx run-many -t build:ts,build:res -p element-desktop
+cd apps/desktop
+env -u ELECTRON_RUN_AS_NODE pnpm exec electron . --config config.desktop.json --profile dev
+```
+
+The `dev` profile is separate from the installed app and needs its own sign-in. To use the installed app's account,
+quit that app first and omit `--profile dev`; both builds must not use the same profile simultaneously.
+Keep the watcher running; it writes renderer changes to the shared `webapp` folder. Press Ctrl+R in Electron after
+compilation to load them.
+For changes to the Electron host, including window controls and tray behaviour, rerun the `build:ts,build:res`
+command and restart Electron. AppImage or installer packaging is only needed to test the distribution itself.
 
 ## Matrix and calling
 
@@ -59,13 +89,29 @@ Close the Electron window to finish the review and release the test services. Th
 
 ## Presentation and backend mappings
 
-Implemented surfaces include a titlebar following the selected Matrix Space, the compact Space rail, a server-name menu, collapsible text/voice categories, channel symbols, an account dock spanning the rail and sidebar, grouped message metadata, left-side attachments, channel-header controls and a notification bell using actual Matrix push rules, the centered server welcome, a compact presence-grouped member panel, contacts Home, connected-call status and device controls, portal theme inheritance and the captured floating settings frame. Light and high-contrast themes retain their Compound colors.
+Implemented surfaces include window controls drawn over the app in place of the system title bar on Linux and Windows, a Discord-sized Space rail, a server-name menu, collapsible text/voice categories, channel symbols, an account dock spanning the rail and sidebar, grouped message metadata, left-side attachments, channel-header controls and a notification bell using actual Matrix push rules, the centered server welcome, a compact presence-grouped member panel, contacts Home, connected-call status and device controls, portal theme inheritance and the captured floating settings frame. Light and high-contrast themes retain their Compound colors.
 
 The contacts page uses `m.direct` conversations as contacts. Online and All reflect actual SDK presence; Pending contains actual incoming room invitations; Blocked uses Matrix ignored-user account data. Accept joins the invited Matrix room, Ignore leaves it, and Unblock updates ignored users. Add Friend opens Element’s existing Matrix user lookup and direct-chat flow. This is an explicit compatibility mapping; it does not add a separate mutual-friend protocol or Discord’s relationship graph. Home keeps existing rooms reachable, including rooms outside Spaces.
 
 Space categories are presentation-only projections of actual room types. They do not mutate Matrix tags, memberships or permissions. Existing custom sections remain available. Message rendering retains the original reply, encryption, context-menu, reaction, thread and receipt slots. Desktop calls retain the channel sidebar and connection dock rather than triggering Element’s automatic call collapse. The collapsed sidebar uses the actual resizer state; Playwright must set `lockLeftPanelWidth: false` when testing collapse.
 
 ## Reference-to-implementation status
+
+The [desktop UX map](desktop-ux-map.md) compares the 99-state Discord study with current
+Element owners, defines the popover/panel/settings interaction model and orders the remaining
+UX work. Sync architecture and new backend services are outside this phase.
+
+The account profile menu offers Online (automatic), Away and Appear offline using the existing
+Matrix presence APIs. The account dock always shows the selected status badge and reveals the
+Matrix ID on hover or keyboard focus. Requested status stays separate from received presence;
+missing data for other members is neutral rather than Offline. See [presence behavior and limits](presence.md).
+
+The desktop header pin button opens an anchored, nonmodal message browser without replacing
+members or changing the active channel. Cards retain Element's authenticated message and attachment
+rendering, original-event jumps, live edits and permission-checked unpin actions. Loading, unavailable
+messages and failed requests have explicit states and retry actions. Escape, outside click and the
+header button dismiss the browser; explicit dismissal returns focus to the button. Other pin entry
+points and the non-desktop shell retain the existing card.
 
 The acceptance target is the captured Discord desktop interface and its interactions, not a recolored Element. These statuses distinguish working integration from finished visual parity.
 
@@ -100,3 +146,37 @@ The sidebar observes existing tracks without changing capture, gain, or noise pr
 clear their ring. Reduced motion keeps a steady ring. Remote mute badges are not inferred from room membership.
 Original Aether sound cues accompany successful microphone/deafen controls and real call connection changes.
 Voice settings include a device-level switch for the cues. See [packaging and release work](aether-releases.md).
+
+## Server and channel presentation
+
+Opening a server lands in its last channel, or its first text channel on a first visit. Text channels open with the
+member list on the right until the user closes it; that choice is kept per channel. Direct messages, voice channels
+and Spaces keep Element's closed default.
+
+An occupied voice channel shows a filled speaker icon and how long people have been in it, counted from the oldest
+MatrixRTC membership still in the call. A channel's Matrix room avatar is its custom icon in the channel list and
+header, and its topic sits beside its name in the header. Edit channel, in a channel's menu, opens the room settings
+where the name, topic and icon are changed; it is offered to users who may rename the room. The Text Channels and
+Voice Channels categories carry a "+" that creates a channel of that kind in the Space for users who may add rooms.
+
+Messages and the composer use 15px text, with 20px between one sender's group and the next. Conversations use 42px
+rows, channels 34px rows with 2px gaps, and members 48px rows. Loading uses an Aether orbit spinner, and timeline
+files, audio and voice messages appear as Aether media cards.
+
+## Window and server rail
+
+On Linux and Windows the desktop shell has no system title bar: Electron draws the window controls over the top
+right of the header row (`titleBarOverlay`, 48px). The header row moves the window, and the room header, contacts
+header and member list keep the controls' corner clear. The overlay uses Aether's dark header colours in every theme.
+macOS keeps Element's own title bar.
+
+The server rail is 72px wide with 48px icons that round from circles into squares when hovered or selected. A pill at
+the rail's edge marks unread (8px), hovered (20px) and selected (40px) servers; mention counts stay as a badge.
+A divider separates Home from the user's Spaces.
+
+## Muted and deafened participants
+
+Muted and deafened icons beside voice participants are grey, in the channel icons' column; red is kept for actions
+taken by others. Each device announces its deafen both as a LiveKit attribute and as a LiveKit data message, repeated
+every 10 seconds while deafened, because the attribute needs a JWT service that lets participants update their own
+metadata (`lk-jwt-service` since July 2026). The local user's own row follows this device directly.

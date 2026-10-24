@@ -159,6 +159,25 @@ export default class PinningUtils {
         ]);
     }
 
+    /** Remove an existing pin without toggling a stale selection back on or mutating room state. */
+    public static async unpinEvent(matrixClient: MatrixClient, room: Room, eventId: string): Promise<void> {
+        if (!this.userHasPinOrUnpinPermission(matrixClient, room)) return;
+        const pinned: unknown = room
+            .getLiveTimeline()
+            .getState(EventTimeline.FORWARDS)
+            ?.getStateEvents(EventType.RoomPinnedEvents, "")
+            ?.getContent().pinned;
+        if (!Array.isArray(pinned) || !pinned.includes(eventId)) return;
+        await matrixClient.sendStateEvent(
+            room.roomId,
+            EventType.RoomPinnedEvents,
+            {
+                pinned: pinned.filter((id) => id !== eventId),
+            },
+            "",
+        );
+    }
+
     /**
      * Unpin all events in the given room.
      * @param matrixClient

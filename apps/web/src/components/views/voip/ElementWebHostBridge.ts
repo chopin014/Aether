@@ -9,7 +9,12 @@ import MediaDeviceHandler from "../../../MediaDeviceHandler";
 import ActiveWidgetStore from "../../../stores/ActiveWidgetStore";
 import { CallStore } from "../../../stores/CallStore";
 import { type ElementCall } from "../../../models/Call";
-import { type DeviceMuteState, type ElementCallHostBridge } from "@element-hq/element-call-component/api";
+import {
+    type DeviceMuteState,
+    type ElementCallHostBridge,
+    type ScreenShareState,
+    type VoiceState,
+} from "@element-hq/element-call-component/api";
 import { logger } from "matrix-js-sdk/src/logger";
 
 export interface ElementWebHostBridgeOptions {
@@ -83,6 +88,16 @@ export class ElementWebHostBridge implements ElementCallHostBridge {
     /** Forward real speech activity, already deduplicated across a user's devices. */
     public readonly notifySpeakingUsers = async (userIds: string[]): Promise<void> => {
         this.call.handleSpeakingUsers(userIds);
+    };
+
+    /** Forward screen sharing, so the sidebar can offer it and the floating call only shows a share. */
+    public readonly notifyScreenShare = async (state: ScreenShareState): Promise<void> => {
+        this.call.handleScreenShare(state);
+    };
+
+    /** Forward who is muted or deafened, so the channel list can show it beside each person. */
+    public readonly notifyVoiceStates = async (states: VoiceState[]): Promise<void> => {
+        this.call.handleVoiceStates(states);
     };
 
     public readonly close = async (): Promise<void> => {

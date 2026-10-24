@@ -1,0 +1,27 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.mx_PinnedMessagesPopover {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--cpd-color-text-primary);
+    text-align: start;
+    -webkit-app-region: no-drag;
+
+    &::backdrop {
+        background: transparent;
+        pointer-events: none;
+    }
+}
+
+.mx_PinnedMessagesPopover_active svg {
+    fill: var(--cpd-color-icon-accent-primary);
+}

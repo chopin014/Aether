@@ -15,6 +15,7 @@ import fetchMock from "@fetch-mock/vitest";
 import { advanceDateAndTime, stubClient, createTestClient } from "test-utils";
 
 import { type IMatrixClientPeg, MatrixClientPeg as peg } from "./MatrixClientPeg";
+import { presencePreferenceKey } from "./utils/presencePreference";
 import SdkConfig from "./SdkConfig";
 import { createClientWithCreds } from "./utils/createMatrixClient";
 import * as StorageManager from "./utils/StorageManager";
@@ -82,7 +83,18 @@ describe("MatrixClientPeg", () => {
             const mockClient = createTestClient();
             mockClient.initRustCrypto = vi.fn();
             mockClient.startClient = vi.fn();
+            mockClient.setSyncPresence = vi.fn().mockResolvedValue(undefined);
             testPeg.set(mockClient as unknown as MatrixClient);
+        });
+
+        it("should apply saved invisible intent immediately after starting the SDK", async () => {
+            const client = testPeg.safeGet();
+            localStorage.setItem(presencePreferenceKey(client), "offline");
+            await testPeg.start();
+            expect(client.setSyncPresence).toHaveBeenCalledWith("offline");
+            expect(vi.mocked(client.startClient).mock.invocationCallOrder[0]).toBeLessThan(
+                vi.mocked(client.setSyncPresence).mock.invocationCallOrder[0],
+            );
         });
 
         it("should initialise the rust crypto library by default", async () => {

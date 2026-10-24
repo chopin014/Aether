@@ -9,7 +9,8 @@ Please see LICENSE files in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import { getByTestId, render, waitFor } from "test-utils-rtl";
+import { getByTestId, render, screen, waitFor } from "test-utils-rtl";
+import userEvent from "@testing-library/user-event";
 import { type MatrixClient, PendingEventOrdering, Room, RoomMember } from "matrix-js-sdk/src/matrix";
 import React, { type ComponentProps } from "react";
 import { getRoomContext } from "test-utils/room";
@@ -19,6 +20,8 @@ import MemberAvatar from "./MemberAvatar";
 import { MatrixClientPeg } from "../../../MatrixClientPeg";
 import SettingsStore from "../../../settings/SettingsStore";
 import { ScopedRoomContextProvider } from "../../../contexts/ScopedRoomContext.tsx";
+import defaultDispatcher from "../../../dispatcher/dispatcher";
+import { Action } from "../../../dispatcher/actions";
 
 describe("MemberAvatar", () => {
     const ROOM_ID = "roomId";
@@ -64,5 +67,13 @@ describe("MemberAvatar", () => {
         });
 
         expect(avatar!.getAttribute("src")).not.toBe("");
+    });
+
+    it("asks to view the member when a timeline author's avatar is clicked", async () => {
+        vi.spyOn(SettingsStore, "getValue").mockReturnValue(false);
+        const dispatch = vi.spyOn(defaultDispatcher, "dispatch").mockImplementation(() => undefined);
+        render(getComponent({ member, viewUserOnClick: true }));
+        await userEvent.click(await screen.findByRole("button"));
+        expect(dispatch).toHaveBeenCalledWith({ action: Action.ViewUser, member, push: false });
     });
 });

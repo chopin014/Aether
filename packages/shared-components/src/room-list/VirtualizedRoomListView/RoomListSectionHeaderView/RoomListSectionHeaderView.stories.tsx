@@ -29,6 +29,7 @@ const RoomListSectionHeaderViewWrapperImpl = ({
     onFocus,
     editSection,
     removeSection,
+    createChannel,
     isFocused,
     sectionIndex,
     sectionCount,
@@ -36,7 +37,7 @@ const RoomListSectionHeaderViewWrapperImpl = ({
     roomCountInSection,
     ...rest
 }: RoomListSectionHeaderProps): JSX.Element => {
-    const vm = useMockedViewModel(rest, { onClick, editSection, removeSection });
+    const vm = useMockedViewModel(rest, { onClick, editSection, removeSection, createChannel });
     return (
         <RoomListSectionHeaderView
             vm={vm}
@@ -79,6 +80,7 @@ const meta = {
         onFocus: fn(),
         editSection: fn(),
         removeSection: fn(),
+        createChannel: fn(),
         sectionIndex: 1,
         sectionCount: 3,
         roomCountInSection: 5,
@@ -159,5 +161,17 @@ export const WithNotificationDecoration: Story = {
             callType: "video",
         },
         isExpanded: false,
+    },
+};
+
+/** A desktop channel category offers to create a channel of its kind from its header, as in Discord. */
+export const DesktopChannelCategory: Story = {
+    args: {
+        id: "desktop.voice_channels",
+        title: "Voice Channels",
+        displaySectionMenu: false,
+        canBeReordered: false,
+        acceptedRoomKind: "none",
+        createChannelKind: "voice",
     },
 };

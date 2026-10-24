@@ -237,6 +237,7 @@ export interface IRoomState {
     showApps: boolean;
     isPeeking: boolean;
     showRightPanel: boolean;
+    rightPanelPhase?: RightPanelPhases | null;
     // error object, as from the matrix client/server API
     // If we failed to load information about the room,
     // store the error here.
@@ -1143,6 +1144,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         const { roomId } = this.state;
         this.setState({
             showRightPanel: roomId ? this.context.rightPanelStore.isOpenForRoom(roomId) : false,
+            rightPanelPhase: roomId ? this.context.rightPanelStore.currentCardForRoom(roomId).phase : null,
         });
     };
 
@@ -1344,6 +1346,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 }
                 break;
             case Action.ViewUser:
+                // The desktop shell shows people in an anchored profile card instead of the right panel.
+                if (payload.member && SettingsStore.getValue("feature_desktop_shell")) break;
                 if (payload.member) {
                     if (payload.push) {
                         this.context.rightPanelStore.pushCard({
@@ -2515,9 +2519,11 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             </AuxPanel>
         );
 
-        const pinnedMessageBanner = !this.props.hidePinnedMessageBanner && (
-            <PinnedMessageBanner room={this.state.room} permalinkCreator={this.permalinkCreator} />
-        );
+        // Desktop pins are available on demand through the header's pinned messages panel.
+        const pinnedMessageBanner = !SettingsStore.getValue("feature_desktop_shell") &&
+            !this.props.hidePinnedMessageBanner && (
+                <PinnedMessageBanner room={this.state.room} permalinkCreator={this.permalinkCreator} />
+            );
 
         let messageComposer;
         const showComposer =
@@ -2744,6 +2750,16 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             sizeKey = "desktop_members";
             defaultSize = 240;
             minSize = 240;
+        }
+
+        if (
+            SettingsStore.getValue("feature_desktop_shell") &&
+            this.context.rightPanelStore.currentCardForRoom(this.state.room.roomId).phase ===
+                RightPanelPhases.ThreadView
+        ) {
+            sizeKey = "desktop_thread";
+            defaultSize = 420;
+            minSize = 320;
         }
 
         const extraButtons: JSX.Element[] = [];

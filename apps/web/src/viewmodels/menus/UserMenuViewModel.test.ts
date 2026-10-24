@@ -146,6 +146,22 @@ describe("UserMenuViewModel", () => {
         );
     });
 
+    it("opens the profile settings to edit the avatar and name", async () => {
+        const vm = new UserMenuViewModel({ ownProfileStore: mockOwnProfileStore }, dispatcher, client, true);
+        expect(vm.getSnapshot().actions.editProfile).toBe(true);
+        const dispatcherSpy = vi.fn();
+        dispatcher.register(dispatcherSpy);
+        vm.setOpen(true);
+        vm.editProfile();
+        expect(vm.getSnapshot().open).toBe(false);
+        await waitFor(() =>
+            expect(dispatcherSpy).toHaveBeenCalledWith({
+                action: Action.ViewUserSettings,
+                initialTabId: UserTab.Account,
+            }),
+        );
+    });
+
     it("can open the 'security' settings menu", async () => {
         const vm = new UserMenuViewModel({ ownProfileStore: mockOwnProfileStore }, dispatcher, client, true);
         const dispatcherSpy = vi.fn();

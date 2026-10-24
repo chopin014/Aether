@@ -769,8 +769,15 @@
             "invited": "Invited"
         },
         "text_channels": "Text Channels",
+        "threads": {
+            "close": "Close thread",
+            "removed": "Removed message",
+            "start": "Start thread"
+        },
         "voice": {
             "action_failed": "The audio control could not be changed. Please try again.",
+            "camera_failed": "The camera could not be changed. Please try again.",
+            "screen_share_failed": "Screen sharing could not be changed. Please try again.",
             "sound_section": "Sounds",
             "sounds": "Play voice control sounds"
         },
@@ -1864,9 +1871,12 @@
         "offline_for": "Offline for %(duration)s",
         "online": "Online",
         "online_for": "Online for %(duration)s",
+        "save_failed": "Could not save your presence preference on this device.",
         "unknown": "Unknown",
         "unknown_for": "Unknown for %(duration)s",
-        "unreachable": "Account provider of the user is unreachable"
+        "unknown_members": "Status unknown",
+        "unreachable": "Account provider of the user is unreachable",
+        "update_failed": "Could not update presence. Your requested status is retained; retry to send it again."
     },
     "quick_settings": {
         "all_settings": "All settings",
@@ -3211,6 +3221,7 @@
             "manage_and_explore": "Manage & explore rooms",
             "options": "Space options"
         },
+        "discover_public_spaces": "Discover public spaces",
         "failed_load_rooms": "Failed to load list of rooms.",
         "failed_remove_rooms": "Failed to remove some rooms. Try again later",
         "incompatible_server_hierarchy": "Your account provider does not support showing space hierarchies.",

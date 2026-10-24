@@ -33,6 +33,7 @@ type RoomListItemProps = RoomListItemViewSnapshot &
 
 // Wrapper component that creates a mocked ViewModel
 const RoomListItemWrapperImpl = ({
+    onOpenActiveThread,
     onViewCallParticipant,
     onOpenRoom,
     onMarkAsRead,
@@ -55,6 +56,7 @@ const RoomListItemWrapperImpl = ({
     ...rest
 }: RoomListItemProps): JSX.Element => {
     const vm = useMockedViewModel(rest, {
+        onOpenActiveThread,
         onViewCallParticipant,
         onOpenRoom,
         onMarkAsRead,
@@ -342,6 +344,29 @@ export const DesktopVoiceParticipants: Story = {
     },
 };
 
+/** An occupied voice channel gets a filled icon and shows how long people have been in it. */
+export const DesktopVoiceChannelOccupied: Story = {
+    args: {
+        channelKind: "voice",
+        callParticipants: [
+            { userId: "@alice:example.org", name: "Alice" },
+            { userId: "@bob:example.org", name: "Bob" },
+        ],
+        callStartedAt: Date.now() - (12 * 60 + 34) * 1000,
+        notification: { ...defaultSnapshot.notification, hasAnyNotificationOrActivity: true, callType: "voice" },
+        onViewCallParticipant: fn(),
+    },
+};
+
+/** A channel with a room avatar shows it as its custom icon. */
+export const DesktopChannelWithIcon: Story = {
+    args: {
+        channelKind: "text",
+        channelIconUrl:
+            "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'><rect width='20' height='20' fill='%238ed8ea'/></svg>",
+    },
+};
+
 /** A participant who is talking gets an activity ring and soft pulse around their avatar. */
 export const DesktopVoiceParticipantSpeaking: Story = {
     args: {
@@ -366,6 +391,19 @@ export const DesktopVoiceParticipantsSilent: Story = {
     },
 };
 
+/** Muted and deafened icons appear together when both statuses are active. */
+export const DesktopVoiceParticipantsMutedAndDeafened: Story = {
+    args: {
+        channelKind: "voice",
+        callParticipants: [
+            { userId: "@alice:example.org", name: "Alice", isSpeaking: true },
+            { userId: "@bob:example.org", name: "Bob", isMuted: true },
+            { userId: "@charlie:example.org", name: "Charlie", isMuted: true, isDeafened: true },
+        ],
+        onViewCallParticipant: fn(),
+    },
+};
+
 /** Several participants talking over each other each show their own ring. */
 export const DesktopVoiceParticipantsMultipleSpeaking: Story = {
     args: {
@@ -376,5 +414,15 @@ export const DesktopVoiceParticipantsMultipleSpeaking: Story = {
             { userId: "@charlie:example.org", name: "Charlie", isSpeaking: true },
         ],
         onViewCallParticipant: fn(),
+    },
+};
+
+/** The currently open Matrix thread is indented under its real parent channel. */
+export const DesktopActiveThread: Story = {
+    args: {
+        channelKind: "text",
+        isSelected: true,
+        activeThread: { id: "$thread:example.org", title: "Release planning" },
+        onOpenActiveThread: fn(),
     },
 };

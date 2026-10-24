@@ -37,6 +37,7 @@ import {
 
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import { CallStore } from "../../stores/CallStore";
+import { CallEvent, NO_SCREEN_SHARE } from "../../models/Call";
 import { WidgetMessagingStore } from "../../stores/widgets/WidgetMessagingStore";
 import { PipContainer as UnwrappedPipContainer } from "./PipContainer";
 import ActiveWidgetStore from "../../stores/ActiveWidgetStore";
@@ -212,6 +213,25 @@ describe("PipContainer", () => {
                 metricsTrigger: expect.any(String),
             });
             defaultDispatcher.unregister(dispatcherRef);
+        });
+    });
+
+    it("floats a call only while it has something to watch", async () => {
+        renderPip();
+
+        await withCall(async (call) => {
+            let floats = false;
+            vi.spyOn(call, "floatsOffScreen", "get").mockImplementation(() => floats);
+            act(() => {
+                call.emit(CallEvent.ScreenShare, NO_SCREEN_SHARE);
+            });
+            expect(screen.queryByRole("complementary")).toBeNull();
+
+            floats = true;
+            act(() => {
+                call.emit(CallEvent.ScreenShare, NO_SCREEN_SHARE);
+            });
+            screen.getByRole("complementary");
         });
     });
 

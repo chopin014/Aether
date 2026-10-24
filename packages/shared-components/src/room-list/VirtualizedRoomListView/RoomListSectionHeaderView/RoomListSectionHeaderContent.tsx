@@ -9,7 +9,12 @@ import React, { memo, type JSX, useState } from "react";
 import ChevronRightIcon from "@vector-im/compound-design-tokens/assets/web/icons/chevron-right";
 import classNames from "classnames";
 import { IconButton, Menu, MenuItem } from "@vector-im/compound-web";
-import { OverflowHorizontalIcon, EditIcon, DeleteIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
+import {
+    OverflowHorizontalIcon,
+    EditIcon,
+    DeleteIcon,
+    PlusIcon,
+} from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { useViewModel } from "../../../core/viewmodel";
 import { _t } from "../../../core/i18n/i18n";
@@ -36,7 +41,7 @@ export const RoomListSectionHeaderContent = memo(function RoomListSectionHeaderC
     vm,
     isDragging = false,
 }: RoomListSectionHeaderContentProps): JSX.Element {
-    const { title, displaySectionMenu, notification, isExpanded } = useViewModel(vm);
+    const { title, displaySectionMenu, notification, isExpanded, createChannelKind } = useViewModel(vm);
     return (
         <Flex
             className={classNames(styles.container, {
@@ -61,6 +66,25 @@ export const RoomListSectionHeaderContent = memo(function RoomListSectionHeaderC
                 </div>
             )}
             {displaySectionMenu && !isDragging && <MenuComponent vm={vm} />}
+            {createChannelKind && !isDragging && (
+                <IconButton
+                    className={styles.createChannel}
+                    tooltip={
+                        createChannelKind === "voice"
+                            ? _t("room_list|section_header|create_voice_channel")
+                            : _t("room_list|section_header|create_text_channel")
+                    }
+                    size="24px"
+                    style={{ padding: "4px" }}
+                    onClick={(evt) => {
+                        // Creating a channel must not also collapse the category.
+                        evt.stopPropagation();
+                        vm.createChannel?.();
+                    }}
+                >
+                    <PlusIcon />
+                </IconButton>
+            )}
         </Flex>
     );
 });

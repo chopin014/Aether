@@ -1,0 +1,31 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.mx_DesktopProfilePopout {
+    display: flex;
+    max-width: calc(100vw - var(--cpd-space-4x));
+    -webkit-app-region: no-drag;
+}
+
+/* The view draws its own surface, close button and padding, so the modal frame is made transparent. */
+.mx_Dialog_desktopProfile .mx_Dialog {
+    padding: 0;
+    background: transparent;
+    overflow: visible;
+    box-shadow: none;
+    -webkit-app-region: no-drag;
+}
+
+.mx_DesktopFullProfileDialog {
+    padding: 0;
+    background: transparent;
+    overflow: visible;
+
+    .mx_Dialog_cancelButton {
+        display: none;
+    }
+}

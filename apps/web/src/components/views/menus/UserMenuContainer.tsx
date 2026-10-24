@@ -5,6 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
+import { type MatrixClient } from "matrix-js-sdk/src/matrix";
 import React, { type JSX, useContext, useEffect } from "react";
 import {
     DesktopAccountDockView,
@@ -18,6 +19,7 @@ import { UserMenuViewModel } from "../../../viewmodels/menus/UserMenuViewModel";
 import { OwnProfileStore } from "../../../stores/OwnProfileStore";
 import defaultDispatcher from "../../../dispatcher/dispatcher";
 import { useDispatcher } from "../../../hooks/useDispatcher";
+import { useHeightCustomProperty } from "../../../hooks/useHeightCustomProperty";
 import { type ResizerViewModel } from "../../../viewmodels/structures/ResizerViewModel";
 
 import { CallStore } from "../../../stores/CallStore";
@@ -35,12 +37,29 @@ interface UserMenuContainerProps {
 /** Own the real account menu model in either the rail or the desktop footer. */
 export function UserMenuContainer({ isPanelCollapsed, desktopDock = false }: UserMenuContainerProps): JSX.Element {
     const { client } = useContext(SDKContext);
+    return client ? (
+        <UserMenuForClient
+            key={client.getSessionId()}
+            client={client}
+            isPanelCollapsed={isPanelCollapsed}
+            desktopDock={desktopDock}
+        />
+    ) : (
+        <></>
+    );
+}
+
+function UserMenuForClient({
+    client,
+    isPanelCollapsed,
+    desktopDock,
+}: UserMenuContainerProps & { client: MatrixClient }): JSX.Element {
     const vm = useCreateAutoDisposedViewModel(
         () =>
             new UserMenuViewModel(
                 { ownProfileStore: OwnProfileStore.instance },
                 defaultDispatcher,
-                client!,
+                client,
                 isPanelCollapsed,
             ),
     );
@@ -67,9 +86,11 @@ function DesktopDockWithVoice({ vm }: { vm: UserMenuViewModel }): JSX.Element {
 /** Positions the account controls across the rail and the measured, resizable channel sidebar. */
 export function DesktopAccountDockContainer({ vm }: { vm: ResizerViewModel }): JSX.Element | null {
     const { isCollapsed, leftPanelWidth } = useViewModel(vm);
+    // The lists the dock floats over keep their last rows clear of it, however tall the voice controls make it.
+    const dockRef = useHeightCustomProperty("--mx-desktop-dock-height");
     if (isCollapsed) return null;
     return (
-        <div className="mx_DesktopShell_accountDock" style={{ width: (leftPanelWidth ?? 310) + 64 - 16 }}>
+        <div ref={dockRef} className="mx_DesktopShell_accountDock" style={{ width: (leftPanelWidth ?? 310) + 64 - 16 }}>
             <UserMenuContainer isPanelCollapsed={false} desktopDock />
         </div>
     );

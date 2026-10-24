@@ -8,7 +8,9 @@
 import React, { type JSX, memo, useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import classNames from "classnames";
 import { useMergeRefs } from "react-merge-refs";
+import ThreadsIcon from "@vector-im/compound-design-tokens/assets/web/icons/threads-solid";
 import { Avatar } from "@vector-im/compound-web";
+import { HeadphonesOffSolidIcon, MicOffSolidIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { Flex } from "../../../../core/utils/Flex";
 import { type NotificationDecorationData } from "./NotificationDecoration";
@@ -90,11 +92,27 @@ export interface RoomListItemViewSnapshot {
     isDm: boolean;
     /** Desktop channel symbol; direct messages retain their profile avatars. */
     channelKind?: "text" | "voice";
+    /** The real Matrix thread currently open beneath this channel. */
+    activeThread?: { id: string; title: string };
+    /** A desktop channel's custom icon, taken from its room avatar, replacing the channel symbol. */
+    channelIconUrl?: string;
+    /** Whether the user may rename the channel and change its icon. */
+    canEditChannel?: boolean;
     /**
      * Distinct users with live MatrixRTC memberships, visible before joining a voice room.
-     * `isSpeaking` draws an activity ring around the participant's avatar while they talk.
+     * `isSpeaking` draws an activity ring around the participant's avatar while they talk; `isMuted` and
+     * `isDeafened` mark a microphone that is off, or a participant who cannot hear the call.
      */
-    callParticipants?: { userId: string; name: string; avatarUrl?: string; isSpeaking?: boolean }[];
+    callParticipants?: {
+        userId: string;
+        name: string;
+        avatarUrl?: string;
+        isSpeaking?: boolean;
+        isMuted?: boolean;
+        isDeafened?: boolean;
+    }[];
+    /** When people started gathering in an occupied voice channel, in milliseconds since the epoch. */
+    callStartedAt?: number;
     /** Can invite other users in the room */
     canInvite: boolean;
     /** Can copy the room link */
@@ -121,8 +139,12 @@ export interface RoomListItemViewSnapshot {
  * Implemented by the room item view model.
  */
 export interface RoomListItemViewActions {
+    /** Focus the currently open Matrix thread. */
+    onOpenActiveThread?: () => void;
     /** Open a voice participant's real Matrix profile. */
     onViewCallParticipant?: (userId: string) => void;
+    /** Open the channel's settings, where its name, topic and icon are changed. */
+    onEditChannel?: () => void;
     /** Called when the room should be opened */
     onOpenRoom: () => void;
     /** Called when the room should be marked as read */
@@ -175,6 +197,31 @@ export interface RoomListItemViewProps extends Omit<React.HTMLAttributes<HTMLBut
     /** Whether this item is the source of an active drag operation */
     isDragSource?: boolean;
     ref?: Ref<Element>;
+}
+
+type CallParticipant = NonNullable<RoomListItemViewSnapshot["callParticipants"]>[number];
+
+/**
+ * A participant's accessible name. Their state is folded into it rather than announced through a live
+ * region, so screen readers only hear it when the participant is focused.
+ */
+function participantLabel({ name, isSpeaking, isMuted, isDeafened }: CallParticipant): string {
+    if (isMuted && isDeafened) return _t("desktop|voice|participant_muted_and_deafened", { name });
+    if (isDeafened) return _t("desktop|voice|participant_deafened", { name });
+    if (isMuted) return _t("desktop|voice|participant_muted", { name });
+    if (isSpeaking) return _t("desktop|voice|participant_speaking", { name });
+    return name;
+}
+
+/** Show each active voice status at the end of the participant's row. */
+function ParticipantVoiceStatus({ muted, deafened }: { muted?: boolean; deafened?: boolean }): JSX.Element | null {
+    if (!muted && !deafened) return null;
+    return (
+        <span className={styles.participantVoiceStatus} aria-hidden="true">
+            {muted && <MicOffSolidIcon data-testid="participant-muted" />}
+            {deafened && <HeadphonesOffSolidIcon data-testid="participant-deafened" />}
+        </span>
+    );
 }
 
 /**
@@ -262,6 +309,25 @@ export const RoomListItemView = memo(function RoomListItemView({
         </RoomListItemContextMenu>
     );
 
+    if (item.channelKind === "text" && item.activeThread) {
+        return (
+            <div className={styles.channelWithParticipants}>
+                {roomItem}
+                <button
+                    type="button"
+                    className={styles.activeThread}
+                    aria-current="true"
+                    aria-label={_t("desktop|threads|open", { title: item.activeThread.title })}
+                    title={item.activeThread.title}
+                    onClick={vm.onOpenActiveThread}
+                >
+                    <ThreadsIcon aria-hidden />
+                    <span dir="auto">{item.activeThread.title}</span>
+                </button>
+            </div>
+        );
+    }
+
     if (item.channelKind !== "voice" || !item.callParticipants?.length) return roomItem;
 
     return (
@@ -281,11 +347,7 @@ export const RoomListItemView = memo(function RoomListItemView({
                         title={participant.name}
                         // Speaking state is folded into the name rather than announced through a live
                         // region, so screen readers only hear it when the participant is focused.
-                        aria-label={
-                            participant.isSpeaking
-                                ? _t("desktop|voice|participant_speaking", { name: participant.name })
-                                : participant.name
-                        }
+                        aria-label={participantLabel(participant)}
                         data-speaking={participant.isSpeaking || undefined}
                     >
                         <span
@@ -301,7 +363,8 @@ export const RoomListItemView = memo(function RoomListItemView({
                                 type="round"
                             />
                         </span>
-                        <span>{participant.name}</span>
+                        <span className={styles.participantName}>{participant.name}</span>
+                        <ParticipantVoiceStatus muted={participant.isMuted} deafened={participant.isDeafened} />
                     </button>
                 ))}
             </div>

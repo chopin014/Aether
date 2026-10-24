@@ -14,11 +14,18 @@ import {
     type Section,
     type UserStatus,
 } from "@element-hq/web-shared-components";
-import { ClientEvent, KnownMembership, RoomEvent, RoomStateEvent } from "matrix-js-sdk/src/matrix";
+import {
+    ClientEvent,
+    MatrixEventEvent,
+    EventType,
+    KnownMembership,
+    RoomEvent,
+    RoomStateEvent,
+} from "matrix-js-sdk/src/matrix";
 import { CallType } from "matrix-js-sdk/src/webrtc/call";
 import { logger } from "matrix-js-sdk/src/logger";
 
-import type { Room, MatrixClient, ClientEventHandlerMap } from "matrix-js-sdk/src/matrix";
+import type { Room, MatrixClient, ClientEventHandlerMap, MatrixEvent } from "matrix-js-sdk/src/matrix";
 import type { RoomNotificationState } from "../../stores/notifications/RoomNotificationState";
 import { RoomNotificationStateStore } from "../../stores/notifications/RoomNotificationStateStore";
 import { NotificationStateEvents } from "../../stores/notifications/NotificationState";
@@ -47,6 +54,12 @@ import { _t } from "../../languageHandler";
 import { fetchUserStatus } from "../../utils/userStatus";
 import { mediaFromMxc } from "../../customisations/Media";
 import { type ViewUserPayload } from "../../dispatcher/payloads/ViewUserPayload";
+import RightPanelStore from "../../stores/right-panel/RightPanelStore";
+import { RightPanelPhases } from "../../stores/right-panel/RightPanelStorePhases";
+import { UPDATE_EVENT } from "../../stores/AsyncStore";
+import { type ShowThreadPayload } from "../../dispatcher/payloads/ShowThreadPayload";
+import { threadLabel } from "../threads/threadLabel";
+import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
 
 /**
  * View section type without `isSelected` field
@@ -73,6 +86,7 @@ export class RoomListItemViewModel
      */
     private currentCall: Call | null = null;
     private callDisposables = new Disposables();
+    private threadDisposables = new Disposables();
     /**
      * The sections available in the "Move to section" submenu (tag + display name), identical
      * for every update of this item. Computing it reads the custom section settings, so it is
@@ -100,6 +114,9 @@ export class RoomListItemViewModel
         super(props, initialItem);
 
         this.notifState = notifState;
+        this.disposables.trackListener(RightPanelStore.instance, UPDATE_EVENT, this.updateActiveThread);
+        this.disposables.track(() => this.threadDisposables.dispose());
+        this.updateActiveThread();
         this.availableSections = availableSections;
 
         // Subscribe to notification state changes for this room
@@ -140,6 +157,7 @@ export class RoomListItemViewModel
         this.disposables.trackListener(props.room, RoomEvent.Name, this.onRoomChanged);
         this.disposables.trackListener(props.room, RoomEvent.Tags, this.onRoomChanged);
         this.disposables.trackListener(props.room, RoomStateEvent.Members, this.onParticipantProfileChanged);
+        this.disposables.trackListener(props.room, RoomStateEvent.Events, this.onRoomStateEvent);
 
         // Rebuild the available sections when their order changes or when one is created/renamed/removed
         const orderSectionsRef = SettingsStore.watchSetting("RoomList.OrderedCustomSections", null, () =>
@@ -207,16 +225,38 @@ export class RoomListItemViewModel
         if (this.snapshot.current.notification.callType !== undefined) this.updateItem();
     };
 
-    private onSpeakingUsersChanged = (): void => {
+    private onVoiceActivityChanged = (): void => {
         const { callParticipants } = this.snapshot.current;
         if (!callParticipants) return;
         this.snapshot.merge({
             callParticipants: callParticipants.map((member) => ({
                 ...member,
-                isSpeaking: this.currentCall?.speakingUserIds.has(member.userId) ?? false,
+                ...RoomListItemViewModel.voiceActivityOf(this.currentCall, member.userId),
             })),
         });
     };
+
+    /** Whether a call participant is talking, muted or deafened, as far as our own connection can tell. */
+    private static voiceActivityOf(
+        call: Call | null | undefined,
+        userId: string,
+    ): { isSpeaking: boolean; isMuted: boolean; isDeafened: boolean } {
+        const voiceState = call?.voiceStates.get(userId);
+        return {
+            isSpeaking: call?.speakingUserIds.has(userId) ?? false,
+            isMuted: voiceState?.muted ?? false,
+            isDeafened: voiceState?.deafened ?? false,
+        };
+    }
+
+    /** When the earliest membership still in the room's call was created, so the channel can show how long it has been in use. */
+    private static callStartedAt(room: Room, client: MatrixClient): number | undefined {
+        const joined = client.matrixRTC
+            .getRoomSession(room)
+            .memberships.map((membership) => membership.createdTs())
+            .filter((ts) => ts > 0);
+        return joined.length ? Math.min(...joined) : undefined;
+    }
 
     /**
      * Listen to participant changes for the current call in this room (if any) to trigger updates when participants join/leave the call.
@@ -231,7 +271,8 @@ export class RoomListItemViewModel
             if (call) {
                 this.callDisposables.trackListener(call, CallEvent.Participants, this.onCallParticipantsChanged);
                 this.callDisposables.trackListener(call, CallEvent.CallTypeChanged, this.onCallTypeChanged);
-                this.callDisposables.trackListener(call, CallEvent.SpeakingUsers, this.onSpeakingUsersChanged);
+                this.callDisposables.trackListener(call, CallEvent.SpeakingUsers, this.onVoiceActivityChanged);
+                this.callDisposables.trackListener(call, CallEvent.VoiceStates, this.onVoiceActivityChanged);
             }
         }
         this.currentCall = call;
@@ -258,6 +299,42 @@ export class RoomListItemViewModel
         }
     };
 
+    private updateActiveThread = (): void => {
+        this.threadDisposables.dispose();
+        this.threadDisposables = new Disposables();
+        const store = RightPanelStore.instance;
+        const card = store.currentCard;
+        const root = card.phase === RightPanelPhases.ThreadView ? card.state?.threadHeadEvent : undefined;
+        const active =
+            this.snapshot.current.channelKind === "text" && store.isOpen && root?.getRoomId() === this.props.room.roomId
+                ? root
+                : undefined;
+        this.snapshot.merge({ activeThread: active ? { id: active.getId()!, title: threadLabel(active) } : undefined });
+        if (active) {
+            for (const event of [
+                MatrixEventEvent.Decrypted,
+                MatrixEventEvent.Replaced,
+                MatrixEventEvent.BeforeRedaction,
+            ]) {
+                this.threadDisposables.trackListener(active, event, this.refreshActiveThreadContent);
+            }
+        }
+    };
+
+    private refreshActiveThreadContent = (): void => {
+        queueMicrotask(() => {
+            if (!this.isDisposed) this.updateActiveThread();
+        });
+    };
+
+    public onOpenActiveThread = (): void => {
+        const card = RightPanelStore.instance.currentCard;
+        const root = card.phase === RightPanelPhases.ThreadView ? card.state?.threadHeadEvent : undefined;
+        if (this.getSnapshot().activeThread && root?.getRoomId() === this.props.room.roomId) {
+            dispatcher.dispatch<ShowThreadPayload>({ action: Action.ShowThread, rootEvent: root });
+        }
+    };
+
     public onViewCallParticipant = (userId: string): void => {
         const member = this.props.room.getMember(userId);
         if (member) dispatcher.dispatch<ViewUserPayload>({ action: Action.ViewUser, member });
@@ -265,6 +342,23 @@ export class RoomListItemViewModel
 
     private onRoomChanged = (): void => {
         this.updateItem();
+    };
+
+    /** A desktop channel shows the room avatar as its icon, and its edit entry follows power level changes. */
+    private readonly onRoomStateEvent = (...args: unknown[]): void => {
+        if (!this.snapshot.current.channelKind) return;
+        // trackListener types its listeners loosely; RoomStateEvent.Events passes the event first.
+        const [event] = args as [MatrixEvent];
+        const type = event.getType();
+        if (type === EventType.RoomAvatar || type === EventType.RoomPowerLevels) this.updateItem();
+    };
+
+    public onEditChannel = (): void => {
+        dispatcher.dispatch({
+            action: "open_room_settings",
+            room_id: this.props.room.roomId,
+            initial_tab_id: RoomSettingsTab.General,
+        });
     };
 
     /**
@@ -426,7 +520,7 @@ export class RoomListItemViewModel
                           return {
                               userId: member.userId,
                               name: member.name,
-                              isSpeaking: call?.speakingUserIds.has(member.userId) ?? false,
+                              ...RoomListItemViewModel.voiceActivityOf(call, member.userId),
                               avatarUrl: mxc
                                   ? (mediaFromMxc(mxc).getThumbnailOfSourceHttp(48, 48, "crop") ?? undefined)
                                   : undefined,
@@ -434,6 +528,13 @@ export class RoomListItemViewModel
                       })
                       .sort((a, b) => a.name.localeCompare(b.name) || a.userId.localeCompare(b.userId))
                 : undefined;
+        // A channel's Matrix room avatar is its custom icon.
+        const channelAvatarMxc = channelKind ? room.getMxcAvatarUrl() : null;
+        const channelIconUrl = channelAvatarMxc
+            ? (mediaFromMxc(channelAvatarMxc).getThumbnailOfSourceHttp(40, 40, "crop") ?? undefined)
+            : undefined;
+        const canEditChannel =
+            !!channelKind && room.currentState.maySendStateEvent(EventType.RoomName, client.getSafeUserId());
 
         return {
             id: room.roomId,
@@ -459,7 +560,10 @@ export class RoomListItemViewModel
             isLowPriority,
             isDm,
             channelKind,
+            channelIconUrl,
+            canEditChannel,
             callParticipants,
+            callStartedAt: callParticipants?.length ? RoomListItemViewModel.callStartedAt(room, client) : undefined,
             canInvite,
             canCopyRoomLink,
             canMarkAsRead,

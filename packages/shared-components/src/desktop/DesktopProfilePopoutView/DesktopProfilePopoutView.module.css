@@ -1,0 +1,90 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.card {
+    --desktop-profile-surface: var(--cpd-color-bg-subtle-secondary);
+    box-sizing: border-box;
+    width: calc(var(--cpd-space-16x) * 5.5);
+    max-width: calc(100vw - var(--cpd-space-4x));
+    max-height: inherit;
+    overflow: auto;
+    background: var(--desktop-profile-surface);
+    color: var(--cpd-color-text-primary);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-2x);
+    box-shadow: 0 var(--cpd-space-2x) var(--cpd-space-6x)
+        color-mix(in srgb, var(--cpd-color-text-primary) 18%, transparent);
+}
+.card h2,
+.card p {
+    margin: 0;
+}
+.body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-3x);
+    padding: var(--cpd-space-3x) var(--cpd-space-4x) var(--cpd-space-4x);
+}
+.plainButton,
+.nameButton {
+    display: block;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+}
+.nameButton {
+    border-radius: var(--cpd-space-1x);
+}
+.nameButton:hover {
+    text-decoration: underline;
+}
+.plainButton:focus-visible,
+.nameButton:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: var(--cpd-border-width-2);
+}
+.action {
+    background: color-mix(in srgb, var(--cpd-color-bg-canvas-default) 70%, transparent);
+    border-radius: 50%;
+}
+.composer {
+    display: flex;
+}
+.input {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: var(--cpd-space-3x);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-canvas-default);
+    color: var(--cpd-color-text-primary);
+    font: var(--cpd-font-body-md-regular);
+}
+.input::placeholder {
+    color: var(--cpd-color-text-secondary);
+}
+.input:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: calc(var(--cpd-border-width-2) * -1);
+}
+.error {
+    color: var(--cpd-color-text-critical-primary);
+}
+.visuallyHidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}

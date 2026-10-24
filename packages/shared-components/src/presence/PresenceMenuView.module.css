@@ -1,0 +1,78 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.root {
+    width: calc(var(--cpd-space-16x) * 3.5);
+    max-width: calc(100vw - var(--cpd-space-8x));
+    padding-block: var(--cpd-space-1x);
+}
+
+.summary {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cpd-space-1x);
+    color: var(--cpd-color-text-secondary);
+}
+
+.description {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-1x);
+    margin: var(--cpd-space-2x) var(--cpd-space-4x);
+    color: var(--cpd-color-text-secondary);
+}
+
+.error {
+    margin: var(--cpd-space-2x) var(--cpd-space-4x);
+    color: var(--cpd-color-text-critical-primary);
+}
+
+.dot {
+    display: block;
+    flex-shrink: 0;
+    width: var(--cpd-space-3x);
+    height: var(--cpd-space-3x);
+    color: var(--presence-icon-color, var(--cpd-color-icon-secondary));
+}
+
+.dot[data-presence="online"] {
+    --presence-icon-color: var(--cpd-color-icon-success-primary);
+}
+
+.dot[data-presence="unavailable"] {
+    --presence-icon-color: var(--cpd-color-icon-warning-primary);
+}
+
+/*
+ * A ring in the surface colour separates the dot from the avatar, like a cutout. Hosts whose surface changes, such
+ * as on hover, set --presence-ring-background to match.
+ */
+.compactSummary {
+    position: absolute;
+    inset-inline-end: calc(-1 * var(--cpd-space-0-5x));
+    inset-block-end: calc(-1 * var(--cpd-space-0-5x));
+    display: flex;
+    padding: 3px;
+    border-radius: 50%;
+    background: var(--presence-ring-background, var(--cpd-color-bg-subtle-primary));
+}
+
+/* Keep semantic status colors when Compound adds its menu icon class. */
+.choice[data-kind] > .dot[data-presence],
+.trigger[data-kind] > .dot[data-presence] {
+    width: var(--cpd-space-4x);
+    height: var(--cpd-space-4x);
+    margin-inline-start: var(--cpd-space-1x);
+    margin-inline-end: var(--cpd-space-3x);
+    color: var(--presence-icon-color, var(--cpd-color-icon-secondary));
+}
+
+.check {
+    width: var(--cpd-space-4x);
+    height: var(--cpd-space-4x);
+    color: var(--cpd-color-icon-secondary);
+}

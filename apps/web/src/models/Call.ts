@@ -57,6 +57,8 @@ import {
     type DeviceMuteRequest,
     type ElementCallConfiguration,
     type ElementCallHandle,
+    type ScreenShareState,
+    type VoiceState,
     type UserIntent,
 } from "@element-hq/element-call-component/api";
 
@@ -104,6 +106,8 @@ export enum CallEvent {
     CallTypeChanged = "call_type_changed",
     DeviceMute = "device_mute",
     SpeakingUsers = "speaking_users",
+    ScreenShare = "screen_share",
+    VoiceStates = "voice_states",
 }
 
 interface CallEventHandlerMap {
@@ -117,7 +121,18 @@ interface CallEventHandlerMap {
     [CallEvent.CallTypeChanged]: (callType: CallType) => void;
     [CallEvent.DeviceMute]: (state: DeviceMuteState) => void;
     [CallEvent.SpeakingUsers]: (userIds: ReadonlySet<string>) => void;
+    [CallEvent.ScreenShare]: (state: ScreenShareState) => void;
+    [CallEvent.VoiceStates]: (states: ReadonlyMap<string, VoiceState>) => void;
 }
+
+const NO_VOICE_STATES: ReadonlyMap<string, VoiceState> = new Map();
+
+/** Screen sharing as reported before Element Call says otherwise, and after it unmounts. */
+export const NO_SCREEN_SHARE: ScreenShareState = Object.freeze({
+    available: false,
+    sharing: false,
+    remoteSharerIds: [],
+});
 
 /**
  * A group call accessed through a widget.
@@ -216,6 +231,23 @@ export abstract class Call extends TypedEventEmitter<CallEvent, CallEventHandler
     }
     public set presented(value: boolean) {
         this._presented = value;
+    }
+
+    /**
+     * Whether the call should float over the app while it is off screen. A call whose controls live
+     * elsewhere may only float when there is something to watch; it emits {@link CallEvent.ScreenShare}
+     * when that changes.
+     */
+    public get floatsOffScreen(): boolean {
+        return true;
+    }
+
+    /**
+     * Who in the call is muted or deafened on all of their devices, by user ID, when the call can tell; it
+     * emits {@link CallEvent.VoiceStates} when that changes.
+     */
+    public get voiceStates(): ReadonlyMap<string, VoiceState> {
+        return NO_VOICE_STATES;
     }
 
     protected constructor(
@@ -709,7 +741,11 @@ export class ElementCall extends Call {
      */
     public readonly setComponentHandle = (handle: ElementCallHandle | null): void => {
         this.componentHandle = handle;
-        if (!handle) this.speakingUserIds = new Set();
+        if (!handle) {
+            this.speakingUserIds = new Set();
+            this.handleScreenShare(NO_SCREEN_SHARE);
+            this.handleVoiceStates([]);
+        }
     };
 
     /**
@@ -1128,6 +1164,8 @@ export class ElementCall extends Call {
         this.ready = Promise.withResolvers<void>();
         this.frozenComponentOptions = null;
         this._deviceMuteState = undefined;
+        this.handleScreenShare(NO_SCREEN_SHARE);
+        this.handleVoiceStates([]);
         super.close();
         // A voice call in PiP has no CallView to stop presenting it on close
         // (whether the widget asked to close or its messaging just stopped),
@@ -1153,9 +1191,11 @@ export class ElementCall extends Call {
     }
 
     private checkDestroy = (): void => {
-        // A call ceases to exist as soon as all participants leave and also the
-        // user isn't looking at it (for example, waiting in an empty lobby)
-        if (this.session.memberships.length === 0 && !this.presented && !this.room.isCallRoom()) this.destroy();
+        // Synced memberships can be empty while the local call is still connected.
+        // Only discard an empty call once we have left it and stopped viewing it.
+        if (!this.connected && this.session.memberships.length === 0 && !this.presented && !this.room.isCallRoom()) {
+            this.destroy();
+        }
     };
 
     private readonly onMembershipChanged = (): void => {
@@ -1191,6 +1231,9 @@ export class ElementCall extends Call {
 
     /** The user has joined the call (`HostBridge.notifyJoined` / `io.element.join`). */
     public handleJoined(): void {
+        // Joining and requesting persistence are separate callbacks. Keep the mounted call alive
+        // before connected listeners can navigate away, even if the persistence request is delayed.
+        ActiveWidgetStore.instance.setWidgetPersistence(this.widget.id, this.widget.roomId, true);
         this.setConnected();
     }
 
@@ -1222,12 +1265,87 @@ export class ElementCall extends Call {
         return state;
     };
 
-    /** Mutes call playback using Element Call's host audio controls. */
+    /**
+     * Mutes call playback using Element Call's host audio controls, and tells everyone in the call that we
+     * are deafened while it is muted.
+     */
     public setAudioOutputEnabled = (enabled: boolean): void => {
         const controls = (window as Window & { controls?: { setAudioEnabled: (enabled: boolean) => void } }).controls;
         if (!controls) throw new Error("Element Call audio output is not ready");
         controls.setAudioEnabled(enabled);
+        this.componentHandle?.setDeafened(!enabled).catch((error) => logger.warn("Could not announce deafen", error));
+        this.localDeafened = !enabled;
+        this.handleVoiceStates(this.reportedVoiceStates);
     };
+
+    /** Whether this device has silenced the call, which it knows without waiting for the call to report it. */
+    private localDeafened = false;
+    /** The voice states as Element Call last reported them, before our own deafen is applied. */
+    private reportedVoiceStates: readonly VoiceState[] = [];
+    private _voiceStates: ReadonlyMap<string, VoiceState> = NO_VOICE_STATES;
+
+    public get voiceStates(): ReadonlyMap<string, VoiceState> {
+        return this._voiceStates;
+    }
+
+    /** Element Call reports who is muted or deafened (`HostBridge.notifyVoiceStates`). */
+    public handleVoiceStates(reported: readonly VoiceState[]): void {
+        this.reportedVoiceStates = reported;
+        // Our own deafen reaches others through the call, which may not be able to announce it, so our own row
+        // follows this device directly.
+        const ownUserId = this.client.getUserId();
+        const states = this.localDeafened
+            ? reported.map((state) => (state.userId === ownUserId ? { ...state, muted: true, deafened: true } : state))
+            : reported;
+        const previous = this._voiceStates;
+        if (
+            states.length === previous.size &&
+            states.every((state) => {
+                const before = previous.get(state.userId);
+                return before?.muted === state.muted && before.deafened === state.deafened;
+            })
+        ) {
+            return;
+        }
+        this._voiceStates = new Map(states.map((state) => [state.userId, state]));
+        this.emit(CallEvent.VoiceStates, this._voiceStates);
+    }
+
+    private _screenShare: ScreenShareState = NO_SCREEN_SHARE;
+
+    /** Whether screen sharing is possible, whether we are sharing, and who else is. */
+    public get screenShare(): ScreenShareState {
+        return this._screenShare;
+    }
+
+    /**
+     * The component's controls are in the sidebar, so it only floats while someone else's screen is
+     * there to watch. The widget embedding cannot report screen shares and keeps its own controls.
+     */
+    public get floatsOffScreen(): boolean {
+        return !ElementCall.usesReactComponent || this._screenShare.remoteSharerIds.length > 0;
+    }
+
+    /** Starts or stops sharing our screen, using Element Call's own screen picker. */
+    public toggleScreenShare = async (): Promise<void> => {
+        if (!this.componentHandle) throw new Error("Element Call component is not ready");
+        await this.componentHandle.toggleScreenSharing();
+    };
+
+    /** Element Call reports a change in screen sharing (`HostBridge.notifyScreenShare`). */
+    public handleScreenShare(state: ScreenShareState): void {
+        const previous = this._screenShare;
+        if (
+            state.available === previous.available &&
+            state.sharing === previous.sharing &&
+            state.remoteSharerIds.length === previous.remoteSharerIds.length &&
+            state.remoteSharerIds.every((userId, index) => userId === previous.remoteSharerIds[index])
+        ) {
+            return;
+        }
+        this._screenShare = state;
+        this.emit(CallEvent.ScreenShare, state);
+    }
 
     /** Element Call reports its mute state (`HostBridge.notifyDeviceMute` / `io.element.device_mute`). */
     public handleDeviceMute(state?: DeviceMuteState): void {

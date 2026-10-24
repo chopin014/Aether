@@ -22,6 +22,8 @@ import { type ViewRoomPayload } from "../../dispatcher/payloads/ViewRoomPayload"
 import { UPDATE_EVENT } from "../../stores/AsyncStore";
 import RoomAvatar from "../views/avatars/RoomAvatar";
 import { WidgetPipViewModel, type Props as WidgetPipViewModelProps } from "../../viewmodels/room/WidgetPipViewModel";
+import { type Call, CallEvent as RoomCallEvent } from "../../models/Call";
+import { CallStore } from "../../stores/CallStore";
 import { SDKContext } from "../../contexts/SDKContext.ts";
 
 const SHOW_CALL_IN_STATES = [
@@ -106,6 +108,7 @@ class PipContainerInner extends React.Component<IProps, IState> {
         ActiveWidgetStore.instance.off(ActiveWidgetStoreEvent.Persistence, this.onWidgetPersistence);
         ActiveWidgetStore.instance.off(ActiveWidgetStoreEvent.Dock, this.onWidgetDockChanges);
         ActiveWidgetStore.instance.off(ActiveWidgetStoreEvent.Undock, this.onWidgetDockChanges);
+        this.watchCall(null, null);
     }
 
     /**
@@ -229,10 +232,30 @@ class PipContainerInner extends React.Component<IProps, IState> {
         // pip container) if it is not visible on screen: either because we are
         // viewing a different room OR because it is in none of the possible
         // containers of the room view.
-        const showWidgetInPip = fromAnotherRoom || notDocked;
+        const offScreen = fromAnotherRoom || notDocked;
+
+        // A call that does not float stays mounted, hidden, so it carries on while off screen.
+        this.watchCall(persistentRoomId, persistentWidgetId);
+        const showWidgetInPip = offScreen && (this.watchedCall?.floatsOffScreen ?? true);
 
         this.setState({ showWidgetInPip, persistentWidgetId, persistentRoomId });
     }
+
+    /** The call behind the persistent widget, if any, which decides whether it floats. */
+    private watchedCall: Call | null = null;
+
+    private watchCall(roomId: string | null, widgetId: string | null): void {
+        const call = roomId ? CallStore.instance.getCall(roomId) : null;
+        const next = call?.widget.id === widgetId ? call : null;
+        if (next === this.watchedCall) return;
+        this.watchedCall?.off(RoomCallEvent.ScreenShare, this.onScreenShare);
+        this.watchedCall = next;
+        next?.on(RoomCallEvent.ScreenShare, this.onScreenShare);
+    }
+
+    private onScreenShare = (): void => {
+        this.updateShowWidgetInPip();
+    };
 
     public render(): ReactNode {
         const pipMode = true;

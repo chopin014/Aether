@@ -116,7 +116,11 @@ export const useReadPinnedEvents = (room?: Room): Set<string> => {
  * @param pinnedEventId
  * @param cli
  */
-async function fetchPinnedEvent(room: Room, pinnedEventId: string, cli: MatrixClient): Promise<MatrixEvent | null> {
+export async function fetchPinnedEvent(
+    room: Room,
+    pinnedEventId: string,
+    cli: MatrixClient,
+): Promise<MatrixEvent | null> {
     const timelineSet = room.getUnfilteredTimelineSet();
     // Get the event from the local timeline
     const localEvent = timelineSet
@@ -131,9 +135,12 @@ async function fetchPinnedEvent(room: Room, pinnedEventId: string, cli: MatrixCl
     }
 
     // If the event is available locally, return it if it's pinnable
-    // or if it's redacted (to show the redacted event and to be able to unpin it)
+    // or redacted, or still encrypted so Element can explain a decryption failure.
     // Otherwise, return null
-    if (localEvent) return PinningUtils.isUnpinnable(localEvent) ? localEvent : null;
+    if (localEvent)
+        return localEvent.getSender() && (PinningUtils.isUnpinnable(localEvent) || localEvent.isEncrypted())
+            ? localEvent
+            : null;
 
     try {
         // The event is not available locally, so we fetch the event and latest edit in parallel
@@ -158,11 +165,13 @@ async function fetchPinnedEvent(room: Room, pinnedEventId: string, cli: MatrixCl
         await room.processPollEvents([event]);
 
         const senderUserId = event.getSender();
-        if (senderUserId && PinningUtils.isUnpinnable(event)) {
+        if (senderUserId && (PinningUtils.isUnpinnable(event) || event.isEncrypted())) {
             // Inject sender information
             event.setMetadata(room.currentState, false);
             // Also inject any edits we've found
-            if (edit) event.makeReplaced(edit);
+            if (edit && edit.getSender() === senderUserId && edit.getType() === event.getType()) {
+                event.makeReplaced(edit);
+            }
 
             return event;
         }

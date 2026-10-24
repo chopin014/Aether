@@ -18,7 +18,7 @@ import { RoomListSectionHeaderView, type RoomListSectionHeaderViewSnapshot } fro
 import { useMockedViewModel } from "../../../core/viewmodel";
 import { type RoomDragData } from "../dragAndDrop";
 
-const { Default, Collapsed } = composeStories(stories);
+const { Default, Collapsed, DesktopChannelCategory } = composeStories(stories);
 
 const HEADER_NAME = "Toggle Favourites section";
 
@@ -41,6 +41,23 @@ describe("<RoomListSectionHeaderView /> stories", () => {
         const button = screen.getByRole("button", { name: HEADER_NAME });
         await user.click(button);
         expect(Default.args.onClick).toHaveBeenCalled();
+    });
+
+    it("creates a channel from a desktop category without toggling it", async () => {
+        const user = userEvent.setup();
+        const { onClick, createChannel } = DesktopChannelCategory.args as { onClick: Mock; createChannel: Mock };
+        onClick.mockClear();
+        createChannel.mockClear();
+        render(<DesktopChannelCategory />);
+
+        await user.click(screen.getByRole("button", { name: "Create voice channel" }));
+        expect(createChannel).toHaveBeenCalled();
+        expect(onClick).not.toHaveBeenCalled();
+    });
+
+    it("offers no channel creation in an ordinary section", () => {
+        render(<Default />);
+        expect(screen.queryByRole("button", { name: /Create .* channel/ })).toBeNull();
     });
 
     it("focuses the button when isFocused is true", () => {

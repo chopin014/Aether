@@ -602,6 +602,32 @@ describe("TimelinePanel", () => {
             expect(paginateSpy).not.toHaveBeenCalled();
         });
 
+        it("renders late inserted desktop thread replies while an earlier echo is still advancing the window", async () => {
+            const [client, room, events] = setupTestData();
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((setting, ...args) =>
+                setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+            );
+            const props = { ...getProps(room, events), manageReadReceipts: false };
+            Object.defineProperty(props.timelineSet, "thread", { value: { id: "$thread" } });
+            const dom = render(<TimelinePanel {...props} />, clientAndSDKContextRenderOptions(client, sdkContext));
+            await waitFor(() => expectEvents(dom.container, events));
+            const timeline = props.timelineSet.getLiveTimeline();
+            const replies = mockEvents(room, 4).slice(2);
+            let finish!: (value: boolean) => void;
+            vi.spyOn(TimelineWindow.prototype, "paginate").mockReturnValueOnce(
+                new Promise((resolve) => {
+                    finish = resolve;
+                }),
+            );
+            for (const reply of replies) timeline.addEvent(reply, { toStartOfTimeline: false, addToState: true });
+            await act(() =>
+                client.emit(RoomEvent.Timeline, replies[1], room, false, false, { timeline, liveEvent: false }),
+            );
+            await act(() => finish(true));
+            await waitFor(() => expectEvents(dom.container, [...events, ...replies]));
+        });
+
         it("advances the timeline window", () => {
             const [client, room, events] = setupTestData();
 

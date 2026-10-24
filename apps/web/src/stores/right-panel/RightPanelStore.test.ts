@@ -10,7 +10,7 @@ Please see LICENSE files in the repository root for full details.
 
 import { vi, describe, it, expect, afterEach, beforeEach, type MockedObject } from "vitest";
 import { type MatrixClient, type MatrixEvent, RoomMember } from "matrix-js-sdk/src/matrix";
-import { stubClient } from "test-utils";
+import { mkMessage, stubClient } from "test-utils";
 
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import DMRoomMap from "../../utils/DMRoomMap";
@@ -70,6 +70,71 @@ describe("RightPanelStore", () => {
     };
 
     const setCard = (roomId: string, phase: RightPanelPhases) => store.setCard({ phase }, true, roomId);
+
+    describe("desktop thread navigation", () => {
+        const roomId = "!1:example.org";
+        const threadCard = () => ({
+            phase: RightPanelPhases.ThreadView,
+            state: {
+                threadHeadEvent: mkMessage({ user: cli.getSafeUserId(), room: roomId, event: true, msg: "Starter" }),
+            },
+        });
+
+        it("restores the member panel after closing a thread", async () => {
+            await viewRoom(roomId);
+            setCard(roomId, RightPanelPhases.MemberList);
+            const previous = store.roomPhaseHistory;
+            store.openThread(threadCard(), roomId);
+            expect(store.currentCard.phase).toBe(RightPanelPhases.ThreadView);
+            store.closeThread(roomId);
+            expect(store.roomPhaseHistory).toEqual(previous);
+            expect(store.currentCard.phase).toBe(RightPanelPhases.MemberList);
+            expect(store.isOpen).toBe(true);
+        });
+
+        it("retains a closed panel's visibility when the thread closes", async () => {
+            await viewRoom(roomId);
+            setCard(roomId, RightPanelPhases.MemberList);
+            store.hide(roomId);
+            store.openThread(threadCard(), roomId);
+            expect(store.isOpen).toBe(true);
+            store.closeThread(roomId);
+            expect(store.isOpen).toBe(false);
+            expect(store.currentCard.phase).toBe(RightPanelPhases.MemberList);
+        });
+
+        it("keeps the original panel through thread switches without stacking conversations", async () => {
+            await viewRoom(roomId);
+            setCard(roomId, RightPanelPhases.PinnedMessages);
+            const previous = store.roomPhaseHistory;
+            const first = threadCard();
+            const second = threadCard();
+            store.openThread(first, roomId);
+            store.openThread(second, roomId);
+            expect(store.roomPhaseHistory).toEqual([...previous, second]);
+            store.closeThread(roomId);
+            expect(store.roomPhaseHistory).toEqual(previous);
+        });
+
+        it("does not restore another room's panel or reopen one after closing without history", async () => {
+            await viewRoom(roomId);
+            store.openThread(threadCard(), roomId);
+            setCard("!other:example.org", RightPanelPhases.MemberList);
+            store.closeThread(roomId);
+            expect(store.isOpenForRoom(roomId)).toBe(false);
+            expect(store.currentCardForRoom("!other:example.org").phase).toBe(RightPanelPhases.MemberList);
+        });
+
+        it("captures a newly selected panel after the user leaves a conversation", async () => {
+            await viewRoom(roomId);
+            setCard(roomId, RightPanelPhases.MemberList);
+            store.openThread(threadCard(), roomId);
+            setCard(roomId, RightPanelPhases.PinnedMessages);
+            store.openThread(threadCard(), roomId);
+            store.closeThread(roomId);
+            expect(store.currentCard.phase).toBe(RightPanelPhases.PinnedMessages);
+        });
+    });
 
     describe("isOpen", () => {
         it("is false if no rooms are open", () => {
@@ -281,6 +346,43 @@ describe("RightPanelStore", () => {
             expect(store.isOpen).toEqual(false);
             store.togglePanel(null);
             expect(store.isOpen).toEqual(true);
+        });
+    });
+
+    describe("in the desktop shell", () => {
+        beforeEach(async () => {
+            await SettingsStore.setValue("feature_desktop_shell", null, SettingLevel.DEVICE, true);
+        });
+
+        it("opens a text channel on its member list", async () => {
+            await viewRoom("!channel:example.org");
+            expect(store.isOpen).toEqual(true);
+            expect(store.currentCard.phase).toEqual(RightPanelPhases.MemberList);
+        });
+
+        it("keeps a channel closed once the user has closed it", async () => {
+            await viewRoom("!channel:example.org");
+            store.togglePanel(null);
+            await viewRoom("!other:example.org");
+            await viewRoom("!channel:example.org");
+            expect(store.isOpen).toEqual(false);
+        });
+
+        it.each([
+            ["a voice channel", "isCallRoom"],
+            ["a Space", "isSpaceRoom"],
+        ] as const)("leaves %s closed", async (_, kind) => {
+            const room = cli.getRoom("!voice:example.org")!;
+            vi.mocked(room[kind]).mockReturnValue(true);
+            cli.getRoom.mockReturnValue(room);
+            await viewRoom("!voice:example.org");
+            expect(store.isOpen).toEqual(false);
+        });
+
+        it("leaves a direct message closed", async () => {
+            vi.spyOn(DMRoomMap.shared(), "getUserIdForRoomId").mockReturnValue("@alice:example.org");
+            await viewRoom("!dm:example.org");
+            expect(store.isOpen).toEqual(false);
         });
     });
 

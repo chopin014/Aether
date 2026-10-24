@@ -55,6 +55,8 @@ export interface ActionBarViewSnapshot {
     isQuoteExpanded: boolean;
     /** Whether starting or replying in a thread is allowed for this event. */
     isThreadReplyAllowed: boolean;
+    /** Whether this action starts a new thread in the desktop shell. */
+    startsThread?: boolean;
 }
 
 /**
@@ -136,6 +138,7 @@ export function ActionBarView({ vm, className }: Readonly<ActionBarViewProps>): 
         actions,
         presentation = "icon",
         isThreadReplyAllowed,
+        startsThread,
         isDownloadEncrypted,
         isDownloadLoading,
         isPinned,
@@ -257,15 +260,16 @@ export function ActionBarView({ vm, className }: Readonly<ActionBarViewProps>): 
         />
     );
 
+    const threadLabel = startsThread ? _t("desktop|threads|start") : _t("action|reply_in_thread");
     const threadTooltipDescription = isThreadReplyAllowed
-        ? _t("action|reply_in_thread")
+        ? threadLabel
         : _t("threads|error_start_thread_existing_relation");
     actionButtons[ActionBarAction.ReplyInThread] = (
         <ActionBarButton
             key={ActionBarAction.ReplyInThread}
             presentation={presentation}
             buttonRef={actionButtonRefSetters[ActionBarAction.ReplyInThread]}
-            label={_t("action|reply_in_thread")}
+            label={threadLabel}
             tooltipDescription={threadTooltipDescription}
             onActivate={vm.onReplyInThreadClick}
             icon={ThreadsIcon}

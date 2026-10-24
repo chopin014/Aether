@@ -13,7 +13,7 @@ import { act, renderHook, waitFor } from "test-utils-rtl";
 import { EventType, type MatrixClient, MatrixEvent, RelationType, Room } from "matrix-js-sdk/src/matrix";
 import { stubClient } from "test-utils";
 
-import { useFetchedPinnedEvents } from "./usePinnedEvents";
+import { fetchPinnedEvent, useFetchedPinnedEvents } from "./usePinnedEvents";
 import MatrixClientContext from "../contexts/MatrixClientContext";
 
 describe("useFetchedPinnedEvents", () => {
@@ -83,5 +83,50 @@ describe("useFetchedPinnedEvents", () => {
         // Wait long enough that an edit would have been applied, then confirm none was.
         await new Promise((resolve) => setTimeout(resolve, 50));
         expect(result.current[0].getContent().body).toBe("original");
+    });
+    it("retains an undecryptable event for Element's decryption failure renderer", async () => {
+        const encrypted = new MatrixEvent({
+            event_id: pinnedEventId,
+            room_id: roomId,
+            sender: userId,
+            type: EventType.RoomMessageEncrypted,
+            content: { algorithm: "m.megolm.v1.aes-sha2", ciphertext: "unavailable keys" },
+        });
+        vi.spyOn(client, "fetchRoomEvent").mockResolvedValue(encrypted.event as never);
+        vi.spyOn(client, "decryptEventIfNeeded").mockResolvedValue(undefined);
+        const result = await fetchPinnedEvent(room, pinnedEventId, client);
+        expect(result?.isEncrypted()).toBe(true);
+        expect(result?.getSender()).toBe(userId);
+        expect(client.decryptEventIfNeeded).toHaveBeenCalled();
+    });
+
+    it("returns unavailable for a malformed event without a sender", async () => {
+        const malformed = makeEvent(pinnedEventId, { body: "Missing sender", msgtype: "m.text" });
+        delete malformed.event.sender;
+        vi.spyOn(client, "fetchRoomEvent").mockResolvedValue(malformed.event as never);
+        expect(await fetchPinnedEvent(room, pinnedEventId, client)).toBeNull();
+    });
+
+    it("retains removed messages for Element's redacted body renderer", async () => {
+        const removed = makeEvent(pinnedEventId, {});
+        removed.makeRedacted(
+            new MatrixEvent({
+                event_id: "$redaction",
+                type: EventType.RoomRedaction,
+                room_id: roomId,
+                sender: userId,
+                redacts: pinnedEventId,
+                content: {},
+            }),
+            room,
+        );
+        vi.spyOn(client, "fetchRoomEvent").mockResolvedValue(removed.event as never);
+        expect((await fetchPinnedEvent(room, pinnedEventId, client))?.isRedacted()).toBe(true);
+    });
+    it("does not apply a fetched edit from another sender", async () => {
+        const forged = edit(pinnedEventId, "$forged");
+        forged.event.sender = "@mallory:server";
+        vi.spyOn(client, "relations").mockResolvedValue({ events: [forged] });
+        expect((await fetchPinnedEvent(room, pinnedEventId, client))?.getContent().body).toBe("original");
     });
 });

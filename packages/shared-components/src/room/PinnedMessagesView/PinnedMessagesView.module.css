@@ -1,0 +1,106 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.view {
+    color: var(--cpd-color-text-primary);
+    background: var(--cpd-color-bg-subtle-primary);
+    border: 1px solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-2x);
+    box-shadow: 0 var(--cpd-space-2x) var(--cpd-space-8x) var(--cpd-color-alpha-gray-500);
+    overflow: hidden;
+}
+
+.header {
+    padding: var(--cpd-space-4x);
+    background: var(--cpd-color-bg-canvas-default);
+    border-bottom: 1px solid var(--cpd-color-border-interactive-secondary);
+}
+
+.header h2 {
+    margin: 0;
+}
+
+.scroll {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    max-height: min(70vh, var(--pinned-messages-available-height, 70vh));
+    padding: var(--cpd-space-3x);
+    scrollbar-width: thin;
+}
+
+.list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--cpd-space-3x);
+}
+
+.card {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--cpd-space-3x);
+    padding: var(--cpd-space-3x);
+    background: var(--cpd-color-bg-canvas-default);
+    border: 1px solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-2x);
+}
+
+.avatar {
+    flex: none;
+    padding-top: var(--cpd-space-1x);
+}
+
+.message {
+    flex: 1;
+    min-width: 0;
+}
+
+.metadata {
+    flex-wrap: wrap;
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-xs-regular);
+}
+
+.author {
+    color: var(--cpd-color-text-primary);
+    overflow-wrap: anywhere;
+}
+
+.body {
+    margin-top: var(--cpd-space-1x);
+    overflow-wrap: anywhere;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.body > * {
+    max-width: 100%;
+}
+
+.actions {
+    flex-wrap: wrap;
+    margin-top: var(--cpd-space-2x);
+}
+
+.actions button {
+    min-height: var(--cpd-space-6x);
+    padding: 0 var(--cpd-space-1x);
+    font: var(--cpd-font-body-sm-medium);
+}
+
+.empty {
+    padding: var(--cpd-space-8x) var(--cpd-space-4x);
+    text-align: center;
+    color: var(--cpd-color-text-secondary);
+}
+
+.notice {
+    padding: var(--cpd-space-3x);
+    color: var(--cpd-color-text-secondary);
+}

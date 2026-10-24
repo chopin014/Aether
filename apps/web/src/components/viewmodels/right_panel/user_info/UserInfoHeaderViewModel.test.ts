@@ -8,9 +8,9 @@ Please see LICENSE files in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { describe, it, expect, vi, beforeEach, afterEach, type Mocked } from "vitest";
-import { type MatrixClient, RoomMember } from "matrix-js-sdk/src/matrix";
+import { type MatrixClient, MatrixEvent, RoomMember, User, UserEvent } from "matrix-js-sdk/src/matrix";
 import { type CryptoApi } from "matrix-js-sdk/src/crypto-api";
-import { renderHook } from "test-utils-rtl";
+import { act, renderHook } from "test-utils-rtl";
 import { withClientContextRenderOptions } from "test-utils";
 
 import { MatrixClientPeg } from "../../../../MatrixClientPeg";
@@ -86,6 +86,33 @@ describe("useUserInfoHeaderViewModel", () => {
     const renderUserInfoHeaderViewModelHook = (props = defaultProps) => {
         return renderHook(() => useUserfoHeaderViewModel(props), withClientContextRenderOptions(mockClient));
     };
+    it("should keep SDK defaults unknown and update the profile after received presence", () => {
+        const member = new RoomMember(defaultRoomId, defaultUserId);
+        member.user = new User(defaultUserId);
+        const { result, unmount } = renderUserInfoHeaderViewModelHook({ member, roomId: defaultRoomId });
+        expect(result.current.precenseInfo.state).toBeUndefined();
+        act(() =>
+            member.user!.setPresenceEvent(
+                new MatrixEvent({
+                    type: "m.presence",
+                    content: { presence: "offline" },
+                }),
+            ),
+        );
+        expect(result.current.precenseInfo.state).toBe("offline");
+        act(() =>
+            member.user!.setPresenceEvent(
+                new MatrixEvent({
+                    type: "m.presence",
+                    content: { presence: "online" },
+                }),
+            ),
+        );
+        expect(result.current.precenseInfo.state).toBe("online");
+        unmount();
+        expect(member.user.listenerCount(UserEvent.LastPresenceTs)).toBe(0);
+    });
+
     it("should give user timezone info", () => {
         const defaultTZ = { timezone: "FR", friendly: "fr" };
         vi.spyOn(UseTimezone, "useUserTimezone").mockReturnValue(defaultTZ);

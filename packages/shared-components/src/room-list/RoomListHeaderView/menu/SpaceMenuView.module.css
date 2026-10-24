@@ -27,10 +27,26 @@
     gap: var(--cpd-space-1x);
     min-width: 0;
     width: 100%;
-    padding: var(--cpd-space-2x) 0;
+    padding: var(--cpd-space-2x) var(--cpd-space-1x);
     cursor: pointer;
+    border-radius: var(--cpd-space-1x);
+
+    &:is(:hover, [aria-expanded="true"]) {
+        background: var(--cpd-color-bg-action-secondary-hovered);
+    }
+
+    &:active {
+        background: var(--cpd-color-bg-action-secondary-pressed);
+    }
+
+    &:focus-visible {
+        outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+        outline-offset: var(--cpd-space-1x);
+    }
 
     span {
+        flex: 1;
+        text-align: start;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -39,6 +55,80 @@
     svg {
         width: 20px;
         height: 20px;
+        color: var(--cpd-color-icon-secondary);
         flex: none;
+        transition: transform 0.1s linear;
+    }
+}
+
+.spaceTrigger[aria-expanded="true"] svg {
+    transform: rotate(180deg);
+}
+
+/* Keep the desktop server actions compact while Compound owns placement and scrolling. */
+.desktopMenu {
+    /* Six short actions fit within the channel sidebar; longer translations can wrap. */
+    /* Radix supplies the trigger width on the portalled menu. */
+    /* stylelint-disable-next-line csstools/value-no-unknown-custom-properties */
+    inline-size: max(256px, var(--radix-dropdown-menu-trigger-width));
+    border-radius: var(--cpd-space-2x);
+
+    --cpd-separator-inset: var(--cpd-space-2x);
+    --cpd-separator-spacing: var(--cpd-space-1x);
+
+    > [role="none"] {
+        padding: var(--cpd-space-2x);
+        gap: var(--cpd-space-0-5x);
+    }
+
+    [role="menuitem"] {
+        grid-template: "label icon" auto / minmax(0, 1fr) var(--cpd-space-5x);
+        gap: var(--cpd-space-3x);
+        min-inline-size: 0;
+        min-block-size: var(--cpd-space-9x);
+        padding: var(--cpd-space-2x);
+        border-radius: var(--cpd-space-1x);
+        flex: none;
+
+        > span {
+            margin: 0;
+            font: var(--cpd-font-body-sm-regular);
+            justify-self: start;
+            overflow-wrap: anywhere;
+        }
+
+        > svg {
+            margin: 0;
+            width: var(--cpd-space-5x);
+            height: var(--cpd-space-5x);
+        }
+
+        &[data-highlighted] {
+            background: var(--cpd-color-bg-action-secondary-hovered);
+        }
+
+        &:focus-visible {
+            outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+            outline-offset: calc(-1 * var(--cpd-border-width-2));
+        }
+
+        &:active {
+            background: var(--cpd-color-bg-action-secondary-pressed);
+        }
+    }
+
+    /* Aether's violet invite action is the only accent in the action list. */
+    .invite > :is(span, svg) {
+        color: var(--cpd-color-text-decorative-4);
+    }
+
+    .invite > span {
+        font-weight: var(--cpd-font-weight-semibold);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .spaceTrigger svg {
+        transition: none;
     }
 }

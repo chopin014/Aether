@@ -8,6 +8,7 @@
         "click": "Select",
         "close": "Close",
         "collapse": "Collapse",
+        "create": "Create",
         "delete": "Delete",
         "dismiss": "Dismiss",
         "download": "Download",
@@ -45,7 +46,8 @@
         "loading": "Loading…",
         "options": "Options",
         "preferences": "Preferences",
-        "state_encryption_enabled": "Experimental state encryption enabled"
+        "state_encryption_enabled": "Experimental state encryption enabled",
+        "threads": "Threads"
     },
     "composer": {
         "url_preview": {
@@ -86,14 +88,88 @@
             "unavailable": "Idle",
             "unblock": "Unblock"
         },
+        "profile": {
+            "copy_link": "Copy link",
+            "ignore": "Ignore",
+            "member_since": "Member since",
+            "mention": "Mention",
+            "message_button": "Message",
+            "message_error": "Could not open the conversation. Try again.",
+            "message_label": "Message %(name)s",
+            "message_placeholder": "Message @%(name)s",
+            "moderate": "Moderate in room info",
+            "more": "More actions",
+            "mutual_error": "Mutual rooms could not be loaded.",
+            "mutual_loading": "Loading mutual rooms…",
+            "mutual_rooms": "Mutual rooms",
+            "mutual_rooms_count": {
+                "one": "%(count)s mutual room",
+                "other": "%(count)s mutual rooms"
+            },
+            "mutual_rooms_empty": "You do not share any rooms.",
+            "mutual_spaces_count": {
+                "one": "%(count)s mutual space",
+                "other": "%(count)s mutual spaces"
+            },
+            "mutual_spaces_empty": "No mutual spaces are known to this client.",
+            "mutual_spaces_note": "Based on the Space members this client has loaded.",
+            "not_verified": "Not verified",
+            "presence_offline": "Offline",
+            "presence_online": "Online",
+            "presence_unavailable": "Away",
+            "roles": "Roles",
+            "section": "Profile of %(name)s",
+            "self_note": "This is your own profile.",
+            "sessions": {
+                "one": "%(count)s session",
+                "other": "%(count)s sessions"
+            },
+            "shared_context": "Shared with this person",
+            "unignore": "Unignore",
+            "verification": "Verification",
+            "verified": "Verified",
+            "verify": "Verify",
+            "view_full": "View full profile of %(name)s",
+            "view_full_menu": "View full profile"
+        },
+        "threads": {
+            "create": "Create thread",
+            "create_description": "The starter is posted in this channel. Your first reply starts its thread. Everyone with access to the channel can read it.",
+            "empty_description": "Keep a conversation focused with a thread.",
+            "empty_title": "There are no threads.",
+            "first_reply": "First reply",
+            "load_error": "Threads could not be loaded. Try again.",
+            "load_more": "Load more threads",
+            "no_results": "No matching threads",
+            "open": "Open thread %(title)s",
+            "replies": {
+                "one": "%(count)s reply",
+                "other": "%(count)s replies"
+            },
+            "search": "Search threads",
+            "search_scope": "Search covers loaded threads. Load more to search older conversations.",
+            "send_error": "The thread could not be completed. Your draft is saved. Retry to continue.",
+            "sending": "Sending…",
+            "start": "Start thread",
+            "starter": "Starter message",
+            "starter_sent": "The starter was sent. Retry to send its first reply.",
+            "unread": "Unread"
+        },
         "voice": {
-            "audio_settings": "Voice & Video settings",
+            "camera_off": "Turn off camera",
+            "camera_on": "Turn on camera",
             "connected": "Voice Connected",
             "deafen": "Deafen",
             "disconnect": "Disconnect",
             "mute": "Mute",
+            "occupied_for": "People have been here for %(duration)s",
+            "participant_deafened": "%(name)s (deafened)",
+            "participant_muted": "%(name)s (muted)",
+            "participant_muted_and_deafened": "%(name)s (muted and deafened)",
             "participant_speaking": "%(name)s (speaking)",
             "participants": "People in %(roomName)s",
+            "start_screen_share": "Share your screen",
+            "stop_screen_share": "Stop sharing your screen",
             "undeafen": "Undeafen",
             "unmute": "Unmute"
         }
@@ -171,6 +247,30 @@
         "zoom": "Zoom",
         "zoom_in": "Zoom in",
         "zoom_out": "Zoom out"
+    },
+    "pinned_messages": {
+        "empty_description": "Pin a message from its menu to keep it handy here.",
+        "empty_title": "No pinned messages yet",
+        "jump": "Jump to message",
+        "load_error": "Some pinned messages could not be loaded. Try again.",
+        "loading": "Loading pinned messages…",
+        "title": "Pinned messages",
+        "unavailable": "This message is unavailable. It may have been removed or you may not have access.",
+        "unpin": "Unpin",
+        "unpin_error": "The message could not be unpinned. Try again."
+    },
+    "presence_controls": {
+        "away": "Away",
+        "disabled": "Presence is disabled in this client’s configuration.",
+        "disabled_short": "Presence disabled",
+        "invisible": "Appear offline",
+        "online": "Online",
+        "retry": "Retry presence update",
+        "saving": "Updating…",
+        "selected_hint": "Your selected status on this device.",
+        "title": "Presence",
+        "unknown": "Status unknown",
+        "unknown_hint": "Your selected status; server status unavailable."
     },
     "release_announcement": {
         "room_list_section_close": "Ok",
@@ -268,6 +368,7 @@
         "list_title": "Room list",
         "more_options": {
             "copy_link": "Copy link",
+            "edit_channel": "Edit channel",
             "favourited": "Favourited",
             "leave_room": "Leave room",
             "low_priority": "Low priority",
@@ -289,6 +390,8 @@
             "label": "Section name"
         },
         "section_header": {
+            "create_text_channel": "Create text channel",
+            "create_voice_channel": "Create voice channel",
             "edit_section": "Edit section",
             "more_options": "More options",
             "remove_section": "Remove section",
@@ -324,7 +427,9 @@
         "tac_button": "Review terms and conditions"
     },
     "threads": {
-        "error_start_thread_existing_relation": "You can't start a thread from this message."
+        "all_threads": "All threads",
+        "error_start_thread_existing_relation": "You can't start a thread from this message.",
+        "my_threads": "My threads"
     },
     "time": {
         "about_day_ago": "about a day ago",
@@ -434,6 +539,7 @@
         }
     },
     "user_menu": {
+        "edit_profile": "Edit profile",
         "link_new_device": "Link new device",
         "open_feedback": "Feedback",
         "open_home": "Home",

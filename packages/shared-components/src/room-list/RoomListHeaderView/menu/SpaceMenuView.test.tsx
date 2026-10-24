@@ -113,4 +113,68 @@ describe("<SpaceMenuView />", () => {
 
         expect(vm.openSpaceSettings).toHaveBeenCalledTimes(1);
     });
+
+    it("should group desktop actions without repeating the server title", async () => {
+        const vm = new MockedViewModel({ ...defaultSnapshot, title: "Terra do boi gordo" });
+        render(<SpaceMenuView vm={vm} fullWidth />);
+        const trigger = screen.getByRole("button", { name: "Open space menu" });
+        expect(trigger).toHaveAccessibleDescription("Terra do boi gordo");
+        await userEvent.click(trigger);
+
+        const menu = screen.getByRole("menu");
+        expect(menu).toHaveAttribute("aria-label", "Terra do boi gordo");
+        expect(menu).not.toHaveTextContent("Terra do boi gordo");
+        expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+            "Invite",
+            "Space home",
+            "New room",
+            "New voice room",
+            "Preferences",
+            "Space settings",
+        ]);
+        for (const item of screen.getAllByRole("menuitem")) {
+            expect(item.querySelector("svg[aria-hidden=true]")).not.toBeNull();
+        }
+    });
+
+    it.each([
+        ["New room", "createRoom"],
+        ["New voice room", "createVideoRoom"],
+        ["Invite", "inviteInSpace"],
+        ["Space home", "openSpaceHome"],
+        ["Preferences", "openSpacePreferences"],
+        ["Space settings", "openSpaceSettings"],
+    ] as const)("should select and dismiss the desktop %s action", async (label, action) => {
+        const vm = new MockedViewModel(defaultSnapshot);
+        render(<SpaceMenuView vm={vm} fullWidth />);
+        const trigger = screen.getByRole("button", { name: "Open space menu" });
+        await userEvent.click(trigger);
+        await userEvent.click(screen.getByRole("menuitem", { name: label }));
+
+        expect(vm[action]).toHaveBeenCalledTimes(1);
+        expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+        expect(trigger).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it.each([
+        { canCreateRoom: false, canCreateVideoRoom: false },
+        { canCreateRoom: true, canCreateVideoRoom: false },
+        { canCreateRoom: false, canCreateVideoRoom: true },
+    ])("should preserve desktop creation permissions: %j", async (permissions) => {
+        const vm = new MockedViewModel({
+            ...defaultSnapshot,
+            ...permissions,
+            canInviteInSpace: false,
+            canAccessSpaceSettings: false,
+        });
+        render(<SpaceMenuView vm={vm} fullWidth />);
+        await userEvent.click(screen.getByRole("button", { name: "Open space menu" }));
+
+        expect(!!screen.queryByRole("menuitem", { name: "New room" })).toBe(permissions.canCreateRoom);
+        expect(!!screen.queryByRole("menuitem", { name: "New voice room" })).toBe(permissions.canCreateVideoRoom);
+        expect(screen.queryByRole("menuitem", { name: "Invite" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("menuitem", { name: "Space settings" })).not.toBeInTheDocument();
+        const separators = screen.getByRole("menu").querySelectorAll("[data-orientation=horizontal]");
+        expect(separators).toHaveLength(permissions.canCreateRoom || permissions.canCreateVideoRoom ? 2 : 1);
+    });
 });

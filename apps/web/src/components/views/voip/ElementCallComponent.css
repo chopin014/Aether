@@ -15,3 +15,22 @@
  * component's lazily loaded chunk.
  */
 @import url("@element-hq/element-call-component/style.css") layer(element-call);
+
+/*
+ * Element Call's `normalize` reset is a sub-layer of `element-call`, so here it outranks the Compound styles of
+ * the components Element Call borrows from Element Web, which live in `compound-web`. Standalone, the reset sits
+ * below Compound. This later sub-layer restores what the reset takes from Compound's Switch (the layout toggle):
+ * its padding and the gap between its buttons, which its absolutely positioned icons are aligned to.
+ */
+@layer element-call.host-compound {
+    [data-element-call-root] fieldset[data-size] {
+        margin: 0;
+        padding: calc(var(--cpd-space-0-5x) - var(--cpd-border-width-1));
+    }
+
+    [data-element-call-root] fieldset[data-size] > input:first-of-type {
+        /* Compound's Switch defines this on the fieldset for each of its sizes. */
+        /* stylelint-disable-next-line csstools/value-no-unknown-custom-properties */
+        margin-inline-end: var(--cpd-switch-gap);
+    }
+}
