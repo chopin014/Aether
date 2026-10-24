@@ -1346,6 +1346,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 }
                 break;
             case Action.ViewUser:
+                // The desktop shell shows people in an anchored profile card instead of the right panel.
+                if (payload.member && SettingsStore.getValue("feature_desktop_shell")) break;
                 if (payload.member) {
                     if (payload.push) {
                         this.context.rightPanelStore.pushCard({

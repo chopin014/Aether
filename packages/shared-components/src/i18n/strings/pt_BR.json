@@ -91,6 +91,50 @@
             "unread": "Não lido",
             "start": "Iniciar tópico",
             "open": "Abrir tópico %(title)s"
+        },
+        "profile": {
+            "copy_link": "Copiar link",
+            "ignore": "Ignorar",
+            "unignore": "Deixar de ignorar",
+            "member_since": "Membro desde",
+            "mention": "Mencionar",
+            "message_button": "Mensagem",
+            "message_error": "Não foi possível abrir a conversa. Tente novamente.",
+            "message_label": "Mensagem para %(name)s",
+            "message_placeholder": "Conversar com @%(name)s",
+            "moderate": "Moderar nas informações da sala",
+            "more": "Mais ações",
+            "mutual_error": "Não foi possível carregar as salas em comum.",
+            "mutual_loading": "Carregando salas em comum…",
+            "mutual_rooms": "Salas em comum",
+            "mutual_rooms_count": {
+                "one": "%(count)s sala em comum",
+                "other": "%(count)s salas em comum"
+            },
+            "mutual_rooms_empty": "Vocês não compartilham nenhuma sala.",
+            "mutual_spaces_count": {
+                "one": "%(count)s espaço em comum",
+                "other": "%(count)s espaços em comum"
+            },
+            "mutual_spaces_empty": "Este cliente não conhece nenhum espaço em comum.",
+            "mutual_spaces_note": "Com base nos membros do espaço que este cliente já carregou.",
+            "not_verified": "Não verificado",
+            "presence_offline": "Offline",
+            "presence_online": "Online",
+            "presence_unavailable": "Ausente",
+            "roles": "Cargos",
+            "section": "Perfil de %(name)s",
+            "self_note": "Este é o seu próprio perfil.",
+            "sessions": {
+                "one": "%(count)s sessão",
+                "other": "%(count)s sessões"
+            },
+            "shared_context": "Compartilhado com esta pessoa",
+            "verification": "Verificação",
+            "verified": "Verificado",
+            "verify": "Verificar",
+            "view_full": "Ver perfil completo de %(name)s",
+            "view_full_menu": "Ver perfil completo"
         }
     },
     "threads": {

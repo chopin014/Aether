@@ -7,6 +7,7 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import { DesktopAccountDockContainer } from "../views/menus/UserMenuContainer";
+import { DesktopProfileHost } from "../views/desktop/DesktopProfileHost";
 
 import React, { type ClipboardEvent } from "react";
 import {
@@ -746,6 +747,7 @@ class LoggedInView extends React.Component<IProps, IState> {
                     <ToastContainer />
                     <div className={bodyClasses}>{content}</div>
                 </div>
+                {this.desktopShellEnabled && <DesktopProfileHost />}
                 <PipContainer />
                 <NonUrgentToastContainer />
                 {audioFeedArraysForCalls}

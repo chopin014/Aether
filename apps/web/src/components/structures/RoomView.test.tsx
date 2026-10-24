@@ -1396,6 +1396,25 @@ describe("RoomView", () => {
         });
     });
 
+    it("leaves a person to the desktop profile card instead of the right panel when the desktop shell is on", async () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+            name === "feature_desktop_shell" ? true : getValue(name, ...args),
+        );
+        await mountRoomView();
+        vi.spyOn(stores.rightPanelStore, "setCards");
+        vi.spyOn(stores.rightPanelStore, "pushCard");
+        vi.spyOn(stores.rightPanelStore, "showOrHidePhase");
+        const member = new User("@user:server");
+        defaultDispatcher.dispatch({ action: Action.ViewUser, member }, true);
+        defaultDispatcher.dispatch({ action: Action.ViewUser, member, push: true }, true);
+        expect(stores.rightPanelStore.setCards).not.toHaveBeenCalled();
+        expect(stores.rightPanelStore.pushCard).not.toHaveBeenCalled();
+        // Toggling the member list is still the right panel's job.
+        defaultDispatcher.dispatch({ action: Action.ViewUser }, true);
+        expect(stores.rightPanelStore.showOrHidePhase).toHaveBeenCalledWith(RightPanelPhases.MemberList);
+    });
+
     it("should handle Action.View3pidInvite", async () => {
         await mountRoomView();
         vi.spyOn(stores.rightPanelStore, "showOrHidePhase");

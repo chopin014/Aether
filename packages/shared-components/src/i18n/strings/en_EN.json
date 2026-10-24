@@ -88,6 +88,50 @@
             "unavailable": "Idle",
             "unblock": "Unblock"
         },
+        "profile": {
+            "copy_link": "Copy link",
+            "ignore": "Ignore",
+            "member_since": "Member since",
+            "mention": "Mention",
+            "message_button": "Message",
+            "message_error": "Could not open the conversation. Try again.",
+            "message_label": "Message %(name)s",
+            "message_placeholder": "Message @%(name)s",
+            "moderate": "Moderate in room info",
+            "more": "More actions",
+            "mutual_error": "Mutual rooms could not be loaded.",
+            "mutual_loading": "Loading mutual rooms…",
+            "mutual_rooms": "Mutual rooms",
+            "mutual_rooms_count": {
+                "one": "%(count)s mutual room",
+                "other": "%(count)s mutual rooms"
+            },
+            "mutual_rooms_empty": "You do not share any rooms.",
+            "mutual_spaces_count": {
+                "one": "%(count)s mutual space",
+                "other": "%(count)s mutual spaces"
+            },
+            "mutual_spaces_empty": "No mutual spaces are known to this client.",
+            "mutual_spaces_note": "Based on the Space members this client has loaded.",
+            "not_verified": "Not verified",
+            "presence_offline": "Offline",
+            "presence_online": "Online",
+            "presence_unavailable": "Away",
+            "roles": "Roles",
+            "section": "Profile of %(name)s",
+            "self_note": "This is your own profile.",
+            "sessions": {
+                "one": "%(count)s session",
+                "other": "%(count)s sessions"
+            },
+            "shared_context": "Shared with this person",
+            "unignore": "Unignore",
+            "verification": "Verification",
+            "verified": "Verified",
+            "verify": "Verify",
+            "view_full": "View full profile of %(name)s",
+            "view_full_menu": "View full profile"
+        },
         "threads": {
             "create": "Create thread",
             "create_description": "The starter is posted in this channel. Your first reply starts its thread. Everyone with access to the channel can read it.",
