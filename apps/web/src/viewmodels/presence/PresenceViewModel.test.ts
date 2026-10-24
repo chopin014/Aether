@@ -16,6 +16,7 @@ import { PresenceViewModel } from "./PresenceViewModel";
 import { MatrixDispatcher } from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 import SdkConfig from "../../SdkConfig";
+import SettingsStore from "../../settings/SettingsStore";
 import { presencePreferenceKey, readPresencePreference } from "../../utils/presencePreference";
 
 const flush = async () => {
@@ -223,5 +224,48 @@ describe("PresenceViewModel", () => {
         pending.resolve();
         await request;
         expect(client.setPresence).not.toHaveBeenCalled();
+    });
+
+    describe("on a homeserver where server presence is disabled by config", () => {
+        const disabled = (flag: boolean) => {
+            SdkConfig.put({ enable_presence_by_hs_url: { [client.baseUrl]: false } });
+            vi.spyOn(SettingsStore, "getValue").mockImplementation(((name: string) =>
+                name === "feature_desktop_shell" ? flag : false) as never);
+            vm.dispose();
+            vm = new PresenceViewModel({ client, dispatcher });
+        };
+
+        it("should stay disabled without the desktop shell", () => {
+            disabled(false);
+            expect(vm.getSnapshot().enabled).toBe(false);
+        });
+
+        it("should let the desktop shell keep a preference but never call the homeserver", async () => {
+            disabled(true);
+            expect(vm.getSnapshot().enabled).toBe(true);
+            vm.start();
+            await flush();
+            await vm.setPreference("offline");
+            expect(vm.getSnapshot().preference).toBe("offline");
+            expect(localStorage.getItem(presencePreferenceKey(client))).toBe("offline");
+            expect(client.setSyncPresence).not.toHaveBeenCalled();
+            expect(client.setPresence).not.toHaveBeenCalled();
+        });
+    });
+
+    it("should tell watchers when the wanted status changes, including automatic idle", async () => {
+        const seen: SetPresence[] = [];
+        const unwatch = vm.watchDesired((p) => seen.push(p));
+        vm.start();
+        await flush();
+        await vi.advanceTimersByTimeAsync(3 * 60 * 1000);
+        await activity();
+        await vm.setPreference("offline");
+        await vm.setPreference("offline");
+        expect(seen).toEqual([SetPresence.Unavailable, SetPresence.Online, SetPresence.Offline]);
+        unwatch();
+        await vm.setPreference("online");
+        expect(seen).toHaveLength(3);
+        expect(vm.getDesired()).toBe(SetPresence.Online);
     });
 });

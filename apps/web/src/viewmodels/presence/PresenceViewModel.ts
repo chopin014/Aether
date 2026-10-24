@@ -31,21 +31,28 @@ export class PresenceViewModel extends BaseViewModel<PresenceSnapshot, Props> {
     private started = false;
     private desired: SetPresence;
     private applied?: SetPresence;
+    private readonly desiredListeners = new Set<(presence: SetPresence) => void>();
+    /** Whether presence is sent to the homeserver. False when the config disables it, e.g. for matrix.org. */
+    private readonly serverPresence: boolean;
 
     public constructor(props: Props) {
         const preference = readPresencePreference(props.client);
+        const usable = !props.client.isGuest() && !SettingsStore.getValue("lowBandwidth");
+        const serverPresence = usable && isPresenceEnabled(props.client);
         super(props, {
-            enabled:
-                !props.client.isGuest() && isPresenceEnabled(props.client) && !SettingsStore.getValue("lowBandwidth"),
+            // The desktop shell also shares the choice with other Aether clients, which works without server presence.
+            enabled: serverPresence || (usable && SettingsStore.getValue("feature_desktop_shell")),
             preference,
             busy: false,
         });
+        this.serverPresence = serverPresence;
         this.desired = preference;
         this.disposables.trackListener(props.client, UserEvent.LastPresenceTs, this.onPresence);
         this.disposables.trackListener(props.client, UserEvent.Presence, this.onPresence);
         this.disposables.trackListener(props.client, ClientEvent.Event, this.onPresenceEvent);
         this.onPresence();
         this.disposables.track(() => clearTimeout(this.timer));
+        this.disposables.track(() => this.desiredListeners.clear());
     }
 
     /** Start after the SDK's sync API exists. Repeated calls do not add listeners or requests. */
@@ -56,6 +63,21 @@ export class PresenceViewModel extends BaseViewModel<PresenceSnapshot, Props> {
         this.disposables.track(() => this.props.dispatcher.unregister(ref));
         this.restartTimer();
         void this.apply(false);
+    };
+
+    /** The status this device currently wants to show, including automatic Away while idle. */
+    public getDesired = (): SetPresence => this.desired;
+
+    /** Be told whenever {@link getDesired} changes. Returns a function that stops listening. */
+    public watchDesired = (listener: (presence: SetPresence) => void): (() => void) => {
+        this.desiredListeners.add(listener);
+        return () => this.desiredListeners.delete(listener);
+    };
+
+    private setDesired = (presence: SetPresence): void => {
+        if (presence === this.desired) return;
+        this.desired = presence;
+        for (const listener of this.desiredListeners) listener(presence);
     };
 
     private onPresenceEvent = (event: unknown): void => {
@@ -81,14 +103,14 @@ export class PresenceViewModel extends BaseViewModel<PresenceSnapshot, Props> {
         clearTimeout(this.timer);
         if (this.snapshot.current.preference !== "online") return;
         this.timer = setTimeout(() => {
-            this.desired = SetPresence.Unavailable;
+            this.setDesired(SetPresence.Unavailable);
             void this.apply(false);
         }, IDLE_MS);
     };
 
     private onAction = (payload: ActionPayload): void => {
         if (payload.action !== Action.UserActivity || this.snapshot.current.preference !== "online") return;
-        this.desired = SetPresence.Online;
+        this.setDesired(SetPresence.Online);
         this.restartTimer();
         void this.apply(false);
     };
@@ -96,7 +118,7 @@ export class PresenceViewModel extends BaseViewModel<PresenceSnapshot, Props> {
     /** Persist intent immediately, including invisible intent when offline, and attempt one real server request. */
     public setPreference = async (preference: PresencePreference): Promise<void> => {
         if (!this.snapshot.current.enabled || this.snapshot.current.busy || this.isDisposed) return;
-        this.desired = preference as SetPresence;
+        this.setDesired(preference as SetPresence);
         this.snapshot.merge({ preference, error: undefined });
         this.restartTimer();
         try {
@@ -117,6 +139,10 @@ export class PresenceViewModel extends BaseViewModel<PresenceSnapshot, Props> {
         if (this.isDisposed || !this.snapshot.current.enabled || this.snapshot.current.busy) return;
         if (!manual && (this.snapshot.current.error || this.desired === this.applied)) return;
         const desired = this.desired;
+        if (!this.serverPresence) {
+            this.applied = desired;
+            return;
+        }
         this.snapshot.merge({ busy: true });
         try {
             // Sync must retain the same intent, so subsequent activity cannot undo Away or Invisible.
