@@ -97,14 +97,10 @@ Space categories are presentation-only projections of actual room types. They do
 
 ## Reference-to-implementation status
 
-The [desktop UX map](desktop-ux-map.md) compares the 99-state Discord study with current
-Element owners, defines the popover/panel/settings interaction model and orders the remaining
-UX work. Sync architecture and new backend services are outside this phase.
-
 The account profile menu offers Online (automatic), Away and Appear offline using the existing
 Matrix presence APIs. The account dock always shows the selected status badge and reveals the
 Matrix ID on hover or keyboard focus. Requested status stays separate from received presence;
-missing data for other members is neutral rather than Offline. See [presence behavior and limits](presence.md).
+missing data for other members is neutral rather than Offline.
 
 The desktop header pin button opens an anchored, nonmodal message browser without replacing
 members or changing the active channel. Cards retain Element's authenticated message and attachment
