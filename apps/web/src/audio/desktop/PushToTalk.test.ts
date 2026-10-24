@@ -85,6 +85,15 @@ describe("PushToTalkController", () => {
         vi.useRealTimers();
     });
 
+    it("stops a native hold without requiring focused listeners to have started", () => {
+        controller.configure("KeyV", 200);
+        controller.setPressed(true);
+        controller.stop();
+        expect(controller.active).toBe(false);
+        vi.advanceTimersByTime(500);
+        expect(changes).toEqual([true, false]);
+    });
+
     it("cancels a native release delay on reset and binding changes", () => {
         controller.configure("KeyV", 200);
         controller.setPressed(true);

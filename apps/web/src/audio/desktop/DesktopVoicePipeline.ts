@@ -98,6 +98,8 @@ export class DesktopVoicePipeline {
                 );
             } else if (event.id === "push_to_mute") this.processor.setShortcutMuted(event.pressed);
         });
+        // The session can receive a hold before a call's media component exists.
+        this.processor.setShortcutMuted(DesktopShortcutManager.instance.isHeld("push_to_mute"));
         this.applyGate();
     }
 

@@ -162,6 +162,20 @@ describe("DesktopVoicePipeline", () => {
         expect(watchers.size).toBe(0);
     });
 
+    it("preserves push to mute held before a call joins or reconnects", () => {
+        vi.spyOn(DesktopShortcutManager.instance, "isHeld").mockImplementation((id) => id === "push_to_mute");
+        const setMuted = vi.spyOn(pipeline.microphoneProcessor, "setShortcutMuted");
+        const detach = pipeline.attach(fakeHandle());
+        expect(setMuted).toHaveBeenLastCalledWith(true);
+        detach();
+        expect(setMuted).toHaveBeenLastCalledWith(false);
+        const detachReconnected = pipeline.attach(fakeHandle());
+        expect(setMuted).toHaveBeenLastCalledWith(true);
+        shortcutEvent({ id: "push_to_mute", pressed: false });
+        expect(setMuted).toHaveBeenLastCalledWith(false);
+        detachReconnected();
+    });
+
     it("applies push to mute without changing explicit mute/deafen preferences", () => {
         const setMuted = vi.spyOn(pipeline.microphoneProcessor, "setShortcutMuted");
         const detach = pipeline.attach(fakeHandle());

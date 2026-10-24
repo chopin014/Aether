@@ -89,6 +89,9 @@ export class DesktopShortcutManager {
         private readonly api = target.electron?.globalShortcuts,
     ) {}
 
+    /** Current hold state survives call components joining or reconnecting within this session. */
+    public isHeld = (id: DesktopShortcutAction): boolean => this.held.has(id) && this.enabled();
+
     public getBackend = (): string => this.backend;
     public getStatus = (id: DesktopShortcutAction): DesktopShortcutStatus => this.statuses[id] ?? "unbound";
     public getKey = (id: DesktopShortcutAction): string =>

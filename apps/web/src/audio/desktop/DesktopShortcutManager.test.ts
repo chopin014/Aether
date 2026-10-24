@@ -106,6 +106,7 @@ describe("DesktopShortcutManager", () => {
         nativeEvent({ id: "push_to_talk", pressed: false, reset: true });
         expect(listener).toHaveBeenCalledWith({ id: "push_to_talk", pressed: false, reset: true });
         nativeEvent({ id: "push_to_talk", pressed: true });
+        expect(manager.isHeld("push_to_talk")).toBe(true);
         expect(listener.mock.lastCall?.[0]).toEqual({ id: "push_to_talk", pressed: true });
     });
     it("pauses native events and registrations throughout nested recording", async () => {
@@ -154,6 +155,36 @@ describe("DesktopShortcutManager", () => {
         manager.onEvent(listener);
         nativeEvent({ id: "push_to_talk", pressed: true });
         expect(listener).not.toHaveBeenCalled();
+    });
+    it("fails closed when registration rejects and refuses invalid persisted keys", async () => {
+        vi.mocked(api.configure).mockRejectedValueOnce(new Error("Permission denied"));
+        values.desktopPushToTalkKey = "Super+Invalid";
+        stop = manager.start();
+        await flush();
+        expect(manager.getStatus("push_to_talk")).toBe("invalid");
+        expect(manager.getStatus("toggle_mute")).toBe("unsupported");
+        await expect(manager.setKey("push_to_talk", "Bad+KeyV")).rejects.toThrow("Invalid shortcut");
+        const listener = vi.fn();
+        manager.onEvent(listener);
+        nativeEvent({ id: "toggle_mute", pressed: true });
+        expect(listener).not.toHaveBeenCalled();
+    });
+    it("cannot reactivate a stale registration result after recording begins", async () => {
+        let resolve: (result: Awaited<ReturnType<GlobalShortcutApi["configure"]>>) => void = () => {};
+        vi.mocked(api.configure).mockImplementationOnce(
+            () =>
+                new Promise((done) => {
+                    resolve = done;
+                }),
+        );
+        stop = manager.start();
+        await vi.waitFor(() => expect(api.configure).toHaveBeenCalledOnce());
+        const resume = manager.suspend();
+        resolve({ backend: "native", bindings: [{ id: "push_to_talk", status: "registered" }] });
+        await vi.waitFor(() => expect(api.configure).toHaveBeenLastCalledWith({ enabled: false, bindings: [] }));
+        expect(manager.getStatus("push_to_talk")).toBe("paused");
+        resume();
+        await vi.waitFor(() => expect(manager.getStatus("push_to_talk")).toBe("registered"));
     });
     it("has a focused browser fallback without claiming global support", () => {
         manager = new DesktopShortcutManager(window, undefined);

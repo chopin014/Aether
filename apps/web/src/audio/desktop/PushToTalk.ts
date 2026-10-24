@@ -158,11 +158,12 @@ export class PushToTalkController {
     }
 
     public stop(): void {
-        if (!this.running) return;
-        this.running = false;
-        this.target.removeEventListener("keydown", this.onKeyDown as EventListener);
-        this.target.removeEventListener("keyup", this.onKeyUp as EventListener);
-        this.target.removeEventListener("blur", this.onBlur);
+        if (this.running) {
+            this.running = false;
+            this.target.removeEventListener("keydown", this.onKeyDown as EventListener);
+            this.target.removeEventListener("keyup", this.onKeyUp as EventListener);
+            this.target.removeEventListener("blur", this.onBlur);
+        }
         this.release();
     }
 
