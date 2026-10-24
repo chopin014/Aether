@@ -140,6 +140,7 @@ describe("<MatrixChat />", () => {
     // reused in createClient mock below
     const getMockClientMethods = () => ({
         ...mockClientMethodsUser(userId),
+        getSessionId: vi.fn().mockReturnValue("matrixchat-test-session"),
         ...mockClientMethodsServer(),
         getVersions: vi.fn().mockResolvedValue({ versions: SERVER_SUPPORTED_MATRIX_VERSIONS }),
         startClient: async function () {
@@ -159,6 +160,7 @@ describe("<MatrixChat />", () => {
             this.emit(ClientEvent.Sync, SyncState.Prepared, null);
         },
         stopClient: vi.fn(),
+        setSyncPresence: vi.fn().mockResolvedValue(undefined),
         setCanResetTimelineCallback: vi.fn(),
         isInitialSyncComplete: vi.fn(),
         getSyncState: vi.fn(),
