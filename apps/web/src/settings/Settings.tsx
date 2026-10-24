@@ -363,6 +363,17 @@ export interface Settings {
     "audioInputMuted": IBaseSetting<boolean>;
     "desktopDeafened": IBaseSetting<boolean>;
     "desktopVoiceSounds": IBaseSetting<boolean>;
+    "desktopVoiceSoundToggles": IBaseSetting<Record<string, boolean>>;
+    "desktopMicrophoneVolume": IBaseSetting<number>;
+    "desktopSpeakerVolume": IBaseSetting<number>;
+    "desktopInputProfile": IBaseSetting<"studio" | "custom">;
+    "desktopInputSensitivityAuto": IBaseSetting<boolean>;
+    "desktopInputSensitivity": IBaseSetting<number>;
+    "desktopInputMode": IBaseSetting<"voice_activity" | "push_to_talk">;
+    "desktopPushToTalkKey": IBaseSetting<string>;
+    "desktopPushToTalkReleaseDelay": IBaseSetting<number>;
+    "desktopVoiceSwitchWarning": IBaseSetting<boolean>;
+    "desktopAlwaysPreviewVideo": IBaseSetting<boolean>;
     "desktopMicMutedBeforeDeafen": IBaseSetting<boolean>;
     "videoInputMuted": IBaseSetting<boolean>;
     "activeCallRoomIds": IBaseSetting<string[]>;
@@ -1412,10 +1423,61 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
         default: false,
     },
+    // Superseded by `desktopVoiceSoundToggles`; only read once to carry an "off" choice over to it.
     "desktopVoiceSounds": {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
         default: true,
         displayName: _td("desktop|voice|sounds"),
+    },
+    // Sounds the user turned off, by cue name. A cue that is not listed is on.
+    "desktopVoiceSoundToggles": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: {},
+    },
+    // Percent of the microphone level that is sent to calls.
+    "desktopMicrophoneVolume": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: 100,
+    },
+    // Percent of the call volume that is played.
+    "desktopSpeakerVolume": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: 100,
+    },
+    "desktopInputProfile": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: "custom",
+    },
+    "desktopInputSensitivityAuto": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: true,
+    },
+    // Manual threshold in dB relative to full scale, -100 (everything passes) to 0.
+    "desktopInputSensitivity": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: -50,
+    },
+    "desktopInputMode": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: "voice_activity",
+    },
+    // A `KeyboardEvent.code`, with any modifiers in front, such as "Control+KeyV"; empty while unset.
+    "desktopPushToTalkKey": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: "",
+    },
+    // How long, in ms, the microphone stays open after the push-to-talk key is released.
+    "desktopPushToTalkReleaseDelay": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: 200,
+    },
+    "desktopVoiceSwitchWarning": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: false,
+    },
+    "desktopAlwaysPreviewVideo": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: false,
     },
     "desktopDeafened": {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,

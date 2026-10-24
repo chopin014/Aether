@@ -8,22 +8,31 @@ Please see LICENSE in the repository root for full details.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-// Original two-note cues. Keep these reproducible and independent of third-party sound packs.
-const cues = {
+// Original one- to three-note cues (frequencies in Hz). Keep these reproducible and independent of third-party
+// sound packs: every tone is a plain sine wave with a raised-sine envelope, so there is nothing to license.
+const cues: Record<string, number[]> = {
     mute: [620, 390],
     unmute: [390, 620],
     deafen: [480, 240],
     undeafen: [240, 480],
     join: [520, 780],
     leave: [780, 520],
+    "user-joined": [450, 675],
+    "user-left": [675, 450],
+    "camera-on": [700, 930],
+    "camera-off": [930, 700],
+    "screen-share-start": [560, 700, 840],
+    "screen-share-stop": [840, 700, 560],
+    "ptt-activate": [880],
+    "ptt-deactivate": [660],
 };
 const directory = fileURLToPath(new URL("../res/media/aether/", import.meta.url));
 mkdirSync(directory, { recursive: true });
 const rate = 24000;
 const noteDuration = 0.085;
 const gap = 0.025;
-const count = Math.ceil(rate * (noteDuration * 2 + gap));
 for (const [name, notes] of Object.entries(cues)) {
+    const count = Math.ceil(rate * (noteDuration * notes.length + gap * (notes.length - 1)));
     const wav = Buffer.alloc(44 + count * 2);
     wav.write("RIFF", 0);
     wav.writeUInt32LE(wav.length - 8, 4);
@@ -39,7 +48,7 @@ for (const [name, notes] of Object.entries(cues)) {
     wav.writeUInt32LE(count * 2, 40);
     for (let sample = 0; sample < count; sample++) {
         const time = sample / rate;
-        const note = time < noteDuration ? 0 : 1;
+        const note = Math.min(notes.length - 1, Math.floor(time / (noteDuration + gap)));
         const local = time - note * (noteDuration + gap);
         const envelope = local >= 0 && local < noteDuration ? Math.sin((Math.PI * local) / noteDuration) ** 2 : 0;
         const value = Math.sin(2 * Math.PI * notes[note] * local) * envelope * 0.55;
