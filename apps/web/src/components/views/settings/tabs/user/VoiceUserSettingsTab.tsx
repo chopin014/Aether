@@ -26,6 +26,7 @@ import { SettingsSection } from "../../shared/SettingsSection";
 import { SettingsSubsection } from "../../shared/SettingsSubsection";
 import MatrixClientContext from "../../../../../contexts/MatrixClientContext";
 import SdkConfig from "../../../../../SdkConfig";
+import { DesktopVoiceVideoSettings } from "./DesktopVoiceVideoSettings";
 
 interface IState {
     mediaDevices: IMediaDevices | null;
@@ -181,6 +182,14 @@ export default class VoiceUserSettingsTab extends React.Component<EmptyObject, I
     };
 
     public render(): JSX.Element {
+        // The desktop shell has its own Voice & Video page, which edits the same settings.
+        if (SettingsStore.getValue("feature_desktop_shell")) {
+            return (
+                <SettingsTab>
+                    <DesktopVoiceVideoSettings />
+                </SettingsTab>
+            );
+        }
         let requestButton: ReactNode | undefined;
         let speakerDropdown: ReactNode | undefined;
         let microphoneDropdown: ReactNode | undefined;
@@ -264,11 +273,6 @@ export default class VoiceUserSettingsTab extends React.Component<EmptyObject, I
                         {requestButton}
                         {microphoneDropdown}
                     </SettingsSection>
-                    {SettingsStore.getValue("feature_desktop_shell") && (
-                        <SettingsSection heading={_t("desktop|voice|sound_section")}>
-                            <SettingsFlag name="desktopVoiceSounds" level={SettingLevel.DEVICE} />
-                        </SettingsSection>
-                    )}
                     {allowLegacyCalls && (
                         <SettingsSection heading={_t("common|legacy_voice_and_video_settings")}>
                             {elementCallEnabled && (

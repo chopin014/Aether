@@ -3927,6 +3927,32 @@
             "close": "Fechar tópico",
             "removed": "Mensagem removida",
             "start": "Iniciar tópico"
+        },
+        "voice_settings": {
+            "nav_advanced": "Avançado",
+            "nav_sounds": "Sons",
+            "nav_video": "Vídeo",
+            "nav_voice": "Voz",
+            "reset_confirm": "Redefinir",
+            "reset_description": "Dispositivos, volumes, entrada, apertar para falar, sons e opções de vídeo voltam ao padrão. A supressão de ruído não é alterada.",
+            "reset_title": "Redefinir todas as configurações de Voz e vídeo?",
+            "sound_camera_off": "Câmera desligada",
+            "sound_camera_on": "Câmera ligada",
+            "sound_deafen": "Desativar áudio",
+            "sound_join": "Entrar na chamada",
+            "sound_leave": "Sair da chamada",
+            "sound_mute": "Silenciar",
+            "sound_ptt_activate": "Apertar para falar ligado",
+            "sound_ptt_deactivate": "Apertar para falar desligado",
+            "sound_screen_share_start": "Transmissão de tela iniciada",
+            "sound_screen_share_stop": "Transmissão de tela encerrada",
+            "sound_undeafen": "Reativar áudio",
+            "sound_unmute": "Dessilenciar",
+            "sound_user_joined": "Alguém entrou na sua chamada",
+            "sound_user_left": "Alguém saiu da sua chamada",
+            "switch_warning_confirm": "Trocar de canal",
+            "switch_warning_description": "Você já está em um canal de voz. Entrar neste vai desconectar você do outro.",
+            "switch_warning_title": "Sair da chamada atual?"
         }
     }
 }

@@ -71,9 +71,13 @@ export function isDesktopVoiceSoundEnabled(sound: DesktopVoiceSound): boolean {
     return getDesktopVoiceSoundToggles()[sound] !== false;
 }
 
-/** Switches one cue on or off, keeping the choices already made for the others. */
-export async function setDesktopVoiceSoundEnabled(sound: DesktopVoiceSound, enabled: boolean): Promise<void> {
-    const toggles = { ...getDesktopVoiceSoundToggles(), [sound]: enabled };
+/** Switches cues on or off, keeping the choices already made for the others. */
+export async function setDesktopVoiceSoundEnabled(
+    sound: DesktopVoiceSound | DesktopVoiceSound[],
+    enabled: boolean,
+): Promise<void> {
+    const changed = Object.fromEntries([sound].flat().map((id) => [id, enabled]));
+    const toggles = { ...getDesktopVoiceSoundToggles(), ...changed };
     await SettingsStore.setValue("desktopVoiceSoundToggles", null, SettingLevel.DEVICE, toggles);
 }
 

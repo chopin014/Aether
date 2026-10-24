@@ -9,7 +9,7 @@ Please see LICENSE files in the repository root for full details.
 
 import { ClientEvent, type MatrixEvent } from "matrix-js-sdk/src/matrix";
 import { Toast } from "@vector-im/compound-web";
-import React, { type JSX, useState } from "react";
+import React, { type JSX, useRef, useState } from "react";
 import UserProfileIcon from "@vector-im/compound-design-tokens/assets/web/icons/user-profile";
 import DevicesIcon from "@vector-im/compound-design-tokens/assets/web/icons/devices";
 import VisibilityOnIcon from "@vector-im/compound-design-tokens/assets/web/icons/visibility-on";
@@ -23,9 +23,15 @@ import LockIcon from "@vector-im/compound-design-tokens/assets/web/icons/lock";
 import LabsIcon from "@vector-im/compound-design-tokens/assets/web/icons/labs";
 import BlockIcon from "@vector-im/compound-design-tokens/assets/web/icons/block";
 import HelpIcon from "@vector-im/compound-design-tokens/assets/web/icons/help";
-import { ToastContext, useActiveToast } from "@element-hq/web-shared-components";
+import {
+    ToastContext,
+    useActiveToast,
+    desktopVoiceVideoSectionId,
+    type DesktopVoiceVideoSection,
+} from "@element-hq/web-shared-components";
 
-import TabbedView, { Tab, useActiveTabWithDefault } from "../../structures/TabbedView";
+import TabbedView, { Tab, type TabAnchor, useActiveTabWithDefault } from "../../structures/TabbedView";
+import { UserSettingsNavigationContext } from "../../../contexts/UserSettingsNavigationContext";
 import { _t, _td } from "../../../languageHandler";
 import AccountUserSettingsTab from "../settings/tabs/user/AccountUserSettingsTab";
 import SettingsStore from "../../../settings/SettingsStore";
@@ -101,9 +107,20 @@ function titleForTabID(tabId: UserTab): React.ReactNode {
     }
 }
 
+/** The sections of the desktop Voice & Video page, which the sidebar links to. */
+const VOICE_VIDEO_ANCHORS: TabAnchor[] = (
+    [
+        ["voice", _td("desktop|voice_settings|nav_voice")],
+        ["video", _td("desktop|voice_settings|nav_video")],
+        ["sounds", _td("desktop|voice_settings|nav_sounds")],
+        ["advanced", _td("desktop|voice_settings|nav_advanced")],
+    ] as [DesktopVoiceVideoSection, TranslationKey][]
+).map(([section, label]) => ({ label, domId: desktopVoiceVideoSectionId(section) }));
+
 export default function UserSettingsDialog(props: IProps): JSX.Element {
     const voipEnabled = useSettingValue(UIFeature.Voip);
     const mjolnirEnabled = useSettingValue("feature_mjolnir");
+    const desktopShell = useSettingValue("feature_desktop_shell");
     // store these props in state as changing tabs back and forth should clear them
     const [showMsc4108QrCode, setShowMsc4108QrCode] = useState(props.showMsc4108QrCode);
     const [initialEncryptionState, setInitialEncryptionState] = useState(props.initialEncryptionState);
@@ -204,6 +221,8 @@ export default function UserSettingsDialog(props: IProps): JSX.Element {
                     <MicOnIcon />,
                     <VoiceUserSettingsTab />,
                     "UserSettingsVoiceVideo",
+                    undefined,
+                    desktopShell ? VOICE_VIDEO_ANCHORS : undefined,
                 ),
             );
         }
@@ -268,6 +287,9 @@ export default function UserSettingsDialog(props: IProps): JSX.Element {
     };
 
     const [activeToast, toastRack] = useActiveToast();
+    const openTab = useRef(setActiveTabId);
+    openTab.current = setActiveTabId;
+    const navigate = React.useCallback((tab: UserTab) => openTab.current(tab), []);
 
     return (
         // XXX: SDKContext is provided within the LoggedInView subtree.
@@ -275,26 +297,28 @@ export default function UserSettingsDialog(props: IProps): JSX.Element {
         // The longer term solution is to move our ModalManager into the React tree to inherit contexts properly.
         <SDKContext.Provider value={props.sdkContext}>
             <ToastContext.Provider value={toastRack}>
-                <BaseDialog
-                    className="mx_UserSettingsDialog"
-                    hasCancel={true}
-                    onFinished={props.onFinished}
-                    title={titleForTabID(activeTabId)}
-                    titleClass="mx_UserSettingsDialog_title"
-                >
-                    <div className="mx_SettingsDialog_content">
-                        <TabbedView
-                            tabs={getTabs()}
-                            activeTabId={activeTabId}
-                            screenName="UserSettings"
-                            onChange={setActiveTabId}
-                            responsive={true}
-                        />
-                    </div>
-                    <div className="mx_SettingsDialog_toastContainer">
-                        {activeToast && <Toast>{activeToast}</Toast>}
-                    </div>
-                </BaseDialog>
+                <UserSettingsNavigationContext.Provider value={navigate}>
+                    <BaseDialog
+                        className="mx_UserSettingsDialog"
+                        hasCancel={true}
+                        onFinished={props.onFinished}
+                        title={titleForTabID(activeTabId)}
+                        titleClass="mx_UserSettingsDialog_title"
+                    >
+                        <div className="mx_SettingsDialog_content">
+                            <TabbedView
+                                tabs={getTabs()}
+                                activeTabId={activeTabId}
+                                screenName="UserSettings"
+                                onChange={setActiveTabId}
+                                responsive={true}
+                            />
+                        </div>
+                        <div className="mx_SettingsDialog_toastContainer">
+                            {activeToast && <Toast>{activeToast}</Toast>}
+                        </div>
+                    </BaseDialog>
+                </UserSettingsNavigationContext.Provider>
             </ToastContext.Provider>
         </SDKContext.Provider>
     );

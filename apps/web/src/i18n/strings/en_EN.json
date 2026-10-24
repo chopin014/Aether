@@ -777,11 +777,35 @@
         "voice": {
             "action_failed": "The audio control could not be changed. Please try again.",
             "camera_failed": "The camera could not be changed. Please try again.",
-            "screen_share_failed": "Screen sharing could not be changed. Please try again.",
-            "sound_section": "Sounds",
-            "sounds": "Play voice control sounds"
+            "screen_share_failed": "Screen sharing could not be changed. Please try again."
         },
-        "voice_channels": "Voice Channels"
+        "voice_channels": "Voice Channels",
+        "voice_settings": {
+            "nav_advanced": "Advanced",
+            "nav_sounds": "Sounds",
+            "nav_video": "Video",
+            "nav_voice": "Voice",
+            "reset_confirm": "Reset",
+            "reset_description": "Devices, volumes, input settings, push to talk, sounds and video options return to their defaults. Your noise suppression setting is not changed.",
+            "reset_title": "Reset all Voice & Video settings?",
+            "sound_camera_off": "Camera off",
+            "sound_camera_on": "Camera on",
+            "sound_deafen": "Deafen",
+            "sound_join": "Join the call",
+            "sound_leave": "Leave the call",
+            "sound_mute": "Mute",
+            "sound_ptt_activate": "Push to talk on",
+            "sound_ptt_deactivate": "Push to talk off",
+            "sound_screen_share_start": "Screen share started",
+            "sound_screen_share_stop": "Screen share stopped",
+            "sound_undeafen": "Undeafen",
+            "sound_unmute": "Unmute",
+            "sound_user_joined": "Someone joined your call",
+            "sound_user_left": "Someone left your call",
+            "switch_warning_confirm": "Switch channel",
+            "switch_warning_description": "You are already in a voice channel. Joining this one will disconnect you from it.",
+            "switch_warning_title": "Leave your current call?"
+        }
     },
     "desktop_default_device_name": "%(brand)s Desktop: %(platformName)s",
     "devtools": {

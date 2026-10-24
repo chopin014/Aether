@@ -1427,7 +1427,6 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
     "desktopVoiceSounds": {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
         default: true,
-        displayName: _td("desktop|voice|sounds"),
     },
     // Sounds the user turned off, by cue name. A cue that is not listed is on.
     "desktopVoiceSoundToggles": {
