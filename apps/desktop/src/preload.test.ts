@@ -7,6 +7,8 @@ Please see LICENSE files in the repository root for full details.
 
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { X509Api, X509IpcCommand } from "shared-types";
+import { ipcRenderer } from "electron";
+import type { ShortcutConfiguration, ShortcutEvent, ShortcutResult } from "./global-shortcuts/types.js";
 
 // `vi.mock` factories are hoisted above top-level constants, so anything they reference must be hoisted too.
 const { exposed, invoke } = vi.hoisted(() => ({
@@ -18,7 +20,7 @@ vi.mock("electron", () => ({
     contextBridge: {
         exposeInMainWorld: (key: string, api: unknown) => exposed.set(key, api),
     },
-    ipcRenderer: { invoke, on: vi.fn(), send: vi.fn(), emit: vi.fn() },
+    ipcRenderer: { invoke, on: vi.fn(), removeListener: vi.fn(), send: vi.fn(), emit: vi.fn() },
 }));
 
 describe("preload x509 ipc", () => {
@@ -36,6 +38,31 @@ describe("preload x509 ipc", () => {
     function expectInvoked(command: X509IpcCommand, ...args: unknown[]): void {
         expect(invoke).toHaveBeenLastCalledWith("x509", command, ...args);
     }
+
+    it("configures shortcuts through a narrow invoke channel and removes the exact event listener", async () => {
+        const api = (
+            exposed.get("electron") as {
+                globalShortcuts: {
+                    configure: (configuration: ShortcutConfiguration) => Promise<ShortcutResult>;
+                    onEvent: (listener: (event: ShortcutEvent) => void) => () => void;
+                };
+            }
+        ).globalShortcuts;
+        const configuration = { enabled: false, bindings: [] };
+        const result: ShortcutResult = { backend: "unsupported", bindings: [] };
+        invoke.mockResolvedValueOnce(result);
+        await expect(api.configure(configuration)).resolves.toBe(result);
+        expect(invoke).toHaveBeenLastCalledWith("aether:configure-global-shortcuts", configuration);
+        const listener = vi.fn();
+        const unsubscribe = api.onEvent(listener);
+        const [channel, handler] = vi.mocked(ipcRenderer.on).mock.calls.at(-1)!;
+        const event: ShortcutEvent = { id: "push_to_talk", pressed: true };
+        handler({}, event);
+        expect(channel).toBe("aether:global-shortcut");
+        expect(listener).toHaveBeenCalledExactlyOnceWith(event);
+        unsubscribe();
+        expect(ipcRenderer.removeListener).toHaveBeenCalledWith(channel, handler);
+    });
 
     it("calls getUserCertificate correctly", async () => {
         const result = { ok: true, data: "certificate" };

@@ -106,6 +106,8 @@ allowBuilds:
     "@parcel/watcher": false
     # Builds native bindings, which we do not need as they are handled by `electron-builder install-app-deps`
     pkcs11js: false
+    # Node-API prebuilds are packaged/rebuilt by electron-builder install-app-deps.
+    uiohook-napi: false
 
 patchedDependencies:
     # Report microphone activity to the sidebar without changing capture or the call UI.

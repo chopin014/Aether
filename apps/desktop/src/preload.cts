@@ -12,6 +12,10 @@ import { ipcRenderer, contextBridge, type IpcRendererEvent } from "electron";
 import type { ConfigOptions } from "./config.js" with { "resolution-mode": "import" };
 import type { X509Api } from "shared-types" with { "resolution-mode": "import" };
 
+import type { ShortcutConfiguration, ShortcutEvent, ShortcutResult } from "./global-shortcuts/types.js" with {
+    "resolution-mode": "import",
+};
+
 // Expose only expected IPC wrapper APIs to the renderer process to avoid
 // handing out generalised messaging access.
 
@@ -77,6 +81,16 @@ contextBridge.exposeInMainWorld("electron", {
     },
     async getSettingValue(settingName: string): Promise<any> {
         return ipcRenderer.invoke("getSettingValue", settingName);
+    },
+
+    globalShortcuts: {
+        configure: (configuration: ShortcutConfiguration): Promise<ShortcutResult> =>
+            ipcRenderer.invoke("aether:configure-global-shortcuts", configuration),
+        onEvent: (listener: (event: ShortcutEvent) => void): (() => void) => {
+            const handler = (_event: IpcRendererEvent, event: ShortcutEvent): void => listener(event);
+            ipcRenderer.on("aether:global-shortcut", handler);
+            return () => ipcRenderer.removeListener("aether:global-shortcut", handler);
+        },
     },
 
     // X.509 hardware-key IPC
