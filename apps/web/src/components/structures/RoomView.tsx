@@ -2660,9 +2660,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             !this.props.hideRightPanel && !isRoomEncryptionLoading && this.state.room && this.state.showRightPanel;
 
         // The desktop shell shows its message search results in the right column, replacing the panel until closed.
-        const desktopSearch = SettingsStore.getValue("feature_desktop_shell")
-            ? DesktopMessageSearchStore.instance.active
-            : null;
+        const desktopShell = SettingsStore.getValue("feature_desktop_shell");
+        const desktopSearch = desktopShell ? DesktopMessageSearchStore.instance.active : null;
 
         const rightPanel = desktopSearch ? (
             <DesktopSearchResultsHost />
@@ -2807,6 +2806,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                         <EffectsOverlay roomWidth={this.roomView.current.offsetWidth} />
                     )}
                     <ErrorBoundary>
+                        {desktopShell && !this.props.hideHeader && (
+                            <RoomHeader room={this.state.room} extraButtons={<>{extraButtons}</>} />
+                        )}
                         <MainSplit
                             panel={rightPanel}
                             sizeKey={sizeKey}
@@ -2819,7 +2821,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                                 ref={this.roomViewBody}
                                 data-layout={this.state.layout}
                             >
-                                {!this.props.hideHeader && (
+                                {!desktopShell && !this.props.hideHeader && (
                                     <RoomHeader room={this.state.room} extraButtons={<>{extraButtons}</>} />
                                 )}
                                 {mainSplitBody}

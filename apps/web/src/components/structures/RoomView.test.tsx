@@ -369,6 +369,17 @@ describe("RoomView", () => {
             restoreSettings();
         });
 
+        it.each([true, false])(
+            "places the header above the content split only in desktop mode (%s)",
+            async (enabled) => {
+                desktopShell = enabled;
+                await mountRoomView();
+                const header = screen.getByRole("banner");
+                expect(header.closest(".mx_MainSplit") === null).toBe(enabled);
+                expect(screen.getAllByRole("banner")).toHaveLength(1);
+            },
+        );
+
         it("should not mount the banner or open the pins panel by default in desktop text channels", async () => {
             await mountRoomView();
 

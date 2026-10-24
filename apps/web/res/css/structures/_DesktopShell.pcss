@@ -266,7 +266,7 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         }
     }
 
-    /* The channel name opens the room summary, but the empty space after it moves the window. */
+    /* The channel name opens its menu, while the empty space after it moves the window. */
     .mx_RoomHeader_infoWrapper {
         -webkit-app-region: drag;
 
@@ -276,6 +276,7 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
     }
 
     /* Whatever reaches the top right corner keeps clear of the window controls. */
+    .mx_RoomView > .mx_RoomHeader,
     .mx_RoomView:not(:has(.mx_RightPanel)) .mx_RoomHeader {
         padding-inline-end: calc(var(--cpd-space-3x) + var(--mx-window-controls-inline-size));
     }
@@ -510,7 +511,7 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
             display: flex;
             align-items: center;
             gap: 12px;
-            min-width: 0;
+            min-width: calc(var(--cpd-space-16x) * 1.5);
         }
 
         /* The name keeps its width and the topic gives way first. */
@@ -803,6 +804,12 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         > * {
             -webkit-app-region: no-drag;
         }
+    }
+
+    /* A shared room header already keeps every content column below the native controls. */
+    .mx_RoomView:has(> .mx_RoomHeader) .mx_RightPanel {
+        padding-block-start: 0;
+        background-image: none;
     }
 
     .mx_RightPanel:has(.mx_ThreadView) {

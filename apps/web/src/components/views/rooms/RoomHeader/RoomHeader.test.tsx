@@ -67,7 +67,6 @@ import { ElementCallMemberEventType } from "../../../../call-types";
 import { SDKContext } from "../../../../contexts/SDKContext";
 import { SDKContextClass } from "../../../../contexts/SDKContextClass.ts";
 import { DesktopMessageSearchStore } from "../../../../stores/DesktopMessageSearchStore";
-import { Action } from "../../../../dispatcher/actions";
 
 vi.mock("../../../../utils/ShieldUtils");
 vi.mock("../../../../hooks/right-panel/useCurrentPhase", () => ({

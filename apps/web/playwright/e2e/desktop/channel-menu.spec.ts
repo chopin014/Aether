@@ -70,6 +70,48 @@ for (const theme of ["dark", "light"] as const) {
             await expect(page.locator(".mx_RoomSettingsDialog")).toBeVisible();
         });
 
+        test("opens Files in the header search and keeps the channel name readable", async ({
+            page,
+            app,
+            roomId,
+        }, testInfo) => {
+            const { content_uri: url } = await app.client.uploadContent(Buffer.from("preview notes"), {
+                name: "preview-notes.txt",
+                type: "text/plain",
+            });
+            await app.client.sendMessage(roomId, { msgtype: "m.file", body: "preview-notes.txt", url });
+            await channelName(page).click();
+            await menu(page).getByRole("menuitem", { name: "Files", exact: true }).click();
+            const results = page.getByRole("region", { name: "Search results", exact: true });
+            await expect(results.getByText("preview-notes.txt").first()).toBeVisible();
+            await expect(page.getByRole("button", { name: "Remove filter has:file" })).toBeVisible();
+            await expect(page.locator(".mx_RoomSummaryCard")).toHaveCount(0);
+            const resultBounds = await results.boundingBox();
+            const headerBounds = await page.getByRole("banner").boundingBox();
+            expect(resultBounds!.y).toBeGreaterThanOrEqual(headerBounds!.y + headerBounds!.height);
+            const heading = channelName(page).getByRole("heading", { level: 1 });
+            await expect
+                .poll(() =>
+                    heading.evaluate((element) => {
+                        const range = document.createRange();
+                        range.selectNodeContents(element);
+                        return element.getBoundingClientRect().width + 1 >= range.getBoundingClientRect().width;
+                    }),
+                )
+                .toBe(true);
+            await page.screenshot({ path: testInfo.outputPath(`combined-files-${theme}.png`) });
+            await page.getByRole("combobox", { name: "Search", exact: true }).focus();
+            await expect
+                .poll(() =>
+                    heading.evaluate((element) => {
+                        const range = document.createRange();
+                        range.selectNodeContents(element);
+                        return element.getBoundingClientRect().width + 1 >= range.getBoundingClientRect().width;
+                    }),
+                )
+                .toBe(true);
+        });
+
         test("copies the channel link", async ({ page, roomId }) => {
             await channelName(page).click();
             await menu(page).getByRole("menuitem", { name: "Copy link" }).click();

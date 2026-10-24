@@ -159,6 +159,21 @@ for (const theme of ["dark", "light"] as const) {
                 await expect(viewer).not.toBeAttached();
                 await expect(header).toBeVisible();
                 expect(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
+                const messageSearch = page.getByRole("combobox", { name: "Search", exact: true });
+                await messageSearch.fill("has:file");
+                await messageSearch.press("Enter");
+                const results = page.getByRole("region", { name: "Search results", exact: true });
+                const closeSearch = results.getByRole("button", { name: "Close search results" });
+                await expect(closeSearch).toBeVisible();
+                const closeBounds = (await closeSearch.boundingBox())!;
+                expect(closeBounds.y).toBeGreaterThanOrEqual(controls.height);
+                const searchBounds = (await messageSearch.boundingBox())!;
+                expect(searchBounds.x + searchBounds.width).toBeLessThanOrEqual(1280 - controls.width);
+                await page.screenshot({ path: testInfo.outputPath(`native-search-${theme}.png`) });
+                await closeSearch.focus();
+                await page.keyboard.press("Enter");
+                await expect(results).not.toBeAttached();
+                expect(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
                 const nextTheme = theme === "light" ? "dark" : "light";
                 await app.settings.setValue("theme", null, SettingLevel.DEVICE, nextTheme);
                 await expect
