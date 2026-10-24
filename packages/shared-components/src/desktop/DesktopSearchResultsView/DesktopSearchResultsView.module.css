@@ -74,8 +74,7 @@ Please see LICENSE in the repository root for full details.
     font: var(--cpd-font-body-sm-regular);
 }
 .notice {
-    background: var(--cpd-color-bg-info-subtle);
-    color: var(--cpd-color-text-info-primary);
+    color: var(--cpd-color-text-secondary);
 }
 .subtle {
     color: var(--cpd-color-text-secondary);
@@ -195,6 +194,7 @@ Please see LICENSE in the repository root for full details.
     cursor: pointer;
     opacity: 0;
 }
+.card:focus-within .jump,
 .card:hover .jump,
 .jump:focus-visible {
     opacity: 1;

@@ -6,6 +6,8 @@ Please see LICENSE in the repository root for full details.
 */
 
 .box {
+    /* The header moves the native window; this entire control must receive pointer input. */
+    -webkit-app-region: no-drag;
     position: relative;
     /* Shrinks with the header, and takes more room while focused. */
     flex: 0 1 calc(var(--cpd-space-16x) * 3.75);
@@ -114,15 +116,17 @@ Please see LICENSE in the repository root for full details.
     height: 100%;
 }
 .popover {
+    /* The popup extends outside the input's native hit-test rectangle. */
+    -webkit-app-region: no-drag;
     position: absolute;
     z-index: 10;
     inset-block-start: calc(100% + var(--cpd-space-2x));
     inset-inline-end: 0;
     box-sizing: border-box;
-    width: min(calc(var(--cpd-space-16x) * 6.5), calc(100vw - var(--cpd-space-4x)));
-    max-height: min(calc(var(--cpd-space-16x) * 8), 70vh);
+    width: min(calc(var(--cpd-space-16x) * 5.5), calc(100vw - var(--cpd-space-4x)));
+    max-height: min(calc(var(--cpd-space-16x) * 6), 70vh);
     overflow: auto;
-    padding: var(--cpd-space-2x);
+    padding: var(--cpd-space-1x);
     border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
     border-radius: var(--cpd-space-2x);
     background: var(--cpd-color-bg-subtle-primary);
@@ -152,8 +156,8 @@ Please see LICENSE in the repository root for full details.
 .option {
     display: flex;
     align-items: center;
-    gap: var(--cpd-space-3x);
-    padding: var(--cpd-space-2x) var(--cpd-space-3x);
+    gap: var(--cpd-space-2x);
+    padding: var(--cpd-space-1-5x) var(--cpd-space-2x);
     border-radius: var(--cpd-space-1x);
     cursor: pointer;
 }
@@ -168,8 +172,8 @@ Please see LICENSE in the repository root for full details.
 .optionIcon {
     flex: none;
     display: inline-flex;
-    width: var(--cpd-space-6x);
-    height: var(--cpd-space-6x);
+    width: var(--cpd-space-5x);
+    height: var(--cpd-space-5x);
     color: var(--cpd-color-icon-secondary);
 }
 .optionIcon svg {
@@ -185,11 +189,11 @@ Please see LICENSE in the repository root for full details.
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font: var(--cpd-font-body-md-medium);
+    font: var(--cpd-font-body-sm-medium);
 }
 .optionHint {
     color: var(--cpd-color-text-secondary);
-    font: var(--cpd-font-body-sm-regular);
+    font: var(--cpd-font-body-xs-regular);
 }
 .hint {
     padding: var(--cpd-space-2x) var(--cpd-space-3x);

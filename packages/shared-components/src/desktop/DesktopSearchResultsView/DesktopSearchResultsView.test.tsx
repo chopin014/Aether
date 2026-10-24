@@ -42,7 +42,6 @@ function makeVm(snapshot: Partial<DesktopSearchResultsSnapshot> = {}) {
             loadingMore: false,
             approximate: false,
             encryptedSkipped: false,
-            browseSkipsEncrypted: false,
             activeId: null,
             ...snapshot,
         }),
@@ -182,25 +181,34 @@ describe("DesktopSearchResultsView", () => {
                 public disconnect = vi.fn();
             },
         );
-        const vm = makeVm({ hasMore: true });
+        const vm = makeVm({ hasMore: true, groups: [{ roomId: "!gen:x", roomName: "general", rows: [row("$a")] }] });
         render(<DesktopSearchResultsView vm={vm} />);
         callback([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
         expect(vm.loadMore).toHaveBeenCalledOnce();
         vi.unstubAllGlobals();
     });
 
-    it("explains approximate filters and skipped encrypted rooms", async () => {
+    it("explains skipped encrypted text search without a second technical notice", async () => {
         const vm = makeVm({ approximate: true, encryptedSkipped: true });
         render(<DesktopSearchResultsView vm={vm} />);
-        expect(screen.getByText(/counts are approximate/)).toBeVisible();
+        expect(screen.queryByText(/counts are approximate/)).not.toBeInTheDocument();
         expect(screen.getByText(/Encrypted rooms aren't searched/)).toBeVisible();
         await userEvent.click(screen.getByRole("button", { name: "Open Security settings" }));
         expect(vm.openSecuritySettings).toHaveBeenCalledOnce();
     });
 
-    it("mentions that filter-only searches skip encrypted rooms", () => {
-        render(<DesktopSearchResultsView vm={makeVm({ browseSkipsEncrypted: true })} />);
-        expect(screen.getByText("Searches with only filters skip encrypted rooms.")).toBeVisible();
+    it("explains a decryption failure without presenting ciphertext as a result", () => {
+        render(<DesktopSearchResultsView vm={makeVm({ decryptionFailed: true })} />);
+        expect(screen.getByText("Some messages could not be decrypted on this device.")).toBeVisible();
+    });
+
+    it("offers older history without claiming there are no results or automatically crawling indefinitely", async () => {
+        const vm = makeVm({ hasMore: true });
+        render(<DesktopSearchResultsView vm={vm} />);
+        expect(screen.getByRole("heading", { name: "No matches yet" })).toBeVisible();
+        expect(screen.queryByRole("heading", { name: "No results" })).not.toBeInTheDocument();
+        await userEvent.click(screen.getByRole("button", { name: "Search older messages" }));
+        expect(vm.loadMore).toHaveBeenCalledOnce();
     });
 
     it("closes", async () => {

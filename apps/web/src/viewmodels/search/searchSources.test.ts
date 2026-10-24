@@ -6,7 +6,7 @@ Please see LICENSE in the repository root for full details.
 */
 
 import { describe, expect, it, vi } from "vitest";
-import { MatrixEvent, type MatrixClient } from "matrix-js-sdk/src/matrix";
+import { MatrixEvent, type IEvent, type MatrixClient } from "matrix-js-sdk/src/matrix";
 
 import { BrowseSearchSource, TextSearchSource } from "./searchSources";
 
@@ -68,12 +68,14 @@ describe("BrowseSearchSource", () => {
         const cursor: Record<string, number> = {};
         const client = {
             getSafeUserId: () => "@me:x",
-            getEventMapper: () => (raw: any) => raw,
+            isRoomEncrypted: () => false,
+            getEventMapper: () => (raw: Partial<IEvent>) => new MatrixEvent(raw),
+            decryptEventIfNeeded: vi.fn().mockResolvedValue(undefined),
             createMessagesRequest: vi.fn(async (roomId: string, token: string | null, _limit, _dir, filter) => {
                 calls.push({ roomId, token, filter: filter.getRoomTimelineFilterComponent().toJSON() });
                 const pages = rooms[roomId];
                 const index = (cursor[roomId] = (cursor[roomId] ?? -1) + 1);
-                const chunk = pages[index] ?? [];
+                const chunk = (pages[index] ?? []).map((event) => event.event);
                 return { chunk, end: index + 1 < pages.length ? `t${index + 1}` : undefined };
             }),
         } as unknown as MatrixClient;
@@ -113,6 +115,73 @@ describe("BrowseSearchSource", () => {
         await source.next();
         await source.next();
         expect(calls.map((call) => call.token)).toEqual([null, "t1"]);
+    });
+
+    it("decrypts encrypted history locally without server attachment filtering", async () => {
+        const encrypted = new MatrixEvent({ event_id: "$encrypted", type: "m.room.encrypted", content: {} });
+        const { client, calls } = clientFor({ "!a:x": [[encrypted]] });
+        vi.spyOn(client, "isRoomEncrypted").mockReturnValue(true);
+        vi.mocked(client.decryptEventIfNeeded).mockImplementation(async (event) => {
+            event["setClearData"]({
+                clearEvent: { type: "m.room.message", content: { msgtype: "m.image", body: "photo.png" } },
+            });
+        });
+        const source = new BrowseSearchSource(client, ["!a:x"], { contains_url: true, senders: ["@a:x"] });
+        const page = await source.next();
+        expect(calls[0].filter).toMatchObject({ types: ["m.room.message", "m.room.encrypted"], senders: ["@a:x"] });
+        expect(calls[0].filter.contains_url).toBeUndefined();
+        expect(page.events[0].getContent()).toMatchObject({ msgtype: "m.image", body: "photo.png" });
+        expect(page.events[0].getRoomId()).toBe("!a:x");
+        expect(page.decryptionFailed).toBe(false);
+        expect(client.decryptEventIfNeeded).toHaveBeenCalledWith(page.events[0], { emit: false });
+    });
+
+    it("keeps readable results when an encrypted event cannot be decrypted", async () => {
+        const unreadable = new MatrixEvent({ event_id: "$bad", type: "m.room.encrypted", content: {} });
+        const { client } = clientFor({ "!a:x": [[unreadable, message("$good", "!a:x", 2)]] });
+        vi.spyOn(client, "isRoomEncrypted").mockReturnValue(true);
+        vi.mocked(client.decryptEventIfNeeded).mockRejectedValue(new Error("Missing key"));
+        const page = await new BrowseSearchSource(client, ["!a:x"], {}).next();
+        expect(page.events.map((event) => event.getId())).toEqual(["$good"]);
+        expect(page.decryptionFailed).toBe(true);
+    });
+
+    it("omits SDK decryption-failure placeholders even when decryption resolves", async () => {
+        const encrypted = new MatrixEvent({ event_id: "$bad", type: "m.room.encrypted", content: {} });
+        const { client } = clientFor({ "!a:x": [[encrypted]] });
+        vi.spyOn(client, "isRoomEncrypted").mockReturnValue(true);
+        vi.mocked(client.decryptEventIfNeeded).mockImplementation(async (event) => {
+            // The SDK reports missing keys through a placeholder rather than a rejected promise.
+            event["setClearDataForDecryptionFailure"]("Missing room key");
+            vi.spyOn(event, "isDecryptionFailure").mockReturnValue(true);
+        });
+        expect(await new BrowseSearchSource(client, ["!a:x"], {}).next()).toMatchObject({
+            events: [],
+            hasMore: false,
+            decryptionFailed: true,
+        });
+    });
+
+    it("discards a response if the search is cancelled while fetching", async () => {
+        const { client } = clientFor({ "!a:x": [[message("$1", "!a:x", 9)]] });
+        const abort = new AbortController();
+        const request = vi.mocked(client.createMessagesRequest).getMockImplementation()!;
+        vi.mocked(client.createMessagesRequest).mockImplementation(async (...args) => {
+            const response = await request(...args);
+            abort.abort();
+            return response;
+        });
+        const page = await new BrowseSearchSource(client, ["!a:x"], {}, 5, abort.signal).next();
+        expect(page.events).toEqual([]);
+    });
+
+    it("retains pagination after a bounded run of empty pages instead of claiming history is exhausted", async () => {
+        const { client } = clientFor({
+            "!a:x": [...Array.from({ length: 20 }, () => []), [message("$old", "!a:x", 1)]],
+        });
+        const source = new BrowseSearchSource(client, ["!a:x"], {});
+        expect(await source.next()).toMatchObject({ events: [], hasMore: true });
+        expect((await source.next()).events.map((event) => event.getId())).toEqual(["$old"]);
     });
 
     it("stops fetching once aborted", async () => {

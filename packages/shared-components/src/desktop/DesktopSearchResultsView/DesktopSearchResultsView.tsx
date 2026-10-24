@@ -56,8 +56,8 @@ export interface DesktopSearchResultsSnapshot {
     approximate: boolean;
     /** Encrypted rooms are in scope but cannot be searched. */
     encryptedSkipped: boolean;
-    /** The query had only filters, which cannot reach encrypted rooms. */
-    browseSkipsEncrypted: boolean;
+    /** History includes encrypted messages this device could not decrypt. */
+    decryptionFailed?: boolean;
     activeId: string | null;
 }
 
@@ -115,7 +115,7 @@ export function DesktopSearchResultsView({
     // Load the next page when the end of the list scrolls into view.
     useEffect(() => {
         const node = sentinel.current;
-        if (!node || !hasMore || loadingMore || typeof IntersectionObserver === "undefined") return;
+        if (!node || !groups.length || !hasMore || loadingMore || typeof IntersectionObserver === "undefined") return;
         const observer = new IntersectionObserver((entries) => {
             if (entries.some((entry) => entry.isIntersecting)) vm.loadMore();
         });
@@ -123,7 +123,7 @@ export function DesktopSearchResultsView({
         return () => observer.disconnect();
     }, [vm, hasMore, loadingMore, groups]);
 
-    const showCount = status === "ready" || (status === "loading" && snapshot.resultCount > 0);
+    const showCount = (status === "ready" && (groups.length > 0 || !hasMore)) || snapshot.resultCount > 0;
     let title = _t("desktop|search|results|label");
     if (showCount) {
         title = snapshot.countIsLowerBound
@@ -172,14 +172,12 @@ export function DesktopSearchResultsView({
                     </button>
                 </div>
             )}
-            {snapshot.browseSkipsEncrypted && !snapshot.encryptedSkipped && (
-                <div className={styles.notice} role="note">
-                    {_t("desktop|search|results|browse_encrypted")}
-                </div>
-            )}
-            {snapshot.approximate && status !== "idle" && (
+            {snapshot.decryptionFailed && (
                 <div className={styles.subtle} role="note">
-                    {_t("desktop|search|results|approximate")}
+                    {_t("desktop|search|results|decryption_failed")}{" "}
+                    <button type="button" className={styles.link} onClick={vm.openSecuritySettings}>
+                        {_t("desktop|search|results|encrypted_action")}
+                    </button>
                 </div>
             )}
             <div className={styles.body} aria-busy={status === "loading" || loadingMore}>
@@ -200,9 +198,15 @@ export function DesktopSearchResultsView({
                 {status === "ready" && groups.length === 0 && (
                     <div className={styles.state}>
                         <Text as="h3" className={styles.emptyTitle}>
-                            {_t("desktop|search|results|empty_title")}
+                            {hasMore
+                                ? _t("desktop|search|results|empty_pending_title")
+                                : _t("desktop|search|results|empty_title")}
                         </Text>
-                        <p>{_t("desktop|search|results|empty_description")}</p>
+                        <p>
+                            {hasMore
+                                ? _t("desktop|search|results|empty_pending_description")
+                                : _t("desktop|search|results|empty_description")}
+                        </p>
                     </div>
                 )}
                 {groups.map((group) => (
@@ -264,7 +268,9 @@ export function DesktopSearchResultsView({
                         <Button size="md" kind="tertiary" disabled={loadingMore} onClick={vm.loadMore}>
                             {loadingMore
                                 ? _t("desktop|search|results|loading_more")
-                                : _t("desktop|search|results|load_more")}
+                                : groups.length === 0
+                                  ? _t("desktop|search|results|search_older")
+                                  : _t("desktop|search|results|load_more")}
                         </Button>
                     </div>
                 )}

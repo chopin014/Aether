@@ -24,6 +24,8 @@ export interface SearchSourcePage {
     count?: number;
     /** Words the backend matched, for highlighting. */
     highlights: string[];
+    /** Some encrypted messages could not be read with the keys available on this device. */
+    decryptionFailed?: boolean;
 }
 
 /** Something that yields pages of results one after another. */
@@ -77,6 +79,7 @@ interface RoomCursor {
     token: string | null | undefined;
     buffer: MatrixEvent[];
     done: boolean;
+    filter: Filter;
 }
 
 const MESSAGES_PER_REQUEST = 30;
@@ -84,11 +87,11 @@ const MAX_EMPTY_REQUESTS = 20;
 
 /**
  * Lists events that match filters only (no search words). The search API needs a term, so this pages through each
- * room's history with a server-side `RoomEventFilter` and merges the rooms newest first. Unencrypted rooms only.
+ * room's history and merges rooms newest first. Encrypted messages are decrypted locally before filtering.
  */
 export class BrowseSearchSource implements SearchSource {
     private readonly cursors: RoomCursor[];
-    private readonly filter: Filter;
+    private decryptionFailed = false;
 
     public constructor(
         private readonly client: MatrixClient,
@@ -97,16 +100,20 @@ export class BrowseSearchSource implements SearchSource {
         private readonly pageSize = 10,
         private readonly signal?: AbortSignal,
     ) {
-        this.cursors = roomIds.map((roomId) => ({ roomId, token: undefined, buffer: [], done: false }));
-        this.filter = new Filter(client.getSafeUserId());
-        this.filter.setDefinition({
-            room: {
-                timeline: {
-                    types: ["m.room.message"],
-                    senders: filter.senders,
-                    contains_url: filter.contains_url,
+        this.cursors = roomIds.map((roomId) => {
+            const encrypted = client.isRoomEncrypted(roomId);
+            const roomFilter = new Filter(client.getSafeUserId());
+            roomFilter.setDefinition({
+                room: {
+                    timeline: {
+                        types: encrypted ? ["m.room.message", "m.room.encrypted"] : ["m.room.message"],
+                        senders: filter.senders,
+                        // An encrypted attachment's URL is inside the ciphertext, invisible to the homeserver.
+                        contains_url: encrypted ? undefined : filter.contains_url,
+                    },
                 },
-            },
+            });
+            return { roomId, token: undefined, buffer: [], done: false, filter: roomFilter };
         });
     }
 
@@ -118,16 +125,34 @@ export class BrowseSearchSource implements SearchSource {
                 cursor.token ?? null,
                 MESSAGES_PER_REQUEST,
                 Direction.Backward,
-                this.filter,
+                cursor.filter,
             );
-            const mapper = this.client.getEventMapper();
-            cursor.buffer = (response.chunk ?? []).map((raw) => mapper(raw));
+            if (this.signal?.aborted) return;
+            const mapper = this.client.getEventMapper({ preventReEmit: true, decrypt: false });
+            const events = (response.chunk ?? []).map((raw) => mapper({ ...raw, room_id: cursor.roomId }));
+            await Promise.all(
+                events
+                    .filter((event) => event.isEncrypted())
+                    .map(async (event) => {
+                        try {
+                            await this.client.decryptEventIfNeeded(event, { emit: false });
+                        } catch {
+                            // A missing key must not hide readable results from the rest of the history.
+                            this.decryptionFailed = true;
+                        }
+                        if (event.getType() === "m.room.encrypted" || event.isDecryptionFailure())
+                            this.decryptionFailed = true;
+                    }),
+            );
+            if (this.signal?.aborted) return;
+            cursor.buffer = events.filter(
+                (event) => event.getType() === "m.room.message" && !event.isDecryptionFailure() && !event.isRedacted(),
+            );
+            const previousToken = cursor.token;
             cursor.token = response.end ?? null;
             // Filtered requests can return an empty chunk with a token while older matches remain; only a missing token ends the room.
-            if (!response.end) cursor.done = true;
+            if (!response.end || response.end === response.start || response.end === previousToken) cursor.done = true;
         }
-        // A room that keeps returning nothing after many requests is treated as exhausted.
-        if (cursor.buffer.length === 0) cursor.done = true;
     }
 
     public async next(): Promise<SearchSourcePage> {
@@ -149,6 +174,7 @@ export class BrowseSearchSource implements SearchSource {
             events,
             hasMore: this.cursors.some((cursor) => !cursor.done || cursor.buffer.length > 0),
             highlights: [],
+            decryptionFailed: this.decryptionFailed,
         };
     }
 }

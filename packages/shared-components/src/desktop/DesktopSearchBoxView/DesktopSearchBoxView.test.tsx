@@ -64,6 +64,15 @@ describe("DesktopSearchBoxView", () => {
         expect(input).toHaveAttribute("aria-controls", screen.getByRole("listbox").id);
     });
 
+    it("keeps the field and popup outside the native window drag region", () => {
+        render(<DesktopSearchBoxView vm={makeVm()} />);
+        const input = screen.getByRole("combobox", { name: "Search" });
+        const root = input.parentElement!.parentElement!;
+        const popup = screen.getByRole("listbox", { name: "Search filters" }).parentElement!;
+        expect(getComputedStyle(root).getPropertyValue("-webkit-app-region")).toBe("no-drag");
+        expect(getComputedStyle(popup).getPropertyValue("-webkit-app-region")).toBe("no-drag");
+    });
+
     it("lists the Discord-style filters in a labelled listbox", () => {
         render(<DesktopSearchBoxView vm={makeVm()} />);
         const list = screen.getByRole("listbox", { name: "Search filters" });

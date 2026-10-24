@@ -278,7 +278,7 @@ describe("DesktopSearchResultsViewModel", () => {
             highlights: [],
         });
 
-        it("browses the unencrypted rooms instead of searching, with only the newest sort", async () => {
+        it("browses encrypted and unencrypted rooms, with only the newest sort", async () => {
             const next = vi
                 .fn()
                 .mockResolvedValue(page([message("$f", "!gen:x", 1, { msgtype: "m.file", body: "doc.pdf" })]));
@@ -287,11 +287,24 @@ describe("DesktopSearchResultsViewModel", () => {
             await flush();
 
             expect(deps.search).not.toHaveBeenCalled();
-            expect((deps.createBrowseSource as any).mock.calls[0][1]).toEqual(["!gen:x"]);
+            expect((deps.createBrowseSource as any).mock.calls[0][1]).toEqual(["!gen:x", "!dev:x"]);
             const snapshot = vm.getSnapshot();
             expect(snapshot.sorts).toEqual(["recent"]);
-            expect(snapshot.browseSkipsEncrypted).toBe(true);
+            expect(snapshot.encryptedSkipped).toBe(false);
             expect(snapshot.groups[0].rows[0].attachmentName).toBe("doc.pdf");
+            vm.dispose();
+        });
+
+        it("surfaces missing keys without dropping readable results", async () => {
+            vi.mocked(deps.createBrowseSource).mockReturnValue({
+                next: vi.fn().mockResolvedValue({
+                    ...page([message("$image", "!dev:x", 1, { msgtype: "m.image", body: "photo.png" })]),
+                    decryptionFailed: true,
+                }),
+            });
+            const vm = make(search("has:image", ["!dev:x"], "room"), makeClient(["!dev:x"]));
+            await flush();
+            expect(vm.getSnapshot()).toMatchObject({ decryptionFailed: true, resultCount: 1, encryptedSkipped: false });
             vm.dispose();
         });
 

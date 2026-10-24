@@ -90,7 +90,7 @@ export class DesktopSearchResultsViewModel
             loadingMore: false,
             approximate: isApproximate(props.search.query.filters),
             encryptedSkipped: false,
-            browseSkipsEncrypted: false,
+            decryptionFailed: false,
             activeId: null,
         });
         this.deps = { ...defaultDeps(props.search.query), ...props.deps };
@@ -154,7 +154,7 @@ export class DesktopSearchResultsViewModel
         const encrypted = scope.roomIds.filter((roomId) => client.isRoomEncrypted(roomId));
         const index = this.deps.hasEventIndex();
         const plain = scope.roomIds.filter((roomId) => !encrypted.includes(roomId));
-        const searchable = browse || !index ? plain : scope.roomIds;
+        const searchable = browse || index ? scope.roomIds : plain;
         // Synapse's estimate may include events excluded by sender or room filters.
         this.exactCount = !index && query.filters.length === 0;
 
@@ -169,7 +169,7 @@ export class DesktopSearchResultsViewModel
             loadingMore: false,
             activeId: null,
             encryptedSkipped: !browse && !index && encrypted.length > 0,
-            browseSkipsEncrypted: browse && encrypted.length > 0,
+            decryptionFailed: false,
         });
 
         if (searchable.length === 0) {
@@ -179,7 +179,7 @@ export class DesktopSearchResultsViewModel
         }
 
         if (browse) {
-            this.source = this.deps.createBrowseSource(client, plain, abort.signal);
+            this.source = this.deps.createBrowseSource(client, searchable, abort.signal);
         } else {
             const serverRooms = index ? plain : searchable;
             const { senders, contains_url } = toRoomEventFilter(query.filters, serverRooms);
@@ -221,6 +221,7 @@ export class DesktopSearchResultsViewModel
             for (let fetches = 0; fetches < maxFetches; fetches++) {
                 const page: SearchSourcePage = await this.source!.next();
                 if (generation !== this.generation) return;
+                if (page.decryptionFailed) this.snapshot.merge({ decryptionFailed: true });
                 for (const event of page.events) {
                     const id = event.getId();
                     if (!id || this.seen.has(id)) continue;

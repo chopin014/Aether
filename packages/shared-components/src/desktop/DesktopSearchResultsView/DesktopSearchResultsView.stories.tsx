@@ -63,7 +63,6 @@ const meta = {
         loadingMore: false,
         approximate: false,
         encryptedSkipped: false,
-        browseSkipsEncrypted: false,
         activeId: null,
         groups: [
             {

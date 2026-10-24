@@ -151,6 +151,66 @@ for (const theme of ["dark", "light"] as const) {
             await expect(panel.getByText("budget report is ready")).not.toBeVisible();
         });
 
+        test("has:image searches encrypted history and the result card opens the message", async ({ page, app }) => {
+            const roomId = await app.client.createRoom({
+                name: "Encrypted photos",
+                initial_state: [
+                    { type: "m.room.encryption", state_key: "", content: { algorithm: "m.megolm.v1.aes-sha2" } },
+                ],
+            });
+            await app.viewRoomById(roomId);
+            await expect
+                .poll(() =>
+                    app.client.evaluate((client, id) => client.getCrypto()!.isEncryptionEnabledInRoom(id), roomId),
+                )
+                .toBe(true);
+            const { content_uri: url } = await app.client.uploadContent(
+                Buffer.from(
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+                    "base64",
+                ),
+                { name: "encrypted-photo.png", type: "image/png" },
+            );
+            const { event_id: eventId } = await app.client.sendMessage(roomId, {
+                msgtype: "m.image",
+                body: "encrypted-photo.png",
+                url,
+                info: { mimetype: "image/png", w: 1, h: 1 },
+            });
+            // Confirm that the server stored ciphertext, rather than only testing a room marked encrypted.
+            await expect
+                .poll(() =>
+                    app.client.evaluate(
+                        async (client, { roomId, eventId }) => {
+                            const raw = await client.fetchRoomEvent(roomId, eventId);
+                            return raw.type;
+                        },
+                        { roomId, eventId },
+                    ),
+                )
+                .toBe("m.room.encrypted");
+            const input = searchBox(page);
+            await input.fill("has:image");
+            await input.press("Enter");
+            const panel = results(page);
+            const result = panel.getByText("encrypted-photo.png", { exact: true }).first();
+            await expect(result).toBeVisible();
+            await expect(panel.getByText(/skip encrypted rooms|Some filters are applied/)).toHaveCount(0);
+            await page.screenshot({ path: `${CAPTURES}/encrypted-images-${theme}.png` });
+            await result.click();
+            await expect(
+                page
+                    .getByRole("main")
+                    .getByRole("listitem")
+                    .filter({ has: page.getByRole("link", { name: "encrypted-photo.png", exact: true }) }),
+            ).toHaveClass(/stateSelected/);
+            await expect(panel).toBeVisible();
+            const jump = panel.getByRole("button", { name: /Jump to message from Alice/ });
+            await jump.focus();
+            await jump.press("Enter");
+            await expect(panel).toBeVisible();
+        });
+
         test("opens the results for FocusMessageSearch with has:file", async ({ page }) => {
             await focusMessageSearch(page, "has:file");
             await expect(page.getByRole("button", { name: "Remove filter has:file" })).toBeVisible();
