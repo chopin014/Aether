@@ -83,7 +83,8 @@ $button-gap: var(--cpd-space-3x);
 .mx_ImageView_toolbar {
     --icon-size: 24px;
 
-    padding-right: 16px;
+    /* Keep the toolbar left of the desktop shell's native window controls, which draw over this corner. */
+    padding-right: calc(16px + var(--mx-window-controls-inline-size, 0px));
     pointer-events: initial;
     display: flex;
     align-items: center;

@@ -16,9 +16,13 @@ import { logger } from "matrix-js-sdk/src/logger";
 import { flushPromises } from "test-utils";
 
 import VoiceUserSettingsTab from "./VoiceUserSettingsTab";
+import SettingsStore from "../../../../../settings/SettingsStore";
 import MediaDeviceHandler, { type IMediaDevices, MediaDeviceKindEnum } from "../../../../../MediaDeviceHandler";
 
 vi.mock("../../../../../MediaDeviceHandler");
+vi.mock("./DesktopVoiceVideoSettings", () => ({
+    DesktopVoiceVideoSettings: () => <div data-testid="desktop-voice-video" />,
+}));
 const MediaDeviceHandlerMock = vi.mocked(MediaDeviceHandler);
 
 describe("<VoiceUserSettingsTab />", () => {
@@ -135,5 +139,22 @@ describe("<VoiceUserSettingsTab />", () => {
         expect(MediaDeviceHandler.setAudioAutoGainControl).toHaveBeenCalledWith(true);
         expect(MediaDeviceHandler.setAudioEchoCancellation).toHaveBeenCalledWith(false);
         expect(MediaDeviceHandler.setAudioNoiseSuppression).toHaveBeenCalledWith(true);
+    });
+
+    describe("in the desktop shell", () => {
+        it("shows the desktop Voice & Video page instead of the legacy sections", () => {
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name) => name === "feature_desktop_shell");
+            const { getByTestId, queryByRole } = render(getComponent());
+            expect(getByTestId("desktop-voice-video")).toBeTruthy();
+            expect(queryByRole("switch", { name: "Noise suppression" })).toBeNull();
+            vi.restoreAllMocks();
+        });
+
+        it("keeps the legacy sections, with no sounds section, outside the desktop shell", () => {
+            const { getByRole, queryByTestId, queryByText } = render(getComponent());
+            expect(queryByTestId("desktop-voice-video")).toBeNull();
+            expect(getByRole("switch", { name: "Noise suppression" })).toBeTruthy();
+            expect(queryByText("Play voice control sounds")).toBeNull();
+        });
     });
 });

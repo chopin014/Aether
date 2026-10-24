@@ -119,7 +119,8 @@ describe("<LoggedInView />", () => {
             const { container, unmount } = getComponent();
             expect(document.body).toHaveClass("mx_DesktopShell");
             expect(container.querySelector(".mx_MatrixChat_wrapper")).toHaveClass("mx_MatrixChat_desktopShell");
-            expect(container.querySelector(".mx_DesktopShell_titlebar")).toHaveAttribute("aria-hidden", "true");
+            // The window controls replace a title bar, so the shell draws none of its own
+            expect(container.querySelector(".mx_DesktopShell_titlebar")).toBeNull();
             unmount();
             expect(document.body).not.toHaveClass("mx_DesktopShell");
         });
@@ -588,6 +589,23 @@ describe("<LoggedInView />", () => {
             // ...while the space panel rail remains visible.
             expect(container.querySelector(".mx_SpacePanel")).toBeInTheDocument();
         });
+    });
+
+    it("opens the channel menu instead of the right panel for Ctrl+. in the desktop shell", async () => {
+        const original = SETTINGS["feature_desktop_shell"].controller;
+        SETTINGS["feature_desktop_shell"].controller = undefined;
+        await SettingsStore.setValue("feature_desktop_shell", null, SettingLevel.DEVICE, true);
+        try {
+            getComponent({ page_type: "room_view" });
+            vi.spyOn(mockSdkContext.rightPanelStore, "togglePanel");
+            const fired = vi.spyOn(defaultDispatcher, "fire");
+            fireEvent.keyDown(document.body, { key: ".", code: "Period", ctrlKey: true, keyCode: 190 });
+            expect(fired).toHaveBeenCalledWith(Action.ToggleChannelMenu);
+            expect(mockSdkContext.rightPanelStore.togglePanel).not.toHaveBeenCalled();
+        } finally {
+            await SettingsStore.setValue("feature_desktop_shell", null, SettingLevel.DEVICE, false);
+            SETTINGS["feature_desktop_shell"].controller = original;
+        }
     });
 
     it("should handle KeyBindingAction.ToggleRoomSidePanel", async () => {

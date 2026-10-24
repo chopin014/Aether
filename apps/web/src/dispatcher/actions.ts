@@ -109,6 +109,12 @@ export enum Action {
     ToggleSpacePanel = "toggle_space_panel",
 
     /**
+     * Opens or closes the desktop shell's channel menu beneath the room header. No additional payload information
+     * required.
+     */
+    ToggleChannelMenu = "toggle_channel_menu",
+
+    /**
      * Sets the apps root font size delta. Should be used with UpdateFontSizeDeltaPayload
      * It will add the delta to the current font size.
      * The delta should be between {@link FontWatcher.MIN_DELTA} and {@link FontWatcher.MAX_DELTA}.

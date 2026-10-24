@@ -24,6 +24,14 @@
     /* 44px height + padding */
     min-height: calc(var(--mx-desktop-room-content-height, 44px) + var(--padding-top) + var(--padding-bottom));
 
+    /* Desktop channels are denser than conversations with profile avatars. */
+    &:has(> .channel) {
+        min-height: calc(
+            var(--mx-desktop-channel-content-height, var(--mx-desktop-room-content-height, 44px)) + var(--padding-top) +
+                var(--padding-bottom)
+        );
+    }
+
     font: var(--cpd-font-body-md-regular);
     letter-spacing: var(--cpd-font-letter-spacing-body-md);
     color: var(--cpd-color-text-secondary);
@@ -38,8 +46,9 @@
     width: 100%;
 }
 
+/* The end padding matches the channel row's margin, so status icons line up with the channel's own icons. */
 .callParticipants {
-    padding: 0 var(--cpd-space-2x) var(--cpd-space-1x) var(--cpd-space-9x);
+    padding: 0 var(--mx-desktop-room-margin, var(--cpd-space-3x)) var(--cpd-space-1x) var(--cpd-space-9x);
 }
 
 .callParticipant {
@@ -48,7 +57,7 @@
     gap: var(--cpd-space-2x);
     width: 100%;
     height: var(--cpd-space-8x);
-    padding: 0 var(--cpd-space-1x);
+    padding: 0 var(--cpd-space-2x) 0 var(--cpd-space-1x);
     border: 0;
     border-radius: var(--cpd-space-1x);
     background: transparent;
@@ -57,7 +66,9 @@
     text-align: start;
     cursor: pointer;
 
-    > span:last-child {
+    .participantName {
+        flex: 1;
+        min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -67,6 +78,24 @@
     &:focus-visible {
         background: var(--cpd-color-bg-action-tertiary-hovered);
         color: var(--cpd-color-text-primary);
+    }
+}
+
+/*
+ * A muted microphone or deafened participant. Grey, because red suggests a moderator did it, as in Discord. The
+ * End padding keeps the last 16px icon centred with the channel row's 20px icons.
+ */
+.participantVoiceStatus {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: var(--cpd-space-1x);
+    padding-inline: calc(var(--cpd-space-1x) / 2);
+    color: var(--cpd-color-icon-tertiary);
+
+    svg {
+        width: var(--cpd-space-4x);
+        height: var(--cpd-space-4x);
     }
 }
 
@@ -237,6 +266,39 @@
     color: var(--cpd-color-icon-secondary);
 }
 
+.notificationDecoration {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-1x);
+}
+
+/* A custom channel icon from the room avatar. */
+.channelImage {
+    width: var(--cpd-space-5x);
+    height: var(--cpd-space-5x);
+    margin: var(--cpd-space-0-5x);
+    border-radius: var(--cpd-space-1x);
+    object-fit: cover;
+
+    &.occupied {
+        outline: var(--cpd-border-width-2) solid var(--cpd-color-border-success-primary);
+        outline-offset: var(--cpd-border-width-1);
+    }
+}
+
+/* A voice channel with people in it. */
+.channelIcon.occupied {
+    color: var(--cpd-color-icon-success-primary);
+}
+
+/* How long an occupied voice channel has had people in it. */
+.callDuration {
+    color: var(--cpd-color-text-success-primary);
+    font: var(--cpd-font-body-xs-medium);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
 .channel {
     min-height: var(--cpd-space-8x);
     gap: var(--cpd-space-2x);
@@ -262,4 +324,34 @@
 
 .lastItem {
     --padding-bottom: 0px;
+}
+
+.activeThread {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-2x);
+    margin-inline-start: var(--cpd-space-8x);
+    padding: var(--cpd-space-2x);
+    max-width: calc(100% - var(--cpd-space-8x));
+    border: 0;
+    border-inline-start: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-1x);
+    background: var(--cpd-color-bg-action-secondary-rest);
+    color: var(--cpd-color-text-primary);
+    font: var(--cpd-font-body-sm-medium);
+    text-align: start;
+    cursor: pointer;
+}
+.activeThread svg {
+    width: var(--cpd-space-4x);
+    height: var(--cpd-space-4x);
+    flex: none;
+}
+.activeThread span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.activeThread:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
 }

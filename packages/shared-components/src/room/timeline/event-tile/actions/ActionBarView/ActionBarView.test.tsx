@@ -95,6 +95,22 @@ describe("ActionBarView", () => {
         expect(threadButton).toHaveAttribute("aria-disabled", "true");
     });
 
+    it.each([true, false])("labels a desktop thread action with startsThread=%s", (startsThread) => {
+        const vm = new MockViewModel<ActionBarViewSnapshot>({
+            actions: [ActionBarAction.ReplyInThread],
+            startsThread,
+            isDownloadEncrypted: false,
+            isDownloadLoading: false,
+            isPinned: false,
+            isQuoteExpanded: false,
+            isThreadReplyAllowed: true,
+        });
+
+        render(<ActionBarView vm={vm} />);
+
+        expect(screen.getByRole("button", { name: startsThread ? "Start thread" : "Reply in thread" })).toBeVisible();
+    });
+
     it("renders thread-list actions in icon mode", () => {
         const vm = new MockViewModel<ActionBarViewSnapshot>({
             actions: [ActionBarAction.ViewInRoom, ActionBarAction.CopyLink],

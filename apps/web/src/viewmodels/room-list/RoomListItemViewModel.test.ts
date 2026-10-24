@@ -11,7 +11,9 @@ import EventEmitter from "node:events";
 import { vi, describe, it, expect, beforeEach, afterEach, type Mock } from "vitest";
 import {
     type MatrixClient,
-    type MatrixEvent,
+    MatrixEvent,
+    MatrixEventEvent,
+    EventType,
     KnownMembership,
     Room,
     RoomEvent,
@@ -39,6 +41,11 @@ import { mediaFromMxc } from "../../customisations/Media";
 import RoomListStoreV3 from "../../stores/room-list-v3/RoomListStoreV3";
 import * as tagRoomModule from "../../utils/room/tagRoom";
 import { CHATS_TAG } from "../../stores/room-list-v3/section";
+import { type VoiceState } from "@element-hq/element-call-component/api";
+import RightPanelStore from "../../stores/right-panel/RightPanelStore";
+import { RightPanelPhases } from "../../stores/right-panel/RightPanelStorePhases";
+import { UPDATE_EVENT } from "../../stores/AsyncStore";
+import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
 
 vi.mock("./utils", () => ({
     hasAccessToOptionsMenu: vi.fn().mockReturnValue(true),
@@ -103,6 +110,144 @@ describe("RoomListItemViewModel", () => {
         vi.restoreAllMocks();
     });
 
+    describe("desktop channel customisation", () => {
+        beforeEach(() => {
+            const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+            vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
+                setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+            );
+            vi.spyOn(MatrixClientPeg, "safeGet").mockReturnValue(matrixClient);
+        });
+
+        it("shows only the current room's open thread, refreshes its label and disposes listeners", async () => {
+            const root = new MatrixEvent({
+                event_id: "$thread",
+                room_id: room.roomId,
+                type: EventType.RoomMessage,
+                sender: matrixClient.getSafeUserId(),
+                content: { msgtype: "m.text", body: "Release planning" },
+            });
+            const store = RightPanelStore.instance;
+            const card = vi.spyOn(store, "currentCard", "get").mockReturnValue({
+                phase: RightPanelPhases.ThreadView,
+                state: { threadHeadEvent: root },
+            });
+            const open = vi.spyOn(store, "isOpen", "get").mockReturnValue(true);
+            const dispatch = vi.spyOn(dispatcher, "dispatch");
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            expect(viewModel.getSnapshot().activeThread).toMatchObject({ id: "$thread", title: "Release planning" });
+            viewModel.onOpenActiveThread();
+            expect(dispatch).toHaveBeenCalledWith({ action: Action.ShowThread, rootEvent: root });
+            root.getContent().body = "Updated starter";
+            root.emit(MatrixEventEvent.Replaced, root);
+            await flushPromises();
+            expect(viewModel.getSnapshot().activeThread?.title).toBe("Updated starter");
+            open.mockReturnValue(false);
+            store.emit(UPDATE_EVENT);
+            expect(viewModel.getSnapshot().activeThread).toBeUndefined();
+            open.mockReturnValue(true);
+            card.mockReturnValue({
+                phase: RightPanelPhases.ThreadView,
+                state: {
+                    threadHeadEvent: new MatrixEvent({
+                        event_id: "$another",
+                        room_id: "!different:example.org",
+                        type: EventType.RoomMessage,
+                    }),
+                },
+            });
+            store.emit(UPDATE_EVENT);
+            expect(viewModel.getSnapshot().activeThread).toBeUndefined();
+            viewModel.dispose();
+            expect(root.listenerCount(MatrixEventEvent.Replaced)).toBe(0);
+        });
+
+        it("uses the room avatar as the channel icon and follows its changes", () => {
+            const avatar = vi.spyOn(room, "getMxcAvatarUrl").mockReturnValue(null);
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            expect(viewModel.getSnapshot().channelIconUrl).toBeUndefined();
+
+            avatar.mockReturnValue("mxc://example.org/icon");
+            room.emit(
+                RoomStateEvent.Events,
+                new MatrixEvent({ type: EventType.RoomAvatar, state_key: "" }),
+                room.currentState,
+                null,
+            );
+            expect(viewModel.getSnapshot().channelIconUrl).toBe(
+                mediaFromMxc("mxc://example.org/icon").getThumbnailOfSourceHttp(40, 40, "crop"),
+            );
+        });
+
+        it("offers channel editing only to those who may rename the room", () => {
+            const maySend = vi.spyOn(room.currentState, "maySendStateEvent").mockReturnValue(false);
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            expect(viewModel.getSnapshot().canEditChannel).toBe(false);
+
+            maySend.mockReturnValue(true);
+            room.emit(
+                RoomStateEvent.Events,
+                new MatrixEvent({ type: EventType.RoomPowerLevels, state_key: "" }),
+                room.currentState,
+                null,
+            );
+            expect(viewModel.getSnapshot().canEditChannel).toBe(true);
+            expect(maySend).toHaveBeenCalledWith(EventType.RoomName, matrixClient.getSafeUserId());
+        });
+
+        it("opens the channel's general settings to edit it", () => {
+            const dispatch = vi.spyOn(dispatcher, "dispatch");
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel.onEditChannel();
+            expect(dispatch).toHaveBeenCalledWith({
+                action: "open_room_settings",
+                room_id: room.roomId,
+                initial_tab_id: RoomSettingsTab.General,
+            });
+        });
+
+        it("shares one channel menu per item, built on this item's actions", () => {
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            const menu = viewModel.getChannelMenu();
+            expect(viewModel.getChannelMenu()).toBe(menu);
+            expect(menu.getSnapshot()).toMatchObject({ name: room.name, kind: "text" });
+        });
+
+        it("leaves direct messages without a channel icon or edit entry", () => {
+            vi.mocked(DMRoomMap.shared().getUserIdForRoomId).mockReturnValue("@alice:server");
+            vi.spyOn(room, "getMxcAvatarUrl").mockReturnValue("mxc://example.org/alice");
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            expect(viewModel.getSnapshot()).toMatchObject({ channelIconUrl: undefined, canEditChannel: false });
+        });
+    });
+
+    it("dates an occupied voice channel from its oldest call membership", () => {
+        const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+        vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
+            setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+        );
+        vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+        const alice = new RoomMember(room.roomId, "@alice:server");
+        const call = Object.assign(new EventEmitter(), {
+            participants: new Map([[alice, new Set(["device1"])]]),
+            callType: CallType.Voice,
+            speakingUserIds: new Set<string>(),
+            voiceStates: new Map<string, VoiceState>(),
+        });
+        vi.mocked(CallStore.instance.getCall).mockReturnValue(call as unknown as Call);
+        const memberships = [{ createdTs: () => 2_000 }, { createdTs: () => 1_000 }, { createdTs: () => 3_000 }];
+        vi.mocked(matrixClient.matrixRTC.getRoomSession).mockReturnValue({
+            memberships,
+        } as unknown as ReturnType<MatrixClient["matrixRTC"]["getRoomSession"]>);
+
+        viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+        expect(viewModel.getSnapshot().callStartedAt).toBe(1_000);
+
+        call.participants.clear();
+        call.emit(CallEvent.Participants, call.participants);
+        expect(viewModel.getSnapshot().callStartedAt).toBeUndefined();
+    });
+
     it("shows distinct call members before joining and updates every join and leave", () => {
         const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
         vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
@@ -117,13 +262,27 @@ describe("RoomListItemViewModel", () => {
             participants: new Map([[alice, new Set(["device1", "device2"])]]),
             callType: CallType.Voice,
             speakingUserIds: new Set<string>(),
+            voiceStates: new Map<string, VoiceState>(),
         });
         vi.mocked(CallStore.instance.getCall).mockReturnValue(call as unknown as Call);
         const profileListeners = room.listeners(RoomStateEvent.Members);
         viewModel = new RoomListItemViewModel({ room, client: matrixClient });
         expect(viewModel.getSnapshot().callParticipants).toEqual([
-            { userId: alice.userId, name: "Alice", avatarUrl: undefined, isSpeaking: false },
+            {
+                userId: alice.userId,
+                name: "Alice",
+                avatarUrl: undefined,
+                isSpeaking: false,
+                isMuted: false,
+                isDeafened: false,
+            },
         ]);
+        call.voiceStates = new Map([[alice.userId, { userId: alice.userId, muted: true, deafened: true }]]);
+        call.emit(CallEvent.VoiceStates, call.voiceStates);
+        expect(viewModel.getSnapshot().callParticipants?.[0]).toMatchObject({ isMuted: true, isDeafened: true });
+        call.voiceStates = new Map();
+        call.emit(CallEvent.VoiceStates, call.voiceStates);
+        expect(viewModel.getSnapshot().callParticipants?.[0]).toMatchObject({ isMuted: false, isDeafened: false });
         call.participants.set(bob, new Set(["device3"]));
         call.emit(CallEvent.Participants, call.participants);
         expect(viewModel.getSnapshot().callParticipants?.map((member) => member.name)).toEqual(["Alice", "Bob"]);
@@ -156,6 +315,7 @@ describe("RoomListItemViewModel", () => {
         expect(room.listeners(RoomStateEvent.Members)).toEqual(profileListeners);
         expect(call.listenerCount(CallEvent.Participants)).toBe(0);
         expect(call.listenerCount(CallEvent.SpeakingUsers)).toBe(0);
+        expect(call.listenerCount(CallEvent.VoiceStates)).toBe(0);
     });
 
     it("replaces speaking listeners when the room's call changes", () => {
@@ -170,6 +330,7 @@ describe("RoomListItemViewModel", () => {
                 participants: new Map([[alice, new Set(["device1"])]]),
                 callType: CallType.Voice,
                 speakingUserIds: new Set([alice.userId]),
+                voiceStates: new Map<string, VoiceState>(),
             });
         const firstCall = makeCall();
         vi.mocked(CallStore.instance.getCall).mockReturnValue(firstCall as unknown as Call);

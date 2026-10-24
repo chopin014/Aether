@@ -9,17 +9,15 @@ import { Form } from "@vector-im/compound-web";
 import React, { type JSX, useCallback, useMemo } from "react";
 import { Flex, type VirtualizedListContext, FlatVirtualizedList } from "@element-hq/web-shared-components";
 
-import {
-    type MemberWithSeparator,
-    SEPARATOR,
-    useMemberListViewModel,
-} from "../../../viewmodels/memberlist/MemberListViewModel";
+import { SEPARATOR, useMemberListViewModel } from "../../../viewmodels/memberlist/MemberListViewModel";
 import { RoomMemberTileView } from "./tiles/RoomMemberTileView";
 import { ThreePidInviteTileView } from "./tiles/ThreePidInviteTileView";
 import { MemberListHeaderView } from "./MemberListHeaderView";
 import BaseCard from "../../right_panel/BaseCard";
 import { useFeatureEnabled } from "../../../../hooks/useSettings";
 import { _t } from "../../../../languageHandler";
+import { useDesktopMemberListViewModel } from "../../../../viewmodels/memberlist/useDesktopMemberListViewModel";
+import { isMemberHeading, type DesktopMemberListItem } from "../../../../viewmodels/memberlist/desktopMemberGroups";
 
 interface IProps {
     roomId: string;
@@ -30,9 +28,9 @@ interface IProps {
  * Height of a single member list item
  */
 const MEMBER_LIST_ITEM_HEIGHT = 56;
-type MemberListItem = MemberWithSeparator | { heading: string; count: number; key: string };
-const isHeading = (item: MemberListItem): item is { heading: string; count: number; key: string } =>
-    typeof item === "object" && "heading" in item;
+/** Height of a desktop shell member or presence heading, matching `_DesktopShell.pcss`. */
+const DESKTOP_MEMBER_LIST_ITEM_HEIGHT = 48;
+type MemberListItem = DesktopMemberListItem;
 /**
  * Amount to extend the top and bottom of the viewport by.
  * From manual testing 15 items seems to be enough to never really see the blank space when scrolling.
@@ -43,33 +41,17 @@ const MemberListView: React.FC<IProps> = (props: IProps) => {
     const vm = useMemberListViewModel(props.roomId);
     const { isPresenceEnabled, memberCount } = vm;
     const desktopShell = useFeatureEnabled("feature_desktop_shell");
-    const items = useMemo<MemberListItem[]>(() => {
-        if (!desktopShell) return vm.members;
-        const joined = vm.members.filter((item) => item !== SEPARATOR && item.member && !item.member.isInvite);
-        const invitations = vm.members.filter((item) => item !== SEPARATOR && (!item.member || item.member.isInvite));
-        const groups: { key: string; heading: string; members: MemberWithSeparator[] }[] = [];
-        if (isPresenceEnabled) {
-            const online = joined.filter(
-                (item) => item !== SEPARATOR && ["online", "unavailable"].includes(item.member?.presenceState ?? ""),
-            );
-            const onlineIds = new Set(online);
-            groups.push({ key: "online", heading: _t("desktop|contacts|online"), members: online });
-            groups.push({
-                key: "offline",
-                heading: _t("desktop|contacts|offline"),
-                members: joined.filter((item) => !onlineIds.has(item)),
-            });
-        } else {
-            groups.push({ key: "members", heading: _t("member_list|list_title"), members: joined });
+    const items = useDesktopMemberListViewModel(props.roomId, vm, desktopShell);
+    const memberPositions = useMemo(() => {
+        const positions = new Map<MemberListItem, number>();
+        for (const item of items) {
+            if (item !== SEPARATOR && !isMemberHeading(item)) positions.set(item, positions.size);
         }
-        groups.push({ key: "invited", heading: _t("desktop|members|invited"), members: invitations });
-        return groups.flatMap(({ key, heading, members }) =>
-            members.length ? [{ key, heading, count: members.length }, ...members] : [],
-        );
-    }, [desktopShell, vm.members, isPresenceEnabled]);
+        return positions;
+    }, [items]);
 
     const getItemKey = useCallback((item: MemberListItem): string => {
-        if (isHeading(item)) return `heading-${item.key}`;
+        if (isMemberHeading(item)) return `heading-${item.key}`;
         if (item === SEPARATOR) {
             return "separator";
         } else if (item.member) {
@@ -83,15 +65,18 @@ const MemberListView: React.FC<IProps> = (props: IProps) => {
         (
             index: number,
             item: MemberListItem,
-            context: VirtualizedListContext<any>,
+            context: VirtualizedListContext<unknown>,
             onFocus: (item: MemberListItem, e: React.FocusEvent) => void,
         ): JSX.Element => {
             const itemKey = getItemKey(item);
-            const isRovingItem = itemKey === context.tabIndexKey;
+            // The virtual list initially targets its first row, which is a non-focusable desktop heading.
+            const isRovingItem =
+                itemKey === context.tabIndexKey ||
+                (desktopShell && context.tabIndexKey?.startsWith("heading-") && memberPositions.get(item) === 0);
             const focused = isRovingItem && context.focused;
-            if (isHeading(item)) {
+            if (isMemberHeading(item)) {
                 return (
-                    <h2 className="mx_DesktopShell_memberHeading">
+                    <h2 className="mx_MemberListView_groupHeading">
                         {item.heading} — {item.count}
                     </h2>
                 );
@@ -103,11 +88,12 @@ const MemberListView: React.FC<IProps> = (props: IProps) => {
                     <RoomMemberTileView
                         item={item}
                         member={item.member}
-                        showPresence={isPresenceEnabled}
+                        showPresence={isPresenceEnabled || desktopShell}
+                        showRole={!desktopShell}
                         focused={focused}
                         tabIndex={isRovingItem ? 0 : -1}
-                        index={desktopShell ? vm.members.indexOf(item) : index}
-                        memberCount={memberCount}
+                        index={desktopShell ? memberPositions.get(item)! + (item.member.isInvite ? 1 : 0) : index}
+                        memberCount={desktopShell ? memberPositions.size : memberCount}
                         onFocus={onFocus}
                     />
                 );
@@ -118,18 +104,18 @@ const MemberListView: React.FC<IProps> = (props: IProps) => {
                         threePidInvite={item.threePidInvite}
                         focused={focused}
                         tabIndex={isRovingItem ? 0 : -1}
-                        memberIndex={desktopShell ? vm.members.indexOf(item) - 1 : index - 1} // Adjust as invites are below the separator
-                        memberCount={memberCount}
+                        memberIndex={desktopShell ? memberPositions.get(item)! : index - 1} // Adjust as invites are below the separator
+                        memberCount={desktopShell ? memberPositions.size : memberCount}
                         onFocus={onFocus}
                     />
                 );
             }
         },
-        [isPresenceEnabled, getItemKey, memberCount, desktopShell, vm.members],
+        [isPresenceEnabled, getItemKey, memberCount, desktopShell, memberPositions],
     );
 
     const isItemFocusable = useCallback((item: MemberListItem): boolean => {
-        return item !== SEPARATOR && !isHeading(item);
+        return item !== SEPARATOR && !isMemberHeading(item);
     }, []);
 
     return (
@@ -156,7 +142,7 @@ const MemberListView: React.FC<IProps> = (props: IProps) => {
                     isItemFocusable={isItemFocusable}
                     role="listbox"
                     aria-label={_t("member_list|list_title")}
-                    fixedItemHeight={desktopShell ? 44 : MEMBER_LIST_ITEM_HEIGHT}
+                    fixedItemHeight={desktopShell ? DESKTOP_MEMBER_LIST_ITEM_HEIGHT : MEMBER_LIST_ITEM_HEIGHT}
                     increaseViewportBy={{
                         bottom: EXTENDED_VIEWPORT_HEIGHT,
                         top: EXTENDED_VIEWPORT_HEIGHT,

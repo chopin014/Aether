@@ -28,6 +28,7 @@ import { checkInputableElement, RovingTabIndexProvider } from "../../accessibili
 import { KeyBindingAction } from "../../accessibility/KeyboardShortcuts";
 import { getKeyBindingsManager } from "../../KeyBindingsManager";
 import Modal, { ModalManagerEvent } from "../../Modal";
+import { avoidWindowControls, readWindowControls } from "../../utils/windowControls";
 
 // Shamelessly ripped off Modal.js.  There's probably a better way
 // of doing reusable widgets like dialog boxes & menus where we go and
@@ -248,6 +249,39 @@ export default class ContextMenu extends React.PureComponent<React.PropsWithChil
         }
     };
 
+    /** Keeps the menu clear of native controls without changing its anchor or alignment. */
+    private keepClearOfWindowControls(
+        position: Partial<Writeable<DOMRect>>,
+        menuRect: DOMRect,
+        windowHeight: number,
+        windowWidth: number,
+        chevronOffset: CSSProperties,
+    ): void {
+        const controls = readWindowControls();
+        if (controls.inline <= 0 || controls.block <= 0) return;
+        const top =
+            position.top !== undefined
+                ? position.top - (this.props.bottomAligned ? menuRect.height : 0)
+                : windowHeight - (position.bottom ?? 0) - menuRect.height;
+        const left =
+            position.left !== undefined
+                ? position.left - (this.props.rightAligned ? menuRect.width : 0)
+                : windowWidth - (position.right ?? 0) - menuRect.width;
+        const moved = avoidWindowControls(
+            { top, left, width: menuRect.width, height: menuRect.height },
+            controls,
+            windowWidth,
+        );
+        const dx = moved.left - left;
+        const dy = moved.top - top;
+        if (position.left !== undefined) position.left += dx;
+        else if (position.right !== undefined) position.right -= dx;
+        if (position.top !== undefined) position.top += dy;
+        else if (position.bottom !== undefined) position.bottom -= dy;
+        if (typeof chevronOffset.left === "number") chevronOffset.left -= dx;
+        if (typeof chevronOffset.top === "number") chevronOffset.top -= dy;
+    }
+
     protected renderMenu(hasBackground = this.props.hasBackground): JSX.Element {
         const position: Partial<Writeable<DOMRect>> = {};
         const {
@@ -341,6 +375,7 @@ export default class ContextMenu extends React.PureComponent<React.PropsWithChil
                     chevronOffset.left = propsChevronOffset! + position.right - right!;
                 }
             }
+            this.keepClearOfWindowControls(position, contextMenuRect, windowHeight, windowWidth, chevronOffset);
         }
 
         let chevron;

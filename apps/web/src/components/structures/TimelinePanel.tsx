@@ -687,9 +687,14 @@ class TimelinePanel extends React.Component<IProps, IState> {
             }
         }
 
-        // ignore anything but real-time updates at the end of the room:
-        // updates from pagination will happen when the paginate completes.
-        if (toStartOfTimeline || !data || !data.liveEvent) return;
+        // The SDK marks a late thread reply as non-live when inserting it by timestamp.
+        // At the loaded live timeline's tail it still needs to reach the desktop conversation.
+        const desktopThreadInsertion =
+            SettingsStore.getValue("feature_desktop_shell") &&
+            !!this.props.timelineSet.thread &&
+            !removed &&
+            data.timeline === this.props.timelineSet.getLiveTimeline();
+        if (toStartOfTimeline || !data || (!data.liveEvent && !desktopThreadInsertion)) return;
 
         if (!this.messagePanel.current?.getScrollState()) return;
 
@@ -713,6 +718,16 @@ class TimelinePanel extends React.Component<IProps, IState> {
         void this.timelineWindow!.paginate(EventTimeline.FORWARDS, 1, false).then(() => {
             if (this.unmounted) {
                 return;
+            }
+
+            // A pending SDK pagination promise may finish before a newly loaded reply advances the window.
+            // Extend the loaded tail after that promise settles, while the reader is still at the bottom.
+            if (
+                SettingsStore.getValue("feature_desktop_shell") &&
+                this.props.timelineSet.thread &&
+                this.messagePanel.current?.getScrollState()?.stuckAtBottom
+            ) {
+                this.timelineWindow!.extend(EventTimeline.FORWARDS, data.timeline.getEvents().length);
             }
 
             const { events, liveEvents } = this.getEvents();
@@ -1613,12 +1628,21 @@ class TimelinePanel extends React.Component<IProps, IState> {
         // if we're at the end of the live timeline, append the pending events
         if (!this.timelineWindow!.canPaginate(EventTimeline.FORWARDS)) {
             const pendingEvents = this.props.timelineSet.getPendingEvents();
+            const loadedIds = new Set(events.map((event) => event.getId()));
+            const loadedTransactions = new Set(events.map((event) => event.getTxnId()).filter(Boolean));
             // Pending events are the whole room's, so a filtered timeline set is handed events its
             // own filter would never accept. Without this every message being sent flickers through
             // panels like the file panel until its remote echo arrives and the filter rejects it.
             const filter = this.props.timelineSet.getFilter?.();
             events.push(
                 ...pendingEvents.filter((event) => {
+                    // A newly created thread can already contain its sent local echo before sync removes it
+                    // from the room's pending list. Match its ID or transaction, never its message content.
+                    if (
+                        SettingsStore.getValue("feature_desktop_shell") &&
+                        (loadedIds.has(event.getId()) || loadedTransactions.has(event.getTxnId()))
+                    )
+                        return false;
                     if (filter && !filter.filterRoomTimeline([event]).length) {
                         return false;
                     }

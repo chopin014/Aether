@@ -10,14 +10,24 @@ Please see LICENSE files in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { act } from "react";
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { waitFor, fireEvent } from "test-utils-rtl";
 import { filterConsole, mkThirdPartyInviteEvent } from "test-utils";
-import { type Room, type RoomMember, type RoomState, MatrixEvent, RoomStateEvent } from "matrix-js-sdk/src/matrix";
+import {
+    type Room,
+    type RoomMember,
+    type RoomState,
+    MatrixEvent,
+    RoomStateEvent,
+    UserEvent,
+} from "matrix-js-sdk/src/matrix";
+import userEvent from "@testing-library/user-event";
 
 import SettingsStore from "../../../../settings/SettingsStore";
 import { MemberListStore } from "../../../../stores/MemberListStore";
 import { type Rendered, renderMemberList } from "./__mocks__";
+import defaultDispatcher from "../../../../dispatcher/dispatcher";
+import { Action } from "../../../../dispatcher/actions";
 
 vi.mock("../../../../customisations/helpers/UIComponents", () => ({
     shouldShowComponent: vi.fn(),
@@ -125,20 +135,112 @@ describe("MemberListView and MemberlistHeaderView", () => {
         }
     }
 
-    it("groups desktop members by actual presence without the redundant People toolbar", async () => {
+    it("groups desktop members by role and actual presence without the redundant People toolbar", async () => {
         const getValue = SettingsStore.getValue.bind(SettingsStore);
         const setting = vi
             .spyOn(SettingsStore, "getValue")
             .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
         try {
             const { root } = await renderMemberList(true);
-            expect(root.getByRole("heading", { name: "Online — 6" })).toBeVisible();
+            expect(root.getAllByRole("heading").map((heading) => heading.textContent)).toEqual([
+                "Admin — 2",
+                "Moderator — 2",
+                "Online — 2",
+            ]);
             expect(root.queryByRole("heading", { name: "People" })).not.toBeInTheDocument();
             expect(root.queryByRole("button", { name: "Close" })).not.toBeInTheDocument();
             expect(root.getAllByRole("option")).toHaveLength(6);
         } finally {
             setting.mockRestore();
         }
+    });
+
+    describe("desktop member groups", () => {
+        let restoreSettings: () => void;
+        beforeEach(() => {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            const setting = vi
+                .spyOn(SettingsStore, "getValue")
+                .mockImplementation((name, ...args) =>
+                    name === "feature_desktop_shell" ? true : getValue(name, ...args),
+                );
+            restoreSettings = () => setting.mockRestore();
+        });
+        afterEach(() => {
+            restoreSettings();
+            vi.mocked(defaultDispatcher.dispatch).mockRestore?.();
+        });
+
+        it("should render all offline roles together and number options in their displayed order", async () => {
+            const { root, client, adminUsers, defaultUsers } = await renderMemberList(true);
+            act(() => {
+                for (const member of [adminUsers[0], defaultUsers[0]]) {
+                    member.user!.presence = "offline";
+                    client.emit(UserEvent.Presence, undefined, member.user!);
+                }
+            });
+            await waitFor(() => expect(root.getByRole("heading", { name: "Offline — 2" })).toBeVisible());
+            expect(root.getAllByRole("heading").map((heading) => heading.textContent)).toEqual([
+                "Admin — 1",
+                "Moderator — 2",
+                "Online — 1",
+                "Offline — 2",
+            ]);
+            const options = root.getAllByRole("option");
+            expect(options.map((option) => option.getAttribute("aria-posinset"))).toEqual([
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+            ]);
+            expect(options.every((option) => option.getAttribute("aria-setsize") === "6")).toBe(true);
+            expect(options.map((option) => option.getAttribute("aria-label"))).toEqual([
+                "@admin1:localhost",
+                "@moderator0:localhost",
+                "@moderator1:localhost",
+                "@default1:localhost",
+                "@admin0:localhost",
+                "@default0:localhost",
+            ]);
+            expect(root.container.querySelectorAll(".mx_MemberTileView_userLabel")).toHaveLength(0);
+            expect(root.container.querySelectorAll(".mx_PresenceIconView_offline")).toHaveLength(2);
+        });
+
+        it("should show unknown members together as offline with grey badges", async () => {
+            const { root, client, adminUsers, moderatorUsers, defaultUsers } = await renderMemberList(true);
+            act(() => {
+                for (const member of [...adminUsers, ...moderatorUsers, ...defaultUsers]) {
+                    delete member.user!.events.presence;
+                    client.emit(UserEvent.LastPresenceTs, undefined, member.user!);
+                }
+            });
+            await waitFor(() => expect(root.getByRole("heading", { name: "Offline — 6" })).toBeVisible());
+            expect(root.getAllByRole("heading")).toHaveLength(1);
+            expect(root.container.querySelectorAll(".mx_PresenceIconView_offline")).toHaveLength(6);
+            expect(root.container.querySelectorAll(".mx_PresenceIconView_online")).toHaveLength(0);
+        });
+
+        it("should skip headings during keyboard navigation and open the actual channel member profile", async () => {
+            const { root } = await renderMemberList(true);
+            const dispatch = vi.spyOn(defaultDispatcher, "dispatch");
+            const options = root.getAllByRole("option");
+            expect(options[0]).toHaveAttribute("tabindex", "0");
+            await userEvent.click(options[1]);
+            fireEvent.keyDown(options[1], { key: "ArrowDown", code: "ArrowDown" });
+            await waitFor(() => expect(options[2]).toHaveFocus());
+            await userEvent.keyboard("{Enter}");
+            expect(dispatch).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    action: Action.ViewUser,
+                    member: expect.objectContaining({ userId: "@moderator0:localhost" }),
+                    push: true,
+                }),
+            );
+            fireEvent.keyDown(options[2], { key: "Home", code: "Home" });
+            await waitFor(() => expect(options[0]).toHaveFocus());
+        });
     });
 
     describe("MemberListView", () => {

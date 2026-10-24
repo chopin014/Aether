@@ -15,6 +15,7 @@ import React from "react";
 import { CallType, type MatrixCall } from "matrix-js-sdk/src/webrtc/call";
 import {
     EventType,
+    EventTimelineSet,
     JoinRule,
     MatrixEvent,
     PendingEventOrdering,
@@ -56,12 +57,16 @@ import * as ShieldUtils from "../../../../utils/ShieldUtils";
 import { WidgetLayoutStore } from "../../../../stores/widgets/WidgetLayoutStore";
 import MatrixClientContext from "../../../../contexts/MatrixClientContext";
 import { _t } from "../../../../languageHandler";
+import Modal from "../../../../Modal";
+import { Action } from "../../../../dispatcher/actions";
+import { DesktopTopicDialog } from "../../desktop/DesktopTopicDialog";
 import WidgetStore, { type IApp } from "../../../../stores/WidgetStore";
 import { UIFeature } from "../../../../settings/UIFeature";
 import { SettingLevel } from "../../../../settings/SettingLevel";
 import { ElementCallMemberEventType } from "../../../../call-types";
 import { SDKContext } from "../../../../contexts/SDKContext";
 import { SDKContextClass } from "../../../../contexts/SDKContextClass.ts";
+import { DesktopMessageSearchStore } from "../../../../stores/DesktopMessageSearchStore";
 
 vi.mock("../../../../utils/ShieldUtils");
 vi.mock("../../../../hooks/right-panel/useCurrentPhase", () => ({
@@ -154,8 +159,131 @@ describe("RoomHeader", () => {
             await userEvent.click(screen.getByRole("button", { name: "Notifications" }));
             expect(screen.getByRole("menuitemradio", { name: "Mute room" })).toBeInTheDocument();
             await userEvent.keyboard("{Escape}");
+            // The name opens the channel menu, never the room summary card.
             await userEvent.click(getByText(container, ROOM_ID));
-            expect(setCardSpy).toHaveBeenCalled();
+            expect(await screen.findByRole("menuitem", { name: "Leave channel" })).toBeInTheDocument();
+            expect(setCardSpy).not.toHaveBeenCalledWith(
+                expect.objectContaining({ phase: RightPanelPhases.RoomSummary }),
+            );
+        } finally {
+            setting.mockRestore();
+        }
+    });
+
+    describe("desktop channel menu", () => {
+        let setting: ReturnType<typeof vi.spyOn>;
+        beforeEach(() => {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            setting = vi
+                .spyOn(SettingsStore, "getValue")
+                .mockImplementation((name, ...args) =>
+                    name === "feature_desktop_shell" ? true : getValue(name, ...args),
+                );
+        });
+        afterEach(() => setting.mockRestore());
+
+        it("opens an anchored menu from the name, closes it with Escape and returns focus", async () => {
+            render(<RoomHeader room={room} />, getWrapper());
+            const trigger = screen.getByRole("button", { name: ROOM_ID });
+            expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+            await userEvent.click(trigger);
+            expect(await screen.findByRole("menu")).toBeInTheDocument();
+            expect(screen.getByRole("menuitem", { name: "Copy link" })).toBeInTheDocument();
+            // People, Threads and Pinned already have header icons.
+            expect(screen.queryByRole("menuitem", { name: "People" })).not.toBeInTheDocument();
+            await userEvent.keyboard("{Escape}");
+            await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+            expect(trigger).toHaveFocus();
+        });
+
+        it("keeps channel menu state live after StrictMode recreates the room item", async () => {
+            render(<RoomHeader room={room} />, { ...getWrapper(), reactStrictMode: true });
+            await userEvent.click(screen.getByRole("button", { name: ROOM_ID }));
+            const favourite = await screen.findByRole("menuitemcheckbox", { name: "Favourite" });
+            expect(favourite).not.toBeChecked();
+            act(() => {
+                room.addTags(new MatrixEvent({ type: "m.tag", content: { tags: { "m.favourite": {} } } }));
+            });
+            await waitFor(() => expect(favourite).toBeChecked());
+        });
+
+        it("toggles the menu from the Ctrl+. action", async () => {
+            render(<RoomHeader room={room} />, getWrapper());
+            act(() => dispatcher.dispatch({ action: Action.ToggleChannelMenu }, true));
+            expect(await screen.findByRole("menu")).toBeInTheDocument();
+            act(() => dispatcher.dispatch({ action: Action.ToggleChannelMenu }, true));
+            await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+        });
+
+        it("opens the topic dialog from the topic", async () => {
+            room.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.RoomTopic,
+                    state_key: "",
+                    room_id: ROOM_ID,
+                    sender: "@alice:example.org",
+                    content: { topic: "Plans for the weekend" },
+                }),
+            ]);
+            render(<RoomHeader room={room} />, getWrapper());
+            await userEvent.click(screen.getByRole("button", { name: "Plans for the weekend" }));
+            expect(Modal.createDialog).toHaveBeenCalledWith(DesktopTopicDialog, { room });
+        });
+
+        it("opens the person's profile from a direct message's name", async () => {
+            vi.mocked(DMRoomMap.shared().getUserIdForRoomId).mockImplementation((roomId) =>
+                roomId === room.roomId ? "@bob:example.org" : undefined,
+            );
+            room.getMember = vi.fn((userId) => new RoomMember(room.roomId, userId));
+            const dispatched = vi.spyOn(dispatcher, "dispatch");
+            render(<RoomHeader room={room} />, getWrapper());
+            await userEvent.click(screen.getByRole("heading", { level: 1 }));
+            expect(dispatched).toHaveBeenCalledWith(expect.objectContaining({ action: Action.ViewUser }));
+            expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+        });
+    });
+
+    it("shows a desktop channel's room avatar as its icon", () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const setting = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        try {
+            room.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.RoomAvatar,
+                    state_key: "",
+                    room_id: ROOM_ID,
+                    sender: "@alice:example.org",
+                    content: { url: "mxc://example.org/icon" },
+                }),
+            ]);
+            const { container } = render(<RoomHeader room={room} />, getWrapper());
+            expect(container.querySelector(".mx_BaseAvatar.mx_DesktopShell_channelIcon")).toBeInTheDocument();
+        } finally {
+            setting.mockRestore();
+        }
+    });
+
+    it("shows a desktop channel's topic beside its name", () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const setting = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        try {
+            room.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.RoomTopic,
+                    state_key: "",
+                    room_id: ROOM_ID,
+                    sender: "@alice:example.org",
+                    content: { topic: "Plans for the weekend" },
+                }),
+            ]);
+            render(<RoomHeader room={room} />, getWrapper());
+            expect(screen.getByText("Plans for the weekend")).toHaveClass("mx_DesktopShell_channelTopic");
+            // The topic is not part of the channel's heading
+            expect(screen.getByRole("heading", { level: 1 })).not.toHaveTextContent("Plans for the weekend");
         } finally {
             setting.mockRestore();
         }
@@ -238,6 +366,82 @@ describe("RoomHeader", () => {
 
         await user.click(getByLabelText(document.body, "Threads"));
         expect(setCardSpy).toHaveBeenCalledWith({ phase: RightPanelPhases.ThreadPanel });
+    });
+
+    it("toggles desktop discovery without replacing the channel's right panel", async () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const setting = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        const sets: [EventTimelineSet, EventTimelineSet] = [new EventTimelineSet(room), new EventTimelineSet(room)];
+        vi.spyOn(room, "createThreadsTimelineSets").mockResolvedValue(sets);
+        vi.spyOn(room, "fetchRoomThreads").mockResolvedValue();
+        try {
+            render(<RoomHeader room={room} />, getWrapper());
+            const trigger = screen.getByRole("button", { name: "Threads" });
+            await userEvent.click(trigger);
+            expect(screen.getByRole("dialog", { name: "Threads" })).toBeVisible();
+            expect(await screen.findByRole("heading", { name: "There are no threads." })).toBeVisible();
+            expect(setCardSpy).not.toHaveBeenCalled();
+            await userEvent.click(trigger);
+            expect(screen.queryByRole("dialog", { name: "Threads" })).not.toBeInTheDocument();
+            expect(trigger).toHaveFocus();
+        } finally {
+            setting.mockRestore();
+        }
+    });
+
+    describe("desktop message search", () => {
+        let setting: ReturnType<typeof vi.spyOn>;
+        beforeEach(() => {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            setting = vi
+                .spyOn(SettingsStore, "getValue")
+                .mockImplementation((name, ...args) =>
+                    name === "feature_desktop_shell" ? true : getValue(name, ...args),
+                );
+        });
+        afterEach(() => {
+            setting.mockRestore();
+            DesktopMessageSearchStore.instance.close();
+        });
+
+        it("replaces the search button with a combobox that names the room", () => {
+            render(<RoomHeader room={room} />, getWrapper());
+            const input = screen.getByRole("combobox", { name: "Search" });
+            expect(input).toHaveAttribute("placeholder", `Search ${ROOM_ID}`);
+        });
+
+        it("keeps a single pins trigger and search box when the header rerenders", () => {
+            const { rerender } = render(<RoomHeader room={room} />, getWrapper());
+            rerender(<RoomHeader room={room} />);
+            rerender(<RoomHeader room={room} />);
+            expect(screen.getAllByRole("button", { name: "Pinned messages" })).toHaveLength(1);
+            expect(screen.getAllByRole("combobox", { name: "Search" })).toHaveLength(1);
+        });
+
+        it("opens the filters on focus and keeps the room summary closed", async () => {
+            render(<RoomHeader room={room} />, getWrapper());
+            await userEvent.click(screen.getByRole("combobox", { name: "Search" }));
+            expect(screen.getByRole("option", { name: /From a specific user/ })).toBeVisible();
+            expect(setCardSpy).not.toHaveBeenCalled();
+        });
+
+        it("runs a search straight away when FocusMessageSearch carries has:file", async () => {
+            render(<RoomHeader room={room} />, getWrapper());
+            act(() => dispatcher.dispatch({ action: Action.FocusMessageSearch, initialText: "has:file" }, true));
+            await waitFor(() =>
+                expect(DesktopMessageSearchStore.instance.active?.query.filters).toEqual([
+                    { key: "has", value: "file" },
+                ]),
+            );
+            expect(screen.getByRole("combobox", { name: "Search" })).toHaveFocus();
+        });
+    });
+
+    it("does not show the desktop search box when the desktop shell is off", () => {
+        render(<RoomHeader room={room} />, getWrapper());
+        expect(screen.queryByRole("combobox", { name: "Search" })).not.toBeInTheDocument();
     });
 
     it("opens the notifications panel", async () => {

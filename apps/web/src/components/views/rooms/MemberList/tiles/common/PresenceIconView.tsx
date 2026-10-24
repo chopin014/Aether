@@ -18,6 +18,8 @@ import { _t } from "../../../../../../languageHandler";
 interface Props {
     className?: string;
     presenceState: string;
+    /** Tooltip and accessible name to use instead of the standard name of the state. */
+    label?: string;
 }
 
 export const BUSY_PRESENCE_NAME = new UnstableValue("busy", "org.matrix.msc3026.busy");
@@ -56,10 +58,10 @@ function getTooltipText(state: string): string {
     }
 }
 
-const AvatarPresenceIconView: React.FC<Props> = ({ className, presenceState }) => {
+const AvatarPresenceIconView: React.FC<Props> = ({ className, presenceState, label }) => {
     const names = classNames("mx_PresenceIconView", className);
     return (
-        <Tooltip label={getTooltipText(presenceState)} placement="bottom" isTriggerInteractive={false}>
+        <Tooltip label={label ?? getTooltipText(presenceState)} placement="bottom" isTriggerInteractive={false}>
             <div className={names}>{getIconForPresenceState(presenceState)}</div>
         </Tooltip>
     );

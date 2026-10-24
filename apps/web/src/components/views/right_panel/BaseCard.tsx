@@ -21,6 +21,7 @@ import { SDKContext } from "../../../contexts/SDKContext.ts";
 interface IProps {
     header?: ReactNode | null;
     hideHeaderButtons?: boolean;
+    hideBackButton?: boolean;
     footer?: ReactNode;
     className?: string;
     id?: string;
@@ -46,6 +47,7 @@ const BaseCard: React.FC<IProps> = ({
     ariaLabelledBy,
     role,
     hideHeaderButtons,
+    hideBackButton,
     header,
     footer,
     withoutScrollContainer,
@@ -58,7 +60,7 @@ const BaseCard: React.FC<IProps> = ({
 
     let backButton;
     const cardHistory = sdkContext.rightPanelStore.roomPhaseHistory;
-    if (cardHistory.length > 1 && !hideHeaderButtons) {
+    if (cardHistory.length > 1 && !hideHeaderButtons && !hideBackButton) {
         const prevCard = cardHistory[cardHistory.length - 2];
         const onBackClick = (ev: MouseEvent<HTMLButtonElement>): void => {
             onBack?.(ev);

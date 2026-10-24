@@ -309,7 +309,8 @@ summary {
     width: 100%;
     max-width: fit-content;
     box-sizing: border-box;
-    max-height: calc(100% - var(--cpd-space-6x));
+    /* Dialogs stay below the desktop shell's native window controls, which draw over the top right corner. */
+    max-height: calc(100% - 2 * max(var(--cpd-space-3x), var(--mx-window-controls-block-size, 0px)));
     display: flex;
     flex-direction: column;
 

@@ -1,0 +1,10 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+/* Load the real dependencies in the same layers as res/css/_index.pcss. */
+@import url("@vector-im/compound-design-tokens/assets/web/css/compound-design-tokens.css") layer(compound-tokens);
+@import url("@vector-im/compound-web/dist/style.css") layer(compound-web);

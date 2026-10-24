@@ -1,0 +1,32 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-1x);
+    max-width: 280px;
+    padding: var(--cpd-space-2x) var(--cpd-space-3x);
+}
+
+.topic {
+    margin: 0;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    font: var(--cpd-font-body-sm-regular);
+    color: var(--cpd-color-text-secondary);
+}
+
+.value {
+    margin-inline-start: auto;
+    padding-inline-start: var(--cpd-space-4x);
+    font: var(--cpd-font-body-sm-regular);
+    color: var(--cpd-color-text-secondary);
+}

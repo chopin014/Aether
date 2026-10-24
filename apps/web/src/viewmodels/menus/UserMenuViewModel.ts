@@ -8,6 +8,7 @@
 import { BaseViewModel, type UserMenuSnapshot, type UserMenuViewActions } from "@element-hq/web-shared-components";
 import { logger } from "matrix-js-sdk/src/logger";
 
+import Presence from "../../Presence";
 import { type OwnProfileStore } from "../../stores/OwnProfileStore";
 import { UPDATE_EVENT } from "../../stores/AsyncStore";
 import type { MatrixDispatcher } from "../../dispatcher/dispatcher";
@@ -53,6 +54,7 @@ export class UserMenuViewModel
 
         return {
             open: false,
+            presence: isAuthenticated ? Presence.forClient(client) : undefined,
             userId,
             displayName,
             avatarUrl,
@@ -62,6 +64,7 @@ export class UserMenuViewModel
             showUserStatus: SettingsStore.getValue("feature_user_status") && isAuthenticated,
             setStatusViewModel,
             actions: {
+                editProfile: isAuthenticated,
                 createAccount: !isAuthenticated,
                 signIn: !isAuthenticated,
                 openHomePage: hasHomePage,
@@ -103,6 +106,14 @@ export class UserMenuViewModel
 
     public readonly setExpanded = (expanded: boolean): void => {
         this.snapshot.merge({ expanded });
+    };
+
+    public readonly editProfile = (): void => {
+        this.setOpen(false);
+        this.dispatcher.dispatch({
+            action: Action.ViewUserSettings,
+            initialTabId: UserTab.Account,
+        });
     };
 
     public readonly createAccount = (): void => {

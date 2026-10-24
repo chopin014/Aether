@@ -9,8 +9,15 @@ import MediaDeviceHandler from "../../../MediaDeviceHandler";
 import ActiveWidgetStore from "../../../stores/ActiveWidgetStore";
 import { CallStore } from "../../../stores/CallStore";
 import { type ElementCall } from "../../../models/Call";
-import { type DeviceMuteState, type ElementCallHostBridge } from "@element-hq/element-call-component/api";
+import {
+    type DeviceMuteState,
+    type ElementCallHostBridge,
+    type ScreenShareState,
+    type VoiceState,
+} from "@element-hq/element-call-component/api";
 import { logger } from "matrix-js-sdk/src/logger";
+
+import { confirmVoiceChannelSwitch } from "./confirmVoiceChannelSwitch";
 
 export interface ElementWebHostBridgeOptions {
     /** The id of the (virtual) widget that is this call's identity in the widget stores. */
@@ -55,6 +62,15 @@ export class ElementWebHostBridge implements ElementCallHostBridge {
         // UpdateAlwaysOnScreen handling).
         if (alwaysOnScreen) {
             const others = [...CallStore.instance.connectedCalls].filter((call) => call !== this.call);
+            // Joining here has already started, so declining means leaving the call that was just opened.
+            if (others.length > 0 && !(await confirmVoiceChannelSwitch())) {
+                try {
+                    await this.call.disconnect();
+                } catch (e) {
+                    logger.warn("Could not leave the call the user declined to join", e);
+                }
+                return;
+            }
             try {
                 await Promise.all(others.map((call) => call.disconnect()));
             } catch (e) {
@@ -83,6 +99,16 @@ export class ElementWebHostBridge implements ElementCallHostBridge {
     /** Forward real speech activity, already deduplicated across a user's devices. */
     public readonly notifySpeakingUsers = async (userIds: string[]): Promise<void> => {
         this.call.handleSpeakingUsers(userIds);
+    };
+
+    /** Forward screen sharing, so the sidebar can offer it and the floating call only shows a share. */
+    public readonly notifyScreenShare = async (state: ScreenShareState): Promise<void> => {
+        this.call.handleScreenShare(state);
+    };
+
+    /** Forward who is muted or deafened, so the channel list can show it beside each person. */
+    public readonly notifyVoiceStates = async (states: VoiceState[]): Promise<void> => {
+        this.call.handleVoiceStates(states);
     };
 
     public readonly close = async (): Promise<void> => {

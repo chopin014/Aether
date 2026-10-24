@@ -119,5 +119,17 @@ export * from "./desktop/DesktopAccountDockView";
 export * from "./desktop/DesktopContactsView";
 
 export * from "./desktop/DesktopVoiceControlsView";
+export * from "./desktop/DesktopVoiceVideoSettingsView";
 
-export * from "./desktop/DesktopTitlebarView";
+export * from "./presence/PresenceMenuView";
+export * from "./room/PinnedMessagesView";
+export * from "./desktop/DesktopThreadBrowserView";
+export * from "./desktop/DesktopThreadCreateView";
+export * from "./desktop/DesktopProfileIdentity";
+export * from "./desktop/DesktopProfilePopoutView";
+export * from "./desktop/DesktopFullProfileView";
+export * from "./desktop/ChannelMenuView";
+export * from "./desktop/TopicDialogView";
+export * from "./desktop/DesktopSearchBoxView";
+export * from "./desktop/DesktopSearchResultsView";
+export * from "./desktop/DesktopKeybindsView";

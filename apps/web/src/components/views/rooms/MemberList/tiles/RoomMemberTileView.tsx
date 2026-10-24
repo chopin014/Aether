@@ -11,6 +11,8 @@ import { useCreateAutoDisposedViewModel, DisambiguatedProfileView } from "@eleme
 import { type RoomMember } from "../../../../../models/rooms/RoomMember";
 import { useMemberTileViewModel } from "../../../../viewmodels/memberlist/tiles/MemberTileViewModel";
 import { E2EIconView } from "./common/E2EIconView";
+import { useFeatureEnabled } from "../../../../../hooks/useSettings";
+import { useMergedPresence } from "../../../../../presence/useMergedPresence";
 import AvatarPresenceIconView from "./common/PresenceIconView";
 import BaseAvatar from "../../../avatars/BaseAvatar";
 import { _t } from "../../../../../languageHandler";
@@ -29,6 +31,8 @@ interface IProps {
     index: number;
     memberCount: number;
     showPresence?: boolean;
+    /** Whether to display the member's channel role next to their name. Defaults to true. */
+    showRole?: boolean;
     focused?: boolean;
     tabIndex?: number;
     onFocus: (item: MemberWithSeparator, e: React.FocusEvent) => void;
@@ -66,10 +70,19 @@ export function RoomMemberTileView(props: IProps): JSX.Element {
     }, [disambiguatedProfileVM, userStatus]);
     const nameJSX = <DisambiguatedProfileView vm={disambiguatedProfileVM} className="mx_DisambiguatedProfile" />;
 
-    const presenceState = member.presenceState;
+    const desktopShell = useFeatureEnabled("feature_desktop_shell");
+    const merged = useMergedPresence(member.isInvite ? undefined : member.userId);
+    // Match the desktop Offline group when no presence was reported; activity alone is not an online status.
+    const reported = merged && merged.source !== "activity" ? merged : null;
+    const presenceState = desktopShell ? (reported?.state ?? "offline") : member.presenceState;
     let presenceJSX: JSX.Element | undefined;
     if (vm.showPresence && presenceState) {
-        presenceJSX = <AvatarPresenceIconView presenceState={presenceState} />;
+        presenceJSX = (
+            <AvatarPresenceIconView
+                presenceState={presenceState}
+                label={desktopShell ? reported?.label : member.presenceLabel}
+            />
+        );
     }
 
     let iconJsx;

@@ -125,7 +125,7 @@ test("the real Electron host runs the Matrix shell through its native preload", 
         );
         await bot.sendMessage(roomId, "The desktop UI is running on Matrix. This message came from another member.");
         await app.viewSpaceByName("Desktop studio");
-        await expect(page.locator(".mx_DesktopShell_titlebar")).toHaveText("Desktop studio");
+        await expect(page.getByTestId("room-list-header")).toContainText("Desktop studio");
         // Retain the vector protocol and preload while navigating within the desktop app.
         await page.evaluate((id) => {
             window.location.hash = `/room/${id}`;

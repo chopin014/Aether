@@ -22,15 +22,19 @@ function makeVm(snapshot: Partial<DesktopVoiceControlsViewSnapshot> = {}) {
         new MockViewModel<DesktopVoiceControlsViewSnapshot>({
             microphoneMuted: false,
             deafened: false,
+            videoEnabled: false,
+            screenShareAvailable: true,
+            screenSharing: false,
             busy: false,
             ...snapshot,
         }),
         {
             toggleMicrophone: vi.fn(),
             toggleDeafened: vi.fn(),
+            toggleVideo: vi.fn(),
+            toggleScreenShare: vi.fn(),
             disconnect: vi.fn(),
             showCall: vi.fn(),
-            openAudioSettings: vi.fn(),
         },
     );
 }
@@ -48,15 +52,30 @@ describe("DesktopVoiceControlsView", () => {
         expect(screen.getByRole("button", { name: "Unmute" })).toHaveAttribute("aria-pressed", "true");
         expect(screen.getByRole("button", { name: "Undeafen" })).toBeDisabled();
     });
-    it("shows only an actual connected call and keeps navigation, settings and hang-up available", async () => {
+    it("shows only an actual connected call and keeps navigation, media and hang-up available", async () => {
         const vm = makeVm({ roomName: "Lounge" });
         render(<DesktopVoiceConnectionView vm={vm} />);
         await userEvent.click(screen.getByRole("button", { name: "Voice Connected Lounge" }));
         expect(vm.showCall).toHaveBeenCalledOnce();
-        await userEvent.click(screen.getByRole("button", { name: "Voice & Video settings" }));
-        expect(vm.openAudioSettings).toHaveBeenCalledOnce();
+        await userEvent.click(screen.getByRole("button", { name: "Turn on camera" }));
+        expect(vm.toggleVideo).toHaveBeenCalledOnce();
+        await userEvent.click(screen.getByRole("button", { name: "Share your screen" }));
+        expect(vm.toggleScreenShare).toHaveBeenCalledOnce();
         await userEvent.click(screen.getByRole("button", { name: "Disconnect" }));
         expect(vm.disconnect).toHaveBeenCalledOnce();
+    });
+    it("shows the camera and screen share that are on, and hides screen sharing the call cannot do", () => {
+        const { unmount } = render(
+            <DesktopVoiceConnectionView vm={makeVm({ roomName: "Lounge", videoEnabled: true, screenSharing: true })} />,
+        );
+        expect(screen.getByRole("button", { name: "Turn off camera" })).toHaveAttribute("aria-pressed", "true");
+        expect(screen.getByRole("button", { name: "Stop sharing your screen" })).toHaveAttribute(
+            "aria-pressed",
+            "true",
+        );
+        unmount();
+        render(<DesktopVoiceConnectionView vm={makeVm({ roomName: "Lounge", screenShareAvailable: false })} />);
+        expect(screen.queryByRole("button", { name: "Share your screen" })).not.toBeInTheDocument();
     });
     it("omits a disconnected call and displays actionable errors", () => {
         const { unmount } = render(<DesktopVoiceConnectionView vm={makeVm()} />);

@@ -8,6 +8,7 @@ Please see LICENSE files in the repository root for full details.
 
 import { logger } from "matrix-js-sdk/src/logger";
 import { CryptoEvent } from "matrix-js-sdk/src/crypto-api";
+import { type Room } from "matrix-js-sdk/src/matrix";
 
 import defaultDispatcher from "../../dispatcher/dispatcher";
 import { pendingVerificationRequestForUser } from "../../verification";
@@ -29,6 +30,7 @@ import { type ActiveRoomChangedPayload } from "../../dispatcher/payloads/ActiveR
 import { type OpenDocumentViewerPayload } from "../../dispatcher/payloads/OpenDocumentViewerPayload";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
+import DMRoomMap from "../../utils/DMRoomMap";
 
 /**
  * @see RightPanelStore#generateHistoryForPhase
@@ -58,6 +60,7 @@ export default class RightPanelStore extends ReadyWatchingStore {
 
     private global?: IRightPanelForRoom;
     private byRoom: { [roomId: string]: IRightPanelForRoom } = {};
+    private threadReturnPanels = new Map<string, IRightPanelForRoom>();
     private viewedRoomId: string | null = null;
 
     private constructor() {
@@ -71,6 +74,7 @@ export default class RightPanelStore extends ReadyWatchingStore {
     public reset(): void {
         this.global = undefined;
         this.byRoom = {};
+        this.threadReturnPanels.clear();
         this.viewedRoomId = null;
     }
 
@@ -104,6 +108,8 @@ export default class RightPanelStore extends ReadyWatchingStore {
             }
 
             case Action.FocusMessageSearch: {
+                // The desktop shell has its own search box in the header, so the room summary stays closed.
+                if (SettingsStore.getValue("feature_desktop_shell")) break;
                 if (this.currentCard.phase !== RightPanelPhases.RoomSummary) {
                     this.setCard({ phase: RightPanelPhases.RoomSummary, state: { focusRoomSearch: true } });
                 }
@@ -174,6 +180,7 @@ export default class RightPanelStore extends ReadyWatchingStore {
         const rId = roomId ?? this.viewedRoomId ?? "";
         const redirect = this.getVerificationRedirect(card);
         const targetPhase = redirect?.phase ?? card.phase;
+        if (targetPhase !== RightPanelPhases.ThreadView) this.threadReturnPanels.delete(rId);
         const cardState = redirect?.state ?? (Object.keys(card.state ?? {}).length === 0 ? undefined : card.state);
 
         // Checks for wrong SetRightPanelPhase requests
@@ -201,6 +208,31 @@ export default class RightPanelStore extends ReadyWatchingStore {
             this.show(rId);
             this.emitAndUpdateSettings();
         }
+    }
+
+    /** Open a desktop split thread, retaining the panel that Close should restore. */
+    public openThread(card: IRightPanelCard, roomId: string): void {
+        if (!this.threadReturnPanels.has(roomId)) {
+            const previous = this.byRoom[roomId];
+            this.threadReturnPanels.set(roomId, {
+                isOpen: previous?.isOpen ?? false,
+                history: previous?.history.filter((entry) => entry.phase !== RightPanelPhases.ThreadView) ?? [],
+            });
+        }
+        const previous = this.threadReturnPanels.get(roomId)!;
+        this.setCards([...previous.history, card], false, roomId);
+    }
+
+    /** Close local thread navigation, restoring the prior panel and its visibility. */
+    public closeThread(roomId: string): void {
+        const previous = this.threadReturnPanels.get(roomId);
+        if (previous) {
+            this.byRoom[roomId] = previous;
+            this.threadReturnPanels.delete(roomId);
+        } else {
+            this.popCard(roomId);
+        }
+        this.emitAndUpdateSettings();
     }
 
     public setCards(cards: IRightPanelCard[], allowClose = true, roomId: string | null = null): void {
@@ -322,13 +354,24 @@ export default class RightPanelStore extends ReadyWatchingStore {
                 this.byRoom[this.viewedRoomId] =
                     this.byRoom[this.viewedRoomId] ??
                     convertToStatePanel(SettingsStore.getValue("RightPanel.phases", this.viewedRoomId), room) ??
-                    undefined;
+                    RightPanelStore.defaultPanelForRoom(room);
             } else {
                 logger.warn(
                     "Could not restore the right panel after load because there was no associated room object.",
                 );
             }
         }
+    }
+
+    /**
+     * In the desktop shell a text channel shows its members until the user closes the panel, as in Discord.
+     * Direct messages, voice channels and Spaces keep Element's closed default.
+     */
+    private static defaultPanelForRoom(room: Room): IRightPanelForRoom | undefined {
+        if (!SettingsStore.getValue("feature_desktop_shell")) return undefined;
+        if (room.isSpaceRoom() || room.isCallRoom() || room.isElementVideoRoom()) return undefined;
+        if (DMRoomMap.shared()?.getUserIdForRoomId(room.roomId)) return undefined;
+        return { history: [{ phase: RightPanelPhases.MemberList, state: {} }], isOpen: true };
     }
 
     private emitAndUpdateSettings(): void {
@@ -366,6 +409,10 @@ export default class RightPanelStore extends ReadyWatchingStore {
         // or potentially other errors.
         // (A nicer fix could be to indicate, that the right panel is loading if there is missing state data and re-emit if the data is available)
         switch (card.phase) {
+            case RightPanelPhases.RoomSummary:
+                // Also drops a summary stored or kept as a history root, so the desktop shell never offers it as a
+                // card or a "back" destination.
+                return !SettingsStore.getValue("feature_desktop_shell");
             case RightPanelPhases.ThreadView:
                 if (!card.state?.threadHeadEvent) {
                     logger.warn("removed card from right panel because of missing threadHeadEvent in card state");
@@ -422,6 +469,10 @@ export default class RightPanelStore extends ReadyWatchingStore {
     private isPhaseValid(targetPhase: RightPanelPhases | null, isViewingRoom: boolean): boolean {
         if (!targetPhase || !RightPanelPhases[targetPhase]) {
             logger.warn(`Tried to switch right panel to unknown phase: ${targetPhase}`);
+            return false;
+        }
+        if (targetPhase === RightPanelPhases.RoomSummary && SettingsStore.getValue("feature_desktop_shell")) {
+            // The desktop shell replaces the room info card with the channel menu.
             return false;
         }
         if (!isViewingRoom) {

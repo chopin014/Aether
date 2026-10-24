@@ -75,4 +75,49 @@ describe("<TabbedView />", () => {
         // labs tab still active
         expect(getActiveTab(container)?.textContent).toEqual(_t(labsTab.label));
     });
+
+    describe("section links", () => {
+        const sections = [
+            { label: "common|general" as const, domId: "section-one" },
+            { label: "common|labs" as const, domId: "section-two" },
+        ];
+        const tabWithAnchors = new Tab(
+            "ANCHORED",
+            "common|appearance",
+            <VisibilityOnIcon />,
+            <div>body</div>,
+            undefined,
+            undefined,
+            sections,
+        );
+
+        it("lists the links under the open tab only", () => {
+            const tabs = [generalTab, tabWithAnchors] as NonEmptyArray<Tab<any>>;
+            const { queryByRole, rerender } = render(getComponent({ activeTabId: "GENERAL", tabs }));
+            expect(queryByRole("button", { name: _t("common|labs") })).toBeNull();
+            rerender(getComponent({ activeTabId: "ANCHORED" as never, tabs }));
+            expect(queryByRole("button", { name: _t("common|general") })).not.toBeNull();
+            expect(queryByRole("button", { name: _t("common|labs") })).not.toBeNull();
+        });
+
+        it("scrolls to the section and marks its link as current", () => {
+            const target = document.createElement("h2");
+            target.id = "section-two";
+            target.scrollIntoView = vi.fn();
+            document.body.append(target);
+            const tabs = [tabWithAnchors] as NonEmptyArray<Tab<any>>;
+            const { getByRole } = render(getComponent({ activeTabId: "ANCHORED" as never, tabs }));
+            const link = getByRole("button", { name: _t("common|labs") });
+            expect(link).not.toHaveAttribute("aria-current");
+            fireEvent.click(link);
+            expect(target.scrollIntoView).toHaveBeenCalledWith(expect.objectContaining({ block: "start" }));
+            expect(link).toHaveAttribute("aria-current", "location");
+            target.remove();
+        });
+
+        it("adds nothing for tabs without links", () => {
+            const { container } = render(getComponent({ activeTabId: "GENERAL" }));
+            expect(container.querySelector(".mx_TabbedView_anchors")).toBeNull();
+        });
+    });
 });

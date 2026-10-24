@@ -24,6 +24,8 @@ import { KeyboardShortcut } from "../../KeyboardShortcut";
 import SettingsTab from "../SettingsTab";
 import { SettingsSection } from "../../shared/SettingsSection";
 import { SettingsSubsection } from "../../shared/SettingsSubsection";
+import SettingsStore from "../../../../../settings/SettingsStore";
+import { DesktopKeybindsSettings } from "./DesktopKeybindsSettings";
 import { showLabsFlags } from "./LabsUserSettingsTab";
 
 interface IKeyboardShortcutRowProps {
@@ -71,6 +73,7 @@ const KeyboardUserSettingsTab: React.FC = () => {
     return (
         <SettingsTab>
             <SettingsSection>
+                {SettingsStore.getValue("feature_desktop_shell") && <DesktopKeybindsSettings />}
                 {visibleCategories.map(([categoryName, category]) => {
                     return (
                         <KeyboardShortcutSection key={categoryName} categoryName={categoryName} category={category} />

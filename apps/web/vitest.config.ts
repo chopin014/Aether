@@ -115,6 +115,31 @@ export default defineProject({
             },
             {
                 extends: true,
+                // Pre-bundle visual test dependencies so discovery cannot reload a running test.
+                optimizeDeps: {
+                    include: [
+                        "@vector-im/compound-web",
+                        "@vector-im/compound-design-tokens/assets/web/icons",
+                        ...[
+                            "audio",
+                            "chat",
+                            "chat-new",
+                            "chevron-down",
+                            "home",
+                            "overflow-horizontal",
+                            "plus",
+                            "preferences",
+                            "room",
+                            "section",
+                            "settings",
+                            "threads-solid",
+                            "user-add",
+                            "video-call",
+                        ].map((icon) => `@vector-im/compound-design-tokens/assets/web/icons/${icon}`),
+                        "@testing-library/dom",
+                        "classnames",
+                    ],
+                },
                 test: {
                     name: "browser",
                     include: ["src/**/*.test.browser.{ts,tsx}"],

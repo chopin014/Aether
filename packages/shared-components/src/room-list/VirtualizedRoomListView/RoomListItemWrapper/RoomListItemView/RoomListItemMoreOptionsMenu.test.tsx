@@ -8,10 +8,12 @@
 import React, { type JSX } from "react";
 import { render, screen } from "@test-utils";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import { RoomListItemMoreOptionsMenu, MoreOptionContent } from "./RoomListItemMoreOptionsMenu";
-import { useMockedViewModel } from "../../../../core/viewmodel";
+import { MockViewModel, useMockedViewModel } from "../../../../core/viewmodel";
+import { type ChannelMenuViewModel, type ChannelMenuViewSnapshot } from "../../../../desktop/ChannelMenuView";
+import { RoomNotifState } from "./RoomNotifs";
 import type { RoomListItemViewSnapshot } from "./RoomListItemView";
 import { defaultSnapshot } from "./default-snapshot";
 import { mockedActions as mockCallbacks } from "./mocked-actions";
@@ -46,6 +48,23 @@ describe("<RoomListItemMoreOptionsMenu />", () => {
         await user.click(button);
 
         expect(screen.getByRole("menu")).toBeInTheDocument();
+    });
+
+    it("opens the channel settings from Edit channel", async () => {
+        const user = userEvent.setup();
+        renderMenu({ channelKind: "text", canEditChannel: true });
+
+        await user.click(screen.getByRole("button", { name: "More Options" }));
+        await user.click(screen.getByRole("menuitem", { name: "Edit channel" }));
+        expect(mockCallbacks.onEditChannel).toHaveBeenCalled();
+    });
+
+    it("hides Edit channel from those who may not edit it", async () => {
+        const user = userEvent.setup();
+        renderMenu({ channelKind: "text", canEditChannel: false });
+
+        await user.click(screen.getByRole("button", { name: "More Options" }));
+        expect(screen.queryByRole("menuitem", { name: "Edit channel" })).not.toBeInTheDocument();
     });
 
     it("should show mark as read option when canMarkAsRead is true", async () => {
@@ -311,5 +330,36 @@ describe("<RoomListItemMoreOptionsMenu />", () => {
         expect(screen.queryByRole("menuitem", { name: "Move to" })).not.toBeInTheDocument();
         // The remaining entries are unaffected
         expect(screen.getByRole("menuitem", { name: "Leave room" })).toBeInTheDocument();
+    });
+
+    it("shows the shared channel menu instead of Element's options for a desktop channel", async () => {
+        const user = userEvent.setup();
+        const channelMenu = new MockViewModel<ChannelMenuViewSnapshot>({
+            name: "General",
+            kind: "text",
+            canEditTopic: false,
+            isEncrypted: false,
+            hasMessages: true,
+            canMarkAsRead: false,
+            isFavourite: false,
+            canInvite: true,
+            canCopyLink: true,
+            canChangeNotifications: true,
+            roomNotifState: RoomNotifState.AllMessages,
+            canEditChannel: true,
+            canCreateChannel: false,
+        });
+        const getChannelMenu = vi.fn(() => channelMenu as unknown as ChannelMenuViewModel);
+        const TestComponent = (): JSX.Element => {
+            const vm = useMockedViewModel({ ...defaultSnapshot, channelKind: "text" } as RoomListItemViewSnapshot, {
+                ...mockCallbacks,
+                getChannelMenu,
+            });
+            return <RoomListItemMoreOptionsMenu vm={vm} />;
+        };
+        render(<TestComponent />);
+        await user.click(screen.getByRole("button", { name: "More Options" }));
+        expect(screen.getByTestId("channel-menu")).toBeInTheDocument();
+        expect(screen.queryByRole("menuitem", { name: "Low priority" })).not.toBeInTheDocument();
     });
 });

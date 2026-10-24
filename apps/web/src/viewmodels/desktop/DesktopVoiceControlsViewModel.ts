@@ -10,7 +10,7 @@ import {
     type DesktopVoiceControlsViewSnapshot,
     type DesktopVoiceControlsViewModel as DesktopVoiceControlsViewModelInterface,
 } from "@element-hq/web-shared-components";
-import { type MatrixClient, RoomEvent } from "matrix-js-sdk/src/matrix";
+import { type MatrixClient, type RoomMember, RoomEvent } from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
 
 import { CallEvent, ElementCall } from "../../models/Call";
@@ -20,8 +20,9 @@ import { SettingLevel } from "../../settings/SettingLevel";
 import defaultDispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 import { type ViewRoomPayload } from "../../dispatcher/payloads/ViewRoomPayload";
-import { UserTab } from "../../components/views/dialogs/UserTab";
-import { _t } from "../../languageHandler";
+import { _t, _td } from "../../languageHandler";
+
+import { DesktopShortcutManager } from "../../audio/desktop/DesktopShortcutManager";
 
 import { playDesktopVoiceSound } from "../../audio/DesktopVoiceSounds";
 
@@ -40,11 +41,18 @@ export class DesktopVoiceControlsViewModel
 {
     private call?: ElementCall;
     private observedCalls = false;
+    private wasVideoEnabled = false;
+    private wasSharingScreen = false;
+    private pendingAction?: Promise<void>;
+    private stopShortcuts?: () => void;
 
     public constructor(props: Props) {
         super(props, {
             microphoneMuted: SettingsStore.getValue("audioInputMuted"),
             deafened: SettingsStore.getValue("desktopDeafened"),
+            videoEnabled: false,
+            screenShareAvailable: false,
+            screenSharing: false,
             busy: false,
         });
         props.callStore.on(CallStoreEvent.ConnectedCalls, this.onCallsChanged);
@@ -55,8 +63,41 @@ export class DesktopVoiceControlsViewModel
             this.disposables.track(() => SettingsStore.unwatchSetting(ref));
         }
         this.disposables.track(() => this.call?.off(CallEvent.DeviceMute, this.onDeviceMute));
+        this.disposables.track(() => this.call?.off(CallEvent.ScreenShare, this.onScreenShare));
+        this.disposables.track(() => this.call?.off(CallEvent.Participants, this.onParticipants));
         this.onCallsChanged();
     }
+
+    /** Starts session shortcuts after the dock commits, so discarded StrictMode renders cannot register actions. */
+    public startShortcuts = (): (() => void) => {
+        if (this.isDisposed || !SettingsStore.getValue("feature_desktop_shell")) return () => {};
+        if (this.stopShortcuts) return this.stopShortcuts;
+        const stop = DesktopShortcutManager.instance.start();
+        const unsubscribe = DesktopShortcutManager.instance.onEvent((event) => {
+            if (this.isDisposed || !event.pressed || event.reset) return;
+            if (event.id === "toggle_mute") void this.toggleMicrophone();
+            else if (event.id === "toggle_deafen") void this.toggleDeafened();
+            else if (event.id === "toggle_input_mode") {
+                void SettingsStore.setValue(
+                    "desktopInputMode",
+                    null,
+                    SettingLevel.DEVICE,
+                    SettingsStore.getValue("desktopInputMode") === "push_to_talk" ? "voice_activity" : "push_to_talk",
+                );
+            }
+        });
+        let stopped = false;
+        const cleanup = (): void => {
+            if (stopped) return;
+            stopped = true;
+            unsubscribe();
+            stop();
+            if (this.stopShortcuts === cleanup) this.stopShortcuts = undefined;
+        };
+        this.stopShortcuts = cleanup;
+        this.disposables.track(cleanup);
+        return cleanup;
+    };
 
     private readonly refresh = (): void => {
         this.snapshot.merge({
@@ -64,14 +105,45 @@ export class DesktopVoiceControlsViewModel
                 ? !this.call.deviceMuteState.audio_enabled
                 : SettingsStore.getValue("audioInputMuted"),
             deafened: SettingsStore.getValue("desktopDeafened"),
+            videoEnabled: this.call?.deviceMuteState?.video_enabled ?? false,
+            screenShareAvailable: this.call?.screenShare.available ?? false,
+            screenSharing: this.call?.screenShare.sharing ?? false,
             roomName: this.call ? (this.props.client.getRoom(this.call.roomId)?.name ?? this.call.roomId) : undefined,
         });
+    };
+
+    /** Plays a cue when somebody other than us joins or leaves the call we are in. */
+    private readonly onParticipants = (
+        participants: ReadonlyMap<RoomMember, unknown>,
+        previous: ReadonlyMap<RoomMember, unknown>,
+    ): void => {
+        const ids = (members: ReadonlyMap<RoomMember, unknown>): Set<string> =>
+            new Set(
+                [...members.keys()].map((member) => member.userId).filter((id) => id !== this.props.client.getUserId()),
+            );
+        const now = ids(participants);
+        const before = ids(previous);
+        if ([...now].some((id) => !before.has(id))) void playDesktopVoiceSound("userJoined");
+        else if ([...before].some((id) => !now.has(id))) void playDesktopVoiceSound("userLeft");
+    };
+
+    private readonly onScreenShare = (): void => {
+        this.refresh();
+        const sharing = this.call?.screenShare.sharing ?? false;
+        if (sharing !== this.wasSharingScreen) {
+            this.wasSharingScreen = sharing;
+            void playDesktopVoiceSound(sharing ? "screenShareStart" : "screenShareStop");
+        }
     };
 
     private readonly onDeviceMute = (): void => {
         const wasMuted = this.snapshot.current.microphoneMuted;
         this.refresh();
-        const { microphoneMuted, busy } = this.snapshot.current;
+        const { microphoneMuted, busy, videoEnabled } = this.snapshot.current;
+        if (videoEnabled !== this.wasVideoEnabled) {
+            this.wasVideoEnabled = videoEnabled;
+            void playDesktopVoiceSound(videoEnabled ? "cameraOn" : "cameraOff");
+        }
         // Dock actions play their own single cue after success; include changes from the call-stage controls.
         if (!busy && wasMuted !== microphoneMuted) void playDesktopVoiceSound(microphoneMuted ? "mute" : "unmute");
         if (this.call?.deviceMuteState) {
@@ -91,8 +163,14 @@ export class DesktopVoiceControlsViewModel
         if (call !== this.call) {
             if (this.observedCalls) void playDesktopVoiceSound(call ? "join" : "leave");
             this.call?.off(CallEvent.DeviceMute, this.onDeviceMute);
+            this.call?.off(CallEvent.ScreenShare, this.onScreenShare);
+            this.call?.off(CallEvent.Participants, this.onParticipants);
             this.call = call;
+            this.wasVideoEnabled = call?.deviceMuteState?.video_enabled ?? false;
+            this.wasSharingScreen = call?.screenShare.sharing ?? false;
             call?.on(CallEvent.DeviceMute, this.onDeviceMute);
+            call?.on(CallEvent.ScreenShare, this.onScreenShare);
+            call?.on(CallEvent.Participants, this.onParticipants);
             if (call) {
                 void this.perform(async () => {
                     if (this.call !== call || this.isDisposed) return;
@@ -106,20 +184,32 @@ export class DesktopVoiceControlsViewModel
         this.refresh();
     };
 
-    private perform = async (action: () => Promise<void>): Promise<void> => {
-        if (this.snapshot.current.busy) return;
-        this.snapshot.merge({ busy: true, error: undefined });
-        try {
-            await action();
-        } catch (error) {
-            logger.warn("Desktop voice control failed", error);
-            if (!this.isDisposed) this.snapshot.merge({ error: _t("desktop|voice|action_failed") });
-        } finally {
-            if (!this.isDisposed) {
-                this.snapshot.merge({ busy: false });
-                this.refresh();
+    private perform = (
+        action: () => Promise<void>,
+        failure: TranslationKey = _td("desktop|voice|action_failed"),
+    ): Promise<void> => {
+        const run = async (): Promise<void> => {
+            if (this.isDisposed) return;
+            this.snapshot.merge({ busy: true, error: undefined });
+            try {
+                await action();
+            } catch (error) {
+                logger.warn("Desktop voice control failed", error);
+                if (!this.isDisposed) this.snapshot.merge({ error: _t(failure) });
+            } finally {
+                if (!this.isDisposed) {
+                    this.snapshot.merge({ busy: false });
+                    this.refresh();
+                }
             }
-        }
+        };
+        // Native events can arrive while an earlier device update is still awaiting the call host.
+        const result = this.pendingAction ? this.pendingAction.then(run) : run();
+        this.pendingAction = result;
+        void result.then(() => {
+            if (this.pendingAction === result) this.pendingAction = undefined;
+        });
+        return result;
     };
 
     private setMicrophoneMuted = async (muted: boolean): Promise<void> => {
@@ -164,6 +254,16 @@ export class DesktopVoiceControlsViewModel
             void playDesktopVoiceSound(SettingsStore.getValue("desktopDeafened") ? "deafen" : "undeafen");
         });
     };
+    public toggleVideo = async (): Promise<void> => {
+        await this.perform(async () => {
+            await this.call?.setDeviceMute({ video_enabled: !this.snapshot.current.videoEnabled });
+        }, _td("desktop|voice|camera_failed"));
+    };
+    public toggleScreenShare = async (): Promise<void> => {
+        await this.perform(async () => {
+            await this.call?.toggleScreenShare();
+        }, _td("desktop|voice|screen_share_failed"));
+    };
     public disconnect = async (): Promise<void> => {
         await this.perform(async () => {
             await this.call?.disconnect();
@@ -176,8 +276,5 @@ export class DesktopVoiceControlsViewModel
                 room_id: this.call.roomId,
                 metricsTrigger: undefined,
             });
-    };
-    public openAudioSettings = (): void => {
-        defaultDispatcher.dispatch({ action: Action.ViewUserSettings, initialTabId: UserTab.Voice });
     };
 }

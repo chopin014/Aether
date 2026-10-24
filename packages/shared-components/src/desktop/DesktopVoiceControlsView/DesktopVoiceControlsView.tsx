@@ -13,6 +13,8 @@ import {
     HeadphonesOffSolidIcon,
     MicOnIcon,
     MicOffIcon,
+    ShareScreenSolidIcon,
+    VideoCallSolidIcon,
     VolumeOnIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
 
@@ -24,6 +26,12 @@ import styles from "./DesktopVoiceControlsView.module.css";
 export interface DesktopVoiceControlsViewSnapshot {
     microphoneMuted: boolean;
     deafened: boolean;
+    /** Whether our camera is on in the connected call. */
+    videoEnabled: boolean;
+    /** Whether the connected call lets us share our screen. */
+    screenShareAvailable: boolean;
+    /** Whether we are sharing our screen in the connected call. */
+    screenSharing: boolean;
     busy: boolean;
     roomName?: string;
     error?: string;
@@ -32,9 +40,10 @@ export interface DesktopVoiceControlsViewSnapshot {
 export interface DesktopVoiceControlsViewActions {
     toggleMicrophone: () => Promise<void>;
     toggleDeafened: () => Promise<void>;
+    toggleVideo: () => Promise<void>;
+    toggleScreenShare: () => Promise<void>;
     disconnect: () => Promise<void>;
     showCall: () => void;
-    openAudioSettings: () => void;
 }
 /** Presentation contract for the persistent desktop voice controls. */
 export type DesktopVoiceControlsViewModel = ViewModel<
@@ -70,33 +79,60 @@ export function DesktopVoiceControlsView({ vm }: { vm: DesktopVoiceControlsViewM
     );
 }
 
-/** Connection status and hang-up use the actual connected call, including its room name. */
+/**
+ * The connected call above the account row: status and hang-up, then camera and screen sharing, so the
+ * floating call window is only needed to watch a screen share.
+ */
 export function DesktopVoiceConnectionView({ vm }: { vm: DesktopVoiceControlsViewModel }): JSX.Element | null {
-    const { roomName, busy, error } = useViewModel(vm);
+    const { roomName, busy, error, videoEnabled, screenShareAvailable, screenSharing } = useViewModel(vm);
     const { translate: _t } = useI18n();
     if (!roomName && !error) return null;
     return (
         <div className={styles.connection} data-voice-connected={roomName ? true : undefined}>
             {roomName && (
-                <div className={styles.connectionRow}>
-                    <button className={styles.callIdentity} type="button" onClick={vm.showCall}>
-                        <Text className={styles.connectedLabel} size="sm" weight="semibold">
-                            <VolumeOnIcon />
-                            {_t("desktop|voice|connected")}
-                        </Text>
-                        <Text size="xs">{roomName}</Text>
-                    </button>
-                    <IconButton tooltip={_t("desktop|voice|audio_settings")} onClick={vm.openAudioSettings}>
-                        <HeadphonesSolidIcon />
-                    </IconButton>
-                    <IconButton
-                        tooltip={_t("desktop|voice|disconnect")}
-                        disabled={busy}
-                        onClick={() => void vm.disconnect()}
-                    >
-                        <EndCallIcon />
-                    </IconButton>
-                </div>
+                <>
+                    <div className={styles.connectionRow}>
+                        <button className={styles.callIdentity} type="button" onClick={vm.showCall}>
+                            <Text className={styles.connectedLabel} size="sm" weight="semibold">
+                                <VolumeOnIcon />
+                                {_t("desktop|voice|connected")}
+                            </Text>
+                            <Text size="xs">{roomName}</Text>
+                        </button>
+                        <IconButton
+                            className={styles.hangUp}
+                            tooltip={_t("desktop|voice|disconnect")}
+                            disabled={busy}
+                            onClick={() => void vm.disconnect()}
+                        >
+                            <EndCallIcon />
+                        </IconButton>
+                    </div>
+                    <div className={styles.mediaRow}>
+                        <IconButton
+                            tooltip={videoEnabled ? _t("desktop|voice|camera_off") : _t("desktop|voice|camera_on")}
+                            aria-pressed={videoEnabled}
+                            disabled={busy}
+                            onClick={() => void vm.toggleVideo()}
+                        >
+                            <VideoCallSolidIcon />
+                        </IconButton>
+                        {screenShareAvailable && (
+                            <IconButton
+                                tooltip={
+                                    screenSharing
+                                        ? _t("desktop|voice|stop_screen_share")
+                                        : _t("desktop|voice|start_screen_share")
+                                }
+                                aria-pressed={screenSharing}
+                                disabled={busy}
+                                onClick={() => void vm.toggleScreenShare()}
+                            >
+                                <ShareScreenSolidIcon />
+                            </IconButton>
+                        )}
+                    </div>
+                </>
             )}
             {error && (
                 <Text size="sm" role="alert" className={styles.error}>

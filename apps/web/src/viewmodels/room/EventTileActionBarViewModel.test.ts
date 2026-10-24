@@ -651,6 +651,18 @@ describe("EventTileActionBarViewModel", () => {
             expect(vm.getSnapshot().isThreadReplyAllowed).toBe(expectedAllowed);
         });
 
+        it("labels an unused root as Start thread only in the desktop shell", () => {
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((setting) => setting === "feature_desktop_shell");
+            const mxEvent = createMessageEvent();
+            const vm = createVm({ mxEvent });
+            expect(vm.getSnapshot().startsThread).toBe(true);
+            vi.spyOn(mxEvent, "getThread").mockReturnValue({ rootEvent, length: 2 } as never);
+            const existing = createVm({ mxEvent });
+            expect(existing.getSnapshot().startsThread).toBe(false);
+            vi.mocked(SettingsStore.getValue).mockReturnValue(false);
+            expect(createVm({ mxEvent: createMessageEvent() }).getSnapshot().startsThread).toBe(false);
+        });
+
         it("shows thread action for deleted messages with a thread in the room timeline", () => {
             const mxEvent = createMessageEvent();
             vi.mocked(isContentActionable).mockReturnValue(false);

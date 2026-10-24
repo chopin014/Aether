@@ -18,6 +18,7 @@ import {
     type MatrixClient,
     type Room,
     RoomMember,
+    RoomType,
 } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { sanitizeHtml } from "@element-hq/element-web-shared-utils";
@@ -225,6 +226,56 @@ describe("Spotlight Dialog", () => {
     });
 
     describe("should apply filters supplied via props", () => {
+        it.each([false, true])(
+            "should discover public Spaces and preserve View/Join semantics for world_readable=%s",
+            async (worldReadable) => {
+                const space = {
+                    ...testPublicRoom,
+                    room_id: "!space:matrix.org",
+                    name: "Public Matrix community",
+                    room_type: RoomType.Space,
+                    world_readable: worldReadable,
+                };
+                vi.mocked(mockedClient.isVersionSupported).mockResolvedValue(true);
+                vi.mocked(mockedClient.doesServerSupportUnstableFeature).mockResolvedValue(false);
+                vi.mocked(mockedClient.publicRooms).mockResolvedValue({ chunk: [testPublicRoom, space] });
+                vi.mocked(mockedClient.getRoom).mockReturnValue(null);
+                const onFinished = vi.fn();
+                render(<SpotlightDialog initialFilter={Filter.PublicSpaces} onFinished={onFinished} />);
+
+                vi.advanceTimersByTime(200);
+                await flushPromisesWithFakeTimers();
+                await screen.findByText(space.name);
+                expect(screen.getByText("Public spaces")).toBeInTheDocument();
+                expect(screen.queryByText(testPublicRoom.name!)).not.toBeInTheDocument();
+                expect(mockedClient.publicRooms).toHaveBeenCalledWith(
+                    expect.objectContaining({ filter: { generic_search_term: "", room_types: [RoomType.Space] } }),
+                );
+
+                fireEvent.change(screen.getByRole("textbox", { name: "Search" }), { target: { value: "community" } });
+                vi.advanceTimersByTime(200);
+                await flushPromisesWithFakeTimers();
+                await waitFor(() =>
+                    expect(mockedClient.publicRooms).toHaveBeenCalledWith(
+                        expect.objectContaining({
+                            filter: { generic_search_term: "community", room_types: [RoomType.Space] },
+                        }),
+                    ),
+                );
+
+                fireEvent.click(screen.getByRole("button", { name: worldReadable ? "View" : "Join" }));
+                expect(defaultDispatcher.dispatch).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        action: Action.ViewRoom,
+                        room_id: space.room_id,
+                        auto_join: !worldReadable,
+                        should_peek: worldReadable,
+                    }),
+                );
+                expect(onFinished).toHaveBeenCalled();
+            },
+        );
+
         it("without filter", async () => {
             render(<SpotlightDialog onFinished={() => null} />);
 

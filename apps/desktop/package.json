@@ -52,6 +52,7 @@
         "build:aether": "electron-builder --config aether-builder.ts --publish never"
     },
     "dependencies": {
+        "@homebridge/dbus-native": "0.7.9",
         "@matrix-org/seshat": "^6.0.1",
         "@sentry/electron": "^7.0.0",
         "auto-launch": "^5.0.5",
@@ -64,7 +65,8 @@
     },
     "optionalDependencies": {
         "graphene-pk11": "^2.3.6",
-        "pkcs11js": "^2.1.6"
+        "pkcs11js": "^2.1.6",
+        "uiohook-napi": "1.5.4"
     },
     "devDependencies": {
         "@babel/core": "^7.18.10",

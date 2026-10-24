@@ -26,6 +26,7 @@ describe("getBuildConfig", () => {
         vol.fromJSON(
             {
                 "../package.json": JSON.stringify({
+                    desktopName: "test.app.desktop",
                     electron_appId: "app.id",
                     electron_protocol: "proto",
                     electron_windows_cert_sn: "subject.name",
@@ -35,6 +36,7 @@ describe("getBuildConfig", () => {
         );
 
         const config = getBuildConfig();
+        expect(config.desktopName).toBe("test.app.desktop");
         expect(config.appId).toBe("app.id");
         expect(config.protocol).toBe("proto");
         expect(config.windowsCertSubjectName).toBe("subject.name");

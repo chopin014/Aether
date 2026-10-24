@@ -71,6 +71,7 @@ export default {
                 "!scripts/**!",
                 "!src/test/**!",
                 "!recorder-worklet-loader.cjs!",
+                "!microphone-gate-worklet-loader.cjs!",
                 "!src/**/*-{mock,mocks,snapshot,actions}.*!",
             ],
             ignoreDependencies: [

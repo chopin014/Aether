@@ -5,9 +5,11 @@
     "action": {
         "back": "Back",
         "cancel": "Cancel",
+        "clear": "Clear",
         "click": "Select",
         "close": "Close",
         "collapse": "Collapse",
+        "create": "Create",
         "delete": "Delete",
         "dismiss": "Dismiss",
         "download": "Download",
@@ -45,7 +47,8 @@
         "loading": "Loading…",
         "options": "Options",
         "preferences": "Preferences",
-        "state_encryption_enabled": "Experimental state encryption enabled"
+        "state_encryption_enabled": "Experimental state encryption enabled",
+        "threads": "Threads"
     },
     "composer": {
         "url_preview": {
@@ -61,6 +64,35 @@
         }
     },
     "desktop": {
+        "channel_menu": {
+            "copy_link": "Copy link",
+            "create_channel": "Create text channel",
+            "edit_channel": "Edit channel",
+            "edit_topic": "Edit topic",
+            "encrypted": "End-to-end encrypted",
+            "export": "Export chat",
+            "extensions": "Extensions",
+            "favourite": "Favourite",
+            "files": "Files",
+            "history_invited": "History is visible from each person’s invitation",
+            "history_joined": "History is visible from each person’s join",
+            "history_shared": "New members can read earlier messages",
+            "history_world_readable": "Anyone can read the history",
+            "invite": "Invite to channel",
+            "leave": "Leave channel",
+            "mark_read": "Mark as read",
+            "mute": "Mute channel",
+            "not_encrypted": "Not encrypted",
+            "notification_settings": "Notification settings",
+            "notify_all": "All messages",
+            "notify_default": "Default",
+            "notify_mentions": "Only @mentions",
+            "notify_muted": "Muted",
+            "polls": "Polls",
+            "report": "Report channel",
+            "title": "Channel actions",
+            "unmute": "Unmute channel"
+        },
         "contacts": {
             "accept": "Accept",
             "active_now": "Active Now",
@@ -86,16 +118,295 @@
             "unavailable": "Idle",
             "unblock": "Unblock"
         },
+        "keybinds": {
+            "clear_action": "Clear %(action)s keybind",
+            "ptt_hint": "Push to talk uses the same key and release delay as Voice & Video. In push to talk mode, an unassigned key keeps your microphone closed.",
+            "record": "Record keybind",
+            "recording": "Press a key · Esc to cancel",
+            "title": "Keybinds"
+        },
+        "profile": {
+            "copy_link": "Copy link",
+            "ignore": "Ignore",
+            "member_since": "Member since",
+            "mention": "Mention",
+            "message_button": "Message",
+            "message_error": "Could not open the conversation. Try again.",
+            "message_label": "Message %(name)s",
+            "message_placeholder": "Message @%(name)s",
+            "moderate": "Moderate in room info",
+            "more": "More actions",
+            "mutual_error": "Mutual rooms could not be loaded.",
+            "mutual_loading": "Loading mutual rooms…",
+            "mutual_rooms": "Mutual rooms",
+            "mutual_rooms_count": {
+                "one": "%(count)s mutual room",
+                "other": "%(count)s mutual rooms"
+            },
+            "mutual_rooms_empty": "You do not share any rooms.",
+            "mutual_spaces_count": {
+                "one": "%(count)s mutual space",
+                "other": "%(count)s mutual spaces"
+            },
+            "mutual_spaces_empty": "No mutual spaces are known to this client.",
+            "mutual_spaces_note": "Based on the Space members this client has loaded.",
+            "not_verified": "Not verified",
+            "presence_offline": "Offline",
+            "presence_online": "Online",
+            "presence_unavailable": "Away",
+            "roles": "Roles",
+            "section": "Profile of %(name)s",
+            "self_note": "This is your own profile.",
+            "sessions": {
+                "one": "%(count)s session",
+                "other": "%(count)s sessions"
+            },
+            "shared_context": "Shared with this person",
+            "unignore": "Unignore",
+            "verification": "Verification",
+            "verified": "Verified",
+            "verify": "Verify",
+            "view_full": "View full profile of %(name)s",
+            "view_full_menu": "View full profile"
+        },
+        "search": {
+            "box": {
+                "clear": "Clear search",
+                "filters_label": "Search filters",
+                "label": "Search",
+                "placeholder": "Search %(name)s",
+                "remove_filter": "Remove filter %(filter)s"
+            },
+            "clear_recent": "Clear",
+            "date_hint": "Type a date as YYYY-MM-DD",
+            "filter": {
+                "after": {
+                    "hint": "after: YYYY-MM-DD",
+                    "title": "After a date"
+                },
+                "before": {
+                    "hint": "before: YYYY-MM-DD",
+                    "title": "Before a date"
+                },
+                "bot": {
+                    "hint": "bot: true or false",
+                    "title": "Sent by a bot"
+                },
+                "during": {
+                    "hint": "during: YYYY-MM-DD",
+                    "title": "On a specific day"
+                },
+                "from": {
+                    "hint": "from: user",
+                    "title": "From a specific user"
+                },
+                "has": {
+                    "hint": "has: link, file, image, video or sound",
+                    "title": "Includes a specific type of data"
+                },
+                "in": {
+                    "hint": "in: channel",
+                    "title": "Sent in a specific channel"
+                },
+                "mentions": {
+                    "hint": "mentions: user",
+                    "title": "Mentions a specific user"
+                },
+                "more": {
+                    "hint": "dates, pinned, bots",
+                    "title": "More filters"
+                },
+                "pinned": {
+                    "hint": "pinned: true or false",
+                    "title": "Pinned or not"
+                }
+            },
+            "no_matches": "No matches",
+            "results": {
+                "close": "Close search results",
+                "decryption_failed": "Some messages could not be decrypted on this device.",
+                "empty_description": "Nothing matched your search. Try fewer or different filters.",
+                "empty_pending_description": "Search older messages or try fewer filters.",
+                "empty_pending_title": "No matches yet",
+                "empty_title": "No results",
+                "encrypted": "Encrypted rooms aren't searched. Enable message search in Security settings.",
+                "encrypted_action": "Open Security settings",
+                "error": "The search failed. Try again.",
+                "idle": "Type something and press Enter to search.",
+                "jump": "Jump",
+                "jump_to": "Jump to message from %(name)s",
+                "label": "Search results",
+                "load_more": "Load more results",
+                "loading": "Searching…",
+                "loading_more": "Loading more…",
+                "retry": "Try again",
+                "search_older": "Search older messages",
+                "sort_label": "Sort results",
+                "sort_recent": "Newest",
+                "sort_relevance": "Most relevant",
+                "title": {
+                    "one": "%(count)s result",
+                    "other": "%(count)s results"
+                },
+                "title_more": {
+                    "one": "%(count)s+ result",
+                    "other": "%(count)s+ results"
+                }
+            },
+            "section": {
+                "channels": "Channels",
+                "dates": "Dates",
+                "filters": "Filters",
+                "has": "Includes",
+                "members": "Members",
+                "more": "More filters",
+                "recent": "Recent searches",
+                "values": "Suggestions"
+            },
+            "value": {
+                "bot_false": "Messages from people",
+                "bot_true": "Bot messages",
+                "has_file": "Attachment or file",
+                "has_image": "Image",
+                "has_link": "Link",
+                "has_sound": "Sound",
+                "has_video": "Video",
+                "pinned_false": "Not pinned",
+                "pinned_true": "Pinned messages",
+                "today": "Today",
+                "yesterday": "Yesterday"
+            }
+        },
+        "threads": {
+            "create": "Create thread",
+            "create_description": "The starter is posted in this channel. Your first reply starts its thread. Everyone with access to the channel can read it.",
+            "empty_description": "Keep a conversation focused with a thread.",
+            "empty_title": "There are no threads.",
+            "first_reply": "First reply",
+            "load_error": "Threads could not be loaded. Try again.",
+            "load_more": "Load more threads",
+            "no_results": "No matching threads",
+            "open": "Open thread %(title)s",
+            "replies": {
+                "one": "%(count)s reply",
+                "other": "%(count)s replies"
+            },
+            "search": "Search threads",
+            "search_scope": "Search covers loaded threads. Load more to search older conversations.",
+            "send_error": "The thread could not be completed. Your draft is saved. Retry to continue.",
+            "sending": "Sending…",
+            "start": "Start thread",
+            "starter": "Starter message",
+            "starter_sent": "The starter was sent. Retry to send its first reply.",
+            "unread": "Unread"
+        },
+        "topic_dialog": {
+            "edit": "Edit topic",
+            "label": "Topic"
+        },
         "voice": {
-            "audio_settings": "Voice & Video settings",
+            "camera_off": "Turn off camera",
+            "camera_on": "Turn on camera",
             "connected": "Voice Connected",
             "deafen": "Deafen",
             "disconnect": "Disconnect",
             "mute": "Mute",
+            "occupied_for": "People have been here for %(duration)s",
+            "participant_deafened": "%(name)s (deafened)",
+            "participant_muted": "%(name)s (muted)",
+            "participant_muted_and_deafened": "%(name)s (muted and deafened)",
             "participant_speaking": "%(name)s (speaking)",
             "participants": "People in %(roomName)s",
+            "start_screen_share": "Share your screen",
+            "stop_screen_share": "Stop sharing your screen",
             "undeafen": "Undeafen",
             "unmute": "Unmute"
+        },
+        "voice_video": {
+            "advanced_voice": "Show advanced voice settings",
+            "advanced_voice_description": "Automatic gain control and voice channel switch warning",
+            "always_preview": "Always preview video before joining",
+            "always_preview_description": "Open the call lobby with your camera so you can check it before you join a voice channel.",
+            "auto_gain": "Automatic gain control",
+            "auto_gain_description": "Adjusts your microphone volume automatically.",
+            "camera": "Camera",
+            "diagnostics": "Show diagnostic settings",
+            "diagnostics_description": "Debug logs and bug reports that help find audio and video problems.",
+            "echo_cancellation": "Echo cancellation",
+            "echo_cancellation_description": "Removes the sound of other people from your microphone.",
+            "fallback_ice": "Allow fallback call assist server",
+            "fallback_ice_description": "Only applies if your account provider does not offer one. Your IP address would be shared during a call.",
+            "in_call_hint": "Devices and audio processing apply the next time you join a call. Volumes, sensitivity and push to talk apply now.",
+            "input_mode": "Input mode",
+            "input_profile": "Input profile",
+            "mic_level": "Microphone level",
+            "mic_test_denied": "Microphone access was blocked. Allow it in your system settings and try again.",
+            "mic_test_hint": "You can hear yourself while testing. Use headphones to avoid feedback.",
+            "mic_test_start": "Let's check",
+            "mic_test_stop": "Stop testing",
+            "mic_test_unavailable": "No microphone could be opened.",
+            "microphone": "Microphone",
+            "microphone_volume": "Microphone volume",
+            "mirror": "Mirror my video",
+            "mirror_description": "Show your own camera flipped horizontally, like a mirror.",
+            "mode_push_to_talk": "Push to talk",
+            "mode_voice_activity": "Voice activity",
+            "notifications_description": "Turn sounds for new messages and incoming calls on or off.",
+            "notifications_title": "Notifications",
+            "open_help": "Help & About",
+            "peer_to_peer": "Allow peer-to-peer for 1:1 calls",
+            "peer_to_peer_description": "When enabled, the other party might be able to see your IP address.",
+            "permissions_description": "Allow access to your microphone and camera to see and choose your devices.",
+            "permissions_request": "Allow access",
+            "permissions_title": "Choose your devices",
+            "preview_sound": "Preview sound",
+            "preview_sound_for": "Preview sound: %(sound)s",
+            "profile_custom": "Custom",
+            "profile_custom_description": "Advanced mode: give me all the knobs and meters.",
+            "profile_studio": "Studio",
+            "profile_studio_description": "Raw audio: no echo cancellation or automatic gain, and the microphone is always open.",
+            "ptt_clear": "Clear keybind",
+            "ptt_focus_note": "Manage keybinds in Keyboard settings to check whether this shortcut works across applications.",
+            "ptt_needs_key": "Assign a key to speak. Your microphone stays closed until a key is assigned.",
+            "ptt_not_set": "Not set",
+            "ptt_record": "Record keybind",
+            "ptt_recording": "Press a key… (Esc to cancel)",
+            "ptt_release_delay": "Push to talk release delay",
+            "ptt_release_delay_value": "%(ms)s ms",
+            "ptt_shortcut": "Shortcut",
+            "ptt_sound": "Play a sound when push to talk turns on or off",
+            "ptt_stop_recording": "Stop recording",
+            "related_settings": "Related settings",
+            "reset": "Reset",
+            "reset_description": "Return Voice & Video settings to their defaults.",
+            "reset_title": "Reset all Voice & Video settings",
+            "section_advanced": "Advanced",
+            "section_sounds": "Sounds",
+            "section_video": "Video",
+            "section_voice": "Voice",
+            "sensitivity": "Input sensitivity",
+            "sensitivity_auto": "Automatically determine input sensitivity",
+            "sensitivity_description": "Controls how much sound Aether sends from your microphone.",
+            "sensitivity_slider": "Input sensitivity threshold",
+            "sensitivity_value": "%(db)s dB",
+            "sounds_more_description": "%(first)s, %(second)s, %(third)s and more",
+            "sounds_notifications_note": "Looking for notification sounds? You can find them in",
+            "sounds_show_fewer": "Show fewer sounds",
+            "sounds_show_more": {
+                "one": "Show %(count)s more sound",
+                "other": "Show %(count)s more sounds"
+            },
+            "speaker": "Speaker",
+            "speaker_volume": "Speaker volume",
+            "submit_logs": "Submit debug logs",
+            "switch_warning": "Voice channel switch warning",
+            "switch_warning_description": "Ask before leaving your current call to join another.",
+            "video_denied": "Camera access was blocked. Allow it in your system settings and try again.",
+            "video_placeholder": "Your camera preview appears here.",
+            "video_preview": "Camera preview",
+            "video_test_start": "Test video",
+            "video_test_stop": "Stop test",
+            "video_unavailable": "No camera could be opened."
         }
     },
     "devtools": {
@@ -171,6 +482,30 @@
         "zoom": "Zoom",
         "zoom_in": "Zoom in",
         "zoom_out": "Zoom out"
+    },
+    "pinned_messages": {
+        "empty_description": "Pin a message from its menu to keep it handy here.",
+        "empty_title": "No pinned messages yet",
+        "jump": "Jump to message",
+        "load_error": "Some pinned messages could not be loaded. Try again.",
+        "loading": "Loading pinned messages…",
+        "title": "Pinned messages",
+        "unavailable": "This message is unavailable. It may have been removed or you may not have access.",
+        "unpin": "Unpin",
+        "unpin_error": "The message could not be unpinned. Try again."
+    },
+    "presence_controls": {
+        "away": "Away",
+        "disabled": "Presence is disabled in this client’s configuration.",
+        "disabled_short": "Presence disabled",
+        "invisible": "Appear offline",
+        "online": "Online",
+        "retry": "Retry presence update",
+        "saving": "Updating…",
+        "selected_hint": "Your selected status on this device.",
+        "title": "Presence",
+        "unknown": "Status unknown",
+        "unknown_hint": "Your selected status; server status unavailable."
     },
     "release_announcement": {
         "room_list_section_close": "Ok",
@@ -268,6 +603,7 @@
         "list_title": "Room list",
         "more_options": {
             "copy_link": "Copy link",
+            "edit_channel": "Edit channel",
             "favourited": "Favourited",
             "leave_room": "Leave room",
             "low_priority": "Low priority",
@@ -289,6 +625,8 @@
             "label": "Section name"
         },
         "section_header": {
+            "create_text_channel": "Create text channel",
+            "create_voice_channel": "Create voice channel",
             "edit_section": "Edit section",
             "more_options": "More options",
             "remove_section": "Remove section",
@@ -324,7 +662,9 @@
         "tac_button": "Review terms and conditions"
     },
     "threads": {
-        "error_start_thread_existing_relation": "You can't start a thread from this message."
+        "all_threads": "All threads",
+        "error_start_thread_existing_relation": "You can't start a thread from this message.",
+        "my_threads": "My threads"
     },
     "time": {
         "about_day_ago": "about a day ago",
@@ -434,6 +774,7 @@
         }
     },
     "user_menu": {
+        "edit_profile": "Edit profile",
         "link_new_device": "Link new device",
         "open_feedback": "Feedback",
         "open_home": "Home",

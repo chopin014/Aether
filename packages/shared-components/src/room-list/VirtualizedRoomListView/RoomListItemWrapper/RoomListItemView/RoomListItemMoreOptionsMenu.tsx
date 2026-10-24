@@ -19,11 +19,13 @@ import {
     ArrowRightIcon,
     CheckIcon,
     MinusIcon,
+    EditIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { _t } from "../../../../core/i18n/i18n";
 import { useViewModel, type ViewModel } from "../../../../core/viewmodel";
 import type { RoomListItemViewSnapshot, RoomListItemViewActions } from "./RoomListItemView";
+import { ChannelMenuContent } from "../../../../desktop/ChannelMenuView";
 import styles from "./RoomListItemMoreOptionsMenu.module.css";
 
 /**
@@ -75,8 +77,14 @@ interface MoreOptionContentProps {
 
 export function MoreOptionContent({ vm }: MoreOptionContentProps): JSX.Element {
     const snapshot = useViewModel(vm);
+    // A desktop channel offers the same menu as the header, rather than Element's room options.
+    const channelMenu = useMemo(
+        () => (snapshot.channelKind ? vm.getChannelMenu?.() : undefined),
+        [snapshot.channelKind, vm],
+    );
     const hasSections = snapshot.sections.length > 0;
     const isInSection = useMemo(() => snapshot.sections.some((section) => section.isSelected), [snapshot.sections]);
+    if (channelMenu) return <ChannelMenuContent vm={channelMenu} />;
     return (
         <div onKeyDown={(e) => e.stopPropagation()}>
             {snapshot.canMarkAsRead && (
@@ -118,6 +126,15 @@ export function MoreOptionContent({ vm }: MoreOptionContentProps): JSX.Element {
                 </>
             )}
             <Separator />
+            {snapshot.canEditChannel && vm.onEditChannel && (
+                <MenuItem
+                    Icon={EditIcon}
+                    label={_t("room_list|more_options|edit_channel")}
+                    onSelect={vm.onEditChannel}
+                    onClick={(evt) => evt.stopPropagation()}
+                    hideChevron={true}
+                />
+            )}
             {snapshot.canInvite && (
                 <MenuItem
                     Icon={UserAddIcon}

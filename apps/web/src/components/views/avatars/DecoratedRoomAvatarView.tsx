@@ -40,8 +40,8 @@ export const DecoratedRoomAvatarView = memo(function DecoratedRoomAvatarView({
     // No decoration, we just show the avatar
     if (!vm.badgeDecoration) return <RoomAvatar size="32px" room={room} />;
 
-    const icon = getAvatarDecoration(vm.badgeDecoration, vm.presence);
-    const label = getDecorationLabel(vm.badgeDecoration, vm.presence);
+    const icon = getAvatarDecoration(vm.badgeDecoration, vm.presence, vm.presenceLabel);
+    const label = getDecorationLabel(vm.badgeDecoration, vm.presence, vm.presenceLabel);
 
     // Presence indicator and video/public icons don't have the same size
     // We use different masks
@@ -61,7 +61,7 @@ export const DecoratedRoomAvatarView = memo(function DecoratedRoomAvatarView({
 /**
  * Get the decoration for the avatar based on the presence.
  */
-function getPresenceDecoration(presence: Presence): JSX.Element {
+function getPresenceDecoration(presence: Presence, labelOverride?: string): JSX.Element {
     switch (presence) {
         case Presence.Online:
             return (
@@ -70,7 +70,7 @@ function getPresenceDecoration(presence: Presence): JSX.Element {
                     height="8px"
                     className="mx_RoomAvatarView_PresenceDecoration"
                     color="var(--cpd-color-icon-accent-primary)"
-                    aria-label={getPresenceLabel(presence)}
+                    aria-label={labelOverride ?? getPresenceLabel(presence)}
                 />
             );
         case Presence.Away:
@@ -80,7 +80,7 @@ function getPresenceDecoration(presence: Presence): JSX.Element {
                     height="8px"
                     className="mx_RoomAvatarView_PresenceDecoration"
                     color="var(--cpd-color-icon-quaternary)"
-                    aria-label={getPresenceLabel(presence)}
+                    aria-label={labelOverride ?? getPresenceLabel(presence)}
                 />
             );
         case Presence.Offline:
@@ -90,7 +90,7 @@ function getPresenceDecoration(presence: Presence): JSX.Element {
                     height="8px"
                     className="mx_RoomAvatarView_PresenceDecoration"
                     color="var(--cpd-color-icon-tertiary)"
-                    aria-label={getPresenceLabel(presence)}
+                    aria-label={labelOverride ?? getPresenceLabel(presence)}
                 />
             );
         case Presence.Busy:
@@ -100,13 +100,17 @@ function getPresenceDecoration(presence: Presence): JSX.Element {
                     height="8px"
                     className="mx_RoomAvatarView_PresenceDecoration"
                     color="var(--cpd-color-icon-tertiary)"
-                    aria-label={getPresenceLabel(presence)}
+                    aria-label={labelOverride ?? getPresenceLabel(presence)}
                 />
             );
     }
 }
 
-function getAvatarDecoration(decoration: AvatarBadgeDecoration, presence: Presence | null): React.ReactNode {
+function getAvatarDecoration(
+    decoration: AvatarBadgeDecoration,
+    presence: Presence | null,
+    presenceLabel?: string,
+): React.ReactNode {
     if (decoration === AvatarBadgeDecoration.LowPriority) {
         return (
             <ArrowDownIcon
@@ -114,7 +118,7 @@ function getAvatarDecoration(decoration: AvatarBadgeDecoration, presence: Presen
                 height="16px"
                 className="mx_RoomAvatarView_icon"
                 color="var(--cpd-color-icon-tertiary)"
-                aria-label={getDecorationLabel(decoration, presence)}
+                aria-label={getDecorationLabel(decoration, presence, presenceLabel)}
             />
         );
     } else if (decoration === AvatarBadgeDecoration.VideoRoom) {
@@ -124,7 +128,7 @@ function getAvatarDecoration(decoration: AvatarBadgeDecoration, presence: Presen
                 height="16px"
                 className="mx_RoomAvatarView_icon"
                 color="var(--cpd-color-icon-tertiary)"
-                aria-label={getDecorationLabel(decoration, presence)}
+                aria-label={getDecorationLabel(decoration, presence, presenceLabel)}
             />
         );
     } else if (decoration === AvatarBadgeDecoration.PublicRoom) {
@@ -134,11 +138,11 @@ function getAvatarDecoration(decoration: AvatarBadgeDecoration, presence: Presen
                 height="16px"
                 className="mx_RoomAvatarView_icon"
                 color="var(--cpd-color-icon-info-primary)"
-                aria-label={getDecorationLabel(decoration, presence)}
+                aria-label={getDecorationLabel(decoration, presence, presenceLabel)}
             />
         );
     } else if (decoration === AvatarBadgeDecoration.Presence) {
-        return getPresenceDecoration(presence!);
+        return getPresenceDecoration(presence!, presenceLabel);
     }
 }
 
@@ -146,7 +150,11 @@ function getAvatarDecoration(decoration: AvatarBadgeDecoration, presence: Presen
  * Get the label for the avatar decoration.
  * This is used for the tooltip and a11y label.
  */
-function getDecorationLabel(decoration: AvatarBadgeDecoration, presence: Presence | null): string | undefined {
+function getDecorationLabel(
+    decoration: AvatarBadgeDecoration,
+    presence: Presence | null,
+    presenceLabel?: string,
+): string | undefined {
     switch (decoration) {
         case AvatarBadgeDecoration.LowPriority:
             return _t("room|room_is_low_priority");
@@ -155,7 +163,7 @@ function getDecorationLabel(decoration: AvatarBadgeDecoration, presence: Presenc
         case AvatarBadgeDecoration.PublicRoom:
             return _t("room|header|room_is_public");
         case AvatarBadgeDecoration.Presence:
-            return getPresenceLabel(presence!);
+            return presenceLabel ?? getPresenceLabel(presence!);
     }
 }
 

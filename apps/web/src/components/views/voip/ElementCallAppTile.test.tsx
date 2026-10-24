@@ -11,7 +11,7 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, cleanup, waitFor } from "test-utils-rtl";
 import userEvent from "@testing-library/user-event";
-import { type Room, RoomEvent } from "matrix-js-sdk/src/matrix";
+import { type Room, RoomEvent, RoomType } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import {
     enableCalls,
@@ -22,13 +22,14 @@ import {
     TestSDKContext,
 } from "test-utils";
 
-import { ElementCall } from "../../../models/Call";
+import { type Call, ElementCall } from "../../../models/Call";
 import { CallStore } from "../../../stores/CallStore";
 import ActiveWidgetStore from "../../../stores/ActiveWidgetStore";
 import PersistedElement from "../elements/PersistedElement";
 import dis from "../../../dispatcher/dispatcher";
 import { Action } from "../../../dispatcher/actions";
 import { ElementCallAppTile } from "./ElementCallAppTile";
+import { ElementWebHostBridge } from "./ElementWebHostBridge";
 import { ElementCallAppTileViewModel } from "../../../viewmodels/room/ElementCallAppTileViewModel";
 
 const { enabledSettings } = enableCalls();
@@ -181,6 +182,39 @@ describe("ElementCallAppTile", () => {
         await act(() => new Promise((r) => setTimeout(r, 10)));
         expect(destroyElement).not.toHaveBeenCalled();
         ActiveWidgetStore.instance.destroyPersistentWidget(call.widget.id, room.roomId);
+    });
+
+    it("keeps a joined call room alive when navigation precedes the separate persistence request", async () => {
+        vi.spyOn(room, "getType").mockReturnValue(RoomType.UnstableCall);
+        await renderTile();
+        await screen.findByText("Element Call (mock)");
+        const destroyElement = vi.spyOn(PersistedElement, "destroyElement");
+        const bridge = new ElementWebHostBridge(call, {
+            widgetId: call.widget.id,
+            widgetRoomId: room.roomId,
+        });
+        const previousHangup = Promise.withResolvers<void>();
+        const connectedCalls = vi
+            .spyOn(CallStore.instance, "connectedCalls", "get")
+            .mockReturnValue(new Set([call, { disconnect: () => previousHangup.promise } as Call]));
+        const persistence = bridge.setAlwaysOnScreen(true);
+        try {
+            await act(() => bridge.notifyJoined());
+            expect(call.connected).toBe(true);
+
+            // Navigation removes the tile while the previous call's hangup delays persistence.
+            viewedRoomId = null;
+            cleanup();
+            await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+
+            expect(destroyElement).not.toHaveBeenCalled();
+            expect(call.connected).toBe(true);
+        } finally {
+            previousHangup.resolve();
+            await act(() => persistence);
+            connectedCalls.mockRestore();
+            await act(() => bridge.close());
+        }
     });
 
     it("connects the call when the component reports joined, and becomes persistent when asked", async () => {

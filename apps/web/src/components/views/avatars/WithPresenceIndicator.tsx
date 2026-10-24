@@ -10,16 +10,21 @@ import React, { type JSX, type ReactNode, useEffect, useState } from "react";
 import {
     ClientEvent,
     type Room,
+    type MatrixEvent,
     type RoomMember,
     RoomStateEvent,
     type User,
     UserEvent,
 } from "matrix-js-sdk/src/matrix";
 
+import { getKnownPresence } from "../../../utils/knownPresence";
 import { isPresenceEnabled } from "../../../utils/presence";
 import DMRoomMap from "../../../utils/DMRoomMap";
 import { getJoinedNonFunctionalMembers } from "../../../utils/room/getJoinedNonFunctionalMembers";
 import { useEventEmitter } from "../../../hooks/useEventEmitter";
+import { useFeatureEnabled } from "../../../hooks/useSettings";
+import { useMergedPresence } from "../../../presence/useMergedPresence";
+import { type MergedPresenceState } from "../../../presence/mergedPresence";
 import { BUSY_PRESENCE_NAME } from "../rooms/PresenceLabel";
 import AvatarPresenceIconView from "../rooms/MemberList/tiles/common/PresenceIconView";
 
@@ -60,8 +65,9 @@ export const useDmMember = (room?: Room): RoomMember | null => {
 function getPresenceFromUser(user: User | null | undefined): Presence | null {
     if (!user) return null;
 
-    const presence = user.presence;
-    const isOnline = user.currentlyActive || presence === "online";
+    const presence = getKnownPresence(user);
+    if (!presence) return null;
+    const isOnline = presence === "online";
     if (BUSY_PRESENCE_NAME.matches(presence)) {
         return Presence.Busy;
     }
@@ -84,17 +90,23 @@ function getPresence(room: Room, member: RoomMember | null): Presence | null {
     return getPresenceFromUser(user);
 }
 
-export const usePresence = (room: Room, member: RoomMember | null): Presence | null => {
+const useServerPresence = (room: Room, member: RoomMember | null): Presence | null => {
     const [presence, setPresence] = useState<Presence | null>(getPresence(room, member));
     const updatePresence = (): void => {
         setPresence(getPresence(room, member));
     };
 
     useEventEmitter(member?.user, UserEvent.Presence, updatePresence);
-    useEventEmitter(member?.user, UserEvent.CurrentlyActive, updatePresence);
+    useEventEmitter(member?.user, UserEvent.LastPresenceTs, updatePresence);
     // Also listen at client level to catch presence events when member.user is not yet linked
     useEventEmitter(room.client, UserEvent.Presence, (_event: unknown, user: User) => {
         if (user?.userId === member?.userId) updatePresence();
+    });
+    useEventEmitter(room.client, UserEvent.LastPresenceTs, (_event: unknown, user: User) => {
+        if (user?.userId === member?.userId) updatePresence();
+    });
+    useEventEmitter(room.client, ClientEvent.Event, (event: MatrixEvent) => {
+        if (event.getType() === "m.presence" && event.getSender() === member?.userId) updatePresence();
     });
     useEffect(updatePresence, [room, member]);
 
@@ -102,13 +114,40 @@ export const usePresence = (room: Room, member: RoomMember | null): Presence | n
     return presence;
 };
 
+const PRESENCE_BY_STATE: Record<MergedPresenceState, Presence> = {
+    online: Presence.Online,
+    unavailable: Presence.Away,
+    busy: Presence.Busy,
+    offline: Presence.Offline,
+};
+
+/** A DM partner's status together with wording for it, when the standard name would overstate what is known. */
+export interface PresenceDetails {
+    presence: Presence | null;
+    /** Overrides the standard tooltip and accessible name, e.g. "Active 12m ago" for seen activity. */
+    label?: string;
+}
+
+/**
+ * The status to show for the other person in a DM. With the desktop shell this also uses Aether signals and seen
+ * activity, even where the config disables server presence; otherwise it is the server's presence only.
+ */
+export const usePresenceDetails = (room: Room, member: RoomMember | null): PresenceDetails => {
+    const desktopShell = useFeatureEnabled("feature_desktop_shell");
+    const serverPresence = useServerPresence(room, member);
+    const merged = useMergedPresence(member?.userId);
+    if (!desktopShell) return { presence: serverPresence };
+    if (getJoinedNonFunctionalMembers(room).length !== 2 || !merged) return { presence: null };
+    return { presence: PRESENCE_BY_STATE[merged.state], label: merged.label };
+};
+
 const WithPresenceIndicator: React.FC<Props> = ({ room, children }) => {
     const dmMember = useDmMember(room);
-    const presence = usePresence(room, dmMember);
+    const { presence, label } = usePresenceDetails(room, dmMember);
 
     let icon: JSX.Element | undefined;
     if (presence) {
-        icon = <AvatarPresenceIconView presenceState={presence} />;
+        icon = <AvatarPresenceIconView presenceState={presence} label={label} />;
     }
 
     if (!presence) return <>{children}</>;

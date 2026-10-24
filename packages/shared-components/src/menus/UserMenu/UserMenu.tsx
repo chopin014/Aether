@@ -10,11 +10,15 @@ import { Avatar, Button, Link, Menu, MenuItem, Separator, Text } from "@vector-i
 import {
     ChatProblemIcon,
     DevicesIcon,
+    EditIcon,
     HomeIcon,
     LockIcon,
     SettingsIcon,
+    UserProfileIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
 import classNames from "classnames";
+
+import { PresenceMenuView, PresenceSummaryView, type PresenceViewModel } from "../../presence/PresenceMenuView";
 
 import styles from "./UserMenu.module.css";
 import { useViewModel, type ViewModel } from "../../core/viewmodel";
@@ -27,6 +31,8 @@ export interface UserMenuViewSnapshot {
      * Is the menu open or closed.
      */
     open: boolean;
+    /** Presence controls for authenticated accounts, independent of the custom status text. */
+    presence?: PresenceViewModel;
     /**
      * Is the menu toggle expanded (avatar + displayname) or collapsed (avatar).
      */
@@ -65,6 +71,7 @@ export interface UserMenuViewSnapshot {
      * A set of actions that the user can perform from the menu.
      */
     actions: Partial<{
+        editProfile: boolean;
         createAccount: boolean;
         signIn: boolean;
         openHomePage: boolean;
@@ -80,6 +87,10 @@ export declare interface UserMenuViewActions {
      * Called when the menu is opened or closed.
      */
     setOpen: (open: boolean) => void;
+    /**
+     * Called to change the user's avatar and display name.
+     */
+    editProfile: () => void;
     /**
      * Called to open the create new account view.
      */
@@ -131,6 +142,7 @@ export function UserMenuView({ vm, className, presentation = "rail" }: UserMenuV
         avatarUrl,
         expanded,
         open,
+        presence,
         actions,
         showAvatar,
         userStatus,
@@ -159,15 +171,27 @@ export function UserMenuView({ vm, className, presentation = "rail" }: UserMenuV
                         {userStatus.emoji}
                     </Text>
                 )}
+                {isDock && presence && <PresenceSummaryView vm={presence} compact />}
             </div>
             {isDock && (
                 <span className={styles.identity}>
                     <Text as="span" size="sm" weight="semibold">
                         {displayName}
                     </Text>
-                    <Text as="span" size="xs" className={styles.matrixId}>
-                        {userId}
-                    </Text>
+                    {presence ? (
+                        <span className={styles.secondaryLine}>
+                            <span className={styles.dockStatus}>
+                                <PresenceSummaryView vm={presence} />
+                            </span>
+                            <Text as="span" size="xs" className={styles.dockMatrixId}>
+                                {userId}
+                            </Text>
+                        </span>
+                    ) : (
+                        <Text as="span" size="xs" className={styles.matrixId}>
+                            {userId}
+                        </Text>
+                    )}
                 </span>
             )}
         </button>
@@ -188,7 +212,23 @@ export function UserMenuView({ vm, className, presentation = "rail" }: UserMenuV
                 className={styles.container}
             >
                 <section className={classNames(styles.profile, styles.profilePrimary)}>
-                    {showAvatar && <Avatar id={userId} name={displayName} type="round" size="64px" src={avatarUrl} />}
+                    {showAvatar &&
+                        (actions.editProfile ? (
+                            // Clicking your own picture is the quickest way to change it, as in Discord
+                            <button
+                                type="button"
+                                className={styles.editableAvatar}
+                                aria-label={_t("user_menu|edit_profile")}
+                                onClick={vm.editProfile}
+                            >
+                                <Avatar id={userId} name={displayName} type="round" size="64px" src={avatarUrl} />
+                                <span className={styles.editableAvatarBadge} aria-hidden="true">
+                                    <EditIcon />
+                                </span>
+                            </button>
+                        ) : (
+                            <Avatar id={userId} name={displayName} type="round" size="64px" src={avatarUrl} />
+                        ))}
                     <Text
                         className={classNames(styles.displayname, styles.constrainedText)}
                         type="body"
@@ -230,8 +270,21 @@ export function UserMenuView({ vm, className, presentation = "rail" }: UserMenuV
                         </Text>
                     )}
                 </section>
+                {presence && (
+                    <>
+                        <Separator />
+                        <PresenceMenuView vm={presence} />
+                    </>
+                )}
                 <Separator />
                 <section className={styles.actions}>
+                    {actions.editProfile && (
+                        <MenuItem
+                            Icon={UserProfileIcon}
+                            label={_t("user_menu|edit_profile")}
+                            onSelect={vm.editProfile}
+                        />
+                    )}
                     {actions.openHomePage && (
                         <MenuItem Icon={HomeIcon} label={_t("user_menu|open_home")} onSelect={vm.openHomePage} />
                     )}

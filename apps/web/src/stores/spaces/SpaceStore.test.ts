@@ -8,7 +8,7 @@ Please see LICENSE files in the repository root for full details.
 
 // @vitest-environment happy-dom
 
-import { vi, describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
+import { vi, describe, it, expect, beforeAll, beforeEach, afterEach, type MockInstance } from "vitest";
 import { type EventEmitter } from "node:events";
 import {
     EventType,
@@ -1082,6 +1082,42 @@ describe("SpaceStore", () => {
             viewRoom(room1);
             store.setActiveSpace(space2);
             expect(getCurrentRoom()).toBe(space2);
+        });
+
+        describe("in the desktop shell", () => {
+            let getValue: MockInstance<typeof SettingsStore.getValue>;
+            beforeEach(() => {
+                const original = SettingsStore.getValue.bind(SettingsStore);
+                getValue = vi
+                    .spyOn(SettingsStore, "getValue")
+                    .mockImplementation((name, ...args) =>
+                        name === "feature_desktop_shell" ? true : original(name, ...args),
+                    );
+            });
+            afterEach(() => getValue.mockRestore());
+
+            it("opens the first text channel of a space without a last viewed room", async () => {
+                store.setActiveSpace(space1);
+                viewRoom(room1);
+                store.setActiveSpace(space2);
+                expect(getCurrentRoom()).toBe(room2);
+            });
+
+            it("opens the first text channel when the last viewed room left the space", async () => {
+                store.setActiveSpace(space1);
+                viewRoom(room1);
+                localStorage.setItem(`mx_space_context_${space2}`, room1);
+                store.setActiveSpace(space2);
+                expect(getCurrentRoom()).toBe(room2);
+            });
+
+            it("skips voice channels and shows the space home when there is no text channel", async () => {
+                vi.spyOn(client.getRoom(room2)!, "isCallRoom").mockReturnValue(true);
+                store.setActiveSpace(space1);
+                viewRoom(room1);
+                store.setActiveSpace(space2);
+                expect(getCurrentRoom()).toBe(space2);
+            });
         });
 
         it("no last viewed room in home space", async () => {

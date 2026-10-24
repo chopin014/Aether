@@ -63,6 +63,8 @@ import { LegacyCallHandlerEvent } from "../../LegacyCallHandler";
 import defaultDispatcher from "../../dispatcher/dispatcher";
 import * as Rooms from "../../Rooms";
 import MainSplit from "./MainSplit";
+import { DesktopSearchResultsHost } from "../views/desktop/DesktopSearchResultsHost";
+import { DESKTOP_SEARCH_UPDATE, DesktopMessageSearchStore } from "../../stores/DesktopMessageSearchStore";
 import RightPanel from "./RightPanel";
 import RoomScrollStateStore, { type ScrollState } from "../../stores/RoomScrollStateStore";
 import WidgetEchoStore from "../../stores/WidgetEchoStore";
@@ -207,6 +209,8 @@ interface IRoomProps extends RoomViewProps {
 }
 
 export interface IRoomState {
+    /** Active desktop search ID, so opening or closing results updates the split. */
+    desktopSearchId?: number | null;
     room?: Room;
     roomId?: string;
     roomAlias?: string;
@@ -237,6 +241,7 @@ export interface IRoomState {
     showApps: boolean;
     isPeeking: boolean;
     showRightPanel: boolean;
+    rightPanelPhase?: RightPanelPhases | null;
     // error object, as from the matrix client/server API
     // If we failed to load information about the room,
     // store the error here.
@@ -469,6 +474,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
 
         const llMembers = context.client.hasLazyLoadMembersEnabled();
         this.state = {
+            desktopSearchId: DesktopMessageSearchStore.instance.active?.id ?? null,
             roomId: undefined,
             roomLoading: true,
             peekAndSummaryLoading: false,
@@ -674,7 +680,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             newState.showRightPanel = false;
         }
 
-        const initialEventId = this.roomViewStore.getInitialEventId() ?? this.state.initialEventId;
+        // A cleared target means return to the live timeline; retaining the old ID reopens that permalink.
+        const initialEventId = this.roomViewStore.getInitialEventId();
         if (initialEventId) {
             let initialEvent = room?.findEventById(initialEventId);
             // The event does not exist in the current sync data
@@ -993,6 +1000,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         this.roomViewStore.on(UPDATE_EVENT, this.onRoomViewStoreUpdate);
 
         this.context.rightPanelStore.on(UPDATE_EVENT, this.onRightPanelStoreUpdate);
+        DesktopMessageSearchStore.instance.on(DESKTOP_SEARCH_UPDATE, this.onDesktopSearchUpdate);
 
         WidgetEchoStore.on(UPDATE_EVENT, this.onWidgetEchoStoreUpdate);
         this.context.widgetStore.on(UPDATE_EVENT, this.onWidgetStoreUpdate);
@@ -1108,6 +1116,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         this.roomViewStore.off(UPDATE_EVENT, this.onRoomViewStoreUpdate);
 
         this.context.rightPanelStore.off(UPDATE_EVENT, this.onRightPanelStoreUpdate);
+        DesktopMessageSearchStore.instance.off(DESKTOP_SEARCH_UPDATE, this.onDesktopSearchUpdate);
         WidgetEchoStore.removeListener(UPDATE_EVENT, this.onWidgetEchoStoreUpdate);
         this.context.widgetStore.removeListener(UPDATE_EVENT, this.onWidgetStoreUpdate);
 
@@ -1143,6 +1152,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         const { roomId } = this.state;
         this.setState({
             showRightPanel: roomId ? this.context.rightPanelStore.isOpenForRoom(roomId) : false,
+            rightPanelPhase: roomId ? this.context.rightPanelStore.currentCardForRoom(roomId).phase : null,
         });
     };
 
@@ -1344,6 +1354,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 }
                 break;
             case Action.ViewUser:
+                // The desktop shell shows people in an anchored profile card instead of the right panel.
+                if (payload.member && SettingsStore.getValue("feature_desktop_shell")) break;
                 if (payload.member) {
                     if (payload.push) {
                         this.context.rightPanelStore.pushCard({
@@ -1365,11 +1377,17 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 onView3pidInvite(payload, this.context.rightPanelStore);
                 break;
             case Action.FocusMessageSearch:
+                // The desktop shell's header search box handles this action itself.
+                if (SettingsStore.getValue("feature_desktop_shell")) break;
                 if ((payload as FocusMessageSearchPayload).initialText) {
                     this.onSearch(payload.initialText);
                 }
                 break;
         }
+    };
+
+    private onDesktopSearchUpdate = (): void => {
+        this.setState({ desktopSearchId: DesktopMessageSearchStore.instance.active?.id ?? null });
     };
 
     private onLocalRoomEvent(roomId: string): void {
@@ -2515,9 +2533,11 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             </AuxPanel>
         );
 
-        const pinnedMessageBanner = !this.props.hidePinnedMessageBanner && (
-            <PinnedMessageBanner room={this.state.room} permalinkCreator={this.permalinkCreator} />
-        );
+        // Desktop pins are available on demand through the header's pinned messages panel.
+        const pinnedMessageBanner = !SettingsStore.getValue("feature_desktop_shell") &&
+            !this.props.hidePinnedMessageBanner && (
+                <PinnedMessageBanner room={this.state.room} permalinkCreator={this.permalinkCreator} />
+            );
 
         let messageComposer;
         const showComposer =
@@ -2640,7 +2660,13 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         const showRightPanel =
             !this.props.hideRightPanel && !isRoomEncryptionLoading && this.state.room && this.state.showRightPanel;
 
-        const rightPanel = showRightPanel ? (
+        // The desktop shell shows its message search results in the right column, replacing the panel until closed.
+        const desktopShell = SettingsStore.getValue("feature_desktop_shell");
+        const desktopSearch = desktopShell ? DesktopMessageSearchStore.instance.active : null;
+
+        const rightPanel = desktopSearch ? (
+            <DesktopSearchResultsHost />
+        ) : showRightPanel ? (
             <RightPanel
                 room={this.state.room}
                 resizeNotifier={this.context.resizeNotifier}
@@ -2746,6 +2772,22 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             minSize = 240;
         }
 
+        if (
+            SettingsStore.getValue("feature_desktop_shell") &&
+            this.context.rightPanelStore.currentCardForRoom(this.state.room.roomId).phase ===
+                RightPanelPhases.ThreadView
+        ) {
+            sizeKey = "desktop_thread";
+            defaultSize = 420;
+            minSize = 320;
+        }
+
+        if (desktopSearch) {
+            sizeKey = "desktop_search";
+            defaultSize = 420;
+            minSize = 320;
+        }
+
         const extraButtons: JSX.Element[] = [];
         for (const cb of ModuleApi.instance.extras.roomHeaderButtonsCallbacks) {
             const b = cb(this.state.room.roomId);
@@ -2765,6 +2807,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                         <EffectsOverlay roomWidth={this.roomView.current.offsetWidth} />
                     )}
                     <ErrorBoundary>
+                        {desktopShell && !this.props.hideHeader && (
+                            <RoomHeader room={this.state.room} extraButtons={<>{extraButtons}</>} />
+                        )}
                         <MainSplit
                             panel={rightPanel}
                             sizeKey={sizeKey}
@@ -2777,7 +2822,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                                 ref={this.roomViewBody}
                                 data-layout={this.state.layout}
                             >
-                                {!this.props.hideHeader && (
+                                {!desktopShell && !this.props.hideHeader && (
                                     <RoomHeader room={this.state.room} extraButtons={<>{extraButtons}</>} />
                                 )}
                                 {mainSplitBody}

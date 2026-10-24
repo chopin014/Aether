@@ -6,12 +6,27 @@
         "delete": "Excluir",
         "dismiss": "Dispensar",
         "explore_rooms": "Explorar salas",
+        "invite": "Convidar",
+        "new_room": "Nova sala",
+        "new_voice_room": "Nova sala de voz",
         "pause": "Pausar",
         "play": "Reproduzir",
-        "search": "Buscar"
+        "search": "Buscar",
+        "create": "Criar"
+    },
+    "common": {
+        "preferences": "Preferências",
+        "threads": "Tópicos"
     },
     "left_panel": {
         "open_dial_pad": "Abrir o teclado de discagem"
+    },
+    "room_list": {
+        "open_space_menu": "Abrir menu do espaço",
+        "space_menu": {
+            "home": "Página inicial do espaço",
+            "space_settings": "Configurações do espaço"
+        }
     },
     "time": {
         "about_day_ago": "há aproximadamente um dia",
@@ -35,5 +50,320 @@
             "error_downloading_audio": "Erro ao baixar o áudio",
             "unnamed_audio": "Áudio sem nome"
         }
+    },
+    "presence_controls": {
+        "title": "Presença",
+        "online": "Disponível",
+        "away": "Ausente",
+        "offline": "Offline",
+        "automatic": "Disponível (automático)",
+        "invisible": "Invisível",
+        "unknown": "Status desconhecido",
+        "disabled_short": "Presença desativada",
+        "disabled": "A presença está desativada na configuração deste cliente.",
+        "server_hint": "Disponível muda para Ausente após 3 minutos de inatividade. Seu servidor pode não fornecer presença; outros dispositivos podem afetar o status informado.",
+        "requested": "Solicitado: %(status)s",
+        "saving": "Atualizando…",
+        "retry": "Tentar atualizar presença novamente",
+        "unknown_hint": "Seu status selecionado; status do servidor indisponível.",
+        "selected_hint": "Seu status selecionado neste dispositivo."
+    },
+    "desktop": {
+        "threads": {
+            "search": "Buscar tópicos",
+            "load_error": "Não foi possível carregar os tópicos. Tente novamente.",
+            "no_results": "Nenhum tópico encontrado",
+            "empty_title": "Não há tópicos.",
+            "empty_description": "Mantenha o foco em uma conversa com um tópico.",
+            "search_scope": "A busca inclui os tópicos carregados. Carregue mais para buscar conversas antigas.",
+            "create": "Criar tópico",
+            "replies": {
+                "one": "%(count)s resposta",
+                "other": "%(count)s respostas"
+            },
+            "load_more": "Carregar mais tópicos",
+            "create_description": "A mensagem inicial será publicada neste canal. Sua primeira resposta inicia o tópico. Todos com acesso ao canal podem lê-lo.",
+            "starter": "Mensagem inicial",
+            "first_reply": "Primeira resposta",
+            "starter_sent": "A mensagem inicial foi enviada. Tente novamente para enviar a primeira resposta.",
+            "send_error": "Não foi possível concluir o tópico. Seu rascunho foi salvo. Tente novamente para continuar.",
+            "sending": "Enviando…",
+            "unread": "Não lido",
+            "start": "Iniciar tópico",
+            "open": "Abrir tópico %(title)s"
+        },
+        "profile": {
+            "copy_link": "Copiar link",
+            "ignore": "Ignorar",
+            "unignore": "Deixar de ignorar",
+            "member_since": "Membro desde",
+            "mention": "Mencionar",
+            "message_button": "Mensagem",
+            "message_error": "Não foi possível abrir a conversa. Tente novamente.",
+            "message_label": "Mensagem para %(name)s",
+            "message_placeholder": "Conversar com @%(name)s",
+            "moderate": "Moderar nas informações da sala",
+            "more": "Mais ações",
+            "mutual_error": "Não foi possível carregar as salas em comum.",
+            "mutual_loading": "Carregando salas em comum…",
+            "mutual_rooms": "Salas em comum",
+            "mutual_rooms_count": {
+                "one": "%(count)s sala em comum",
+                "other": "%(count)s salas em comum"
+            },
+            "mutual_rooms_empty": "Vocês não compartilham nenhuma sala.",
+            "mutual_spaces_count": {
+                "one": "%(count)s espaço em comum",
+                "other": "%(count)s espaços em comum"
+            },
+            "mutual_spaces_empty": "Este cliente não conhece nenhum espaço em comum.",
+            "mutual_spaces_note": "Com base nos membros do espaço que este cliente já carregou.",
+            "not_verified": "Não verificado",
+            "presence_offline": "Offline",
+            "presence_online": "Online",
+            "presence_unavailable": "Ausente",
+            "roles": "Cargos",
+            "section": "Perfil de %(name)s",
+            "self_note": "Este é o seu próprio perfil.",
+            "sessions": {
+                "one": "%(count)s sessão",
+                "other": "%(count)s sessões"
+            },
+            "shared_context": "Compartilhado com esta pessoa",
+            "verification": "Verificação",
+            "verified": "Verificado",
+            "verify": "Verificar",
+            "view_full": "Ver perfil completo de %(name)s",
+            "view_full_menu": "Ver perfil completo"
+        },
+        "channel_menu": {
+            "title": "Ações do canal",
+            "mark_read": "Marcar como lido",
+            "favourite": "Favoritar",
+            "invite": "Convidar para o canal",
+            "copy_link": "Copiar link",
+            "mute": "Silenciar canal",
+            "unmute": "Reativar canal",
+            "notification_settings": "Configurações de notificação",
+            "notify_default": "Padrão",
+            "notify_all": "Todas as mensagens",
+            "notify_mentions": "Apenas @menções",
+            "notify_muted": "Silenciado",
+            "edit_channel": "Editar canal",
+            "create_channel": "Criar canal de texto",
+            "edit_topic": "Editar tópico",
+            "files": "Arquivos",
+            "polls": "Enquetes",
+            "extensions": "Extensões",
+            "export": "Exportar conversa",
+            "report": "Denunciar canal",
+            "leave": "Sair do canal",
+            "encrypted": "Criptografado de ponta a ponta",
+            "not_encrypted": "Não criptografado",
+            "history_shared": "Novos membros podem ler as mensagens anteriores",
+            "history_invited": "O histórico é visível a partir do convite de cada pessoa",
+            "history_joined": "O histórico é visível a partir da entrada de cada pessoa",
+            "history_world_readable": "Qualquer pessoa pode ler o histórico"
+        },
+        "topic_dialog": {
+            "label": "Tópico",
+            "edit": "Editar tópico"
+        },
+        "voice_video": {
+            "advanced_voice": "Mostrar configurações de voz avançadas",
+            "advanced_voice_description": "Controle automático de ganho e aviso de troca de canal de voz",
+            "always_preview": "Sempre pré-visualizar o vídeo antes de entrar",
+            "always_preview_description": "Abre o lobby da chamada com sua câmera para você conferir antes de entrar em um canal de voz.",
+            "auto_gain": "Controle automático de ganho",
+            "auto_gain_description": "Ajusta o volume do microfone automaticamente.",
+            "camera": "Câmera",
+            "diagnostics": "Mostrar configurações de diagnóstico",
+            "diagnostics_description": "Registros de depuração e relatórios de erro que ajudam a encontrar problemas de áudio e vídeo.",
+            "echo_cancellation": "Cancelamento de eco",
+            "echo_cancellation_description": "Remove o som das outras pessoas do seu microfone.",
+            "fallback_ice": "Permitir servidor de apoio a chamadas alternativo",
+            "fallback_ice_description": "Só vale se o provedor da sua conta não oferecer um. Seu endereço IP seria compartilhado durante a chamada.",
+            "in_call_hint": "Dispositivos e processamento de áudio valem na próxima chamada. Volumes, sensibilidade e apertar para falar valem agora.",
+            "input_mode": "Modo de entrada",
+            "input_profile": "Perfil de entrada",
+            "mic_level": "Nível do microfone",
+            "mic_test_denied": "O acesso ao microfone foi bloqueado. Permita nas configurações do sistema e tente de novo.",
+            "mic_test_hint": "Você ouve a si mesmo durante o teste. Use fones para evitar microfonia.",
+            "mic_test_start": "Vamos testar",
+            "mic_test_stop": "Parar teste",
+            "mic_test_unavailable": "Não foi possível abrir nenhum microfone.",
+            "microphone": "Microfone",
+            "microphone_volume": "Volume do microfone",
+            "mirror": "Espelhar meu vídeo",
+            "mirror_description": "Mostra sua própria câmera invertida na horizontal, como num espelho.",
+            "mode_push_to_talk": "Apertar para falar",
+            "mode_voice_activity": "Atividade de voz",
+            "notifications_description": "Ativar ou desativar sons de novas mensagens e chamadas recebidas.",
+            "notifications_title": "Notificações",
+            "open_help": "Ajuda e sobre",
+            "peer_to_peer": "Permitir ponto a ponto em chamadas 1:1",
+            "peer_to_peer_description": "Quando ativado, a outra pessoa pode ver seu endereço IP.",
+            "permissions_description": "Permita o acesso ao microfone e à câmera para ver e escolher seus dispositivos.",
+            "permissions_request": "Permitir acesso",
+            "permissions_title": "Escolha seus dispositivos",
+            "preview_sound": "Prévia do som",
+            "preview_sound_for": "Prévia do som: %(sound)s",
+            "profile_custom": "Personalizado",
+            "profile_custom_description": "Modo avançado: me dê todos os botões e mostradores.",
+            "profile_studio": "Estúdio",
+            "profile_studio_description": "Áudio puro: sem cancelamento de eco nem ganho automático, e o microfone fica sempre aberto.",
+            "ptt_clear": "Limpar atalho",
+            "ptt_focus_note": "Apertar para falar funciona enquanto o Aether é a janela em foco.",
+            "ptt_needs_key": "Grave um atalho. Até lá, o microfone segue a atividade de voz.",
+            "ptt_not_set": "Não definido",
+            "ptt_record": "Gravar atalho",
+            "ptt_recording": "Pressione uma tecla… (Esc cancela)",
+            "ptt_release_delay": "Atraso ao soltar para falar",
+            "ptt_release_delay_value": "%(ms)s ms",
+            "ptt_shortcut": "Atalho",
+            "ptt_sound": "Tocar um som quando apertar para falar ligar ou desligar",
+            "ptt_stop_recording": "Parar de gravar",
+            "related_settings": "Configurações relacionadas",
+            "reset": "Redefinir",
+            "reset_description": "Volta ao conjunto padrão das configurações de Voz e vídeo.",
+            "reset_title": "Redefinir todas as configurações de Voz e vídeo",
+            "section_advanced": "Avançado",
+            "section_sounds": "Sons",
+            "section_video": "Vídeo",
+            "section_voice": "Voz",
+            "sensitivity": "Sensibilidade de entrada",
+            "sensitivity_auto": "Determinar a sensibilidade de entrada automaticamente",
+            "sensitivity_description": "Controla quanto som o Aether transmite do seu microfone.",
+            "sensitivity_slider": "Limite de sensibilidade de entrada",
+            "sensitivity_value": "%(db)s dB",
+            "speaker": "Alto-falante",
+            "speaker_volume": "Volume do alto-falante",
+            "sounds_more_description": "%(first)s, %(second)s, %(third)s e mais",
+            "sounds_notifications_note": "Procurando sons de notificação? Você os encontra em",
+            "sounds_show_fewer": "Mostrar menos sons",
+            "sounds_show_more": {
+                "other": "Mostrar mais %(count)s sons",
+                "one": "Mostrar mais %(count)s som"
+            },
+            "submit_logs": "Enviar registros de depuração",
+            "switch_warning": "Aviso de troca de canal de voz",
+            "switch_warning_description": "Pergunta antes de sair da chamada atual para entrar em outra.",
+            "video_denied": "O acesso à câmera foi bloqueado. Permita nas configurações do sistema e tente de novo.",
+            "video_placeholder": "A prévia da sua câmera aparece aqui.",
+            "video_preview": "Prévia da câmera",
+            "video_test_start": "Testar vídeo",
+            "video_test_stop": "Parar teste",
+            "video_unavailable": "Não foi possível abrir nenhuma câmera."
+        },
+        "search": {
+            "box": {
+                "label": "Buscar",
+                "placeholder": "Buscar %(name)s",
+                "clear": "Limpar busca",
+                "remove_filter": "Remover filtro %(filter)s",
+                "filters_label": "Filtros de busca"
+            },
+            "section": {
+                "filters": "Filtros",
+                "recent": "Buscas recentes",
+                "members": "Membros",
+                "channels": "Canais",
+                "has": "Inclui",
+                "dates": "Datas",
+                "more": "Mais filtros",
+                "values": "Sugestões"
+            },
+            "clear_recent": "Limpar",
+            "no_matches": "Nenhuma correspondência",
+            "filter": {
+                "from": {
+                    "title": "De um usuário específico",
+                    "hint": "from: usuário"
+                },
+                "in": {
+                    "title": "Enviado em um canal específico",
+                    "hint": "in: canal"
+                },
+                "has": {
+                    "title": "Inclui um tipo específico de dados",
+                    "hint": "has: link, file, image, video ou sound"
+                },
+                "mentions": {
+                    "title": "Menciona um usuário específico",
+                    "hint": "mentions: usuário"
+                },
+                "more": {
+                    "title": "Mais filtros",
+                    "hint": "datas, fixadas, bots"
+                },
+                "before": {
+                    "title": "Antes de uma data",
+                    "hint": "before: AAAA-MM-DD"
+                },
+                "after": {
+                    "title": "Depois de uma data",
+                    "hint": "after: AAAA-MM-DD"
+                },
+                "during": {
+                    "title": "Em um dia específico",
+                    "hint": "during: AAAA-MM-DD"
+                },
+                "pinned": {
+                    "title": "Fixada ou não",
+                    "hint": "pinned: true ou false"
+                },
+                "bot": {
+                    "title": "Enviada por um bot",
+                    "hint": "bot: true ou false"
+                }
+            },
+            "value": {
+                "has_link": "Link",
+                "has_file": "Anexo ou arquivo",
+                "has_image": "Imagem",
+                "has_video": "Vídeo",
+                "has_sound": "Som",
+                "pinned_true": "Mensagens fixadas",
+                "pinned_false": "Não fixadas",
+                "bot_true": "Mensagens de bots",
+                "bot_false": "Mensagens de pessoas",
+                "today": "Hoje",
+                "yesterday": "Ontem"
+            },
+            "date_hint": "Digite uma data como AAAA-MM-DD",
+            "results": {
+                "label": "Resultados da busca",
+                "title": {
+                    "one": "%(count)s resultado",
+                    "other": "%(count)s resultados"
+                },
+                "title_more": {
+                    "one": "%(count)s+ resultado",
+                    "other": "%(count)s+ resultados"
+                },
+                "sort_label": "Ordenar resultados",
+                "sort_recent": "Mais recentes",
+                "sort_relevance": "Mais relevantes",
+                "close": "Fechar resultados da busca",
+                "loading": "Buscando…",
+                "loading_more": "Carregando mais…",
+                "load_more": "Carregar mais resultados",
+                "retry": "Tentar novamente",
+                "error": "A busca falhou. Tente novamente.",
+                "empty_title": "Nenhum resultado",
+                "empty_description": "Nada correspondeu à sua busca. Tente menos filtros ou outros.",
+                "idle": "Digite algo e pressione Enter para buscar.",
+                "jump": "Ir",
+                "jump_to": "Ir para a mensagem de %(name)s",
+                "approximate": "Alguns filtros são aplicados depois que os resultados chegam, então as contagens são aproximadas. Continue rolando para buscar mais antigas.",
+                "encrypted": "Salas criptografadas não são pesquisadas. Ative a busca de mensagens nas configurações de Segurança.",
+                "encrypted_action": "Abrir configurações de Segurança",
+                "browse_encrypted": "Buscas só com filtros ignoram salas criptografadas."
+            }
+        }
+    },
+    "threads": {
+        "all_threads": "Todos os tópicos",
+        "my_threads": "Meus tópicos"
     }
 }

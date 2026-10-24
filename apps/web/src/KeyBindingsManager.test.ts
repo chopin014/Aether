@@ -6,10 +6,13 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import { isKeyComboMatch, type KeyCombo } from "./KeyBindingsManager";
 import { Key } from "./Keyboard";
+import { defaultBindingsProvider } from "./KeyBindingsDefaults";
+import SettingsStore from "./settings/SettingsStore";
+import { KeyBindingAction } from "./accessibility/KeyboardShortcuts";
 
 function mockKeyEvent(
     key: string,
@@ -30,6 +33,29 @@ function mockKeyEvent(
 }
 
 describe("KeyBindingsManager", () => {
+    it.each([
+        [true, false, true],
+        [true, true, true],
+        [false, false, false],
+        [false, true, true],
+    ])("enables message search with desktop=%s and preference=%s", (desktop, preference, enabled) => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const spy = vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) => {
+            if (name === "feature_desktop_shell") return desktop;
+            if (name === "ctrlFForSearch") return preference;
+            return getValue(name, ...args);
+        });
+        try {
+            const binding = defaultBindingsProvider
+                .getRoomBindings()
+                .find((candidate) => candidate.action === KeyBindingAction.SearchInRoom);
+            expect(!!binding).toBe(enabled);
+            if (binding) expect(binding.keyCombo).toEqual({ key: Key.F, ctrlOrCmdKey: true });
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
     it("should match basic key combo", () => {
         const combo1: KeyCombo = {
             key: "k",

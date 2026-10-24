@@ -10,19 +10,24 @@ Please see LICENSE in the repository root for full details.
 // oxlint-disable-next-line no-restricted-imports
 import { EventEmitter } from "events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Room, type MatrixClient } from "matrix-js-sdk/src/matrix";
+import React, { StrictMode, useEffect } from "react";
+import { render } from "test-utils-rtl";
+import { useCreateAutoDisposedViewModel } from "@element-hq/web-shared-components";
+import { Room, type MatrixClient, type RoomMember } from "matrix-js-sdk/src/matrix";
 import { stubClient } from "test-utils";
 
 import { DesktopVoiceControlsViewModel } from "./DesktopVoiceControlsViewModel";
-import { Call, CallEvent, ElementCall } from "../../models/Call";
+import { Call, CallEvent, ElementCall, NO_SCREEN_SHARE } from "../../models/Call";
 import { CallStoreEvent } from "../../stores/CallStore";
+import { DesktopShortcutManager } from "../../audio/desktop/DesktopShortcutManager";
+
 import SettingsStore from "../../settings/SettingsStore";
 
 import { playDesktopVoiceSound } from "../../audio/DesktopVoiceSounds";
 
 vi.mock("../../audio/DesktopVoiceSounds", () => ({ playDesktopVoiceSound: vi.fn() }));
 
-const preferences = new Map<string, boolean>();
+const preferences = new Map<string, unknown>();
 
 describe("DesktopVoiceControlsViewModel", () => {
     let client: MatrixClient;
@@ -35,8 +40,8 @@ describe("DesktopVoiceControlsViewModel", () => {
         client = stubClient();
         const getValue = SettingsStore.getValue.bind(SettingsStore);
         vi.spyOn(SettingsStore, "getValue").mockImplementation((key, ...args) =>
-            ["audioInputMuted", "desktopDeafened", "desktopMicMutedBeforeDeafen"].includes(key)
-                ? (preferences.get(key) ?? false)
+            preferences.has(key) || ["audioInputMuted", "desktopDeafened", "desktopMicMutedBeforeDeafen"].includes(key)
+                ? ((preferences.get(key) ?? false) as never)
                 : getValue(key, ...args),
         );
         vi.spyOn(SettingsStore, "setValue").mockImplementation(async (key, _room, _level, value) => {
@@ -49,6 +54,10 @@ describe("DesktopVoiceControlsViewModel", () => {
         Object.defineProperty(call, "roomId", { value: "!voice:example.org" });
         // This transport fixture skips the constructor that initializes speaking state.
         Object.defineProperty(call, "speakingUserIds", { value: new Set<string>(), writable: true });
+        Object.defineProperty(call, "_screenShare", { value: NO_SCREEN_SHARE, writable: true });
+        call.toggleScreenShare = vi.fn(async () => {
+            call.handleScreenShare({ ...call.screenShare, sharing: !call.screenShare.sharing });
+        });
         call.setDeviceMute = vi.fn(async (request) => {
             const state = { audio_enabled: true, video_enabled: false, ...call.deviceMuteState, ...request };
             call.handleDeviceMute(state);
@@ -73,6 +82,94 @@ describe("DesktopVoiceControlsViewModel", () => {
         store.emit(CallStoreEvent.ConnectedCalls);
         await vi.waitFor(() => expect(vm.getSnapshot().busy).toBe(false));
     }
+    it("routes configured focused shortcuts through the production call mute/deafen actions", async () => {
+        vm.dispose();
+        preferences.set("feature_desktop_shell", true);
+        preferences.set("desktopShortcutBindings", { toggle_mute: "Control+KeyM", toggle_deafen: "Control+KeyD" });
+        vm = new DesktopVoiceControlsViewModel({ client, callStore: store });
+        vm.startShortcuts();
+        await connect();
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", ctrlKey: true }));
+        await vi.waitFor(() => expect(vm.getSnapshot().microphoneMuted).toBe(true));
+        window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyM" }));
+        await vi.waitFor(() => expect(vm.getSnapshot().busy).toBe(false));
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyD", ctrlKey: true }));
+        await vi.waitFor(() => expect(vm.getSnapshot().deafened).toBe(true));
+        expect(call.setAudioOutputEnabled).toHaveBeenLastCalledWith(false);
+        window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyD" }));
+        await vi.waitFor(() => expect(vm.getSnapshot().busy).toBe(false));
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyD", ctrlKey: true }));
+        await vi.waitFor(() => expect(vm.getSnapshot().deafened).toBe(false));
+        expect(vm.getSnapshot().microphoneMuted).toBe(true);
+        vm.dispose();
+        const calls = vi.mocked(call.setDeviceMute).mock.calls.length;
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", ctrlKey: true }));
+        expect(call.setDeviceMute).toHaveBeenCalledTimes(calls);
+    });
+
+    it("registers only the committed VM and supports idempotent effect cleanup", async () => {
+        vm.dispose();
+        preferences.set("feature_desktop_shell", true);
+        preferences.set("desktopShortcutBindings", { toggle_mute: "Control+KeyM" });
+        const discarded = new DesktopVoiceControlsViewModel({ client, callStore: store });
+        vm = new DesktopVoiceControlsViewModel({ client, callStore: store });
+        const start = vi.spyOn(DesktopShortcutManager.instance, "start");
+        const ignored = vi.spyOn(discarded, "toggleMicrophone");
+        const active = vi.spyOn(vm, "toggleMicrophone");
+        const cleanup = vm.startShortcuts();
+        expect(vm.startShortcuts()).toBe(cleanup);
+        expect(start).toHaveBeenCalledOnce();
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", ctrlKey: true }));
+        await vi.waitFor(() => expect(active).toHaveBeenCalledOnce());
+        expect(ignored).not.toHaveBeenCalled();
+        window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyM" }));
+        cleanup();
+        cleanup();
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", ctrlKey: true }));
+        expect(active).toHaveBeenCalledOnce();
+        vm.startShortcuts();
+        vm.dispose();
+        vm.startShortcuts();
+        expect(start).toHaveBeenCalledTimes(2);
+        discarded.dispose();
+    });
+
+    it("runs each shortcut once through the actual StrictMode hook and effect composition", async () => {
+        vm.dispose();
+        preferences.set("feature_desktop_shell", true);
+        preferences.set("desktopShortcutBindings", { toggle_mute: "Control+KeyM" });
+        const created: DesktopVoiceControlsViewModel[] = [];
+        function Owner(): React.JSX.Element {
+            const voice = useCreateAutoDisposedViewModel(() => {
+                const model = new DesktopVoiceControlsViewModel({ client, callStore: store });
+                created.push(model);
+                return model;
+            });
+            useEffect(() => voice.startShortcuts(), [voice]);
+            return React.createElement(React.Fragment);
+        }
+        const owner = render(React.createElement(StrictMode, undefined, React.createElement(Owner)));
+        const calls = vi.spyOn(SettingsStore, "setValue");
+        calls.mockClear();
+        expect(created.length).toBeGreaterThan(1);
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", ctrlKey: true }));
+        await vi.waitFor(() => expect(preferences.get("audioInputMuted")).toBe(true));
+        expect(calls.mock.calls.filter(([name]) => name === "audioInputMuted")).toHaveLength(1);
+        owner.unmount();
+        window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyM" }));
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", ctrlKey: true }));
+        expect(calls.mock.calls.filter(([name]) => name === "audioInputMuted")).toHaveLength(1);
+        created.forEach((model) => model.dispose());
+    });
+
+    it("serializes overlapping shortcut/device actions and preserves mute intent", async () => {
+        await connect();
+        await Promise.all([vm.toggleMicrophone(), vm.toggleDeafened()]);
+        expect(vm.getSnapshot()).toMatchObject({ microphoneMuted: true, deafened: true });
+        await vm.toggleDeafened();
+        expect(vm.getSnapshot()).toMatchObject({ microphoneMuted: true, deafened: false });
+    });
+
     it("saves microphone preferences before a call and reflects the real call's mute notifications", async () => {
         await vm.toggleMicrophone();
         expect(preferences.get("audioInputMuted")).toBe(true);
@@ -164,6 +261,54 @@ describe("DesktopVoiceControlsViewModel", () => {
         call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
         expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("unmute");
     });
+    it("sounds the camera and screen share changes, however they were made", async () => {
+        await connect();
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        call.handleDeviceMute({ audio_enabled: true, video_enabled: true });
+        expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("cameraOn");
+        call.handleDeviceMute({ audio_enabled: true, video_enabled: true });
+        expect(playDesktopVoiceSound).toHaveBeenCalledTimes(1);
+        call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
+        expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("cameraOff");
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        call.handleScreenShare({ available: true, sharing: true, remoteSharerIds: [] });
+        expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("screenShareStart");
+        call.handleScreenShare({ available: true, sharing: true, remoteSharerIds: ["@x:example.org"] });
+        expect(playDesktopVoiceSound).toHaveBeenCalledTimes(1);
+        call.handleScreenShare({ available: true, sharing: false, remoteSharerIds: [] });
+        expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("screenShareStop");
+    });
+    it("sounds other people joining and leaving, but not ourselves", async () => {
+        await connect();
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        const me = { userId: client.getSafeUserId() } as RoomMember;
+        const alice = { userId: "@alice:example.org" } as RoomMember;
+        const devices = new Set(["D"]);
+        call.emit(CallEvent.Participants, new Map([[me, devices]]), new Map());
+        expect(playDesktopVoiceSound).not.toHaveBeenCalled();
+        call.emit(
+            CallEvent.Participants,
+            new Map([
+                [me, devices],
+                [alice, devices],
+            ]),
+            new Map([[me, devices]]),
+        );
+        expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("userJoined");
+        call.emit(
+            CallEvent.Participants,
+            new Map([[me, devices]]),
+            new Map([
+                [me, devices],
+                [alice, devices],
+            ]),
+        );
+        expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("userLeft");
+        // A second device of the same person is not a new person.
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        call.emit(CallEvent.Participants, new Map([[alice, new Set(["A", "B"])]]), new Map([[alice, new Set(["A"])]]));
+        expect(playDesktopVoiceSound).not.toHaveBeenCalled();
+    });
     it("disconnects the real call and releases all subscriptions on unmount", async () => {
         await connect();
         expect(vm.getSnapshot().roomName).toBe("Lounge");
@@ -174,6 +319,37 @@ describe("DesktopVoiceControlsViewModel", () => {
         vm.dispose();
         expect(store.listenerCount(CallStoreEvent.ConnectedCalls)).toBe(0);
         expect(call.listenerCount(CallEvent.DeviceMute)).toBe(0);
+        expect(call.listenerCount(CallEvent.ScreenShare)).toBe(0);
+        expect(call.listenerCount(CallEvent.Participants)).toBe(0);
         expect(SettingsStore.unwatchSetting).toHaveBeenCalledTimes(2);
+    });
+    it("turns the camera on and off in the real call", async () => {
+        await connect();
+        expect(vm.getSnapshot().videoEnabled).toBe(false);
+        await vm.toggleVideo();
+        expect(call.setDeviceMute).toHaveBeenLastCalledWith({ video_enabled: true });
+        expect(vm.getSnapshot().videoEnabled).toBe(true);
+        await vm.toggleVideo();
+        expect(call.setDeviceMute).toHaveBeenLastCalledWith({ video_enabled: false });
+        expect(vm.getSnapshot().videoEnabled).toBe(false);
+    });
+    it("follows screen sharing as the call reports it, and toggles it through the call", async () => {
+        await connect();
+        expect(vm.getSnapshot()).toMatchObject({ screenShareAvailable: false, screenSharing: false });
+        call.handleScreenShare({ available: true, sharing: false, remoteSharerIds: [] });
+        expect(vm.getSnapshot()).toMatchObject({ screenShareAvailable: true, screenSharing: false });
+        await vm.toggleScreenShare();
+        expect(call.toggleScreenShare).toHaveBeenCalledOnce();
+        expect(vm.getSnapshot().screenSharing).toBe(true);
+    });
+    it("explains a screen share that could not start", async () => {
+        await connect();
+        vi.mocked(call.toggleScreenShare).mockRejectedValueOnce(new Error("Picker dismissed"));
+        await vm.toggleScreenShare();
+        expect(vm.getSnapshot()).toMatchObject({
+            screenSharing: false,
+            busy: false,
+            error: "Screen sharing could not be changed. Please try again.",
+        });
     });
 });

@@ -98,13 +98,14 @@ export const usePublicRoomDirectory = (): {
             }
 
             if (query || roomTypes) {
+                const cli = MatrixClientPeg.safeGet();
+                const supportsRoomTypes =
+                    roomTypes &&
+                    ((await cli.isVersionSupported("v1.4")) ||
+                        (await cli.doesServerSupportUnstableFeature("org.matrix.msc3827.stable")));
                 opts.filter = {
                     generic_search_term: query,
-                    room_types:
-                        roomTypes &&
-                        (await MatrixClientPeg.safeGet().doesServerSupportUnstableFeature("org.matrix.msc3827.stable"))
-                            ? Array.from<RoomType | null>(roomTypes)
-                            : undefined,
+                    room_types: roomTypes && supportsRoomTypes ? Array.from<RoomType | null>(roomTypes) : undefined,
                 };
             }
 
@@ -113,7 +114,12 @@ export const usePublicRoomDirectory = (): {
             setError(undefined);
             try {
                 const { chunk } = await MatrixClientPeg.safeGet().publicRooms(opts);
-                updateResult(opts, showNsfwPublicRooms ? chunk : chunk.filter(cheapNsfwFilter));
+                // Older directories can ignore room_types; keep Space discovery limited to actual Spaces.
+                const requestedRoomTypes: ReadonlySet<string | null> | undefined = roomTypes;
+                const typedRooms = requestedRoomTypes?.size
+                    ? chunk.filter((room) => requestedRoomTypes.has(room.room_type ?? null))
+                    : chunk;
+                updateResult(opts, showNsfwPublicRooms ? typedRooms : typedRooms.filter(cheapNsfwFilter));
                 return true;
             } catch (e) {
                 setError(e instanceof Error ? e : true);

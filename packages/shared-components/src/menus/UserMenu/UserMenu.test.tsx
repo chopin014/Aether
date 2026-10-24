@@ -8,8 +8,11 @@
 import { composeStories } from "@storybook/react-vite";
 import { render } from "@test-utils";
 import React from "react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
+
+import { MockViewModel } from "../../core/viewmodel";
+import { type PresenceSnapshot } from "../../presence/PresenceMenuView";
 
 import * as stories from "./UserMenu.stories.tsx";
 
@@ -53,5 +56,42 @@ describe("UserMenu", () => {
     it("renders an open menu with user status", async () => {
         const { container } = render(<WithStatusOpen />);
         expect(container).toMatchSnapshot();
+    });
+});
+
+describe("UserMenu presence controls", () => {
+    const presenceModel = (overrides: Partial<PresenceSnapshot> = {}) =>
+        Object.assign(
+            new MockViewModel<PresenceSnapshot>({ enabled: true, preference: "online", busy: false, ...overrides }),
+            { setPreference: vi.fn().mockResolvedValue(undefined), retry: vi.fn().mockResolvedValue(undefined) },
+        );
+
+    it("should expose real presence choices from the profile menu", async () => {
+        const presence = presenceModel();
+        const { getByRole, queryByText } = render(<Open presence={presence} />);
+        await userEvent.click(getByRole("menuitem", { name: "Online" }));
+        expect(queryByText("Status unknown")).toBeNull();
+        expect(getByRole("menuitemradio", { name: "Online" })).toHaveAttribute("aria-checked", "true");
+        expect(queryByText("Do not disturb")).toBeNull();
+        await userEvent.click(getByRole("menuitemradio", { name: "Appear offline" }));
+        expect(presence.setPreference).toHaveBeenCalledWith("offline");
+    });
+
+    it("should explain explicitly disabled presence without offering changes", async () => {
+        const presence = presenceModel({ enabled: false });
+        const { getByRole, getByText, queryByRole } = render(<Open presence={presence} />);
+        await userEvent.click(getByRole("menuitem", { name: "Presence disabled" }));
+        expect(getByText("Presence is disabled in this client’s configuration.")).toBeVisible();
+        expect(queryByRole("menuitemradio")).toBeNull();
+        expect(presence.setPreference).not.toHaveBeenCalled();
+    });
+
+    it("should retain requested intent, expose errors and allow retry", async () => {
+        const presence = presenceModel({ preference: "offline", error: "Could not update presence" });
+        const { getByRole } = render(<Open presence={presence} />);
+        await userEvent.click(getByRole("menuitem", { name: "Appear offline" }));
+        expect(getByRole("alert")).toHaveTextContent("Could not update presence");
+        await userEvent.click(getByRole("menuitem", { name: "Retry presence update" }));
+        expect(presence.retry).toHaveBeenCalledOnce();
     });
 });

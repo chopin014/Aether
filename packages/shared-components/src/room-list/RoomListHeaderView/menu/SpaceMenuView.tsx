@@ -5,12 +5,14 @@
  * Please see LICENSE files in the repository root for full details.
  */
 
-import React, { type JSX, useState } from "react";
-import { IconButton, Menu, MenuItem } from "@vector-im/compound-web";
+import React, { type JSX, useState, useId } from "react";
+import { IconButton, Menu, MenuItem, Separator } from "@vector-im/compound-web";
 import ChevronDownIcon from "@vector-im/compound-design-tokens/assets/web/icons/chevron-down";
 import HomeIcon from "@vector-im/compound-design-tokens/assets/web/icons/home";
 import SettingsIcon from "@vector-im/compound-design-tokens/assets/web/icons/settings";
 import PreferencesIcon from "@vector-im/compound-design-tokens/assets/web/icons/preferences";
+import ChatNewIcon from "@vector-im/compound-design-tokens/assets/web/icons/chat-new";
+import AudioIcon from "@vector-im/compound-design-tokens/assets/web/icons/audio";
 import UserAddIcon from "@vector-im/compound-design-tokens/assets/web/icons/user-add";
 
 import styles from "./SpaceMenuView.module.css";
@@ -30,7 +32,7 @@ interface SpaceMenuViewProps {
 /**
  * A menu component that provides space-specific actions.
  * Displays a dropdown menu with options to navigate to space home, invite users,
- * access preferences, and manage space settings.
+ * access preferences, and manage space settings. The full-width desktop menu also groups room creation actions.
  *
  * @example
  * ```tsx
@@ -41,17 +43,28 @@ export function SpaceMenuView({ vm, fullWidth = false }: SpaceMenuViewProps): JS
     const { translate: _t } = useI18n();
     const { canInviteInSpace, canAccessSpaceSettings, canCreateRoom, canCreateVideoRoom, title } = useViewModel(vm);
     const [open, setOpen] = useState(false);
+    const titleId = useId();
 
     return (
         <Menu
             open={open}
             onOpenChange={setOpen}
             title={title}
+            showTitle={!fullWidth}
+            className={fullWidth ? styles.desktopMenu : undefined}
+            collisionPadding={fullWidth ? 8 : 0}
             align="start"
             trigger={
                 fullWidth ? (
-                    <button className={styles.spaceTrigger} aria-label={_t("room_list|open_space_menu")} type="button">
-                        <span>{title}</span>
+                    <button
+                        className={styles.spaceTrigger}
+                        aria-label={_t("room_list|open_space_menu")}
+                        aria-describedby={titleId}
+                        type="button"
+                    >
+                        <span id={titleId} title={title}>
+                            {title}
+                        </span>
                         <ChevronDownIcon aria-hidden />
                     </button>
                 ) : (
@@ -67,15 +80,40 @@ export function SpaceMenuView({ vm, fullWidth = false }: SpaceMenuViewProps): JS
                 )
             }
         >
-            {fullWidth && canCreateRoom && (
-                <MenuItem label={_t("action|new_room")} onSelect={vm.createRoom} hideChevron />
-            )}
-            {fullWidth && canCreateVideoRoom && (
-                <MenuItem label={_t("action|new_voice_room")} onSelect={vm.createVideoRoom} hideChevron />
+            {fullWidth && canInviteInSpace && (
+                <MenuItem
+                    className={styles.invite}
+                    Icon={UserAddIcon}
+                    label={_t("action|invite")}
+                    onSelect={vm.inviteInSpace}
+                    hideChevron
+                />
             )}
             <MenuItem Icon={HomeIcon} label={_t("room_list|space_menu|home")} onSelect={vm.openSpaceHome} hideChevron />
-            {canInviteInSpace && (
+            {!fullWidth && canInviteInSpace && (
                 <MenuItem Icon={UserAddIcon} label={_t("action|invite")} onSelect={vm.inviteInSpace} hideChevron />
+            )}
+            {fullWidth && <Separator kind="secondary" />}
+            {fullWidth && (canCreateRoom || canCreateVideoRoom) && (
+                <>
+                    {canCreateRoom && (
+                        <MenuItem
+                            Icon={ChatNewIcon}
+                            label={_t("action|new_room")}
+                            onSelect={vm.createRoom}
+                            hideChevron
+                        />
+                    )}
+                    {canCreateVideoRoom && (
+                        <MenuItem
+                            Icon={AudioIcon}
+                            label={_t("action|new_voice_room")}
+                            onSelect={vm.createVideoRoom}
+                            hideChevron
+                        />
+                    )}
+                    <Separator kind="secondary" />
+                </>
             )}
             <MenuItem
                 Icon={PreferencesIcon}

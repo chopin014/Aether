@@ -239,7 +239,26 @@ export class ElementCallMockViewModel
             this.snapshot.merge({ audioEnabled: next.audio_enabled, videoEnabled: next.video_enabled });
             return next;
         },
+        toggleScreenSharing: async () => {
+            this.append("← toggleScreenSharing");
+            if (!this.snapshot.current.joined) throw new Error("Nothing in Element Call can share a screen right now");
+            // There is no screen to capture, so the share only exists as the state the host is told about.
+            this.sharingScreen = !this.sharingScreen;
+            await this.notifyScreenShare();
+        },
+        setDeafened: async (deafened) => {
+            // The mock has no other participants to tell, so the request is only logged.
+            this.append(`← setDeafened(${deafened})`);
+        },
+        configureMedia: async (settings) => {
+            // The mock captures and plays nothing, so the settings are only logged, without the processor object.
+            const { microphoneProcessor, ...rest } = settings;
+            this.append(`← configureMedia ${JSON.stringify({ ...rest, microphoneProcessor: !!microphoneProcessor })}`);
+        },
     };
+
+    /** Whether the host has asked the mock to "share" a screen. */
+    private sharingScreen = false;
 
     public toggleJoined = async (): Promise<void> => {
         if (this.snapshot.current.joined) await this.leaveCall();
@@ -275,14 +294,24 @@ export class ElementCallMockViewModel
         this.snapshot.merge({ joined: true });
         await this.props.hostBridge.notifyJoined?.();
         this.append("→ notifyJoined");
+        await this.notifyScreenShare();
     }
 
     /** "Leaving" clears that membership again, and tells the host. */
     private async leaveCall(): Promise<void> {
         await this.clearMembership();
         this.snapshot.merge({ joined: false });
+        this.sharingScreen = false;
         await this.props.hostBridge.notifyHungUp?.();
         this.append("→ notifyHungUp");
+        await this.notifyScreenShare();
+    }
+
+    /** Screen sharing is possible while "in the call"; the mock never sees anyone else's screen. */
+    private async notifyScreenShare(): Promise<void> {
+        const state = { available: this.snapshot.current.joined, sharing: this.sharingScreen, remoteSharerIds: [] };
+        await this.props.hostBridge.notifyScreenShare?.(state);
+        this.append(`→ notifyScreenShare ${JSON.stringify(state)}`);
     }
 
     private clearMembership(): Promise<unknown> {

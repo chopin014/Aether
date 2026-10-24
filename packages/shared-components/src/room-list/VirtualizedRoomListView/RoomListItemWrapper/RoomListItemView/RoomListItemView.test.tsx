@@ -6,7 +6,7 @@
  */
 
 import React from "react";
-import { render, screen, waitFor } from "@test-utils";
+import { render, screen, waitFor, within } from "@test-utils";
 import userEvent from "@testing-library/user-event";
 import { composeStories } from "@storybook/react-vite";
 import { describe, it, expect, vi } from "vitest";
@@ -15,6 +15,7 @@ import * as stories from "./RoomListItemView.stories";
 
 const {
     Default,
+    DesktopActiveThread,
     Selected,
     Bold,
     WithNotification,
@@ -27,11 +28,24 @@ const {
     WithHoverMenu,
     WithoutHoverMenu,
     DesktopVoiceParticipantSpeaking,
+    DesktopVoiceChannelOccupied,
+    DesktopChannelWithIcon,
     DesktopVoiceParticipantsSilent,
     DesktopVoiceParticipantsMultipleSpeaking,
+    DesktopVoiceParticipantsMutedAndDeafened,
 } = composeStories(stories);
 
 describe("<RoomListItemView />", () => {
+    it("focuses the active thread independently from opening its parent channel", async () => {
+        const onOpen = vi.fn();
+        const onRoom = vi.fn();
+        render(<DesktopActiveThread onOpenActiveThread={onOpen} onOpenRoom={onRoom} />);
+        const thread = screen.getByRole("button", { name: "Open thread Release planning" });
+        expect(thread).toHaveAttribute("aria-current", "true");
+        await userEvent.click(thread);
+        expect(onOpen).toHaveBeenCalledOnce();
+        expect(onRoom).not.toHaveBeenCalled();
+    });
     it("renders actual members beneath a voice channel and opens their profile separately from joining", async () => {
         const user = userEvent.setup();
         const onProfile = vi.fn();
@@ -51,6 +65,35 @@ describe("<RoomListItemView />", () => {
         expect(onProfile).toHaveBeenCalledWith("@bob:example.org");
     });
 
+    it("shows how long an occupied voice channel has had people in it", async () => {
+        vi.useFakeTimers({ now: new Date("2026-10-23T12:00:00Z"), toFake: ["Date", "setInterval", "clearInterval"] });
+        try {
+            render(<DesktopVoiceChannelOccupied callStartedAt={Date.now() - 754_000} />);
+            expect(screen.getByText("12:34")).toHaveAttribute("title", "People have been here for 12:34");
+            // The channel's own icon replaces the call decoration
+            expect(screen.queryByTestId("notification-decoration")?.querySelector("svg")).toBeFalsy();
+
+            vi.advanceTimersByTime(3_600_000);
+            expect(await screen.findByText("1:12:34")).toBeInTheDocument();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("shows a channel's custom icon instead of its symbol", () => {
+        const { container } = render(<DesktopChannelWithIcon />);
+        const icon = container.querySelector("img");
+        expect(icon).toHaveAttribute("src", DesktopChannelWithIcon.args.channelIconUrl);
+        // The image takes the place of the channel symbol, before the name
+        expect(icon?.previousElementSibling).toBeNull();
+        expect(icon?.nextElementSibling).toHaveTextContent("General");
+    });
+
+    it("shows no duration while a voice channel is empty", () => {
+        render(<Default channelKind="voice" callStartedAt={Date.now()} />);
+        expect(document.querySelector("time")).toBeNull();
+    });
+
     it("marks only the participants who are speaking", () => {
         render(<DesktopVoiceParticipantsMultipleSpeaking />);
         const alice = screen.getByRole("button", { name: "Alice (speaking)" });
@@ -64,6 +107,32 @@ describe("<RoomListItemView />", () => {
         expect(screen.queryByText("Alice (speaking)")).toBeNull();
         // Speaking changes must not be announced as they happen
         expect(document.querySelector("[aria-live]")).toBeNull();
+    });
+
+    it("names muted and deafened participants without announcing the change", () => {
+        render(<DesktopVoiceParticipantsMutedAndDeafened />);
+        expect(screen.getByRole("button", { name: "Alice (speaking)" })).toBeVisible();
+        expect(screen.getByRole("button", { name: "Bob (muted)" })).toBeVisible();
+        expect(screen.getByRole("button", { name: "Charlie (muted and deafened)" })).toBeVisible();
+        expect(screen.getByText("Charlie")).toBeVisible();
+        expect(document.querySelector("[aria-live]")).toBeNull();
+    });
+
+    it.each([
+        { isMuted: false, isDeafened: false, label: "Alice" },
+        { isMuted: true, isDeafened: false, label: "Alice (muted)" },
+        { isMuted: false, isDeafened: true, label: "Alice (deafened)" },
+        { isMuted: true, isDeafened: true, label: "Alice (muted and deafened)" },
+    ])("shows the active voice icons for $label", ({ isMuted, isDeafened, label }) => {
+        render(
+            <Default
+                channelKind="voice"
+                callParticipants={[{ userId: "@alice:example.org", name: "Alice", isMuted, isDeafened }]}
+            />,
+        );
+        const participant = within(screen.getByRole("button", { name: label }));
+        expect(!!participant.queryByTestId("participant-muted")).toBe(isMuted);
+        expect(!!participant.queryByTestId("participant-deafened")).toBe(isDeafened);
     });
 
     it("shows no speaking indicator when everyone is silent", () => {

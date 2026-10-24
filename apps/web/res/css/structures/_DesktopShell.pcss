@@ -21,6 +21,12 @@ body.mx_DesktopShell {
     --ae-polar: #8ed8ea;
     --ae-polar-800: #1f6577;
     --mx-desktop-shell-header-height: 49px;
+    /*
+     * The native window controls cover the top right corner of the page. Anything that reaches that corner moves
+     * left by the inline size, or down by the block size. Both are 0 where there are no controls.
+     */
+    --mx-window-controls-inline-size: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+    --mx-window-controls-block-size: env(titlebar-area-height, 0px);
     --mx-desktop-shell-frame: var(--cpd-color-bg-subtle-secondary);
     --mx-desktop-header-border: 1px solid var(--cpd-color-border-interactive-secondary);
     --mx-desktop-header-padding: 14px;
@@ -30,16 +36,23 @@ body.mx_DesktopShell {
     --mx-desktop-search-padding: 8px 10px;
     --mx-desktop-search-button-padding: 8px;
     --mx-desktop-search-background: var(--cpd-color-bg-subtle-primary);
-    --mx-desktop-room-content-height: 32px;
-    --mx-desktop-channel-row-gap: 1px;
-    --mx-desktop-category-padding: 12px;
+    /* Direct messages carry a profile avatar; channels a 24px symbol. Both keep 2px between rows. */
+    --mx-desktop-room-content-height: 42px;
+    --mx-desktop-channel-content-height: 34px;
+    --mx-desktop-channel-row-gap: 2px;
+    --mx-desktop-category-padding: 14px;
     --mx-desktop-category-inner-padding: 2px 8px 2px 4px;
     --mx-desktop-room-margin: 8px;
     --mx-desktop-room-radius: 6px;
     --mx-desktop-room-marker: transparent;
+    /* The account dock floats 8px above the bottom; its height is measured by DesktopAccountDockContainer. */
+    --mx-desktop-dock-clearance: calc(var(--mx-desktop-dock-height, 56px) + 16px);
 
     /* Compound's search field must not inherit the legacy text-input border and margin. */
-    [data-desktop-contacts] label > input[type="search"] {
+    .mx_MatrixChat_wrapper
+        [data-desktop-contacts]
+        label:not(.mx_textinput):not(.mx_Field):not(.mx_no_textinput)
+        > input[type="search"] {
         border: 0;
         margin: 0;
         background: transparent;
@@ -50,7 +63,7 @@ body.mx_DesktopShell {
         width: calc(100% - 80px);
         max-width: 1440px;
         height: calc(100% - 80px);
-        max-height: calc(100% - 80px);
+        max-height: calc(100% - 2 * max(40px, var(--mx-window-controls-block-size)));
         border: 1px solid var(--cpd-color-border-interactive-secondary);
         border-radius: 12px;
         padding: 0;
@@ -195,6 +208,15 @@ body.mx_DesktopShell.cpd-theme-light {
 
 body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
     --cpd-color-bg-subtle-primary: var(--ae-surface-raised);
+    /*
+     * Compound's neutral action defaults use theme-bg, bypassing our canvas aliases. Let them sit on any
+     * Aether surface (including portal menus and the profile frame), with overlays for hover and press.
+     * Keep Compound's 4%/6% secondary-action feedback strengths.
+     */
+    --cpd-color-bg-action-secondary-rest: transparent;
+    --cpd-color-bg-action-secondary-hovered: color-mix(in srgb, var(--ae-text) 4%, transparent);
+    --cpd-color-bg-action-secondary-pressed: color-mix(in srgb, var(--ae-text) 6%, transparent);
+    --cpd-color-bg-action-tertiary-rest: transparent;
     --cpd-color-bg-action-tertiary-hovered: var(--ae-surface-raised);
     --cpd-color-bg-action-tertiary-selected: var(--ae-border);
     --cpd-color-text-primary: var(--ae-text);
@@ -218,18 +240,6 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
     --cpd-color-text-link-external: var(--ae-accent);
 }
 
-.mx_DesktopShell_titlebar {
-    height: 32px;
-    flex: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--cpd-color-text-secondary);
-    font: var(--cpd-font-body-sm-semibold);
-    user-select: none;
-    -webkit-app-region: drag;
-}
-
 .mx_MatrixChat_wrapper.mx_MatrixChat_desktopShell {
     background: var(--mx-desktop-shell-frame);
     flex-direction: column;
@@ -243,46 +253,131 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         height: auto;
     }
 
+    /*
+     * On Linux and Windows the system title bar is replaced by window controls drawn over the top right
+     * (titleBarOverlay in the desktop app). The env() values exist only then, so elsewhere these rules add nothing.
+     * The header row is the window's drag handle; anything clickable inside it opts out.
+     */
+    :is(.mx_RoomHeader, [data-testid="room-list-header"], [data-desktop-contacts] > header) {
+        -webkit-app-region: drag;
+
+        :is(button:not(.mx_RoomHeader_infoWrapper), a, input, select, [role="button"], [role="menuitem"]) {
+            -webkit-app-region: no-drag;
+        }
+    }
+
+    /* The channel name opens its menu, while the empty space after it moves the window. */
+    .mx_RoomHeader_infoWrapper {
+        -webkit-app-region: drag;
+
+        :is(.mx_RoomHeader_heading, .mx_DesktopShell_channelTopic) {
+            -webkit-app-region: no-drag;
+        }
+    }
+
+    /* Whatever reaches the top right corner keeps clear of the window controls. */
+    .mx_RoomView > .mx_RoomHeader,
+    .mx_RoomView:not(:has(.mx_RightPanel)) .mx_RoomHeader {
+        padding-inline-end: calc(var(--cpd-space-3x) + var(--mx-window-controls-inline-size));
+    }
+
+    [data-desktop-contacts] > header {
+        padding-inline-end: calc(var(--cpd-space-4x) + var(--mx-window-controls-inline-size));
+    }
+
     /* The resizable panel's inner flex item must shrink to zero when collapsed. */
     .mx_LeftPanel_panel {
         min-width: 0;
     }
 
+    /* Compound's image has its own size; keep it inside the resized desktop avatar frame. */
+    .mx_SpacePanel .mx_SpaceButton_narrow .mx_BaseAvatar > img,
+    .mx_RoomHeader .mx_BaseAvatar > img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        border-radius: inherit;
+    }
+
+    /*
+     * The server rail, after Discord's: 48px icons in a 72px rail, circles that round into squares when hovered or
+     * selected, and a pill at the rail's edge for unread (8px), hover (20px) and selected (40px).
+     */
     .mx_SpacePanel {
+        --mx-desktop-rail-icon: 48px;
+        --mx-desktop-rail-inset: 12px;
+
         background: var(--mx-desktop-shell-frame);
         border-inline-end: none;
         padding-block-start: var(--cpd-space-2x);
-        padding-block-end: 72px;
+        padding-block-end: var(--mx-desktop-dock-clearance);
 
         &.collapsed {
-            width: 64px;
+            width: calc(var(--mx-desktop-rail-icon) + 2 * var(--mx-desktop-rail-inset));
         }
 
-        .mx_SpaceButton_narrow {
-            margin-inline-start: 8px;
+        /* Discord's divider between Home and the servers. */
+        .mx_SpaceItem_meta:not(:has(~ .mx_SpaceItem_meta))::after {
+            content: "";
+            display: block;
+            width: 32px;
+            height: 2px;
+            /* Centre under the icons; the meta item is narrower than the rail. */
+            margin-block: 4px;
+            margin-inline-start: calc(var(--mx-desktop-rail-inset) + (var(--mx-desktop-rail-icon) - 32px) / 2);
+            border-radius: 1px;
+            background: var(--cpd-color-border-interactive-secondary);
+        }
+
+        /* Element's tree gutter and trailing padding would shift the icons off the rail's centre line. */
+        .mx_SpaceButton_narrow,
+        .mx_SpaceItem:not(.hasSubSpaces) > .mx_SpaceButton_narrow {
+            margin-inline-start: var(--mx-desktop-rail-inset);
             padding-block: 4px;
-            min-width: 48px;
+            padding-inline: 0;
+            min-width: var(--mx-desktop-rail-icon);
 
             .mx_SpaceButton_selectionWrapper {
-                width: 40px;
+                flex: none;
+                width: var(--mx-desktop-rail-icon);
                 padding: 0;
                 border: 0;
-                border-radius: 12px;
+                border-radius: 50%;
+                transition: border-radius 150ms ease-out;
+
+                &::before {
+                    content: "";
+                    position: absolute;
+                    inset-inline-start: calc(-1 * var(--mx-desktop-rail-inset));
+                    width: 4px;
+                    height: 0;
+                    border-radius: 0 4px 4px 0;
+                    background: var(--cpd-color-text-primary);
+                    transition: height 150ms ease-out;
+                }
+            }
+
+            &:not(:hover, :focus-visible):has(.mx_SpacePanel_badgeContainer [data-badge-type])
+                .mx_SpaceButton_selectionWrapper::before {
+                height: 8px;
+            }
+
+            &:is(:hover, :focus-visible) .mx_SpaceButton_selectionWrapper {
+                border-radius: 16px;
+
+                &::before {
+                    height: 20px;
+                }
             }
 
             &.mx_SpaceButton_active .mx_SpaceButton_selectionWrapper {
                 border: 0;
                 padding: 0;
+                border-radius: 16px;
                 background: var(--cpd-color-bg-accent-rest);
 
                 &::before {
-                    content: "";
-                    position: absolute;
-                    inset-inline-start: -12px;
-                    height: 32px;
-                    width: 4px;
-                    border-radius: 0 4px 4px 0;
-                    background: var(--cpd-color-text-primary);
+                    height: 40px;
                 }
             }
 
@@ -292,17 +387,70 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
             }
 
             .mx_SpaceButton_icon {
-                width: 24px;
-                height: 24px;
-                padding: 8px;
-                border-radius: 12px;
+                width: 28px;
+                height: 28px;
+                padding: 10px;
+                border-radius: inherit;
+                background-color: var(--cpd-color-bg-subtle-primary);
+                transition: background-color 150ms ease-out;
             }
 
-            .mx_BaseAvatar,
-            .mx_BaseAvatar_image {
-                width: 40px;
-                height: 40px;
-                border-radius: 12px;
+            &.mx_SpaceButton_active .mx_SpaceButton_icon {
+                background-color: transparent;
+            }
+
+            /* The Aether mark is twice as wide as it is tall, so it may use the icon's padding to read clearly. */
+            .mx_SpaceButton_icon svg.mx_DesktopShell_homeSymbol {
+                width: 36px;
+                margin-inline: -4px;
+                color: var(--cpd-color-text-primary);
+            }
+
+            &.mx_SpaceButton_active .mx_SpaceButton_icon svg.mx_DesktopShell_homeSymbol {
+                color: var(--cpd-color-icon-on-solid-primary);
+            }
+
+            .mx_BaseAvatar {
+                --cpd-avatar-size: var(--mx-desktop-rail-icon);
+
+                width: var(--mx-desktop-rail-icon);
+                height: var(--mx-desktop-rail-icon);
+                border-radius: inherit;
+            }
+
+            .mx_SpaceButton_avatarWrapper,
+            .mx_SpaceButton_avatarPlaceholder {
+                border-radius: inherit;
+            }
+
+            /* The pill marks unread servers, so only counts and mentions keep a badge, at the bottom right. */
+            .mx_SpacePanel_badgeContainer {
+                inset: auto -4px -4px auto;
+
+                [data-badge-type="dot"] {
+                    display: none;
+                }
+            }
+        }
+
+        /* Rail actions use accent icons that fill on hover, as in Discord. */
+        .mx_SpaceButton_new.mx_SpaceButton_narrow,
+        .mx_SpaceButton_discover.mx_SpaceButton_narrow {
+            .mx_SpaceButton_icon svg {
+                color: var(--cpd-color-icon-accent-primary);
+            }
+
+            &:is(:hover, :focus-visible) .mx_SpaceButton_icon {
+                background-color: var(--cpd-color-bg-accent-rest);
+
+                svg {
+                    color: var(--cpd-color-icon-on-solid-primary);
+                }
+            }
+
+            /* The pill only marks servers. */
+            .mx_SpaceButton_selectionWrapper::before {
+                display: none;
             }
         }
     }
@@ -317,13 +465,13 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
     .mx_RoomListPanel {
         --grouped-list-header-background: var(--mx-desktop-shell-frame);
         min-height: 0;
-        padding-block-end: 72px;
+        padding-block-end: var(--mx-desktop-dock-clearance);
         background: var(--mx-desktop-shell-frame);
-    }
 
-    &:has([data-voice-connected]) .mx_RoomListPanel,
-    &:has([data-voice-connected]) .mx_SpacePanel {
-        padding-block-end: 128px;
+        /* Give server categories breathing room below the header without changing row or dock spacing. */
+        > [data-testid="room-list-header"] + * {
+            padding-block-start: var(--cpd-space-4x);
+        }
     }
 
     .mx_RoomView_wrapper,
@@ -341,8 +489,91 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
             font: var(--cpd-font-body-md-semibold);
         }
 
-        .mx_BaseAvatar,
-        .mx_BaseAvatar_image {
+        .mx_RoomHeader_info:has(.mx_DesktopShell_channelTopic) {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .mx_DesktopShell_channelTopic {
+            min-width: 0;
+            padding-inline-start: 12px;
+            border-inline-start: 1px solid var(--cpd-color-border-interactive-secondary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font: var(--cpd-font-body-sm-regular);
+            color: var(--cpd-color-text-secondary);
+        }
+
+        /* The name opens the channel menu (or a person's profile), the topic opens a dialog; neither is room info. */
+        .mx_DesktopShell_channelInfo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: calc(var(--cpd-space-16x) * 1.5);
+        }
+
+        /* The name keeps its width and the topic gives way first. */
+        .mx_DesktopShell_channelName {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex: 0 0 auto;
+            max-width: 100%;
+            padding: 2px 6px;
+            margin-inline-start: -6px;
+            border: 0;
+            border-radius: 4px;
+            background: transparent;
+            color: inherit;
+            font: inherit;
+            text-align: start;
+            cursor: pointer;
+
+            &:hover,
+            &[aria-expanded="true"] {
+                background: var(--cpd-color-bg-subtle-secondary);
+            }
+
+            &:focus-visible {
+                outline: 2px solid var(--cpd-color-border-focused);
+            }
+        }
+
+        .mx_DesktopShell_channelChevron {
+            flex-shrink: 0;
+            width: 16px;
+            height: 16px;
+            color: var(--cpd-color-icon-secondary);
+        }
+
+        .mx_DesktopShell_channelName .mx_RoomHeader_heading {
+            min-width: 0;
+            white-space: nowrap;
+        }
+
+        button.mx_DesktopShell_channelTopic {
+            flex: 1 1 0;
+            min-width: 0;
+            border-block: 0;
+            border-inline-end: 0;
+            padding-block: 0;
+            padding-inline-end: 0;
+            background: transparent;
+            text-align: start;
+            cursor: pointer;
+
+            &:hover {
+                color: var(--cpd-color-text-primary);
+            }
+
+            &:focus-visible {
+                outline: 2px solid var(--cpd-color-border-focused);
+            }
+        }
+
+        .mx_BaseAvatar {
             width: 28px;
             height: 28px;
         }
@@ -353,26 +584,12 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         }
     }
 
-    .mx_DesktopShell_messageSearch {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex: 0 1 240px;
-        min-width: 100px;
-        height: 32px;
-        padding: 0 10px;
-        margin-inline-start: 4px;
-        border: 1px solid var(--cpd-color-border-interactive-secondary);
-        border-radius: 8px;
-        background: var(--mx-desktop-shell-frame);
-        color: var(--cpd-color-text-tertiary, var(--cpd-color-text-secondary));
+    /* The search view owns its field border and spacing; override Element's legacy global text-input rules. */
+    .mx_RoomHeader input[role="combobox"][aria-autocomplete="list"] {
+        margin: 0;
+        padding: 0;
+        border: 0;
         font: var(--cpd-font-body-md-regular);
-        cursor: text;
-
-        svg {
-            width: 20px;
-            height: 20px;
-        }
     }
 
     .mx_DesktopShell_channelIcon {
@@ -387,9 +604,85 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         --EventTile_group_line-line-height: 22px;
     }
 
+    /* Matches the 15px desktop message size in EventTileView. */
     .mx_EventTile_content {
-        font-size: 16px;
-        line-height: 24px;
+        font-size: 15px;
+        line-height: 22px;
+    }
+
+    /*
+     * Attachments in the timeline become Aether media cards: a soft accent wash, a rounded tile for the
+     * file icon and an accent play button and progress. Composer previews keep Element's style.
+     */
+    .mx_EventTile .mx_MediaBody {
+        max-width: 400px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--cpd-color-bg-accent-rest) 12%, var(--cpd-color-bg-subtle-primary)),
+            var(--cpd-color-bg-subtle-primary) 65%
+        );
+        transition: border-color 120ms ease-out;
+
+        &:hover {
+            border-color: color-mix(in srgb, var(--cpd-color-bg-accent-rest) 45%, transparent);
+        }
+    }
+
+    .mx_EventTile .mx_MFileBody [data-type="info"] > button {
+        align-items: center;
+
+        > svg {
+            width: 20px;
+            height: 20px;
+            padding: 10px;
+            border-radius: 10px;
+            color: var(--cpd-color-icon-accent-primary);
+            background: color-mix(in srgb, var(--cpd-color-bg-accent-rest) 18%, transparent);
+        }
+
+        > span {
+            font: var(--cpd-font-body-md-medium);
+        }
+    }
+
+    .mx_EventTile :is(.mx_MAudioBody, .mx_MVoiceMessageBody) .mx_MediaBody {
+        /* The seek bar paints with these Compound greys; scoped here they take the accent. */
+        --cpd-color-gray-600: var(--cpd-color-border-interactive-secondary);
+        --cpd-color-gray-800: var(--cpd-color-bg-accent-rest);
+
+        button[aria-label] {
+            /* Compound's icon button colours its icon from these. */
+            --cpd-color-icon-primary: var(--cpd-color-icon-on-solid-primary);
+            --cpd-color-icon-secondary: var(--cpd-color-icon-on-solid-primary);
+            --cpd-color-icon-tertiary: var(--cpd-color-icon-on-solid-primary);
+
+            background: var(--cpd-color-bg-accent-rest);
+
+            &:hover:not([disabled]) {
+                background: var(--cpd-color-bg-accent-hovered);
+            }
+        }
+
+        input[type="range"] {
+            height: 4px;
+            border-radius: 2px;
+
+            &::before {
+                height: 4px;
+                border-radius: 2px;
+            }
+
+            &::-webkit-slider-thumb {
+                width: 12px;
+                height: 12px;
+            }
+        }
+
+        .mx_Waveform_bar_100pct {
+            background-color: var(--cpd-color-bg-accent-rest);
+        }
     }
 
     .mx_NewRoomIntro {
@@ -444,6 +737,8 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
     }
 
     .mx_MessageComposer {
+        /* The room view's 100% width plus these margins pushed the composer past the window's edge. */
+        width: auto;
         margin: 0 16px 8px;
 
         .mx_MessageComposer_wrapper {
@@ -461,7 +756,7 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         .mx_MessageComposer_input,
         .mx_SendMessageComposer .mx_BasicMessageComposer {
             min-height: 54px;
-            font-size: 16px;
+            font-size: 15px;
         }
 
         .mx_MessageComposer_actions {
@@ -488,23 +783,114 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         }
     }
 
+    /*
+     * The member list starts below the header row, which carries the window controls above it when the system
+     * title bar is replaced (see the header row rules above). The header's bottom border is carried across and
+     * sits out of view without the controls.
+     */
     .mx_RightPanel {
-        background: var(--mx-desktop-shell-frame);
+        padding-block-start: var(--mx-window-controls-block-size);
+        background-color: var(--mx-desktop-shell-frame);
+        background-image: linear-gradient(
+            var(--cpd-color-border-interactive-secondary),
+            var(--cpd-color-border-interactive-secondary)
+        );
+        background-position: 0 env(titlebar-area-height, -1px);
+        background-size: 100% 1px;
+        background-repeat: no-repeat;
         border-inline-start: 1px solid var(--cpd-color-border-interactive-secondary);
+        -webkit-app-region: drag;
+
+        > * {
+            -webkit-app-region: no-drag;
+        }
+    }
+
+    /* A shared room header already keeps every content column below the native controls. */
+    .mx_RoomView:has(> .mx_RoomHeader) .mx_RightPanel {
+        padding-block-start: 0;
+        background-image: none;
+    }
+
+    .mx_RightPanel:has(.mx_ThreadView) {
+        width: 100%;
+        background-color: var(--cpd-color-bg-canvas-default);
+    }
+
+    .mx_ThreadView .mx_BaseCard_header {
+        min-height: 48px;
+        padding: 8px 12px;
+        border-block-end: 1px solid var(--cpd-color-border-interactive-secondary);
+    }
+
+    .mx_ThreadView .mx_BaseCard_header .mx_DesktopThreadView_title {
+        height: auto;
+        gap: 12px;
+        min-width: 0;
+
+        > svg {
+            flex: none;
+            width: 24px;
+            height: 24px;
+            color: var(--cpd-color-icon-secondary);
+        }
+
+        > div {
+            flex: 1;
+            min-width: 0;
+        }
+
+        h2 {
+            margin: 0;
+            font: var(--cpd-font-body-md-semibold);
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+
+        p {
+            margin: 0;
+            color: var(--cpd-color-text-secondary);
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+    }
+
+    @media (width < 800px) {
+        .mx_MainSplit:has(.mx_ThreadView) {
+            position: relative;
+
+            /* Keep the channel's raised status area below the thread overlay. */
+            > .mx_RoomView_body {
+                isolation: isolate;
+            }
+        }
+
+        .mx_RightPanel_ResizeWrapper:has(.mx_ThreadView) {
+            position: absolute !important;
+            inset-block: 0;
+            inset-inline-end: 0;
+            width: min(100%, 420px) !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+            z-index: 10;
+        }
     }
 
     .mx_RightPanel:has(.mx_MemberListView) {
-        background: var(--cpd-color-bg-canvas-default);
+        background-color: var(--cpd-color-bg-canvas-default);
     }
 
     .mx_MemberListView {
-        padding-inline: 8px;
+        padding-inline: 12px;
 
         .mx_MemberTileView {
-            height: 44px;
-            padding: 6px 8px;
+            /* DESKTOP_MEMBER_LIST_ITEM_HEIGHT in MemberListView, shared with the presence headings. */
+            height: 48px;
+            padding: 6px 10px;
             border: 0;
-            border-radius: 6px;
+            border-radius: 8px;
 
             &:hover,
             &:focus-visible {
@@ -519,13 +905,50 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
                 margin-inline-start: 4px;
                 font-size: 10px;
             }
+
+            /* Discord's status dot: a ring in the row's colour separates it from the avatar, like a cutout. */
+            .mx_MemberTileView_presence {
+                inset-inline-end: -3px;
+                inset-block-end: -3px;
+            }
+
+            .mx_PresenceIconView {
+                padding: 3px;
+                background: var(--cpd-color-bg-canvas-default);
+
+                svg {
+                    width: 10px;
+                    height: 10px;
+                }
+
+                .mx_PresenceIconView_online {
+                    color: var(--cpd-color-icon-success-primary);
+                }
+
+                .mx_PresenceIconView_unavailable {
+                    color: var(--cpd-color-icon-warning-primary);
+                }
+
+                .mx_PresenceIconView_dnd {
+                    color: var(--cpd-color-icon-critical-primary);
+                }
+            }
+
+            &:is(:hover, :focus-visible) .mx_PresenceIconView {
+                background:
+                    linear-gradient(
+                        var(--cpd-color-bg-action-tertiary-hovered),
+                        var(--cpd-color-bg-action-tertiary-hovered)
+                    ),
+                    var(--cpd-color-bg-canvas-default);
+            }
         }
     }
 
     .mx_DesktopShell_memberHeading {
         margin: 0;
-        padding: 18px 4px 4px;
-        height: 44px;
+        padding: 20px 10px 6px;
+        height: 48px;
         box-sizing: border-box;
         font: var(--cpd-font-body-sm-medium);
         color: var(--cpd-color-text-tertiary, var(--cpd-color-text-secondary));
@@ -553,6 +976,53 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         .mx_TabbedView_tabPanel {
             margin-inline-start: 60px;
         }
+    }
+}
+
+/*
+ * Aether's loading spinner: a body orbiting a faint ring. It also appears before sign-in, where the
+ * Aether colour roles are not defined yet, so it falls back to the Polar primitive.
+ */
+.mx_DesktopShell_spinner {
+    --mx-desktop-spinner-colour: var(--ae-accent, #8ed8ea);
+
+    position: relative;
+    display: inline-block;
+    flex: none;
+    animation: mx_DesktopShell_orbit 1.1s linear infinite;
+
+    &::after {
+        content: "";
+        position: absolute;
+        inset: 12.5%;
+        border: 2px solid color-mix(in srgb, var(--mx-desktop-spinner-colour) 24%, transparent);
+        border-radius: 50%;
+    }
+
+    /* Centred on the ring's top edge. */
+    &::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 37.5%;
+        width: 25%;
+        height: 25%;
+        border-radius: 50%;
+        background: var(--mx-desktop-spinner-colour);
+        box-shadow: 0 0 6px var(--mx-desktop-spinner-colour);
+    }
+}
+
+@keyframes mx_DesktopShell_orbit {
+    to {
+        transform: rotate(1turn);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* Loading still needs a visible cue, so the orbit slows rather than stops. */
+    .mx_DesktopShell_spinner {
+        animation-duration: 4s;
     }
 }
 

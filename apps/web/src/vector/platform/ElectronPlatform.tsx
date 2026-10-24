@@ -42,6 +42,7 @@ import DesktopCapturerSourcePicker from "../../components/views/elements/Desktop
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import { SeshatIndexManager } from "./SeshatIndexManager";
 import { IPCManager } from "./IPCManager";
+import { watchWindowControlsTheme } from "./watchWindowControlsTheme";
 import { _t } from "../../languageHandler";
 import { BadgeOverlayRenderer } from "../../favicon";
 import { GenericToast } from "@element-hq/web-shared-components";
@@ -230,6 +231,13 @@ export default class ElectronPlatform extends BasePlatform {
         this.sessionId = sessionId;
         this.config = config;
         this.supportedSettings = supportedSettings;
+        if (config.features?.feature_desktop_shell) {
+            watchWindowControlsTheme((color, symbolColor) => {
+                void this.ipc.call("setWindowControlsTheme", color, symbolColor).catch((error) => {
+                    logger.warn("Could not update native window colours", error);
+                });
+            });
+        }
         if (supportsBadgeOverlay) {
             this.badgeOverlayRenderer = new BadgeOverlayRenderer();
         }

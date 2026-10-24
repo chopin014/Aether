@@ -30,6 +30,7 @@ import {
     VideoCallSolidIcon,
     PlusIcon,
     ChevronRightIcon,
+    ExploreIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { _t } from "../../../languageHandler";
@@ -63,6 +64,8 @@ import { useDispatcher } from "../../../hooks/useDispatcher";
 import defaultDispatcher from "../../../dispatcher/dispatcher";
 import { type ActionPayload } from "../../../dispatcher/payloads";
 import { Action } from "../../../dispatcher/actions";
+import { type OpenSpotlightPayload } from "../../../dispatcher/payloads/OpenSpotlightPayload";
+import { Filter } from "../dialogs/spotlight/Filter";
 import { type NotificationState } from "../../../stores/notifications/NotificationState";
 import { KeyBindingAction } from "../../../accessibility/KeyboardShortcuts";
 import { getKeyBindingsManager } from "../../../KeyBindingsManager";
@@ -78,6 +81,7 @@ import { UserMenuContainer } from "../menus/UserMenuContainer.tsx";
 import { RoomListCollapsedContext } from "../../../contexts/RoomListCollapsedContext";
 import { SDKContext } from "../../../contexts/SDKContext.ts";
 import { type SDKContextClass } from "../../../contexts/SDKContextClass.ts";
+import AetherSymbolIcon from "../../../../res/img/aether/symbol-mono.svg?react";
 
 const useSpaces = (): [Room[], MetaSpace[], Room[], SpaceKey] => {
     const sdkContext = useContext(SDKContext);
@@ -135,7 +139,8 @@ type MetaSpaceButtonProps = Pick<IMetaSpaceButtonProps, "selected" | "isPanelCol
 const MetaSpaceButton: React.FC<IMetaSpaceButtonProps> = ({ selected, isPanelCollapsed, size = "32px", ...props }) => {
     return (
         <li
-            className={classNames("mx_SpaceItem", {
+            // mx_SpaceItem_meta lets the desktop shell divide Home from the user's Spaces
+            className={classNames("mx_SpaceItem mx_SpaceItem_meta", {
                 collapsed: isPanelCollapsed,
             })}
             role="treeitem"
@@ -163,6 +168,8 @@ const HomeButton: React.FC<MetaSpaceButtonProps> = ({ selected, isPanelCollapsed
     }, [sdkContext]);
     useEffect(updateNotificationState, [updateNotificationState, allRoomsInHome]);
     useEventEmitter(sdkContext.roomNotificationStateStore, UPDATE_STATUS_INDICATOR, updateNotificationState);
+    // In the desktop shell, Home is where friends and direct messages live, so it carries the Aether mark
+    const desktopShellEnabled = useSettingValue("feature_desktop_shell");
 
     return (
         <MetaSpaceButton
@@ -174,7 +181,13 @@ const HomeButton: React.FC<MetaSpaceButtonProps> = ({ selected, isPanelCollapsed
             ContextMenuComponent={HomeButtonContextMenu}
             contextMenuTooltip={_t("common|options")}
             size="32px"
-            icon={<HomeSolidIcon />}
+            icon={
+                desktopShellEnabled ? (
+                    <AetherSymbolIcon className="mx_DesktopShell_homeSymbol" aria-hidden />
+                ) : (
+                    <HomeSolidIcon />
+                )
+            }
         />
     );
 };
@@ -259,6 +272,28 @@ const CreateSpaceButton: React.FC<Pick<IInnerSpacePanelProps, "isPanelCollapsed"
     );
 };
 
+const DiscoverSpacesButton: React.FC = () => {
+    const onDiscoverClick = (): void => {
+        defaultDispatcher.dispatch<OpenSpotlightPayload>({
+            action: Action.OpenSpotlight,
+            initialFilter: Filter.PublicSpaces,
+        });
+    };
+
+    return (
+        <li className="mx_SpaceItem mx_SpaceItem_discover collapsed" role="treeitem" aria-selected={false}>
+            <SpaceButton
+                className="mx_SpaceButton_discover"
+                label={_t("space|discover_public_spaces")}
+                onClick={onDiscoverClick}
+                isNarrow
+                size="32px"
+                icon={<ExploreIcon />}
+            />
+        </li>
+    );
+};
+
 const metaSpaceComponentMap: Record<MetaSpace, typeof HomeButton> = {
     [MetaSpace.Home]: HomeButton,
     [MetaSpace.Orphans]: OrphansButton,
@@ -277,6 +312,7 @@ interface IInnerSpacePanelProps extends DroppableProvidedProps {
 const InnerSpacePanel = React.memo<IInnerSpacePanelProps>(
     ({ children, isPanelCollapsed, setPanelCollapsed, isDraggingOver, innerRef, ...props }) => {
         const sdkContext = useContext(SDKContext);
+        const desktopShellEnabled = useSettingValue("feature_desktop_shell");
         const [invites, metaSpaces, actualSpaces, activeSpace] = useSpaces();
         const activeSpaces = activeSpace ? [activeSpace] : [];
 
@@ -357,6 +393,7 @@ const InnerSpacePanel = React.memo<IInnerSpacePanelProps>(
                 {shouldShowComponent(UIComponent.CreateSpaces) && (
                     <CreateSpaceButton isPanelCollapsed={isPanelCollapsed} setPanelCollapsed={setPanelCollapsed} />
                 )}
+                {desktopShellEnabled && shouldShowComponent(UIComponent.ExploreRooms) && <DiscoverSpacesButton />}
             </IndicatorScrollbar>
         );
     },
@@ -367,7 +404,8 @@ const SpacePanel: React.FC = () => {
     const desktopShellEnabled = useSettingValue("feature_desktop_shell");
     const isRoomListCollapsed = useContext(RoomListCollapsedContext);
     const [dragging, setDragging] = useState(false);
-    const [isPanelCollapsed, setPanelCollapsed] = useState(true);
+    const [panelCollapsed, setPanelCollapsed] = useState(true);
+    const isPanelCollapsed = desktopShellEnabled || panelCollapsed;
     const ref = useRef<HTMLDivElement>(null);
     useLayoutEffect(() => {
         if (ref.current) UIStore.instance.trackElementDimensions("SpacePanel", ref.current);
@@ -375,7 +413,7 @@ const SpacePanel: React.FC = () => {
     }, []);
 
     useDispatcher(defaultDispatcher, (payload: ActionPayload) => {
-        if (payload.action === Action.ToggleSpacePanel) {
+        if (payload.action === Action.ToggleSpacePanel && !desktopShellEnabled) {
             setPanelCollapsed(!isPanelCollapsed);
         }
     });
@@ -420,21 +458,23 @@ const SpacePanel: React.FC = () => {
                         {(!desktopShellEnabled || isRoomListCollapsed) && (
                             <UserMenuContainer isPanelCollapsed={isPanelCollapsed} />
                         )}
-                        <AccessibleButton
-                            className={classNames("mx_SpacePanel_toggleCollapse", {
-                                expanded: !isPanelCollapsed,
-                            })}
-                            onClick={() => setPanelCollapsed(!isPanelCollapsed)}
-                            title={isPanelCollapsed ? _t("action|expand") : _t("action|collapse")}
-                            caption={
-                                <KeyboardShortcut
-                                    value={{ ctrlOrCmdKey: true, shiftKey: true, key: "d" }}
-                                    className="mx_SpacePanel_Tooltip_KeyboardShortcut"
-                                />
-                            }
-                        >
-                            <ChevronRightIcon />
-                        </AccessibleButton>
+                        {!desktopShellEnabled && (
+                            <AccessibleButton
+                                className={classNames("mx_SpacePanel_toggleCollapse", {
+                                    expanded: !isPanelCollapsed,
+                                })}
+                                onClick={() => setPanelCollapsed(!isPanelCollapsed)}
+                                title={isPanelCollapsed ? _t("action|expand") : _t("action|collapse")}
+                                caption={
+                                    <KeyboardShortcut
+                                        value={{ ctrlOrCmdKey: true, shiftKey: true, key: "d" }}
+                                        className="mx_SpacePanel_Tooltip_KeyboardShortcut"
+                                    />
+                                }
+                            >
+                                <ChevronRightIcon />
+                            </AccessibleButton>
+                        )}
                         <Droppable droppableId="top-level-spaces">
                             {(provided, snapshot) => (
                                 <InnerSpacePanel

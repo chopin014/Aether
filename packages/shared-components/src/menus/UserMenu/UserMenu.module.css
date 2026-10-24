@@ -63,6 +63,55 @@
         margin-top: var(--cpd-space-8x);
         margin-bottom: var(--cpd-space-3x);
     }
+
+    /* The menu's own avatar opens the profile editor; a pencil badge says so without a hover. */
+    .editableAvatar {
+        position: relative;
+        padding: 0;
+        border: 0;
+        border-radius: 50%;
+        background: none;
+        cursor: pointer;
+        outline: var(--cpd-border-width-2) solid transparent;
+        outline-offset: var(--cpd-border-width-2);
+        transition: outline-color 120ms ease-out;
+
+        &:hover,
+        &:focus-visible {
+            outline-color: var(--cpd-color-border-interactive-hovered);
+        }
+
+        &:focus-visible {
+            outline-color: var(--cpd-color-border-focused);
+        }
+    }
+
+    .editableAvatarBadge {
+        position: absolute;
+        inset-block-end: 0;
+        inset-inline-end: 0;
+        display: flex;
+        width: var(--cpd-space-6x);
+        height: var(--cpd-space-6x);
+        align-items: center;
+        justify-content: center;
+        border: var(--cpd-border-width-2) solid var(--cpd-color-bg-canvas-default);
+        border-radius: 50%;
+        box-sizing: border-box;
+        background: var(--cpd-color-bg-action-primary-rest);
+        color: var(--cpd-color-icon-on-solid-primary);
+
+        svg {
+            width: var(--cpd-space-3x);
+            height: var(--cpd-space-3x);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .editableAvatar {
+            transition: none;
+        }
+    }
     .profileSecondary {
         margin-bottom: var(--cpd-space-4x);
     }
@@ -81,6 +130,7 @@
 }
 
 .avatarWrapper {
+    position: relative;
     display: inline-flex;
     flex-direction: column;
     align-items: center;
@@ -154,6 +204,10 @@
     text-align: start;
 
     &:hover {
+        --presence-ring-background:
+            linear-gradient(var(--cpd-color-bg-action-tertiary-hovered), var(--cpd-color-bg-action-tertiary-hovered)),
+            var(--cpd-color-bg-subtle-primary);
+
         background: var(--cpd-color-bg-action-tertiary-hovered);
     }
 }
@@ -173,4 +227,33 @@
 
 .matrixId {
     color: var(--cpd-color-text-secondary);
+}
+
+/* Both lines occupy the same cell so revealing the account ID never moves the dock controls. */
+.secondaryLine {
+    display: grid;
+    min-width: 0;
+    color: var(--cpd-color-text-secondary);
+
+    > span {
+        grid-area: 1 / 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
+.dockMatrixId {
+    visibility: hidden;
+}
+
+.dockTrigger:hover,
+.dockTrigger:focus-visible {
+    .dockStatus {
+        visibility: hidden;
+    }
+
+    .dockMatrixId {
+        visibility: visible;
+    }
 }

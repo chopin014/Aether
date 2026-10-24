@@ -19,6 +19,7 @@ import EventIndexPeg from "./indexing/EventIndexPeg";
 import { createMatrixClient, createClientWithCreds, type IMatrixClientCreds } from "./utils/createMatrixClient";
 import UserActivity from "./UserActivity";
 import Presence from "./Presence";
+import { AetherPresenceService } from "./presence/AetherPresenceService";
 import dis from "./dispatcher/dispatcher";
 import DMRoomMap from "./utils/DMRoomMap";
 import Modal from "./Modal";
@@ -1137,6 +1138,7 @@ async function startMatrixClient(
     // Similarly, don't start sending presence updates until we've started the client
     if (!SettingsStore.getValue("lowBandwidth")) {
         void Presence.start();
+        AetherPresenceService.instance.start(client);
     }
 
     // Now that we have a MatrixClientPeg, update the Jitsi info
@@ -1263,6 +1265,7 @@ export function stopMatrixClient(unsetClient = true): void {
     SDKContextClass.instance.notifier.stop();
     UserActivity.sharedInstance().stop();
     SDKContextClass.instance.typingStore.reset();
+    AetherPresenceService.instance.stop();
     Presence.stop();
     ActiveWidgetStore.instance.stop();
     IntegrationManagers.sharedInstance().stopWatching();

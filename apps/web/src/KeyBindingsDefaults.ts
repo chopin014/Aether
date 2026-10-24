@@ -116,7 +116,7 @@ const roomListBindings = (): KeyBinding[] => {
 const roomBindings = (): KeyBinding[] => {
     const bindings = getBindingsByCategory(CategoryName.ROOM);
 
-    if (SettingsStore.getValue("ctrlFForSearch")) {
+    if (SettingsStore.getValue("feature_desktop_shell") || SettingsStore.getValue("ctrlFForSearch")) {
         bindings.push({
             action: KeyBindingAction.SearchInRoom,
             keyCombo: {

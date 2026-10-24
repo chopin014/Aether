@@ -1706,17 +1706,25 @@
     },
     "powered_by_matrix": "Desenvolvido por Matrix",
     "presence": {
+        "active_ago": "Ativo há %(duration)s",
+        "active_now": "Ativo agora",
         "away": "Ausente",
         "busy": "Ocupado",
         "idle": "Ocioso",
         "idle_for": "Inativo há %(duration)s",
+        "last_active_ago": "Visto ativo há %(duration)s",
         "offline": "Offline",
         "offline_for": "Offline há %(duration)s",
+        "offline_last_seen": "Offline · visto há %(duration)s",
+        "offline_last_seen": "Offline · visto há %(duration)s",
         "online": "Disponível",
         "online_for": "Online há %(duration)s",
         "unknown": "Desconhecido",
         "unknown_for": "Status desconhecido há %(duration)s",
-        "unreachable": "Servidor do usuário inacessível"
+        "unreachable": "Servidor do usuário inacessível",
+        "unknown_members": "Status desconhecido",
+        "update_failed": "Não foi possível atualizar a presença. O status solicitado foi mantido; tente enviá-lo novamente.",
+        "save_failed": "Não foi possível salvar sua preferência de presença neste dispositivo."
     },
     "quick_settings": {
         "all_settings": "Todas as configurações",
@@ -2971,6 +2979,7 @@
     },
     "sliding_sync_legacy_no_longer_supported": "A sliding sync antiga não é mais suportada: saia e entre novamente para ativar o novo sinalizador de sliding sync",
     "space": {
+        "discover_public_spaces": "Descubra espaços públicos",
         "add_existing_room_space": {
             "create": "Quer​•​adicionar​•​uma​•​nova​•​sala?",
             "create_prompt": "Criar uma nova sala",
@@ -3911,6 +3920,39 @@
             "topTen": "Esta é uma das top-10 senhas mais comuns",
             "userInputs": "Não deve haver nenhum dado pessoal ou relacionado à página.",
             "wordByItself": "Uma palavra por si só é fácil de adivinhar"
+        }
+    },
+    "desktop": {
+        "threads": {
+            "close": "Fechar tópico",
+            "removed": "Mensagem removida",
+            "start": "Iniciar tópico"
+        },
+        "voice_settings": {
+            "nav_advanced": "Avançado",
+            "nav_sounds": "Sons",
+            "nav_video": "Vídeo",
+            "nav_voice": "Voz",
+            "reset_confirm": "Redefinir",
+            "reset_description": "Dispositivos, volumes, entrada, apertar para falar, sons e opções de vídeo voltam ao padrão. A supressão de ruído não é alterada.",
+            "reset_title": "Redefinir todas as configurações de Voz e vídeo?",
+            "sound_camera_off": "Câmera desligada",
+            "sound_camera_on": "Câmera ligada",
+            "sound_deafen": "Desativar áudio",
+            "sound_join": "Entrar na chamada",
+            "sound_leave": "Sair da chamada",
+            "sound_mute": "Silenciar",
+            "sound_ptt_activate": "Apertar para falar ligado",
+            "sound_ptt_deactivate": "Apertar para falar desligado",
+            "sound_screen_share_start": "Transmissão de tela iniciada",
+            "sound_screen_share_stop": "Transmissão de tela encerrada",
+            "sound_undeafen": "Reativar áudio",
+            "sound_unmute": "Dessilenciar",
+            "sound_user_joined": "Alguém entrou na sua chamada",
+            "sound_user_left": "Alguém saiu da sua chamada",
+            "switch_warning_confirm": "Trocar de canal",
+            "switch_warning_description": "Você já está em um canal de voz. Entrar neste vai desconectar você do outro.",
+            "switch_warning_title": "Sair da chamada atual?"
         }
     }
 }

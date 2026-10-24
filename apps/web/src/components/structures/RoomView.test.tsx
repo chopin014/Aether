@@ -131,6 +131,8 @@ describe("RoomView", () => {
         vi.spyOn(pinnedEventHooks, "useSortedFetchedPinnedEvents").mockRestore();
 
         cleanup();
+        // Later tests delegate to the real getter; retaining an earlier spy would recurse into itself.
+        vi.spyOn(SettingsStore, "getValue").mockRestore();
     });
 
     const mountRoomView = async (
@@ -222,6 +224,37 @@ describe("RoomView", () => {
         await mountRoomView(ref);
         return ref.current!;
     };
+
+    it("clears an old permalink when returning to the live timeline", async () => {
+        const view = await getRoomViewInstance();
+        const eventId = "$old-permalink";
+        const event = mkEvent({
+            type: EventType.RoomMessage,
+            room: room.roomId,
+            user: cli.getSafeUserId(),
+            event: true,
+            content: { body: "Old" },
+        });
+        vi.spyOn(room, "findEventById").mockReturnValue(event);
+        await act(() =>
+            stores.roomViewStore.viewRoom({
+                action: Action.ViewRoom,
+                room_id: room.roomId,
+                event_id: eventId,
+                highlighted: true,
+                metricsTrigger: undefined,
+            }),
+        );
+        expect(view.state.initialEventId).toBe(eventId);
+        await act(() =>
+            stores.roomViewStore.viewRoom({
+                action: Action.ViewRoom,
+                room_id: room.roomId,
+                metricsTrigger: undefined,
+            }),
+        );
+        expect(view.state.initialEventId).toBeUndefined();
+    });
 
     it("gets a room view store from MultiRoomViewStore when given a room ID", async () => {
         stores.multiRoomViewStore.getRoomViewStoreForRoom = vi.fn().mockReturnValue(stores.roomViewStore);
@@ -331,6 +364,129 @@ describe("RoomView", () => {
         // Check that the pinned message banner is not rendered
         await expect(screen.findByTestId("pinned-message-banner")).rejects.toThrow();
         expect(asFragment()).toMatchSnapshot();
+    });
+
+    describe("desktop pinned messages", () => {
+        let desktopShell: boolean;
+        let pinnedEvent: MatrixEvent;
+        let restoreSettings: () => void;
+
+        beforeEach(() => {
+            desktopShell = true;
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            const setting = vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) => {
+                return name === "feature_desktop_shell" ? desktopShell : getValue(name, ...args);
+            });
+            restoreSettings = () => setting.mockRestore();
+            vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+            pinnedEvent = new MatrixEvent({
+                type: EventType.RoomMessage,
+                sender: "@alice:example.org",
+                content: { body: "A pinned channel message", msgtype: "m.text" },
+                room_id: room.roomId,
+                origin_server_ts: 0,
+                event_id: "$pinnedEvent",
+            });
+            room.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.RoomPinnedEvents,
+                    state_key: "",
+                    room_id: room.roomId,
+                    content: { pinned: [pinnedEvent.getId()!] },
+                }),
+            ]);
+            vi.spyOn(pinnedEventHooks, "useSortedFetchedPinnedEvents").mockReturnValue([pinnedEvent]);
+        });
+
+        afterEach(() => {
+            restoreSettings();
+        });
+
+        it.each([true, false])(
+            "places the header above the content split only in desktop mode (%s)",
+            async (enabled) => {
+                desktopShell = enabled;
+                await mountRoomView();
+                const header = screen.getByRole("banner");
+                expect(header.closest(".mx_MainSplit") === null).toBe(enabled);
+                expect(screen.getAllByRole("banner")).toHaveLength(1);
+            },
+        );
+
+        it("should not mount the banner or open the pins panel by default in desktop text channels", async () => {
+            await mountRoomView();
+
+            expect(screen.getByTestId("timeline")).toBeInTheDocument();
+            expect(screen.queryByTestId("pinned-message-banner")).not.toBeInTheDocument();
+            expect(screen.queryByText("A pinned channel message")).not.toBeInTheDocument();
+            expect(stores.rightPanelStore.currentCardForRoom(room.roomId).phase).not.toBe(
+                RightPanelPhases.PinnedMessages,
+            );
+            expect(pinnedEventHooks.useSortedFetchedPinnedEvents).not.toHaveBeenCalled();
+            expect(room.currentState.getStateEvents(EventType.RoomPinnedEvents, "")?.getContent().pinned).toEqual([
+                pinnedEvent.getId(),
+            ]);
+        });
+
+        it("updates the desktop panel size when an already open member panel changes to a thread", async () => {
+            const ref = createRef<RoomView>();
+            await mountRoomView(ref);
+            await act(() => stores.rightPanelStore.setCard({ phase: RightPanelPhases.MemberList }, false, room.roomId));
+            const timeline = screen.getByTestId("timeline");
+            expect(ref.current?.state.rightPanelPhase).toBe(RightPanelPhases.MemberList);
+            await act(() =>
+                stores.rightPanelStore.openThread(
+                    { phase: RightPanelPhases.ThreadView, state: { threadHeadEvent: pinnedEvent } },
+                    room.roomId,
+                ),
+            );
+            expect(ref.current?.state.rightPanelPhase).toBe(RightPanelPhases.ThreadView);
+            expect(screen.getByTestId("timeline")).toBe(timeline);
+            await act(() => stores.rightPanelStore.closeThread(room.roomId));
+            expect(ref.current?.state.rightPanelPhase).toBe(RightPanelPhases.MemberList);
+            expect(screen.getByTestId("timeline")).toBe(timeline);
+        });
+
+        it("opens the desktop pins popover without replacing the channel's right panel", async () => {
+            cli.setRoomAccountData.mockResolvedValue({});
+            const fetchEvent = vi.spyOn(pinnedEventHooks, "fetchPinnedEvent").mockResolvedValue(pinnedEvent);
+            const user = userEvent.setup();
+            try {
+                await mountRoomView();
+                const previousCard = stores.rightPanelStore.currentCardForRoom(room.roomId);
+                const wasOpen = stores.rightPanelStore.isOpenForRoom(room.roomId);
+                const trigger = screen.getByRole("button", { name: "Pinned messages" });
+                const popover = document.getElementById(trigger.getAttribute("aria-controls")!)!;
+
+                await user.click(trigger);
+                // Happy DOM does not implement the native popover toggle default action.
+                fireEvent(popover, Object.assign(new Event("toggle"), { oldState: "closed", newState: "open" }));
+
+                expect(trigger).toHaveAttribute("aria-expanded", "true");
+                expect(await screen.findByText("A pinned channel message")).toBeInTheDocument();
+                expect(stores.rightPanelStore.currentCardForRoom(room.roomId)).toBe(previousCard);
+                expect(stores.rightPanelStore.isOpenForRoom(room.roomId)).toBe(wasOpen);
+                expect(screen.queryByTestId("pinned-message-banner")).not.toBeInTheDocument();
+
+                await user.click(trigger);
+                fireEvent(popover, Object.assign(new Event("toggle"), { oldState: "open", newState: "closed" }));
+
+                expect(trigger).toHaveAttribute("aria-expanded", "false");
+                expect(screen.queryByText("A pinned channel message")).not.toBeInTheDocument();
+                expect(stores.rightPanelStore.currentCardForRoom(room.roomId)).toBe(previousCard);
+                expect(stores.rightPanelStore.isOpenForRoom(room.roomId)).toBe(wasOpen);
+            } finally {
+                fetchEvent.mockRestore();
+            }
+        });
+
+        it("should retain the automatic pinned message banner outside the desktop shell", async () => {
+            desktopShell = false;
+            await mountRoomView();
+
+            expect(await screen.findByTestId("pinned-message-banner")).toBeInTheDocument();
+            expect(screen.getByText("A pinned channel message")).toBeInTheDocument();
+        });
     });
 
     describe("enableReadReceiptsAndMarkersOnActivity", () => {
@@ -1282,6 +1438,25 @@ describe("RoomView", () => {
             phase: RightPanelPhases.MemberInfo,
             state: { member },
         });
+    });
+
+    it("leaves a person to the desktop profile card instead of the right panel when the desktop shell is on", async () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+            name === "feature_desktop_shell" ? true : getValue(name, ...args),
+        );
+        await mountRoomView();
+        vi.spyOn(stores.rightPanelStore, "setCards");
+        vi.spyOn(stores.rightPanelStore, "pushCard");
+        vi.spyOn(stores.rightPanelStore, "showOrHidePhase");
+        const member = new User("@user:server");
+        defaultDispatcher.dispatch({ action: Action.ViewUser, member }, true);
+        defaultDispatcher.dispatch({ action: Action.ViewUser, member, push: true }, true);
+        expect(stores.rightPanelStore.setCards).not.toHaveBeenCalled();
+        expect(stores.rightPanelStore.pushCard).not.toHaveBeenCalled();
+        // Toggling the member list is still the right panel's job.
+        defaultDispatcher.dispatch({ action: Action.ViewUser }, true);
+        expect(stores.rightPanelStore.showOrHidePhase).toHaveBeenCalledWith(RightPanelPhases.MemberList);
     });
 
     it("should handle Action.View3pidInvite", async () => {

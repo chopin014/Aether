@@ -1,0 +1,46 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.form {
+    width: min(calc(var(--cpd-space-16x) * 7.5), calc(100vw - var(--cpd-space-4x)));
+    max-height: inherit;
+    box-sizing: border-box;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-4x);
+    padding: var(--cpd-space-5x);
+    background: var(--cpd-color-bg-subtle-primary);
+    color: var(--cpd-color-text-primary);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-2x);
+    box-shadow: 0 var(--cpd-space-2x) var(--cpd-space-6x)
+        color-mix(in srgb, var(--cpd-color-text-primary) 12%, transparent);
+}
+.form h2,
+.form p {
+    margin: 0;
+}
+.description {
+    color: var(--cpd-color-text-secondary);
+}
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-2x);
+}
+.field textarea {
+    resize: vertical;
+    min-height: var(--cpd-space-12x);
+    max-height: calc(var(--cpd-space-16x) * 3);
+    padding: var(--cpd-space-3x);
+    font: var(--cpd-font-body-md-regular);
+    color: var(--cpd-color-text-primary);
+    background: var(--cpd-color-bg-canvas-default);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-primary);
+    border-radius: var(--cpd-space-2x);
+}

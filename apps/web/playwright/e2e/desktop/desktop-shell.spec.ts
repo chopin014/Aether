@@ -6,6 +6,7 @@ Please see LICENSE in the repository root for full details.
 */
 
 import { closeReleaseAnnouncementIfExists, rejectToast } from "@element-hq/element-web-playwright-common";
+import type { Preset, Visibility } from "matrix-js-sdk/src/matrix";
 
 import { test, expect } from "../../element-web-test";
 
@@ -23,6 +24,124 @@ test.beforeEach(async ({ page, user }) => {
     await rejectToast(page, "Verify this device");
     await rejectToast(page, "Notifications");
     await closeReleaseAnnouncementIfExists(page, "Introducing Sections");
+});
+
+test("discovers and joins public Spaces from a separate rail button", async ({ page, app, bot }, testInfo) => {
+    const name = "Aether discovery test space";
+    const roomName = "Aether discovery test room";
+    const spaceId = await bot.createRoom({
+        name,
+        visibility: "public" as Visibility,
+        preset: "public_chat" as Preset,
+        creation_content: { type: "m.space" },
+        initial_state: [
+            { type: "m.room.history_visibility", state_key: "", content: { history_visibility: "joined" } },
+        ],
+    });
+    await bot.createRoom({ name: roomName, visibility: "public" as Visibility, preset: "public_chat" as Preset });
+
+    const rail = page.getByRole("navigation", { name: "Spaces", exact: true });
+    await rail.getByRole("button", { name: "Create a space", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Create a space", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    const create = rail.getByRole("button", { name: "Create a space", exact: true });
+    const discover = rail.getByRole("button", { name: "Discover public spaces", exact: true });
+    await discover.hover();
+    await expect(page.getByRole("tooltip")).toHaveText("Discover public spaces");
+    const createBounds = await create.boundingBox();
+    const discoverBounds = await discover.boundingBox();
+    expect(discoverBounds!.y).toBeGreaterThan(createBounds!.y + createBounds!.height - 1);
+    await rail.screenshot({ path: testInfo.outputPath("discover-rail.png") });
+    await discover.click();
+
+    const dialog = page.getByRole("dialog", { name: "Search Dialog" });
+    await expect(dialog.getByText("Public spaces", { exact: true })).toBeVisible();
+    await dialog.getByRole("textbox", { name: "Search", exact: true }).fill("Aether discovery test");
+    const result = dialog.getByRole("option", { name, exact: true });
+    await expect(result).toBeVisible();
+    await expect(dialog.getByRole("option", { name: roomName, exact: true })).not.toBeAttached();
+    await result.getByRole("button", { name: "Join", exact: true }).click();
+
+    await expect(dialog).not.toBeVisible();
+    await expect
+        .poll(() => app.client.evaluate((client, id) => client.getRoom(id)?.getMyMembership(), spaceId))
+        .toBe("join");
+    await expect(rail.getByRole("button", { name, exact: true })).toBeVisible();
+});
+
+test("centres Home, servers, the divider and actions on the server rail", async ({ page, app }) => {
+    await app.client.createSpace({ name: "Rail alignment space" });
+    const rail = page.getByRole("navigation", { name: "Spaces", exact: true });
+    await expect(rail.getByRole("button", { name: "Rail alignment space", exact: true })).toBeVisible();
+
+    const geometry = await rail.evaluate((nav) => {
+        const railBox = nav.getBoundingClientRect();
+        const centre = (box: DOMRect): number => box.left + box.width / 2 - railBox.left;
+        const tiles = [...nav.querySelectorAll(".mx_SpaceButton_selectionWrapper")].map((tile) => ({
+            centre: centre(tile.getBoundingClientRect()),
+            width: tile.getBoundingClientRect().width,
+            content: centre(tile.firstElementChild!.getBoundingClientRect()),
+        }));
+        const meta = [...nav.querySelectorAll(".mx_SpaceItem_meta")].at(-1)!;
+        const divider = getComputedStyle(meta, "::after");
+        const dividerCentre =
+            meta.getBoundingClientRect().left -
+            railBox.left +
+            parseFloat(divider.marginLeft) +
+            parseFloat(divider.width) / 2;
+        return { railWidth: railBox.width, tiles, dividerCentre };
+    });
+
+    const middle = geometry.railWidth / 2;
+    expect(geometry.tiles.length).toBeGreaterThanOrEqual(3);
+    for (const tile of geometry.tiles) {
+        expect(tile.width).toBe(48);
+        expect(tile.centre).toBeCloseTo(middle, 0);
+        expect(tile.content).toBeCloseTo(middle, 0);
+    }
+    expect(geometry.dividerCentre).toBeCloseTo(middle, 0);
+});
+
+test("separates presence dots from avatars with a ring in the surface colour", async ({ page, app, bot }) => {
+    const roomId = await app.client.createRoom({ name: "Presence dots", invite: [bot.credentials!.userId] });
+    await bot.joinRoom(roomId);
+    await app.viewRoomById(roomId);
+    const members = page.locator(".mx_MemberListView");
+    await expect(page.getByRole("button", { name: "2 members", exact: true })).toBeVisible();
+    if (!(await members.isVisible())) await page.getByRole("button", { name: "2 members", exact: true }).click();
+    const tile = members
+        .getByRole("option")
+        .filter({ has: page.locator(".mx_PresenceIconView") })
+        .last();
+    await expect(tile.locator(".mx_PresenceIconView")).toBeVisible();
+
+    const ring = async (badge: ReturnType<typeof page.locator>, avatar: ReturnType<typeof page.locator>) => {
+        const [badgeBox, avatarBox] = [await badge.boundingBox(), await avatar.boundingBox()];
+        const style = await badge.evaluate((element) => getComputedStyle(element));
+        return {
+            padding: style.paddingTop,
+            image: style.backgroundImage,
+            outsideRight: badgeBox!.x + badgeBox!.width - (avatarBox!.x + avatarBox!.width),
+            outsideBottom: badgeBox!.y + badgeBox!.height - (avatarBox!.y + avatarBox!.height),
+        };
+    };
+
+    const memberBadge = tile.locator(".mx_PresenceIconView");
+    const memberAvatar = tile.locator(".mx_MemberTileView_avatar");
+    const resting = await ring(memberBadge, memberAvatar);
+    expect(resting.padding).toBe("3px");
+    expect(resting.outsideRight).toBeGreaterThan(0);
+    expect(resting.outsideBottom).toBeGreaterThan(0);
+    await tile.hover();
+    // The ring repaints with the row's hover fill so it still reads as a cutout.
+    expect((await ring(memberBadge, memberAvatar)).image).toContain("linear-gradient");
+
+    const dock = page.getByRole("group", { name: "User menu" });
+    const dockBadge = dock.getByRole("img", { name: "Online" });
+    const dockRing = await ring(dockBadge, dock.locator(".mx_BaseAvatar, [class*='_avatar_']").first());
+    expect(dockRing.padding).toBe("3px");
+    expect(dockRing.outsideRight).toBeGreaterThan(0);
 });
 
 test("sends through Matrix, receives another member's message and preserves room drafts", async ({
@@ -196,6 +315,7 @@ test("opens native account settings and room search using the existing actions",
         )
         .toBe(true);
     const account = page.getByRole("group", { name: "User menu" });
+    await account.getByRole("button", { name: "User menu", exact: true }).hover();
     await expect(account.getByText(user.userId, { exact: true })).toBeVisible();
     await account.getByRole("button", { name: "All settings" }).click();
     await expect(page.getByRole("dialog")).toBeVisible();

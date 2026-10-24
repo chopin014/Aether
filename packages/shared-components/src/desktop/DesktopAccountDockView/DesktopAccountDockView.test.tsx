@@ -16,12 +16,15 @@ import { type UserMenuViewSnapshot, type UserMenuViewActions } from "../../menus
 import { type SetStatusViewSnapshot } from "../../status/SetStatusView";
 
 class AccountViewModel extends BaseViewModel<UserMenuViewSnapshot, void> implements UserMenuViewActions {
-    public constructor(actions: UserMenuViewSnapshot["actions"] = { openSettings: true, openSecurity: true }) {
+    public constructor(
+        actions: UserMenuViewSnapshot["actions"] = { editProfile: true, openSettings: true, openSecurity: true },
+    ) {
         super(undefined, {
             open: false,
             expanded: true,
             displayName: "Alice",
             userId: "@alice:example.org",
+            showAvatar: true,
             actions,
             setStatusViewModel: Object.assign(new MockViewModel<SetStatusViewSnapshot>({}), {
                 setStatus: vi.fn(),
@@ -35,6 +38,7 @@ class AccountViewModel extends BaseViewModel<UserMenuViewSnapshot, void> impleme
     public setIdentity = (displayName: string, userId: string): void => {
         this.snapshot.merge({ displayName, userId });
     };
+    public editProfile = vi.fn();
     public createAccount = vi.fn();
     public signIn = vi.fn();
     public linkNewDevice = vi.fn();
@@ -74,6 +78,17 @@ describe("DesktopAccountDockView", () => {
         await userEvent.keyboard("{Escape}");
         expect(screen.queryByRole("menu")).not.toBeInTheDocument();
         expect(trigger).toHaveFocus();
+    });
+
+    it("edits the profile from the menu item and from the avatar above it", async () => {
+        const vm = new AccountViewModel();
+        render(<DesktopAccountDockView vm={vm} />);
+        await userEvent.click(screen.getByRole("button", { name: "User menu" }));
+        await userEvent.click(screen.getByRole("menuitem", { name: "Edit profile" }));
+        expect(vm.editProfile).toHaveBeenCalledOnce();
+        await userEvent.click(screen.getByRole("button", { name: "User menu" }));
+        await userEvent.click(screen.getByRole("button", { name: "Edit profile" }));
+        expect(vm.editProfile).toHaveBeenCalledTimes(2);
     });
 
     it("respects an account that does not expose settings", () => {

@@ -282,6 +282,48 @@ describe("PinningUtils", () => {
         });
     });
 
+    describe("unpinEvent", () => {
+        function setPins(pinned: unknown): void {
+            room.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.RoomPinnedEvents,
+                    state_key: "",
+                    room_id: roomId,
+                    content: { pinned },
+                }),
+            ]);
+        }
+
+        it("removes a pin without mutating the synced state, including when the request fails", async () => {
+            const pinned = ["$one", "$two"];
+            setPins(pinned);
+            vi.mocked(matrixClient.sendStateEvent).mockRejectedValueOnce(new Error("offline"));
+            await expect(PinningUtils.unpinEvent(matrixClient, room, "$one")).rejects.toThrow("offline");
+            expect(pinned).toEqual(["$one", "$two"]);
+            expect(matrixClient.sendStateEvent).toHaveBeenCalledWith(
+                roomId,
+                EventType.RoomPinnedEvents,
+                { pinned: ["$two"] },
+                "",
+            );
+        });
+
+        it("does not repin a stale selection or send malformed state", async () => {
+            for (const pins of [["$other"], null, "invalid"]) {
+                setPins(pins);
+                await PinningUtils.unpinEvent(matrixClient, room, "$missing");
+            }
+            expect(matrixClient.sendStateEvent).not.toHaveBeenCalled();
+        });
+
+        it("checks current permissions before sending", async () => {
+            setPins(["$one"]);
+            vi.spyOn(room.currentState, "mayClientSendStateEvent").mockReturnValue(false);
+            await PinningUtils.unpinEvent(matrixClient, room, "$one");
+            expect(matrixClient.sendStateEvent).not.toHaveBeenCalled();
+        });
+    });
+
     describe("unpinAllEvents", () => {
         it("should unpin all events in the given room", async () => {
             await PinningUtils.unpinAllEvents(matrixClient, roomId);

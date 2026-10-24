@@ -765,16 +765,65 @@
             "offline": "desktop|contacts|offline",
             "online": "desktop|contacts|online"
         },
+        "keybinds": {
+            "browser_description": "In a browser, shortcuts work while Aether is focused. Letter keys without Ctrl, Alt or Meta do not trigger shortcuts while typing.",
+            "conflict": "This key is already in use. Choose another combination.",
+            "desktop_description": "Shortcuts work across applications when your desktop allows them. Registration status is shown for each action.",
+            "focused": "Available while Aether is focused",
+            "invalid": "Unsupported key combination",
+            "paused": "Shortcuts paused",
+            "push_to_mute": "Push to mute",
+            "push_to_talk": "Push to talk",
+            "registered": "Available across applications",
+            "save_failed": "Could not save this keybind. Try again.",
+            "show_hide": "Show or hide Aether",
+            "toggle_deafen": "Toggle deafen",
+            "toggle_input_mode": "Toggle input mode",
+            "toggle_mute": "Toggle microphone",
+            "unbound": "No key assigned",
+            "unsupported": "Unavailable on this desktop session"
+        },
         "members": {
             "invited": "Invited"
         },
         "text_channels": "Text Channels",
+        "threads": {
+            "close": "Close thread",
+            "removed": "Removed message",
+            "start": "Start thread"
+        },
         "voice": {
             "action_failed": "The audio control could not be changed. Please try again.",
-            "sound_section": "Sounds",
-            "sounds": "Play voice control sounds"
+            "camera_failed": "The camera could not be changed. Please try again.",
+            "screen_share_failed": "Screen sharing could not be changed. Please try again."
         },
-        "voice_channels": "Voice Channels"
+        "voice_channels": "Voice Channels",
+        "voice_settings": {
+            "nav_advanced": "Advanced",
+            "nav_sounds": "Sounds",
+            "nav_video": "Video",
+            "nav_voice": "Voice",
+            "reset_confirm": "Reset",
+            "reset_description": "Devices, volumes, input settings, push to talk, sounds and video options return to their defaults. Your noise suppression setting is not changed.",
+            "reset_title": "Reset all Voice & Video settings?",
+            "sound_camera_off": "Camera off",
+            "sound_camera_on": "Camera on",
+            "sound_deafen": "Deafen",
+            "sound_join": "Join the call",
+            "sound_leave": "Leave the call",
+            "sound_mute": "Mute",
+            "sound_ptt_activate": "Push to talk on",
+            "sound_ptt_deactivate": "Push to talk off",
+            "sound_screen_share_start": "Screen share started",
+            "sound_screen_share_stop": "Screen share stopped",
+            "sound_undeafen": "Undeafen",
+            "sound_unmute": "Unmute",
+            "sound_user_joined": "Someone joined your call",
+            "sound_user_left": "Someone left your call",
+            "switch_warning_confirm": "Switch channel",
+            "switch_warning_description": "You are already in a voice channel. Joining this one will disconnect you from it.",
+            "switch_warning_title": "Leave your current call?"
+        }
     },
     "desktop_default_device_name": "%(brand)s Desktop: %(platformName)s",
     "devtools": {
@@ -1856,17 +1905,23 @@
     },
     "powered_by_matrix": "Powered by Matrix",
     "presence": {
+        "active_ago": "Active %(duration)s ago",
+        "active_now": "Active now",
         "away": "Away",
         "busy": "Busy",
         "idle": "Idle",
         "idle_for": "Idle for %(duration)s",
+        "last_active_ago": "Last active %(duration)s ago",
         "offline": "Offline",
         "offline_for": "Offline for %(duration)s",
+        "offline_last_seen": "Offline · last seen %(duration)s ago",
         "online": "Online",
         "online_for": "Online for %(duration)s",
+        "save_failed": "Could not save your presence preference on this device.",
         "unknown": "Unknown",
         "unknown_for": "Unknown for %(duration)s",
-        "unreachable": "Account provider of the user is unreachable"
+        "unreachable": "Account provider of the user is unreachable",
+        "update_failed": "Could not update presence. Your requested status is retained; retry to send it again."
     },
     "quick_settings": {
         "all_settings": "All settings",
@@ -3211,6 +3266,7 @@
             "manage_and_explore": "Manage & explore rooms",
             "options": "Space options"
         },
+        "discover_public_spaces": "Discover public spaces",
         "failed_load_rooms": "Failed to load list of rooms.",
         "failed_remove_rooms": "Failed to remove some rooms. Try again later",
         "incompatible_server_hierarchy": "Your account provider does not support showing space hierarchies.",

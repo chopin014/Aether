@@ -698,7 +698,7 @@ describe("MessageContextMenu", () => {
             expect(reactButton).toBeFalsy();
         });
 
-        it("creates a new thread on reply in thread click", () => {
+        it.each([false, true])("starts a real thread with desktop shell enabled=%s", (desktopShell) => {
             const eventContent = createMessageEventContent("hello");
             const mxEvent = new MatrixEvent({ type: EventType.RoomMessage, content: eventContent });
 
@@ -706,11 +706,15 @@ describe("MessageContextMenu", () => {
             const context = {
                 canSendMessages: true,
             };
-            vi.spyOn(SettingsStore, "getValue").mockReturnValue(true);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name) =>
+                name === "feature_desktop_shell" ? desktopShell : true,
+            );
 
             createRightClickMenu(mxEvent, context);
 
-            const replyInThreadButton = document.querySelector('li[aria-label="Reply in thread"]')!;
+            const replyInThreadButton = screen.getByRole("menuitem", {
+                name: desktopShell ? "Start thread" : "Reply in thread",
+            });
             fireEvent.click(replyInThreadButton);
 
             expect(dispatcher.dispatch).toHaveBeenCalledWith({

@@ -1,0 +1,202 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.box {
+    /* The header moves the native window; this entire control must receive pointer input. */
+    -webkit-app-region: no-drag;
+    position: relative;
+    /* Shrinks with the header, and takes more room while focused. */
+    flex: 0 1 calc(var(--cpd-space-16x) * 3.75);
+    min-width: calc(var(--cpd-space-16x) * 1.5);
+    margin-inline-start: var(--cpd-space-1x);
+    transition: flex-basis 150ms ease;
+}
+.box:focus-within {
+    flex-basis: calc(var(--cpd-space-16x) * 5.5);
+}
+.field {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-1x);
+    width: 100%;
+    height: var(--cpd-space-8x);
+    padding-inline: var(--cpd-space-2x);
+    overflow: hidden;
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-2x);
+    background: var(--mx-desktop-shell-frame, var(--cpd-color-bg-canvas-default));
+    color: var(--cpd-color-text-primary);
+    cursor: text;
+}
+.box:focus-within .field {
+    border-color: var(--cpd-color-border-focused);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .box {
+        transition: none;
+    }
+}
+.icon {
+    flex: none;
+    width: var(--cpd-space-5x);
+    height: var(--cpd-space-5x);
+    color: var(--cpd-color-icon-secondary);
+}
+.input {
+    flex: 1;
+    min-width: var(--cpd-space-12x);
+    height: 100%;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: inherit;
+    font: var(--cpd-font-body-md-regular);
+}
+.input::placeholder {
+    color: var(--cpd-color-text-secondary);
+}
+.chip {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cpd-space-1x);
+    max-width: calc(var(--cpd-space-16x) * 2);
+    height: var(--cpd-space-6x);
+    padding-inline: var(--cpd-space-2x) var(--cpd-space-1x);
+    border-radius: var(--cpd-space-1x);
+    background: var(--cpd-color-bg-action-secondary-rest);
+    font: var(--cpd-font-body-sm-regular);
+}
+.chipKey {
+    color: var(--cpd-color-text-secondary);
+}
+.chipValue {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--cpd-color-text-primary);
+    font-weight: var(--cpd-font-weight-semibold);
+}
+.chipRemove,
+.clear {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: var(--cpd-space-1x);
+    background: transparent;
+    color: var(--cpd-color-icon-secondary);
+    cursor: pointer;
+}
+.chipRemove {
+    width: var(--cpd-space-4x);
+    height: var(--cpd-space-4x);
+}
+.clear {
+    width: var(--cpd-space-5x);
+    height: var(--cpd-space-5x);
+}
+.chipRemove:hover,
+.clear:hover {
+    color: var(--cpd-color-icon-primary);
+}
+.chipRemove svg,
+.clear svg {
+    width: 100%;
+    height: 100%;
+}
+.popover {
+    /* The popup extends outside the input's native hit-test rectangle. */
+    -webkit-app-region: no-drag;
+    position: absolute;
+    z-index: 10;
+    inset-block-start: calc(100% + var(--cpd-space-2x));
+    inset-inline-end: 0;
+    box-sizing: border-box;
+    width: min(calc(var(--cpd-space-16x) * 5.5), calc(100vw - var(--cpd-space-4x)));
+    max-height: min(calc(var(--cpd-space-16x) * 6), 70vh);
+    overflow: auto;
+    padding: var(--cpd-space-1x);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-subtle-primary);
+    color: var(--cpd-color-text-primary);
+    box-shadow: 0 var(--cpd-space-2x) var(--cpd-space-6x)
+        color-mix(in srgb, var(--cpd-color-text-primary) 18%, transparent);
+}
+.section + .section {
+    margin-block-start: var(--cpd-space-1x);
+}
+.heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--cpd-space-2x) var(--cpd-space-3x);
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-sm-semibold);
+}
+.headingAction {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--cpd-color-text-action-accent);
+    font: inherit;
+    cursor: pointer;
+}
+.option {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-2x);
+    padding: var(--cpd-space-1-5x) var(--cpd-space-2x);
+    border-radius: var(--cpd-space-1x);
+    cursor: pointer;
+}
+.option:hover,
+.option[data-active] {
+    background: var(--cpd-color-bg-action-secondary-rest);
+}
+.option[data-active] {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: calc(var(--cpd-border-width-2) * -1);
+}
+.optionIcon {
+    flex: none;
+    display: inline-flex;
+    width: var(--cpd-space-5x);
+    height: var(--cpd-space-5x);
+    color: var(--cpd-color-icon-secondary);
+}
+.optionIcon svg {
+    width: 100%;
+    height: 100%;
+}
+.optionText {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+.optionTitle {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font: var(--cpd-font-body-sm-medium);
+}
+.optionHint {
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-xs-regular);
+}
+.hint {
+    padding: var(--cpd-space-2x) var(--cpd-space-3x);
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-sm-regular);
+}
