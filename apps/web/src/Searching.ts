@@ -25,24 +25,39 @@ import { isNotUndefined } from "./Typeguards";
 
 const SEARCH_LIMIT = 10;
 
+/**
+ * Optional narrowing for {@link eventSearch}. Omit it for Element's usual search.
+ */
+export interface EventSearchOptions {
+    /** Search these rooms. Ignored when a single `roomId` is given. */
+    roomIds?: string[];
+    /** Extra server-side filter fields, merged into the request. Seshat only understands the room. */
+    filter?: IRoomEventFilter;
+    /** How the homeserver orders results. Defaults to newest first. */
+    orderBy?: SearchOrderBy;
+}
+
 async function serverSideSearch(
     client: MatrixClient,
     term: string,
     roomId?: string,
     abortSignal?: AbortSignal,
+    options?: EventSearchOptions,
 ): Promise<{ response: ISearchResponse; query: ISearchRequestBody }> {
     const filter: IRoomEventFilter = {
+        ...options?.filter,
         limit: SEARCH_LIMIT,
     };
 
     if (roomId !== undefined) filter.rooms = [roomId];
+    else if (options?.roomIds) filter.rooms = options.roomIds;
 
     const body: ISearchRequestBody = {
         search_categories: {
             room_events: {
                 search_term: term,
                 filter: filter,
-                order_by: SearchOrderBy.Recent,
+                order_by: options?.orderBy ?? SearchOrderBy.Recent,
                 event_context: {
                     before_limit: 1,
                     after_limit: 1,
@@ -62,8 +77,9 @@ async function serverSideSearchProcess(
     term: string,
     roomId?: string,
     abortSignal?: AbortSignal,
+    options?: EventSearchOptions,
 ): Promise<ISearchResults> {
-    const result = await serverSideSearch(client, term, roomId, abortSignal);
+    const result = await serverSideSearch(client, term, roomId, abortSignal, options);
 
     // The js-sdk method backPaginateRoomEventsSearch() uses _query internally
     // so we're reusing the concept here since we want to delegate the
@@ -92,11 +108,12 @@ async function combinedSearch(
     client: MatrixClient,
     searchTerm: string,
     abortSignal?: AbortSignal,
+    options?: EventSearchOptions,
 ): Promise<ISearchResults> {
     // Create two promises, one for the local search, one for the
     // server-side search.
-    const serverSidePromise = serverSideSearch(client, searchTerm, undefined, abortSignal);
-    const localPromise = localSearch(searchTerm);
+    const serverSidePromise = serverSideSearch(client, searchTerm, undefined, abortSignal, options);
+    const localPromise = localSearch(searchTerm, undefined, true, options);
 
     // Wait for both promises to resolve.
     await Promise.all([serverSidePromise, localPromise]);
@@ -154,6 +171,7 @@ async function localSearch(
     searchTerm: string,
     roomId?: string,
     processResult = true,
+    options?: EventSearchOptions,
 ): Promise<{ response: IResultRoomEvents; query: ISearchArgs }> {
     const eventIndex = EventIndexPeg.get();
 
@@ -162,7 +180,7 @@ async function localSearch(
         before_limit: 1,
         after_limit: 1,
         limit: SEARCH_LIMIT,
-        order_by_recency: true,
+        order_by_recency: options?.orderBy !== SearchOrderBy.Rank,
         room_id: undefined,
     };
 
@@ -216,6 +234,7 @@ async function localSearchProcess(
     client: MatrixClient,
     searchTerm: string,
     roomId?: string,
+    options?: EventSearchOptions,
 ): Promise<ISeshatSearchResults> {
     const emptyResult = {
         results: [],
@@ -224,7 +243,7 @@ async function localSearchProcess(
 
     if (searchTerm === "") return emptyResult;
 
-    const result = await localSearch(searchTerm, roomId);
+    const result = await localSearch(searchTerm, roomId, true, options);
 
     emptyResult.seshatQuery = result.query;
 
@@ -621,6 +640,7 @@ async function eventIndexSearch(
     term: string,
     roomId?: string,
     abortSignal?: AbortSignal,
+    options?: EventSearchOptions,
 ): Promise<ISearchResults> {
     let searchPromise: Promise<ISearchResults>;
 
@@ -628,16 +648,16 @@ async function eventIndexSearch(
         if (await client.getCrypto()?.isEncryptionEnabledInRoom(roomId)) {
             // The search is for a single encrypted room, use our local
             // search method.
-            searchPromise = localSearchProcess(client, term, roomId);
+            searchPromise = localSearchProcess(client, term, roomId, options);
         } else {
             // The search is for a single non-encrypted room, use the
             // server-side search.
-            searchPromise = serverSideSearchProcess(client, term, roomId, abortSignal);
+            searchPromise = serverSideSearchProcess(client, term, roomId, abortSignal, options);
         }
     } else {
         // Search across all rooms, combine a server side search and a
         // local search.
-        searchPromise = combinedSearch(client, term, abortSignal);
+        searchPromise = combinedSearch(client, term, abortSignal, options);
     }
 
     return searchPromise;
@@ -684,13 +704,14 @@ export default function eventSearch(
     term: string,
     roomId?: string,
     abortSignal?: AbortSignal,
+    options?: EventSearchOptions,
 ): Promise<ISearchResults> {
     const eventIndex = EventIndexPeg.get();
 
     if (eventIndex === null) {
-        return serverSideSearchProcess(client, term, roomId, abortSignal);
+        return serverSideSearchProcess(client, term, roomId, abortSignal, options);
     } else {
-        return eventIndexSearch(client, term, roomId, abortSignal);
+        return eventIndexSearch(client, term, roomId, abortSignal, options);
     }
 }
 

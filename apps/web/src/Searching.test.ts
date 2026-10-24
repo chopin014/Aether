@@ -8,7 +8,7 @@ Please see LICENSE files in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
-import { type IResultRoomEvents } from "matrix-js-sdk/src/matrix";
+import { type IResultRoomEvents, SearchOrderBy } from "matrix-js-sdk/src/matrix";
 import { createTestClient } from "test-utils";
 
 import eventSearch from "./Searching";
@@ -260,6 +260,53 @@ describe("Searching", () => {
 
             const thirdMainEvent = mockSearchResults.results![2].result as unknown as Record<string, unknown>;
             expect(thirdMainEvent.state_key).toBeUndefined();
+        });
+    });
+    describe("options", () => {
+        const response = { search_categories: { room_events: { count: 0, results: [], highlights: [] } } };
+
+        beforeEach(() => {
+            vi.spyOn(EventIndexPeg, "get").mockReturnValue(null);
+            vi.spyOn(mockClient, "search").mockResolvedValue(response as any);
+            vi.spyOn(mockClient, "processRoomEventsSearch").mockImplementation((results) => results);
+        });
+
+        const sentBody = (): any => (mockClient.search as any).mock.calls[0][0].body.search_categories.room_events;
+
+        it("sends no extra filter by default", async () => {
+            await eventSearch(mockClient, "hello", "!a:x");
+            expect(sentBody().filter).toEqual({ limit: 10, rooms: ["!a:x"] });
+            expect(sentBody().order_by).toBe(SearchOrderBy.Recent);
+        });
+
+        it("searches several rooms with extra filter fields and relevance order", async () => {
+            await eventSearch(mockClient, "hello", undefined, undefined, {
+                roomIds: ["!a:x", "!b:x"],
+                filter: { senders: ["@u:x"], contains_url: true },
+                orderBy: SearchOrderBy.Rank,
+            });
+            expect(sentBody().filter).toEqual({
+                limit: 10,
+                rooms: ["!a:x", "!b:x"],
+                senders: ["@u:x"],
+                contains_url: true,
+            });
+            expect(sentBody().order_by).toBe(SearchOrderBy.Rank);
+        });
+
+        it("lets an explicit room win over the room list", async () => {
+            await eventSearch(mockClient, "hello", "!a:x", undefined, { roomIds: ["!b:x"] });
+            expect(sentBody().filter.rooms).toEqual(["!a:x"]);
+        });
+
+        it("asks the event index for relevance order when requested", async () => {
+            const mockEventIndex = { search: vi.fn().mockResolvedValue({ count: 0, highlights: [] }) };
+            vi.spyOn(EventIndexPeg, "get").mockReturnValue(mockEventIndex as any);
+            vi.spyOn(mockClient, "getCrypto").mockReturnValue({
+                isEncryptionEnabledInRoom: vi.fn().mockResolvedValue(true),
+            } as any);
+            await eventSearch(mockClient, "hello", "!a:x", undefined, { orderBy: SearchOrderBy.Rank });
+            expect(mockEventIndex.search).toHaveBeenCalledWith(expect.objectContaining({ order_by_recency: false }));
         });
     });
 });
