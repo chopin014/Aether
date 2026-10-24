@@ -101,6 +101,24 @@ describe("DesktopSearchResultsViewModel", () => {
         vm.dispose();
     });
 
+    it("counts the returned matches when the server estimate includes excluded senders", async () => {
+        deps.search.mockResolvedValue(resultsOf([message("$1", "!gen:x", 2)], { count: 3 }));
+        const vm = make(search("from:@alice:x budget"));
+        await flush();
+        expect(vm.getSnapshot().resultCount).toBe(1);
+        expect(vm.getSnapshot().countIsLowerBound).toBe(false);
+        vm.dispose();
+    });
+
+    it("shows a lower bound for a filtered search while more pages remain", async () => {
+        deps.search.mockResolvedValue(resultsOf([message("$1", "!gen:x", 2)], { count: 3, next_batch: "more" }));
+        const vm = make(search("from:@alice:x budget"));
+        await flush();
+        expect(vm.getSnapshot().resultCount).toBe(1);
+        expect(vm.getSnapshot().countIsLowerBound).toBe(true);
+        vm.dispose();
+    });
+
     it("groups results by channel, with highlighted text and sender names", async () => {
         deps.search.mockResolvedValue(
             resultsOf([message("$1", "!gen:x", 3), message("$2", "!dev:x", 2), message("$3", "!gen:x", 1)]),

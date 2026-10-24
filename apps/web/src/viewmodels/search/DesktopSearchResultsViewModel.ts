@@ -155,7 +155,8 @@ export class DesktopSearchResultsViewModel
         const index = this.deps.hasEventIndex();
         const plain = scope.roomIds.filter((roomId) => !encrypted.includes(roomId));
         const searchable = browse || !index ? plain : scope.roomIds;
-        this.exactCount = !index && !isApproximate(query.filters);
+        // Synapse's estimate may include events excluded by sender or room filters.
+        this.exactCount = !index && query.filters.length === 0;
 
         this.snapshot.merge({
             status: "loading",
@@ -276,7 +277,7 @@ export class DesktopSearchResultsViewModel
         }
 
         const total = this.hits.length;
-        const useServerCount = this.exactCount && this.count !== undefined;
+        const useServerCount = hasMore && this.exactCount && this.count !== undefined;
         this.snapshot.merge({
             status: "ready",
             groups: [...groups.values()],
