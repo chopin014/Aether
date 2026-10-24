@@ -26,8 +26,6 @@ import {
     PlusIcon,
     UserAddIcon,
     LockOffIcon,
-    VolumeOnIcon,
-    RoomIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { _t } from "../../core/i18n/i18n";
@@ -140,7 +138,7 @@ function notifLabel(state: RoomNotifState): string {
 interface ChannelMenuContentProps {
     /** The channel menu view model. */
     vm: ChannelMenuViewModel;
-    /** Show the channel's icon, topic and encryption lines above the actions, as the header dropdown does. */
+    /** Show the channel's topic and encryption lines above the actions, as the header dropdown does. */
     showInfo?: boolean;
 }
 
@@ -158,24 +156,17 @@ export function ChannelMenuContent({ vm, showInfo = false }: ChannelMenuContentP
         [RoomNotifState.AllMessagesLoud, _t("desktop|channel_menu|notify_all")],
         [RoomNotifState.MentionsOnly, _t("desktop|channel_menu|notify_mentions")],
     ];
-    const KindIcon = s.kind === "voice" ? VolumeOnIcon : RoomIcon;
 
     return (
         // Arrow keys move between entries; they must not also move the room list's selection.
         <div onKeyDown={(e) => e.stopPropagation()} data-testid="channel-menu">
             {showInfo && (
                 <>
-                    <div role="group" aria-label={s.name} className={styles.info}>
-                        <div className={styles.title}>
-                            {s.iconUrl ? (
-                                <img className={styles.icon} src={s.iconUrl} alt="" width={20} height={20} />
-                            ) : (
-                                <KindIcon className={styles.symbol} aria-hidden />
-                            )}
-                            <span className={styles.name}>{s.name}</span>
+                    {s.topic && (
+                        <div className={styles.info}>
+                            <p className={styles.topic}>{s.topic}</p>
                         </div>
-                        {s.topic && <p className={styles.topic}>{s.topic}</p>}
-                    </div>
+                    )}
                     {s.canEditTopic && (
                         <MenuItem
                             Icon={EditIcon}

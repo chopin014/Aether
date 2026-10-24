@@ -84,6 +84,8 @@ describe("ChannelMenuView", () => {
         expect(positions.filter((index) => index < 0)).toEqual([]);
         expect(positions).toEqual([...positions].sort((a, b) => a - b));
         expect(screen.getByText("Release planning")).toBeVisible();
+        expect(screen.getAllByText("general")).toHaveLength(1);
+        expect(screen.getByTestId("channel-menu")).not.toHaveTextContent("general");
         expect(screen.queryByRole("menuitem", { name: /People|Threads|Pinned/ })).not.toBeInTheDocument();
     });
 

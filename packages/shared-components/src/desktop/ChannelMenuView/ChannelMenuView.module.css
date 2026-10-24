@@ -13,35 +13,6 @@ Please see LICENSE in the repository root for full details.
     padding: var(--cpd-space-2x) var(--cpd-space-3x);
 }
 
-.title {
-    display: flex;
-    align-items: center;
-    gap: var(--cpd-space-2x);
-    min-width: 0;
-}
-
-.symbol {
-    flex-shrink: 0;
-    width: 20px;
-    height: 20px;
-    color: var(--cpd-color-icon-secondary);
-}
-
-.icon {
-    flex-shrink: 0;
-    border-radius: 50%;
-    object-fit: cover;
-}
-
-.name {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font: var(--cpd-font-body-md-semibold);
-    color: var(--cpd-color-text-primary);
-}
-
 .topic {
     margin: 0;
     display: -webkit-box;

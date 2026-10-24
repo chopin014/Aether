@@ -45,14 +45,20 @@ for (const theme of ["dark", "light"] as const) {
         test("opens the channel menu from the name, with Escape and focus return", async ({ page, roomId }) => {
             const trigger = channelName(page);
             await expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+            await expect(trigger).toHaveText("general");
             await trigger.click();
             await expect(menu(page)).toBeVisible();
+            await expect(menu(page).getByText("general", { exact: true })).toHaveCount(0);
+            await expect(menu(page).getByText(TOPIC, { exact: true })).toBeVisible();
             for (const name of ["Mark as read", "Invite to channel", "Copy link", "Mute channel", "Edit channel"]) {
                 await expect(menu(page).getByRole("menuitem", { name })).toBeVisible();
             }
             await expect(menu(page).getByRole("menuitem", { name: /^(People|Threads|Pinned)/ })).toHaveCount(0);
             // No room info card opens beside it.
             await expect(page.locator(".mx_RoomSummaryCard")).toHaveCount(0);
+            await menu(page).evaluate(async (element) => {
+                await Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished));
+            });
             await page.screenshot({ path: `${CAPTURES}/header-menu-${theme}.png` });
 
             await page.keyboard.press("Escape");
