@@ -10,7 +10,7 @@ Please see LICENSE in the repository root for full details.
 // oxlint-disable-next-line no-restricted-imports
 import { EventEmitter } from "events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Room, type MatrixClient } from "matrix-js-sdk/src/matrix";
+import { Room, type MatrixClient, type RoomMember } from "matrix-js-sdk/src/matrix";
 import { stubClient } from "test-utils";
 
 import { DesktopVoiceControlsViewModel } from "./DesktopVoiceControlsViewModel";
@@ -168,6 +168,54 @@ describe("DesktopVoiceControlsViewModel", () => {
         call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
         expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("unmute");
     });
+    it("sounds the camera and screen share changes, however they were made", async () => {
+        await connect();
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        call.handleDeviceMute({ audio_enabled: true, video_enabled: true });
+        expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("cameraOn");
+        call.handleDeviceMute({ audio_enabled: true, video_enabled: true });
+        expect(playDesktopVoiceSound).toHaveBeenCalledTimes(1);
+        call.handleDeviceMute({ audio_enabled: true, video_enabled: false });
+        expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("cameraOff");
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        call.handleScreenShare({ available: true, sharing: true, remoteSharerIds: [] });
+        expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("screenShareStart");
+        call.handleScreenShare({ available: true, sharing: true, remoteSharerIds: ["@x:example.org"] });
+        expect(playDesktopVoiceSound).toHaveBeenCalledTimes(1);
+        call.handleScreenShare({ available: true, sharing: false, remoteSharerIds: [] });
+        expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("screenShareStop");
+    });
+    it("sounds other people joining and leaving, but not ourselves", async () => {
+        await connect();
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        const me = { userId: client.getSafeUserId() } as RoomMember;
+        const alice = { userId: "@alice:example.org" } as RoomMember;
+        const devices = new Set(["D"]);
+        call.emit(CallEvent.Participants, new Map([[me, devices]]), new Map());
+        expect(playDesktopVoiceSound).not.toHaveBeenCalled();
+        call.emit(
+            CallEvent.Participants,
+            new Map([
+                [me, devices],
+                [alice, devices],
+            ]),
+            new Map([[me, devices]]),
+        );
+        expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("userJoined");
+        call.emit(
+            CallEvent.Participants,
+            new Map([[me, devices]]),
+            new Map([
+                [me, devices],
+                [alice, devices],
+            ]),
+        );
+        expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("userLeft");
+        // A second device of the same person is not a new person.
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        call.emit(CallEvent.Participants, new Map([[alice, new Set(["A", "B"])]]), new Map([[alice, new Set(["A"])]]));
+        expect(playDesktopVoiceSound).not.toHaveBeenCalled();
+    });
     it("disconnects the real call and releases all subscriptions on unmount", async () => {
         await connect();
         expect(vm.getSnapshot().roomName).toBe("Lounge");
@@ -179,6 +227,7 @@ describe("DesktopVoiceControlsViewModel", () => {
         expect(store.listenerCount(CallStoreEvent.ConnectedCalls)).toBe(0);
         expect(call.listenerCount(CallEvent.DeviceMute)).toBe(0);
         expect(call.listenerCount(CallEvent.ScreenShare)).toBe(0);
+        expect(call.listenerCount(CallEvent.Participants)).toBe(0);
         expect(SettingsStore.unwatchSetting).toHaveBeenCalledTimes(2);
     });
     it("turns the camera on and off in the real call", async () => {

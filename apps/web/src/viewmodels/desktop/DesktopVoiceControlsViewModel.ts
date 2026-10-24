@@ -10,7 +10,7 @@ import {
     type DesktopVoiceControlsViewSnapshot,
     type DesktopVoiceControlsViewModel as DesktopVoiceControlsViewModelInterface,
 } from "@element-hq/web-shared-components";
-import { type MatrixClient, RoomEvent } from "matrix-js-sdk/src/matrix";
+import { type MatrixClient, type RoomMember, RoomEvent } from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
 
 import { CallEvent, ElementCall } from "../../models/Call";
@@ -39,6 +39,8 @@ export class DesktopVoiceControlsViewModel
 {
     private call?: ElementCall;
     private observedCalls = false;
+    private wasVideoEnabled = false;
+    private wasSharingScreen = false;
 
     public constructor(props: Props) {
         super(props, {
@@ -57,7 +59,8 @@ export class DesktopVoiceControlsViewModel
             this.disposables.track(() => SettingsStore.unwatchSetting(ref));
         }
         this.disposables.track(() => this.call?.off(CallEvent.DeviceMute, this.onDeviceMute));
-        this.disposables.track(() => this.call?.off(CallEvent.ScreenShare, this.refresh));
+        this.disposables.track(() => this.call?.off(CallEvent.ScreenShare, this.onScreenShare));
+        this.disposables.track(() => this.call?.off(CallEvent.Participants, this.onParticipants));
         this.onCallsChanged();
     }
 
@@ -74,10 +77,38 @@ export class DesktopVoiceControlsViewModel
         });
     };
 
+    /** Plays a cue when somebody other than us joins or leaves the call we are in. */
+    private readonly onParticipants = (
+        participants: ReadonlyMap<RoomMember, unknown>,
+        previous: ReadonlyMap<RoomMember, unknown>,
+    ): void => {
+        const ids = (members: ReadonlyMap<RoomMember, unknown>): Set<string> =>
+            new Set(
+                [...members.keys()].map((member) => member.userId).filter((id) => id !== this.props.client.getUserId()),
+            );
+        const now = ids(participants);
+        const before = ids(previous);
+        if ([...now].some((id) => !before.has(id))) void playDesktopVoiceSound("userJoined");
+        else if ([...before].some((id) => !now.has(id))) void playDesktopVoiceSound("userLeft");
+    };
+
+    private readonly onScreenShare = (): void => {
+        this.refresh();
+        const sharing = this.call?.screenShare.sharing ?? false;
+        if (sharing !== this.wasSharingScreen) {
+            this.wasSharingScreen = sharing;
+            void playDesktopVoiceSound(sharing ? "screenShareStart" : "screenShareStop");
+        }
+    };
+
     private readonly onDeviceMute = (): void => {
         const wasMuted = this.snapshot.current.microphoneMuted;
         this.refresh();
-        const { microphoneMuted, busy } = this.snapshot.current;
+        const { microphoneMuted, busy, videoEnabled } = this.snapshot.current;
+        if (videoEnabled !== this.wasVideoEnabled) {
+            this.wasVideoEnabled = videoEnabled;
+            void playDesktopVoiceSound(videoEnabled ? "cameraOn" : "cameraOff");
+        }
         // Dock actions play their own single cue after success; include changes from the call-stage controls.
         if (!busy && wasMuted !== microphoneMuted) void playDesktopVoiceSound(microphoneMuted ? "mute" : "unmute");
         if (this.call?.deviceMuteState) {
@@ -97,10 +128,14 @@ export class DesktopVoiceControlsViewModel
         if (call !== this.call) {
             if (this.observedCalls) void playDesktopVoiceSound(call ? "join" : "leave");
             this.call?.off(CallEvent.DeviceMute, this.onDeviceMute);
-            this.call?.off(CallEvent.ScreenShare, this.refresh);
+            this.call?.off(CallEvent.ScreenShare, this.onScreenShare);
+            this.call?.off(CallEvent.Participants, this.onParticipants);
             this.call = call;
+            this.wasVideoEnabled = call?.deviceMuteState?.video_enabled ?? false;
+            this.wasSharingScreen = call?.screenShare.sharing ?? false;
             call?.on(CallEvent.DeviceMute, this.onDeviceMute);
-            call?.on(CallEvent.ScreenShare, this.refresh);
+            call?.on(CallEvent.ScreenShare, this.onScreenShare);
+            call?.on(CallEvent.Participants, this.onParticipants);
             if (call) {
                 void this.perform(async () => {
                     if (this.call !== call || this.isDisposed) return;
