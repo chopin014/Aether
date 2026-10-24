@@ -116,8 +116,10 @@ describe("PresenceMenuView in the account dock", () => {
         expect(dot).toHaveAttribute("title", `${label} · Your selected status; server status unavailable.`);
         const badge = dot.getBoundingClientRect();
         const avatar = dot.parentElement!.getBoundingClientRect();
-        expect(badge.right).toBeLessThanOrEqual(avatar.right);
-        expect(badge.bottom).toBeLessThanOrEqual(avatar.bottom);
+        // The ringed dot sits just past the avatar's corner, like Discord's cutout, without drifting away from it.
+        expect(badge.right - avatar.right).toBe(2);
+        expect(badge.bottom - avatar.bottom).toBe(2);
+        expect(getComputedStyle(dot).paddingTop).toBe("3px");
         expect(badge.width).toBeGreaterThanOrEqual(12);
     });
 

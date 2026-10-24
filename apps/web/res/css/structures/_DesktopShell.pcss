@@ -840,6 +840,43 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
                 margin-inline-start: 4px;
                 font-size: 10px;
             }
+
+            /* Discord's status dot: a ring in the row's colour separates it from the avatar, like a cutout. */
+            .mx_MemberTileView_presence {
+                inset-inline-end: -3px;
+                inset-block-end: -3px;
+            }
+
+            .mx_PresenceIconView {
+                padding: 3px;
+                background: var(--cpd-color-bg-canvas-default);
+
+                svg {
+                    width: 10px;
+                    height: 10px;
+                }
+
+                .mx_PresenceIconView_online {
+                    color: var(--cpd-color-icon-success-primary);
+                }
+
+                .mx_PresenceIconView_unavailable {
+                    color: var(--cpd-color-icon-warning-primary);
+                }
+
+                .mx_PresenceIconView_dnd {
+                    color: var(--cpd-color-icon-critical-primary);
+                }
+            }
+
+            &:is(:hover, :focus-visible) .mx_PresenceIconView {
+                background:
+                    linear-gradient(
+                        var(--cpd-color-bg-action-tertiary-hovered),
+                        var(--cpd-color-bg-action-tertiary-hovered)
+                    ),
+                    var(--cpd-color-bg-canvas-default);
+            }
         }
     }
 

@@ -103,6 +103,47 @@ test("centres Home, servers, the divider and actions on the server rail", async 
     expect(geometry.dividerCentre).toBeCloseTo(middle, 0);
 });
 
+test("separates presence dots from avatars with a ring in the surface colour", async ({ page, app, bot }) => {
+    const roomId = await app.client.createRoom({ name: "Presence dots", invite: [bot.credentials!.userId] });
+    await bot.joinRoom(roomId);
+    await app.viewRoomById(roomId);
+    const members = page.locator(".mx_MemberListView");
+    await expect(page.getByRole("button", { name: "2 members", exact: true })).toBeVisible();
+    if (!(await members.isVisible())) await page.getByRole("button", { name: "2 members", exact: true }).click();
+    const tile = members
+        .getByRole("option")
+        .filter({ has: page.locator(".mx_PresenceIconView") })
+        .last();
+    await expect(tile.locator(".mx_PresenceIconView")).toBeVisible();
+
+    const ring = async (badge: ReturnType<typeof page.locator>, avatar: ReturnType<typeof page.locator>) => {
+        const [badgeBox, avatarBox] = [await badge.boundingBox(), await avatar.boundingBox()];
+        const style = await badge.evaluate((element) => getComputedStyle(element));
+        return {
+            padding: style.paddingTop,
+            image: style.backgroundImage,
+            outsideRight: badgeBox!.x + badgeBox!.width - (avatarBox!.x + avatarBox!.width),
+            outsideBottom: badgeBox!.y + badgeBox!.height - (avatarBox!.y + avatarBox!.height),
+        };
+    };
+
+    const memberBadge = tile.locator(".mx_PresenceIconView");
+    const memberAvatar = tile.locator(".mx_MemberTileView_avatar");
+    const resting = await ring(memberBadge, memberAvatar);
+    expect(resting.padding).toBe("3px");
+    expect(resting.outsideRight).toBeGreaterThan(0);
+    expect(resting.outsideBottom).toBeGreaterThan(0);
+    await tile.hover();
+    // The ring repaints with the row's hover fill so it still reads as a cutout.
+    expect((await ring(memberBadge, memberAvatar)).image).toContain("linear-gradient");
+
+    const dock = page.getByRole("group", { name: "User menu" });
+    const dockBadge = dock.getByRole("img", { name: "Online" });
+    const dockRing = await ring(dockBadge, dock.locator(".mx_BaseAvatar, [class*='_avatar_']").first());
+    expect(dockRing.padding).toBe("3px");
+    expect(dockRing.outsideRight).toBeGreaterThan(0);
+});
+
 test("sends through Matrix, receives another member's message and preserves room drafts", async ({
     page,
     app,

@@ -204,6 +204,10 @@
     text-align: start;
 
     &:hover {
+        --presence-ring-background:
+            linear-gradient(var(--cpd-color-bg-action-tertiary-hovered), var(--cpd-color-bg-action-tertiary-hovered)),
+            var(--cpd-color-bg-subtle-primary);
+
         background: var(--cpd-color-bg-action-tertiary-hovered);
     }
 }
