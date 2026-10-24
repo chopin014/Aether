@@ -118,6 +118,7 @@ export function DesktopProfilePopoutView({ vm }: DesktopProfilePopoutViewProps):
                     </IconButton>
                 )}
                 <Menu
+                    className={styles.menu}
                     open={menuOpen}
                     onOpenChange={setMenuOpen}
                     title={_t("desktop|profile|more")}

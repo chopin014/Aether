@@ -88,3 +88,8 @@ Please see LICENSE in the repository root for full details.
     clip-path: inset(50%);
     white-space: nowrap;
 }
+
+.menu {
+    /* The menu is portalled to body. Radix copies this layer onto its positioning wrapper, above the host card (100). */
+    z-index: 101;
+}

@@ -99,6 +99,33 @@ describe("DesktopProfilePopoutView", () => {
         expect(vm.toggleIgnore).toHaveBeenCalled();
     });
 
+    it("places the portalled menu above a positioned profile host", async () => {
+        render(
+            <div style={{ position: "fixed", zIndex: 100, left: 10, top: 10 }}>
+                <DesktopProfilePopoutView vm={makeVm()} />
+            </div>,
+        );
+        await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+        const copy = screen.getByRole("menuitem", { name: "Copy link" });
+        const rect = copy.getBoundingClientRect();
+        expect(copy.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))).toBe(true);
+    });
+
+    it("copies a link without closing the card and returns focus after Escape", async () => {
+        const vm = makeVm();
+        render(<DesktopProfilePopoutView vm={vm} />);
+        const trigger = screen.getByRole("button", { name: "More actions" });
+        await userEvent.click(trigger);
+        await userEvent.click(screen.getByRole("menuitem", { name: "Copy link" }));
+        expect(vm.copyLink).toHaveBeenCalledOnce();
+        expect(vm.close).not.toHaveBeenCalled();
+        expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+        await userEvent.click(trigger);
+        await userEvent.keyboard("{Escape}");
+        expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+        expect(trigger).toHaveFocus();
+    });
+
     it("hides the message field for yourself and reports a failed open", () => {
         const { unmount } = render(<DesktopProfilePopoutView vm={makeVm({ isMe: true, canMessage: false })} />);
         expect(screen.queryByLabelText("Message Robin")).toBeNull();

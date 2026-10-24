@@ -45,6 +45,7 @@ for (const theme of ["dark", "light"] as const) {
             bot,
             roomId,
         }) => {
+            test.setTimeout(60_000);
             await expect(members(page)).toBeVisible();
 
             // Member list: a card beside the row instead of the right-panel user info.
@@ -63,6 +64,40 @@ for (const theme of ["dark", "light"] as const) {
             expect(cardBox.y + cardBox.height).toBeLessThanOrEqual(viewport.height);
             await page.screenshot({ path: `${CAPTURES}/popout-member-list-${theme}.png` });
 
+            // The more menu offers real actions and does not close the card.
+            await card.getByRole("button", { name: "More actions" }).click();
+            await expect(page.getByRole("menuitem", { name: "Copy link" })).toBeVisible();
+            await expect(page.getByRole("menuitem", { name: "Ignore" })).toBeVisible();
+            await expect(page.getByRole("menuitem", { name: "View full profile" })).toBeVisible();
+            await page.keyboard.press("Escape");
+            await expect(card).toBeVisible();
+            await expect(card.getByRole("button", { name: "More actions" })).toBeFocused();
+
+            // Click a portalled item where the menu overlaps the card; visibility alone misses stacking bugs.
+            await card.getByRole("button", { name: "More actions" }).click();
+            const copy = page.getByRole("menuitem", { name: "Copy link" });
+            await expect(copy).toBeVisible();
+            await expect
+                .poll(() =>
+                    copy.evaluate((element) => {
+                        const rect = element.getBoundingClientRect();
+                        return element.contains(
+                            document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2),
+                        );
+                    }),
+                )
+                .toBe(true);
+            await page.getByRole("menu").evaluate(async (element) => {
+                await Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished));
+            });
+            await page.screenshot({ path: `${CAPTURES}/popout-menu-${theme}.png` });
+            await copy.click();
+            await expect
+                .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+                .toContain(bot.credentials!.userId);
+            await expect(page.getByRole("menu")).toHaveCount(0);
+            await expect(card).toBeVisible();
+
             // Escape closes it and returns focus to the row.
             await page.keyboard.press("Escape");
             await expect(card).not.toBeVisible();
@@ -74,7 +109,7 @@ for (const theme of ["dark", "light"] as const) {
             await row.click();
             await expect(card).not.toBeVisible();
             await row.click();
-            await page.getByRole("heading", { name: "Profile popout", level: 1 }).click();
+            await page.getByRole("textbox", { name: /^Send a/ }).click();
             await expect(card).not.toBeVisible();
 
             // Timeline author: the card sits to the right of the avatar.
@@ -89,16 +124,8 @@ for (const theme of ["dark", "light"] as const) {
             await page.keyboard.press("Escape");
             await expect(avatar).toBeFocused();
 
-            // The more menu offers real actions and does not close the card.
-            await avatar.click();
-            await card.getByRole("button", { name: "More actions" }).click();
-            await expect(page.getByRole("menuitem", { name: "Copy link" })).toBeVisible();
-            await expect(page.getByRole("menuitem", { name: "Ignore" })).toBeVisible();
-            await expect(page.getByRole("menuitem", { name: "View full profile" })).toBeVisible();
-            await page.keyboard.press("Escape");
-            await expect(card).toBeVisible();
-
             // Message field: opens the DM with the draft, which the real composer then sends.
+            await avatar.click();
             await card.getByLabel("Message Robin").fill("hello from the card");
             await page.keyboard.press("Enter");
             await expect(card).not.toBeVisible();
@@ -110,7 +137,11 @@ for (const theme of ["dark", "light"] as const) {
             await expect
                 .poll(() =>
                     app.client.evaluate((client, userId) => {
-                        const dm = Object.values(client.getAccountData("m.direct")?.getContent() ?? {}).flat();
+                        const dm = Object.values(
+                            client
+                                .getAccountData("m.direct" as import("matrix-js-sdk/src/matrix").EventType.Direct)
+                                ?.getContent() ?? {},
+                        ).flat();
                         return dm.some((id) => client.getRoom(id as string)?.getMember(userId));
                     }, bot.credentials!.userId),
                 )
@@ -118,7 +149,8 @@ for (const theme of ["dark", "light"] as const) {
 
             // Back in the channel, the full profile opens as a modal and returns focus on Escape.
             await app.viewRoomById(roomId);
-            if (!(await members(page).isVisible())) await page.getByRole("button", { name: "2 members" }).click();
+            await expect(page.getByRole("banner").getByRole("heading", { level: 1 })).toHaveText("Profile popout");
+            await expect(members(page)).toBeVisible();
             await robinRow(page).click();
             await card.getByRole("button", { name: "Robin", exact: true }).click();
             const modal = page.getByRole("dialog", { name: "Profile", exact: true });
