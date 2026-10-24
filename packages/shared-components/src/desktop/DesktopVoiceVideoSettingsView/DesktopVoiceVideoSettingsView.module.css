@@ -104,6 +104,7 @@ Please see LICENSE in the repository root for full details.
 
 /* Sliders */
 .slider {
+    --position: 0%;
     position: relative;
     display: flex;
     align-items: center;
