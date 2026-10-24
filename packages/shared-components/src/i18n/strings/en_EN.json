@@ -184,6 +184,10 @@
             "starter_sent": "The starter was sent. Retry to send its first reply.",
             "unread": "Unread"
         },
+        "topic_dialog": {
+            "edit": "Edit topic",
+            "label": "Topic"
+        },
         "voice": {
             "camera_off": "Turn off camera",
             "camera_on": "Turn on camera",

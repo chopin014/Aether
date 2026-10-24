@@ -128,3 +128,4 @@ export * from "./desktop/DesktopProfileIdentity";
 export * from "./desktop/DesktopProfilePopoutView";
 export * from "./desktop/DesktopFullProfileView";
 export * from "./desktop/ChannelMenuView";
+export * from "./desktop/TopicDialogView";

@@ -584,8 +584,8 @@ export default function RoomHeader({
                     </WithPresenceIndicator>
                 )}
                 {/* Disable on-click actions until the room is created */}
-                {desktopChannel && room instanceof LocalRoom === false ? (
-                    <DesktopChannelInfo room={room} heading={heading} topic={topic?.text} />
+                {desktopShell && room instanceof LocalRoom === false ? (
+                    <DesktopChannelInfo room={room} heading={heading} dmMember={dmMember} topic={topic?.text} />
                 ) : (
                     <button
                         aria-label={_t("right_panel|room_summary_card|title")}

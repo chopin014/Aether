@@ -57,7 +57,9 @@ import * as ShieldUtils from "../../../../utils/ShieldUtils";
 import { WidgetLayoutStore } from "../../../../stores/widgets/WidgetLayoutStore";
 import MatrixClientContext from "../../../../contexts/MatrixClientContext";
 import { _t } from "../../../../languageHandler";
+import Modal from "../../../../Modal";
 import { Action } from "../../../../dispatcher/actions";
+import { DesktopTopicDialog } from "../../desktop/DesktopTopicDialog";
 import WidgetStore, { type IApp } from "../../../../stores/WidgetStore";
 import { UIFeature } from "../../../../settings/UIFeature";
 import { SettingLevel } from "../../../../settings/SettingLevel";
@@ -199,6 +201,33 @@ describe("RoomHeader", () => {
             expect(await screen.findByRole("menu")).toBeInTheDocument();
             act(() => dispatcher.dispatch({ action: Action.ToggleChannelMenu }, true));
             await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+        });
+
+        it("opens the topic dialog from the topic", async () => {
+            room.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.RoomTopic,
+                    state_key: "",
+                    room_id: ROOM_ID,
+                    sender: "@alice:example.org",
+                    content: { topic: "Plans for the weekend" },
+                }),
+            ]);
+            render(<RoomHeader room={room} />, getWrapper());
+            await userEvent.click(screen.getByRole("button", { name: "Plans for the weekend" }));
+            expect(Modal.createDialog).toHaveBeenCalledWith(DesktopTopicDialog, { room });
+        });
+
+        it("opens the person's profile from a direct message's name", async () => {
+            vi.mocked(DMRoomMap.shared().getUserIdForRoomId).mockImplementation((roomId) =>
+                roomId === room.roomId ? "@bob:example.org" : undefined,
+            );
+            room.getMember = vi.fn((userId) => new RoomMember(room.roomId, userId));
+            const dispatched = vi.spyOn(dispatcher, "dispatch");
+            render(<RoomHeader room={room} />, getWrapper());
+            await userEvent.click(screen.getByRole("heading", { level: 1 }));
+            expect(dispatched).toHaveBeenCalledWith(expect.objectContaining({ action: Action.ViewUser }));
+            expect(screen.queryByRole("menu")).not.toBeInTheDocument();
         });
     });
 

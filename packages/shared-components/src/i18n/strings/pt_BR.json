@@ -164,6 +164,10 @@
             "history_invited": "O histórico é visível a partir do convite de cada pessoa",
             "history_joined": "O histórico é visível a partir da entrada de cada pessoa",
             "history_world_readable": "Qualquer pessoa pode ler o histórico"
+        },
+        "topic_dialog": {
+            "label": "Tópico",
+            "edit": "Editar tópico"
         }
     },
     "threads": {
