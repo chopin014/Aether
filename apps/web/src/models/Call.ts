@@ -47,6 +47,7 @@ import SdkConfig from "../SdkConfig.ts";
 import DMRoomMap from "../utils/DMRoomMap.ts";
 import { type WidgetMessaging, WidgetMessagingEvent } from "../stores/widgets/WidgetMessaging.ts";
 import { BugReportEndpointURLLocal } from "../IConfigOptions.ts";
+import { DesktopVoicePipeline } from "../audio/desktop/DesktopVoicePipeline";
 // From the component package's `api` entry point, which carries the types and enums without the
 // component: `BackgroundStyle` is needed as a value here, on the widget path, where the component
 // itself must not be loaded.
@@ -733,6 +734,7 @@ export class ElementCall extends Call {
      * mounted. The counterpart of `widgetApi` on the iframe embedding, registered by the host bridge.
      */
     private componentHandle: ElementCallHandle | null = null;
+    private stopFollowingVoiceSettings?: () => void;
 
     /**
      * Registers (or, with null, forgets) the mounted React component's handle. Stable, so that it can be
@@ -741,6 +743,9 @@ export class ElementCall extends Call {
      */
     public readonly setComponentHandle = (handle: ElementCallHandle | null): void => {
         this.componentHandle = handle;
+        // The desktop shell's voice settings follow the component for as long as it is mounted.
+        this.stopFollowingVoiceSettings?.();
+        this.stopFollowingVoiceSettings = handle ? DesktopVoicePipeline.instance.attach(handle) : undefined;
         if (!handle) {
             this.speakingUserIds = new Set();
             this.handleScreenShare(NO_SCREEN_SHARE);

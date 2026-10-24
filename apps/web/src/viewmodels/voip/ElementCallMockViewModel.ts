@@ -250,6 +250,11 @@ export class ElementCallMockViewModel
             // The mock has no other participants to tell, so the request is only logged.
             this.append(`← setDeafened(${deafened})`);
         },
+        configureMedia: async (settings) => {
+            // The mock captures and plays nothing, so the settings are only logged, without the processor object.
+            const { microphoneProcessor, ...rest } = settings;
+            this.append(`← configureMedia ${JSON.stringify({ ...rest, microphoneProcessor: !!microphoneProcessor })}`);
+        },
     };
 
     /** Whether the host has asked the mock to "share" a screen. */

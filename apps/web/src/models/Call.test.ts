@@ -45,6 +45,7 @@ import SdkConfig from "../SdkConfig.ts";
 import DMRoomMap from "../utils/DMRoomMap.ts";
 import { WidgetMessagingEvent, type WidgetMessaging } from "../stores/widgets/WidgetMessaging.ts";
 import { BugReportEndpointURLLocal } from "../IConfigOptions.ts";
+import { DesktopVoicePipeline } from "../audio/desktop/DesktopVoicePipeline";
 
 const { enabledSettings } = enableCalls();
 
@@ -1205,6 +1206,24 @@ describe("ElementCall with the React component embedding", () => {
         expect(setDeviceMute).toHaveBeenCalledWith({ audio_enabled: false });
         expect(call.deviceMuteState).toEqual(state);
         expect(changed).toHaveBeenCalledWith(state);
+    });
+
+    it("hands the component to the voice pipeline and stops following it on unmount", () => {
+        const attach = vi.spyOn(DesktopVoicePipeline.instance, "attach");
+        const detach = vi.fn();
+        attach.mockReturnValue(detach);
+        const handle = { configureMedia: vi.fn() } as unknown as ElementCallHandle;
+        call.setComponentHandle(handle);
+        expect(attach).toHaveBeenCalledWith(handle);
+        call.setComponentHandle(null);
+        expect(detach).toHaveBeenCalledOnce();
+        attach.mockRestore();
+    });
+
+    it("sends nothing to a component outside the desktop shell", () => {
+        const configureMedia = vi.fn();
+        call.setComponentHandle({ configureMedia } as unknown as ElementCallHandle);
+        expect(configureMedia).not.toHaveBeenCalled();
     });
 
     it("reports a missing component rather than pretending to mute", async () => {

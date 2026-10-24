@@ -11,12 +11,12 @@ import { fileURLToPath } from "node:url";
 // Original one- to three-note cues (frequencies in Hz). Keep these reproducible and independent of third-party
 // sound packs: every tone is a plain sine wave with a raised-sine envelope, so there is nothing to license.
 const cues: Record<string, number[]> = {
-    mute: [620, 390],
-    unmute: [390, 620],
-    deafen: [480, 240],
-    undeafen: [240, 480],
-    join: [520, 780],
-    leave: [780, 520],
+    "mute": [620, 390],
+    "unmute": [390, 620],
+    "deafen": [480, 240],
+    "undeafen": [240, 480],
+    "join": [520, 780],
+    "leave": [780, 520],
     "user-joined": [450, 675],
     "user-left": [675, 450],
     "camera-on": [700, 930],

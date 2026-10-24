@@ -1,7 +1,7 @@
 diff --git a/dist/element-call.js b/dist/element-call.js
 --- a/dist/element-call.js
 +++ b/dist/element-call.js
-@@ -43118,6 +43118,122 @@
+@@ -43118,6 +43118,147 @@ function _3(e, t) {
  }
  //#endregion
  //#region src/state/media/UserMediaViewModel.ts
@@ -14,6 +14,31 @@ diff --git a/dist/element-call.js b/dist/element-call.js
 +const aetherVoiceStateTopic = "io.aether.voice";
 +// The deafen each remote participant last sent, kept per participant so it outlives any one subscription.
 +const aetherAnnouncedDeafen = new WeakMap();
++// Aether: what the host asked of the call's audio and video. Kept at module level so it also applies to calls joined later.
++const aetherAudio = { playbackVolume: 1, microphoneProcessor: null, mirrorLocalVideo: true };
++const aetherAudioListeners = new Set();
++const aetherObserveAudio = (read) => new C((observer) => {
++	const report = () => observer.next(read());
++	aetherAudioListeners.add(report);
++	report();
++	return () => aetherAudioListeners.delete(report);
++});
++const aetherPlaybackVolume$ = aetherObserveAudio(() => aetherAudio.playbackVolume);
++const aetherMirrorLocalVideo$ = aetherObserveAudio(() => aetherAudio.mirrorLocalVideo);
++// Devices and processing are the same settings Element Call's own settings dialog edits, which it reads when the
++// call is joined; a change to the devices is also followed during a call.
++function aetherConfigureMedia(settings) {
++	const device = (id) => id === "" ? "default" : id;
++	if (settings.audioInput !== undefined && ve.getValue() !== device(settings.audioInput)) ve.setValue(device(settings.audioInput));
++	if (settings.audioOutput !== undefined && zt.getValue() !== device(settings.audioOutput)) zt.setValue(device(settings.audioOutput));
++	if (settings.videoInput !== undefined && yt.getValue() !== device(settings.videoInput)) yt.setValue(device(settings.videoInput));
++	if (settings.autoGainControl !== undefined && b.getValue() !== settings.autoGainControl) b.setValue(settings.autoGainControl);
++	if (settings.echoCancellation !== undefined && Ae.getValue() !== settings.echoCancellation) Ae.setValue(settings.echoCancellation);
++	if (settings.playbackVolume !== undefined) aetherAudio.playbackVolume = Math.min(1, Math.max(0, settings.playbackVolume));
++	if (settings.microphoneProcessor !== undefined) aetherAudio.microphoneProcessor = settings.microphoneProcessor;
++	if (settings.mirrorLocalVideo !== undefined) aetherAudio.mirrorLocalVideo = settings.mirrorLocalVideo;
++	for (const listener of [...aetherAudioListeners]) listener();
++}
 +function aetherObserveDeafened(participant) {
 +	return new C((observer) => {
 +		const report = () => observer.next(aetherAnnouncedDeafen.get(participant) ?? participant.attributes?.[aetherDeafenedAttribute] === "true");
@@ -124,7 +149,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType: i, ...a }) {
  	let { participant$: o } = a, s = e.behavior(o.pipe(wA((e) => (e && aL(e)) ?? Ck(void 0)))), c = new He(), l = new Rt(NaN), u = (e, t) => e.behavior(Lk([o, Et.value$]).pipe(wA(([e, n]) => e && n ? p3(e, t, i) : Ck(void 0))));
  	return {
-@@ -43127,6 +43243,7 @@
+@@ -43127,6 +43268,7 @@ function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType:
  			videoSource: Z.Source.Camera
  		}),
  		type: "user",
@@ -132,7 +157,34 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  		speaking$: e.behavior(o.pipe(wA((e) => e ? iL(e, J.IsSpeakingChanged).pipe(F((e) => e.isSpeaking)) : Ck(!1)))),
  		audioEnabled$: e.behavior(s.pipe(F((e) => e?.microphoneTrack?.isMuted === !1))),
  		videoEnabled$: e.behavior(s.pipe(F((e) => e?.cameraTrack?.isMuted === !1))),
-@@ -43611,6 +43728,91 @@
+@@ -43153,7 +43295,7 @@ function y3(e, { mediaDevices: t, ...n }) {
+ 	return {
+ 		...r,
+ 		local: !0,
+-		mirror$: e.behavior(i.pipe(F((e) => e !== null && QS(e).facingMode === "user"))),
++		mirror$: e.behavior(Lk([i, aetherMirrorLocalVideo$]).pipe(F(([e, mirror]) => mirror && e !== null && QS(e).facingMode === "user"))),
+ 		alwaysShow$: se.value$,
+ 		setAlwaysShow: se.setValue,
+ 		switchCamera$: e.behavior(Wt === "desktop" ? Ck(null) : i.pipe(F((e) => {
+@@ -43209,7 +43351,7 @@ function x3(e, { pretendToBeDisconnected$: t, ...n }) {
+ 		...r,
+ 		...b3(e, {
+ 			pretendToBeDisconnected$: t,
+-			sink$: e.behavior(n.participant$.pipe(F((e) => (t) => e?.setVolume(t))))
++			sink$: e.behavior(Lk([n.participant$, aetherPlaybackVolume$]).pipe(F(([e, master]) => (t) => e?.setVolume(t * master))))
+ 		}),
+ 		local: !1,
+ 		speaking$: e.behavior(t.pipe(wA((e) => e ? Ck(!1) : r.speaking$))),
+@@ -43244,7 +43386,7 @@ function w3(e, { pretendToBeDisconnected$: t, ...n }) {
+ 		...S3(e, n),
+ 		...b3(e, {
+ 			pretendToBeDisconnected$: t,
+-			sink$: e.behavior(n.participant$.pipe(F((e) => (t) => e?.setVolume(t, Z.Source.ScreenShareAudio))))
++			sink$: e.behavior(Lk([n.participant$, aetherPlaybackVolume$]).pipe(F(([e, master]) => (t) => e?.setVolume(t * master, Z.Source.ScreenShareAudio))))
+ 		}),
+ 		local: !1,
+ 		videoEnabled$: e.behavior(t.pipe(F((e) => !e))),
+@@ -43611,6 +43753,118 @@ function k3(e, t, n, r, i, a, o, s, c) {
  		let t = {};
  		return e instanceof hX ? { transportError: e } : e === C4.Waiting ? null : (e.matrix instanceof hX && (t.matrixError = e.matrix), e.media instanceof hX ? t.publishError = e.media : typeof e.media == "object" && e.media.connection instanceof hX && (t.connectionError = e.media.connection), t);
  	})), null);
@@ -206,6 +258,33 @@ diff --git a/dist/element-call.js b/dist/element-call.js
 +		).subscribe(notifyVoiceStates);
 +		e.onEnd(() => notifyVoiceStates([]));
 +	}
++	// Aether: run the microphone through the host's processor (volume, sensitivity, push to talk) before it is sent.
++	// The processor is attached again whenever the host changes it or the call publishes a new microphone track.
++	{
++		let aetherLocalParticipant = null;
++		const attachMicrophone = () => {
++			const track = aetherLocalParticipant?.getTrackPublication?.(Z.Source.Microphone)?.track;
++			if (!track?.setProcessor) return;
++			const processor = aetherAudio.microphoneProcessor;
++			if (processor) {
++				if (track.getProcessor?.() !== processor) track.setProcessor(processor).catch((error) => l.warn("Could not process the microphone", error));
++			} else if (track.getProcessor?.()) {
++				track.stopProcessor().catch((error) => l.warn("Could not stop processing the microphone", error));
++			}
++		};
++		aetherAudioListeners.add(attachMicrophone);
++		ue.pipe(wA((media) => media.find((item) => item.local)?.microphoneParticipant$ ?? Ck(null)), e.bind()).subscribe((participant) => {
++			aetherLocalParticipant?.off(J.LocalTrackPublished, attachMicrophone);
++			aetherLocalParticipant = participant;
++			participant?.on(J.LocalTrackPublished, attachMicrophone);
++			attachMicrophone();
++		});
++		e.onEnd(() => {
++			aetherAudioListeners.delete(attachMicrophone);
++			aetherLocalParticipant?.off(J.LocalTrackPublished, attachMicrophone);
++			aetherLocalParticipant = null;
++		});
++	}
 +	if (p.deafen$) {
 +		let aetherAnnounceTimer;
 +		// Also runs again whenever the call's media changes, such as someone joining, so they hear it at once.
@@ -224,7 +303,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  	return {
  		autoLeave$: ie,
  		ringingVm$: de,
-@@ -48021,7 +48223,9 @@
+@@ -48021,7 +48275,9 @@ function j7(e, t, n) {
  		themeChange$: new FO(1),
  		join$: new He(),
  		hangUp$: new He(),
@@ -235,7 +314,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  	}));
  	z(() => {
  		n !== void 0 && i.themeChange$.next({
-@@ -48045,6 +48249,17 @@
+@@ -48045,6 +48301,17 @@ function j7(e, t, n) {
  		notifyDeviceMute: async (e) => {
  			await r.current.notifyDeviceMute?.(e);
  		},
@@ -253,12 +332,15 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  		get close() {
  			let e = r.current.close;
  			return e === void 0 ? void 0 : async () => await e();
-@@ -48061,7 +48276,17 @@
+@@ -48061,7 +48328,20 @@ function j7(e, t, n) {
  	return on(t, () => ({
  		join: async (e) => await A7(i.join$, "join a call", e),
  		hangUp: async () => await A7(i.hangUp$, "hang up", {}),
 -		setDeviceMute: async (e) => await A7(i.deviceMute$, "change the mute state", e)
 +		setDeviceMute: async (e) => await A7(i.deviceMute$, "change the mute state", e),
++		configureMedia: async (settings) => {
++			aetherConfigureMedia(settings);
++		},
 +		toggleScreenSharing: async () => {
 +			await A7(i.screenShareToggle$, "share a screen", {});
 +		},
@@ -275,12 +357,12 @@ diff --git a/dist/element-call.js b/dist/element-call.js
 diff --git a/dist/types/component/api.d.ts b/dist/types/component/api.d.ts
 --- a/dist/types/component/api.d.ts
 +++ b/dist/types/component/api.d.ts
-@@ -21,7 +21,7 @@
+@@ -21,7 +21,7 @@ import type { MatrixClient } from "matrix-js-sdk";
  import type { UrlProperties } from "../src/UrlParams";
  import type { ElementCallHandle, ElementCallHostBridge } from "./host";
  import { BackgroundStyle, configurationForIntent, HeaderStyle, type UrlConfiguration, UserIntent } from "../src/UrlConfiguration";
 -export type { ElementCallHandle, ElementCallHostBridge } from "./host";
-+export type { ElementCallHandle, ElementCallHostBridge, ScreenShareState, VoiceState } from "./host";
++export type { ElementCallMediaSettings, ElementCallHandle, ElementCallHostBridge, ElementCallMicrophoneProcessor, ScreenShareState, VoiceState, } from "./host";
  export type { DeviceMuteRequest, DeviceMuteState } from "../src/HostBridge";
  export type { JoinCallData } from "../src/widget";
  export type { ConfigOptions } from "../src/config/ConfigOptions";
@@ -298,7 +380,7 @@ diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
  /**
   * What Element Call tells the application hosting it as a component.
   * Everything is optional: a host implements what it wants to hear about.
-@@ -33,6 +34,12 @@
+@@ -33,6 +34,12 @@ export interface ElementCallHostBridge {
      notifyHungUp?(): Promise<void>;
      /** Tells the host the user's current audio and video mute state. */
      notifyDeviceMute?(state: DeviceMuteState): Promise<void>;
@@ -311,7 +393,7 @@ diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
      /**
       * Asks the host to close Element Call: to unmount the component. Its
       * presence is what makes Element Call offer a close button on its error
-@@ -74,6 +81,16 @@
+@@ -74,6 +81,48 @@ export interface ElementCallHandle {
       * reports the state that results.
       */
      setDeviceMute(request: DeviceMuteRequest): Promise<DeviceMuteState>;
@@ -325,6 +407,38 @@ diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
 +     * only the host can do. Remembered for later calls, so it may be set at any time.
 +     */
 +    setDeafened(deafened: boolean): Promise<void>;
++    /**
++     * Tells Element Call which devices to use and how to treat the call's audio and video. Anything left out stays as it
++     * was. Remembered for later calls, so it may be set at any time; devices and processing are read when a call
++     * is joined, while the playback volume and the microphone processor also apply to a call in progress.
++     */
++    configureMedia(settings: ElementCallMediaSettings): Promise<void>;
++}
++/**
++ * A LiveKit track processor, as {@link ElementCallMediaSettings.microphoneProcessor} takes it: it receives the
++ * captured microphone track and hands back the track that is sent to the call.
++ */
++export interface ElementCallMicrophoneProcessor {
++    name: string;
++    init(options: { kind: "audio"; track: MediaStreamTrack; audioContext: AudioContext }): Promise<void>;
++    restart(options: { kind: "audio"; track: MediaStreamTrack; audioContext: AudioContext }): Promise<void>;
++    destroy(): Promise<void>;
++    processedTrack?: MediaStreamTrack;
++}
++/** What a host can tell Element Call about its devices, audio and video, see {@link ElementCallHandle.configureMedia}. */
++export interface ElementCallMediaSettings {
++    /** Device ids as `enumerateDevices` reports them; an empty string is the system default. */
++    audioInput?: string;
++    audioOutput?: string;
++    videoInput?: string;
++    autoGainControl?: boolean;
++    echoCancellation?: boolean;
++    /** How loud the call is played, from 0 to 1, on top of each person's own volume. */
++    playbackVolume?: number;
++    /** Whether your own camera is shown flipped horizontally, as in a mirror. On unless turned off. */
++    mirrorLocalVideo?: boolean;
++    /** Processes the microphone before it is sent, or null to send it as captured. */
++    microphoneProcessor?: ElementCallMicrophoneProcessor | null;
  }
  /**
   * The {@link HostBridge} the rest of Element Call sees, built from what a
@@ -354,7 +468,7 @@ diff --git a/dist/types/src/HostBridge.d.ts b/dist/types/src/HostBridge.d.ts
  /** The mute state Element Call and its host exchange. */
  export type DeviceMuteState = {
      audio_enabled: boolean;
-@@ -48,6 +65,12 @@
+@@ -48,6 +65,12 @@ export interface HostBridge {
      notifyHungUp(): Promise<void>;
      /** Tells the host the user's current audio and video mute state. */
      notifyDeviceMute(state: DeviceMuteState): Promise<void>;
@@ -367,7 +481,7 @@ diff --git a/dist/types/src/HostBridge.d.ts b/dist/types/src/HostBridge.d.ts
      /**
       * Asks the host to close Element Call, and stops communicating with it. No
       * further calls should be made on this bridge afterwards.
-@@ -67,6 +90,12 @@
+@@ -67,6 +90,12 @@ export interface HostBridge {
      hangUp$: Observable<HostRequest<Record<string, never>>>;
      /** The host wants to change, or read back, the device mute state. */
      deviceMute$: Observable<HostRequest<DeviceMuteRequest, DeviceMuteState>>;
