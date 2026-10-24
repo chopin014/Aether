@@ -22,6 +22,8 @@ import { Action } from "../../dispatcher/actions";
 import { type ViewRoomPayload } from "../../dispatcher/payloads/ViewRoomPayload";
 import { _t, _td } from "../../languageHandler";
 
+import { DesktopShortcutManager } from "../../audio/desktop/DesktopShortcutManager";
+
 import { playDesktopVoiceSound } from "../../audio/DesktopVoiceSounds";
 
 interface Props {
@@ -41,6 +43,7 @@ export class DesktopVoiceControlsViewModel
     private observedCalls = false;
     private wasVideoEnabled = false;
     private wasSharingScreen = false;
+    private pendingAction?: Promise<void>;
 
     public constructor(props: Props) {
         super(props, {
@@ -62,6 +65,26 @@ export class DesktopVoiceControlsViewModel
         this.disposables.track(() => this.call?.off(CallEvent.ScreenShare, this.onScreenShare));
         this.disposables.track(() => this.call?.off(CallEvent.Participants, this.onParticipants));
         this.onCallsChanged();
+        if (SettingsStore.getValue("feature_desktop_shell")) {
+            this.disposables.track(DesktopShortcutManager.instance.start());
+            this.disposables.track(
+                DesktopShortcutManager.instance.onEvent((event) => {
+                    if (!event.pressed || event.reset) return;
+                    if (event.id === "toggle_mute") void this.toggleMicrophone();
+                    else if (event.id === "toggle_deafen") void this.toggleDeafened();
+                    else if (event.id === "toggle_input_mode") {
+                        void SettingsStore.setValue(
+                            "desktopInputMode",
+                            null,
+                            SettingLevel.DEVICE,
+                            SettingsStore.getValue("desktopInputMode") === "push_to_talk"
+                                ? "voice_activity"
+                                : "push_to_talk",
+                        );
+                    }
+                }),
+            );
+        }
     }
 
     private readonly refresh = (): void => {
@@ -149,23 +172,32 @@ export class DesktopVoiceControlsViewModel
         this.refresh();
     };
 
-    private perform = async (
+    private perform = (
         action: () => Promise<void>,
         failure: TranslationKey = _td("desktop|voice|action_failed"),
     ): Promise<void> => {
-        if (this.snapshot.current.busy) return;
-        this.snapshot.merge({ busy: true, error: undefined });
-        try {
-            await action();
-        } catch (error) {
-            logger.warn("Desktop voice control failed", error);
-            if (!this.isDisposed) this.snapshot.merge({ error: _t(failure) });
-        } finally {
-            if (!this.isDisposed) {
-                this.snapshot.merge({ busy: false });
-                this.refresh();
+        const run = async (): Promise<void> => {
+            if (this.isDisposed) return;
+            this.snapshot.merge({ busy: true, error: undefined });
+            try {
+                await action();
+            } catch (error) {
+                logger.warn("Desktop voice control failed", error);
+                if (!this.isDisposed) this.snapshot.merge({ error: _t(failure) });
+            } finally {
+                if (!this.isDisposed) {
+                    this.snapshot.merge({ busy: false });
+                    this.refresh();
+                }
             }
-        }
+        };
+        // Native events can arrive while an earlier device update is still awaiting the call host.
+        const result = this.pendingAction ? this.pendingAction.then(run) : run();
+        this.pendingAction = result;
+        void result.then(() => {
+            if (this.pendingAction === result) this.pendingAction = undefined;
+        });
+        return result;
     };
 
     private setMicrophoneMuted = async (muted: boolean): Promise<void> => {

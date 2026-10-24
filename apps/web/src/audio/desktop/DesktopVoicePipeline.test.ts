@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ElementCallHandle } from "@element-hq/element-call-component/api";
 
 import { DesktopVoicePipeline, getMicrophoneGateConfig } from "./DesktopVoicePipeline";
+import { DesktopShortcutManager, type DesktopShortcutEvent } from "./DesktopShortcutManager";
+
 import SettingsStore from "../../settings/SettingsStore";
 import MediaDeviceHandler from "../../MediaDeviceHandler";
 import { playDesktopVoiceSound } from "../DesktopVoiceSounds";
@@ -33,6 +35,7 @@ const defaults: Record<string, unknown> = {
 };
 let values: Record<string, unknown>;
 let watchers: Map<string, () => void>;
+let shortcutEvent: (event: DesktopShortcutEvent) => void;
 
 function fakeHandle(): ElementCallHandle & { configureMedia: ReturnType<typeof vi.fn> } {
     return { configureMedia: vi.fn().mockResolvedValue(undefined) } as never;
@@ -67,9 +70,9 @@ describe("getMicrophoneGateConfig", () => {
         expect(getMicrophoneGateConfig().threshold).toBeNull();
     });
 
-    it("only uses push to talk once a key is bound, so the microphone cannot be left dead", () => {
+    it("keeps push to talk gated even before a key is assigned", () => {
         values.desktopInputMode = "push_to_talk";
-        expect(getMicrophoneGateConfig().pushToTalk).toBe(false);
+        expect(getMicrophoneGateConfig().pushToTalk).toBe(true);
         values.desktopPushToTalkKey = "KeyV";
         expect(getMicrophoneGateConfig().pushToTalk).toBe(true);
     });
@@ -81,6 +84,10 @@ describe("DesktopVoicePipeline", () => {
     beforeEach(() => {
         values = { ...defaults };
         watchers = new Map();
+        vi.spyOn(DesktopShortcutManager.instance, "onEvent").mockImplementation((listener) => {
+            shortcutEvent = listener;
+            return vi.fn();
+        });
         vi.spyOn(SettingsStore, "getValue").mockImplementation((name) => values[name] as never);
         vi.spyOn(SettingsStore, "watchSetting").mockImplementation((name, _room, callback) => {
             watchers.set(name, callback as () => void);
@@ -155,9 +162,23 @@ describe("DesktopVoicePipeline", () => {
         expect(watchers.size).toBe(0);
     });
 
+    it("applies push to mute without changing explicit mute/deafen preferences", () => {
+        const setMuted = vi.spyOn(pipeline.microphoneProcessor, "setShortcutMuted");
+        const detach = pipeline.attach(fakeHandle());
+        shortcutEvent({ id: "push_to_mute", pressed: true });
+        expect(setMuted).toHaveBeenLastCalledWith(true);
+        values.audioInputMuted = true;
+        values.desktopDeafened = true;
+        shortcutEvent({ id: "push_to_mute", pressed: false, reset: true });
+        expect(setMuted).toHaveBeenLastCalledWith(false);
+        expect(values.audioInputMuted).toBe(true);
+        expect(values.desktopDeafened).toBe(true);
+        detach();
+    });
+
     describe("push to talk", () => {
-        const press = (type: "keydown" | "keyup"): boolean =>
-            window.dispatchEvent(new KeyboardEvent(type, { code: "KeyV" }));
+        const press = (type: "keydown" | "keyup"): void =>
+            shortcutEvent({ id: "push_to_talk", pressed: type === "keydown" });
 
         beforeEach(() => {
             values.desktopInputMode = "push_to_talk";
@@ -167,7 +188,7 @@ describe("DesktopVoicePipeline", () => {
         it("opens the microphone while the key is held and plays the sounds", () => {
             const setActive = vi.spyOn(pipeline.microphoneProcessor, "setPushToTalkActive");
             const detach = pipeline.attach(fakeHandle());
-            window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyV", ctrlKey: true }));
+            press("keydown");
             expect(setActive).toHaveBeenLastCalledWith(true);
             expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("pttActivate");
             press("keyup");
@@ -176,14 +197,30 @@ describe("DesktopVoicePipeline", () => {
             detach();
         });
 
+        it("closes immediately on backend reset even during the release delay", () => {
+            vi.useFakeTimers();
+            values.desktopPushToTalkReleaseDelay = 200;
+            const setActive = vi.spyOn(pipeline.microphoneProcessor, "setPushToTalkActive");
+            const detach = pipeline.attach(fakeHandle());
+            press("keydown");
+            press("keyup");
+            expect(setActive).toHaveBeenLastCalledWith(true);
+            shortcutEvent({ id: "push_to_talk", pressed: false, reset: true });
+            expect(setActive).toHaveBeenLastCalledWith(false);
+            vi.advanceTimersByTime(500);
+            expect(setActive).toHaveBeenLastCalledWith(false);
+            detach();
+            vi.useRealTimers();
+        });
+
         it("makes no sound while the microphone is muted or deafened", () => {
             const detach = pipeline.attach(fakeHandle());
             values.audioInputMuted = true;
-            window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyV", ctrlKey: true }));
+            press("keydown");
             press("keyup");
             values.audioInputMuted = false;
             values.desktopDeafened = true;
-            window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyV", ctrlKey: true }));
+            press("keydown");
             press("keyup");
             expect(playDesktopVoiceSound).not.toHaveBeenCalled();
             detach();
@@ -191,7 +228,9 @@ describe("DesktopVoicePipeline", () => {
 
         it("ignores the key outside a call", () => {
             const setActive = vi.spyOn(pipeline.microphoneProcessor, "setPushToTalkActive");
-            window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyV", ctrlKey: true }));
+            const detach = pipeline.attach(fakeHandle());
+            detach();
+            setActive.mockClear();
             expect(setActive).not.toHaveBeenCalledWith(true);
         });
 
@@ -200,7 +239,7 @@ describe("DesktopVoicePipeline", () => {
             const detach = pipeline.attach(fakeHandle());
             values.desktopInputMode = "voice_activity";
             change("desktopInputMode", "voice_activity");
-            window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyV", ctrlKey: true }));
+            press("keydown");
             expect(setActive).not.toHaveBeenCalledWith(true);
             detach();
         });

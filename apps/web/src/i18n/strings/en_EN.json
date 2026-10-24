@@ -765,6 +765,24 @@
             "offline": "desktop|contacts|offline",
             "online": "desktop|contacts|online"
         },
+        "keybinds": {
+            "browser_description": "In a browser, shortcuts work while Aether is focused, outside text fields.",
+            "conflict": "This key is already in use. Choose another combination.",
+            "desktop_description": "Shortcuts work across applications when your desktop allows them. Registration status is shown for each action.",
+            "focused": "Available while Aether is focused",
+            "invalid": "Unsupported key combination",
+            "paused": "Shortcuts paused",
+            "push_to_mute": "Push to mute",
+            "push_to_talk": "Push to talk",
+            "registered": "Available across applications",
+            "save_failed": "Could not save this keybind. Try again.",
+            "show_hide": "Show or hide Aether",
+            "toggle_deafen": "Toggle deafen",
+            "toggle_input_mode": "Toggle input mode",
+            "toggle_mute": "Toggle microphone",
+            "unbound": "No key assigned",
+            "unsupported": "Unavailable on this desktop session"
+        },
         "members": {
             "invited": "Invited"
         },

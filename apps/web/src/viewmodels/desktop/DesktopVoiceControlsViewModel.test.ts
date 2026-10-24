@@ -22,7 +22,7 @@ import { playDesktopVoiceSound } from "../../audio/DesktopVoiceSounds";
 
 vi.mock("../../audio/DesktopVoiceSounds", () => ({ playDesktopVoiceSound: vi.fn() }));
 
-const preferences = new Map<string, boolean>();
+const preferences = new Map<string, unknown>();
 
 describe("DesktopVoiceControlsViewModel", () => {
     let client: MatrixClient;
@@ -35,8 +35,8 @@ describe("DesktopVoiceControlsViewModel", () => {
         client = stubClient();
         const getValue = SettingsStore.getValue.bind(SettingsStore);
         vi.spyOn(SettingsStore, "getValue").mockImplementation((key, ...args) =>
-            ["audioInputMuted", "desktopDeafened", "desktopMicMutedBeforeDeafen"].includes(key)
-                ? (preferences.get(key) ?? false)
+            preferences.has(key) || ["audioInputMuted", "desktopDeafened", "desktopMicMutedBeforeDeafen"].includes(key)
+                ? ((preferences.get(key) ?? false) as never)
                 : getValue(key, ...args),
         );
         vi.spyOn(SettingsStore, "setValue").mockImplementation(async (key, _room, _level, value) => {
@@ -77,6 +77,38 @@ describe("DesktopVoiceControlsViewModel", () => {
         store.emit(CallStoreEvent.ConnectedCalls);
         await vi.waitFor(() => expect(vm.getSnapshot().busy).toBe(false));
     }
+    it("routes configured focused shortcuts through the production call mute/deafen actions", async () => {
+        vm.dispose();
+        preferences.set("feature_desktop_shell", true);
+        preferences.set("desktopShortcutBindings", { toggle_mute: "Control+KeyM", toggle_deafen: "Control+KeyD" });
+        vm = new DesktopVoiceControlsViewModel({ client, callStore: store });
+        await connect();
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", ctrlKey: true }));
+        await vi.waitFor(() => expect(vm.getSnapshot().microphoneMuted).toBe(true));
+        window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyM" }));
+        await vi.waitFor(() => expect(vm.getSnapshot().busy).toBe(false));
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyD", ctrlKey: true }));
+        await vi.waitFor(() => expect(vm.getSnapshot().deafened).toBe(true));
+        expect(call.setAudioOutputEnabled).toHaveBeenLastCalledWith(false);
+        window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyD" }));
+        await vi.waitFor(() => expect(vm.getSnapshot().busy).toBe(false));
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyD", ctrlKey: true }));
+        await vi.waitFor(() => expect(vm.getSnapshot().deafened).toBe(false));
+        expect(vm.getSnapshot().microphoneMuted).toBe(true);
+        vm.dispose();
+        const calls = vi.mocked(call.setDeviceMute).mock.calls.length;
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", ctrlKey: true }));
+        expect(call.setDeviceMute).toHaveBeenCalledTimes(calls);
+    });
+
+    it("serializes overlapping shortcut/device actions and preserves mute intent", async () => {
+        await connect();
+        await Promise.all([vm.toggleMicrophone(), vm.toggleDeafened()]);
+        expect(vm.getSnapshot()).toMatchObject({ microphoneMuted: true, deafened: true });
+        await vm.toggleDeafened();
+        expect(vm.getSnapshot()).toMatchObject({ microphoneMuted: true, deafened: false });
+    });
+
     it("saves microphone preferences before a call and reflects the real call's mute notifications", async () => {
         await vm.toggleMicrophone();
         expect(preferences.get("audioInputMuted")).toBe(true);

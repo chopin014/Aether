@@ -14,6 +14,8 @@ import {
 import { type MatrixClient } from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
 
+import { DesktopShortcutManager } from "../../audio/desktop/DesktopShortcutManager";
+
 import SettingsStore from "../../settings/SettingsStore";
 import { SettingLevel } from "../../settings/SettingLevel";
 import { type SettingKey } from "../../settings/Settings";
@@ -350,6 +352,7 @@ export class DesktopVoiceVideoSettingsViewModel
             this.stopRecording();
             return;
         }
+        const resume = DesktopShortcutManager.instance.suspend();
         const finish = (binding?: string): void => {
             window.removeEventListener("keydown", onKeyDown, true);
             window.removeEventListener("keyup", onKeyUp, true);
@@ -357,7 +360,8 @@ export class DesktopVoiceVideoSettingsViewModel
             if (!this.isDisposed) {
                 this.snapshot.merge({ pushToTalk: { ...this.snapshot.current.pushToTalk, recording: false } });
             }
-            if (binding) void this.setSetting("desktopPushToTalkKey", binding);
+            if (binding) void this.setSetting("desktopPushToTalkKey", binding).finally(resume);
+            else resume();
         };
         // These run before anything else sees the key, so recording it neither types it nor triggers push to talk.
         const swallow = (event: KeyboardEvent): void => {

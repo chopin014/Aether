@@ -218,7 +218,7 @@ describe("DesktopVoiceVideoSettingsView", () => {
                 const vm = makeVm(pushToTalk);
                 render(<DesktopVoiceVideoSettingsView vm={vm} />);
                 expect(screen.getByTestId("ptt-key")).toHaveTextContent("Ctrl + V");
-                expect(screen.getByText(/works while Aether is the focused window/)).toBeVisible();
+                expect(screen.getByText(/Manage keybinds in Keyboard settings/)).toBeVisible();
                 await userEvent.click(screen.getByRole("button", { name: "Record keybind" }));
                 expect(vm.toggleRecordingPushToTalk).toHaveBeenCalledOnce();
             });
@@ -236,7 +236,7 @@ describe("DesktopVoiceVideoSettingsView", () => {
                 expect(screen.getByRole("button", { name: "Stop recording" })).toBeVisible();
             });
 
-            it("warns that voice activity is used until a key is set", () => {
+            it("explains that an unassigned push to talk key keeps the microphone closed", () => {
                 render(
                     <DesktopVoiceVideoSettingsView
                         vm={makeVm({
@@ -246,7 +246,7 @@ describe("DesktopVoiceVideoSettingsView", () => {
                     />,
                 );
                 expect(screen.getByTestId("ptt-key")).toHaveTextContent("Not set");
-                expect(screen.getByText(/follows voice activity/)).toBeVisible();
+                expect(screen.getByText(/Your microphone stays closed/)).toBeVisible();
                 expect(screen.queryByRole("button", { name: "Clear keybind" })).toBeNull();
             });
 

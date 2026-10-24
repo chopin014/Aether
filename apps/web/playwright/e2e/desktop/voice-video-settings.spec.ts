@@ -176,7 +176,7 @@ test.describe("Voice & Video settings in the desktop shell", () => {
         await dialog.getByRole("button", { name: "Record keybind" }).click();
         await page.keyboard.press("Control+KeyV");
         await expect(dialog.getByTestId("ptt-key")).toHaveText("Ctrl + V");
-        await expect(dialog.getByText("works while Aether is the focused window")).toBeVisible();
+        await expect(dialog.getByText("Manage keybinds in Keyboard settings")).toBeVisible();
 
         await dialog.getByRole("slider", { name: "Push to talk release delay" }).fill("600");
         await expect(dialog.getByText("600 ms").first()).toBeVisible();

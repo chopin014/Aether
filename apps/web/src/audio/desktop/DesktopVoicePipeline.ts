@@ -13,6 +13,7 @@ import MediaDeviceHandler from "../../MediaDeviceHandler";
 import { type MicrophoneGateConfig } from "./MicrophoneGate";
 import { MicrophoneProcessor } from "./MicrophoneProcessor";
 import { PushToTalkController } from "./PushToTalk";
+import { DesktopShortcutManager } from "./DesktopShortcutManager";
 import { playDesktopVoiceSound } from "../DesktopVoiceSounds";
 
 /** The settings the audio follows; a change to any of them is sent to the calls on screen. */
@@ -35,9 +36,7 @@ const WATCHED_SETTINGS = [
 
 /** The gate settings the stored preferences ask for. Shared with the microphone test in the settings. */
 export function getMicrophoneGateConfig(): MicrophoneGateConfig {
-    const pushToTalk =
-        SettingsStore.getValue("desktopInputMode") === "push_to_talk" &&
-        SettingsStore.getValue("desktopPushToTalkKey") !== "";
+    const pushToTalk = SettingsStore.getValue("desktopInputMode") === "push_to_talk";
     let threshold: MicrophoneGateConfig["threshold"] = "auto";
     // Studio sends the microphone as it is, so it never gates.
     if (SettingsStore.getValue("desktopInputProfile") === "studio") threshold = null;
@@ -65,6 +64,7 @@ export class DesktopVoicePipeline {
     private readonly pushToTalk = new PushToTalkController();
     private watchers: string[] = [];
     private stopListening?: () => void;
+    private stopShortcuts?: () => void;
 
     /** The microphone processor, for the settings' microphone test to compare against. */
     public get microphoneProcessor(): MicrophoneProcessor {
@@ -90,6 +90,14 @@ export class DesktopVoicePipeline {
     private start(): void {
         this.watchers = WATCHED_SETTINGS.map((name) => SettingsStore.watchSetting(name, null, this.onSettingChanged));
         this.stopListening = this.pushToTalk.onChange(this.onPushToTalkChanged);
+        this.stopShortcuts = DesktopShortcutManager.instance.onEvent((event) => {
+            if (event.id === "push_to_talk") {
+                this.pushToTalk.setPressed(
+                    event.pressed && SettingsStore.getValue("desktopInputMode") === "push_to_talk",
+                    event.reset,
+                );
+            } else if (event.id === "push_to_mute") this.processor.setShortcutMuted(event.pressed);
+        });
         this.applyGate();
     }
 
@@ -97,6 +105,9 @@ export class DesktopVoicePipeline {
         for (const watcher of this.watchers) SettingsStore.unwatchSetting(watcher);
         this.watchers = [];
         this.stopListening?.();
+        this.stopShortcuts?.();
+        this.pushToTalk.setPressed(false, true);
+        this.processor.setShortcutMuted(false);
         this.pushToTalk.stop();
         this.processor.setPushToTalkActive(false);
     }
@@ -113,8 +124,8 @@ export class DesktopVoicePipeline {
             SettingsStore.getValue("desktopPushToTalkKey"),
             SettingsStore.getValue("desktopPushToTalkReleaseDelay"),
         );
-        if (config.pushToTalk) this.pushToTalk.start();
-        else {
+        this.pushToTalk.setPressed(false, true);
+        if (!config.pushToTalk) {
             this.pushToTalk.stop();
             this.processor.setPushToTalkActive(false);
         }

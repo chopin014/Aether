@@ -85,6 +85,23 @@ describe("PushToTalkController", () => {
         vi.useRealTimers();
     });
 
+    it("cancels a native release delay on reset and binding changes", () => {
+        controller.configure("KeyV", 200);
+        controller.setPressed(true);
+        controller.setPressed(false);
+        expect(controller.active).toBe(true);
+        controller.setPressed(false, true);
+        expect(controller.active).toBe(false);
+        vi.advanceTimersByTime(500);
+        expect(changes).toEqual([true, false]);
+        controller.setPressed(true);
+        controller.configure("KeyB", 200);
+        expect(controller.active).toBe(false);
+        controller.configure("", 0);
+        controller.setPressed(true);
+        expect(controller.active).toBe(false);
+    });
+
     it("opens on key down and closes on key up without a delay", () => {
         controller.configure("KeyV", 0);
         controller.start();

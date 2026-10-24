@@ -5,6 +5,7 @@
     "action": {
         "back": "Back",
         "cancel": "Cancel",
+        "clear": "action|clear",
         "click": "Select",
         "close": "Close",
         "collapse": "Collapse",
@@ -116,6 +117,13 @@
             "search": "Search",
             "unavailable": "Idle",
             "unblock": "Unblock"
+        },
+        "keybinds": {
+            "clear_action": "Clear %(action)s keybind",
+            "ptt_hint": "Push to talk uses the same key and release delay as Voice & Video. In push to talk mode, an unassigned key keeps your microphone closed.",
+            "record": "Record keybind",
+            "recording": "Press a key · Esc to cancel",
+            "title": "Keybinds"
         },
         "profile": {
             "copy_link": "Copy link",
@@ -356,8 +364,8 @@
             "profile_studio": "Studio",
             "profile_studio_description": "Raw audio: no echo cancellation or automatic gain, and the microphone is always open.",
             "ptt_clear": "Clear keybind",
-            "ptt_focus_note": "Push to talk works while Aether is the focused window.",
-            "ptt_needs_key": "Record a keybind. Until then your microphone follows voice activity.",
+            "ptt_focus_note": "Manage keybinds in Keyboard settings to check whether this shortcut works across applications.",
+            "ptt_needs_key": "Assign a key to speak. Your microphone stays closed until a key is assigned.",
             "ptt_not_set": "Not set",
             "ptt_record": "Record keybind",
             "ptt_recording": "Press a key… (Esc to cancel)",

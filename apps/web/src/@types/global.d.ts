@@ -117,6 +117,7 @@ declare global {
     }
 
     interface Electron {
+        globalShortcuts?: import("../audio/desktop/DesktopShortcutManager").GlobalShortcutApi;
         // Legacy
         on(channel: ElectronChannel, listener: (event: Event, ...args: any[]) => void): void;
         send(channel: ElectronChannel, ...args: any[]): void;

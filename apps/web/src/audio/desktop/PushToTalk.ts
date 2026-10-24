@@ -115,8 +115,7 @@ function typesText(event: KeyboardEvent, binding: PushToTalkBinding): boolean {
 
 /**
  * Follows the push to talk key and says when the microphone should be open. It only sees key presses while
- * this window is focused: Electron's global shortcuts report a press but never the release, so they cannot
- * hold a microphone open.
+ * this window is focused, or follows press/release events supplied by the desktop shortcut manager.
  *
  * The microphone stays open for `releaseDelayMs` after the key is let go, and pressing the key again in that
  * time keeps it open without a gap. Losing focus closes it at once, because the release would never arrive.
@@ -144,6 +143,7 @@ export class PushToTalkController {
 
     /** Sets the key and delay; an empty key means nothing is bound, and releases the microphone. */
     public configure(key: string, releaseDelayMs: number): void {
+        if (key !== (this.binding ? formatPushToTalkKey(this.binding) : "")) this.release();
         this.binding = parsePushToTalkKey(key);
         this.releaseDelayMs = Math.max(0, releaseDelayMs);
         if (!this.binding) this.release();
@@ -181,15 +181,26 @@ export class PushToTalkController {
 
     private readonly onKeyDown = (event: KeyboardEvent): void => {
         if (!this.binding || event.repeat || !matches(this.binding, event) || typesText(event, this.binding)) return;
-        clearTimeout(this.releaseTimer);
-        this.releaseTimer = undefined;
-        this.pressed = true;
-        this.setActive(true);
+        this.setPressed(true);
     };
 
     private readonly onKeyUp = (event: KeyboardEvent): void => {
-        // Only the key's own release counts, so the modifiers may be let go of first.
-        if (!this.binding || !this.pressed || event.code !== this.binding.code) return;
+        if (!this.binding || event.code !== this.binding.code) return;
+        this.setPressed(false);
+    };
+
+    /** Accepts native or focused key transitions; safety resets bypass the release delay. */
+    public setPressed(pressed: boolean, reset = false): void {
+        if (reset) return this.release();
+        if (!this.binding) return;
+        if (pressed) {
+            clearTimeout(this.releaseTimer);
+            this.releaseTimer = undefined;
+            this.pressed = true;
+            this.setActive(true);
+            return;
+        }
+        if (!this.pressed) return;
         this.pressed = false;
         if (this.releaseDelayMs === 0) {
             this.setActive(false);
@@ -199,7 +210,7 @@ export class PushToTalkController {
             this.releaseTimer = undefined;
             this.setActive(false);
         }, this.releaseDelayMs);
-    };
+    }
 
     private readonly onBlur = (): void => this.release();
 }

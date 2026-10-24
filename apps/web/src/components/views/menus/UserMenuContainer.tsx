@@ -88,9 +88,14 @@ export function DesktopAccountDockContainer({ vm }: { vm: ResizerViewModel }): J
     const { isCollapsed, leftPanelWidth } = useViewModel(vm);
     // The lists the dock floats over keep their last rows clear of it, however tall the voice controls make it.
     const dockRef = useHeightCustomProperty("--mx-desktop-dock-height");
-    if (isCollapsed) return null;
+    // Keep the voice controls and session shortcuts alive when the sidebar is collapsed.
     return (
-        <div ref={dockRef} className="mx_DesktopShell_accountDock" style={{ width: (leftPanelWidth ?? 310) + 64 - 16 }}>
+        <div
+            hidden={isCollapsed}
+            ref={dockRef}
+            className="mx_DesktopShell_accountDock"
+            style={{ width: (leftPanelWidth ?? 310) + 64 - 16, display: isCollapsed ? "none" : undefined }}
+        >
             <UserMenuContainer isPanelCollapsed={false} desktopDock />
         </div>
     );

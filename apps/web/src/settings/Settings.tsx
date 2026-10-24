@@ -370,6 +370,7 @@ export interface Settings {
     "desktopInputSensitivityAuto": IBaseSetting<boolean>;
     "desktopInputSensitivity": IBaseSetting<number>;
     "desktopInputMode": IBaseSetting<"voice_activity" | "push_to_talk">;
+    "desktopShortcutBindings": IBaseSetting<Record<string, string>>;
     "desktopPushToTalkKey": IBaseSetting<string>;
     "desktopPushToTalkReleaseDelay": IBaseSetting<number>;
     "desktopVoiceSwitchWarning": IBaseSetting<boolean>;
@@ -1461,6 +1462,10 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
         default: "voice_activity",
     },
     // A `KeyboardEvent.code`, with any modifiers in front, such as "Control+KeyV"; empty while unset.
+    "desktopShortcutBindings": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: {},
+    },
     "desktopPushToTalkKey": {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
         default: "",
