@@ -1,5 +1,5 @@
 diff --git a/dist/element-call.js b/dist/element-call.js
-index e597a18e59..5c6cdf44f8 100644
+index e597a18e59..bc1231fdcf 100644
 --- a/dist/element-call.js
 +++ b/dist/element-call.js
 @@ -42634,6 +42634,33 @@ function H4() {
@@ -49,7 +49,7 @@ index e597a18e59..5c6cdf44f8 100644
  		};
  		this.livekitRoomFactory = o ?? s;
  	}
-@@ -43118,6 +43149,147 @@ function _3(e, t) {
+@@ -43118,6 +43149,148 @@ function _3(e, t) {
  }
  //#endregion
  //#region src/state/media/UserMediaViewModel.ts
@@ -82,6 +82,7 @@ index e597a18e59..5c6cdf44f8 100644
 +	if (settings.videoInput !== undefined && yt.getValue() !== device(settings.videoInput)) yt.setValue(device(settings.videoInput));
 +	if (settings.autoGainControl !== undefined && b.getValue() !== settings.autoGainControl) b.setValue(settings.autoGainControl);
 +	if (settings.echoCancellation !== undefined && Ae.getValue() !== settings.echoCancellation) Ae.setValue(settings.echoCancellation);
++	if (settings.noiseSuppression !== undefined && Ye.getValue() !== settings.noiseSuppression) Ye.setValue(settings.noiseSuppression);
 +	if (settings.playbackVolume !== undefined) aetherAudio.playbackVolume = Math.min(1, Math.max(0, settings.playbackVolume));
 +	if (settings.microphoneProcessor !== undefined) aetherAudio.microphoneProcessor = settings.microphoneProcessor;
 +	if (settings.mirrorLocalVideo !== undefined) aetherAudio.mirrorLocalVideo = settings.mirrorLocalVideo;
@@ -197,7 +198,7 @@ index e597a18e59..5c6cdf44f8 100644
  function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType: i, ...a }) {
  	let { participant$: o } = a, s = e.behavior(o.pipe(wA((e) => (e && aL(e)) ?? Ck(void 0)))), c = new He(), l = new Rt(NaN), u = (e, t) => e.behavior(Lk([o, Et.value$]).pipe(wA(([e, n]) => e && n ? p3(e, t, i) : Ck(void 0))));
  	return {
-@@ -43127,6 +43299,7 @@ function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType:
+@@ -43127,6 +43300,7 @@ function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType:
  			videoSource: Z.Source.Camera
  		}),
  		type: "user",
@@ -205,7 +206,7 @@ index e597a18e59..5c6cdf44f8 100644
  		speaking$: e.behavior(o.pipe(wA((e) => e ? iL(e, J.IsSpeakingChanged).pipe(F((e) => e.isSpeaking)) : Ck(!1)))),
  		audioEnabled$: e.behavior(s.pipe(F((e) => e?.microphoneTrack?.isMuted === !1))),
  		videoEnabled$: e.behavior(s.pipe(F((e) => e?.cameraTrack?.isMuted === !1))),
-@@ -43153,7 +43326,7 @@ function y3(e, { mediaDevices: t, ...n }) {
+@@ -43153,7 +43327,7 @@ function y3(e, { mediaDevices: t, ...n }) {
  	return {
  		...r,
  		local: !0,
@@ -214,7 +215,7 @@ index e597a18e59..5c6cdf44f8 100644
  		alwaysShow$: se.value$,
  		setAlwaysShow: se.setValue,
  		switchCamera$: e.behavior(Wt === "desktop" ? Ck(null) : i.pipe(F((e) => {
-@@ -43209,7 +43382,7 @@ function x3(e, { pretendToBeDisconnected$: t, ...n }) {
+@@ -43209,7 +43383,7 @@ function x3(e, { pretendToBeDisconnected$: t, ...n }) {
  		...r,
  		...b3(e, {
  			pretendToBeDisconnected$: t,
@@ -223,7 +224,7 @@ index e597a18e59..5c6cdf44f8 100644
  		}),
  		local: !1,
  		speaking$: e.behavior(t.pipe(wA((e) => e ? Ck(!1) : r.speaking$))),
-@@ -43244,7 +43417,7 @@ function w3(e, { pretendToBeDisconnected$: t, ...n }) {
+@@ -43244,7 +43418,7 @@ function w3(e, { pretendToBeDisconnected$: t, ...n }) {
  		...S3(e, n),
  		...b3(e, {
  			pretendToBeDisconnected$: t,
@@ -232,7 +233,7 @@ index e597a18e59..5c6cdf44f8 100644
  		}),
  		local: !1,
  		videoEnabled$: e.behavior(t.pipe(F((e) => !e))),
-@@ -43611,6 +43784,91 @@ function k3(e, t, n, r, i, a, o, s, c) {
+@@ -43611,6 +43785,91 @@ function k3(e, t, n, r, i, a, o, s, c) {
  		let t = {};
  		return e instanceof hX ? { transportError: e } : e === C4.Waiting ? null : (e.matrix instanceof hX && (t.matrixError = e.matrix), e.media instanceof hX ? t.publishError = e.media : typeof e.media == "object" && e.media.connection instanceof hX && (t.connectionError = e.media.connection), t);
  	})), null);
@@ -324,7 +325,7 @@ index e597a18e59..5c6cdf44f8 100644
  	return {
  		autoLeave$: ie,
  		ringingVm$: de,
-@@ -48021,7 +48279,9 @@ function j7(e, t, n) {
+@@ -48021,7 +48280,9 @@ function j7(e, t, n) {
  		themeChange$: new FO(1),
  		join$: new He(),
  		hangUp$: new He(),
@@ -335,7 +336,7 @@ index e597a18e59..5c6cdf44f8 100644
  	}));
  	z(() => {
  		n !== void 0 && i.themeChange$.next({
-@@ -48045,6 +48305,17 @@ function j7(e, t, n) {
+@@ -48045,6 +48306,17 @@ function j7(e, t, n) {
  		notifyDeviceMute: async (e) => {
  			await r.current.notifyDeviceMute?.(e);
  		},
@@ -353,7 +354,7 @@ index e597a18e59..5c6cdf44f8 100644
  		get close() {
  			let e = r.current.close;
  			return e === void 0 ? void 0 : async () => await e();
-@@ -48061,7 +48332,20 @@ function j7(e, t, n) {
+@@ -48061,7 +48333,20 @@ function j7(e, t, n) {
  	return on(t, () => ({
  		join: async (e) => await A7(i.join$, "join a call", e),
  		hangUp: async () => await A7(i.hangUp$, "hang up", {}),
@@ -389,7 +390,7 @@ index 313605238c..f2f838f070 100644
  export type { JoinCallData } from "../src/widget";
  export type { ConfigOptions } from "../src/config/ConfigOptions";
 diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
-index 0d9ec1bba7..d3e98307f6 100644
+index 0d9ec1bba7..22b30add64 100644
 --- a/dist/types/component/host.d.ts
 +++ b/dist/types/component/host.d.ts
 @@ -10,8 +10,9 @@
@@ -416,7 +417,7 @@ index 0d9ec1bba7..d3e98307f6 100644
      /**
       * Asks the host to close Element Call: to unmount the component. Its
       * presence is what makes Element Call offer a close button on its error
-@@ -74,6 +81,50 @@ export interface ElementCallHandle {
+@@ -74,6 +81,52 @@ export interface ElementCallHandle {
       * reports the state that results.
       */
      setDeviceMute(request: DeviceMuteRequest): Promise<DeviceMuteState>;
@@ -458,6 +459,8 @@ index 0d9ec1bba7..d3e98307f6 100644
 +    videoInput?: string;
 +    autoGainControl?: boolean;
 +    echoCancellation?: boolean;
++    /** The browser's own noise suppression. Hosts that remove noise themselves turn it off, as doing both harms speech. */
++    noiseSuppression?: boolean;
 +    /** How loud the call is played, from 0 to 1, on top of each person's own volume. */
 +    playbackVolume?: number;
 +    /** Whether your own camera is shown flipped horizontally, as in a mirror. On unless turned off. */
