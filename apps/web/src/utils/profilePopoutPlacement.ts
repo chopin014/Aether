@@ -5,6 +5,8 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
+import { avoidWindowControls, type WindowControls } from "./windowControls";
+
 /** A rectangle in viewport coordinates. */
 export interface PlacementRect {
     top: number;
@@ -31,6 +33,19 @@ export function placeProfilePopout(
     card: { width: number; height: number },
     viewport: { width: number; height: number },
     gap = 8,
+    controls: WindowControls = { inline: 0, block: 0 },
+): PopoutPosition {
+    const placed = placeBesideAnchor(anchor, card, viewport, gap);
+    // A card opened from the top of a list can reach the corner under the window controls.
+    const moved = avoidWindowControls({ ...placed, ...card }, controls, viewport.width, gap);
+    return { ...placed, ...moved };
+}
+
+function placeBesideAnchor(
+    anchor: PlacementRect,
+    card: { width: number; height: number },
+    viewport: { width: number; height: number },
+    gap: number,
 ): PopoutPosition {
     const clamp = (value: number, size: number, limit: number): number =>
         Math.max(gap, Math.min(value, limit - size - gap));

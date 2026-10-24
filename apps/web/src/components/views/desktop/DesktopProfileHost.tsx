@@ -21,6 +21,7 @@ import { useMatrixClientContext } from "../../../contexts/MatrixClientContext";
 import { SDKContext } from "../../../contexts/SDKContext";
 import { DesktopProfileViewModel } from "../../../viewmodels/profile/DesktopProfileViewModel";
 import { placeProfilePopout } from "../../../utils/profilePopoutPlacement";
+import { readWindowControls } from "../../../utils/windowControls";
 import { DesktopFullProfileDialog } from "./DesktopFullProfileDialog";
 
 /** How long after a click an `Action.ViewUser` is still attributed to it. */
@@ -202,6 +203,8 @@ export function DesktopProfileHost(): JSX.Element | null {
                 { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
                 { width: card.width, height: card.height },
                 { width: UIStore.instance.windowWidth, height: UIStore.instance.windowHeight },
+                undefined,
+                readWindowControls(),
             );
             element.style.top = `${position.top}px`;
             element.style.left = `${position.left}px`;

@@ -56,4 +56,16 @@ describe("placeProfilePopout", () => {
         });
         expect(result.left).toBe(12);
     });
+
+    it("moves a card at the top right left of the window controls", () => {
+        const position = placeProfilePopout(
+            { top: 10, left: 700, width: 40, height: 40 },
+            { width: 340, height: 300 },
+            viewport,
+            8,
+            { inline: 138, block: 48 },
+        );
+        expect(position.top).toBe(10);
+        expect(position.left + 340).toBeLessThanOrEqual(1200 - 138);
+    });
 });

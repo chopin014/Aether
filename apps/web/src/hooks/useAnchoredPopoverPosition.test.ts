@@ -23,6 +23,25 @@ describe("computeAnchoredPopoverPosition", () => {
         });
     });
 
+    it("moves left of the window controls when the trigger sits under them", () => {
+        const position = computeAnchoredPopoverPosition(
+            { right: 1280, bottom: 20 },
+            { width: 1280, height: 720 },
+            { inline: 138, block: 48 },
+        );
+        expect(position.top).toBe(28);
+        expect(position.left + position.width).toBe(1280 - 138 - 8);
+    });
+
+    it("ignores the window controls once the popover is below them", () => {
+        const position = computeAnchoredPopoverPosition(
+            { right: 1280, bottom: 48 },
+            { width: 1280, height: 720 },
+            { inline: 138, block: 48 },
+        );
+        expect(position.left + position.width).toBe(1272);
+    });
+
     it("clamps to the left edge of the viewport", () => {
         const { left } = computeAnchoredPopoverPosition({ right: 200, bottom: 48 }, { width: 1280, height: 720 });
         expect(left).toBe(8);

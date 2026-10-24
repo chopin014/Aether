@@ -16,6 +16,7 @@ import ContextMenu, { toRightOf, ChevronFace } from "./ContextMenu";
 import UIStore from "../../stores/UIStore";
 import Modal from "../../Modal";
 import BaseDialog from "../views/dialogs/BaseDialog";
+import * as windowControls from "../../utils/windowControls";
 
 describe("ContextMenu", () => {
     const rect = {
@@ -59,6 +60,18 @@ describe("ContextMenu", () => {
         });
 
         const targetChevronOffset = 25;
+
+        it("moves a menu at the top right left of the window controls", () => {
+            const spy = vi.spyOn(windowControls, "readWindowControls").mockReturnValue({ inline: 100, block: 48 });
+            render(
+                <ContextMenu top={10} right={20} onFinished={vi.fn()}>
+                    <React.Fragment />
+                </ContextMenu>,
+            );
+            const menu = document.querySelector<HTMLElement>(".mx_ContextualMenu_wrapper")!;
+            expect(parseInt(menu.style.right, 10)).toBe(100);
+            spy.mockRestore();
+        });
 
         it("near top edge of window", () => {
             const targetY = -50;

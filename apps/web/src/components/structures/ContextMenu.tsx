@@ -28,6 +28,7 @@ import { checkInputableElement, RovingTabIndexProvider } from "../../accessibili
 import { KeyBindingAction } from "../../accessibility/KeyboardShortcuts";
 import { getKeyBindingsManager } from "../../KeyBindingsManager";
 import Modal, { ModalManagerEvent } from "../../Modal";
+import { readWindowControls } from "../../utils/windowControls";
 
 // Shamelessly ripped off Modal.js.  There's probably a better way
 // of doing reusable widgets like dialog boxes & menus where we go and
@@ -248,6 +249,28 @@ export default class ContextMenu extends React.PureComponent<React.PropsWithChil
         }
     };
 
+    /**
+     * Shifts a menu that would sit under the desktop shell's native window controls to their left. Only the
+     * horizontal position changes, so the chevron is left where it is.
+     */
+    private keepClearOfWindowControls(
+        position: Partial<Writeable<DOMRect>>,
+        menuRect: DOMRect,
+        windowHeight: number,
+        windowWidth: number,
+    ): void {
+        const controls = readWindowControls();
+        if (controls.inline <= 0) return;
+        const top = position.top ?? windowHeight - (position.bottom ?? 0) - menuRect.height;
+        if (top >= controls.block) return;
+        const maxRight = windowWidth - controls.inline;
+        if (position.left !== undefined) {
+            position.left = Math.max(WINDOW_PADDING, Math.min(position.left, maxRight - menuRect.width));
+        } else if (position.right !== undefined) {
+            position.right = Math.max(position.right, controls.inline);
+        }
+    }
+
     protected renderMenu(hasBackground = this.props.hasBackground): JSX.Element {
         const position: Partial<Writeable<DOMRect>> = {};
         const {
@@ -341,6 +364,7 @@ export default class ContextMenu extends React.PureComponent<React.PropsWithChil
                     chevronOffset.left = propsChevronOffset! + position.right - right!;
                 }
             }
+            this.keepClearOfWindowControls(position, contextMenuRect, windowHeight, windowWidth);
         }
 
         let chevron;

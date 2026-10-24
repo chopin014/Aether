@@ -21,6 +21,12 @@ body.mx_DesktopShell {
     --ae-polar: #8ed8ea;
     --ae-polar-800: #1f6577;
     --mx-desktop-shell-header-height: 49px;
+    /*
+     * The native window controls cover the top right corner of the page. Anything that reaches that corner moves
+     * left by the inline size, or down by the block size. Both are 0 where there are no controls.
+     */
+    --mx-window-controls-inline-size: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+    --mx-window-controls-block-size: env(titlebar-area-height, 0px);
     --mx-desktop-shell-frame: var(--cpd-color-bg-subtle-secondary);
     --mx-desktop-header-border: 1px solid var(--cpd-color-border-interactive-secondary);
     --mx-desktop-header-padding: 14px;
@@ -54,7 +60,7 @@ body.mx_DesktopShell {
         width: calc(100% - 80px);
         max-width: 1440px;
         height: calc(100% - 80px);
-        max-height: calc(100% - 80px);
+        max-height: calc(100% - 2 * max(40px, var(--mx-window-controls-block-size)));
         border: 1px solid var(--cpd-color-border-interactive-secondary);
         border-radius: 12px;
         padding: 0;
@@ -268,15 +274,11 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
 
     /* Whatever reaches the top right corner keeps clear of the window controls. */
     .mx_RoomView:not(:has(.mx_RightPanel)) .mx_RoomHeader {
-        padding-inline-end: calc(
-            var(--cpd-space-3x) + 100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)
-        );
+        padding-inline-end: calc(var(--cpd-space-3x) + var(--mx-window-controls-inline-size));
     }
 
     [data-desktop-contacts] > header {
-        padding-inline-end: calc(
-            var(--cpd-space-4x) + 100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)
-        );
+        padding-inline-end: calc(var(--cpd-space-4x) + var(--mx-window-controls-inline-size));
     }
 
     /* The resizable panel's inner flex item must shrink to zero when collapsed. */
@@ -730,13 +732,13 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
      * sits out of view without the controls.
      */
     .mx_RightPanel {
-        padding-block-start: env(titlebar-area-height, 0px);
+        padding-block-start: var(--mx-window-controls-block-size);
         background-color: var(--mx-desktop-shell-frame);
         background-image: linear-gradient(
             var(--cpd-color-border-interactive-secondary),
             var(--cpd-color-border-interactive-secondary)
         );
-        background-position: 0 env(titlebar-area-height, -1px);
+        background-position: 0 var(--mx-window-controls-block-size, -1px);
         background-size: 100% 1px;
         background-repeat: no-repeat;
         border-inline-start: 1px solid var(--cpd-color-border-interactive-secondary);
