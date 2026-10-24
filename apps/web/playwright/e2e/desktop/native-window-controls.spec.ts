@@ -105,6 +105,18 @@ for (const theme of ["dark", "light"] as const) {
                         ),
                     )
                     .toEqual(expectedColors);
+                await page.getByRole("button", { name: "Friends", exact: true }).click();
+                const search = page.getByRole("searchbox", { name: "Search", exact: true });
+                await expect(search).toBeVisible();
+                expect(
+                    await search.evaluate((input) => {
+                        const style = getComputedStyle(input);
+                        return { margin: style.margin, borderWidth: style.borderTopWidth };
+                    }),
+                ).toEqual({ margin: "0px", borderWidth: "0px" });
+                await search.focus();
+                await expect(search).toBeFocused();
+                await page.screenshot({ path: testInfo.outputPath(`native-contacts-${theme}.png`) });
                 const roomId = await app.client.createRoom({ name: "Window controls" });
                 const upload = await app.client.uploadContent(readSampleFileSync("element.png", null), {
                     name: "image.png",

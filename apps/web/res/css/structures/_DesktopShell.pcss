@@ -49,7 +49,10 @@ body.mx_DesktopShell {
     --mx-desktop-dock-clearance: calc(var(--mx-desktop-dock-height, 56px) + 16px);
 
     /* Compound's search field must not inherit the legacy text-input border and margin. */
-    [data-desktop-contacts] label > input[type="search"] {
+    .mx_MatrixChat_wrapper
+        [data-desktop-contacts]
+        label:not(.mx_textinput):not(.mx_Field):not(.mx_no_textinput)
+        > input[type="search"] {
         border: 0;
         margin: 0;
         background: transparent;
