@@ -40,6 +40,7 @@ describe("GlobalShortcutController", () => {
     it("should deliver both hold edges and suppress repeats and unknown actions", async () => {
         const f = fixture();
         await f.controller.configure({ enabled: true, bindings: [hold] });
+        f.send.mockClear();
         f.emit("push_to_talk", true);
         f.emit("push_to_talk", true);
         f.emit("toggle_mute", true);
@@ -55,6 +56,7 @@ describe("GlobalShortcutController", () => {
             enabled: true,
             bindings: [{ id: "show_hide", key: "Control+KeyH", kind: "toggle" }],
         });
+        f.send.mockClear();
         f.emit("show_hide", true);
         f.emit("show_hide", true);
         f.emit("show_hide", false);
@@ -67,11 +69,12 @@ describe("GlobalShortcutController", () => {
         async (reason) => {
             const f = fixture();
             await f.controller.configure({ enabled: true, bindings: [hold] });
+            f.send.mockClear();
             f.emit("push_to_talk", true);
             if (reason === "disable") await f.controller.configure({ enabled: false, bindings: [hold] });
             else if (reason === "error") f.failed();
             else f.controller.reset();
-            expect(f.send).toHaveBeenLastCalledWith({ id: "push_to_talk", pressed: false, reset: true });
+            expect(f.send).toHaveBeenCalledWith({ id: "push_to_talk", pressed: false, reset: true });
             expect(f.dispose).toHaveBeenCalledOnce();
             f.send.mockClear();
             f.emit("push_to_talk", true);
@@ -95,6 +98,7 @@ describe("GlobalShortcutController", () => {
     it("should reject invalid IPC envelopes before resetting registrations", async () => {
         const f = fixture();
         await f.controller.configure({ enabled: true, bindings: [hold] });
+        f.send.mockClear();
         for (const value of [
             null,
             {},
@@ -124,6 +128,18 @@ describe("GlobalShortcutController", () => {
         resolve({ name: "native", configure: vi.fn(), dispose });
         await pending;
         expect(dispose).toHaveBeenCalledOnce();
+    });
+    it("should cancel both hold delays even after the key has already been released", async () => {
+        const f = fixture();
+        await f.controller.configure({ enabled: true, bindings: [hold] });
+        f.emit("push_to_talk", true);
+        f.emit("push_to_talk", false);
+        f.send.mockClear();
+        f.controller.reset();
+        expect(f.send.mock.calls.map(([event]) => event)).toEqual([
+            { id: "push_to_talk", pressed: false, reset: true },
+            { id: "push_to_mute", pressed: false, reset: true },
+        ]);
     });
     it("should report unsupported when native startup fails", async () => {
         const controller = new GlobalShortcutController(

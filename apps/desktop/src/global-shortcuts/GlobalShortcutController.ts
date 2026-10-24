@@ -107,13 +107,12 @@ export class GlobalShortcutController {
         return result;
     };
 
-    /** Release active holds before unregistering or discarding their renderer. */
+    /** Cancel holds and release-delay timers before unregistering or discarding their renderer. */
     public reset = (): void => {
         this.generation++;
-        for (const id of this.active) {
-            if (this.bindings.find((binding) => binding.id === id)?.kind === "hold") {
-                this.send({ id, pressed: false, reset: true });
-            }
+        // A released PTT key can still have a renderer release-delay timer pending.
+        for (const id of ["push_to_talk", "push_to_mute"] as const) {
+            this.send({ id, pressed: false, reset: true });
         }
         this.active.clear();
         this.bindings = [];

@@ -25,7 +25,8 @@ vi.mock("electron", async () => {
         globalShortcut: {},
     };
 });
-vi.mock("./GlobalShortcutController.js", () => ({
+vi.mock("./GlobalShortcutController.js", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("./GlobalShortcutController.js")>()),
     GlobalShortcutController: class {
         public configure = mocks.configure;
         public reset = mocks.reset;
@@ -40,6 +41,7 @@ vi.mock("../window-close.js", () => ({ revealMainWindow: vi.fn() }));
 describe("setupGlobalShortcuts", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.configure.mockResolvedValue({ backend: "unsupported", bindings: [] });
     });
     function fixture(enabled = true) {
         const mainFrame = {};
@@ -73,6 +75,52 @@ describe("setupGlobalShortcuts", () => {
         const disabled = fixture(false);
         expect(() => disabled.handler(disabled.event, {})).toThrow();
         disabled.dispose();
+    });
+    it("should restore the last validated configuration only after both lock and suspend end", () => {
+        const f = fixture();
+        const configuration = { enabled: true, bindings: [{ id: "push_to_talk", key: "Control+KeyV", kind: "hold" }] };
+        f.handler(f.event, configuration);
+        powerMonitor.emit("lock-screen");
+        powerMonitor.emit("suspend");
+        powerMonitor.emit("resume");
+        expect(mocks.configure).toHaveBeenCalledTimes(1);
+        powerMonitor.emit("unlock-screen");
+        expect(mocks.configure).toHaveBeenCalledTimes(2);
+        expect(mocks.configure).toHaveBeenLastCalledWith(configuration);
+        powerMonitor.emit("unlock-screen");
+        expect(mocks.configure).toHaveBeenCalledTimes(2);
+        f.dispose();
+    });
+    it.each(["disabled", "navigation", "crash", "dispose", "quit"])("should not restore after %s", (reason) => {
+        const f = fixture();
+        f.handler(f.event, { enabled: true, bindings: [{ id: "push_to_talk", key: "KeyV", kind: "hold" }] });
+        powerMonitor.emit("lock-screen");
+        if (reason === "disabled") f.handler(f.event, { enabled: false, bindings: [] });
+        else if (reason === "navigation")
+            f.contents.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false });
+        else if (reason === "crash") f.contents.emit("render-process-gone");
+        else if (reason === "quit") app.emit("before-quit", {});
+        else f.dispose();
+        mocks.configure.mockClear();
+        powerMonitor.emit("unlock-screen");
+        powerMonitor.emit("resume");
+        expect(mocks.configure).not.toHaveBeenCalled();
+        if (reason !== "dispose") f.dispose();
+    });
+    it("should defer configurations received while blocked and preserve the last valid envelope", () => {
+        const f = fixture();
+        powerMonitor.emit("suspend");
+        const configuration = { enabled: true, bindings: [{ id: "push_to_talk", key: "KeyV", kind: "hold" }] };
+        f.handler(f.event, configuration);
+        expect(mocks.configure).toHaveBeenLastCalledWith({ ...configuration, enabled: false });
+        expect(() => f.handler(f.event, { enabled: true, bindings: [{ id: "exec" }] })).toThrow();
+        configuration.bindings[0].key = "KeyM";
+        powerMonitor.emit("resume");
+        expect(mocks.configure).toHaveBeenLastCalledWith({
+            enabled: true,
+            bindings: [{ id: "push_to_talk", key: "KeyV", kind: "hold" }],
+        });
+        f.dispose();
     });
     it("should reset on navigation, crash, lock, suspend and quit and detach every listener on close", () => {
         const f = fixture();

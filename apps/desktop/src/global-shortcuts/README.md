@@ -11,7 +11,10 @@ The desktop shell exposes only `configure` and an unsubscribable action-event li
 The main process validates the entire configuration, checks the owning window and main frame, and checks
 `feature_desktop_shell`. Raw keyboard events never cross IPC. Renderer navigation (except same-document or
 subframe navigation), crashes, window closure, screen lock, suspend, quit, disabling and backend failure release
-active holds before unregistering. Changing window focus keeps global holds active.
+both hold actions before unregistering, including pending release-delay timers after keyup. Changing window
+focus keeps global holds active. Lock/suspend retain the last validated configuration and re-register only after
+both reasons have cleared. Disabled configuration, renderer navigation/crash, disposal and quit discard the saved
+configuration, so resume cannot restore shortcuts after logout.
 
 Windows and Linux X11 use the optional `uiohook-napi` Node-API prebuild to observe press and release. Electron
 `globalShortcut` reserves each configured chord and reports conflicts; its press callback is never used to
