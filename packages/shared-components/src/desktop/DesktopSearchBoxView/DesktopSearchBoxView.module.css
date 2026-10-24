@@ -7,17 +7,21 @@ Please see LICENSE in the repository root for full details.
 
 .box {
     position: relative;
-    flex: 0 1 auto;
-    min-width: 0;
+    /* Shrinks with the header, and takes more room while focused. */
+    flex: 0 1 calc(var(--cpd-space-16x) * 3.75);
+    min-width: calc(var(--cpd-space-16x) * 1.5);
     margin-inline-start: var(--cpd-space-1x);
+    transition: flex-basis 150ms ease;
+}
+.box:focus-within {
+    flex-basis: calc(var(--cpd-space-16x) * 5.5);
 }
 .field {
     box-sizing: border-box;
     display: flex;
     align-items: center;
     gap: var(--cpd-space-1x);
-    width: calc(var(--cpd-space-16x) * 3.75);
-    max-width: 100%;
+    width: 100%;
     height: var(--cpd-space-8x);
     padding-inline: var(--cpd-space-2x);
     overflow: hidden;
@@ -26,14 +30,12 @@ Please see LICENSE in the repository root for full details.
     background: var(--mx-desktop-shell-frame, var(--cpd-color-bg-canvas-default));
     color: var(--cpd-color-text-primary);
     cursor: text;
-    transition: width 150ms ease;
 }
 .box:focus-within .field {
-    width: calc(var(--cpd-space-16x) * 5.5);
     border-color: var(--cpd-color-border-focused);
 }
 @media (prefers-reduced-motion: reduce) {
-    .field {
+    .box {
         transition: none;
     }
 }

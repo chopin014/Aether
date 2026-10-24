@@ -355,12 +355,10 @@
                 "idle": "Digite algo e pressione Enter para buscar.",
                 "jump": "Ir",
                 "jump_to": "Ir para a mensagem de %(name)s",
-                "in_channel": "em %(name)s",
                 "approximate": "Alguns filtros são aplicados depois que os resultados chegam, então as contagens são aproximadas. Continue rolando para buscar mais antigas.",
                 "encrypted": "Salas criptografadas não são pesquisadas. Ative a busca de mensagens nas configurações de Segurança.",
                 "encrypted_action": "Abrir configurações de Segurança",
-                "browse_encrypted": "Buscas só com filtros ignoram salas criptografadas.",
-                "attachment": "Anexo: %(name)s"
+                "browse_encrypted": "Buscas só com filtros ignoram salas criptografadas."
             }
         }
     },

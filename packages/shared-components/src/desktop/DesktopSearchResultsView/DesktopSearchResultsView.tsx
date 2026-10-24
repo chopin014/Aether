@@ -123,12 +123,13 @@ export function DesktopSearchResultsView({
         return () => observer.disconnect();
     }, [vm, hasMore, loadingMore, groups]);
 
-    const title =
-        status === "ready" || (status === "loading" && snapshot.resultCount > 0)
-            ? _t(snapshot.countIsLowerBound ? "desktop|search|results|title_more" : "desktop|search|results|title", {
-                  count: snapshot.resultCount,
-              })
-            : _t("desktop|search|results|label");
+    const showCount = status === "ready" || (status === "loading" && snapshot.resultCount > 0);
+    let title = _t("desktop|search|results|label");
+    if (showCount) {
+        title = snapshot.countIsLowerBound
+            ? _t("desktop|search|results|title_more", { count: snapshot.resultCount })
+            : _t("desktop|search|results|title", { count: snapshot.resultCount });
+    }
 
     return (
         <section className={styles.panel} aria-label={_t("desktop|search|results|label")}>
@@ -147,7 +148,9 @@ export function DesktopSearchResultsView({
                                 className={styles.tab}
                                 onClick={() => vm.setSort(option)}
                             >
-                                {_t(`desktop|search|results|sort_${option}`)}
+                                {option === "recent"
+                                    ? _t("desktop|search|results|sort_recent")
+                                    : _t("desktop|search|results|sort_relevance")}
                             </button>
                         ))}
                     </div>

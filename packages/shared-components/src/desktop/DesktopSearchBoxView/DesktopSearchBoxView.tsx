@@ -24,6 +24,7 @@ import AudioIcon from "@vector-im/compound-design-tokens/assets/web/icons/audio"
 
 import { type ViewModel, useViewModel } from "../../core/viewmodel";
 import { useI18n } from "../../core/i18n/i18nContext";
+import { filterHint, filterTitle, sectionHeading, valueLabel } from "./searchLabels";
 import styles from "./DesktopSearchBoxView.module.css";
 
 /** Filters the box can offer. `more` opens the second page of filters. */
@@ -180,7 +181,6 @@ export function DesktopSearchBoxView({ vm }: { vm: DesktopSearchBoxModel }): JSX
         if (focusRequest > 0) input.current?.focus();
     }, [focusRequest]);
 
-    const filterLabel = (filter: DesktopSearchFilterKey): string => _t(`desktop|search|filter|${filter}|title`);
     const sectionHeadingId = (sectionId: string): string => `${id}-heading-${sectionId}`;
     const hasOptions = sections.some((section) => section.options.length > 0);
 
@@ -301,9 +301,7 @@ export function DesktopSearchBoxView({ vm }: { vm: DesktopSearchBoxModel }): JSX
                                     className={styles.section}
                                 >
                                     <div className={styles.heading}>
-                                        <span id={sectionHeadingId(section.id)}>
-                                            {_t(`desktop|search|section|${section.id}`)}
-                                        </span>
+                                        <span id={sectionHeadingId(section.id)}>{sectionHeading(_t, section.id)}</span>
                                         {section.clearable && (
                                             <button
                                                 type="button"
@@ -349,10 +347,10 @@ export function DesktopSearchBoxView({ vm }: { vm: DesktopSearchBoxModel }): JSX
                                                     {option.kind === "filter" && (
                                                         <>
                                                             <span className={styles.optionTitle}>
-                                                                {filterLabel(option.filter)}
+                                                                {filterTitle(_t, option.filter)}
                                                             </span>
                                                             <span className={styles.optionHint}>
-                                                                {_t(`desktop|search|filter|${option.filter}|hint`)}
+                                                                {filterHint(_t, option.filter)}
                                                             </span>
                                                         </>
                                                     )}
@@ -361,7 +359,7 @@ export function DesktopSearchBoxView({ vm }: { vm: DesktopSearchBoxModel }): JSX
                                                             <span className={styles.optionTitle}>
                                                                 {option.title ??
                                                                     (option.titleKey
-                                                                        ? _t(`desktop|search|value|${option.titleKey}`)
+                                                                        ? valueLabel(_t, option.titleKey)
                                                                         : "")}
                                                             </span>
                                                             {option.subtitle && (
