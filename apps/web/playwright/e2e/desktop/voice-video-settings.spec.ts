@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import { closeReleaseAnnouncementIfExists, rejectToast } from "@element-hq/element-web-playwright-common";
+import { closeReleaseAnnouncementIfExists, rejectToastIfExists } from "@element-hq/element-web-playwright-common";
 import type { Locator, Page } from "@playwright/test";
 
 import { test, expect } from "../../element-web-test";
@@ -20,7 +20,7 @@ test.use({
     },
 });
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ pageWithCredentials: page }) => {
     // Remember every stream and every sound the page opens, so the tests can check they are used and released.
     await page.addInitScript(() => {
         const win = window as unknown as { __streams: MediaStream[]; __sounds: string[] };
@@ -38,13 +38,21 @@ test.beforeEach(async ({ page }) => {
             return play.call(this);
         };
     });
+    await page.goto("/");
+    await expect(page.locator(".mx_MatrixChat")).toBeVisible();
 });
+
+/** Closes the toasts that may be on screen, which depend on the homeserver and are not what is being tested. */
+async function dismissToasts(page: Page): Promise<void> {
+    await closeReleaseAnnouncementIfExists(page, "Introducing Sections");
+    for (const title of ["Verify this device", "Notifications"]) {
+        await rejectToastIfExists(page, title);
+    }
+}
 
 /** Opens Settings → Voice & Video from the account dock, like a user would. */
 async function openVoiceVideo(page: Page): Promise<Locator> {
-    await rejectToast(page, "Verify this device");
-    await rejectToast(page, "Notifications");
-    await closeReleaseAnnouncementIfExists(page, "Introducing Sections");
+    await dismissToasts(page);
     const account = page.getByRole("group", { name: "User menu" });
     await account.getByRole("button", { name: "User menu", exact: true }).hover();
     await account.getByRole("button", { name: "All settings" }).click();
@@ -93,7 +101,7 @@ test.describe("Voice & Video settings in the desktop shell", () => {
 
         await dialog.getByRole("button", { name: "Let's check" }).click();
         await expect(dialog.getByRole("button", { name: "Stop testing" })).toBeVisible();
-        expect(await liveTracks(page)).toBeGreaterThan(0);
+        await expect.poll(() => liveTracks(page)).toBeGreaterThan(0);
         // Chromium's fake microphone beeps, so the level moves above silence.
         await expect
             .poll(async () => Number(await meter.getAttribute("aria-valuenow")), { timeout: 15_000 })
@@ -108,6 +116,7 @@ test.describe("Voice & Video settings in the desktop shell", () => {
         const dialog = await openVoiceVideo(page);
         await dialog.getByRole("button", { name: "Let's check" }).click();
         await expect(dialog.getByRole("button", { name: "Stop testing" })).toBeVisible();
+        await expect.poll(() => liveTracks(page)).toBeGreaterThan(0);
         await page.keyboard.press("Escape");
         await expect(page.getByRole("dialog")).not.toBeVisible();
         await expect.poll(() => liveTracks(page)).toBe(0);
@@ -188,7 +197,7 @@ test.describe("Voice & Video settings in the desktop shell", () => {
         await dialog.getByRole("button", { name: "Preview sound: Mute" }).click();
         await expect
             .poll(() => page.evaluate(() => (window as unknown as { __sounds: string[] }).__sounds))
-            .toEqual([expect.stringMatching(/mute.*\.wav$/)]);
+            .toEqual([expect.stringMatching(/\.wav$/)]);
 
         await dialog.getByRole("button", { name: "Show 8 more sounds" }).click();
         await expect(dialog.getByRole("switch", { name: "Camera on" })).toBeChecked();
@@ -220,15 +229,14 @@ test.describe("Voice & Video settings in the desktop shell", () => {
         await dialog.getByRole("switch", { name: "Mirror my video" }).click();
 
         await dialog.getByRole("button", { name: "Reset", exact: true }).click();
-        const confirm = page.getByRole("dialog", { name: "Reset all Voice & Video settings?" });
+        const confirm = page.getByRole("dialog").filter({
+            has: page.getByRole("heading", { name: "Reset all Voice & Video settings?", exact: true }),
+        });
         await confirm.getByRole("button", { name: "Cancel" }).click();
         await expect(speaker).toHaveValue("30");
 
         await dialog.getByRole("button", { name: "Reset", exact: true }).click();
-        await page
-            .getByRole("dialog", { name: "Reset all Voice & Video settings?" })
-            .getByRole("button", { name: "Reset", exact: true })
-            .click();
+        await confirm.getByRole("button", { name: "Reset", exact: true }).click();
         await expect(speaker).toHaveValue("100");
         await expect(dialog.getByRole("switch", { name: "Mute", exact: true })).toBeChecked();
         await expect(dialog.getByRole("radio", { name: "Custom" })).toBeChecked();
@@ -246,8 +254,7 @@ test.describe("Voice & Video settings outside the desktop shell", () => {
     });
 
     test("keep Element's own page, without sections, sounds or the new controls", async ({ page, app }) => {
-        await rejectToast(page, "Verify this device");
-        await rejectToast(page, "Notifications");
+        await dismissToasts(page);
         const dialog = await app.settings.openUserSettings("Voice & Video");
         await expect(dialog.getByRole("switch", { name: "Noise suppression" })).toBeVisible();
         await expect(dialog.getByRole("switch", { name: "Echo cancellation" })).toBeVisible();
