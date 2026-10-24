@@ -186,6 +186,53 @@ describe("DesktopShortcutManager", () => {
         resume();
         await vi.waitFor(() => expect(manager.getStatus("push_to_talk")).toBe("registered"));
     });
+    it.each(["input", "textarea", "div"])(
+        "allows explicit chords from a focused %s while preserving bare-letter typing",
+        (tag) => {
+            values.desktopShortcutBindings = { toggle_mute: "Control+Shift+KeyM", toggle_deafen: "F8" };
+            manager = new DesktopShortcutManager(window, undefined);
+            stop = manager.start();
+            const input = document.createElement(tag);
+            if (tag === "div") input.contentEditable = "true";
+            document.body.append(input);
+            input.focus();
+            const listener = vi.fn();
+            manager.onEvent(listener);
+            const chord = new KeyboardEvent("keydown", {
+                code: "KeyM",
+                ctrlKey: true,
+                shiftKey: true,
+                bubbles: true,
+                cancelable: true,
+            });
+            input.dispatchEvent(chord);
+            expect(chord.defaultPrevented).toBe(true);
+            expect(listener).toHaveBeenCalledWith({ id: "toggle_mute", pressed: true });
+            input.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyM", bubbles: true }));
+            listener.mockClear();
+            const letter = new KeyboardEvent("keydown", { code: "KeyV", bubbles: true, cancelable: true });
+            input.dispatchEvent(letter);
+            expect(listener).not.toHaveBeenCalled();
+            expect(letter.defaultPrevented).toBe(false);
+            input.dispatchEvent(new KeyboardEvent("keydown", { code: "F8", bubbles: true }));
+            expect(listener).toHaveBeenCalledWith({ id: "toggle_deafen", pressed: true });
+            input.remove();
+        },
+    );
+    it("respects keyboard events already consumed by an editor", () => {
+        manager = new DesktopShortcutManager(window, undefined);
+        stop = manager.start();
+        const input = document.createElement("input");
+        document.body.append(input);
+        input.addEventListener("keydown", (event) => event.preventDefault());
+        const listener = vi.fn();
+        manager.onEvent(listener);
+        input.dispatchEvent(
+            new KeyboardEvent("keydown", { code: "KeyM", ctrlKey: true, bubbles: true, cancelable: true }),
+        );
+        expect(listener).not.toHaveBeenCalled();
+        input.remove();
+    });
     it("has a focused browser fallback without claiming global support", () => {
         manager = new DesktopShortcutManager(window, undefined);
         stop = manager.start();

@@ -766,7 +766,7 @@
             "online": "desktop|contacts|online"
         },
         "keybinds": {
-            "browser_description": "In a browser, shortcuts work while Aether is focused, outside text fields.",
+            "browser_description": "In a browser, shortcuts work while Aether is focused. Letter keys without Ctrl, Alt or Meta do not trigger shortcuts while typing.",
             "conflict": "This key is already in use. Choose another combination.",
             "desktop_description": "Shortcuts work across applications when your desktop allows them. Registration status is shown for each action.",
             "focused": "Available while Aether is focused",

@@ -105,7 +105,7 @@ function matches(binding: PushToTalkBinding, event: KeyboardEvent): boolean {
 }
 
 /** Whether pressing this key would type into the focused element, so a bare letter must not trigger push to talk. */
-function typesText(event: KeyboardEvent, binding: PushToTalkBinding): boolean {
+export function shortcutTypesText(event: KeyboardEvent, binding: PushToTalkBinding): boolean {
     if (binding.ctrl || binding.alt || binding.meta || isModifierCode(binding.code) || /^F\d+$/.test(binding.code)) {
         return false;
     }
@@ -181,7 +181,8 @@ export class PushToTalkController {
     }
 
     private readonly onKeyDown = (event: KeyboardEvent): void => {
-        if (!this.binding || event.repeat || !matches(this.binding, event) || typesText(event, this.binding)) return;
+        if (!this.binding || event.repeat || !matches(this.binding, event) || shortcutTypesText(event, this.binding))
+            return;
         this.setPressed(true);
     };
 

@@ -7,7 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import SettingsStore from "../../settings/SettingsStore";
 import { SettingLevel } from "../../settings/SettingLevel";
-import { formatPushToTalkKey, parsePushToTalkKey } from "./PushToTalk";
+import { formatPushToTalkKey, parsePushToTalkKey, shortcutTypesText } from "./PushToTalk";
 
 /** The fixed actions supported by the desktop shortcut bridge. */
 export const DESKTOP_SHORTCUT_ACTIONS = [
@@ -236,11 +236,9 @@ export class DesktopShortcutManager {
     };
     private readonly keyDown = (event: KeyboardEvent): void => {
         if (this.api || event.repeat || event.defaultPrevented || !this.enabled()) return;
-        const target = event.target as HTMLElement | null;
-        if (target?.isContentEditable || target?.closest?.("input,textarea,select")) return;
         for (const id of DESKTOP_SHORTCUT_ACTIONS) {
             const binding = parsePushToTalkKey(this.getKey(id));
-            if (!binding || binding.code !== event.code) continue;
+            if (!binding || binding.code !== event.code || shortcutTypesText(event, binding)) continue;
             const modifier = /^(Control|Alt|Shift|Meta)(Left|Right)$/.test(binding.code);
             if (
                 !modifier &&
