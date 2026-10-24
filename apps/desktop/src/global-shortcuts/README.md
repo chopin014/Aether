@@ -60,6 +60,19 @@ push-to-talk. It then disconnected and removed its desktop file. The permission 
 and compositor Activated/Deactivated with physical Wayland input remain manual checks. Unit tests cover portal
 signal authentication, both edges, permission denial, session closure, owner loss and registration changes.
 
+The opt-in integration test also uses the production Electron host/preload, a disposable encrypted Matrix room,
+Synapse and LiveKit. With Aether hidden and another disposable window focused, the receiving participant's decoded
+audio energy verifies PTT press/release, temporary push-to-mute, explicit mute precedence and repeated mute/unmute
+shortcuts. Dark and light settings captures go to the test output directory; no screenshot baselines are updated.
+After building the desktop host and web app, run from `apps/web` with an interactive X11/XWayland display and xdotool:
+
+```sh
+AETHER_NATIVE_SHORTCUT_SMOKE=1 pnpm exec playwright test playwright/e2e/desktop/native-global-shortcuts.spec.ts --project=Chrome --workers=1
+```
+
+Run MatrixRTC suites sequentially: their LiveKit fixture reserves the host's UDP port 7891. This X11 test does not
+establish physical Wayland portal delivery or Windows behavior.
+
 Primary references:
 
 - [GlobalShortcuts portal](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.GlobalShortcuts.html)
