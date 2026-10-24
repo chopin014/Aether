@@ -1,0 +1,31 @@
+# Copyright 2026 Gabriel
+#
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+# Please see LICENSE in the repository root for full details.
+
+# DeepFilterNet3 for the microphone audio worklet. Run ./build.sh to rebuild the committed WebAssembly module.
+[package]
+name = "aether-denoiser"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# The model is compiled into the module, so the worklet needs nothing else to start.
+deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet.git", rev = "d375b2d8309e0935d165700c91da9de862a99c31", default-features = false, features = [
+    "tract",
+    "default-model",
+] }
+ndarray = "0.15"
+# Only hash map seeds need randomness here, and an audio worklet has no crypto API to provide it.
+getrandom = { version = "0.2", features = ["custom"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
