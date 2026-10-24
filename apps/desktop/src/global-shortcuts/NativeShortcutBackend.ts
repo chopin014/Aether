@@ -15,7 +15,7 @@ interface Registrar {
     register: (accelerator: string, listener: () => void) => boolean;
     unregister: (accelerator: string) => void;
 }
-/** Observe releases with a Node-API hook; reserve only the explicitly configured shortcuts. */
+/** Observe both hold edges without consuming input; reserve configured toggle shortcuts. */
 export class NativeShortcutBackend implements ShortcutBackend {
     public readonly name = "native";
     private readonly registered: string[] = [];
@@ -43,7 +43,12 @@ export class NativeShortcutBackend implements ShortcutBackend {
             if (!accelerator || !this.keyCode(parseKey(binding.key)!.code))
                 return { id: binding.id, status: "unsupported" };
             if (!this.registrar.register(accelerator, () => {})) return { id: binding.id, status: "conflict" };
-            this.registered.push(accelerator);
+            if (binding.kind === "hold") {
+                // Probe existing reservations, then let the focused game/editor receive the same key.
+                this.registrar.unregister(accelerator);
+            } else {
+                this.registered.push(accelerator);
+            }
             this.bindings.push(binding);
             return { id: binding.id, status: "registered" };
         });

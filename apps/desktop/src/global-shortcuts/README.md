@@ -17,8 +17,11 @@ both reasons have cleared. Disabled configuration, renderer navigation/crash, di
 configuration, so resume cannot restore shortcuts after logout.
 
 Windows and Linux X11 use the optional `uiohook-napi` Node-API prebuild to observe press and release. Electron
-`globalShortcut` reserves each configured chord and reports conflicts; its press callback is never used to
-simulate a hold. Only configured chords are reserved. Native loading/start failures report unsupported. The
+`globalShortcut` probes each configured chord for existing reservations; its press callback is never used to
+simulate a hold. Successful hold probes are immediately unregistered, so the focused game/editor continues to
+receive those keys while the hook observes both edges. Toggle reservations remain until disposal. Hold conflict
+status describes the probe instant only: another application can reserve that chord later, and passive observers
+cannot report exclusive ownership or discover other passive shortcut listeners. Native loading/start failures report unsupported. The
 existing electron-builder native-dependency step handles the prebuild, and `**/*.node` is unpacked from ASAR.
 Available prebuild targets include Windows x64 and Linux x64/arm64; other targets can report unsupported.
 
@@ -46,7 +49,10 @@ With the shortcut owner hidden/unfocused and the separate synthetic input window
 backend reserved Control+Shift+KeyV and observed both edges injected with `xdotool keydown` / `keyup`. This
 host runs GNOME Wayland, so this exercises X11 through XWayland; a standalone Xorg session and Windows still
 require platform verification. An F24 synthetic injection did not produce hook events on this host; the ordinary
-KeyV binding did. No real account or existing application process was used.
+KeyV binding did. A follow-up with bare KeyV confirmed a persistent hold reservation consumed typing (empty
+input and no DOM keyboard events). After releasing the successful hold probe immediately, the same synthetic
+input received text `v` and both DOM keyboard edges while the owner remained unfocused and the hook emitted both
+push-to-talk edges. No real account or existing application process was used.
 
 A separate real session-bus smoke used a temporary `io.aether.ShortcutSmoke445740.desktop` identity, successfully
 registered with the host Registry, created a session and received a successful BindShortcuts response confirming

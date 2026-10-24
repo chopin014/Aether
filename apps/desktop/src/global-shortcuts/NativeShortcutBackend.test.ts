@@ -56,6 +56,45 @@ describe("NativeShortcutBackend", () => {
         expect(f.hook.stop).toHaveBeenCalledOnce();
         expect(f.hook.listenerCount("keydown")).toBe(0);
     });
+    it("should immediately release both hold probes while retaining toggle reservations until disposal", async () => {
+        const f = fixture();
+        expect(
+            await f.backend.configure([
+                { id: "push_to_talk", key: "KeyV", kind: "hold" },
+                { id: "push_to_mute", key: "Control+KeyV", kind: "hold" },
+                { id: "toggle_mute", key: "Control+KeyM", kind: "toggle" },
+            ]),
+        ).toEqual([
+            { id: "push_to_talk", status: "registered" },
+            { id: "push_to_mute", status: "registered" },
+            { id: "toggle_mute", status: "registered" },
+        ]);
+        expect(f.registrar.unregister.mock.calls).toEqual([["V"], ["Control+V"]]);
+        expect(f.registrar.unregister.mock.invocationCallOrder[0]).toBeLessThan(
+            f.registrar.register.mock.invocationCallOrder[1],
+        );
+        expect(f.registrar.unregister.mock.invocationCallOrder[1]).toBeLessThan(
+            f.registrar.register.mock.invocationCallOrder[2],
+        );
+        f.hook.emit("keydown", { keycode: 47 });
+        expect(f.emit).toHaveBeenCalledWith("push_to_talk", true);
+        f.hook.emit("keyup", { keycode: 47 });
+        expect(f.emit).toHaveBeenCalledWith("push_to_talk", false);
+        f.backend.dispose();
+        expect(f.registrar.unregister.mock.calls).toEqual([["V"], ["Control+V"], ["Control+M"]]);
+    });
+    it("should report existing hold reservations as conflicts without unregistering their owner", async () => {
+        const f = fixture();
+        f.registrar.register.mockReturnValue(false);
+        expect(await f.backend.configure([{ id: "push_to_talk", key: "KeyV", kind: "hold" }])).toEqual([
+            { id: "push_to_talk", status: "conflict" },
+        ]);
+        f.hook.emit("keydown", { keycode: 47 });
+        f.hook.emit("keyup", { keycode: 47 });
+        expect(f.emit).not.toHaveBeenCalled();
+        f.backend.dispose();
+        expect(f.registrar.unregister).not.toHaveBeenCalled();
+    });
     it("should report conflicts and unsupported bare modifiers", async () => {
         const f = fixture();
         f.registrar.register.mockReturnValue(false);
