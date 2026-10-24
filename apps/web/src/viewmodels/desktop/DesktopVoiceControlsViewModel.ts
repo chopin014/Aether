@@ -44,6 +44,7 @@ export class DesktopVoiceControlsViewModel
     private wasVideoEnabled = false;
     private wasSharingScreen = false;
     private pendingAction?: Promise<void>;
+    private stopShortcuts?: () => void;
 
     public constructor(props: Props) {
         super(props, {
@@ -65,27 +66,38 @@ export class DesktopVoiceControlsViewModel
         this.disposables.track(() => this.call?.off(CallEvent.ScreenShare, this.onScreenShare));
         this.disposables.track(() => this.call?.off(CallEvent.Participants, this.onParticipants));
         this.onCallsChanged();
-        if (SettingsStore.getValue("feature_desktop_shell")) {
-            this.disposables.track(DesktopShortcutManager.instance.start());
-            this.disposables.track(
-                DesktopShortcutManager.instance.onEvent((event) => {
-                    if (!event.pressed || event.reset) return;
-                    if (event.id === "toggle_mute") void this.toggleMicrophone();
-                    else if (event.id === "toggle_deafen") void this.toggleDeafened();
-                    else if (event.id === "toggle_input_mode") {
-                        void SettingsStore.setValue(
-                            "desktopInputMode",
-                            null,
-                            SettingLevel.DEVICE,
-                            SettingsStore.getValue("desktopInputMode") === "push_to_talk"
-                                ? "voice_activity"
-                                : "push_to_talk",
-                        );
-                    }
-                }),
-            );
-        }
     }
+
+    /** Starts session shortcuts after the dock commits, so discarded StrictMode renders cannot register actions. */
+    public startShortcuts = (): (() => void) => {
+        if (this.isDisposed || !SettingsStore.getValue("feature_desktop_shell")) return () => {};
+        if (this.stopShortcuts) return this.stopShortcuts;
+        const stop = DesktopShortcutManager.instance.start();
+        const unsubscribe = DesktopShortcutManager.instance.onEvent((event) => {
+            if (this.isDisposed || !event.pressed || event.reset) return;
+            if (event.id === "toggle_mute") void this.toggleMicrophone();
+            else if (event.id === "toggle_deafen") void this.toggleDeafened();
+            else if (event.id === "toggle_input_mode") {
+                void SettingsStore.setValue(
+                    "desktopInputMode",
+                    null,
+                    SettingLevel.DEVICE,
+                    SettingsStore.getValue("desktopInputMode") === "push_to_talk" ? "voice_activity" : "push_to_talk",
+                );
+            }
+        });
+        let stopped = false;
+        const cleanup = (): void => {
+            if (stopped) return;
+            stopped = true;
+            unsubscribe();
+            stop();
+            if (this.stopShortcuts === cleanup) this.stopShortcuts = undefined;
+        };
+        this.stopShortcuts = cleanup;
+        this.disposables.track(cleanup);
+        return cleanup;
+    };
 
     private readonly refresh = (): void => {
         this.snapshot.merge({

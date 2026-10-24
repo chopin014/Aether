@@ -10,12 +10,17 @@ Please see LICENSE in the repository root for full details.
 // oxlint-disable-next-line no-restricted-imports
 import { EventEmitter } from "events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import React, { StrictMode, useEffect } from "react";
+import { render } from "test-utils-rtl";
+import { useCreateAutoDisposedViewModel } from "@element-hq/web-shared-components";
 import { Room, type MatrixClient, type RoomMember } from "matrix-js-sdk/src/matrix";
 import { stubClient } from "test-utils";
 
 import { DesktopVoiceControlsViewModel } from "./DesktopVoiceControlsViewModel";
 import { Call, CallEvent, ElementCall, NO_SCREEN_SHARE } from "../../models/Call";
 import { CallStoreEvent } from "../../stores/CallStore";
+import { DesktopShortcutManager } from "../../audio/desktop/DesktopShortcutManager";
+
 import SettingsStore from "../../settings/SettingsStore";
 
 import { playDesktopVoiceSound } from "../../audio/DesktopVoiceSounds";
@@ -82,6 +87,7 @@ describe("DesktopVoiceControlsViewModel", () => {
         preferences.set("feature_desktop_shell", true);
         preferences.set("desktopShortcutBindings", { toggle_mute: "Control+KeyM", toggle_deafen: "Control+KeyD" });
         vm = new DesktopVoiceControlsViewModel({ client, callStore: store });
+        vm.startShortcuts();
         await connect();
         window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", ctrlKey: true }));
         await vi.waitFor(() => expect(vm.getSnapshot().microphoneMuted).toBe(true));
@@ -99,6 +105,61 @@ describe("DesktopVoiceControlsViewModel", () => {
         const calls = vi.mocked(call.setDeviceMute).mock.calls.length;
         window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", ctrlKey: true }));
         expect(call.setDeviceMute).toHaveBeenCalledTimes(calls);
+    });
+
+    it("registers only the committed VM and supports idempotent effect cleanup", async () => {
+        vm.dispose();
+        preferences.set("feature_desktop_shell", true);
+        preferences.set("desktopShortcutBindings", { toggle_mute: "Control+KeyM" });
+        const discarded = new DesktopVoiceControlsViewModel({ client, callStore: store });
+        vm = new DesktopVoiceControlsViewModel({ client, callStore: store });
+        const start = vi.spyOn(DesktopShortcutManager.instance, "start");
+        const ignored = vi.spyOn(discarded, "toggleMicrophone");
+        const active = vi.spyOn(vm, "toggleMicrophone");
+        const cleanup = vm.startShortcuts();
+        expect(vm.startShortcuts()).toBe(cleanup);
+        expect(start).toHaveBeenCalledOnce();
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", ctrlKey: true }));
+        await vi.waitFor(() => expect(active).toHaveBeenCalledOnce());
+        expect(ignored).not.toHaveBeenCalled();
+        window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyM" }));
+        cleanup();
+        cleanup();
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", ctrlKey: true }));
+        expect(active).toHaveBeenCalledOnce();
+        vm.startShortcuts();
+        vm.dispose();
+        vm.startShortcuts();
+        expect(start).toHaveBeenCalledTimes(2);
+        discarded.dispose();
+    });
+
+    it("runs each shortcut once through the actual StrictMode hook and effect composition", async () => {
+        vm.dispose();
+        preferences.set("feature_desktop_shell", true);
+        preferences.set("desktopShortcutBindings", { toggle_mute: "Control+KeyM" });
+        const created: DesktopVoiceControlsViewModel[] = [];
+        function Owner(): React.JSX.Element {
+            const voice = useCreateAutoDisposedViewModel(() => {
+                const model = new DesktopVoiceControlsViewModel({ client, callStore: store });
+                created.push(model);
+                return model;
+            });
+            useEffect(() => voice.startShortcuts(), [voice]);
+            return React.createElement(React.Fragment);
+        }
+        const owner = render(React.createElement(StrictMode, undefined, React.createElement(Owner)));
+        const calls = vi.spyOn(SettingsStore, "setValue");
+        calls.mockClear();
+        expect(created.length).toBeGreaterThan(1);
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", ctrlKey: true }));
+        await vi.waitFor(() => expect(preferences.get("audioInputMuted")).toBe(true));
+        expect(calls.mock.calls.filter(([name]) => name === "audioInputMuted")).toHaveLength(1);
+        owner.unmount();
+        window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyM" }));
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", ctrlKey: true }));
+        expect(calls.mock.calls.filter(([name]) => name === "audioInputMuted")).toHaveLength(1);
+        created.forEach((model) => model.dispose());
     });
 
     it("serializes overlapping shortcut/device actions and preserves mute intent", async () => {

@@ -32,7 +32,9 @@ describe("DesktopKeybindsView", () => {
         render(<DesktopKeybindsView vm={vm} />);
         await userEvent.click(screen.getByRole("button", { name: "Toggle microphone Ctrl + M" }));
         expect(vm.record).toHaveBeenCalledWith("toggle_mute");
-        await userEvent.click(screen.getByRole("button", { name: "Clear Toggle microphone keybind" }));
+        const clear = screen.getByRole("button", { name: "Clear Toggle microphone keybind" });
+        expect(clear).toHaveTextContent("Clear");
+        await userEvent.click(clear);
         expect(vm.clear).toHaveBeenCalledWith("toggle_mute");
         expect(screen.getByText("This key is already in use.")).toBeVisible();
     });

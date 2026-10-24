@@ -80,6 +80,7 @@ function DesktopDockWithVoice({ vm }: { vm: UserMenuViewModel }): JSX.Element {
     const voice = useCreateAutoDisposedViewModel(
         () => new DesktopVoiceControlsViewModel({ client: client!, callStore: CallStore.instance }),
     );
+    useEffect(() => voice.startShortcuts(), [voice]);
     return <DesktopAccountDockView vm={vm} voice={voice} />;
 }
 
