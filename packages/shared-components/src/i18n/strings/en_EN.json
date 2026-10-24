@@ -161,6 +161,114 @@
             "view_full": "View full profile of %(name)s",
             "view_full_menu": "View full profile"
         },
+        "search": {
+            "box": {
+                "label": "Search",
+                "placeholder": "Search %(name)s",
+                "clear": "Clear search",
+                "remove_filter": "Remove filter %(filter)s",
+                "filters_label": "Search filters"
+            },
+            "section": {
+                "filters": "Filters",
+                "recent": "Recent searches",
+                "members": "Members",
+                "channels": "Channels",
+                "has": "Includes",
+                "dates": "Dates",
+                "more": "More filters",
+                "values": "Suggestions"
+            },
+            "clear_recent": "Clear",
+            "no_matches": "No matches",
+            "filter": {
+                "from": {
+                    "title": "From a specific user",
+                    "hint": "from: user"
+                },
+                "in": {
+                    "title": "Sent in a specific channel",
+                    "hint": "in: channel"
+                },
+                "has": {
+                    "title": "Includes a specific type of data",
+                    "hint": "has: link, file, image, video or sound"
+                },
+                "mentions": {
+                    "title": "Mentions a specific user",
+                    "hint": "mentions: user"
+                },
+                "more": {
+                    "title": "More filters",
+                    "hint": "dates, pinned, bots"
+                },
+                "before": {
+                    "title": "Before a date",
+                    "hint": "before: YYYY-MM-DD"
+                },
+                "after": {
+                    "title": "After a date",
+                    "hint": "after: YYYY-MM-DD"
+                },
+                "during": {
+                    "title": "On a specific day",
+                    "hint": "during: YYYY-MM-DD"
+                },
+                "pinned": {
+                    "title": "Pinned or not",
+                    "hint": "pinned: true or false"
+                },
+                "bot": {
+                    "title": "Sent by a bot",
+                    "hint": "bot: true or false"
+                }
+            },
+            "value": {
+                "has_link": "Link",
+                "has_file": "Attachment or file",
+                "has_image": "Image",
+                "has_video": "Video",
+                "has_sound": "Sound",
+                "pinned_true": "Pinned messages",
+                "pinned_false": "Not pinned",
+                "bot_true": "Bot messages",
+                "bot_false": "Messages from people",
+                "today": "Today",
+                "yesterday": "Yesterday"
+            },
+            "date_hint": "Type a date as YYYY-MM-DD",
+            "results": {
+                "label": "Search results",
+                "title": {
+                    "one": "%(count)s result",
+                    "other": "%(count)s results"
+                },
+                "title_more": {
+                    "one": "%(count)s+ result",
+                    "other": "%(count)s+ results"
+                },
+                "sort_label": "Sort results",
+                "sort_recent": "Newest",
+                "sort_relevance": "Most relevant",
+                "close": "Close search results",
+                "loading": "Searching…",
+                "loading_more": "Loading more…",
+                "load_more": "Load more results",
+                "retry": "Try again",
+                "error": "The search failed. Try again.",
+                "empty_title": "No results",
+                "empty_description": "Nothing matched your search. Try fewer or different filters.",
+                "idle": "Type something and press Enter to search.",
+                "jump": "Jump",
+                "jump_to": "Jump to message from %(name)s",
+                "in_channel": "in %(name)s",
+                "approximate": "Some filters are applied after results arrive, so counts are approximate. Keep scrolling to search further back.",
+                "encrypted": "Encrypted rooms aren't searched. Enable message search in Security settings.",
+                "encrypted_action": "Open Security settings",
+                "browse_encrypted": "Searches with only filters skip encrypted rooms.",
+                "attachment": "Attachment: %(name)s"
+            }
+        },
         "threads": {
             "create": "Create thread",
             "create_description": "The starter is posted in this channel. Your first reply starts its thread. Everyone with access to the channel can read it.",

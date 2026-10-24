@@ -254,6 +254,114 @@
             "video_test_start": "Testar vídeo",
             "video_test_stop": "Parar teste",
             "video_unavailable": "Não foi possível abrir nenhuma câmera."
+        },
+        "search": {
+            "box": {
+                "label": "Buscar",
+                "placeholder": "Buscar %(name)s",
+                "clear": "Limpar busca",
+                "remove_filter": "Remover filtro %(filter)s",
+                "filters_label": "Filtros de busca"
+            },
+            "section": {
+                "filters": "Filtros",
+                "recent": "Buscas recentes",
+                "members": "Membros",
+                "channels": "Canais",
+                "has": "Inclui",
+                "dates": "Datas",
+                "more": "Mais filtros",
+                "values": "Sugestões"
+            },
+            "clear_recent": "Limpar",
+            "no_matches": "Nenhuma correspondência",
+            "filter": {
+                "from": {
+                    "title": "De um usuário específico",
+                    "hint": "from: usuário"
+                },
+                "in": {
+                    "title": "Enviado em um canal específico",
+                    "hint": "in: canal"
+                },
+                "has": {
+                    "title": "Inclui um tipo específico de dados",
+                    "hint": "has: link, file, image, video ou sound"
+                },
+                "mentions": {
+                    "title": "Menciona um usuário específico",
+                    "hint": "mentions: usuário"
+                },
+                "more": {
+                    "title": "Mais filtros",
+                    "hint": "datas, fixadas, bots"
+                },
+                "before": {
+                    "title": "Antes de uma data",
+                    "hint": "before: AAAA-MM-DD"
+                },
+                "after": {
+                    "title": "Depois de uma data",
+                    "hint": "after: AAAA-MM-DD"
+                },
+                "during": {
+                    "title": "Em um dia específico",
+                    "hint": "during: AAAA-MM-DD"
+                },
+                "pinned": {
+                    "title": "Fixada ou não",
+                    "hint": "pinned: true ou false"
+                },
+                "bot": {
+                    "title": "Enviada por um bot",
+                    "hint": "bot: true ou false"
+                }
+            },
+            "value": {
+                "has_link": "Link",
+                "has_file": "Anexo ou arquivo",
+                "has_image": "Imagem",
+                "has_video": "Vídeo",
+                "has_sound": "Som",
+                "pinned_true": "Mensagens fixadas",
+                "pinned_false": "Não fixadas",
+                "bot_true": "Mensagens de bots",
+                "bot_false": "Mensagens de pessoas",
+                "today": "Hoje",
+                "yesterday": "Ontem"
+            },
+            "date_hint": "Digite uma data como AAAA-MM-DD",
+            "results": {
+                "label": "Resultados da busca",
+                "title": {
+                    "one": "%(count)s resultado",
+                    "other": "%(count)s resultados"
+                },
+                "title_more": {
+                    "one": "%(count)s+ resultado",
+                    "other": "%(count)s+ resultados"
+                },
+                "sort_label": "Ordenar resultados",
+                "sort_recent": "Mais recentes",
+                "sort_relevance": "Mais relevantes",
+                "close": "Fechar resultados da busca",
+                "loading": "Buscando…",
+                "loading_more": "Carregando mais…",
+                "load_more": "Carregar mais resultados",
+                "retry": "Tentar novamente",
+                "error": "A busca falhou. Tente novamente.",
+                "empty_title": "Nenhum resultado",
+                "empty_description": "Nada correspondeu à sua busca. Tente menos filtros ou outros.",
+                "idle": "Digite algo e pressione Enter para buscar.",
+                "jump": "Ir",
+                "jump_to": "Ir para a mensagem de %(name)s",
+                "in_channel": "em %(name)s",
+                "approximate": "Alguns filtros são aplicados depois que os resultados chegam, então as contagens são aproximadas. Continue rolando para buscar mais antigas.",
+                "encrypted": "Salas criptografadas não são pesquisadas. Ative a busca de mensagens nas configurações de Segurança.",
+                "encrypted_action": "Abrir configurações de Segurança",
+                "browse_encrypted": "Buscas só com filtros ignoram salas criptografadas.",
+                "attachment": "Anexo: %(name)s"
+            }
         }
     },
     "threads": {
