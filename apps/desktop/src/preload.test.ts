@@ -57,7 +57,7 @@ describe("preload x509 ipc", () => {
         const unsubscribe = api.onEvent(listener);
         const [channel, handler] = vi.mocked(ipcRenderer.on).mock.calls.at(-1)!;
         const event: ShortcutEvent = { id: "push_to_talk", pressed: true };
-        handler({}, event);
+        handler({ ports: [], sender: ipcRenderer, preventDefault: vi.fn(), defaultPrevented: false }, event);
         expect(channel).toBe("aether:global-shortcut");
         expect(listener).toHaveBeenCalledExactlyOnceWith(event);
         unsubscribe();
