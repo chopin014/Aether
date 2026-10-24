@@ -62,8 +62,39 @@ describe("GlobalShortcutController", () => {
         f.emit("show_hide", false);
         f.emit("show_hide", true);
         expect(f.showHide).toHaveBeenCalledTimes(2);
-        expect(f.send).toHaveBeenCalledTimes(2);
+        expect(f.send.mock.calls.map(([event]) => event)).toEqual([
+            { id: "show_hide", pressed: true },
+            { id: "show_hide", pressed: false },
+            { id: "show_hide", pressed: true },
+        ]);
     });
+    it.each(["toggle_mute", "toggle_deafen", "toggle_input_mode"] as const)(
+        "should rearm the renderer pressed-state consumer for repeated %s activations",
+        async (id) => {
+            const f = fixture();
+            const rendererPressed = new Set<ActionId>();
+            const activate = vi.fn();
+            f.send.mockImplementation((event) => {
+                if (!event.pressed) {
+                    rendererPressed.delete(event.id);
+                    return;
+                }
+                if (rendererPressed.has(event.id)) return;
+                rendererPressed.add(event.id);
+                activate(event.id);
+            });
+            await f.controller.configure({ enabled: true, bindings: [{ id, key: "Control+KeyM", kind: "toggle" }] });
+            f.emit(id, true);
+            f.emit(id, true);
+            f.emit(id, false);
+            f.emit(id, false);
+            f.emit(id, true);
+            expect(activate.mock.calls).toEqual([[id], [id]]);
+            f.controller.reset();
+            expect(rendererPressed.has(id)).toBe(false);
+            expect(f.send).toHaveBeenLastCalledWith({ id, pressed: false, reset: true });
+        },
+    );
     it.each(["disable", "reset", "error"])(
         "should release holds on %s and ignore stale backend events",
         async (reason) => {

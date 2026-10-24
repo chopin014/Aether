@@ -114,6 +114,11 @@ export class GlobalShortcutController {
         for (const id of ["push_to_talk", "push_to_mute"] as const) {
             this.send({ id, pressed: false, reset: true });
         }
+        for (const id of this.active) {
+            if (this.bindings.find((binding) => binding.id === id)?.kind === "toggle") {
+                this.send({ id, pressed: false, reset: true });
+            }
+        }
         this.active.clear();
         this.bindings = [];
         const backend = this.backend;
@@ -126,7 +131,6 @@ export class GlobalShortcutController {
         if (!binding || this.active.has(id) === pressed) return;
         if (pressed) this.active.add(id);
         else this.active.delete(id);
-        if (binding.kind === "toggle" && !pressed) return;
         if (id === "show_hide" && pressed) this.showHide();
         this.send({ id, pressed });
     }
