@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 
 import { test, expect } from "../../element-web-test";
 import { ElementAppPage } from "../../pages/ElementAppPage";
+import { SettingLevel } from "../../../src/settings/SettingLevel";
 import { readSampleFileSync } from "../../sample-files";
 
 test.skip(!process.env.ELEMENT_DESKTOP_SMOKE, "Set ELEMENT_DESKTOP_SMOKE=1 after building Element Desktop");
@@ -60,6 +61,18 @@ for (const theme of ["dark", "light"] as const) {
             });
             try {
                 const page = await desktop.firstWindow();
+                // Record the values passed to the real native API; still apply every update to the host.
+                await desktop.evaluate(({ BrowserWindow }) => {
+                    const window = BrowserWindow.getAllWindows()[0];
+                    const apply = window.setTitleBarOverlay.bind(window);
+                    const state = globalThis as typeof globalThis & {
+                        aetherThemeColors?: { color?: string; symbolColor?: string };
+                    };
+                    window.setTitleBarOverlay = (options) => {
+                        state.aetherThemeColors = options;
+                        apply(options);
+                    };
+                });
                 await populateLocalStorageWithCredentials(page, credentials);
                 await page.reload();
                 await expect(page.locator(".mx_MatrixChat")).toBeVisible({ timeout: 60_000 });
@@ -76,6 +89,22 @@ for (const theme of ["dark", "light"] as const) {
                 await rejectToastIfExists(page, "Notifications");
                 await closeReleaseAnnouncementIfExists(page, "Introducing Sections");
                 const app = new ElementAppPage(page);
+                const expectedColors =
+                    theme === "light"
+                        ? { color: "rgb(255, 255, 255)", symbolColor: "rgb(76, 80, 112)" }
+                        : { color: "rgb(18, 20, 42)", symbolColor: "rgb(154, 156, 192)" };
+                await expect
+                    .poll(() =>
+                        desktop.evaluate(
+                            () =>
+                                (
+                                    globalThis as typeof globalThis & {
+                                        aetherThemeColors?: { color?: string; symbolColor?: string };
+                                    }
+                                ).aetherThemeColors,
+                        ),
+                    )
+                    .toEqual(expectedColors);
                 const roomId = await app.client.createRoom({ name: "Window controls" });
                 const upload = await app.client.uploadContent(readSampleFileSync("element.png", null), {
                     name: "image.png",
@@ -118,6 +147,20 @@ for (const theme of ["dark", "light"] as const) {
                 await expect(viewer).not.toBeAttached();
                 await expect(header).toBeVisible();
                 expect(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
+                const nextTheme = theme === "light" ? "dark" : "light";
+                await app.settings.setValue("theme", null, SettingLevel.DEVICE, nextTheme);
+                await expect
+                    .poll(() =>
+                        desktop.evaluate(
+                            () =>
+                                (
+                                    globalThis as typeof globalThis & {
+                                        aetherThemeColors?: { color?: string };
+                                    }
+                                ).aetherThemeColors?.color,
+                        ),
+                    )
+                    .toBe(nextTheme === "light" ? "rgb(255, 255, 255)" : "rgb(18, 20, 42)");
                 await app.cleanup();
             } finally {
                 await desktop.close();

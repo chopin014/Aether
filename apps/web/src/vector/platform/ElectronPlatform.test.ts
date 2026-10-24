@@ -23,6 +23,7 @@ import { BreadcrumbsStore } from "../../stores/BreadcrumbsStore";
 import Modal from "../../Modal";
 import DesktopCapturerSourcePicker from "../../components/views/elements/DesktopCapturerSourcePicker";
 import ElectronPlatform from "./ElectronPlatform";
+import * as windowControlsTheme from "./watchWindowControlsTheme";
 import ToastStore from "../../stores/ToastStore.ts";
 
 vi.mock("../../rageshake/rageshake", () => ({
@@ -65,6 +66,45 @@ describe("ElectronPlatform", () => {
         eventType: string,
     ): [type: string, handler: (...args: any) => void] | undefined =>
         mockElectron.on.mock.calls.find(([type]) => type === eventType);
+
+    it("sends resolved native window colours through the existing IPC bridge when the shell is enabled", async () => {
+        initialiseValues.mockReturnValueOnce({
+            protocol: "io.element.desktop",
+            sessionId: "session-id",
+            config: { features: { feature_desktop_shell: true } },
+            supportedSettings: {},
+            supportsBadgeOverlay: false,
+        });
+        const observe = vi.spyOn(windowControlsTheme, "watchWindowControlsTheme").mockImplementation((update) => {
+            update("rgb(255, 255, 255)", "rgb(76, 80, 112)");
+            return () => {};
+        });
+        try {
+            const platform = new ElectronPlatform();
+            await platform.initialised;
+            expect(observe).toHaveBeenCalledOnce();
+            expect(mockElectron.send).toHaveBeenCalledWith(
+                "ipcCall",
+                expect.objectContaining({
+                    name: "setWindowControlsTheme",
+                    args: ["rgb(255, 255, 255)", "rgb(76, 80, 112)"],
+                }),
+            );
+        } finally {
+            observe.mockRestore();
+        }
+    });
+
+    it("does not watch native window colours when the desktop shell is disabled", async () => {
+        const observe = vi.spyOn(windowControlsTheme, "watchWindowControlsTheme");
+        try {
+            const platform = new ElectronPlatform();
+            await platform.initialised;
+            expect(observe).not.toHaveBeenCalled();
+        } finally {
+            observe.mockRestore();
+        }
+    });
 
     it("flushes rageshake before quitting", () => {
         new ElectronPlatform();

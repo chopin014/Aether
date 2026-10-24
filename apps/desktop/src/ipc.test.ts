@@ -282,3 +282,28 @@ describe("ipcCall: callDisplayMediaCallback", () => {
         expect(send).toHaveBeenCalledWith("ipcReply", { id: 14, reply: null });
     });
 });
+
+describe("native window theme IPC", () => {
+    it("accepts colours only from the main window's top-level renderer", async () => {
+        const setTitleBarOverlay = vi.fn();
+        const mainFrame = {};
+        const webContents = { mainFrame, send };
+        (global as unknown as { mainWindow: unknown }).mainWindow = { webContents, setTitleBarOverlay };
+        vi.mocked(getConfig).mockReturnValue({
+            brand: "Aether",
+            help_url: "https://example.org/help",
+            web_base_url: "vector://vector/webapp/",
+            features: { feature_desktop_shell: true },
+        });
+        const payload = { id: 1, name: "setWindowControlsTheme", args: ["#ffffff", "#4c5070"] };
+        await ipcHandlers.ipcCall({ sender: {}, senderFrame: mainFrame }, payload);
+        await ipcHandlers.ipcCall({ sender: webContents, senderFrame: {} }, payload);
+        expect(setTitleBarOverlay).not.toHaveBeenCalled();
+        await ipcHandlers.ipcCall({ sender: webContents, senderFrame: mainFrame }, payload);
+        if (process.platform === "linux" || process.platform === "win32") {
+            expect(setTitleBarOverlay).toHaveBeenCalledWith({ color: "#ffffff", symbolColor: "#4c5070" });
+        } else {
+            expect(setTitleBarOverlay).not.toHaveBeenCalled();
+        }
+    });
+});

@@ -12,6 +12,7 @@ import { randomArray } from "./utils.js";
 import { consumeDisplayMediaCallback } from "./displayMediaCallback.js";
 import Store, { clearData } from "./store.js";
 import { getConfig } from "./config.js";
+import { setDesktopShellTitleBarColors } from "./desktop-shell-titlebar.js";
 
 let focusHandlerAttached = false;
 ipcMain.on("loudNotification", function (): void {
@@ -55,6 +56,11 @@ ipcMain.on("ipcCall", async function (_ev: IpcMainEvent, payload) {
     let error: string | { message: string; name?: string } | undefined;
 
     switch (payload.name) {
+        case "setWindowControlsTheme":
+            if (_ev.sender === global.mainWindow.webContents && _ev.senderFrame === _ev.sender.mainFrame) {
+                setDesktopShellTitleBarColors(global.mainWindow, getConfig(), process.platform, args[0], args[1]);
+            }
+            break;
         case "getUpdateFeedUrl":
             ret = autoUpdater.getFeedURL();
             break;
