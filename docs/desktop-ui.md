@@ -145,7 +145,7 @@ Speaking rings follow actual local and remote microphone activity while connecte
 The sidebar observes existing tracks without changing capture, gain, or noise processing; muted and departed users
 clear their ring. Reduced motion keeps a steady ring. Remote mute badges are not inferred from room membership.
 Original Aether sound cues accompany successful microphone/deafen controls and real call connection changes.
-Voice settings include a device-level switch for the cues. See [packaging and release work](aether-releases.md).
+Each cue has its own switch under Voice & Video → Sounds, described below. See [packaging and release work](aether-releases.md).
 
 ## Server and channel presentation
 
@@ -236,3 +236,90 @@ With `feature_desktop_shell` on, every `RightPanelPhases` entry has one of these
 | `ThreadPanel`        | Replaced by the thread popover.                                                                                                   |
 
 The space and home summaries (`SpaceRoomView`, `HomePage`) are pages, not right-panel phases, and are unchanged.
+## Voice & Video settings
+
+With `feature_desktop_shell` on, Settings → Voice & Video is Aether's page, laid out like Discord's: Voice, Video,
+Sounds and Advanced sections, each linked from the settings sidebar under the tab. With the flag off, Element's own
+page is shown unchanged. The view is `DesktopVoiceVideoSettingsView` in shared-components, driven by
+`DesktopVoiceVideoSettingsViewModel`; it edits the same settings and `MediaDeviceHandler` devices that calls read.
+Strings are in `desktop.voice_video` (view) and `desktop.voice_settings` (model), with pt_BR next to en_EN.
+
+### How settings reach Element Call
+
+The embedded component keeps its own device and processing settings in `matrix-setting-*` local storage and never
+read Element's `webrtc_*` settings, so Element's pickers did not affect calls. The Element Call patch
+(`patches/@element-hq__element-call-component.patch`) adds `ElementCallHandle.configureMedia`, which the
+`DesktopVoicePipeline` calls as soon as a component mounts, and again when a setting changes:
+
+| Setting                      | How it is applied                                                                                  |
+| ---------------------------- | -------------------------------------------------------------------------------------------------- |
+| Microphone, speaker, camera  | Written to Element Call's own device settings; followed during a call, read when a call is joined  |
+| Echo cancellation, auto gain | Written to Element Call's audio-processing settings; read when a call is joined                    |
+| Speaker volume               | Multiplied into each remote participant's volume (0–100%, on top of the per-person slider)         |
+| Microphone volume            | A LiveKit track processor (`MicrophoneProcessor`) scales the microphone before it is published     |
+| Input sensitivity            | The same processor gates the microphone: manual threshold in dB, or automatic from the noise floor |
+| Push to talk                 | The processor's gate is open only while the key (plus the release delay) says so                   |
+| Mirror my video              | Element Call's own camera tile follows the setting                                                 |
+| Always preview video         | The desktop voice channel join no longer skips Element Call's lobby                                |
+
+The Studio profile sends the microphone as it is: it turns echo cancellation and automatic gain off and bypasses the
+gate. Editing either switch by hand switches the profile back to Custom. Noise suppression is not offered in the
+desktop page; Element's setting and its Element Call default are untouched, and Reset leaves it alone.
+
+Unmodified Element Call behaviour that remains: devices and processing are read when a call is joined, so the page
+says so while a call is open.
+
+### Push to talk
+
+Key presses are only seen while the Aether window is focused. Electron's `globalShortcut` is not plumbed through the
+desktop preload and reports a press but never the release, so it cannot hold a microphone open; a global key would
+need a native key-state hook. Losing focus releases the key at once. A bare letter bound without a modifier is
+ignored while typing in a text field. Until a key is recorded, a Push to talk input mode behaves as voice activity so
+the microphone cannot be left silent. Muting or deafening in the dock still wins: nothing is sent and no push to
+talk sound plays.
+
+### Sounds
+
+Each cue has its own switch (`desktopVoiceSoundToggles`, a device-level map of the cues that were turned off) and a
+preview that plays even when the cue is off. The old single `desktopVoiceSounds` switch is migrated by reading: while
+no per-cue choice has been saved, an "off" there still turns every cue off; the first change writes per-cue choices.
+All cues are generated by `apps/web/scripts/generate-aether-sounds.ts` from plain sine tones, so they are original to
+Aether and carry the repository's licence (nothing third-party). Run it with
+`node --experimental-strip-types apps/web/scripts/generate-aether-sounds.ts`; the six original cues are reproduced
+byte for byte.
+
+| Cue                             | Played when                                                         |
+| ------------------------------- | ------------------------------------------------------------------- |
+| Mute, unmute, deafen, undeafen  | The microphone or deafen state changes, from the dock or the call   |
+| Join the call, leave the call   | A call connects or disconnects                                      |
+| Someone joined / left your call | Another person's membership appears or disappears (not our devices) |
+| Camera on / off                 | The call reports the camera changing                                |
+| Screen share started / stopped  | The call reports our screen sharing changing                        |
+| Push to talk on / off           | The push to talk key activates or releases while unmuted            |
+
+### Discord feature mapping
+
+| Discord feature                             | Aether                                                                                 |
+| ------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Microphone / speaker pickers                | Implemented                                                                            |
+| Microphone / speaker volume                 | Implemented (0–100%; a call cannot play louder than 100%)                              |
+| Mic test with meter ("Let's check")         | Implemented, with loopback through the chosen speaker; closes on stop and unmount      |
+| Input profiles                              | Studio and Custom. **Voice Isolation omitted**: it depends on noise suppression        |
+| Input sensitivity, automatic and manual     | Implemented; the meter colours the slider yellow to green                              |
+| Noise suppression (Krisp)                   | Omitted by request                                                                     |
+| Echo cancellation, automatic gain control   | Implemented                                                                            |
+| Push to talk, keybind, release delay, sound | Implemented, focused window only                                                       |
+| Advanced voice activity                     | Omitted: it is a Discord-side voice model with no Element Call equivalent              |
+| Voice channel switch warning                | Implemented: asks before leaving a call for another                                    |
+| Camera picker, preview, mirror              | Implemented                                                                            |
+| Always preview video                        | Implemented through Element Call's lobby                                               |
+| Sounds with previews                        | Implemented for 14 cues; Discord's other sound packs have no Aether equivalent         |
+| Link to Notifications                       | Implemented                                                                            |
+| Broadcast (stream previews)                 | Omitted: Matrix and Element Call have no stream-preview equivalent                     |
+| Attenuate other applications                | Omitted: Electron cannot lower other applications' volume                              |
+| Sound board, entry sounds                   | Omitted: Aether has no sound board and Element Call cannot inject audio; follow-up     |
+| "Voice disconnected" sound                  | Omitted: Aether plays the leave cue, and cannot tell a dropped connection from leaving |
+| Peer-to-peer and fallback call assist       | Kept; peer-to-peer only where legacy calls exist, since Element Call uses a server     |
+| Diagnostics                                 | Debug logs (the bug report dialog) and Help & About                                    |
+| Reset all                                   | Implemented, with a confirmation                                                       |
+| OpenH264                                    | Omitted: Discord-specific codec choice                                                 |
