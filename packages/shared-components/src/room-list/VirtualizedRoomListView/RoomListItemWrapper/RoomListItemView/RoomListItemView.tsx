@@ -18,6 +18,7 @@ import { RoomListItemContextMenu } from "./RoomListItemContextMenu";
 import { RoomListItemContent } from "./RoomListItemContent";
 import { type RoomNotifState } from "./RoomNotifs";
 import styles from "./RoomListItemView.module.css";
+import { type ChannelMenuViewModel } from "../../../../desktop/ChannelMenuView";
 import { useViewModel, type ViewModel } from "../../../../core/viewmodel";
 import { type UserStatus } from "../../../../core/userStatus";
 import { _t } from "../../../../core/i18n/i18n";
@@ -145,6 +146,11 @@ export interface RoomListItemViewActions {
     onViewCallParticipant?: (userId: string) => void;
     /** Open the channel's settings, where its name, topic and icon are changed. */
     onEditChannel?: () => void;
+    /**
+     * The desktop channel menu for this room, shared with the room header. When present, it replaces the
+     * Element options in the item's context and "more options" menus.
+     */
+    getChannelMenu?: () => ChannelMenuViewModel;
     /** Called when the room should be opened */
     onOpenRoom: () => void;
     /** Called when the room should be marked as read */

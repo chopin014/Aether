@@ -13,6 +13,7 @@ import {
     type RoomListItemViewActions,
     type Section,
     type UserStatus,
+    type ChannelMenuViewModel as ChannelMenuViewModelInterface,
 } from "@element-hq/web-shared-components";
 import {
     ClientEvent,
@@ -60,6 +61,7 @@ import { UPDATE_EVENT } from "../../stores/AsyncStore";
 import { type ShowThreadPayload } from "../../dispatcher/payloads/ShowThreadPayload";
 import { threadLabel } from "../threads/threadLabel";
 import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
+import { ChannelMenuViewModel } from "../desktop/ChannelMenuViewModel";
 
 /**
  * View section type without `isSelected` field
@@ -351,6 +353,21 @@ export class RoomListItemViewModel
         const [event] = args as [MatrixEvent];
         const type = event.getType();
         if (type === EventType.RoomAvatar || type === EventType.RoomPowerLevels) this.updateItem();
+    };
+
+    private channelMenu?: ChannelMenuViewModel;
+
+    /** The desktop channel menu for this room, built when a menu first asks for it and disposed with this item. */
+    public getChannelMenu = (): ChannelMenuViewModelInterface => {
+        if (!this.channelMenu) {
+            this.channelMenu = new ChannelMenuViewModel({
+                room: this.props.room,
+                client: this.props.client,
+                item: this,
+            });
+            this.disposables.track(this.channelMenu);
+        }
+        return this.channelMenu;
     };
 
     public onEditChannel = (): void => {

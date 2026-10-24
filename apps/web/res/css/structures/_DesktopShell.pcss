@@ -505,6 +505,73 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
             color: var(--cpd-color-text-secondary);
         }
 
+        /* The name opens the channel menu (or a person's profile), the topic opens a dialog; neither is room info. */
+        .mx_DesktopShell_channelInfo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+        }
+
+        /* The name keeps its width and the topic gives way first. */
+        .mx_DesktopShell_channelName {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex: 0 0 auto;
+            max-width: 100%;
+            padding: 2px 6px;
+            margin-inline-start: -6px;
+            border: 0;
+            border-radius: 4px;
+            background: transparent;
+            color: inherit;
+            font: inherit;
+            text-align: start;
+            cursor: pointer;
+
+            &:hover,
+            &[aria-expanded="true"] {
+                background: var(--cpd-color-bg-subtle-secondary);
+            }
+
+            &:focus-visible {
+                outline: 2px solid var(--cpd-color-border-focused);
+            }
+        }
+
+        .mx_DesktopShell_channelChevron {
+            flex-shrink: 0;
+            width: 16px;
+            height: 16px;
+            color: var(--cpd-color-icon-secondary);
+        }
+
+        .mx_DesktopShell_channelName .mx_RoomHeader_heading {
+            min-width: 0;
+            white-space: nowrap;
+        }
+
+        button.mx_DesktopShell_channelTopic {
+            flex: 1 1 0;
+            min-width: 0;
+            border-block: 0;
+            border-inline-end: 0;
+            padding-block: 0;
+            padding-inline-end: 0;
+            background: transparent;
+            text-align: start;
+            cursor: pointer;
+
+            &:hover {
+                color: var(--cpd-color-text-primary);
+            }
+
+            &:focus-visible {
+                outline: 2px solid var(--cpd-color-border-focused);
+            }
+        }
+
         .mx_BaseAvatar {
             width: 28px;
             height: 28px;

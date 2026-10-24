@@ -69,6 +69,7 @@ import { SDKContext } from "../../../../contexts/SDKContext.ts";
 import { useContextMenu, ChevronFace } from "../../../structures/ContextMenu";
 import { DesktopThreadBrowser } from "../threads/DesktopThreadBrowser";
 import { RoomNotificationContextMenu } from "../../context_menus/RoomNotificationContextMenu";
+import { DesktopChannelInfo } from "./DesktopChannelInfo";
 
 function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: JSX.Element }): JSX.Element {
     const sdkContext = useContext(SDKContext);
@@ -492,7 +493,8 @@ export default function RoomHeader({
     const isRoomEncrypted = useIsEncrypted(sdkContext.client!, room);
     const e2eStatus = useEncryptionStatus(sdkContext.client!, room);
     const askToJoinEnabled = useFeatureEnabled("feature_ask_to_join");
-    const desktopChannel = useFeatureEnabled("feature_desktop_shell") && !isDirectMessage;
+    const desktopShell = useFeatureEnabled("feature_desktop_shell");
+    const desktopChannel = desktopShell && !isDirectMessage;
     // A desktop channel shows its topic beside the name, as in Discord.
     const topic = useTopic(room);
     const onAvatarClick = (): void => {
@@ -501,6 +503,60 @@ export default function RoomHeader({
             initial_tab_id: RoomSettingsTab.General,
         });
     };
+
+    const heading = (
+        <Text
+            as="div"
+            size="lg"
+            weight="semibold"
+            dir="auto"
+            role="heading"
+            aria-level={1}
+            className="mx_RoomHeader_heading"
+        >
+            <span className="mx_RoomHeader_truncated mx_lineClamp">{roomName}</span>
+
+            {isDirectMessage && dmUserStatus && (
+                <StatusTextView status={dmUserStatus} className="mx_RoomHeader_userStatus" />
+            )}
+
+            {!isDirectMessage && joinRule === JoinRule.Public && (
+                <Tooltip label={_t("common|public_room")} placement="right">
+                    <PublicIcon
+                        width="16px"
+                        height="16px"
+                        className="mx_RoomHeader_icon"
+                        color="var(--cpd-color-icon-info-primary)"
+                        aria-label={_t("common|public_room")}
+                    />
+                </Tooltip>
+            )}
+
+            {isDirectMessage && e2eStatus === E2EStatus.Verified && (
+                <Tooltip label={_t("common|verified")} placement="right">
+                    <VerifiedIcon
+                        width="16px"
+                        height="16px"
+                        className="mx_RoomHeader_icon mx_Verified"
+                        aria-label={_t("common|verified")}
+                    />
+                </Tooltip>
+            )}
+
+            {isDirectMessage && e2eStatus === E2EStatus.Warning && (
+                <Tooltip label={_t("room|header_untrusted_label")} placement="right">
+                    <ErrorIcon
+                        width="16px"
+                        height="16px"
+                        className="mx_RoomHeader_icon mx_Untrusted"
+                        aria-label={_t("room|header_untrusted_label")}
+                    />
+                </Tooltip>
+            )}
+
+            {isRoomEncrypted && historyVisibilityIcon(historyVisibility)}
+        </Text>
+    );
 
     return (
         <CurrentRightPanelPhaseContextProvider roomId={room.roomId}>
@@ -528,76 +584,30 @@ export default function RoomHeader({
                     </WithPresenceIndicator>
                 )}
                 {/* Disable on-click actions until the room is created */}
-                <button
-                    aria-label={_t("right_panel|room_summary_card|title")}
-                    tabIndex={0}
-                    onClick={
-                        room instanceof LocalRoom
-                            ? undefined
-                            : () => sdkContext.rightPanelStore.showOrHidePhase(RightPanelPhases.RoomSummary)
-                    }
-                    className="mx_RoomHeader_infoWrapper"
-                    type="button"
-                >
-                    <Box flex="1" className="mx_RoomHeader_info">
-                        <Text
-                            as="div"
-                            size="lg"
-                            weight="semibold"
-                            dir="auto"
-                            role="heading"
-                            aria-level={1}
-                            className="mx_RoomHeader_heading"
-                        >
-                            <span className="mx_RoomHeader_truncated mx_lineClamp">{roomName}</span>
-
-                            {isDirectMessage && dmUserStatus && (
-                                <StatusTextView status={dmUserStatus} className="mx_RoomHeader_userStatus" />
+                {desktopChannel && room instanceof LocalRoom === false ? (
+                    <DesktopChannelInfo room={room} heading={heading} topic={topic?.text} />
+                ) : (
+                    <button
+                        aria-label={_t("right_panel|room_summary_card|title")}
+                        tabIndex={0}
+                        onClick={
+                            room instanceof LocalRoom
+                                ? undefined
+                                : () => sdkContext.rightPanelStore.showOrHidePhase(RightPanelPhases.RoomSummary)
+                        }
+                        className="mx_RoomHeader_infoWrapper"
+                        type="button"
+                    >
+                        <Box flex="1" className="mx_RoomHeader_info">
+                            {heading}
+                            {desktopChannel && topic?.text && (
+                                <span className="mx_DesktopShell_channelTopic" title={topic.text} dir="auto">
+                                    {topic.text}
+                                </span>
                             )}
-
-                            {!isDirectMessage && joinRule === JoinRule.Public && (
-                                <Tooltip label={_t("common|public_room")} placement="right">
-                                    <PublicIcon
-                                        width="16px"
-                                        height="16px"
-                                        className="mx_RoomHeader_icon"
-                                        color="var(--cpd-color-icon-info-primary)"
-                                        aria-label={_t("common|public_room")}
-                                    />
-                                </Tooltip>
-                            )}
-
-                            {isDirectMessage && e2eStatus === E2EStatus.Verified && (
-                                <Tooltip label={_t("common|verified")} placement="right">
-                                    <VerifiedIcon
-                                        width="16px"
-                                        height="16px"
-                                        className="mx_RoomHeader_icon mx_Verified"
-                                        aria-label={_t("common|verified")}
-                                    />
-                                </Tooltip>
-                            )}
-
-                            {isDirectMessage && e2eStatus === E2EStatus.Warning && (
-                                <Tooltip label={_t("room|header_untrusted_label")} placement="right">
-                                    <ErrorIcon
-                                        width="16px"
-                                        height="16px"
-                                        className="mx_RoomHeader_icon mx_Untrusted"
-                                        aria-label={_t("room|header_untrusted_label")}
-                                    />
-                                </Tooltip>
-                            )}
-
-                            {isRoomEncrypted && historyVisibilityIcon(historyVisibility)}
-                        </Text>
-                        {desktopChannel && topic?.text && (
-                            <span className="mx_DesktopShell_channelTopic" title={topic.text} dir="auto">
-                                {topic.text}
-                            </span>
-                        )}
-                    </Box>
-                </button>
+                        </Box>
+                    </button>
+                )}
                 {/* If the room is local-only then we don't want to show any additional buttons, as it won't work */}
                 {room instanceof LocalRoom === false && <RoomHeaderButtons room={room} extraButtons={extraButtons} />}
             </Flex>

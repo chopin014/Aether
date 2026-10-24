@@ -57,6 +57,7 @@ import * as ShieldUtils from "../../../../utils/ShieldUtils";
 import { WidgetLayoutStore } from "../../../../stores/widgets/WidgetLayoutStore";
 import MatrixClientContext from "../../../../contexts/MatrixClientContext";
 import { _t } from "../../../../languageHandler";
+import { Action } from "../../../../dispatcher/actions";
 import WidgetStore, { type IApp } from "../../../../stores/WidgetStore";
 import { UIFeature } from "../../../../settings/UIFeature";
 import { SettingLevel } from "../../../../settings/SettingLevel";
@@ -155,11 +156,50 @@ describe("RoomHeader", () => {
             await userEvent.click(screen.getByRole("button", { name: "Notifications" }));
             expect(screen.getByRole("menuitemradio", { name: "Mute room" })).toBeInTheDocument();
             await userEvent.keyboard("{Escape}");
+            // The name opens the channel menu, never the room summary card.
             await userEvent.click(getByText(container, ROOM_ID));
-            expect(setCardSpy).toHaveBeenCalled();
+            expect(await screen.findByRole("menuitem", { name: "Leave channel" })).toBeInTheDocument();
+            expect(setCardSpy).not.toHaveBeenCalledWith(
+                expect.objectContaining({ phase: RightPanelPhases.RoomSummary }),
+            );
         } finally {
             setting.mockRestore();
         }
+    });
+
+    describe("desktop channel menu", () => {
+        let setting: ReturnType<typeof vi.spyOn>;
+        beforeEach(() => {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            setting = vi
+                .spyOn(SettingsStore, "getValue")
+                .mockImplementation((name, ...args) =>
+                    name === "feature_desktop_shell" ? true : getValue(name, ...args),
+                );
+        });
+        afterEach(() => setting.mockRestore());
+
+        it("opens an anchored menu from the name, closes it with Escape and returns focus", async () => {
+            render(<RoomHeader room={room} />, getWrapper());
+            const trigger = screen.getByRole("button", { name: ROOM_ID });
+            expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+            await userEvent.click(trigger);
+            expect(await screen.findByRole("menu")).toBeInTheDocument();
+            expect(screen.getByRole("menuitem", { name: "Copy link" })).toBeInTheDocument();
+            // People, Threads and Pinned already have header icons.
+            expect(screen.queryByRole("menuitem", { name: "People" })).not.toBeInTheDocument();
+            await userEvent.keyboard("{Escape}");
+            await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+            expect(trigger).toHaveFocus();
+        });
+
+        it("toggles the menu from the Ctrl+. action", async () => {
+            render(<RoomHeader room={room} />, getWrapper());
+            act(() => dispatcher.dispatch({ action: Action.ToggleChannelMenu }, true));
+            expect(await screen.findByRole("menu")).toBeInTheDocument();
+            act(() => dispatcher.dispatch({ action: Action.ToggleChannelMenu }, true));
+            await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+        });
     });
 
     it("shows a desktop channel's room avatar as its icon", () => {

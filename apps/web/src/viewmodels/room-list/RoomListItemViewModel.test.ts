@@ -206,6 +206,13 @@ describe("RoomListItemViewModel", () => {
             });
         });
 
+        it("shares one channel menu per item, built on this item's actions", () => {
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            const menu = viewModel.getChannelMenu();
+            expect(viewModel.getChannelMenu()).toBe(menu);
+            expect(menu.getSnapshot()).toMatchObject({ name: room.name, kind: "text" });
+        });
+
         it("leaves direct messages without a channel icon or edit entry", () => {
             vi.mocked(DMRoomMap.shared().getUserIdForRoomId).mockReturnValue("@alice:server");
             vi.spyOn(room, "getMxcAvatarUrl").mockReturnValue("mxc://example.org/alice");
