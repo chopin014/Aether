@@ -738,7 +738,7 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
             var(--cpd-color-border-interactive-secondary),
             var(--cpd-color-border-interactive-secondary)
         );
-        background-position: 0 var(--mx-window-controls-block-size, -1px);
+        background-position: 0 env(titlebar-area-height, -1px);
         background-size: 100% 1px;
         background-repeat: no-repeat;
         border-inline-start: 1px solid var(--cpd-color-border-interactive-secondary);

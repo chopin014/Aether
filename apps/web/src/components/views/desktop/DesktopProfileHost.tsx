@@ -208,7 +208,7 @@ export function DesktopProfileHost(): JSX.Element | null {
             );
             element.style.top = `${position.top}px`;
             element.style.left = `${position.left}px`;
-            element.style.maxHeight = `${UIStore.instance.windowHeight - 16}px`;
+            element.style.maxHeight = `${Math.max(0, UIStore.instance.windowHeight - position.top - 8)}px`;
             element.style.visibility = "visible";
         };
         place();

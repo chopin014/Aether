@@ -23,6 +23,8 @@ import defaultDispatcher from "../../../dispatcher/dispatcher";
 import { Action } from "../../../dispatcher/actions";
 import Modal, { ModalManagerEvent } from "../../../Modal";
 import SettingsStore from "../../../settings/SettingsStore";
+import UIStore from "../../../stores/UIStore";
+import * as windowControls from "../../../utils/windowControls";
 
 describe("DesktopProfileHost", () => {
     let client: MatrixClient;
@@ -80,6 +82,33 @@ describe("DesktopProfileHost", () => {
         document.removeEventListener("keydown", globalShortcut);
         expect(screen.queryByRole("dialog", { name: "Profile" })).toBeNull();
         expect(trigger).toHaveFocus();
+    });
+
+    it("keeps a tall card inside a narrow viewport after moving below window controls", async () => {
+        const store = UIStore.instance;
+        const oldWidth = store.windowWidth;
+        const oldHeight = store.windowHeight;
+        store.windowWidth = 400;
+        store.windowHeight = 300;
+        vi.spyOn(windowControls, "readWindowControls").mockReturnValue({ inline: 138, block: 48 });
+        vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+            top: 8,
+            left: 8,
+            width: 380,
+            height: 280,
+            right: 388,
+            bottom: 288,
+        } as DOMRect);
+        try {
+            render(<Fixture />);
+            await userEvent.click(screen.getByRole("button", { name: "Open Robin" }));
+            const card = await screen.findByRole("dialog", { name: "Profile" });
+            await waitFor(() => expect(card.style.top).toBe("56px"));
+            expect(parseFloat(card.style.top) + parseFloat(card.style.maxHeight)).toBe(292);
+        } finally {
+            store.windowWidth = oldWidth;
+            store.windowHeight = oldHeight;
+        }
     });
 
     it("closes when the same person is clicked again or the page is clicked outside", async () => {
