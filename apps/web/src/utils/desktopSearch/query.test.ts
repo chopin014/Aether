@@ -7,31 +7,13 @@ Please see LICENSE in the repository root for full details.
 
 import { describe, expect, it } from "vitest";
 
-import {
-    isEmptyQuery,
-    isSameQuery,
-    parseIsoDate,
-    parseQuery,
-    pendingFilter,
-    quoteValue,
-    serializeQuery,
-    type FilterValueResolver,
-} from "./query";
+import { isEmptyQuery, isSameQuery, parseIsoDate, parseQuery, pendingFilter, type FilterValueResolver } from "./query";
 
 const resolver: FilterValueResolver = (key, raw) => {
     if (key === "from" && raw === "Alice Smith") return { value: "@alice:x", label: "Alice Smith" };
     if (key === "in" && raw === "general") return { value: "!gen:x", label: "general" };
     return null;
 };
-
-describe("quoteValue", () => {
-    it("leaves simple values alone and quotes the rest", () => {
-        expect(quoteValue("alice")).toBe("alice");
-        expect(quoteValue("Alice Smith")).toBe('"Alice Smith"');
-        expect(quoteValue('say "hi"')).toBe('"say \\"hi\\""');
-        expect(quoteValue("")).toBe('""');
-    });
-});
 
 describe("parseIsoDate", () => {
     it("accepts real dates as local midnight", () => {
@@ -98,32 +80,6 @@ describe("parseQuery", () => {
 
     it("is case-insensitive about keys", () => {
         expect(parseQuery("HAS:Image").filters).toEqual([{ key: "has", value: "image" }]);
-    });
-});
-
-describe("serializeQuery", () => {
-    it("writes filters before the text using labels and quotes", () => {
-        expect(
-            serializeQuery({
-                text: " budget ",
-                filters: [
-                    { key: "from", value: "@alice:x", label: "Alice Smith" },
-                    { key: "has", value: "file" },
-                ],
-            }),
-        ).toBe('from:"Alice Smith" has:file budget');
-    });
-
-    it("round-trips through the parser", () => {
-        const query = {
-            text: "budget q3",
-            filters: [
-                { key: "from" as const, value: "@alice:x", label: "Alice Smith" },
-                { key: "in" as const, value: "!gen:x", label: "general" },
-                { key: "after" as const, value: "2026-01-01" },
-            ],
-        };
-        expect(parseQuery(serializeQuery(query), resolver)).toEqual(query);
     });
 });
 

@@ -141,9 +141,6 @@ export const usePresenceDetails = (room: Room, member: RoomMember | null): Prese
     return { presence: PRESENCE_BY_STATE[merged.state], label: merged.label };
 };
 
-export const usePresence = (room: Room, member: RoomMember | null): Presence | null =>
-    usePresenceDetails(room, member).presence;
-
 const WithPresenceIndicator: React.FC<Props> = ({ room, children }) => {
     const dmMember = useDmMember(room);
     const { presence, label } = usePresenceDetails(room, dmMember);

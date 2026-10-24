@@ -63,12 +63,6 @@ export function parseIsoDate(value: string): number | null {
     return date.getTime();
 }
 
-/** Wraps a value in quotes when it contains whitespace or quotes. */
-export function quoteValue(value: string): string {
-    if (value !== "" && !/[\s"\\]/.test(value)) return value;
-    return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
-
 function unquoteValue(raw: string): string {
     if (raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"')) {
         return raw.slice(1, -1).replace(/\\(.)/g, "$1");
@@ -138,13 +132,6 @@ export function parseQuery(input: string, resolve?: FilterValueResolver): Search
     }
 
     return { text: words.join(" "), filters };
-}
-
-/** Writes a query back as text, filters first, using labels where available. */
-export function serializeQuery(query: SearchQuery): string {
-    const parts = query.filters.map((filter) => `${filter.key}:${quoteValue(filter.label ?? filter.value)}`);
-    if (query.text.trim()) parts.push(query.text.trim());
-    return parts.join(" ");
 }
 
 /** Stable identity of a filter, used for chip keys and de-duplication. */
