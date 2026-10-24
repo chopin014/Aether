@@ -152,12 +152,53 @@ for (const theme of ["dark", "light"] as const) {
                     const bounds = (await action.boundingBox())!;
                     expect(bounds.y >= controls.height || bounds.x + bounds.width <= 1280 - controls.width).toBe(true);
                 }
+                const backdrop = page.locator(".mx_Dialog_lightbox .mx_Dialog_background");
+                await backdrop.evaluate(async (element) => {
+                    await Promise.all(element.getAnimations().map((animation) => animation.finished));
+                });
+                const overlay = await backdrop.evaluate((element) => {
+                    const style = getComputedStyle(element);
+                    return { color: style.backgroundColor, opacity: Number(style.opacity) };
+                });
+                expect(overlay.opacity).toBeGreaterThan(0.5);
+                const channels = overlay.color.match(/[\d.]+/g)!.map(Number);
+                const alpha = overlay.opacity * (channels[3] ?? 1);
+                await expect(async () => {
+                    const native = await desktop.evaluate(
+                        () =>
+                            (
+                                globalThis as typeof globalThis & {
+                                    aetherThemeColors?: { color: string; symbolColor: string };
+                                }
+                            ).aetherThemeColors!,
+                    );
+                    for (const key of ["color", "symbolColor"] as const) {
+                        const before = expectedColors[key].match(/\d+/g)!.map(Number);
+                        const actual = native[key].match(/\d+/g)!.map(Number);
+                        before.forEach((channel, i) => {
+                            const expected = channel * (1 - alpha) + channels[i] * alpha;
+                            expect(Math.abs(actual[i] - expected)).toBeLessThanOrEqual(1);
+                        });
+                    }
+                }).toPass();
                 await page.screenshot({ path: testInfo.outputPath(`native-viewer-${theme}.png`) });
                 const close = viewer.getByRole("button", { name: "Close", exact: true });
                 await close.focus();
                 await page.keyboard.press("Enter");
                 await expect(viewer).not.toBeAttached();
                 await expect(header).toBeVisible();
+                await expect
+                    .poll(() =>
+                        desktop.evaluate(
+                            () =>
+                                (
+                                    globalThis as typeof globalThis & {
+                                        aetherThemeColors?: { color?: string; symbolColor?: string };
+                                    }
+                                ).aetherThemeColors,
+                        ),
+                    )
+                    .toEqual(expectedColors);
                 expect(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
                 const messageSearch = page.getByRole("combobox", { name: "Search", exact: true });
                 await messageSearch.fill("has:file");
