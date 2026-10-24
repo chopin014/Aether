@@ -787,8 +787,12 @@ export class ElementCall extends Call {
                         : ElementCallIntent.JoinExisting,
                 // Video rooms should always return to lobby.
                 returnToLobby: true,
-                // Selecting a desktop voice channel is the explicit action to join it.
-                skipLobby: room.isCallRoom() && SettingsStore.getValue("feature_desktop_shell"),
+                // Selecting a desktop voice channel is the explicit action to join it, unless the user asked to
+                // see their camera in the lobby first.
+                skipLobby:
+                    room.isCallRoom() &&
+                    SettingsStore.getValue("feature_desktop_shell") &&
+                    !SettingsStore.getValue("desktopAlwaysPreviewVideo"),
             };
         }
 

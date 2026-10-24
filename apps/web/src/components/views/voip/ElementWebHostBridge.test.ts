@@ -15,6 +15,8 @@ import { type Call, type ElementCall } from "../../../models/Call";
 import { type ElementCallHostBridge } from "@element-hq/element-call-component/api";
 import { logger } from "matrix-js-sdk/src/logger";
 import { ElementWebHostBridge } from "./ElementWebHostBridge";
+import SettingsStore from "../../../settings/SettingsStore";
+import Modal from "../../../Modal";
 
 describe("ElementWebHostBridge", () => {
     const widgetId = "widget1";
@@ -116,6 +118,55 @@ describe("ElementWebHostBridge", () => {
 
         await bridge.setAlwaysOnScreen(false);
         expect(otherCall.disconnect).toHaveBeenCalledTimes(1);
+    });
+
+    describe("voice channel switch warning", () => {
+        let otherCall: { disconnect: ReturnType<typeof vi.fn> };
+        let ownDisconnect: ReturnType<typeof vi.fn>;
+
+        function warnBeforeSwitching(answer: boolean): ReturnType<typeof vi.spyOn> {
+            vi.spyOn(SettingsStore, "getValue").mockImplementation(
+                (name) => (name === "feature_desktop_shell" || name === "desktopVoiceSwitchWarning") as never,
+            );
+            return vi
+                .spyOn(Modal, "createDialog")
+                .mockReturnValue({ finished: Promise.resolve([answer]) } as unknown as ReturnType<
+                    typeof Modal.createDialog
+                >);
+        }
+
+        beforeEach(() => {
+            otherCall = { disconnect: vi.fn(async () => {}) };
+            ownDisconnect = vi.fn(async () => {});
+            (call as unknown as { disconnect: unknown }).disconnect = ownDisconnect;
+            vi.spyOn(CallStore.instance, "connectedCalls", "get").mockReturnValue(
+                new Set([call, otherCall] as unknown as Call[]),
+            );
+        });
+
+        it("leaves the old call and stays on screen when the user agrees", async () => {
+            const dialog = warnBeforeSwitching(true);
+            await bridge.setAlwaysOnScreen(true);
+            expect(dialog).toHaveBeenCalledOnce();
+            expect(otherCall.disconnect).toHaveBeenCalled();
+            expect(setWidgetPersistence).toHaveBeenCalledWith(widgetId, roomId, true);
+        });
+
+        it("keeps the old call and abandons the new one when the user declines", async () => {
+            warnBeforeSwitching(false);
+            await bridge.setAlwaysOnScreen(true);
+            expect(otherCall.disconnect).not.toHaveBeenCalled();
+            expect(ownDisconnect).toHaveBeenCalledOnce();
+            expect(setWidgetPersistence).not.toHaveBeenCalled();
+        });
+
+        it("does not ask when there is no other call", async () => {
+            const dialog = warnBeforeSwitching(false);
+            vi.spyOn(CallStore.instance, "connectedCalls", "get").mockReturnValue(new Set([call] as unknown as Call[]));
+            await bridge.setAlwaysOnScreen(true);
+            expect(dialog).not.toHaveBeenCalled();
+            expect(setWidgetPersistence).toHaveBeenCalledWith(widgetId, roomId, true);
+        });
     });
 
     it("still becomes persistent when another call cannot be disconnected", async () => {

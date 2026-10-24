@@ -17,6 +17,8 @@ import {
 } from "@element-hq/element-call-component/api";
 import { logger } from "matrix-js-sdk/src/logger";
 
+import { confirmVoiceChannelSwitch } from "./confirmVoiceChannelSwitch";
+
 export interface ElementWebHostBridgeOptions {
     /** The id of the (virtual) widget that is this call's identity in the widget stores. */
     widgetId: string;
@@ -60,6 +62,15 @@ export class ElementWebHostBridge implements ElementCallHostBridge {
         // UpdateAlwaysOnScreen handling).
         if (alwaysOnScreen) {
             const others = [...CallStore.instance.connectedCalls].filter((call) => call !== this.call);
+            // Joining here has already started, so declining means leaving the call that was just opened.
+            if (others.length > 0 && !(await confirmVoiceChannelSwitch())) {
+                try {
+                    await this.call.disconnect();
+                } catch (e) {
+                    logger.warn("Could not leave the call the user declined to join", e);
+                }
+                return;
+            }
             try {
                 await Promise.all(others.map((call) => call.disconnect()));
             } catch (e) {

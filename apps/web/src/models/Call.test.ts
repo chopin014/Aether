@@ -1524,6 +1524,21 @@ describe("ElementCall with the React component embedding", () => {
             }
         });
 
+        it("shows the lobby of a desktop voice channel when the user always previews video", () => {
+            vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+            enabledSettings.add("feature_desktop_shell");
+            const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+            vi.mocked(SettingsStore.getValue).mockImplementation((name, ...args) =>
+                name === "desktopAlwaysPreviewVideo" ? (true as never) : getValue(name, ...args),
+            );
+            try {
+                expect(call.getCallOptions().config).toMatchObject({ returnToLobby: true, skipLobby: false });
+            } finally {
+                vi.mocked(SettingsStore.getValue).mockImplementation(getValue);
+                enabledSettings.delete("feature_desktop_shell");
+            }
+        });
+
         it("detects DMs and voice calls like the widget URL does", () => {
             vi.spyOn(DMRoomMap.shared(), "getUserIdForRoomId").mockReturnValue("@bob:example.org");
             call.widgetGenerationParameters = { voiceOnly: true };
