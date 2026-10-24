@@ -17,7 +17,6 @@ import { useDispatcher } from "../../../../hooks/useDispatcher";
 import { useMatrixClientContext } from "../../../../contexts/MatrixClientContext";
 import Modal from "../../../../Modal";
 import { RoomListItemViewModel } from "../../../../viewmodels/room-list/RoomListItemViewModel";
-import { ChannelMenuViewModel } from "../../../../viewmodels/desktop/ChannelMenuViewModel";
 import { DesktopTopicDialog } from "../../desktop/DesktopTopicDialog";
 
 interface Props {
@@ -60,7 +59,8 @@ function ChannelInfo({ room, heading, topic }: Omit<Props, "dmMember">): JSX.Ele
     const client = useMatrixClientContext();
     const [open, setOpen] = useState(false);
     const item = useCreateAutoDisposedViewModel(() => new RoomListItemViewModel({ room, client }));
-    const menu = useCreateAutoDisposedViewModel(() => new ChannelMenuViewModel({ room, client, item }));
+    // The item owns its menu, so StrictMode recreates both together.
+    const menu = item.getChannelMenu();
     useDispatcher(defaultDispatcher, (payload) => {
         if (payload.action === Action.ToggleChannelMenu) setOpen((current) => !current);
     });

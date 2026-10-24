@@ -195,6 +195,17 @@ describe("RoomHeader", () => {
             expect(trigger).toHaveFocus();
         });
 
+        it("keeps channel menu state live after StrictMode recreates the room item", async () => {
+            render(<RoomHeader room={room} />, { ...getWrapper(), reactStrictMode: true });
+            await userEvent.click(screen.getByRole("button", { name: ROOM_ID }));
+            const favourite = await screen.findByRole("menuitemcheckbox", { name: "Favourite" });
+            expect(favourite).not.toBeChecked();
+            act(() => {
+                room.addTags(new MatrixEvent({ type: "m.tag", content: { tags: { "m.favourite": {} } } }));
+            });
+            await waitFor(() => expect(favourite).toBeChecked());
+        });
+
         it("toggles the menu from the Ctrl+. action", async () => {
             render(<RoomHeader room={room} />, getWrapper());
             act(() => dispatcher.dispatch({ action: Action.ToggleChannelMenu }, true));
