@@ -13,3 +13,8 @@ export interface MicrophoneProcessorState {
     pushToTalkActive: boolean;
     shortcutMuted: boolean;
 }
+
+/** What the worklet is created with: the first state, and the compiled noise suppression if it is wanted. */
+export interface MicrophoneGateWorkletOptions extends MicrophoneProcessorState {
+    denoiserModule?: WebAssembly.Module;
+}

@@ -190,3 +190,56 @@ describe("immediate privacy controls", () => {
         expect(run(gate, -10, 10).every((sample) => sample === 0)).toBe(true);
     });
 });
+
+describe("MicrophoneGate with voice detection", () => {
+    /** Runs `ms` milliseconds of a constant level, telling the gate whether the model hears speech. */
+    function runWithSpeech(gate: MicrophoneGate, db: number, ms: number, speech: boolean | undefined): void {
+        for (let elapsed = 0; elapsed < ms; elapsed += 10)
+            gate.processBlock(block(db), new Float32Array(BLOCK), speech);
+    }
+
+    it("stays closed for loud sound that is not speech", () => {
+        const gate = gateWith({ threshold: -50, voiceDetection: true });
+        runWithSpeech(gate, -10, 200, false);
+        expect(gate.open).toBe(false);
+    });
+
+    it("opens for speech above the threshold, and still needs the threshold", () => {
+        const gate = gateWith({ threshold: -50, voiceDetection: true });
+        runWithSpeech(gate, -70, 100, true);
+        expect(gate.open).toBe(false);
+        runWithSpeech(gate, -30, 10, true);
+        expect(gate.open).toBe(true);
+    });
+
+    it("keeps speech that trails off within the hold time", () => {
+        const gate = gateWith({ threshold: -50, voiceDetection: true });
+        runWithSpeech(gate, -30, 100, true);
+        runWithSpeech(gate, -30, 200, false);
+        expect(gate.open).toBe(true);
+        runWithSpeech(gate, -30, 200, false);
+        expect(gate.open).toBe(false);
+    });
+
+    it("falls back to the level alone while the model is not running", () => {
+        const gate = gateWith({ threshold: -50, voiceDetection: true });
+        runWithSpeech(gate, -30, 10, undefined);
+        expect(gate.open).toBe(true);
+    });
+
+    it("ignores the model when voice detection is off", () => {
+        const gate = gateWith({ threshold: -50, voiceDetection: false });
+        runWithSpeech(gate, -30, 10, false);
+        expect(gate.open).toBe(true);
+    });
+
+    it("still sends everything at the lowest setting and obeys push to talk", () => {
+        const open = gateWith({ threshold: null, voiceDetection: true });
+        runWithSpeech(open, -30, 10, false);
+        expect(open.open).toBe(true);
+        const ptt = gateWith({ pushToTalk: true, voiceDetection: true });
+        ptt.setPushToTalkActive(true);
+        runWithSpeech(ptt, -30, 10, false);
+        expect(ptt.open).toBe(true);
+    });
+});

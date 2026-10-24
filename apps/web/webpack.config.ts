@@ -475,6 +475,16 @@ export default (env: string, argv: Record<string, any>): webpack.Configuration =
                     },
                 },
                 {
+                    // The microphone worklet compiles the noise suppression itself, so it only needs the file.
+                    test: /aether-denoiser\.wasm$/,
+                    loader: "file-loader",
+                    type: "javascript/auto",
+                    options: {
+                        name: "aether-denoiser.[hash:7].[ext]",
+                        outputPath: ".",
+                    },
+                },
+                {
                     // This is from the same place as the encoderWorker above, but only needed
                     // for Safari support.
                     test: /waveWorker\.min\.js$/,
