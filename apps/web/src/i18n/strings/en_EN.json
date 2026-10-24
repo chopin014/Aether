@@ -1863,10 +1863,13 @@
     },
     "powered_by_matrix": "Powered by Matrix",
     "presence": {
+        "active_ago": "Active %(duration)s ago",
+        "active_now": "Active now",
         "away": "Away",
         "busy": "Busy",
         "idle": "Idle",
         "idle_for": "Idle for %(duration)s",
+        "last_active_ago": "Last active %(duration)s ago",
         "offline": "Offline",
         "offline_for": "Offline for %(duration)s",
         "online": "Online",

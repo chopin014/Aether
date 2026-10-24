@@ -48,6 +48,7 @@ describe("AetherPresenceService", () => {
         service.start(c);
         await new Promise((r) => setTimeout(r, 0));
         expect(service.store).toBeUndefined();
+        expect(service.activity).toBeUndefined();
         expect(Presence.forClient).not.toHaveBeenCalled();
         expect(c.queueToDevice).not.toHaveBeenCalled();
         expect(c.listenerCount("receivedToDeviceMessage")).toBe(0);
@@ -63,6 +64,7 @@ describe("AetherPresenceService", () => {
         const c = client();
         service.start(c);
         expect(service.store).toBeDefined();
+        expect(service.activity).toBeDefined();
         expect(c.listenerCount("receivedToDeviceMessage")).toBe(1);
         await new Promise((r) => setTimeout(r, 0));
         expect(c.queueToDevice).toHaveBeenCalledTimes(1);
@@ -73,6 +75,7 @@ describe("AetherPresenceService", () => {
 
         service.stop();
         expect(service.store).toBeUndefined();
+        expect(service.activity).toBeUndefined();
         expect(listener).toBeUndefined();
         expect(c.listenerCount("receivedToDeviceMessage")).toBe(0);
     });

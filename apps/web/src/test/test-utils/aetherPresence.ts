@@ -8,6 +8,12 @@ Please see LICENSE in the repository root for full details.
 import { vi, type Mock } from "vitest";
 import { type MatrixClient, TypedEventEmitter } from "matrix-js-sdk/src/matrix";
 
+/** The client double, with an untyped `emit` so tests can fire any SDK event. */
+export type FakeClient = MatrixClient & {
+    emit(event: string, ...args: unknown[]): boolean;
+    listenerCount(event: string): number;
+};
+
 export interface FakeRoomSpec {
     id: string;
     /** Joined member IDs, which may include the account itself. */
@@ -24,12 +30,14 @@ export function makeFakeClient(
         ignored?: string[];
         crypto?: object | null;
     } = {},
-): MatrixClient & TypedEventEmitter<string, Record<string, (...args: never[]) => void>> {
+): FakeClient {
     const userId = opts.userId ?? "@me:example.org";
     const specs = opts.rooms ?? [];
     const rooms = specs.map((spec) => ({
         roomId: spec.id,
         getMyMembership: () => spec.myMembership ?? "join",
+        getLiveTimeline: () => ({ getEvents: () => [] }),
+        getReadReceiptForUserId: () => null,
         getJoinedMemberCount: () => spec.members.length,
         getJoinedMembers: () => spec.members.map((m) => ({ userId: m, membership: "join" })),
         getMember: (id: string) => (spec.members.includes(id) ? { userId: id, membership: "join" } : null),
@@ -46,7 +54,7 @@ export function makeFakeClient(
         getCrypto: () => (opts.crypto === undefined ? null : opts.crypto),
         queueToDevice: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
         isGuest: () => false,
-    }) as unknown as MatrixClient & TypedEventEmitter<string, Record<string, (...args: never[]) => void>>;
+    }) as unknown as FakeClient;
 }
 
 type GetDevices = (userIds: string[]) => Promise<Map<string, Map<string, unknown>>>;

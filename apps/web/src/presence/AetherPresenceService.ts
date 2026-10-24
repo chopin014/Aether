@@ -11,6 +11,7 @@ import Presence from "../Presence";
 import SettingsStore from "../settings/SettingsStore";
 import { AetherPresenceBroadcaster } from "./AetherPresenceBroadcaster";
 import { AetherPresenceStore } from "./AetherPresenceStore";
+import { ActivityTracker } from "./ActivityTracker";
 
 /**
  * Owns the Aether presence broadcaster and receiver for the lifetime of one Matrix client.
@@ -28,6 +29,12 @@ export class AetherPresenceService {
     private broadcaster?: AetherPresenceBroadcaster;
     private unwatch?: () => void;
     private internalStore?: AetherPresenceStore;
+    private internalTracker?: ActivityTracker;
+
+    /** What we have seen other users do, or undefined while the service is not running. */
+    public get activity(): ActivityTracker | undefined {
+        return this.internalTracker;
+    }
 
     /** Signals received from other Aether clients, or undefined while the service is not running. */
     public get store(): AetherPresenceStore | undefined {
@@ -44,6 +51,8 @@ export class AetherPresenceService {
 
         this.internalStore = new AetherPresenceStore(client);
         this.internalStore.start();
+        this.internalTracker = new ActivityTracker(client);
+        this.internalTracker.start();
 
         const presence = Presence.forClient(client);
         this.broadcaster = new AetherPresenceBroadcaster(client);
@@ -64,6 +73,8 @@ export class AetherPresenceService {
         this.broadcaster = undefined;
         this.internalStore?.stop();
         this.internalStore = undefined;
+        this.internalTracker?.stop();
+        this.internalTracker = undefined;
         this.client = undefined;
     }
 }
