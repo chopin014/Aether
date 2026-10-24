@@ -8,6 +8,8 @@ Please see LICENSE in the repository root for full details.
 import { useEffect, useReducer } from "react";
 import { ClientEvent, type MatrixClient, type MatrixEvent, type User, UserEvent } from "matrix-js-sdk/src/matrix";
 
+import Presence from "../Presence";
+import { getLocalPresence } from "./localPresence";
 import { useMatrixClientContext } from "../contexts/MatrixClientContext";
 import { useEventEmitter } from "../hooks/useEventEmitter";
 import { useFeatureEnabled } from "../hooks/useSettings";
@@ -32,6 +34,8 @@ export function getServerPresence(client: MatrixClient, userId: string): MergedP
 
 /** The best current status for a user right now, or null if nothing is known. */
 export function getMergedPresence(client: MatrixClient, userId: string, now = Date.now()): MergedPresence | null {
+    const local = getLocalPresence(client, userId);
+    if (local) return local;
     const service = AetherPresenceService.instance;
     return mergePresence({
         server: getServerPresence(client, userId),
@@ -65,6 +69,13 @@ export function useMergedPresence(userId: string | undefined): MergedPresence | 
     useEventEmitter(watch ? client : undefined, ClientEvent.Event, (event: MatrixEvent) => {
         if (event.getType() === "m.presence") onUser(event.getSender() ?? "");
     });
+
+    useEffect(() => {
+        if (!watch || watch !== client.getUserId()) return;
+        const unwatch = Presence.forClient(client).watchDesired(refresh);
+        refresh();
+        return unwatch;
+    }, [client, watch]);
 
     const merged = watch ? getMergedPresence(client, watch) : null;
     const lastActive = watch ? service.activity?.getLastActive(watch) : undefined;

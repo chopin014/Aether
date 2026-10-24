@@ -58,6 +58,27 @@ describe("groupDesktopMembers", () => {
         ]);
     });
 
+    it.each(["online", "unavailable", "offline"] as const)(
+        "should group our local %s status without server presence",
+        (state) => {
+            const self = member("Me", 100, state);
+            self.member.presenceSource = "local";
+            const other = member("Unknown");
+            delete other.member.presenceState;
+            expect(headings(groupDesktopMembers([self, other], false, null, "en"))).toEqual(
+                state === "offline"
+                    ? [
+                          ["Status unknown", 1],
+                          ["Offline", 1],
+                      ]
+                    : [
+                          ["Admin", 1],
+                          ["Status unknown", 1],
+                      ],
+            );
+        },
+    );
+
     it("should preserve all genuinely offline users without assuming a disabled server", () => {
         expect(headings(groupDesktopMembers([member("Offline", 0, "offline")], true, null, "en"))).toEqual([
             ["Offline", 1],

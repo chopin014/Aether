@@ -141,6 +141,18 @@ describe("PresenceMenuView in the account dock", () => {
         expect(getByRole("img", { name: label })).toBeVisible();
     });
 
+    it.each([
+        { desired: "unavailable" as const, current: undefined, label: "Away" },
+        { desired: "online" as const, current: "unavailable" as const, label: "Online" },
+        { desired: "offline" as const, current: "online" as const, label: "Appear offline" },
+    ])("should show local $desired intent in the account dock", ({ desired, current, label }) => {
+        const { getByRole, getByText } = render(
+            <DesktopAccountDockView vm={new AccountModel(presenceModel({ desired, current }))} />,
+        );
+        expect(getByRole("img", { name: label })).toBeVisible();
+        expect(getByText(label)).toBeVisible();
+    });
+
     it("should reveal the Matrix ID on hover and keyboard focus without shifting the identity", async () => {
         const { getByRole, getByText } = render(
             <DesktopAccountDockView vm={new AccountModel(presenceModel({ preference: "online" }))} />,

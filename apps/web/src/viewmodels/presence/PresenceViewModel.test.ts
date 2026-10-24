@@ -86,10 +86,13 @@ describe("PresenceViewModel", () => {
         vm.start();
         await flush();
         expect(client.setSyncPresence).toHaveBeenLastCalledWith(SetPresence.Online);
+        expect(vm.getSnapshot().desired).toBe(SetPresence.Online);
         await vi.advanceTimersByTimeAsync(3 * 60 * 1000);
         expect(client.setSyncPresence).toHaveBeenLastCalledWith(SetPresence.Unavailable);
+        expect(vm.getSnapshot().desired).toBe(SetPresence.Unavailable);
         await activity();
         expect(client.setSyncPresence).toHaveBeenLastCalledWith(SetPresence.Online);
+        expect(vm.getSnapshot().desired).toBe(SetPresence.Online);
     });
 
     it.each(["unavailable", "offline"] as const)(

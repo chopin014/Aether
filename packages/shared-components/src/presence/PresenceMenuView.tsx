@@ -21,6 +21,8 @@ export type PresencePreference = "online" | "unavailable" | "offline";
 export interface PresenceSnapshot {
     enabled: boolean;
     preference: PresencePreference;
+    /** This device's effective intent, including automatic idle, when the host exposes it. */
+    desired?: PresencePreference;
     current?: PresencePreference;
     busy: boolean;
     error?: string;
@@ -35,7 +37,7 @@ export type PresenceViewModel = ViewModel<
     }
 >;
 
-/** The account's chosen status, with received idle status used in automatic mode. */
+/** This device's effective status, falling back to received idle state for older hosts. */
 export function PresenceSummaryView({
     vm,
     compact = false,
@@ -43,14 +45,14 @@ export function PresenceSummaryView({
     vm: PresenceViewModel;
     compact?: boolean;
 }): JSX.Element {
-    const { enabled, preference, current } = useViewModel(vm);
+    const { enabled, preference, desired, current } = useViewModel(vm);
     const { translate: _t } = useI18n();
     const labels = {
         online: _t("presence_controls|online"),
         unavailable: _t("presence_controls|away"),
         offline: _t("presence_controls|invisible"),
     };
-    const status = preference === "online" && current === "unavailable" ? current : preference;
+    const status = desired ?? (preference === "online" && current === "unavailable" ? current : preference);
     const label = enabled ? labels[status] : _t("presence_controls|disabled_short");
     const detail = !enabled
         ? _t("presence_controls|disabled")

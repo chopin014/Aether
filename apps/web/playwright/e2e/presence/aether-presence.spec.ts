@@ -181,3 +181,27 @@ test("sends its own encrypted presence on start and when the preference changes"
     await page.getByRole("menuitemradio", { name: "Appear offline" }).click();
     await expect.poll(() => sent.length).toBeGreaterThan(before);
 });
+
+test("keeps our member-row status in sync with local presence without a server echo", async ({ page, app, bot }) => {
+    const { groupId } = await createRooms(app, bot);
+    await app.viewRoomById(groupId);
+    const members = await openMemberList(page);
+    const self = members.getByRole("option").filter({ hasText: "Janet" });
+    await expect(self.locator(".mx_PresenceIconView_online")).toBeVisible();
+    const account = page.getByRole("button", { name: "User menu", exact: true });
+
+    for (const { previous, next, icon } of [
+        { previous: "Online", next: "Away", icon: "unavailable" },
+        { previous: "Away", next: "Appear offline", icon: "offline" },
+        { previous: "Appear offline", next: "Online", icon: "online" },
+    ]) {
+        await account.click();
+        await page.getByRole("menuitem", { name: previous, exact: true }).click();
+        await page.getByRole("menuitemradio", { name: next, exact: true }).click();
+        await page.keyboard.press("Escape");
+        await page.keyboard.press("Escape");
+        await expect(self.locator(`.mx_PresenceIconView_${icon}`)).toBeVisible();
+        await expect(account.getByRole("img", { name: next, exact: true })).toBeVisible();
+        await expect(members.getByRole("heading", { name: /^Offline/ })).toHaveCount(icon === "offline" ? 1 : 0);
+    }
+});

@@ -43,6 +43,7 @@ export class PresenceViewModel extends BaseViewModel<PresenceSnapshot, Props> {
             // The desktop shell also shares the choice with other Aether clients, which works without server presence.
             enabled: serverPresence || (usable && SettingsStore.getValue("feature_desktop_shell")),
             preference,
+            desired: preference,
             busy: false,
         });
         this.serverPresence = serverPresence;
@@ -77,6 +78,7 @@ export class PresenceViewModel extends BaseViewModel<PresenceSnapshot, Props> {
     private setDesired = (presence: SetPresence): void => {
         if (presence === this.desired) return;
         this.desired = presence;
+        this.snapshot.merge({ desired: presence });
         for (const listener of this.desiredListeners) listener(presence);
     };
 

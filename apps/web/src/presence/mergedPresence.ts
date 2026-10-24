@@ -10,8 +10,8 @@ import { _t } from "../languageHandler";
 import { type AetherPresenceSignal } from "./AetherPresenceStore";
 import { activityLabel, classifyActivity } from "./activityHint";
 
-/** Where a status came from, strongest first. */
-export type PresenceSource = "server" | "aether" | "activity";
+/** Where a status came from. Local intent is used only for this device's own account. */
+export type PresenceSource = "local" | "server" | "aether" | "activity";
 
 /** The statuses a dot can show. */
 export type MergedPresenceState = "online" | "unavailable" | "busy" | "offline";

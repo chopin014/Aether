@@ -8,13 +8,14 @@ Please see LICENSE in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MatrixEvent, RoomMember, User } from "matrix-js-sdk/src/matrix";
+import { MatrixEvent, RoomMember, SetPresence, User } from "matrix-js-sdk/src/matrix";
 import { stubClient } from "test-utils";
 
 import { sdkRoomMemberToRoomMember } from "./MemberListViewModel";
 import { AetherPresenceService } from "../../../presence/AetherPresenceService";
 import SettingsStore from "../../../settings/SettingsStore";
 import SdkConfig from "../../../SdkConfig";
+import Presence from "../../../Presence";
 import { MatrixClientPeg } from "../../../MatrixClientPeg";
 
 const BOB = "@bob:example.org";
@@ -38,6 +39,7 @@ describe("sdkRoomMemberToRoomMember presence", () => {
         member.user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "online" } }));
     });
     afterEach(() => {
+        Presence.stop();
         SdkConfig.reset();
         vi.restoreAllMocks();
     });
@@ -53,6 +55,21 @@ describe("sdkRoomMemberToRoomMember presence", () => {
         expect(result.presenceState).toBe("online");
         expect(result.presenceSource).toBeUndefined();
     });
+
+    it.each([SetPresence.Online, SetPresence.Unavailable, SetPresence.Offline])(
+        "uses our own %s intent even when the server disagrees",
+        async (state) => {
+            const client = MatrixClientPeg.get()!;
+            member = new RoomMember(member.roomId, client.getSafeUserId());
+            member.user = new User(member.userId);
+            member.user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "online" } }));
+            await Presence.forClient(client).setPreference(state);
+            expect(sdkRoomMemberToRoomMember(member).member).toMatchObject({
+                presenceState: state,
+                presenceSource: "local",
+            });
+        },
+    );
 
     it("ignores Aether signals with the desktop shell off", () => {
         flag = false;

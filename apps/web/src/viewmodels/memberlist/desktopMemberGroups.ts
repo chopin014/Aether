@@ -43,9 +43,11 @@ export function groupDesktopMembers(
     const others: MemberWithSeparator[] = [];
     const offline: MemberWithSeparator[] = [];
     const unknown: MemberWithSeparator[] = [];
-    // Homeserver presence only counts where the config allows it; an Aether client's own report always does.
+    // Local intent and Aether reports also work when homeserver presence is disabled.
     const knownState = (member: Member | undefined): string | undefined =>
-        member?.presenceSource === "aether" || (isPresenceEnabled && !member?.presenceSource)
+        member?.presenceSource === "aether" ||
+        member?.presenceSource === "local" ||
+        (isPresenceEnabled && !member?.presenceSource)
             ? member?.presenceState
             : undefined;
     const hasKnownPresence = members.some(

@@ -27,6 +27,8 @@ import { mediaFromMxc } from "../../../customisations/Media";
 import { shouldShowComponent } from "../../../customisations/helpers/UIComponents";
 import { UIComponent } from "../../../settings/UIFeature";
 import { getKnownPresence } from "../../../utils/knownPresence";
+import Presence from "../../../Presence";
+import { getLocalPresence } from "../../../presence/localPresence";
 import { MatrixClientPeg } from "../../../MatrixClientPeg";
 import { isPresenceEnabled } from "../../../utils/presence";
 import SettingsStore from "../../../settings/SettingsStore";
@@ -88,8 +90,12 @@ export function sdkRoomMemberToRoomMember(member: SdkRoomMember): Member {
     let presenceLabel: string | undefined;
     // Where the config disables server presence, whatever the server sent is ignored, so it must not hide a signal.
     const client = MatrixClientPeg.get();
+    const local = client ? getLocalPresence(client, member.userId) : null;
     const serverPresenceUsable = !client || isPresenceEnabled(client);
-    if ((!presenceState || !serverPresenceUsable) && SettingsStore.getValue("feature_desktop_shell")) {
+    if (local) {
+        presenceState = local.state;
+        presenceSource = local.source;
+    } else if ((!presenceState || !serverPresenceUsable) && SettingsStore.getValue("feature_desktop_shell")) {
         // Another Aether client's own report. Seen activity is not used here: it must not place anyone in the
         // Online or Offline groups, so the tile adds it separately.
         const signal = AetherPresenceService.instance.store?.getSignal(member.userId);
@@ -305,6 +311,12 @@ export function useMemberListViewModel(roomId: string): MemberListViewState {
     useTypedEventEmitter(cli, UserEvent.Presence, (_: MatrixEvent | undefined, user: User) => {
         if (room.getMember(user.userId)) void loadMembers();
     });
+
+    // Our own account is excluded from received Aether signals; follow its local controller directly.
+    useEffect(() => {
+        if (!SettingsStore.getValue("feature_desktop_shell")) return;
+        return Presence.forClient(cli).watchDesired(() => void loadMembers());
+    }, [cli, loadMembers]);
 
     // Another Aether client reported a new status.
     useTypedEventEmitter(AetherPresenceService.instance.store, AetherPresenceStoreEvent.Update, (userId: string) => {

@@ -9,7 +9,7 @@ Please see LICENSE in the repository root for full details.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "test-utils-rtl";
-import { ClientEvent, MatrixEvent, RoomEvent, User } from "matrix-js-sdk/src/matrix";
+import { ClientEvent, MatrixEvent, RoomEvent, SetPresence, User } from "matrix-js-sdk/src/matrix";
 import { stubClient } from "test-utils";
 
 import { useMergedPresence } from "./useMergedPresence";
@@ -17,6 +17,9 @@ import { AetherPresenceService } from "./AetherPresenceService";
 import { AetherPresenceStore } from "./AetherPresenceStore";
 import { ActivityTracker } from "./ActivityTracker";
 import { AETHER_PRESENCE_EVENT_TYPE, PRESENCE_TTL_MS } from "./aetherPresence";
+import Presence from "../Presence";
+import dis from "../dispatcher/dispatcher";
+import { Action } from "../dispatcher/actions";
 import SettingsStore from "../settings/SettingsStore";
 import SdkConfig from "../SdkConfig";
 import { makeFakeClient } from "../test/test-utils/aetherPresence";
@@ -47,6 +50,7 @@ describe("useMergedPresence", () => {
         vi.spyOn(service, "activity", "get").mockReturnValue(tracker);
     });
     afterEach(() => {
+        Presence.stop();
         store.stop();
         tracker.stop();
         vi.useRealTimers();
@@ -73,6 +77,60 @@ describe("useMergedPresence", () => {
         flag = false;
         sendSignal("online");
         expect(render().result.current).toBeNull();
+    });
+
+    it("shows this device's status without server presence or a self echo and follows changes", async () => {
+        const client = stubClient();
+        SdkConfig.put({ enable_presence_by_hs_url: { [client.baseUrl]: false } });
+        const presence = Presence.forClient(client);
+        presence.start();
+        const { result, unmount } = renderHook(
+            () => useMergedPresence(client.getSafeUserId()),
+            withClientContextRenderOptions(client),
+        );
+        expect(result.current).toEqual({ state: "online", source: "local" });
+        for (const state of [SetPresence.Unavailable, SetPresence.Offline, SetPresence.Online]) {
+            await act(async () => {
+                await presence.setPreference(state);
+            });
+            expect(result.current).toEqual({ state, source: "local" });
+        }
+        act(() => {
+            vi.advanceTimersByTime(3 * 60_000);
+        });
+        expect(result.current).toEqual({ state: "unavailable", source: "local" });
+        act(() => dis.dispatch({ action: Action.UserActivity }, true));
+        expect(result.current).toEqual({ state: "online", source: "local" });
+        await act(async () => {
+            await presence.setPreference(SetPresence.Offline);
+        });
+        act(() => dis.dispatch({ action: Action.UserActivity }, true));
+        expect(result.current).toEqual({ state: "offline", source: "local" });
+        unmount();
+    });
+
+    it("keeps this device's Invisible choice over a conflicting server status", async () => {
+        const client = stubClient();
+        const user = new User(client.getSafeUserId());
+        user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "online" } }));
+        vi.mocked(client.getUser).mockReturnValue(user);
+        const { result } = renderHook(() => useMergedPresence(user.userId), withClientContextRenderOptions(client));
+        await act(async () => {
+            await Presence.forClient(client).setPreference(SetPresence.Offline);
+        });
+        expect(result.current).toEqual({ state: "offline", source: "local" });
+    });
+
+    it("does not create a local presence controller with the desktop shell off", () => {
+        flag = false;
+        const client = stubClient();
+        const forClient = vi.spyOn(Presence, "forClient");
+        const { result } = renderHook(
+            () => useMergedPresence(client.getSafeUserId()),
+            withClientContextRenderOptions(client),
+        );
+        expect(result.current).toBeNull();
+        expect(forClient).not.toHaveBeenCalled();
     });
 
     it("is null without any evidence", () => {
