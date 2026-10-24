@@ -11,8 +11,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CameraTest } from "./CameraTest";
 import { MicrophoneTest, mediaTestError } from "./MicrophoneTest";
+
 import MediaDeviceHandler from "../../MediaDeviceHandler";
 import SettingsStore from "../../settings/SettingsStore";
+
+vi.mock("./microphoneGateWorkletFactory", () => ({ loadMicrophoneGateWorklet: vi.fn().mockResolvedValue(undefined) }));
 
 function fakeStream(kind: "audio" | "video"): { stream: MediaStream; track: { stop: ReturnType<typeof vi.fn> } } {
     const track = { stop: vi.fn(), kind };
@@ -33,7 +36,11 @@ describe("MicrophoneTest", () => {
     let getUserMedia: ReturnType<typeof vi.fn>;
     let micTrack: { stop: ReturnType<typeof vi.fn> };
     let outputTrack: { stop: ReturnType<typeof vi.fn> };
-    let script: { connect: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn>; onaudioprocess: unknown };
+    let port: {
+        onmessage: ((event: unknown) => void) | null;
+        postMessage: ReturnType<typeof vi.fn>;
+        close: ReturnType<typeof vi.fn>;
+    };
     let close: ReturnType<typeof vi.fn>;
     let play: ReturnType<typeof vi.fn>;
     let pause: ReturnType<typeof vi.fn>;
@@ -45,7 +52,15 @@ describe("MicrophoneTest", () => {
         getUserMedia = vi.fn().mockResolvedValue(mic.stream);
         vi.stubGlobal("navigator", { ...navigator, mediaDevices: { getUserMedia } });
         outputTrack = { stop: vi.fn() };
-        script = { connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null };
+        port = { onmessage: null, postMessage: vi.fn(), close: vi.fn() };
+        vi.stubGlobal(
+            "AudioWorkletNode",
+            class {
+                public port = port;
+                public connect = vi.fn();
+                public disconnect = vi.fn();
+            },
+        );
         close = vi.fn().mockResolvedValue(undefined);
         vi.stubGlobal(
             "AudioContext",
@@ -53,7 +68,6 @@ describe("MicrophoneTest", () => {
                 public sampleRate = 48000;
                 public close = close;
                 public createMediaStreamSource = (): unknown => ({ connect: vi.fn(), disconnect: vi.fn() });
-                public createScriptProcessor = (): unknown => script;
                 public createMediaStreamDestination = (): unknown => ({
                     stream: { getAudioTracks: () => [outputTrack] },
                 });
@@ -101,15 +115,6 @@ describe("MicrophoneTest", () => {
         vi.unstubAllGlobals();
     });
 
-    const feed = (level: number): Float32Array => {
-        const output = new Float32Array(512);
-        (script.onaudioprocess as (event: unknown) => void)({
-            inputBuffer: { getChannelData: () => new Float32Array(512).fill(level) },
-            outputBuffer: { getChannelData: () => output },
-        });
-        return output;
-    };
-
     it("opens the chosen microphone with the processing settings and plays it on the chosen speaker", async () => {
         const test = new MicrophoneTest(vi.fn());
         await test.start();
@@ -131,12 +136,10 @@ describe("MicrophoneTest", () => {
         const onLevel = vi.fn();
         const test = new MicrophoneTest(onLevel);
         await test.start();
-        // -30 dB is above the -40 dB threshold, and the volume is 50%.
-        const output = feed(10 ** (-30 / 20));
-        expect(onLevel).toHaveBeenLastCalledWith(expect.closeTo(-30, 0), true);
-        expect(output.at(-1)!).toBeGreaterThan(0);
-        feed(10 ** (-80 / 20));
-        expect(onLevel).toHaveBeenLastCalledWith(expect.closeTo(-80, 0), true);
+        // The local playback test ignores PTT and forwards worklet metering to the view.
+        port.onmessage!({ data: { level: -30, open: true } });
+        expect(onLevel).toHaveBeenLastCalledWith(-30, true);
+        expect(port.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ pushToTalkActive: true }));
     });
 
     it("follows changed settings while running", async () => {

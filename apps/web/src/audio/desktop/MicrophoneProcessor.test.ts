@@ -10,120 +10,163 @@ Please see LICENSE in the repository root for full details.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MicrophoneProcessor } from "./MicrophoneProcessor";
+import { loadMicrophoneGateWorklet } from "./microphoneGateWorkletFactory";
 
-interface FakeScriptProcessor {
-    connect: ReturnType<typeof vi.fn>;
-    disconnect: ReturnType<typeof vi.fn>;
-    onaudioprocess: ((event: unknown) => void) | null;
-}
+vi.mock("./microphoneGateWorkletFactory", () => ({ loadMicrophoneGateWorklet: vi.fn().mockResolvedValue(undefined) }));
 
 function fakeContext(): {
     context: AudioContext;
     source: { connect: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> };
-    script: FakeScriptProcessor;
-    outputTrack: { stop: ReturnType<typeof vi.fn> };
+    outputTrack: { stop: ReturnType<typeof vi.fn>; enabled: boolean };
 } {
     const source = { connect: vi.fn(), disconnect: vi.fn() };
-    const script: FakeScriptProcessor = { connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null };
-    const outputTrack = { stop: vi.fn() };
-    const context = {
-        sampleRate: 48000,
-        createMediaStreamSource: vi.fn().mockReturnValue(source),
-        createScriptProcessor: vi.fn().mockReturnValue(script),
-        createMediaStreamDestination: vi.fn().mockReturnValue({ stream: { getAudioTracks: () => [outputTrack] } }),
-    } as unknown as AudioContext;
-    return { context, source, script, outputTrack };
-}
-
-/** Delivers `blocks` blocks of constant level to the processor and returns the last output block. */
-function feed(script: FakeScriptProcessor, level: number, blocks = 50): Float32Array {
-    const input = new Float32Array(512).fill(level);
-    let output = new Float32Array(512);
-    for (let i = 0; i < blocks; i++) {
-        output = new Float32Array(512);
-        script.onaudioprocess!({
-            inputBuffer: { getChannelData: () => input },
-            outputBuffer: { getChannelData: () => output },
-        });
-    }
-    return output;
+    const outputTrack = { stop: vi.fn(), enabled: true };
+    return {
+        source,
+        outputTrack,
+        context: {
+            sampleRate: 48000,
+            createMediaStreamSource: vi.fn().mockReturnValue(source),
+            createMediaStreamDestination: vi.fn().mockReturnValue({ stream: { getAudioTracks: () => [outputTrack] } }),
+        } as unknown as AudioContext,
+    };
 }
 
 describe("MicrophoneProcessor", () => {
-    const track = { id: "mic" } as unknown as MediaStreamTrack;
+    let nodes: Array<{
+        port: { postMessage: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; onmessage: unknown };
+        connect: ReturnType<typeof vi.fn>;
+        disconnect: ReturnType<typeof vi.fn>;
+        onprocessorerror?: () => void;
+        options: AudioWorkletNodeOptions;
+    }>;
+    const config = { volume: 1, threshold: null, pushToTalk: false } as const;
+    const track = (): MediaStreamTrack => ({ id: "mic", enabled: true }) as MediaStreamTrack;
 
     beforeEach(() => {
+        vi.mocked(loadMicrophoneGateWorklet).mockReset().mockResolvedValue(undefined);
+        nodes = [];
         vi.stubGlobal(
             "MediaStream",
             class {
                 public constructor(public readonly tracks: MediaStreamTrack[]) {}
             },
         );
+        vi.stubGlobal(
+            "AudioWorkletNode",
+            class {
+                public port = { postMessage: vi.fn(), close: vi.fn(), onmessage: null };
+                public connect = vi.fn();
+                public disconnect = vi.fn();
+                public constructor(
+                    _context: AudioContext,
+                    _name: string,
+                    public options: AudioWorkletNodeOptions,
+                ) {
+                    nodes.push(this);
+                }
+            },
+        );
     });
     afterEach(() => vi.unstubAllGlobals());
 
-    it("sends the microphone through the audio graph and exposes the processed track", async () => {
-        const { context, source, script, outputTrack } = fakeContext();
-        const processor = new MicrophoneProcessor({ volume: 1, threshold: null, pushToTalk: false });
-        await processor.init({ kind: "audio", track, audioContext: context });
-        expect(source.connect).toHaveBeenCalledWith(script);
-        expect(script.connect).toHaveBeenCalled();
+    it("loads the audio-thread module before connecting capture, with the current hold state", async () => {
+        const { context, source, outputTrack } = fakeContext();
+        const processor = new MicrophoneProcessor({ ...config, pushToTalk: true });
+        processor.setPushToTalkActive(true);
+        processor.setShortcutMuted(true);
+        await processor.init({ kind: "audio", track: track(), audioContext: context });
+        expect(loadMicrophoneGateWorklet).toHaveBeenCalledWith(context);
+        expect(nodes[0].options.processorOptions).toEqual({
+            config: { ...config, pushToTalk: true },
+            pushToTalkActive: true,
+            shortcutMuted: true,
+        });
+        expect(source.connect).toHaveBeenCalledWith(nodes[0]);
         expect(processor.processedTrack).toBe(outputTrack);
     });
 
-    it("applies the volume to the samples", async () => {
-        const { context, script } = fakeContext();
-        const processor = new MicrophoneProcessor({ volume: 0.5, threshold: null, pushToTalk: false });
-        await processor.init({ kind: "audio", track, audioContext: context });
-        expect(feed(script, 0.2)[511]).toBeCloseTo(0.1, 4);
-        processor.setConfig({ volume: 0, threshold: null, pushToTalk: false });
-        expect(feed(script, 0.2)[511]).toBe(0);
+    it("sends complete state updates to every independent connection", async () => {
+        const root = new MicrophoneProcessor(config);
+        const a = root.createProcessor();
+        const b = root.createProcessor();
+        await a.init({ kind: "audio", track: track(), audioContext: fakeContext().context });
+        await b.init({ kind: "audio", track: track(), audioContext: fakeContext().context });
+        root.setPushToTalkActive(true);
+        root.setShortcutMuted(true);
+        root.setConfig({ ...config, volume: 0 });
+        for (const node of nodes)
+            expect(node.port.postMessage).toHaveBeenLastCalledWith({
+                config: { ...config, volume: 0 },
+                pushToTalkActive: true,
+                shortcutMuted: true,
+            });
+        await a.destroy();
+        const count = nodes[0].port.postMessage.mock.calls.length;
+        root.setShortcutMuted(false);
+        expect(nodes[0].port.postMessage).toHaveBeenCalledTimes(count);
+        expect(nodes[1].port.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({ shortcutMuted: false }));
     });
 
-    it("reports the level and whether the gate is open", async () => {
-        const { context, script } = fakeContext();
-        const processor = new MicrophoneProcessor({ volume: 1, threshold: -30, pushToTalk: false });
-        const onLevel = vi.fn();
-        processor.onLevel = onLevel;
-        await processor.init({ kind: "audio", track, audioContext: context });
-        feed(script, 0.001, 1);
-        expect(onLevel).toHaveBeenLastCalledWith(expect.closeTo(-60, 0), false);
-        feed(script, 0.3, 1);
-        expect(onLevel).toHaveBeenLastCalledWith(expect.closeTo(-10.5, 0), true);
+    it("reports the audio thread meter without reading microphone samples on the UI thread", async () => {
+        const processor = new MicrophoneProcessor(config);
+        processor.onLevel = vi.fn();
+        await processor.init({ kind: "audio", track: track(), audioContext: fakeContext().context });
+        (nodes[0].port.onmessage as (event: unknown) => void)({ data: { level: -35, open: true } });
+        expect(processor.onLevel).toHaveBeenCalledWith(-35, true);
     });
 
-    it("follows push to talk, including a key held before the track was captured", async () => {
-        const { context, script } = fakeContext();
-        const processor = new MicrophoneProcessor({ volume: 1, threshold: null, pushToTalk: true });
-        processor.setPushToTalkActive(true);
-        await processor.init({ kind: "audio", track, audioContext: context });
-        expect(feed(script, 0.2)[511]).toBeCloseTo(0.2, 4);
-        processor.setPushToTalkActive(false);
-        expect(feed(script, 0.2)[511]).toBe(0);
-    });
-
-    it("rebuilds the graph when the track restarts, and tears down the old one", async () => {
-        const first = fakeContext();
-        const processor = new MicrophoneProcessor({ volume: 1, threshold: null, pushToTalk: false });
-        await processor.init({ kind: "audio", track, audioContext: first.context });
-        const second = fakeContext();
-        await processor.restart({ kind: "audio", track, audioContext: second.context });
-        expect(first.source.disconnect).toHaveBeenCalled();
-        expect(first.script.onaudioprocess).toBeNull();
-        expect(first.outputTrack.stop).toHaveBeenCalled();
-        expect(processor.processedTrack).toBe(second.outputTrack);
-    });
-
-    it("stops everything on destroy", async () => {
-        const { context, source, script, outputTrack } = fakeContext();
-        const processor = new MicrophoneProcessor({ volume: 1, threshold: null, pushToTalk: false });
-        await processor.init({ kind: "audio", track, audioContext: context });
-        await processor.destroy();
-        expect(source.disconnect).toHaveBeenCalled();
-        expect(script.disconnect).toHaveBeenCalled();
-        expect(outputTrack.stop).toHaveBeenCalled();
+    it("fails initialization instead of returning an unprocessed microphone", async () => {
+        vi.mocked(loadMicrophoneGateWorklet).mockRejectedValue(new Error("module blocked"));
+        const processor = new MicrophoneProcessor(config);
+        const original = track();
+        await expect(
+            processor.init({ kind: "audio", track: original, audioContext: fakeContext().context }),
+        ).rejects.toThrow("module blocked");
         expect(processor.processedTrack).toBeUndefined();
-        // A second destroy, as LiveKit may do on stopping, is harmless.
-        await expect(processor.destroy()).resolves.toBeUndefined();
+        expect(nodes).toHaveLength(0);
+    });
+
+    it("cannot finish initialization after disposal", async () => {
+        let resolve!: () => void;
+        vi.mocked(loadMicrophoneGateWorklet).mockReturnValue(
+            new Promise<void>((r) => {
+                resolve = r;
+            }),
+        );
+        const processor = new MicrophoneProcessor(config);
+        const pending = processor.init({ kind: "audio", track: track(), audioContext: fakeContext().context });
+        await processor.destroy();
+        resolve();
+        await expect(pending).rejects.toThrow("cancelled");
+        expect(processor.processedTrack).toBeUndefined();
+    });
+
+    it("silences both the processed output and source on a worklet crash", async () => {
+        const { context, outputTrack } = fakeContext();
+        const input = track();
+        const processor = new MicrophoneProcessor(config);
+        await processor.init({ kind: "audio", track: input, audioContext: context });
+        nodes[0].onprocessorerror!();
+        expect(outputTrack.enabled).toBe(false);
+        expect(input.enabled).toBe(false);
+    });
+
+    it("restarts one graph without stopping another connection, then disposes all children", async () => {
+        const root = new MicrophoneProcessor(config);
+        const a = root.createProcessor();
+        const b = root.createProcessor();
+        const first = fakeContext();
+        const second = fakeContext();
+        await a.init({ kind: "audio", track: track(), audioContext: first.context });
+        await b.init({ kind: "audio", track: track(), audioContext: second.context });
+        await a.restart({ kind: "audio", track: track(), audioContext: fakeContext().context });
+        expect(first.outputTrack.stop).toHaveBeenCalledOnce();
+        expect(second.outputTrack.stop).not.toHaveBeenCalled();
+        await root.destroy();
+        expect(second.outputTrack.stop).toHaveBeenCalledOnce();
+        expect(nodes[0].port.onmessage).toBeNull();
+        expect(nodes[0].port.close).toHaveBeenCalled();
+        await expect(root.destroy()).resolves.toBeUndefined();
     });
 });

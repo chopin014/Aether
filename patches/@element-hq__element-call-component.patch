@@ -1,7 +1,55 @@
 diff --git a/dist/element-call.js b/dist/element-call.js
+index e597a18e59..5c6cdf44f8 100644
 --- a/dist/element-call.js
 +++ b/dist/element-call.js
-@@ -43118,6 +43118,147 @@ function _3(e, t) {
+@@ -42634,6 +42634,33 @@ function H4() {
+ }
+ //#endregion
+ //#region src/state/CallViewModel/remoteMembers/ConnectionFactory.ts
++// Aether: processing must finish before LiveKit can publish any microphone samples.
++async function aetherCreateMicrophoneTracks(room, createTracks, options) {
++	const controller = aetherAudio.microphoneProcessor;
++	const wantsAudio = options?.audio !== false;
++	if (!controller || !wantsAudio) return createTracks(options);
++	await room.acquireAudioContext();
++	if (!room.audioContext) throw new Error("Microphone processing requires an audio context");
++	const tracks = await createTracks(options);
++	try {
++		for (const track of tracks) {
++			if (track.kind !== Z.Kind.Audio || track.source === Z.Source.ScreenShareAudio) continue;
++			const processor = controller.createProcessor?.() ?? controller;
++			try {
++				await track.setProcessor(processor);
++				if (!processor.processedTrack) throw new Error("Microphone processing produced no output");
++			} catch (error) {
++				await Promise.resolve(processor.destroy?.()).catch(() => {});
++				throw error;
++			}
++		}
++		return tracks;
++	} catch (error) {
++		// Do not fall back to raw capture: PTT and hold-to-mute must remain closed on failure.
++		for (const track of tracks) track.stop();
++		throw error;
++	}
++}
+ var U4 = class {
+ 	constructor(e, t, n, r, i, a, o) {
+ 		this.client = e, this.roomId = t, this.devices = n, this.processorState$ = r, this.controlledAudioDevices = a;
+@@ -42647,7 +42674,11 @@ var U4 = class {
+ 				},
+ 				controlledAudioDevices: this.controlledAudioDevices
+ 			});
+-			return V.info("[ECConnectionFactory] livekit room options: ", e), new JS(e);
++			V.info("[ECConnectionFactory] livekit room options: ", e);
++			const room = new JS(e);
++			const createTracks = room.localParticipant.createTracks.bind(room.localParticipant);
++			room.localParticipant.createTracks = (options) => aetherCreateMicrophoneTracks(room, createTracks, options);
++			return room;
+ 		};
+ 		this.livekitRoomFactory = o ?? s;
+ 	}
+@@ -43118,6 +43149,147 @@ function _3(e, t) {
  }
  //#endregion
  //#region src/state/media/UserMediaViewModel.ts
@@ -149,7 +197,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType: i, ...a }) {
  	let { participant$: o } = a, s = e.behavior(o.pipe(wA((e) => (e && aL(e)) ?? Ck(void 0)))), c = new He(), l = new Rt(NaN), u = (e, t) => e.behavior(Lk([o, Et.value$]).pipe(wA(([e, n]) => e && n ? p3(e, t, i) : Ck(void 0))));
  	return {
-@@ -43127,6 +43268,7 @@ function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType:
+@@ -43127,6 +43299,7 @@ function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType:
  			videoSource: Z.Source.Camera
  		}),
  		type: "user",
@@ -157,7 +205,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  		speaking$: e.behavior(o.pipe(wA((e) => e ? iL(e, J.IsSpeakingChanged).pipe(F((e) => e.isSpeaking)) : Ck(!1)))),
  		audioEnabled$: e.behavior(s.pipe(F((e) => e?.microphoneTrack?.isMuted === !1))),
  		videoEnabled$: e.behavior(s.pipe(F((e) => e?.cameraTrack?.isMuted === !1))),
-@@ -43153,7 +43295,7 @@ function y3(e, { mediaDevices: t, ...n }) {
+@@ -43153,7 +43326,7 @@ function y3(e, { mediaDevices: t, ...n }) {
  	return {
  		...r,
  		local: !0,
@@ -166,7 +214,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  		alwaysShow$: se.value$,
  		setAlwaysShow: se.setValue,
  		switchCamera$: e.behavior(Wt === "desktop" ? Ck(null) : i.pipe(F((e) => {
-@@ -43209,7 +43351,7 @@ function x3(e, { pretendToBeDisconnected$: t, ...n }) {
+@@ -43209,7 +43382,7 @@ function x3(e, { pretendToBeDisconnected$: t, ...n }) {
  		...r,
  		...b3(e, {
  			pretendToBeDisconnected$: t,
@@ -175,7 +223,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  		}),
  		local: !1,
  		speaking$: e.behavior(t.pipe(wA((e) => e ? Ck(!1) : r.speaking$))),
-@@ -43244,7 +43386,7 @@ function w3(e, { pretendToBeDisconnected$: t, ...n }) {
+@@ -43244,7 +43417,7 @@ function w3(e, { pretendToBeDisconnected$: t, ...n }) {
  		...S3(e, n),
  		...b3(e, {
  			pretendToBeDisconnected$: t,
@@ -184,7 +232,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  		}),
  		local: !1,
  		videoEnabled$: e.behavior(t.pipe(F((e) => !e))),
-@@ -43611,6 +43753,118 @@ function k3(e, t, n, r, i, a, o, s, c) {
+@@ -43611,6 +43784,91 @@ function k3(e, t, n, r, i, a, o, s, c) {
  		let t = {};
  		return e instanceof hX ? { transportError: e } : e === C4.Waiting ? null : (e.matrix instanceof hX && (t.matrixError = e.matrix), e.media instanceof hX ? t.publishError = e.media : typeof e.media == "object" && e.media.connection instanceof hX && (t.connectionError = e.media.connection), t);
  	})), null);
@@ -258,33 +306,6 @@ diff --git a/dist/element-call.js b/dist/element-call.js
 +		).subscribe(notifyVoiceStates);
 +		e.onEnd(() => notifyVoiceStates([]));
 +	}
-+	// Aether: run the microphone through the host's processor (volume, sensitivity, push to talk) before it is sent.
-+	// The processor is attached again whenever the host changes it or the call publishes a new microphone track.
-+	{
-+		let aetherLocalParticipant = null;
-+		const attachMicrophone = () => {
-+			const track = aetherLocalParticipant?.getTrackPublication?.(Z.Source.Microphone)?.track;
-+			if (!track?.setProcessor) return;
-+			const processor = aetherAudio.microphoneProcessor;
-+			if (processor) {
-+				if (track.getProcessor?.() !== processor) track.setProcessor(processor).catch((error) => l.warn("Could not process the microphone", error));
-+			} else if (track.getProcessor?.()) {
-+				track.stopProcessor().catch((error) => l.warn("Could not stop processing the microphone", error));
-+			}
-+		};
-+		aetherAudioListeners.add(attachMicrophone);
-+		ue.pipe(wA((media) => media.find((item) => item.local)?.microphoneParticipant$ ?? Ck(null)), e.bind()).subscribe((participant) => {
-+			aetherLocalParticipant?.off(J.LocalTrackPublished, attachMicrophone);
-+			aetherLocalParticipant = participant;
-+			participant?.on(J.LocalTrackPublished, attachMicrophone);
-+			attachMicrophone();
-+		});
-+		e.onEnd(() => {
-+			aetherAudioListeners.delete(attachMicrophone);
-+			aetherLocalParticipant?.off(J.LocalTrackPublished, attachMicrophone);
-+			aetherLocalParticipant = null;
-+		});
-+	}
 +	if (p.deafen$) {
 +		let aetherAnnounceTimer;
 +		// Also runs again whenever the call's media changes, such as someone joining, so they hear it at once.
@@ -303,7 +324,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  	return {
  		autoLeave$: ie,
  		ringingVm$: de,
-@@ -48021,7 +48275,9 @@ function j7(e, t, n) {
+@@ -48021,7 +48279,9 @@ function j7(e, t, n) {
  		themeChange$: new FO(1),
  		join$: new He(),
  		hangUp$: new He(),
@@ -314,7 +335,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  	}));
  	z(() => {
  		n !== void 0 && i.themeChange$.next({
-@@ -48045,6 +48301,17 @@ function j7(e, t, n) {
+@@ -48045,6 +48305,17 @@ function j7(e, t, n) {
  		notifyDeviceMute: async (e) => {
  			await r.current.notifyDeviceMute?.(e);
  		},
@@ -332,7 +353,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  		get close() {
  			let e = r.current.close;
  			return e === void 0 ? void 0 : async () => await e();
-@@ -48061,7 +48328,20 @@ function j7(e, t, n) {
+@@ -48061,7 +48332,20 @@ function j7(e, t, n) {
  	return on(t, () => ({
  		join: async (e) => await A7(i.join$, "join a call", e),
  		hangUp: async () => await A7(i.hangUp$, "hang up", {}),
@@ -355,6 +376,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  }
  //#endregion
 diff --git a/dist/types/component/api.d.ts b/dist/types/component/api.d.ts
+index 313605238c..f2f838f070 100644
 --- a/dist/types/component/api.d.ts
 +++ b/dist/types/component/api.d.ts
 @@ -21,7 +21,7 @@ import type { MatrixClient } from "matrix-js-sdk";
@@ -367,6 +389,7 @@ diff --git a/dist/types/component/api.d.ts b/dist/types/component/api.d.ts
  export type { JoinCallData } from "../src/widget";
  export type { ConfigOptions } from "../src/config/ConfigOptions";
 diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
+index 0d9ec1bba7..d3e98307f6 100644
 --- a/dist/types/component/host.d.ts
 +++ b/dist/types/component/host.d.ts
 @@ -10,8 +10,9 @@
@@ -393,7 +416,7 @@ diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
      /**
       * Asks the host to close Element Call: to unmount the component. Its
       * presence is what makes Element Call offer a close button on its error
-@@ -74,6 +81,48 @@ export interface ElementCallHandle {
+@@ -74,6 +81,50 @@ export interface ElementCallHandle {
       * reports the state that results.
       */
      setDeviceMute(request: DeviceMuteRequest): Promise<DeviceMuteState>;
@@ -420,6 +443,8 @@ diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
 + */
 +export interface ElementCallMicrophoneProcessor {
 +    name: string;
++    /** Creates an independent graph for each capture before publication. */
++    createProcessor?(): ElementCallMicrophoneProcessor;
 +    init(options: { kind: "audio"; track: MediaStreamTrack; audioContext: AudioContext }): Promise<void>;
 +    restart(options: { kind: "audio"; track: MediaStreamTrack; audioContext: AudioContext }): Promise<void>;
 +    destroy(): Promise<void>;
@@ -443,6 +468,7 @@ diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
  /**
   * The {@link HostBridge} the rest of Element Call sees, built from what a
 diff --git a/dist/types/src/HostBridge.d.ts b/dist/types/src/HostBridge.d.ts
+index b95e092b28..e80bebf411 100644
 --- a/dist/types/src/HostBridge.d.ts
 +++ b/dist/types/src/HostBridge.d.ts
 @@ -1,5 +1,22 @@

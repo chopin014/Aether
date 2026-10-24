@@ -163,3 +163,30 @@ describe("MicrophoneGate with push to talk", () => {
         expect(gate.open).toBe(false);
     });
 });
+
+describe("immediate privacy controls", () => {
+    it.each(["push to talk release", "shortcut mute", "zero input gain"])(
+        "silences the first block after %s",
+        (reason) => {
+            const gate = gateWith({ threshold: null, pushToTalk: reason === "push to talk release" });
+            gate.setPushToTalkActive(true);
+            run(gate, -10, 100);
+            if (reason === "push to talk release") gate.setPushToTalkActive(false);
+            else if (reason === "shortcut mute") gate.setShortcutMuted(true);
+            else gate.configure({ threshold: null, pushToTalk: false, volume: 0 });
+            const output = run(gate, -10, 10);
+            expect(gate.open).toBe(false);
+            expect(output.every((sample) => sample === 0)).toBe(true);
+        },
+    );
+
+    it("releasing hold-to-mute restores the underlying PTT state, not voice activation", () => {
+        const gate = gateWith({ threshold: null, pushToTalk: true });
+        gate.setShortcutMuted(true);
+        gate.setPushToTalkActive(true);
+        expect(run(gate, -10, 10).every((sample) => sample === 0)).toBe(true);
+        gate.setPushToTalkActive(false);
+        gate.setShortcutMuted(false);
+        expect(run(gate, -10, 10).every((sample) => sample === 0)).toBe(true);
+    });
+});

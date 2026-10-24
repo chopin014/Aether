@@ -438,6 +438,15 @@ export default (env: string, argv: Record<string, any>): webpack.Configuration =
                     ],
                 },
                 {
+                    // The microphone worklet also needs the runtime asset public path, like RecorderWorklet above.
+                    test: /MicrophoneGateWorklet\.ts$/,
+                    type: "javascript/auto",
+                    use: [
+                        { loader: path.join(__dirname, "microphone-gate-worklet-loader.cjs") },
+                        { loader: "babel-loader" },
+                    ],
+                },
+                {
                     // This is from the same place as the encoderWorker above, but only needed
                     // for Safari support.
                     test: /decoderWorker\.min\.js$/,

@@ -9,12 +9,13 @@ import { type Page, type Request, type Response } from "@playwright/test";
 import {
     closeReleaseAnnouncementIfExists,
     populateLocalStorageWithCredentials,
-    rejectToast,
+    rejectToastIfExists,
     routeConfigJson,
 } from "@element-hq/element-web-playwright-common";
 
 import { test, expect } from "../../element-web-test";
 import { ElementAppPage } from "../../pages/ElementAppPage";
+import { SettingLevel } from "../../../src/settings/SettingLevel";
 
 test.use({
     matrixRTC: true,
@@ -35,8 +36,8 @@ test.use({
 test.skip(({ homeserverType }) => homeserverType !== "synapse", "Needs a real MatrixRTC transport");
 
 async function settle(page: Page): Promise<void> {
-    await rejectToast(page, "Verify this device");
-    await rejectToast(page, "Notifications");
+    await rejectToastIfExists(page, "Verify this device");
+    await rejectToastIfExists(page, "Notifications");
     await closeReleaseAnnouncementIfExists(page, "Introducing Sections");
 }
 
@@ -196,6 +197,48 @@ test(
             const participants = page.getByRole("group", { name: "People in Lounge" });
             await expect(participants.getByRole("button", { name: "Alice (speaking)", exact: true })).toBeVisible();
             await expect(participants.getByRole("button", { name: "Bob (speaking)", exact: true })).toBeVisible();
+            // Measure the other participant's decoded audio, not just a local meter or sent packet count.
+            const remoteEnergyDelta = (): Promise<number> =>
+                bobPage.evaluate(async () => {
+                    const energy = async (): Promise<number> => {
+                        const peers =
+                            (window as Window & { __desktopVoicePeers?: RTCPeerConnection[] }).__desktopVoicePeers ??
+                            [];
+                        let total = 0;
+                        for (const peer of peers) {
+                            const stats = await peer.getStats();
+                            stats.forEach((entry) => {
+                                if (entry.type === "inbound-rtp" && entry.kind === "audio")
+                                    total += entry.totalAudioEnergy ?? 0;
+                            });
+                        }
+                        return total;
+                    };
+                    const before = await energy();
+                    await new Promise((resolve) => setTimeout(resolve, 500));
+                    return (await energy()) - before;
+                });
+            await page.evaluate(async (level) => {
+                await window.mxSettingsStore.setValue("desktopPushToTalkKey", null, level, "KeyV");
+                await window.mxSettingsStore.setValue("desktopPushToTalkReleaseDelay", null, level, 0);
+                await window.mxSettingsStore.setValue("desktopInputMode", null, level, "push_to_talk");
+            }, SettingLevel.DEVICE);
+            await expect.poll(remoteEnergyDelta, { timeout: 15_000 }).toBeLessThan(0.000001);
+            // Synthetic DOM key events exercise the browser fallback. Native OS events have a separate Electron test.
+            await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyV" })));
+            await expect.poll(remoteEnergyDelta, { timeout: 15_000 }).toBeGreaterThan(0.000001);
+            await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyV" })));
+            await expect.poll(remoteEnergyDelta, { timeout: 15_000 }).toBeLessThan(0.000001);
+            await page.evaluate(async (level) => {
+                await window.mxSettingsStore.setValue("desktopInputMode", null, level, "voice_activity");
+                await window.mxSettingsStore.setValue("desktopMicrophoneVolume", null, level, 0);
+            }, SettingLevel.DEVICE);
+            await expect.poll(remoteEnergyDelta, { timeout: 15_000 }).toBeLessThan(0.000001);
+            await page.evaluate(
+                (level) => window.mxSettingsStore.setValue("desktopMicrophoneVolume", null, level, 100),
+                SettingLevel.DEVICE,
+            );
+            await expect.poll(remoteEnergyDelta, { timeout: 15_000 }).toBeGreaterThan(0.000001);
             expect(jitsiRequests).toEqual([]);
             const dock = page.getByRole("group", { name: "User menu" });
             await expect(dock.getByText("Voice Connected", { exact: true })).toBeVisible();
@@ -204,7 +247,7 @@ test(
                 "aria-pressed",
                 "true",
             );
-            await expect(participants.getByRole("button", { name: "Alice", exact: true })).toBeVisible();
+            await expect(participants.getByRole("button", { name: "Alice (muted)", exact: true })).toBeVisible();
             await dock.getByRole("button", { name: "Unmute", exact: true }).click();
             await expect(participants.getByRole("button", { name: "Alice (speaking)", exact: true })).toBeVisible();
             await dock.getByRole("button", { name: "Deafen", exact: true }).click();

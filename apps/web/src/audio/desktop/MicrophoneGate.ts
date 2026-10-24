@@ -48,6 +48,7 @@ export function levelDb(samples: Float32Array): number {
 export class MicrophoneGate {
     private config: MicrophoneGateConfig = { volume: 1, threshold: "auto", pushToTalk: false };
     private pushToTalkActive = false;
+    private shortcutMuted = false;
     private holdLeftMs = 0;
     private floorDb: number = AUTO_FLOOR_RANGE_DB[0];
     private floorKnown = false;
@@ -81,12 +82,25 @@ export class MicrophoneGate {
         this.pushToTalkActive = active;
     }
 
+    /** Hold-to-mute silences samples without changing the user's explicit mute state. */
+    public setShortcutMuted(muted: boolean): void {
+        this.shortcutMuted = muted;
+    }
+
     /** Applies the gate and volume to one block of samples. `output` may be the same array as `input`. */
     public processBlock(input: Float32Array, output: Float32Array): void {
         const durationMs = (input.length / this.sampleRate) * 1000;
         this._level = levelDb(input);
         this._threshold = this.resolveThreshold(durationMs);
         this._open = this.shouldOpen(durationMs);
+        // Explicit privacy controls close immediately, including the first block after a backend reset.
+        if (this.shortcutMuted || this.config.volume === 0 || (this.config.pushToTalk && !this.pushToTalkActive)) {
+            this._open = false;
+            this.gain = 0;
+            this.holdLeftMs = 0;
+            output.fill(0);
+            return;
+        }
 
         const target = this._open ? this.config.volume : 0;
         const rampMs = target > this.gain ? OPEN_RAMP_MS : CLOSE_RAMP_MS;
