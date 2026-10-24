@@ -15,7 +15,7 @@ import { VirtuosoMockContext } from "@element-hq/web-shared-components";
 import {
     Room,
     type MatrixClient,
-    type MatrixEvent,
+    MatrixEvent,
     type RoomState,
     RoomMember,
     User,
@@ -120,6 +120,12 @@ export async function renderMemberList(
         off: vi.fn(),
     } as unknown as RoomState;
     for (const member of [...adminUsers, ...moderatorUsers, ...defaultUsers]) {
+        member.user!.setPresenceEvent(
+            new MatrixEvent({
+                type: "m.presence",
+                content: { presence: "online", currently_active: true, last_active_ago: 10 },
+            }),
+        );
         memberListRoom.currentState.members[member.userId] = member;
     }
 
