@@ -170,8 +170,8 @@ describe("MicrophoneProcessor", () => {
         const processor = new MicrophoneProcessor(config);
         processor.onLevel = vi.fn();
         await init(processor);
-        (nodes[0].port.onmessage as (event: unknown) => void)({ data: { level: -35, open: true } });
-        expect(processor.onLevel).toHaveBeenCalledWith(-35, true);
+        (nodes[0].port.onmessage as (event: unknown) => void)({ data: { level: -35, open: true, threshold: -48 } });
+        expect(processor.onLevel).toHaveBeenCalledWith(-35, true, -48);
     });
 
     it("fails initialization instead of returning an unprocessed microphone", async () => {

@@ -146,21 +146,46 @@ Please see LICENSE in the repository root for full details.
     cursor: not-allowed;
     opacity: 0.5;
 }
+/* The input sensitivity draws its own track under the knob: dim held-back and sent zones, lit up to the level. */
+.sensitivitySlider {
+    --track-height: var(--cpd-space-2x);
+    --held-back: var(--cpd-color-icon-warning-primary);
+    --sent: var(--cpd-color-icon-success-primary);
+}
 .sensitivitySlider input[type="range"]::-webkit-slider-runnable-track {
+    background: transparent;
+}
+.sensitivityTrack {
+    position: absolute;
+    inset: 0;
+    height: var(--track-height);
+    margin-block: auto;
     background: linear-gradient(
         to right,
-        var(--cpd-color-icon-warning-primary) var(--position),
-        var(--cpd-color-icon-success-primary) var(--position)
+        color-mix(in srgb, var(--held-back) 30%, transparent) var(--position),
+        color-mix(in srgb, var(--sent) 30%, transparent) var(--position)
     );
-}
-.sliderLevel {
-    position: absolute;
-    inset-block: 0;
-    inset-inline-start: 0;
-    background: var(--cpd-color-bg-subtle-primary);
     border-radius: var(--cpd-space-1x);
-    opacity: 0.8;
+    overflow: hidden;
     pointer-events: none;
+}
+.sensitivityLevel {
+    --level: 0%;
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to right, var(--held-back) var(--position), var(--sent) var(--position));
+    clip-path: inset(0 calc(100% - var(--level)) 0 0);
+    transition: clip-path 50ms linear;
+}
+/* Sound above the threshold that is still held back, such as a clap under voice detection, stays unlit green. */
+.sensitivityLevel:not([data-open]) {
+    background: var(--held-back);
+}
+.sensitivitySlider input[type="range"]:disabled {
+    opacity: 1;
+}
+.sensitivitySlider input[type="range"]:disabled::-webkit-slider-thumb {
+    opacity: 0.6;
 }
 
 /* Microphone test */

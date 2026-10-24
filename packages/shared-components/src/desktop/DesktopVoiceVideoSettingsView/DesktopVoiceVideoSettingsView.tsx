@@ -76,6 +76,11 @@ export interface DesktopVoiceVideoSettingsViewSnapshot {
         /** Whether the input settings would send this sound. */
         open: boolean;
     };
+    /**
+     * The microphone as the sensitivity sees it, measured while the page is open: its level in dB after noise
+     * suppression (null until measured), whether it would be sent, and the threshold in use (null when none).
+     */
+    inputLevel: { level: number | null; open: boolean; threshold: number | null };
     inputProfile: DesktopInputProfile;
     /** The noise suppression in effect: enhanced runs in the app, standard is the browser's own. */
     noiseSuppression: DesktopNoiseSuppression;
@@ -225,6 +230,10 @@ export function DesktopVoiceVideoSettingsView({ vm }: { vm: DesktopVoiceVideoSet
         voice_activity: _t("desktop|voice_video|mode_voice_activity"),
         push_to_talk: _t("desktop|voice_video|mode_push_to_talk"),
     };
+    const { inputLevel } = snapshot;
+    // Automatic sensitivity moves with the room's noise, so the knob shows where it currently is.
+    const sensitivity =
+        sensitivityAuto && inputLevel.threshold !== null ? Math.round(inputLevel.threshold) : snapshot.sensitivity;
     const shownSounds = sounds.filter((sound) => moreSounds || !sound.extra);
     const extraSounds = sounds.filter((sound) => sound.extra);
     const micError =
@@ -392,12 +401,12 @@ export function DesktopVoiceVideoSettingsView({ vm }: { vm: DesktopVoiceVideoSet
                     />
                     <RangeSlider
                         label={_t("desktop|voice_video|sensitivity_slider")}
-                        value={snapshot.sensitivity}
+                        value={sensitivity}
                         min={-100}
                         max={0}
-                        valueText={_t("desktop|voice_video|sensitivity_value", { db: snapshot.sensitivity })}
+                        valueText={_t("desktop|voice_video|sensitivity_value", { db: sensitivity })}
                         disabled={sensitivityAuto || inputProfile === "studio"}
-                        sensitivity={{ level: micTest.active ? micTest.level : null }}
+                        sensitivity={{ level: inputLevel.level, open: inputLevel.open }}
                         onChange={vm.setSensitivity}
                     />
                     <ToggleRow

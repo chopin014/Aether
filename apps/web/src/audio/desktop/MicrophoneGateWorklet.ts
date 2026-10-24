@@ -115,7 +115,7 @@ class MicrophoneGateWorklet extends AudioWorkletProcessor {
         this.framesSinceReport += output.length;
         if (this.framesSinceReport >= sampleRate / 20) {
             this.framesSinceReport = 0;
-            this.port.postMessage({ level: this.gate.level, open: this.gate.open });
+            this.port.postMessage({ level: this.gate.level, open: this.gate.open, threshold: this.gate.threshold });
         }
         return true;
     }

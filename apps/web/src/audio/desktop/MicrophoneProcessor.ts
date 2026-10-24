@@ -23,8 +23,11 @@ interface ProcessorOptions {
     audioContext?: AudioContext;
 }
 
-/** Reports the microphone level and whether samples are allowed through, at most twenty times per second. */
-export type MicrophoneLevelListener = (levelDb: number, open: boolean) => void;
+/**
+ * Reports the microphone level, whether samples are allowed through and the threshold in use (null when there is
+ * none), at most twenty times per second.
+ */
+export type MicrophoneLevelListener = (levelDb: number, open: boolean, thresholdDb: number | null) => void;
 
 /** Reports what became of noise suppression for one microphone graph. */
 export type DenoiserStatusListener = (status: DenoiserStatus) => void;
@@ -141,11 +144,11 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
                 channelCountMode: "explicit",
                 processorOptions,
             });
-            type Report = { level: number; open: boolean } | { denoiser: DenoiserStatus };
+            type Report = { level: number; open: boolean; threshold: number | null } | { denoiser: DenoiserStatus };
             this.processor.port.onmessage = (event: MessageEvent<Report>): void => {
                 if (generation !== this.generation) return;
                 if ("denoiser" in event.data) this.reportDenoiser(event.data.denoiser);
-                else this.onLevel?.(event.data.level, event.data.open);
+                else this.onLevel?.(event.data.level, event.data.open, event.data.threshold);
             };
             this.source = context.createMediaStreamSource(new MediaStream([track]));
             this.destination = context.createMediaStreamDestination();

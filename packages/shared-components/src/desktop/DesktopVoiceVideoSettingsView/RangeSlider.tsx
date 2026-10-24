@@ -21,12 +21,15 @@ interface RangeSliderProps {
     /** A spoken form of the value, such as "-50 dB". */
     valueText?: string;
     disabled?: boolean;
-    /** Colours the track yellow up to the knob and green after it, with the live level drawn under it. */
-    sensitivity?: { level: number | null };
+    /**
+     * Draws the live level in the track, like Discord: the part below the knob is held back and the part above
+     * it is sent, and the track lights up as far as the current level reaches.
+     */
+    sensitivity?: { level: number | null; open: boolean };
     onChange: (value: number) => void;
 }
 
-/** A slider with the Aether track: accent up to the knob, or yellow to green for the input sensitivity. */
+/** A slider with the Aether track: accent up to the knob, or the live level against the input sensitivity. */
 export function RangeSlider({
     label,
     value,
@@ -41,13 +44,23 @@ export function RangeSlider({
     const id = useId();
     const position = ((value - min) / (max - min)) * 100;
     return (
-        <div className={classNames(styles.slider, sensitivity && styles.sensitivitySlider)}>
-            {sensitivity && sensitivity.level !== null && (
-                <div
-                    className={styles.sliderLevel}
-                    data-testid="sensitivity-level"
-                    style={{ width: `${levelToPercent(sensitivity.level)}%` }}
-                />
+        <div
+            className={classNames(styles.slider, sensitivity && styles.sensitivitySlider)}
+            style={{ "--position": `${position}%` } as React.CSSProperties}
+        >
+            {sensitivity && (
+                <div className={styles.sensitivityTrack} aria-hidden="true">
+                    <div
+                        className={styles.sensitivityLevel}
+                        data-testid="sensitivity-level"
+                        data-open={sensitivity.open || undefined}
+                        style={
+                            {
+                                "--level": `${sensitivity.level === null ? 0 : levelToPercent(sensitivity.level)}%`,
+                            } as React.CSSProperties
+                        }
+                    />
+                </div>
             )}
             <input
                 id={id}

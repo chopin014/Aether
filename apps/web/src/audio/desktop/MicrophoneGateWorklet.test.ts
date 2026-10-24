@@ -86,7 +86,11 @@ describe("MicrophoneGateWorklet", () => {
         for (let i = 0; i < 18; i++) processor.process([[input]], [[output]]);
         expect(processor.port.postMessage).not.toHaveBeenCalled();
         processor.process([[input]], [[output]]);
-        expect(processor.port.postMessage).toHaveBeenCalledWith({ level: expect.closeTo(-6.02, 1), open: true });
+        expect(processor.port.postMessage).toHaveBeenCalledWith({
+            level: expect.closeTo(-6.02, 1),
+            open: true,
+            threshold: null,
+        });
         expect(processor.port.postMessage).toHaveBeenCalledTimes(1);
     });
 });

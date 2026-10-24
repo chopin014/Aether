@@ -90,6 +90,7 @@ const meta = {
         microphoneVolume: 100,
         speakerVolume: 60,
         microphoneTest: { active: false, level: null, open: false },
+        inputLevel: { level: -38, open: true, threshold: -50 },
         inputProfile: "custom",
         noiseSuppression: "enhanced",
         noiseSuppressionStrength: 100,

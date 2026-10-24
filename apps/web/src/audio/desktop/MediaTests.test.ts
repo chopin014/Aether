@@ -163,8 +163,8 @@ describe("MicrophoneTest", () => {
         const test = new MicrophoneTest(onLevel);
         await test.start();
         // The local playback test ignores PTT and forwards worklet metering to the view.
-        port.onmessage!({ data: { level: -30, open: true } });
-        expect(onLevel).toHaveBeenLastCalledWith(-30, true);
+        port.onmessage!({ data: { level: -30, open: true, threshold: -40 } });
+        expect(onLevel).toHaveBeenLastCalledWith(-30, true, -40);
         expect(port.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ pushToTalkActive: true }));
     });
 
@@ -211,6 +211,36 @@ describe("MicrophoneTest", () => {
         const test = new MicrophoneTest(vi.fn());
         await expect(test.start()).rejects.toThrow();
         expect(test.active).toBe(false);
+    });
+
+    it("measures without playing back, and plays back on request", async () => {
+        const onLevel = vi.fn();
+        const test = new MicrophoneTest(onLevel);
+        await test.start({ playback: false });
+        expect(test.active).toBe(true);
+        expect(test.playing).toBe(false);
+        expect(play).not.toHaveBeenCalled();
+        port.onmessage!({ data: { level: -45, open: false, threshold: -40 } });
+        expect(onLevel).toHaveBeenLastCalledWith(-45, false, -40);
+
+        await test.setPlayback(true);
+        expect(test.playing).toBe(true);
+        expect(play).toHaveBeenCalledOnce();
+        await test.setPlayback(false);
+        expect(pause).toHaveBeenCalled();
+        expect(test.playing).toBe(false);
+        // The microphone stays open for the level.
+        expect(micTrack.stop).not.toHaveBeenCalled();
+        expect(test.active).toBe(true);
+    });
+
+    it("plays back when the test starts while the level is still being set up", async () => {
+        const test = new MicrophoneTest(vi.fn());
+        const measuring = test.start({ playback: false });
+        const testing = test.start();
+        await Promise.all([measuring, testing]);
+        expect(getUserMedia).toHaveBeenCalledOnce();
+        expect(test.playing).toBe(true);
     });
 
     it("ignores a second start while running", async () => {

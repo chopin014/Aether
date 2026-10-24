@@ -137,7 +137,7 @@ export class DesktopVoiceVideoSettingsViewModel
     implements DesktopVoiceVideoSettingsViewModelInterface
 {
     private readonly microphoneTest = new MicrophoneTest(
-        (level, open) => this.onMicrophoneLevel(level, open),
+        (level, open, threshold) => this.onMicrophoneLevel(level, open, threshold),
         (status) => {
             if (!this.isDisposed && status !== "active") this.snapshot.merge({ noiseSuppressionProblem: status });
         },
@@ -159,6 +159,7 @@ export class DesktopVoiceVideoSettingsViewModel
             microphoneVolume: 100,
             speakerVolume: 100,
             microphoneTest: { active: false, level: null, open: false },
+            inputLevel: { level: null, open: false, threshold: null },
             inputProfile: "voice_isolation",
             noiseSuppression: "enhanced",
             noiseSuppressionStrength: 100,
@@ -210,11 +211,30 @@ export class DesktopVoiceVideoSettingsViewModel
         this.microphoneTest.update();
     };
 
-    private onMicrophoneLevel(level: number, open: boolean): void {
+    private onMicrophoneLevel(level: number, open: boolean, threshold: number | null): void {
         const now = performance.now();
         if (this.isDisposed || now - this.lastMeterUpdate < METER_INTERVAL_MS) return;
         this.lastMeterUpdate = now;
-        this.snapshot.merge({ microphoneTest: { ...this.snapshot.current.microphoneTest, level, open } });
+        const { microphoneTest } = this.snapshot.current;
+        this.snapshot.merge({
+            inputLevel: { level, open, threshold },
+            microphoneTest: microphoneTest.active ? { ...microphoneTest, level, open } : microphoneTest,
+        });
+    }
+
+    /**
+     * Measures the microphone without playing it back while the page is open, as Discord does, so the input
+     * sensitivity always shows where the voice sits. Only once access is granted: it must not prompt by itself.
+     */
+    private async startLevelMonitor(): Promise<void> {
+        if (this.isDisposed || this.microphoneTest.active || !this.snapshot.current.devicesVisible) return;
+        try {
+            await this.microphoneTest.start({ playback: false });
+        } catch (error) {
+            logger.debug("Could not measure the microphone level", error);
+        }
+        // The page may have closed while the microphone was opening.
+        if (this.isDisposed) this.microphoneTest.stop();
     }
 
     private refreshSettings(): void {
@@ -289,6 +309,7 @@ export class DesktopVoiceVideoSettingsViewModel
             videoInputs: list(MediaDeviceKindEnum.VideoInput),
         });
         this.refreshSelectedDevices();
+        void this.startLevelMonitor();
     }
 
     private refreshSelectedDevices(): void {
@@ -328,7 +349,7 @@ export class DesktopVoiceVideoSettingsViewModel
         }
         this.refreshSelectedDevices();
         // A running test keeps the device it opened, so open it again on the new one.
-        if (kind === MediaDeviceKindEnum.AudioInput && this.microphoneTest.active) await this.restartMicrophoneTest();
+        if (kind === MediaDeviceKindEnum.AudioInput && this.microphoneTest.active) await this.reopenMicrophone();
         if (kind === MediaDeviceKindEnum.VideoInput && this.cameraTest.active) await this.startCameraTest();
     }
 
@@ -340,9 +361,11 @@ export class DesktopVoiceVideoSettingsViewModel
         this.setSetting("desktopMicrophoneVolume", percent);
     public setSpeakerVolume = (percent: number): Promise<void> => this.setSetting("desktopSpeakerVolume", percent);
 
-    private async restartMicrophoneTest(): Promise<void> {
+    /** Opens the newly chosen microphone, keeping playback as it was. */
+    private async reopenMicrophone(): Promise<void> {
         this.microphoneTest.stop();
-        await this.startMicrophoneTest();
+        if (this.snapshot.current.microphoneTest.active) await this.startMicrophoneTest();
+        else await this.startLevelMonitor();
     }
 
     private async startMicrophoneTest(): Promise<void> {
@@ -351,7 +374,8 @@ export class DesktopVoiceVideoSettingsViewModel
             noiseSuppressionProblem: undefined,
         });
         try {
-            await this.microphoneTest.start();
+            if (this.microphoneTest.active) await this.microphoneTest.setPlayback(true);
+            else await this.microphoneTest.start();
         } catch (error) {
             logger.warn("Could not test the microphone", error);
             if (!this.isDisposed) {
@@ -364,7 +388,8 @@ export class DesktopVoiceVideoSettingsViewModel
 
     public toggleMicrophoneTest = async (): Promise<void> => {
         if (this.snapshot.current.microphoneTest.active) {
-            this.microphoneTest.stop();
+            // Stop hearing yourself, but keep measuring for the input sensitivity.
+            await this.microphoneTest.setPlayback(false);
             this.snapshot.merge({ microphoneTest: { active: false, level: null, open: false } });
         } else {
             await this.startMicrophoneTest();
@@ -548,5 +573,7 @@ export class DesktopVoiceVideoSettingsViewModel
             SettingsStore.getDefaultValue("webrtc_audio_echoCancellation"),
         );
         this.refreshSettings();
+        this.snapshot.merge({ inputLevel: { level: null, open: false, threshold: null } });
+        await this.startLevelMonitor();
     };
 }

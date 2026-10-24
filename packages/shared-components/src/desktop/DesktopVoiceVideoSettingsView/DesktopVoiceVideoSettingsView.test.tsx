@@ -32,6 +32,7 @@ const baseSnapshot: DesktopVoiceVideoSettingsViewSnapshot = {
     microphoneVolume: 80,
     speakerVolume: 60,
     microphoneTest: { active: false, level: null, open: false },
+    inputLevel: { level: null, open: false, threshold: null },
     inputProfile: "custom",
     noiseSuppression: "enhanced",
     noiseSuppressionStrength: 100,
@@ -218,17 +219,46 @@ describe("DesktopVoiceVideoSettingsView", () => {
             expect(slider).toHaveAttribute("aria-valuetext", "-50 dB");
         });
 
-        it("changes the sensitivity and shows the live level under it while testing", () => {
-            const vm = makeVm({
-                sensitivityAuto: false,
-                microphoneTest: { active: true, level: -25, open: true },
-            });
+        it("changes the sensitivity and shows the live level in it without a test running", () => {
+            const vm = makeVm({ sensitivityAuto: false, inputLevel: { level: -25, open: true, threshold: -50 } });
             render(<DesktopVoiceVideoSettingsView vm={vm} />);
             fireEvent.change(screen.getByRole("slider", { name: "Input sensitivity threshold" }), {
                 target: { value: "-35" },
             });
             expect(vm.setSensitivity).toHaveBeenCalledWith(-35);
-            expect(screen.getByTestId("sensitivity-level")).toHaveStyle({ width: "75%" });
+            const level = screen.getByTestId("sensitivity-level");
+            expect(level.style.getPropertyValue("--level")).toBe("75%");
+            expect(level).toHaveAttribute("data-open");
+        });
+
+        it("shows sound above the threshold that is still held back as held back", () => {
+            render(
+                <DesktopVoiceVideoSettingsView
+                    vm={makeVm({ inputLevel: { level: -20, open: false, threshold: -50 } })}
+                />,
+            );
+            expect(screen.getByTestId("sensitivity-level")).not.toHaveAttribute("data-open");
+        });
+
+        it("places the knob where automatic sensitivity currently is", () => {
+            const { rerender } = render(
+                <DesktopVoiceVideoSettingsView
+                    vm={makeVm({ sensitivity: -50, inputLevel: { level: -40, open: true, threshold: -62.4 } })}
+                />,
+            );
+            const slider = screen.getByRole("slider", { name: "Input sensitivity threshold" });
+            expect(slider).toHaveValue("-62");
+            expect(slider).toHaveAttribute("aria-valuetext", "-62 dB");
+            rerender(
+                <DesktopVoiceVideoSettingsView
+                    vm={makeVm({
+                        sensitivityAuto: false,
+                        sensitivity: -50,
+                        inputLevel: { level: -40, open: true, threshold: -50 },
+                    })}
+                />,
+            );
+            expect(slider).toHaveValue("-50");
         });
 
         it("switches between automatic and manual sensitivity", async () => {
