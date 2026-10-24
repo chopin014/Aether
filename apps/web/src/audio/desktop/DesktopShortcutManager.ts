@@ -120,14 +120,9 @@ export class DesktopShortcutManager {
     /** Starts a session owner. Its cleanup unregisters everything when the last owner leaves. */
     public start = (): (() => void) => {
         if (++this.owners === 1) {
-            this.watchers = (
-                [
-                    "feature_desktop_shell",
-                    "desktopShortcutBindings",
-                    "desktopPushToTalkKey",
-                    "desktopInputMode",
-                ] as const
-            ).map((name) => SettingsStore.watchSetting(name, null, this.refresh));
+            this.watchers = (["feature_desktop_shell", "desktopShortcutBindings", "desktopPushToTalkKey"] as const).map(
+                (name) => SettingsStore.watchSetting(name, null, this.refresh),
+            );
             this.unsubscribe = this.api?.onEvent(this.receive);
             this.target.addEventListener("keydown", this.keyDown);
             this.target.addEventListener("keyup", this.keyUp);

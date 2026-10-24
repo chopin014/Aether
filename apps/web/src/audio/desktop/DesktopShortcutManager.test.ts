@@ -10,6 +10,7 @@ Please see LICENSE in the repository root for full details.
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 import SettingsStore from "../../settings/SettingsStore";
+import { SettingLevel } from "../../settings/SettingLevel";
 import {
     DesktopShortcutManager,
     normalizeDesktopShortcut,
@@ -18,7 +19,7 @@ import {
 } from "./DesktopShortcutManager";
 
 let values: Record<string, unknown>;
-let watchers: Set<() => void>;
+let watchers: Map<string, () => void>;
 let nativeEvent: (event: DesktopShortcutEvent) => void;
 let api: GlobalShortcutApi;
 let manager: DesktopShortcutManager;
@@ -35,16 +36,18 @@ beforeEach(() => {
         desktopPushToTalkKey: "KeyV",
         desktopInputMode: "push_to_talk",
     };
-    watchers = new Set();
+    watchers = new Map();
     vi.spyOn(SettingsStore, "getValue").mockImplementation((name) => values[name] as never);
-    vi.spyOn(SettingsStore, "watchSetting").mockImplementation((_name, _room, listener) => {
-        watchers.add(listener as () => void);
-        return "watcher";
+    vi.spyOn(SettingsStore, "watchSetting").mockImplementation((name, _room, listener) => {
+        watchers.set(name, listener as () => void);
+        return name;
     });
-    vi.spyOn(SettingsStore, "unwatchSetting").mockImplementation(() => {});
+    vi.spyOn(SettingsStore, "unwatchSetting").mockImplementation((ref) => {
+        if (ref) watchers.delete(ref);
+    });
     vi.spyOn(SettingsStore, "setValue").mockImplementation(async (name, _room, _level, value) => {
         values[name] = value;
-        watchers.forEach((listener) => listener());
+        watchers.get(name)?.();
     });
     api = {
         configure: vi.fn<GlobalShortcutApi["configure"]>(async ({ bindings }) => ({
@@ -108,6 +111,24 @@ describe("DesktopShortcutManager", () => {
         nativeEvent({ id: "push_to_talk", pressed: true });
         expect(manager.isHeld("push_to_talk")).toBe(true);
         expect(listener.mock.lastCall?.[0]).toEqual({ id: "push_to_talk", pressed: true });
+    });
+    it("keeps native registrations and push to mute held when input mode changes", async () => {
+        values.desktopShortcutBindings = { push_to_mute: "Control+KeyP" };
+        stop = manager.start();
+        await flush();
+        nativeEvent({ id: "push_to_mute", pressed: true });
+        expect(manager.isHeld("push_to_mute")).toBe(true);
+        const listener = vi.fn();
+        manager.onEvent(listener);
+        vi.mocked(api.configure).mockClear();
+        await SettingsStore.setValue("desktopInputMode", null, SettingLevel.DEVICE, "voice_activity");
+        await Promise.resolve();
+        expect(api.configure).not.toHaveBeenCalled();
+        expect(listener).not.toHaveBeenCalled();
+        expect(manager.isHeld("push_to_mute")).toBe(true);
+        nativeEvent({ id: "push_to_mute", pressed: false });
+        expect(manager.isHeld("push_to_mute")).toBe(false);
+        expect(listener).toHaveBeenCalledWith({ id: "push_to_mute", pressed: false });
     });
     it("pauses native events and registrations throughout nested recording", async () => {
         stop = manager.start();
