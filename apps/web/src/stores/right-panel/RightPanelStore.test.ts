@@ -136,6 +136,34 @@ describe("RightPanelStore", () => {
         });
     });
 
+    describe("FocusMessageSearch", () => {
+        it("opens the room summary in upstream's layout", async () => {
+            await viewRoom("!1:example.org");
+            setCard("!1:example.org", RightPanelPhases.MemberList);
+            defaultDispatcher.dispatch({ action: Action.FocusMessageSearch }, true);
+            expect(store.currentCard.phase).toBe(RightPanelPhases.RoomSummary);
+        });
+
+        it("leaves the panel alone in the desktop shell, whose header has its own search box", async () => {
+            await viewRoom("!1:example.org");
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            const spy = vi
+                .spyOn(SettingsStore, "getValue")
+                .mockImplementation((name, ...args) =>
+                    name === "feature_desktop_shell" ? true : getValue(name, ...args),
+                );
+            try {
+                setCard("!1:example.org", RightPanelPhases.MemberList);
+                store.hide("!1:example.org");
+                defaultDispatcher.dispatch({ action: Action.FocusMessageSearch, initialText: "has:file" }, true);
+                expect(store.currentCard.phase).toBe(RightPanelPhases.MemberList);
+                expect(store.isOpen).toBe(false);
+            } finally {
+                spy.mockRestore();
+            }
+        });
+    });
+
     describe("isOpen", () => {
         it("is false if no rooms are open", () => {
             expect(store.isOpen).toEqual(false);

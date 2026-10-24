@@ -583,26 +583,12 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         }
     }
 
-    .mx_DesktopShell_messageSearch {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex: 0 1 240px;
-        min-width: 100px;
-        height: 32px;
-        padding: 0 10px;
-        margin-inline-start: 4px;
-        border: 1px solid var(--cpd-color-border-interactive-secondary);
-        border-radius: 8px;
-        background: var(--mx-desktop-shell-frame);
-        color: var(--cpd-color-text-tertiary, var(--cpd-color-text-secondary));
+    /* The search view owns its field border and spacing; override Element's legacy global text-input rules. */
+    .mx_RoomHeader input[role="combobox"][aria-autocomplete="list"] {
+        margin: 0;
+        padding: 0;
+        border: 0;
         font: var(--cpd-font-body-md-regular);
-        cursor: text;
-
-        svg {
-            width: 20px;
-            height: 20px;
-        }
     }
 
     .mx_DesktopShell_channelIcon {

@@ -108,6 +108,8 @@ export default class RightPanelStore extends ReadyWatchingStore {
             }
 
             case Action.FocusMessageSearch: {
+                // The desktop shell has its own search box in the header, so the room summary stays closed.
+                if (SettingsStore.getValue("feature_desktop_shell")) break;
                 if (this.currentCard.phase !== RightPanelPhases.RoomSummary) {
                     this.setCard({ phase: RightPanelPhases.RoomSummary, state: { focusRoomSearch: true } });
                 }

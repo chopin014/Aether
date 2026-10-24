@@ -66,6 +66,8 @@ import { SettingLevel } from "../../../../settings/SettingLevel";
 import { ElementCallMemberEventType } from "../../../../call-types";
 import { SDKContext } from "../../../../contexts/SDKContext";
 import { SDKContextClass } from "../../../../contexts/SDKContextClass.ts";
+import { DesktopMessageSearchStore } from "../../../../stores/DesktopMessageSearchStore";
+import { Action } from "../../../../dispatcher/actions";
 
 vi.mock("../../../../utils/ShieldUtils");
 vi.mock("../../../../hooks/right-panel/useCurrentPhase", () => ({
@@ -388,6 +390,59 @@ describe("RoomHeader", () => {
         } finally {
             setting.mockRestore();
         }
+    });
+
+    describe("desktop message search", () => {
+        let setting: ReturnType<typeof vi.spyOn>;
+        beforeEach(() => {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            setting = vi
+                .spyOn(SettingsStore, "getValue")
+                .mockImplementation((name, ...args) =>
+                    name === "feature_desktop_shell" ? true : getValue(name, ...args),
+                );
+        });
+        afterEach(() => {
+            setting.mockRestore();
+            DesktopMessageSearchStore.instance.close();
+        });
+
+        it("replaces the search button with a combobox that names the room", () => {
+            render(<RoomHeader room={room} />, getWrapper());
+            const input = screen.getByRole("combobox", { name: "Search" });
+            expect(input).toHaveAttribute("placeholder", `Search ${ROOM_ID}`);
+        });
+
+        it("keeps a single pins trigger and search box when the header rerenders", () => {
+            const { rerender } = render(<RoomHeader room={room} />, getWrapper());
+            rerender(<RoomHeader room={room} />);
+            rerender(<RoomHeader room={room} />);
+            expect(screen.getAllByRole("button", { name: "Pinned messages" })).toHaveLength(1);
+            expect(screen.getAllByRole("combobox", { name: "Search" })).toHaveLength(1);
+        });
+
+        it("opens the filters on focus and keeps the room summary closed", async () => {
+            render(<RoomHeader room={room} />, getWrapper());
+            await userEvent.click(screen.getByRole("combobox", { name: "Search" }));
+            expect(screen.getByRole("option", { name: /From a specific user/ })).toBeVisible();
+            expect(setCardSpy).not.toHaveBeenCalled();
+        });
+
+        it("runs a search straight away when FocusMessageSearch carries has:file", async () => {
+            render(<RoomHeader room={room} />, getWrapper());
+            act(() => dispatcher.dispatch({ action: Action.FocusMessageSearch, initialText: "has:file" }, true));
+            await waitFor(() =>
+                expect(DesktopMessageSearchStore.instance.active?.query.filters).toEqual([
+                    { key: "has", value: "file" },
+                ]),
+            );
+            expect(screen.getByRole("combobox", { name: "Search" })).toHaveFocus();
+        });
+    });
+
+    it("does not show the desktop search box when the desktop shell is off", () => {
+        render(<RoomHeader room={room} />, getWrapper());
+        expect(screen.queryByRole("combobox", { name: "Search" })).not.toBeInTheDocument();
     });
 
     it("opens the notifications panel", async () => {

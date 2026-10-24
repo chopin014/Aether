@@ -34,6 +34,7 @@ Please see LICENSE in the repository root for full details.
 .box:focus-within .field {
     border-color: var(--cpd-color-border-focused);
 }
+
 @media (prefers-reduced-motion: reduce) {
     .box {
         transition: none;

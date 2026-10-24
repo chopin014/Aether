@@ -63,6 +63,8 @@ import { LegacyCallHandlerEvent } from "../../LegacyCallHandler";
 import defaultDispatcher from "../../dispatcher/dispatcher";
 import * as Rooms from "../../Rooms";
 import MainSplit from "./MainSplit";
+import { DesktopSearchResultsHost } from "../views/desktop/DesktopSearchResultsHost";
+import { DESKTOP_SEARCH_UPDATE, DesktopMessageSearchStore } from "../../stores/DesktopMessageSearchStore";
 import RightPanel from "./RightPanel";
 import RoomScrollStateStore, { type ScrollState } from "../../stores/RoomScrollStateStore";
 import WidgetEchoStore from "../../stores/WidgetEchoStore";
@@ -207,6 +209,8 @@ interface IRoomProps extends RoomViewProps {
 }
 
 export interface IRoomState {
+    /** Active desktop search ID, so opening or closing results updates the split. */
+    desktopSearchId?: number | null;
     room?: Room;
     roomId?: string;
     roomAlias?: string;
@@ -470,6 +474,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
 
         const llMembers = context.client.hasLazyLoadMembersEnabled();
         this.state = {
+            desktopSearchId: DesktopMessageSearchStore.instance.active?.id ?? null,
             roomId: undefined,
             roomLoading: true,
             peekAndSummaryLoading: false,
@@ -994,6 +999,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         this.roomViewStore.on(UPDATE_EVENT, this.onRoomViewStoreUpdate);
 
         this.context.rightPanelStore.on(UPDATE_EVENT, this.onRightPanelStoreUpdate);
+        DesktopMessageSearchStore.instance.on(DESKTOP_SEARCH_UPDATE, this.onDesktopSearchUpdate);
 
         WidgetEchoStore.on(UPDATE_EVENT, this.onWidgetEchoStoreUpdate);
         this.context.widgetStore.on(UPDATE_EVENT, this.onWidgetStoreUpdate);
@@ -1109,6 +1115,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         this.roomViewStore.off(UPDATE_EVENT, this.onRoomViewStoreUpdate);
 
         this.context.rightPanelStore.off(UPDATE_EVENT, this.onRightPanelStoreUpdate);
+        DesktopMessageSearchStore.instance.off(DESKTOP_SEARCH_UPDATE, this.onDesktopSearchUpdate);
         WidgetEchoStore.removeListener(UPDATE_EVENT, this.onWidgetEchoStoreUpdate);
         this.context.widgetStore.removeListener(UPDATE_EVENT, this.onWidgetStoreUpdate);
 
@@ -1369,11 +1376,17 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 onView3pidInvite(payload, this.context.rightPanelStore);
                 break;
             case Action.FocusMessageSearch:
+                // The desktop shell's header search box handles this action itself.
+                if (SettingsStore.getValue("feature_desktop_shell")) break;
                 if ((payload as FocusMessageSearchPayload).initialText) {
                     this.onSearch(payload.initialText);
                 }
                 break;
         }
+    };
+
+    private onDesktopSearchUpdate = (): void => {
+        this.setState({ desktopSearchId: DesktopMessageSearchStore.instance.active?.id ?? null });
     };
 
     private onLocalRoomEvent(roomId: string): void {
@@ -2646,7 +2659,14 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         const showRightPanel =
             !this.props.hideRightPanel && !isRoomEncryptionLoading && this.state.room && this.state.showRightPanel;
 
-        const rightPanel = showRightPanel ? (
+        // The desktop shell shows its message search results in the right column, replacing the panel until closed.
+        const desktopSearch = SettingsStore.getValue("feature_desktop_shell")
+            ? DesktopMessageSearchStore.instance.active
+            : null;
+
+        const rightPanel = desktopSearch ? (
+            <DesktopSearchResultsHost />
+        ) : showRightPanel ? (
             <RightPanel
                 room={this.state.room}
                 resizeNotifier={this.context.resizeNotifier}
@@ -2758,6 +2778,12 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 RightPanelPhases.ThreadView
         ) {
             sizeKey = "desktop_thread";
+            defaultSize = 420;
+            minSize = 320;
+        }
+
+        if (desktopSearch) {
+            sizeKey = "desktop_search";
             defaultSize = 420;
             minSize = 320;
         }

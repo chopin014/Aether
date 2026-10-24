@@ -25,7 +25,6 @@ import {
     HistoryIcon,
     UserProfileSolidIcon,
     RoomIcon,
-    SearchIcon,
     GroupIcon,
     VolumeOnIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
@@ -55,7 +54,6 @@ import { type ButtonEvent } from "../../elements/AccessibleButton.tsx";
 import WithPresenceIndicator, { useDmMember } from "../../avatars/WithPresenceIndicator.tsx";
 import { type IOOBData } from "../../../../stores/ThreepidInviteStore.ts";
 import { MainSplitContentType } from "../../../../contexts/RoomContext.ts";
-import { Action } from "../../../../dispatcher/actions";
 import defaultDispatcher from "../../../../dispatcher/dispatcher.ts";
 import { RoomSettingsTab } from "../../dialogs/RoomSettingsDialog-tab";
 import { useScopedRoomContext } from "../../../../contexts/ScopedRoomContext.tsx";
@@ -70,6 +68,7 @@ import { useContextMenu, ChevronFace } from "../../../structures/ContextMenu";
 import { DesktopThreadBrowser } from "../threads/DesktopThreadBrowser";
 import { RoomNotificationContextMenu } from "../../context_menus/RoomNotificationContextMenu";
 import { DesktopChannelInfo } from "./DesktopChannelInfo";
+import { DesktopMessageSearchBox } from "../../desktop/DesktopMessageSearchBox";
 
 function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: JSX.Element }): JSX.Element {
     const sdkContext = useContext(SDKContext);
@@ -401,16 +400,7 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
                     </IconButton>
                 </Tooltip>
             )}
-            {desktopShell && (
-                <button
-                    type="button"
-                    className="mx_DesktopShell_messageSearch"
-                    onClick={() => defaultDispatcher.fire(Action.FocusMessageSearch)}
-                >
-                    <span>{_t("action|search")}</span>
-                    <SearchIcon aria-hidden />
-                </button>
-            )}
+            {desktopShell && <DesktopMessageSearchBox key={`search-${room.roomId}`} room={room} />}
             {!isDirectMessage && !desktopShell && (
                 <Text as="div" size="sm" weight="medium">
                     <FacePile
