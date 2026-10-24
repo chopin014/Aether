@@ -403,25 +403,37 @@ describe("RoomView", () => {
             expect(screen.getByTestId("timeline")).toBe(timeline);
         });
 
-        it("should open and close the pinned messages panel from the desktop header", async () => {
-            cli.relations.mockResolvedValue({ originalEvent: pinnedEvent, events: [] });
+        it("opens the desktop pins popover without replacing the channel's right panel", async () => {
             cli.setRoomAccountData.mockResolvedValue({});
+            const fetchEvent = vi.spyOn(pinnedEventHooks, "fetchPinnedEvent").mockResolvedValue(pinnedEvent);
             const user = userEvent.setup();
-            await mountRoomView();
+            try {
+                await mountRoomView();
+                const previousCard = stores.rightPanelStore.currentCardForRoom(room.roomId);
+                const wasOpen = stores.rightPanelStore.isOpenForRoom(room.roomId);
+                const trigger = screen.getByRole("button", { name: "Pinned messages" });
+                const popover = document.getElementById(trigger.getAttribute("aria-controls")!)!;
 
-            await user.click(screen.getByRole("button", { name: "Pinned messages" }));
+                await user.click(trigger);
+                // Happy DOM does not implement the native popover toggle default action.
+                fireEvent(popover, Object.assign(new Event("toggle"), { oldState: "closed", newState: "open" }));
 
-            expect(stores.rightPanelStore.currentCardForRoom(room.roomId).phase).toBe(RightPanelPhases.PinnedMessages);
-            expect(stores.rightPanelStore.isOpenForRoom(room.roomId)).toBe(true);
-            expect(await screen.findByRole("heading", { name: "1 Pinned message" })).toBeInTheDocument();
-            expect(screen.getByText("A pinned channel message")).toBeInTheDocument();
-            expect(screen.queryByTestId("pinned-message-banner")).not.toBeInTheDocument();
+                expect(trigger).toHaveAttribute("aria-expanded", "true");
+                expect(await screen.findByText("A pinned channel message")).toBeInTheDocument();
+                expect(stores.rightPanelStore.currentCardForRoom(room.roomId)).toBe(previousCard);
+                expect(stores.rightPanelStore.isOpenForRoom(room.roomId)).toBe(wasOpen);
+                expect(screen.queryByTestId("pinned-message-banner")).not.toBeInTheDocument();
 
-            await user.click(screen.getByRole("button", { name: "Pinned messages" }));
+                await user.click(trigger);
+                fireEvent(popover, Object.assign(new Event("toggle"), { oldState: "open", newState: "closed" }));
 
-            expect(stores.rightPanelStore.isOpenForRoom(room.roomId)).toBe(false);
-            expect(screen.queryByText("A pinned channel message")).not.toBeInTheDocument();
-            expect(screen.queryByTestId("pinned-message-banner")).not.toBeInTheDocument();
+                expect(trigger).toHaveAttribute("aria-expanded", "false");
+                expect(screen.queryByText("A pinned channel message")).not.toBeInTheDocument();
+                expect(stores.rightPanelStore.currentCardForRoom(room.roomId)).toBe(previousCard);
+                expect(stores.rightPanelStore.isOpenForRoom(room.roomId)).toBe(wasOpen);
+            } finally {
+                fetchEvent.mockRestore();
+            }
         });
 
         it("should retain the automatic pinned message banner outside the desktop shell", async () => {
