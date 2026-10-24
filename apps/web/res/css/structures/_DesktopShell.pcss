@@ -741,6 +741,72 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         }
     }
 
+    .mx_RightPanel:has(.mx_ThreadView) {
+        width: 100%;
+        background-color: var(--cpd-color-bg-canvas-default);
+    }
+
+    .mx_ThreadView .mx_BaseCard_header {
+        min-height: 48px;
+        padding: 8px 12px;
+        border-block-end: 1px solid var(--cpd-color-border-interactive-secondary);
+    }
+
+    .mx_ThreadView .mx_BaseCard_header .mx_DesktopThreadView_title {
+        height: auto;
+        gap: 12px;
+        min-width: 0;
+
+        > svg {
+            flex: none;
+            width: 24px;
+            height: 24px;
+            color: var(--cpd-color-icon-secondary);
+        }
+
+        > div {
+            flex: 1;
+            min-width: 0;
+        }
+
+        h2 {
+            margin: 0;
+            font: var(--cpd-font-body-md-semibold);
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+
+        p {
+            margin: 0;
+            color: var(--cpd-color-text-secondary);
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+    }
+
+    @media (width < 800px) {
+        .mx_MainSplit:has(.mx_ThreadView) {
+            position: relative;
+
+            /* Keep the channel's raised status area below the thread overlay. */
+            > .mx_RoomView_body {
+                isolation: isolate;
+            }
+        }
+
+        .mx_RightPanel_ResizeWrapper:has(.mx_ThreadView) {
+            position: absolute !important;
+            inset-block: 0;
+            inset-inline-end: 0;
+            width: min(100%, 420px) !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+            z-index: 10;
+        }
+    }
+
     .mx_RightPanel:has(.mx_MemberListView) {
         background-color: var(--cpd-color-bg-canvas-default);
     }

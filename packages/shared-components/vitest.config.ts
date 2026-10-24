@@ -133,10 +133,12 @@ export default defineConfig({
     },
     optimizeDeps: {
         include: [
+            "react-dom/client",
             "vite-plugin-node-polyfills/shims/buffer",
             "vite-plugin-node-polyfills/shims/process",
             "@vector-im/compound-design-tokens/assets/web/icons",
             "@vector-im/compound-design-tokens/assets/web/icons/audio",
+            "@vector-im/compound-design-tokens/assets/web/icons/threads-solid",
             "@vector-im/compound-design-tokens/assets/web/icons/chat-new",
             "storybook/preview-api",
             // The room-list view pulls in a heavy dnd-kit + react-virtuoso graph. If these are left to

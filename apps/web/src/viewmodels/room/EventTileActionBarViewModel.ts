@@ -138,6 +138,7 @@ export class EventTileActionBarViewModel
             isPinned: eventState.isPinned,
             isQuoteExpanded: eventState.isQuoteExpanded,
             isThreadReplyAllowed: eventState.isThreadReplyAllowed,
+            startsThread: SettingsStore.getValue("feature_desktop_shell") && !props.mxEvent.getThread()?.length,
         };
     }
 

@@ -14,7 +14,14 @@ import {
     type Section,
     type UserStatus,
 } from "@element-hq/web-shared-components";
-import { ClientEvent, EventType, KnownMembership, RoomEvent, RoomStateEvent } from "matrix-js-sdk/src/matrix";
+import {
+    ClientEvent,
+    MatrixEventEvent,
+    EventType,
+    KnownMembership,
+    RoomEvent,
+    RoomStateEvent,
+} from "matrix-js-sdk/src/matrix";
 import { CallType } from "matrix-js-sdk/src/webrtc/call";
 import { logger } from "matrix-js-sdk/src/logger";
 
@@ -47,6 +54,11 @@ import { _t } from "../../languageHandler";
 import { fetchUserStatus } from "../../utils/userStatus";
 import { mediaFromMxc } from "../../customisations/Media";
 import { type ViewUserPayload } from "../../dispatcher/payloads/ViewUserPayload";
+import RightPanelStore from "../../stores/right-panel/RightPanelStore";
+import { RightPanelPhases } from "../../stores/right-panel/RightPanelStorePhases";
+import { UPDATE_EVENT } from "../../stores/AsyncStore";
+import { type ShowThreadPayload } from "../../dispatcher/payloads/ShowThreadPayload";
+import { threadLabel } from "../threads/threadLabel";
 import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
 
 /**
@@ -74,6 +86,7 @@ export class RoomListItemViewModel
      */
     private currentCall: Call | null = null;
     private callDisposables = new Disposables();
+    private threadDisposables = new Disposables();
     /**
      * The sections available in the "Move to section" submenu (tag + display name), identical
      * for every update of this item. Computing it reads the custom section settings, so it is
@@ -101,6 +114,9 @@ export class RoomListItemViewModel
         super(props, initialItem);
 
         this.notifState = notifState;
+        this.disposables.trackListener(RightPanelStore.instance, UPDATE_EVENT, this.updateActiveThread);
+        this.disposables.track(() => this.threadDisposables.dispose());
+        this.updateActiveThread();
         this.availableSections = availableSections;
 
         // Subscribe to notification state changes for this room
@@ -280,6 +296,42 @@ export class RoomListItemViewModel
     private readonly onParticipantProfileChanged = (): void => {
         if (this.snapshot.current.channelKind === "voice") {
             this.updateItem();
+        }
+    };
+
+    private updateActiveThread = (): void => {
+        this.threadDisposables.dispose();
+        this.threadDisposables = new Disposables();
+        const store = RightPanelStore.instance;
+        const card = store.currentCard;
+        const root = card.phase === RightPanelPhases.ThreadView ? card.state?.threadHeadEvent : undefined;
+        const active =
+            this.snapshot.current.channelKind === "text" && store.isOpen && root?.getRoomId() === this.props.room.roomId
+                ? root
+                : undefined;
+        this.snapshot.merge({ activeThread: active ? { id: active.getId()!, title: threadLabel(active) } : undefined });
+        if (active) {
+            for (const event of [
+                MatrixEventEvent.Decrypted,
+                MatrixEventEvent.Replaced,
+                MatrixEventEvent.BeforeRedaction,
+            ]) {
+                this.threadDisposables.trackListener(active, event, this.refreshActiveThreadContent);
+            }
+        }
+    };
+
+    private refreshActiveThreadContent = (): void => {
+        queueMicrotask(() => {
+            if (!this.isDisposed) this.updateActiveThread();
+        });
+    };
+
+    public onOpenActiveThread = (): void => {
+        const card = RightPanelStore.instance.currentCard;
+        const root = card.phase === RightPanelPhases.ThreadView ? card.state?.threadHeadEvent : undefined;
+        if (this.getSnapshot().activeThread && root?.getRoomId() === this.props.room.roomId) {
+            dispatcher.dispatch<ShowThreadPayload>({ action: Action.ShowThread, rootEvent: root });
         }
     };
 

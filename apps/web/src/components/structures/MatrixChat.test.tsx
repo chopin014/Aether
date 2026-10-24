@@ -65,6 +65,9 @@ import * as Lifecycle from "../../Lifecycle";
 import { LegacyCryptoStoreError } from "../../utils/LegacyCryptoStoreError.ts";
 import { SSO_HOMESERVER_URL_KEY, SSO_ID_SERVER_URL_KEY } from "../../BasePlatform";
 import SettingsStore from "../../settings/SettingsStore";
+import RightPanelStore from "../../stores/right-panel/RightPanelStore";
+import { RightPanelPhases } from "../../stores/right-panel/RightPanelStorePhases";
+import { TimelineRenderingType } from "../../contexts/RoomContext";
 import { SettingLevel } from "../../settings/SettingLevel";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import DMRoomMap from "../../utils/DMRoomMap";
@@ -383,6 +386,39 @@ describe("<MatrixChat />", () => {
         await waitFor(() => {
             expect(defaultDispatcher.fire).toHaveBeenCalledWith(Action.FocusThreadsPanel);
         });
+    });
+
+    it.each([false, true])("opens a Matrix thread with desktop shell enabled=%s", async (desktopShell) => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        vi.spyOn(SettingsStore, "getValue").mockImplementation((setting, ...args) =>
+            setting === "feature_desktop_shell" ? desktopShell : getValue(setting, ...args),
+        );
+        const openThread = vi.spyOn(RightPanelStore.instance, "openThread").mockImplementation(() => {});
+        const setCards = vi.spyOn(RightPanelStore.instance, "setCards").mockImplementation(() => {});
+        const rootEvent = new MatrixEvent({ event_id: "$root", room_id: "!room:server.org" });
+        getComponent();
+
+        await act(async () => {
+            defaultDispatcher.dispatch({ action: Action.ShowThread, rootEvent }, true);
+        });
+
+        const card = expect.objectContaining({
+            phase: RightPanelPhases.ThreadView,
+            state: expect.objectContaining({ threadHeadEvent: rootEvent }),
+        });
+        if (desktopShell) {
+            expect(openThread).toHaveBeenCalledWith(card, "!room:server.org");
+            expect(setCards).not.toHaveBeenCalled();
+        } else {
+            expect(setCards).toHaveBeenCalledWith([{ phase: RightPanelPhases.ThreadPanel }, card]);
+            expect(openThread).not.toHaveBeenCalled();
+        }
+        await waitFor(() =>
+            expect(defaultDispatcher.dispatch).toHaveBeenCalledWith({
+                action: Action.FocusSendMessageComposer,
+                context: TimelineRenderingType.Thread,
+            }),
+        );
     });
 
     it("should notify resizenotifier when left panel hidden", async () => {

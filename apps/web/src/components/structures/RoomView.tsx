@@ -237,6 +237,7 @@ export interface IRoomState {
     showApps: boolean;
     isPeeking: boolean;
     showRightPanel: boolean;
+    rightPanelPhase?: RightPanelPhases | null;
     // error object, as from the matrix client/server API
     // If we failed to load information about the room,
     // store the error here.
@@ -1143,6 +1144,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         const { roomId } = this.state;
         this.setState({
             showRightPanel: roomId ? this.context.rightPanelStore.isOpenForRoom(roomId) : false,
+            rightPanelPhase: roomId ? this.context.rightPanelStore.currentCardForRoom(roomId).phase : null,
         });
     };
 
@@ -2746,6 +2748,16 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             sizeKey = "desktop_members";
             defaultSize = 240;
             minSize = 240;
+        }
+
+        if (
+            SettingsStore.getValue("feature_desktop_shell") &&
+            this.context.rightPanelStore.currentCardForRoom(this.state.room.roomId).phase ===
+                RightPanelPhases.ThreadView
+        ) {
+            sizeKey = "desktop_thread";
+            defaultSize = 420;
+            minSize = 320;
         }
 
         const extraButtons: JSX.Element[] = [];

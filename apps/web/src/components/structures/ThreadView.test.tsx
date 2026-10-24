@@ -8,11 +8,12 @@ Please see LICENSE files in the repository root for full details.
 
 // @vitest-environment happy-dom
 
-import { vi, describe, it, expect, beforeEach } from "vitest";
-import { act, getByTestId, render, type RenderResult, waitFor } from "test-utils-rtl";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import { act, cleanup, getByTestId, render, type RenderResult, waitFor } from "test-utils-rtl";
 import userEvent from "@testing-library/user-event";
 import {
     MsgType,
+    MatrixEventEvent,
     RelationType,
     EventStatus,
     type MatrixEvent,
@@ -22,8 +23,10 @@ import {
     THREAD_RELATION_TYPE,
 } from "matrix-js-sdk/src/matrix";
 import React, { useState } from "react";
-import { mockPlatformPeg, getRoomContext, mkMessage, stubClient, untilDispatch } from "test-utils";
+import { flushPromises, mockPlatformPeg, getRoomContext, mkMessage, stubClient, untilDispatch } from "test-utils";
 import { mkThread } from "test-utils/threads";
+
+import SettingsStore from "../../settings/SettingsStore";
 
 import ThreadView from "./ThreadView";
 import MatrixClientContext from "../../contexts/MatrixClientContext";
@@ -46,6 +49,8 @@ describe("ThreadView", () => {
     let room: Room;
     let rootEvent: MatrixEvent;
 
+    const onClose = vi.fn();
+
     let changeEvent: (event: MatrixEvent) => void;
 
     function TestThreadView({ initialEvent }: { initialEvent?: MatrixEvent }) {
@@ -61,7 +66,7 @@ describe("ThreadView", () => {
                 >
                     <ThreadView
                         room={room}
-                        onClose={vi.fn()}
+                        onClose={onClose}
                         mxEvent={event}
                         initialEvent={initialEvent}
                         resizeNotifier={new ResizeNotifier()}
@@ -140,6 +145,32 @@ describe("ThreadView", () => {
         vi.spyOn(DMRoomMap.shared(), "getUserIdForRoomId").mockReturnValue(SENDER);
     });
 
+    afterEach(async () => {
+        // Unmount dispatches navigation actions; finish them while the fixture client is still installed.
+        cleanup();
+        await flushPromises();
+        vi.restoreAllMocks();
+    });
+
+    it("shows the actual starter and channel context in desktop mode and closes with Escape", async () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        vi.spyOn(SettingsStore, "getValue").mockImplementation((setting, ...args) =>
+            setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+        );
+        const rootListeners = rootEvent.listenerCount(MatrixEventEvent.Replaced);
+        const { getByRole, getByText, unmount } = await getComponent();
+        expect(getByRole("heading", { name: rootEvent.getContent().body })).toBeVisible();
+        expect(getByText(room.name)).toBeVisible();
+        rootEvent.getContent().body = "An edited starter";
+        await act(() => rootEvent.emit(MatrixEventEvent.Replaced, rootEvent));
+        expect(getByRole("heading", { name: "An edited starter" })).toBeVisible();
+        await userEvent.click(getByRole("textbox"));
+        await userEvent.keyboard("{Escape}");
+        expect(onClose).toHaveBeenCalledOnce();
+        unmount();
+        expect(rootEvent.listenerCount(MatrixEventEvent.Replaced)).toBe(rootListeners);
+    });
+
     it("does not include pending root event in the timeline twice", async () => {
         rootEvent = mkMessage({
             user: mockClient.getUserId()!,
@@ -156,6 +187,27 @@ describe("ThreadView", () => {
         const { container } = await getComponent();
         const tiles = container.getElementsByClassName("mx_EventTile");
         expect(tiles.length).toEqual(1);
+    });
+
+    it("renders a sent first reply only once while it is still in the pending list", async () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        vi.spyOn(SettingsStore, "getValue").mockImplementation((setting, ...args) =>
+            setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+        );
+        const reply = mkMessage({
+            user: mockClient.getSafeUserId(),
+            event: true,
+            room: room.roomId,
+            msg: "First reply",
+        });
+        reply.getContent()["m.relates_to"] = { rel_type: RelationType.Thread, event_id: rootEvent.getId() };
+        reply.setStatus(EventStatus.SENDING);
+        reply.setTxnId("first-reply");
+        room.addPendingEvent(reply, "first-reply");
+        room.updatePendingEvent(reply, EventStatus.SENT, "$first-reply");
+        room.getThread(rootEvent.getId()!)!.addEvent(reply, false);
+        const { container } = await getComponent();
+        expect(container.querySelectorAll('[data-event-id="$first-reply"]')).toHaveLength(1);
     });
 
     it("sends a message with the correct fallback", async () => {
@@ -209,7 +261,11 @@ describe("ThreadView", () => {
         const mock = vi.spyOn(dispatcher, "dispatch");
         const { unmount } = await getComponent(rootEvent);
         mock.mockClear();
-        unmount();
+        const navigation = untilDispatch(Action.ViewRoom, dispatcher);
+        await act(async () => {
+            unmount();
+            await navigation;
+        });
         expect(mock).toHaveBeenCalledWith({
             action: Action.ViewRoom,
             room_id: room.roomId,

@@ -3916,5 +3916,12 @@
             "userInputs": "Não deve haver nenhum dado pessoal ou relacionado à página.",
             "wordByItself": "Uma palavra por si só é fácil de adivinhar"
         }
+    },
+    "desktop": {
+        "threads": {
+            "close": "Fechar tópico",
+            "removed": "Mensagem removida",
+            "start": "Iniciar tópico"
+        }
     }
 }

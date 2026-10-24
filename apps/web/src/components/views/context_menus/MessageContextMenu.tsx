@@ -109,7 +109,11 @@ const ReplyInThreadButton: React.FC<IReplyInThreadButton> = ({ mxEvent, closeMen
         closeMenu();
     };
 
-    return <IconizedContextMenuOption icon={<ThreadsIcon />} label={_t("action|reply_in_thread")} onClick={onClick} />;
+    const label =
+        SettingsStore.getValue("feature_desktop_shell") && !mxEvent.getThread()?.length
+            ? _t("desktop|threads|start")
+            : _t("action|reply_in_thread");
+    return <IconizedContextMenuOption icon={<ThreadsIcon />} label={label} onClick={onClick} />;
 };
 
 interface IProps extends MenuProps {

@@ -67,6 +67,7 @@ import { useIsEncrypted } from "../../../../hooks/useIsEncrypted.ts";
 import { useUserStatus } from "../../../../hooks/useUserStatus.ts";
 import { SDKContext } from "../../../../contexts/SDKContext.ts";
 import { useContextMenu, ChevronFace } from "../../../structures/ContextMenu";
+import { DesktopThreadBrowser } from "../threads/DesktopThreadBrowser";
 import { RoomNotificationContextMenu } from "../../context_menus/RoomNotificationContextMenu";
 
 function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: JSX.Element }): JSX.Element {
@@ -321,19 +322,23 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
 
             {showChatButton && <VideoRoomChatButton room={room} />}
 
-            <Tooltip label={_t("common|threads")}>
-                <IconButton
-                    indicator={notificationLevelToIndicator(threadNotifications)}
-                    onClick={(evt) => {
-                        evt.stopPropagation();
-                        sdkContext.rightPanelStore.showOrHidePhase(RightPanelPhases.ThreadPanel);
-                        PosthogTrackers.trackInteraction("WebRoomHeaderButtonsThreadsButton", evt);
-                    }}
-                    aria-label={_t("common|threads")}
-                >
-                    <ToggleableIcon Icon={ThreadsIcon} phase={RightPanelPhases.ThreadPanel} />
-                </IconButton>
-            </Tooltip>
+            {desktopShell ? (
+                <DesktopThreadBrowser key={`threads-${room.roomId}`} room={room} />
+            ) : (
+                <Tooltip label={_t("common|threads")}>
+                    <IconButton
+                        indicator={notificationLevelToIndicator(threadNotifications)}
+                        onClick={(evt) => {
+                            evt.stopPropagation();
+                            sdkContext.rightPanelStore.showOrHidePhase(RightPanelPhases.ThreadPanel);
+                            PosthogTrackers.trackInteraction("WebRoomHeaderButtonsThreadsButton", evt);
+                        }}
+                        aria-label={_t("common|threads")}
+                    >
+                        <ToggleableIcon Icon={ThreadsIcon} phase={RightPanelPhases.ThreadPanel} />
+                    </IconButton>
+                </Tooltip>
+            )}
             {!desktopShell && notificationsEnabled && (
                 <Tooltip label={_t("notifications|enable_prompt_toast_title")}>
                     <IconButton

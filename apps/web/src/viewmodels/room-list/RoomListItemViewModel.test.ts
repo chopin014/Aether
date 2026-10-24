@@ -12,6 +12,7 @@ import { vi, describe, it, expect, beforeEach, afterEach, type Mock } from "vite
 import {
     type MatrixClient,
     MatrixEvent,
+    MatrixEventEvent,
     EventType,
     KnownMembership,
     Room,
@@ -41,6 +42,9 @@ import RoomListStoreV3 from "../../stores/room-list-v3/RoomListStoreV3";
 import * as tagRoomModule from "../../utils/room/tagRoom";
 import { CHATS_TAG } from "../../stores/room-list-v3/section";
 import { type VoiceState } from "@element-hq/element-call-component/api";
+import RightPanelStore from "../../stores/right-panel/RightPanelStore";
+import { RightPanelPhases } from "../../stores/right-panel/RightPanelStorePhases";
+import { UPDATE_EVENT } from "../../stores/AsyncStore";
 import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
 
 vi.mock("./utils", () => ({
@@ -113,6 +117,49 @@ describe("RoomListItemViewModel", () => {
                 setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
             );
             vi.spyOn(MatrixClientPeg, "safeGet").mockReturnValue(matrixClient);
+        });
+
+        it("shows only the current room's open thread, refreshes its label and disposes listeners", async () => {
+            const root = new MatrixEvent({
+                event_id: "$thread",
+                room_id: room.roomId,
+                type: EventType.RoomMessage,
+                sender: matrixClient.getSafeUserId(),
+                content: { msgtype: "m.text", body: "Release planning" },
+            });
+            const store = RightPanelStore.instance;
+            const card = vi.spyOn(store, "currentCard", "get").mockReturnValue({
+                phase: RightPanelPhases.ThreadView,
+                state: { threadHeadEvent: root },
+            });
+            const open = vi.spyOn(store, "isOpen", "get").mockReturnValue(true);
+            const dispatch = vi.spyOn(dispatcher, "dispatch");
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            expect(viewModel.getSnapshot().activeThread).toMatchObject({ id: "$thread", title: "Release planning" });
+            viewModel.onOpenActiveThread();
+            expect(dispatch).toHaveBeenCalledWith({ action: Action.ShowThread, rootEvent: root });
+            root.getContent().body = "Updated starter";
+            root.emit(MatrixEventEvent.Replaced, root);
+            await flushPromises();
+            expect(viewModel.getSnapshot().activeThread?.title).toBe("Updated starter");
+            open.mockReturnValue(false);
+            store.emit(UPDATE_EVENT);
+            expect(viewModel.getSnapshot().activeThread).toBeUndefined();
+            open.mockReturnValue(true);
+            card.mockReturnValue({
+                phase: RightPanelPhases.ThreadView,
+                state: {
+                    threadHeadEvent: new MatrixEvent({
+                        event_id: "$another",
+                        room_id: "!different:example.org",
+                        type: EventType.RoomMessage,
+                    }),
+                },
+            });
+            store.emit(UPDATE_EVENT);
+            expect(viewModel.getSnapshot().activeThread).toBeUndefined();
+            viewModel.dispose();
+            expect(root.listenerCount(MatrixEventEvent.Replaced)).toBe(0);
         });
 
         it("uses the room avatar as the channel icon and follows its changes", () => {

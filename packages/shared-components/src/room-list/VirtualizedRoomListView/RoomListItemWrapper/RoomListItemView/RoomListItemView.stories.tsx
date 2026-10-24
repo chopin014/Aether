@@ -33,6 +33,7 @@ type RoomListItemProps = RoomListItemViewSnapshot &
 
 // Wrapper component that creates a mocked ViewModel
 const RoomListItemWrapperImpl = ({
+    onOpenActiveThread,
     onViewCallParticipant,
     onOpenRoom,
     onMarkAsRead,
@@ -55,6 +56,7 @@ const RoomListItemWrapperImpl = ({
     ...rest
 }: RoomListItemProps): JSX.Element => {
     const vm = useMockedViewModel(rest, {
+        onOpenActiveThread,
         onViewCallParticipant,
         onOpenRoom,
         onMarkAsRead,
@@ -412,5 +414,15 @@ export const DesktopVoiceParticipantsMultipleSpeaking: Story = {
             { userId: "@charlie:example.org", name: "Charlie", isSpeaking: true },
         ],
         onViewCallParticipant: fn(),
+    },
+};
+
+/** The currently open Matrix thread is indented under its real parent channel. */
+export const DesktopActiveThread: Story = {
+    args: {
+        channelKind: "text",
+        isSelected: true,
+        activeThread: { id: "$thread:example.org", title: "Release planning" },
+        onOpenActiveThread: fn(),
     },
 };

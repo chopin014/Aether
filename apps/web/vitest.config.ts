@@ -132,6 +132,7 @@ export default defineProject({
                             "room",
                             "section",
                             "settings",
+                            "threads-solid",
                             "user-add",
                             "video-call",
                         ].map((icon) => `@vector-im/compound-design-tokens/assets/web/icons/${icon}`),

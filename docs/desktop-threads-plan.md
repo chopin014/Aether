@@ -100,3 +100,35 @@ and confirm thread relations and channel continuity. Cover plaintext and encrypt
 where supported. Review dark/light, Portuguese, long text and constrained viewport captures at matching CSS scale.
 Separate the captured empty-state comparison from inferred populated layouts. Do not regenerate screenshot baselines
 locally. Keep implementation split into coherent commits, then let the parent review and push each feature.
+
+## Implementation status
+
+The desktop shell now uses a non-modal browser beneath the channel header. Discovery reads the SDK's all/participated
+thread sets, combines live thread updates, exposes server pagination, and searches only loaded roots and latest replies.
+Loading, retry, empty and no-results states are explicit. Root labels follow edits, decryption and redaction. Escape and
+outside clicks dismiss the browser and return focus to its trigger; changing rooms disposes the browser's listeners.
+
+Browser creation posts a normal Matrix starter message and its first `m.thread` reply through `MatrixClient.sendMessage`.
+The two initial fields are plain text; the resulting conversation uses Element's existing rich composer and upload path.
+Opening or cancelling creation sends nothing. Creation drafts are retained per room for the current client session.
+Stable SDK transaction IDs and failed-local-echo resend preserve the root across partial failures and prevent duplicate
+messages on retry. Once sending starts, its content remains fixed while an uncertain send is retried.
+
+Thread results, message actions, inline root summaries and permalinks continue into the existing `ThreadView`. Its desktop
+header derives its label from the root and includes the parent channel, existing thread actions and Close. Closing restores
+the previous right-panel state and visibility. Switching roots gives each composer its own existing thread draft. A currently
+open thread appears beneath its actual parent channel; it does not create a room, participant roster or subscription.
+Narrow screens present the same conversation over the channel area with reachable navigation and composer controls.
+The existing thread-browser presentation remains in configurations without `feature_desktop_shell`.
+
+### Protocol and evidence boundaries
+
+- A starter is a real room message. There is no separate local-only name, and existing roots are never rewritten to rename
+  a thread. Everyone with room access can read its threads.
+- No private-thread, per-thread membership, rename, shared archive/lock, auto-archive or slow-mode controls are simulated.
+  Close is local navigation. Existing Matrix notification and thread-link actions retain their actual meanings.
+- The saved Discord evidence verifies only the empty browser's anchored 480 × approximately 449 CSS-pixel geometry and
+  its title/search/Create structure. Populated rows, creation, the open conversation and the active-thread row are inferred
+  adaptations tested against Matrix behavior. They are not claimed as captured Discord parity.
+- The implementation retains Aether/Compound colors and typography and uses existing licensed Aether icons. Its empty
+  illustration is composed from those icons; no Discord fonts, graphics or private reference content are shipped.

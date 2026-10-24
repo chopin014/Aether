@@ -8,6 +8,7 @@
         "click": "Select",
         "close": "Close",
         "collapse": "Collapse",
+        "create": "Create",
         "delete": "Delete",
         "dismiss": "Dismiss",
         "download": "Download",
@@ -45,7 +46,8 @@
         "loading": "Loading…",
         "options": "Options",
         "preferences": "Preferences",
-        "state_encryption_enabled": "Experimental state encryption enabled"
+        "state_encryption_enabled": "Experimental state encryption enabled",
+        "threads": "Threads"
     },
     "composer": {
         "url_preview": {
@@ -85,6 +87,29 @@
             "search": "Search",
             "unavailable": "Idle",
             "unblock": "Unblock"
+        },
+        "threads": {
+            "create": "Create thread",
+            "create_description": "The starter is posted in this channel. Your first reply starts its thread. Everyone with access to the channel can read it.",
+            "empty_description": "Keep a conversation focused with a thread.",
+            "empty_title": "There are no threads.",
+            "first_reply": "First reply",
+            "load_error": "Threads could not be loaded. Try again.",
+            "load_more": "Load more threads",
+            "no_results": "No matching threads",
+            "open": "Open thread %(title)s",
+            "replies": {
+                "one": "%(count)s reply",
+                "other": "%(count)s replies"
+            },
+            "search": "Search threads",
+            "search_scope": "Search covers loaded threads. Load more to search older conversations.",
+            "send_error": "The thread could not be completed. Your draft is saved. Retry to continue.",
+            "sending": "Sending…",
+            "start": "Start thread",
+            "starter": "Starter message",
+            "starter_sent": "The starter was sent. Retry to send its first reply.",
+            "unread": "Unread"
         },
         "voice": {
             "camera_off": "Turn off camera",
@@ -358,7 +383,9 @@
         "tac_button": "Review terms and conditions"
     },
     "threads": {
-        "error_start_thread_existing_relation": "You can't start a thread from this message."
+        "all_threads": "All threads",
+        "error_start_thread_existing_relation": "You can't start a thread from this message.",
+        "my_threads": "My threads"
     },
     "time": {
         "about_day_ago": "about a day ago",

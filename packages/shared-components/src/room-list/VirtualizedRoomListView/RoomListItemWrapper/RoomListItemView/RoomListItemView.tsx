@@ -8,6 +8,7 @@
 import React, { type JSX, memo, useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import classNames from "classnames";
 import { useMergeRefs } from "react-merge-refs";
+import ThreadsIcon from "@vector-im/compound-design-tokens/assets/web/icons/threads-solid";
 import { Avatar } from "@vector-im/compound-web";
 import { HeadphonesOffSolidIcon, MicOffSolidIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 
@@ -91,6 +92,8 @@ export interface RoomListItemViewSnapshot {
     isDm: boolean;
     /** Desktop channel symbol; direct messages retain their profile avatars. */
     channelKind?: "text" | "voice";
+    /** The real Matrix thread currently open beneath this channel. */
+    activeThread?: { id: string; title: string };
     /** A desktop channel's custom icon, taken from its room avatar, replacing the channel symbol. */
     channelIconUrl?: string;
     /** Whether the user may rename the channel and change its icon. */
@@ -136,6 +139,8 @@ export interface RoomListItemViewSnapshot {
  * Implemented by the room item view model.
  */
 export interface RoomListItemViewActions {
+    /** Focus the currently open Matrix thread. */
+    onOpenActiveThread?: () => void;
     /** Open a voice participant's real Matrix profile. */
     onViewCallParticipant?: (userId: string) => void;
     /** Open the channel's settings, where its name, topic and icon are changed. */
@@ -303,6 +308,25 @@ export const RoomListItemView = memo(function RoomListItemView({
             </Flex>
         </RoomListItemContextMenu>
     );
+
+    if (item.channelKind === "text" && item.activeThread) {
+        return (
+            <div className={styles.channelWithParticipants}>
+                {roomItem}
+                <button
+                    type="button"
+                    className={styles.activeThread}
+                    aria-current="true"
+                    aria-label={_t("desktop|threads|open", { title: item.activeThread.title })}
+                    title={item.activeThread.title}
+                    onClick={vm.onOpenActiveThread}
+                >
+                    <ThreadsIcon aria-hidden />
+                    <span dir="auto">{item.activeThread.title}</span>
+                </button>
+            </div>
+        );
+    }
 
     if (item.channelKind !== "voice" || !item.callParticipants?.length) return roomItem;
 

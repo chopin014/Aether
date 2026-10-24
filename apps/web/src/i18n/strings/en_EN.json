@@ -769,6 +769,11 @@
             "invited": "Invited"
         },
         "text_channels": "Text Channels",
+        "threads": {
+            "close": "Close thread",
+            "removed": "Removed message",
+            "start": "Start thread"
+        },
         "voice": {
             "action_failed": "The audio control could not be changed. Please try again.",
             "camera_failed": "The camera could not be changed. Please try again.",

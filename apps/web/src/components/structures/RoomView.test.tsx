@@ -384,6 +384,25 @@ describe("RoomView", () => {
             ]);
         });
 
+        it("updates the desktop panel size when an already open member panel changes to a thread", async () => {
+            const ref = createRef<RoomView>();
+            await mountRoomView(ref);
+            await act(() => stores.rightPanelStore.setCard({ phase: RightPanelPhases.MemberList }, false, room.roomId));
+            const timeline = screen.getByTestId("timeline");
+            expect(ref.current?.state.rightPanelPhase).toBe(RightPanelPhases.MemberList);
+            await act(() =>
+                stores.rightPanelStore.openThread(
+                    { phase: RightPanelPhases.ThreadView, state: { threadHeadEvent: pinnedEvent } },
+                    room.roomId,
+                ),
+            );
+            expect(ref.current?.state.rightPanelPhase).toBe(RightPanelPhases.ThreadView);
+            expect(screen.getByTestId("timeline")).toBe(timeline);
+            await act(() => stores.rightPanelStore.closeThread(room.roomId));
+            expect(ref.current?.state.rightPanelPhase).toBe(RightPanelPhases.MemberList);
+            expect(screen.getByTestId("timeline")).toBe(timeline);
+        });
+
         it("should open and close the pinned messages panel from the desktop header", async () => {
             cli.relations.mockResolvedValue({ originalEvent: pinnedEvent, events: [] });
             cli.setRoomAccountData.mockResolvedValue({});

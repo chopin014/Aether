@@ -15,6 +15,7 @@ import * as stories from "./RoomListItemView.stories";
 
 const {
     Default,
+    DesktopActiveThread,
     Selected,
     Bold,
     WithNotification,
@@ -35,6 +36,16 @@ const {
 } = composeStories(stories);
 
 describe("<RoomListItemView />", () => {
+    it("focuses the active thread independently from opening its parent channel", async () => {
+        const onOpen = vi.fn();
+        const onRoom = vi.fn();
+        render(<DesktopActiveThread onOpenActiveThread={onOpen} onOpenRoom={onRoom} />);
+        const thread = screen.getByRole("button", { name: "Open thread Release planning" });
+        expect(thread).toHaveAttribute("aria-current", "true");
+        await userEvent.click(thread);
+        expect(onOpen).toHaveBeenCalledOnce();
+        expect(onRoom).not.toHaveBeenCalled();
+    });
     it("renders actual members beneath a voice channel and opens their profile separately from joining", async () => {
         const user = userEvent.setup();
         const onProfile = vi.fn();

@@ -15,9 +15,14 @@ import {
     RoomEvent,
     type IEventRelation,
     type MatrixEvent,
+    MatrixEventEvent,
 } from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
 import classNames from "classnames";
+import { Text } from "@vector-im/compound-web";
+import ThreadsIcon from "@vector-im/compound-design-tokens/assets/web/icons/threads-solid";
+
+import { threadLabel } from "../../viewmodels/threads/threadLabel";
 
 import BaseCard from "../views/right_panel/BaseCard";
 import { RightPanelPhases } from "../../stores/right-panel/RightPanelStorePhases";
@@ -103,6 +108,10 @@ export default class ThreadView extends React.Component<IProps, IState> {
     }
 
     public componentDidMount(): void {
+        this.props.mxEvent.on(MatrixEventEvent.Decrypted, this.onRootChanged);
+        this.props.mxEvent.on(MatrixEventEvent.Replaced, this.onRootChanged);
+        this.props.room.on(RoomEvent.Redaction, this.onRootChanged);
+
         this.setupThreadListeners(this.state.thread);
 
         this.layoutWatcherRef = SettingsStore.watchSetting("layout", null, (...[, , , value]) =>
@@ -120,6 +129,10 @@ export default class ThreadView extends React.Component<IProps, IState> {
     }
 
     public componentWillUnmount(): void {
+        this.props.mxEvent.off(MatrixEventEvent.Decrypted, this.onRootChanged);
+        this.props.mxEvent.off(MatrixEventEvent.Replaced, this.onRootChanged);
+        this.props.room.off(RoomEvent.Redaction, this.onRootChanged);
+
         dis.unregister(this.dispatcherRef);
         const roomId = this.props.mxEvent.getRoomId();
         SettingsStore.unwatchSetting(this.layoutWatcherRef);
@@ -145,6 +158,11 @@ export default class ThreadView extends React.Component<IProps, IState> {
 
     public componentDidUpdate(prevProps: IProps): void {
         if (prevProps.mxEvent !== this.props.mxEvent) {
+            prevProps.mxEvent.off(MatrixEventEvent.Decrypted, this.onRootChanged);
+            prevProps.mxEvent.off(MatrixEventEvent.Replaced, this.onRootChanged);
+            this.props.mxEvent.on(MatrixEventEvent.Decrypted, this.onRootChanged);
+            this.props.mxEvent.on(MatrixEventEvent.Replaced, this.onRootChanged);
+            this.setState({ editState: undefined, replyToEvent: undefined });
             this.setEventId(this.props.mxEvent);
             this.setupThread(this.props.mxEvent);
         }
@@ -306,6 +324,12 @@ export default class ThreadView extends React.Component<IProps, IState> {
     };
 
     private onKeyDown = (ev: KeyboardEvent): void => {
+        if (SettingsStore.getValue("feature_desktop_shell") && ev.key === "Escape" && !ev.defaultPrevented) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            this.props.onClose();
+            return;
+        }
         let handled = false;
 
         const action = getKeyBindingsManager().getRoomAction(ev);
@@ -346,7 +370,31 @@ export default class ThreadView extends React.Component<IProps, IState> {
         return relation;
     }
 
+    private onRootChanged = (): void => {
+        this.forceUpdate();
+    };
+
     private renderThreadViewHeader = (): JSX.Element => {
+        if (SettingsStore.getValue("feature_desktop_shell")) {
+            return (
+                <div className="mx_BaseCard_header_title mx_DesktopThreadView_title">
+                    <ThreadsIcon aria-hidden />
+                    <div>
+                        <Text as="h2" weight="semibold" title={threadLabel(this.props.mxEvent)} dir="auto">
+                            {threadLabel(this.props.mxEvent)}
+                        </Text>
+                        <Text size="sm" dir="auto">
+                            {this.props.room.name}
+                        </Text>
+                    </div>
+                    <ThreadListContextMenu
+                        mxEvent={this.props.mxEvent}
+                        permalinkCreator={this.props.permalinkCreator}
+                    />
+                </div>
+            );
+        }
+
         return (
             <div className="mx_BaseCard_header_title">
                 <Heading size="4" className="mx_BaseCard_header_title_heading">
@@ -427,6 +475,10 @@ export default class ThreadView extends React.Component<IProps, IState> {
                             mx_ThreadView_narrow: this.state.narrow,
                         })}
                         onClose={this.props.onClose}
+                        hideBackButton={SettingsStore.getValue("feature_desktop_shell")}
+                        closeLabel={
+                            SettingsStore.getValue("feature_desktop_shell") ? _t("desktop|threads|close") : undefined
+                        }
                         withoutScrollContainer={true}
                         header={this.renderThreadViewHeader()}
                         ref={this.card}
@@ -444,6 +496,7 @@ export default class ThreadView extends React.Component<IProps, IState> {
 
                         {this.state.thread?.timelineSet && (
                             <MessageComposer
+                                key={this.state.thread.id}
                                 room={this.props.room}
                                 resizeNotifier={this.props.resizeNotifier}
                                 relation={threadRelation}

@@ -931,7 +931,9 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
                         initialEventScrollIntoView: scrollIntoView,
                     },
                 };
-                if (push ?? false) {
+                if (SettingsStore.getValue("feature_desktop_shell")) {
+                    RightPanelStore.instance.openThread(threadViewCard, rootEvent.getRoomId()!);
+                } else if (push ?? false) {
                     RightPanelStore.instance.pushCard(threadViewCard);
                 } else {
                     RightPanelStore.instance.setCards([{ phase: RightPanelPhases.ThreadPanel }, threadViewCard]);

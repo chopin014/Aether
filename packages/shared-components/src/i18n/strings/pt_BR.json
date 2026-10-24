@@ -11,10 +11,12 @@
         "new_voice_room": "Nova sala de voz",
         "pause": "Pausar",
         "play": "Reproduzir",
-        "search": "Buscar"
+        "search": "Buscar",
+        "create": "Criar"
     },
     "common": {
-        "preferences": "Preferências"
+        "preferences": "Preferências",
+        "threads": "Tópicos"
     },
     "left_panel": {
         "open_dial_pad": "Abrir o teclado de discagem"
@@ -65,5 +67,34 @@
         "retry": "Tentar atualizar presença novamente",
         "unknown_hint": "Seu status selecionado; status do servidor indisponível.",
         "selected_hint": "Seu status selecionado neste dispositivo."
+    },
+    "desktop": {
+        "threads": {
+            "search": "Buscar tópicos",
+            "load_error": "Não foi possível carregar os tópicos. Tente novamente.",
+            "no_results": "Nenhum tópico encontrado",
+            "empty_title": "Não há tópicos.",
+            "empty_description": "Mantenha o foco em uma conversa com um tópico.",
+            "search_scope": "A busca inclui os tópicos carregados. Carregue mais para buscar conversas antigas.",
+            "create": "Criar tópico",
+            "replies": {
+                "one": "%(count)s resposta",
+                "other": "%(count)s respostas"
+            },
+            "load_more": "Carregar mais tópicos",
+            "create_description": "A mensagem inicial será publicada neste canal. Sua primeira resposta inicia o tópico. Todos com acesso ao canal podem lê-lo.",
+            "starter": "Mensagem inicial",
+            "first_reply": "Primeira resposta",
+            "starter_sent": "A mensagem inicial foi enviada. Tente novamente para enviar a primeira resposta.",
+            "send_error": "Não foi possível concluir o tópico. Seu rascunho foi salvo. Tente novamente para continuar.",
+            "sending": "Enviando…",
+            "unread": "Não lido",
+            "start": "Iniciar tópico",
+            "open": "Abrir tópico %(title)s"
+        }
+    },
+    "threads": {
+        "all_threads": "Todos os tópicos",
+        "my_threads": "Meus tópicos"
     }
 }

@@ -15,6 +15,7 @@ import React from "react";
 import { CallType, type MatrixCall } from "matrix-js-sdk/src/webrtc/call";
 import {
     EventType,
+    EventTimelineSet,
     JoinRule,
     MatrixEvent,
     PendingEventOrdering,
@@ -284,6 +285,29 @@ describe("RoomHeader", () => {
 
         await user.click(getByLabelText(document.body, "Threads"));
         expect(setCardSpy).toHaveBeenCalledWith({ phase: RightPanelPhases.ThreadPanel });
+    });
+
+    it("toggles desktop discovery without replacing the channel's right panel", async () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const setting = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        const sets: [EventTimelineSet, EventTimelineSet] = [new EventTimelineSet(room), new EventTimelineSet(room)];
+        vi.spyOn(room, "createThreadsTimelineSets").mockResolvedValue(sets);
+        vi.spyOn(room, "fetchRoomThreads").mockResolvedValue();
+        try {
+            render(<RoomHeader room={room} />, getWrapper());
+            const trigger = screen.getByRole("button", { name: "Threads" });
+            await userEvent.click(trigger);
+            expect(screen.getByRole("dialog", { name: "Threads" })).toBeVisible();
+            expect(await screen.findByRole("heading", { name: "There are no threads." })).toBeVisible();
+            expect(setCardSpy).not.toHaveBeenCalled();
+            await userEvent.click(trigger);
+            expect(screen.queryByRole("dialog", { name: "Threads" })).not.toBeInTheDocument();
+            expect(trigger).toHaveFocus();
+        } finally {
+            setting.mockRestore();
+        }
     });
 
     it("opens the notifications panel", async () => {
