@@ -236,6 +236,7 @@ With `feature_desktop_shell` on, every `RightPanelPhases` entry has one of these
 | `ThreadPanel`        | Replaced by the thread popover.                                                                                                   |
 
 The space and home summaries (`SpaceRoomView`, `HomePage`) are pages, not right-panel phases, and are unchanged.
+
 ## Voice & Video settings
 
 With `feature_desktop_shell` on, Settings → Voice & Video is Aether's page, laid out like Discord's: Voice, Video,
