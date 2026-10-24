@@ -112,7 +112,7 @@ function setup(inSpace = false, enabled = true, loadSpace: () => Promise<boolean
 }
 
 describe("useDesktopMemberListViewModel", () => {
-    it("should keep SDK defaults neutral and react to a first offline event without a value change", async () => {
+    it("should present unknown SDK presence as offline and retain the received state separately", async () => {
         const { result, client, ada, bob, cy } = setup();
         await waitFor(() => expect(result.current.vm.isLoading).toBe(false));
         act(() => {
@@ -122,13 +122,7 @@ describe("useDesktopMemberListViewModel", () => {
                 client.emit(UserEvent.LastPresenceTs, undefined, member.user!);
             }
         });
-        await waitFor(() =>
-            expect(headings(result.current.items)).toEqual([
-                ["Admin", 1],
-                ["Moderator", 1],
-                ["Member list", 1],
-            ]),
-        );
+        await waitFor(() => expect(headings(result.current.items)).toEqual([["Offline", 3]]));
         expect(memberRows(result.current.items).every((member) => member.presenceState === undefined)).toBe(true);
         act(() => {
             cy.user = new User(cy.userId);
@@ -137,11 +131,11 @@ describe("useDesktopMemberListViewModel", () => {
             client.emit(ClientEvent.Event, event);
         });
         await waitFor(() =>
-            expect(headings(result.current.items)).toEqual([
-                ["Status unknown", 2],
-                ["Offline", 1],
-            ]),
+            expect(memberRows(result.current.items).find((member) => member.userId === cy.userId)?.presenceState).toBe(
+                "offline",
+            ),
         );
+        expect(headings(result.current.items)).toEqual([["Offline", 3]]);
     });
 
     afterEach(() => vi.restoreAllMocks());

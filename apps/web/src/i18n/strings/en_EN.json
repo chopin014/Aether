@@ -1920,7 +1920,6 @@
         "save_failed": "Could not save your presence preference on this device.",
         "unknown": "Unknown",
         "unknown_for": "Unknown for %(duration)s",
-        "unknown_members": "Status unknown",
         "unreachable": "Account provider of the user is unreachable",
         "update_failed": "Could not update presence. Your requested status is retained; retry to send it again."
     },

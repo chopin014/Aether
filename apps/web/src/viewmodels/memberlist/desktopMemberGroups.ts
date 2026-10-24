@@ -31,7 +31,7 @@ export function isMemberHeading(item: DesktopMemberListItem): item is DesktopMem
 /**
  * Group the channel's visible members by presence and highest standard Matrix role.
  * In a Space, only joined Space members receive Space roles; channel power never supplies a missing server role.
- * Without presence support the neutral Members section avoids claiming that anyone is online or offline.
+ * Missing or unsupported presence is presented in Offline alongside received offline states.
  */
 export function groupDesktopMembers(
     members: MemberWithSeparator[],
@@ -42,7 +42,6 @@ export function groupDesktopMembers(
     const roles = new Map<number, { heading: string; members: MemberWithSeparator[] }>();
     const others: MemberWithSeparator[] = [];
     const offline: MemberWithSeparator[] = [];
-    const unknown: MemberWithSeparator[] = [];
     // Local intent and Aether reports also work when homeserver presence is disabled.
     const knownState = (member: Member | undefined): string | undefined =>
         member?.presenceSource === "aether" ||
@@ -50,12 +49,6 @@ export function groupDesktopMembers(
         (isPresenceEnabled && !member?.presenceSource)
             ? member?.presenceState
             : undefined;
-    const hasKnownPresence = members.some(
-        (item) =>
-            item !== SEPARATOR &&
-            !item.member?.isInvite &&
-            ["online", "unavailable", "busy", "offline"].includes(knownState(item.member) ?? ""),
-    );
     const invited: MemberWithSeparator[] = [];
     const seen = new Set<string>();
     for (const item of members) {
@@ -68,13 +61,9 @@ export function groupDesktopMembers(
             invited.push(item);
             continue;
         }
-        if (hasKnownPresence && knownState(member) === "offline") {
-            offline.push(item);
-            continue;
-        }
         const state = knownState(member);
-        if (hasKnownPresence && state !== "online" && state !== "unavailable" && state !== "busy") {
-            unknown.push(item);
+        if (state !== "online" && state !== "unavailable" && state !== "busy") {
+            offline.push(item);
             continue;
         }
         const spaceMember = roleSpace?.getMember(member.userId);
@@ -111,12 +100,7 @@ export function groupDesktopMembers(
     for (const [level, group] of [...roles].sort(([a], [b]) => b - a)) {
         append(`role-${level}`, group.heading, group.members);
     }
-    append(
-        hasKnownPresence ? "online" : "members",
-        hasKnownPresence ? _t("desktop|contacts|online") : _t("member_list|list_title"),
-        others,
-    );
-    append("unknown", _t("presence|unknown_members"), unknown);
+    append("online", _t("desktop|contacts|online"), others);
     append("offline", _t("desktop|contacts|offline"), offline);
     append("invited", _t("desktop|members|invited"), invited);
     return result;

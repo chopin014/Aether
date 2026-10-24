@@ -208,6 +208,20 @@ describe("MemberListView and MemberlistHeaderView", () => {
             expect(root.container.querySelectorAll(".mx_PresenceIconView_offline")).toHaveLength(2);
         });
 
+        it("should show unknown members together as offline with grey badges", async () => {
+            const { root, client, adminUsers, moderatorUsers, defaultUsers } = await renderMemberList(true);
+            act(() => {
+                for (const member of [...adminUsers, ...moderatorUsers, ...defaultUsers]) {
+                    delete member.user!.events.presence;
+                    client.emit(UserEvent.LastPresenceTs, undefined, member.user!);
+                }
+            });
+            await waitFor(() => expect(root.getByRole("heading", { name: "Offline — 6" })).toBeVisible());
+            expect(root.getAllByRole("heading")).toHaveLength(1);
+            expect(root.container.querySelectorAll(".mx_PresenceIconView_offline")).toHaveLength(6);
+            expect(root.container.querySelectorAll(".mx_PresenceIconView_online")).toHaveLength(0);
+        });
+
         it("should skip headings during keyboard navigation and open the actual channel member profile", async () => {
             const { root } = await renderMemberList(true);
             const dispatch = vi.spyOn(defaultDispatcher, "dispatch");

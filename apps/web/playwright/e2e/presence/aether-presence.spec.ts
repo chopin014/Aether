@@ -98,6 +98,10 @@ test("shows another Aether client's encrypted signal in the member list and on t
     const dot = bobTile.locator(".mx_PresenceIconView");
 
     await expect(bobTile).toBeVisible();
+    await expect(dot.locator(".mx_PresenceIconView_offline")).toBeVisible();
+    await expect(members.getByRole("heading", { name: "Offline — 1", exact: true })).toBeVisible();
+    await expect(members.getByRole("heading", { name: /^Status unknown/ })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("assumed-offline.png") });
 
     await sendSignal(bot, user.userId, "online");
     await expect(dot.locator(".mx_PresenceIconView_online")).toBeVisible();
@@ -147,9 +151,9 @@ test("labels a non-Aether user's recent message as activity, never as online", a
     const dmEntry = page.getByRole("button", { name: /^Open room Bob/ });
     await expect(dmEntry.getByLabel("Active now", { exact: true })).toBeVisible();
     await expect(dmEntry.getByLabel("Online", { exact: true })).toHaveCount(0);
-    await expect(bobTile.locator(".mx_PresenceIconView_online")).toBeVisible();
-    // Seen activity says nothing certain, so it must not put someone in the Online group.
-    await expect(members.getByRole("heading", { name: /^Offline/ })).toHaveCount(0);
+    await expect(bobTile.locator(".mx_PresenceIconView_offline")).toBeVisible();
+    // Activity hints remain available on the DM entry; the member list assumes offline without a status report.
+    await expect(members.getByRole("heading", { name: "Offline — 1", exact: true })).toBeVisible();
 });
 
 test("sends its own encrypted presence on start and when the preference changes", async ({ page, app, bot, user }) => {
@@ -202,6 +206,8 @@ test("keeps our member-row status in sync with local presence without a server e
         await page.keyboard.press("Escape");
         await expect(self.locator(`.mx_PresenceIconView_${icon}`)).toBeVisible();
         await expect(account.getByRole("img", { name: next, exact: true })).toBeVisible();
-        await expect(members.getByRole("heading", { name: /^Offline/ })).toHaveCount(icon === "offline" ? 1 : 0);
+        await expect(
+            members.getByRole("heading", { name: `Offline — ${icon === "offline" ? 2 : 1}`, exact: true }),
+        ).toBeVisible();
     }
 });

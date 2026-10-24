@@ -47,15 +47,12 @@ function names(items: DesktopMemberListItem[]) {
 }
 
 describe("groupDesktopMembers", () => {
-    it("should use roles and neutral Members when no presence is available", () => {
+    it("should present all members with no presence together as offline", () => {
         const admin: { member: RoomMember } = member("Admin", 100);
         const regular: { member: RoomMember } = member("Regular");
         delete admin.member.presenceState;
         delete regular.member.presenceState;
-        expect(headings(groupDesktopMembers([admin, regular], true, null, "en"))).toEqual([
-            ["Admin", 1],
-            ["Member list", 1],
-        ]);
+        expect(headings(groupDesktopMembers([admin, regular], true, null, "en"))).toEqual([["Offline", 2]]);
     });
 
     it.each(["online", "unavailable", "offline"] as const)(
@@ -67,13 +64,10 @@ describe("groupDesktopMembers", () => {
             delete other.member.presenceState;
             expect(headings(groupDesktopMembers([self, other], false, null, "en"))).toEqual(
                 state === "offline"
-                    ? [
-                          ["Status unknown", 1],
-                          ["Offline", 1],
-                      ]
+                    ? [["Offline", 2]]
                     : [
                           ["Admin", 1],
-                          ["Status unknown", 1],
+                          ["Offline", 1],
                       ],
             );
         },
@@ -161,7 +155,7 @@ describe("groupDesktopMembers", () => {
         expect(serverAdmin.member.roomId).toBe("!channel:example.org");
     });
 
-    it("should distinguish unknown and unreachable members from received offline presence", () => {
+    it("should combine unknown and unreachable members with received offline presence", () => {
         const missingPresence: { member: RoomMember } = member("Missing", 100);
         delete missingPresence.member.presenceState;
         const items = groupDesktopMembers(
@@ -170,23 +164,17 @@ describe("groupDesktopMembers", () => {
             null,
             "en",
         );
-        expect(headings(items)).toEqual([
-            ["Status unknown", 2],
-            ["Offline", 1],
-        ]);
+        expect(headings(items)).toEqual([["Offline", 3]]);
     });
 
-    it("should use neutral role and member groups when the homeserver disables presence", () => {
+    it("should assume offline when the homeserver disables presence and no other status is known", () => {
         const items = groupDesktopMembers(
             [member("Offline admin", 100, "offline"), member("Offline", 0, "offline"), member("Online")],
             false,
             null,
             "en",
         );
-        expect(headings(items)).toEqual([
-            ["Admin", 1],
-            ["Member list", 2],
-        ]);
+        expect(headings(items)).toEqual([["Offline", 3]]);
     });
 
     it("should omit empty groups and deduplicate rows without combining distinct invitations", () => {
@@ -258,18 +246,18 @@ describe("groupDesktopMembers", () => {
             ]);
         });
 
-        it("should keep users with only seen activity in the unknown group, never online", () => {
+        it("should present users with only seen activity as offline", () => {
             const items = groupDesktopMembers([aether("Ada", "online"), activity("Seen")], false, null, "en");
             expect(headings(items)).toEqual([
                 ["Online", 1],
-                ["Status unknown", 1],
+                ["Offline", 1],
             ]);
             expect(names(items)).toEqual(["Ada", "Seen"]);
         });
 
-        it("should not turn the list into presence groups from activity alone", () => {
+        it("should present all users with only seen activity as offline", () => {
             const items = groupDesktopMembers([activity("Seen"), activity("Other")], true, null, "en");
-            expect(headings(items)).toEqual([["Member list", 2]]);
+            expect(headings(items)).toEqual([["Offline", 2]]);
         });
 
         it("should ignore server-style presence when the config disables it, but keep Aether users", () => {
@@ -279,10 +267,7 @@ describe("groupDesktopMembers", () => {
                 null,
                 "en",
             );
-            expect(headings(items)).toEqual([
-                ["Status unknown", 1],
-                ["Offline", 1],
-            ]);
+            expect(headings(items)).toEqual([["Offline", 2]]);
         });
     });
 });

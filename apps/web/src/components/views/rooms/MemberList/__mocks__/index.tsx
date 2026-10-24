@@ -129,6 +129,9 @@ export async function renderMemberList(
         memberListRoom.currentState.members[member.userId] = member;
     }
 
+    // Presence consumers resolve the same User objects through the client as through room members.
+    vi.mocked(client.getUser).mockImplementation((userId) => memberListRoom.currentState.members[userId]?.user ?? null);
+
     const context = new TestSDKContext();
     context._client = client;
     context.memberListStore.isPresenceEnabled = vi.fn().mockReturnValue(enablePresence);
