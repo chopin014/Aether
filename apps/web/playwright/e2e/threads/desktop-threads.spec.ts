@@ -53,10 +53,25 @@ test.describe("Desktop threads", () => {
             await expect(panel.getByRole("listbox", { name: "Member list", exact: true })).toBeVisible();
             await trigger.click();
             const browser = page.getByRole("dialog", { name: "Threads", exact: true });
+            // Like the pins popover, the browser is right-aligned to its button and sits just below it.
+            const expectAnchoredToTrigger = async (): Promise<void> => {
+                await expect
+                    .poll(async () => {
+                        const button = (await trigger.boundingBox())!;
+                        const dialog = (await browser.boundingBox())!;
+                        return {
+                            right: Math.abs(dialog.x + dialog.width - (button.x + button.width)) <= 1,
+                            below: dialog.y >= button.y + button.height,
+                        };
+                    })
+                    .toEqual({ right: true, below: true });
+            };
             await expect(browser.getByRole("heading", { name: "There are no threads." })).toBeVisible();
             await expect(panel.getByRole("listbox", { name: "Member list", exact: true })).toBeVisible();
             await expect(browser.getByRole("searchbox", { name: "Search threads" })).toBeFocused();
+            await expectAnchoredToTrigger();
             await browser.screenshot({ path: testInfo.outputPath("empty-browser.png") });
+            await page.screenshot({ path: testInfo.outputPath("anchored-browser.png") });
             await page.keyboard.press("Escape");
             await expect(browser).not.toBeVisible();
             await expect(trigger).toBeFocused();
@@ -210,6 +225,16 @@ test.describe("Desktop threads", () => {
             ).toBe(true);
             await panel.screenshot({ path: testInfo.outputPath("narrow-conversation.png") });
             await close.click();
+            // On narrow windows the button can sit left of where a full-width panel would fit, so the panel is
+            // clamped to the viewport instead of aligning to the button.
+            await trigger.click();
+            await expect(browser).toBeInViewport({ ratio: 1 });
+            const narrow = (await browser.boundingBox())!;
+            expect(narrow.x).toBeGreaterThanOrEqual(8);
+            expect(narrow.x + narrow.width).toBeLessThanOrEqual(720 - 8);
+            expect(narrow.y).toBeGreaterThanOrEqual((await trigger.boundingBox())!.y);
+            await page.screenshot({ path: testInfo.outputPath("narrow-browser.png") });
+            await page.keyboard.press("Escape");
             await page.setViewportSize({ width: 1280, height: 720 });
             await trigger.click();
             await browser.getByRole("button", { name: /Release planning/ }).click();

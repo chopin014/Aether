@@ -8,11 +8,13 @@ Please see LICENSE in the repository root for full details.
 // @vitest-environment happy-dom
 
 import React from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "test-utils-rtl";
 import userEvent from "@testing-library/user-event";
 import { EventTimelineSet, PendingEventOrdering, RoomEvent, Room, type MatrixClient } from "matrix-js-sdk/src/matrix";
 import { stubClient } from "test-utils";
+
+import UIStore from "../../../../stores/UIStore";
 
 import { DesktopThreadBrowser } from "./DesktopThreadBrowser";
 import MatrixClientContext from "../../../../contexts/MatrixClientContext";
@@ -33,6 +35,7 @@ describe("DesktopThreadBrowser", () => {
         vi.spyOn(room, "getMyMembership").mockReturnValue("join");
         vi.spyOn(room.currentState, "maySendEvent").mockReturnValue(true);
     });
+    afterEach(() => vi.restoreAllMocks());
     function Fixture({ currentRoom = room }: { currentRoom?: Room }) {
         return (
             <MatrixClientContext.Provider value={client}>
@@ -62,6 +65,21 @@ describe("DesktopThreadBrowser", () => {
         expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
         expect(trigger).toHaveFocus();
         expect(client.sendMessage).not.toHaveBeenCalled();
+    });
+    it("anchors the portal to the right edge of the Threads button, 8px below it", async () => {
+        vi.spyOn(UIStore.instance, "windowWidth", "get").mockReturnValue(1280);
+        vi.spyOn(UIStore.instance, "windowHeight", "get").mockReturnValue(720);
+        vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+            return (
+                this.dataset.desktopThreadTrigger !== undefined ? { right: 1000, bottom: 48 } : { right: 0, bottom: 0 }
+            ) as DOMRect;
+        });
+        render(<Fixture />);
+        await userEvent.click(screen.getByRole("button", { name: "Threads" }));
+        const dialog = screen.getByRole("dialog", { name: "Threads" });
+        expect(dialog.style.top).toBe("56px");
+        expect(dialog.style.left).toBe("520px");
+        expect(dialog.style.width).toBe("480px");
     });
     it("cancels creation without sending, preserves its draft, and dismisses on an outside click", async () => {
         render(<Fixture />);

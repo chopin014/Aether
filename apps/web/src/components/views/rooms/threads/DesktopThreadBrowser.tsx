@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import React, { type JSX, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import React, { type JSX, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
     DesktopThreadBrowserView,
@@ -16,8 +16,6 @@ import { IconButton } from "@vector-im/compound-web";
 import ThreadsIcon from "@vector-im/compound-design-tokens/assets/web/icons/threads-solid";
 import { type MatrixEvent, type Room } from "matrix-js-sdk/src/matrix";
 
-import UIStore, { UI_EVENTS } from "../../../../stores/UIStore";
-
 import { _t } from "../../../../languageHandler";
 import { useMatrixClientContext } from "../../../../contexts/MatrixClientContext";
 import { DesktopThreadBrowserViewModel } from "../../../../viewmodels/threads/DesktopThreadBrowserViewModel";
@@ -27,6 +25,7 @@ import { Action } from "../../../../dispatcher/actions";
 import { type ShowThreadPayload } from "../../../../dispatcher/payloads/ShowThreadPayload";
 import { notificationLevelToIndicator } from "../../../../utils/notifications";
 import { useRoomThreadNotifications } from "../../../../hooks/room/useRoomThreadNotifications";
+import { useAnchoredPopoverPosition } from "../../../../hooks/useAnchoredPopoverPosition";
 
 function BrowserContent({
     room,
@@ -60,12 +59,12 @@ function CreateContent({
     return <DesktopThreadCreateView vm={vm} />;
 }
 
-/** Anchors non-modal discovery below the channel header without replacing the member panel. */
+/** Threads header button and non-modal browser anchored below it, leaving the member panel in place. */
 export function DesktopThreadBrowser({ room }: { room: Room }): JSX.Element {
     const [mode, setMode] = useState<"closed" | "browse" | "create">("closed");
     const trigger = useRef<HTMLButtonElement>(null);
     const panel = useRef<HTMLDivElement>(null);
-    const [position, setPosition] = useState({ top: 80, left: 0, maxHeight: 448 });
+    const [position, setPosition] = useState({ top: 80, left: 0, width: 480, maxHeight: 448 });
     const id = useId();
     const notifications = useRoomThreadNotifications(room);
     const dismiss = (restoreFocus = true): void => {
@@ -76,23 +75,9 @@ export function DesktopThreadBrowser({ room }: { room: Room }): JSX.Element {
         dismiss(false);
         dispatcher.dispatch<ShowThreadPayload>({ action: Action.ShowThread, rootEvent: root });
     };
-    useLayoutEffect(() => {
-        if (mode === "closed") return;
-        const place = (): void => {
-            const header = trigger.current?.closest(".mx_RoomHeader")?.getBoundingClientRect();
-            const button = trigger.current?.getBoundingClientRect();
-            if (!button) return;
-            const top = Math.min(header?.bottom ?? button.bottom, Math.max(8, UIStore.instance.windowHeight - 200));
-            const width = Math.min(480, UIStore.instance.windowWidth - 16);
-            const left = Math.max(8, Math.min((header?.left ?? 0) + 48, UIStore.instance.windowWidth - width - 8));
-            setPosition({ top, left, maxHeight: Math.max(120, UIStore.instance.windowHeight - top - 8) });
-        };
-        place();
-        UIStore.instance.on(UI_EVENTS.Resize, place);
-        return () => {
-            UIStore.instance.off(UI_EVENTS.Resize, place);
-        };
-    }, [mode]);
+    useAnchoredPopoverPosition(mode !== "closed", trigger, ({ top, left, width, availableHeight }) =>
+        setPosition({ top, left, width, maxHeight: Math.max(120, availableHeight - 8) }),
+    );
     useEffect(() => {
         if (mode === "closed") return;
         const outside = (event: PointerEvent): void => {

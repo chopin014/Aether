@@ -5,23 +5,13 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import React, {
-    type JSX,
-    useCallback,
-    useContext,
-    useEffect,
-    useId,
-    useLayoutEffect,
-    useMemo,
-    useRef,
-    useState,
-} from "react";
+import React, { type JSX, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { IconButton } from "@vector-im/compound-web";
 import PinIcon from "@vector-im/compound-design-tokens/assets/web/icons/pin";
 import { PinnedMessagesView, useCreateAutoDisposedViewModel } from "@element-hq/web-shared-components";
 import { type Room } from "matrix-js-sdk/src/matrix";
 
-import UIStore, { UI_EVENTS } from "../../../../stores/UIStore";
+import { useAnchoredPopoverPosition } from "../../../../hooks/useAnchoredPopoverPosition";
 import Modal, { ModalManagerEvent } from "../../../../Modal";
 import { _t } from "../../../../languageHandler";
 import { useMatrixClientContext } from "../../../../contexts/MatrixClientContext";
@@ -96,34 +86,14 @@ export function PinnedMessagesPopover({ room }: { room: Room }): JSX.Element {
         };
     }, [open, close]);
 
-    useLayoutEffect(() => {
-        if (!open) return;
-        const position = (): void => {
-            const anchor = trigger.current?.getBoundingClientRect();
-            const panel = popover.current;
-            if (!anchor || !panel) return;
-            const gap = 8;
-            const width = Math.min(480, UIStore.instance.windowWidth - gap * 2);
-            const top = Math.min(anchor.bottom + gap, UIStore.instance.windowHeight - gap);
-            panel.style.width = `${width}px`;
-            panel.style.left = `${Math.max(gap, Math.min(anchor.right - width, UIStore.instance.windowWidth - width - gap))}px`;
-            panel.style.top = `${top}px`;
-            panel.style.setProperty(
-                "--pinned-messages-available-height",
-                `${Math.max(0, UIStore.instance.windowHeight - top - 80)}px`,
-            );
-        };
-        position();
-        UIStore.instance.on(UI_EVENTS.Resize, position);
-        window.addEventListener("scroll", position, true);
-        const observer = new ResizeObserver(position);
-        if (trigger.current) observer.observe(trigger.current);
-        return () => {
-            UIStore.instance.off(UI_EVENTS.Resize, position);
-            window.removeEventListener("scroll", position, true);
-            observer.disconnect();
-        };
-    }, [open]);
+    useAnchoredPopoverPosition(open, trigger, ({ top, left, width, availableHeight }) => {
+        const panel = popover.current;
+        if (!panel) return;
+        panel.style.width = `${width}px`;
+        panel.style.left = `${left}px`;
+        panel.style.top = `${top}px`;
+        panel.style.setProperty("--pinned-messages-available-height", `${Math.max(0, availableHeight - 80)}px`);
+    });
 
     return (
         <>

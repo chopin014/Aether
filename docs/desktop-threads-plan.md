@@ -103,7 +103,7 @@ locally. Keep implementation split into coherent commits, then let the parent re
 
 ## Implementation status
 
-The desktop shell now uses a non-modal browser beneath the channel header. Discovery reads the SDK's all/participated
+The desktop shell now uses a non-modal browser anchored below the Threads button, right-aligned to it like the pins popover. Discovery reads the SDK's all/participated
 thread sets, combines live thread updates, exposes server pagination, and searches only loaded roots and latest replies.
 Loading, retry, empty and no-results states are explicit. Root labels follow edits, decryption and redaction. Escape and
 outside clicks dismiss the browser and return focus to its trigger; changing rooms disposes the browser's listeners.
