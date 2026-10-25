@@ -106,7 +106,9 @@ function Start-InstalledApplication {
     }
 
     $process.Refresh()
-    if ($process.HasExited) throw "Aether exited during $Stage (exit code $($process.ExitCode))."
+    if ($process.HasExited) {
+        throw "Aether exited during $Stage (exit code $($process.ExitCode))."
+    }
     if ($process.MainWindowHandle -eq [IntPtr]::Zero) {
         throw "Aether did not create its main window during $Stage."
     }
@@ -116,8 +118,12 @@ function Start-InstalledApplication {
 
     Start-Sleep -Seconds 5
     $process.Refresh()
-    if ($process.HasExited) throw "Aether exited during $Stage (exit code $($process.ExitCode))."
-    if ($process.MainWindowHandle -eq [IntPtr]::Zero) throw "Aether closed its main window during $Stage."
+    if ($process.HasExited) {
+        throw "Aether exited during $Stage (exit code $($process.ExitCode))."
+    }
+    if ($process.MainWindowHandle -eq [IntPtr]::Zero) {
+        throw "Aether closed its main window during $Stage."
+    }
     return $process
 }
 
@@ -130,7 +136,9 @@ function Stop-InstalledApplication {
         & taskkill.exe /F /T /PID $Process.Id | Out-Null
         Start-Sleep -Seconds 2
         $Process.Refresh()
-        if (-not $Process.HasExited) throw "Could not stop the Aether smoke process $($Process.Id)."
+        if (-not $Process.HasExited) {
+            throw "Could not stop the Aether smoke process $($Process.Id)."
+        }
     }
 }
 

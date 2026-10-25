@@ -149,6 +149,18 @@ jobs:
                   path: apps/desktop
             - run: pnpm --dir apps/desktop exec tsc
             - run: pnpm --dir apps/desktop exec node scripts/copy-res.ts
+            - name: Validate Windows installer smoke syntax
+              if: matrix.platform == 'win'
+              shell: pwsh
+              run: |
+                  $syntaxTokens = $null
+                  $syntaxErrors = $null
+                  $null = [System.Management.Automation.Language.Parser]::ParseFile(
+                      "$PWD/apps/desktop/scripts/aether-windows-install-smoke.ps1",
+                      [ref]$syntaxTokens,
+                      [ref]$syntaxErrors
+                  )
+                  if ($syntaxErrors.Count -gt 0) { throw ($syntaxErrors | Out-String) }
             - run: pnpm --dir apps/desktop run build:aether --${{ matrix.platform }} --x64
             - name: Validate installers and updater metadata
               shell: bash

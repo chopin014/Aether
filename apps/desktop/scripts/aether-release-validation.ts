@@ -75,12 +75,19 @@ export async function validatePlatformArtifacts(
     platform: AetherReleasePlatform,
 ): Promise<void> {
     const names = new Set(await readdir(directory));
-    const stem = `Aether-${version}-${platform}-x64`;
-    const installerNames = platform === "win" ? [`${stem}.exe`] : [`${stem}.AppImage`, `${stem}.deb`, `${stem}.tar.gz`];
+    // electron-builder uses each Linux format's native architecture name.
+    const installerNames =
+        platform === "win"
+            ? [`Aether-${version}-win-x64.exe`]
+            : [
+                  `Aether-${version}-linux-x86_64.AppImage`,
+                  `Aether-${version}-linux-amd64.deb`,
+                  `Aether-${version}-linux-x64.tar.gz`,
+              ];
 
     for (const installerName of installerNames) assertExists(names, installerName);
 
-    if (platform === "win") assertExists(names, `${stem}.exe.blockmap`);
+    if (platform === "win") assertExists(names, `${installerNames[0]}.blockmap`);
 
     const manifestName = getManifestName(platform);
     assertExists(names, manifestName);
@@ -94,7 +101,7 @@ export async function validatePlatformArtifacts(
         throw new Error(`${manifestName} does not contain updater file metadata`);
     }
 
-    const expectedUpdateAsset = `${stem}.${platform === "win" ? "exe" : "AppImage"}`;
+    const expectedUpdateAsset = installerNames[0];
     const referencedAssets = new Set<string>();
     for (const entry of manifest.files) {
         let assetName: string;

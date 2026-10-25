@@ -22,7 +22,7 @@ async function writeValidPlatformArtifacts(
     platform: "linux" | "win",
 ): Promise<void> {
     const stem = `Aether-${version}-${platform}-x64`;
-    const installerName = `${stem}.${platform === "win" ? "exe" : "AppImage"}`;
+    const installerName = platform === "win" ? `${stem}.exe` : `Aether-${version}-linux-x86_64.AppImage`;
     const installer = Buffer.from(`${platform} installer bytes`);
     const sha512 = createHash("sha512").update(installer).digest("base64");
     await writeFile(path.join(directory, installerName), installer);
@@ -30,7 +30,7 @@ async function writeValidPlatformArtifacts(
     if (platform === "win") {
         await writeFile(path.join(directory, `${installerName}.blockmap`), "blockmap");
     } else {
-        await writeFile(path.join(directory, `${stem}.deb`), "deb package");
+        await writeFile(path.join(directory, `Aether-${version}-linux-amd64.deb`), "deb package");
         await writeFile(path.join(directory, `${stem}.tar.gz`), "tar package");
     }
 
@@ -113,13 +113,13 @@ describe("Aether distribution identity", () => {
     it("requires the Linux AppImage and Linux update manifest", async () => {
         const directory = await mkdtemp(path.join(tmpdir(), "aether-linux-release-"));
         const version = "0.1.0";
-        const appImageName = `Aether-${version}-linux-x64.AppImage`;
+        const appImageName = `Aether-${version}-linux-x86_64.AppImage`;
         const appImage = Buffer.from("test AppImage bytes");
         const sha512 = createHash("sha512").update(appImage).digest("base64");
 
         try {
             await writeFile(path.join(directory, appImageName), appImage);
-            await writeFile(path.join(directory, `Aether-${version}-linux-x64.deb`), "deb package");
+            await writeFile(path.join(directory, `Aether-${version}-linux-amd64.deb`), "deb package");
             await writeFile(path.join(directory, `Aether-${version}-linux-x64.tar.gz`), "tar package");
             await writeFile(
                 path.join(directory, "latest-linux.yml"),
@@ -137,7 +137,7 @@ describe("Aether distribution identity", () => {
 
         try {
             await expect(validatePlatformArtifacts(directory, version, "linux")).rejects.toThrow(
-                `Release asset is missing: Aether-${version}-linux-x64.AppImage`,
+                `Release asset is missing: Aether-${version}-linux-x86_64.AppImage`,
             );
         } finally {
             await rm(directory, { recursive: true, force: true });
