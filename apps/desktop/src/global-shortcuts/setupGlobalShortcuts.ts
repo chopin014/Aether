@@ -40,10 +40,12 @@ export const createShortcutBackend: BackendFactory = async (emit, failed) => {
 
 /** Main-frame boundary and lifetime ownership for the Aether shortcuts IPC API. */
 export function setupGlobalShortcuts(window: BrowserWindow, config: Pick<ConfigOptions, "features">): () => void {
+    // BrowserWindow.webContents cannot be read once the native window has closed.
+    const webContents = window.webContents;
     const controller = new GlobalShortcutController(
         createShortcutBackend,
         (event) => {
-            if (!window.webContents.isDestroyed()) window.webContents.send("aether:global-shortcut", event);
+            if (!webContents.isDestroyed()) webContents.send("aether:global-shortcut", event);
         },
         () => {
             if (window.isVisible() && window.isFocused() && !window.isMinimized()) window.hide();
@@ -73,8 +75,8 @@ export function setupGlobalShortcuts(window: BrowserWindow, config: Pick<ConfigO
     const configure = (event: IpcMainInvokeEvent, value: unknown): ReturnType<typeof controller.configure> => {
         if (
             disposed ||
-            event.sender !== window.webContents ||
-            event.senderFrame !== window.webContents.mainFrame ||
+            event.sender !== webContents ||
+            event.senderFrame !== webContents.mainFrame ||
             !config.features?.feature_desktop_shell
         )
             throw new Error("Shortcut configuration is unavailable");
@@ -90,8 +92,8 @@ export function setupGlobalShortcuts(window: BrowserWindow, config: Pick<ConfigO
     const navigation = (details: Event<WebContentsDidStartNavigationEventParams>): void => {
         if (details.isMainFrame && !details.isSameDocument) clear();
     };
-    window.webContents.on("did-start-navigation", navigation);
-    window.webContents.on("render-process-gone", clear);
+    webContents.on("did-start-navigation", navigation);
+    webContents.on("render-process-gone", clear);
     powerMonitor.on("lock-screen", lock);
     powerMonitor.on("unlock-screen", unlock);
     powerMonitor.on("suspend", suspend);
@@ -101,8 +103,8 @@ export function setupGlobalShortcuts(window: BrowserWindow, config: Pick<ConfigO
         disposed = true;
         clear();
         ipcMain.removeHandler("aether:configure-global-shortcuts");
-        window.webContents.removeListener("did-start-navigation", navigation);
-        window.webContents.removeListener("render-process-gone", clear);
+        webContents.removeListener("did-start-navigation", navigation);
+        webContents.removeListener("render-process-gone", clear);
         powerMonitor.removeListener("lock-screen", lock);
         powerMonitor.removeListener("unlock-screen", unlock);
         powerMonitor.removeListener("suspend", suspend);
