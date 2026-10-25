@@ -41,6 +41,30 @@ jobs:
             - run: pnpm install --frozen-lockfile
             - run: pnpm exec playwright install --with-deps chromium
             - run: pnpm exec nx run-many -t test:unit:prepare -p
+            - name: Desktop backend unit tests
+              working-directory: apps/desktop
+              run: pnpm exec vitest run
+            - name: Exercise Linux playback capture with isolated synthetic audio
+              shell: bash
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y pulseaudio pulseaudio-utils
+                  pnpm --dir apps/desktop exec tsc
+                  capture_pulse_dir="$(mktemp -d)"
+                  pulseaudio -n --daemonize=no --use-pid-file=no --exit-idle-time=-1 --disable-shm=yes \
+                      --load="module-native-protocol-unix socket=$capture_pulse_dir/native auth-anonymous=1" \
+                      --load="module-null-sink sink_name=aether_ci_default" &
+                  capture_pulse_pid=$!
+                  trap 'kill "$capture_pulse_pid" 2>/dev/null || true; wait "$capture_pulse_pid" 2>/dev/null || true; rm -rf "$capture_pulse_dir"' EXIT
+                  export PULSE_SERVER="unix:$capture_pulse_dir/native"
+                  export LC_ALL=C.UTF-8
+                  for attempt in {1..50}; do
+                      if pactl info >/dev/null 2>&1; then break; fi
+                      sleep 0.1
+                  done
+                  pactl info
+                  node apps/desktop/scripts/smoke-share-audio-linux.ts
+                  node apps/desktop/scripts/smoke-share-audio-linux.ts --system
             - name: App unit tests
               working-directory: apps/web
               run: >-
@@ -69,3 +93,33 @@ jobs:
                   if test -f src/audio/NoiseSuppressionProcessor.test.browser.ts; then
                       pnpm exec vitest run --project browser src/audio
                   fi
+    windows-share-audio:
+        runs-on: windows-2025
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+            - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+              with:
+                  node-version-file: apps/desktop/.node-version
+                  install: false
+            - name: Compile the WASAPI helper
+              working-directory: apps/desktop
+              run: node scripts/build-share-audio-windows.ts --arch=x64
+            - name: Start Windows audio services
+              shell: pwsh
+              run: |
+                  Start-Service -Name AudioEndpointBuilder -ErrorAction Stop
+                  Start-Service -Name Audiosrv -ErrorAction Stop
+            - name: Check the helper protocol and runtime capabilities
+              shell: pwsh
+              working-directory: apps/desktop
+              run: |
+                  $result = (& native/share-audio/windows/build/Release/aether-share-audio.exe --capabilities 2>&1 | Out-String)
+                  if ($LASTEXITCODE -ne 0) { throw "Audio helper failed: $result" }
+                  $capability = $result.Trim() | ConvertFrom-Json
+                  if (-not $capability.supported) { throw "Audio capture is unsupported: $result" }
+            - name: Exercise native capture startup and shutdown
+              working-directory: apps/desktop
+              run: node scripts/smoke-share-audio-windows.ts

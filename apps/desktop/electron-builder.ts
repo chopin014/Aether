@@ -185,6 +185,12 @@ const config: Omit<Writable<Configuration>, "electronFuses"> & {
     },
     win: {
         target: ["squirrel", "msi"],
+        extraResources: [
+            {
+                from: "native/share-audio/windows/build/Release/aether-share-audio.exe",
+                to: "share-audio/aether-share-audio.exe",
+            },
+        ],
         signtoolOptions: {
             signingHashAlgorithms: ["sha256"],
         },
@@ -204,6 +210,18 @@ const config: Omit<Writable<Configuration>, "electronFuses"> & {
     nodeGypRebuild: false,
     npmRebuild: true,
     beforeBuild: async (context: BeforeBuildContext) => {
+        if (context.platform.nodeName === "win32") {
+            try {
+                await fsp.access(
+                    path.join(context.appDir, "native/share-audio/windows/build/Release/aether-share-audio.exe"),
+                    fs.constants.F_OK,
+                );
+            } catch {
+                throw new Error(
+                    "The Windows share audio helper is missing. Run node scripts/build-share-audio-windows.ts before packaging.",
+                );
+            }
+        }
         // Assert that the webapp.asar file exists
         try {
             await fsp.access(path.join(context.appDir, "webapp.asar"), fs.constants.F_OK);

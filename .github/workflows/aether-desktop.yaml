@@ -55,6 +55,10 @@ jobs:
                   node-version-file: apps/desktop/.node-version
                   install: false
             - run: pnpm install --frozen-lockfile --filter element-desktop
+            - name: Build Windows playback capture helper
+              if: matrix.platform == 'win'
+              working-directory: apps/desktop
+              run: node scripts/build-share-audio-windows.ts --arch=x64
             - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
               with:
                   name: aether-renderer

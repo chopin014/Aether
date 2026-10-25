@@ -94,6 +94,10 @@ export default {
             ignoreBinaries: [
                 // Used by the fetch-package script (optional)
                 "gpg",
+                // Visual Studio compiler required only when building the Windows playback helper.
+                "cl.exe",
+                // The Linux capture smoke uses the distribution's PulseAudio playback utility.
+                "pacat",
             ],
         },
         "modules": {

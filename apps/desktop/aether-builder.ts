@@ -35,7 +35,7 @@ const config = {
         icon: "aether/icon.png",
         maintainer: "Aether contributors <156453220+chopin014@users.noreply.github.com>",
     },
-    deb: { ...base.deb, recommends: [] },
+    deb: { ...base.deb, recommends: ["pulseaudio-utils", "x11-utils"] },
     win: { ...base.win, target: ["nsis"], icon: "aether/icon.ico" },
     nsis: { oneClick: false, allowToChangeInstallationDirectory: true, createDesktopShortcut: true },
 };

@@ -21,13 +21,17 @@ describe("Aether distribution identity", () => {
         });
         expect(config.protocols.schemes).toEqual(["aether"]);
         expect(config.linux.executableName).toBe("aether");
-        expect(config.deb.recommends).toEqual([]);
+        expect(config.deb.recommends).toEqual(["pulseaudio-utils", "x11-utils"]);
     });
     it("prepares Linux and Windows artifacts without publishing", () => {
         expect(config.publish).toBeNull();
         expect(config.linux.target).toEqual(["AppImage", "deb", "tar.gz"]);
         expect(config.linux.maintainer).toBe("Aether contributors <156453220+chopin014@users.noreply.github.com>");
         expect(config.win.target).toEqual(["nsis"]);
+        expect(config.win.extraResources).toContainEqual({
+            from: "native/share-audio/windows/build/Release/aether-share-audio.exe",
+            to: "share-audio/aether-share-audio.exe",
+        });
         expect(config.extraResources).toContainEqual({ from: "aether", to: "build", filter: ["icon.*"] });
     });
     it("ships the brand icon at every size Linux and Windows request", () => {
