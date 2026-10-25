@@ -121,6 +121,7 @@ export * from "./desktop/DesktopContactsView";
 export * from "./desktop/DesktopVoiceControlsView";
 export * from "./desktop/DesktopVoiceVideoSettingsView";
 export * from "./desktop/DesktopCallStageView";
+export * from "./desktop/DesktopScreenSharePickerView";
 
 export * from "./presence/PresenceMenuView";
 export * from "./room/PinnedMessagesView";

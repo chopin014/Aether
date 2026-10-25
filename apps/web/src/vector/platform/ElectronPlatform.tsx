@@ -38,7 +38,7 @@ import GenericExpiringToast from "../../components/views/toasts/GenericExpiringT
 import { BreadcrumbsStore } from "../../stores/BreadcrumbsStore";
 import { UPDATE_EVENT } from "../../stores/AsyncStore";
 import { avatarUrlForRoom, getInitialLetter } from "../../Avatar";
-import DesktopCapturerSourcePicker from "../../components/views/elements/DesktopCapturerSourcePicker";
+import { DesktopCapturerSourcePicker } from "../../components/views/elements/DesktopCapturerSourcePicker";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import { SeshatIndexManager } from "./SeshatIndexManager";
 import { IPCManager } from "./IPCManager";

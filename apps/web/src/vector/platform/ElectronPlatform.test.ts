@@ -21,7 +21,7 @@ import dispatcher from "../../dispatcher/dispatcher";
 import * as rageshake from "../../rageshake/rageshake";
 import { BreadcrumbsStore } from "../../stores/BreadcrumbsStore";
 import Modal from "../../Modal";
-import DesktopCapturerSourcePicker from "../../components/views/elements/DesktopCapturerSourcePicker";
+import { DesktopCapturerSourcePicker } from "../../components/views/elements/DesktopCapturerSourcePicker";
 import ElectronPlatform from "./ElectronPlatform";
 import * as windowControlsTheme from "./watchWindowControlsTheme";
 import ToastStore from "../../stores/ToastStore.ts";

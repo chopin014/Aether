@@ -368,6 +368,20 @@
                 "yesterday": "Yesterday"
             }
         },
+        "share_picker": {
+            "applications": "Application window",
+            "audio_unavailable": "Screen audio is unavailable for this capture method.",
+            "choose_quality": "Choose the quality for your stream.",
+            "choose_source": "Choose an application or screen to share.",
+            "continue": "Next",
+            "empty": "No sources are available. Open an application or choose another source type.",
+            "limits": "Maximum allowed: %(height)sp at %(fps)s FPS.",
+            "load_error": "Sources could not be loaded. Try again.",
+            "loading": "Loading available sources…",
+            "screens": "Entire screen",
+            "share": "Share",
+            "source_type": "Source type"
+        },
         "threads": {
             "create": "Create thread",
             "create_description": "The starter is posted in this channel. Your first reply starts its thread. Everyone with access to the channel can read it.",

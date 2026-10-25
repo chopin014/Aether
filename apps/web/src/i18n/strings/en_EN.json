@@ -791,6 +791,9 @@
         "members": {
             "invited": "Invited"
         },
+        "share_picker": {
+            "title": "Share your screen"
+        },
         "text_channels": "Text Channels",
         "threads": {
             "close": "Close thread",

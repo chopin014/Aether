@@ -451,6 +451,21 @@
             "device_permission_error": "Não foi possível acessar os dispositivos: %(message)s",
             "video_only_capture": "Esta captura de tela compartilha apenas vídeo.",
             "reactions": "Reações"
+        },
+        "share_picker": {
+            "title": "Compartilhar sua tela",
+            "choose_source": "Escolha um aplicativo ou uma tela para compartilhar.",
+            "choose_quality": "Escolha a qualidade da sua transmissão.",
+            "source_type": "Tipo de fonte",
+            "applications": "Janela de aplicativo",
+            "screens": "Tela inteira",
+            "loading": "Carregando fontes disponíveis…",
+            "empty": "Nenhuma fonte disponível. Abra um aplicativo ou escolha outro tipo de fonte.",
+            "limits": "Máximo permitido: %(height)sp a %(fps)s FPS.",
+            "audio_unavailable": "O áudio da tela não está disponível para este método de captura.",
+            "load_error": "Não foi possível carregar as fontes. Tente novamente.",
+            "continue": "Avançar",
+            "share": "Compartilhar"
         }
     },
     "threads": {

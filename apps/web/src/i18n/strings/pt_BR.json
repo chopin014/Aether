@@ -3958,6 +3958,9 @@
             "fallback_camera": "Câmera %(index)s",
             "fallback_microphone": "Microfone %(index)s",
             "fallback_speaker": "Alto-falante %(index)s"
+        },
+        "share_picker": {
+            "title": "Compartilhar sua tela"
         }
     }
 }
