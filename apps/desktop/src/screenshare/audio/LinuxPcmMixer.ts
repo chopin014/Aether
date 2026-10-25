@@ -9,6 +9,20 @@ const SAMPLE_RATE = 48_000;
 const CHANNELS = 2;
 const FRAMES_PER_CHUNK = 480;
 const RING_CAPACITY_FRAMES = 4_800;
+const CHUNK_INTERVAL_NS = (BigInt(FRAMES_PER_CHUNK) * 1_000_000_000n) / BigInt(SAMPLE_RATE);
+const MAX_CATCH_UP_CHUNKS = 3;
+
+interface LinuxPcmMixerClock {
+    nowNs: () => bigint;
+    setTimeout: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
+    clearTimeout: (timer: ReturnType<typeof setTimeout>) => void;
+}
+
+const systemClock: LinuxPcmMixerClock = {
+    nowNs: () => process.hrtime.bigint(),
+    setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+    clearTimeout: (timer) => clearTimeout(timer),
+};
 
 class LinuxPcmRingBuffer {
     private readonly left = new Float32Array(RING_CAPACITY_FRAMES);
@@ -53,11 +67,15 @@ class LinuxPcmRingBuffer {
 /** Bounded software mixer for per-stream PulseAudio monitor captures. */
 export class LinuxPcmMixer {
     private readonly onData: (pcm: Buffer) => void;
+    private readonly clock: LinuxPcmMixerClock;
     private readonly sources = new Map<string, LinuxPcmRingBuffer>();
     private timer: NodeJS.Timeout | null = null;
+    private nextDeadlineNs: bigint | null = null;
+    private running = false;
 
-    public constructor(onData: (pcm: Buffer) => void) {
+    public constructor(onData: (pcm: Buffer) => void, clock: LinuxPcmMixerClock = systemClock) {
         this.onData = onData;
+        this.clock = clock;
     }
 
     /** Adds a stream to the mix. Each stream keeps at most 100 ms of PCM. */
@@ -77,16 +95,52 @@ export class LinuxPcmMixer {
 
     /** Starts emitting fixed-size 48 kHz stereo float32le chunks. */
     public start(): void {
-        if (this.timer) return;
-        this.timer = setInterval(() => this.emitChunk(), (FRAMES_PER_CHUNK / SAMPLE_RATE) * 1000);
-        this.timer.unref();
+        if (this.running) return;
+        this.running = true;
+        this.nextDeadlineNs = this.clock.nowNs() + CHUNK_INTERVAL_NS;
+        this.scheduleNextChunk();
     }
 
     /** Stops the mixer and releases every per-stream queue. */
     public stop(): void {
-        if (this.timer) clearInterval(this.timer);
+        this.running = false;
+        if (this.timer) this.clock.clearTimeout(this.timer);
         this.timer = null;
+        this.nextDeadlineNs = null;
         this.sources.clear();
+    }
+
+    private scheduleNextChunk(): void {
+        if (!this.running || this.nextDeadlineNs === null) return;
+        const remainingNs = this.nextDeadlineNs - this.clock.nowNs();
+        const delayMs = Math.max(0, Math.ceil(Number(remainingNs) / 1_000_000));
+        this.timer = this.clock.setTimeout(() => this.emitDueChunks(), delayMs);
+        this.timer.unref();
+    }
+
+    private emitDueChunks(): void {
+        this.timer = null;
+        const deadlineNs = this.nextDeadlineNs;
+        if (!this.running || deadlineNs === null) return;
+
+        const nowNs = this.clock.nowNs();
+        if (nowNs < deadlineNs) {
+            this.scheduleNextChunk();
+            return;
+        }
+
+        const dueChunks = Number((nowNs - deadlineNs) / CHUNK_INTERVAL_NS) + 1;
+        const chunksToEmit = Math.min(dueChunks, MAX_CATCH_UP_CHUNKS);
+        for (let chunk = 0; chunk < chunksToEmit && this.running; chunk++) this.emitChunk();
+        if (!this.running) return;
+
+        // Keep absolute deadlines through short delays. After a long stall, rebase instead of emitting an unbounded
+        // burst that would add stale audio to the downstream ring.
+        this.nextDeadlineNs =
+            dueChunks > MAX_CATCH_UP_CHUNKS
+                ? nowNs + CHUNK_INTERVAL_NS
+                : deadlineNs + BigInt(dueChunks) * CHUNK_INTERVAL_NS;
+        this.scheduleNextChunk();
     }
 
     private emitChunk(): void {
