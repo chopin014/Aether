@@ -120,6 +120,19 @@ describe("<UserSettingsDialog />", () => {
         expect(container.querySelectorAll(".mx_TabbedView_tabLabel")).toMatchSnapshot();
     });
 
+    it("shows the Updates tab in the desktop shell", () => {
+        const originalElectron = window.electron;
+        window.electron = {} as Electron;
+        try {
+            const { container, getByTestId } = render(getComponent({ initialTabId: UserTab.Updates }));
+
+            expect(getByTestId(`settings-tab-${UserTab.Updates}`)).toBeTruthy();
+            expect(getActiveTabLabel(container)).toEqual("Updates");
+        } finally {
+            window.electron = originalElectron;
+        }
+    });
+
     it("renders ignored users tab when feature_mjolnir is enabled", () => {
         mockSettingsStore.getValue.mockImplementation((settingName) => settingName === "feature_mjolnir");
         const { getByTestId } = render(getComponent());

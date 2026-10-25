@@ -16,6 +16,7 @@ import QuestionDialog from "../components/views/dialogs/QuestionDialog";
 import ChangelogDialog, { checkVersion } from "../components/views/dialogs/ChangelogDialog";
 import PlatformPeg from "../PlatformPeg";
 import Modal from "../Modal";
+import { restartDesktopUpdate } from "./restartDesktopUpdate";
 
 const TOAST_KEY = "update";
 
@@ -79,3 +80,20 @@ export const showToast = (version: string, newVersion: string, releaseNotes?: st
 export const hideToast = (): void => {
     ToastStore.sharedInstance().dismissToast(TOAST_KEY);
 };
+
+/** Shows the direct restart prompt used by Aether's desktop updater. */
+export function showDesktopUpdateToast(version: string): void {
+    ToastStore.sharedInstance().addOrReplaceToast({
+        key: TOAST_KEY,
+        title: _t("desktop|updates|toast_title", { version }),
+        props: {
+            description: _t("desktop|updates|toast_description"),
+            primaryLabel: _t("desktop|updates|restart"),
+            onPrimaryClick: restartDesktopUpdate,
+            secondaryLabel: _t("desktop|updates|later"),
+            onSecondaryClick: () => PlatformPeg.get()?.deferUpdate(version),
+        },
+        component: GenericToast,
+        priority: 20,
+    });
+}

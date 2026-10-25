@@ -23,6 +23,7 @@ import LockIcon from "@vector-im/compound-design-tokens/assets/web/icons/lock";
 import LabsIcon from "@vector-im/compound-design-tokens/assets/web/icons/labs";
 import BlockIcon from "@vector-im/compound-design-tokens/assets/web/icons/block";
 import HelpIcon from "@vector-im/compound-design-tokens/assets/web/icons/help";
+import DownloadIcon from "@vector-im/compound-design-tokens/assets/web/icons/download";
 import {
     ToastContext,
     useActiveToast,
@@ -55,6 +56,7 @@ import { type SDKContextClass } from "../../../contexts/SDKContextClass";
 import { useSettingValue } from "../../../hooks/useSettings";
 import { NoChange, useEventEmitterAsyncState, type AsyncStateCallbackResult } from "../../../hooks/useEventEmitter";
 import { EncryptionUserSettingsTab, type State } from "../settings/tabs/user/EncryptionUserSettingsTab";
+import { DesktopUpdatesSettings } from "../settings/tabs/user/DesktopUpdatesSettings";
 
 interface IProps {
     initialTabId?: UserTab;
@@ -104,6 +106,8 @@ function titleForTabID(tabId: UserTab): React.ReactNode {
             return _t("settings|labs_mjolnir|dialog_title", undefined, subs);
         case UserTab.Help:
             return _t("setting|help_about|dialog_title", undefined, subs);
+        case UserTab.Updates:
+            return _t("desktop|updates|nav_title");
     }
 }
 
@@ -261,6 +265,17 @@ export default function UserSettingsDialog(props: IProps): JSX.Element {
                     <BlockIcon />,
                     <MjolnirUserSettingsTab />,
                     "UserSettingMjolnir",
+                ),
+            );
+        }
+        if (window.electron) {
+            tabs.push(
+                new Tab(
+                    UserTab.Updates,
+                    _td("desktop|updates|nav_title"),
+                    <DownloadIcon />,
+                    <DesktopUpdatesSettings />,
+                    "UserSettings",
                 ),
             );
         }
