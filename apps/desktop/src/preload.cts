@@ -21,6 +21,7 @@ import type { ShortcutConfiguration, ShortcutEvent, ShortcutResult } from "./glo
 
 const CHANNELS = [
     "app_onAction",
+    "aether:update-state",
     "before-quit",
     "check_updates",
     "install_update",
