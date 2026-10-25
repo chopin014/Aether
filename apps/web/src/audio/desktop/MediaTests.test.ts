@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CameraTest } from "./CameraTest";
 import { MicrophoneTest, mediaTestError } from "./MicrophoneTest";
+import { loadMicrophoneGateWorklet } from "./microphoneGateWorkletFactory";
 
 import MediaDeviceHandler from "../../MediaDeviceHandler";
 import SettingsStore from "../../settings/SettingsStore";
@@ -45,6 +46,7 @@ describe("MicrophoneTest", () => {
     let close: ReturnType<typeof vi.fn>;
     let play: ReturnType<typeof vi.fn>;
     let pause: ReturnType<typeof vi.fn>;
+    let setSinkId: ReturnType<typeof vi.fn>;
     let audio: { volume: number; srcObject: unknown; setSinkId: ReturnType<typeof vi.fn> };
     let values: Record<string, unknown>;
     let nodeOptions: AudioWorkletNodeOptions | undefined;
@@ -87,12 +89,13 @@ describe("MicrophoneTest", () => {
         );
         play = vi.fn().mockResolvedValue(undefined);
         pause = vi.fn();
+        setSinkId = vi.fn().mockResolvedValue(undefined);
         vi.stubGlobal(
             "Audio",
             class {
                 public volume = 1;
                 public srcObject: unknown = null;
-                public setSinkId = vi.fn().mockResolvedValue(undefined);
+                public setSinkId = setSinkId;
                 public play = play;
                 public pause = pause;
                 public constructor() {
@@ -204,6 +207,171 @@ describe("MicrophoneTest", () => {
         resolve(fakeStream("audio").stream);
         await started;
         expect(test.active).toBe(false);
+    });
+
+    it("opens a new microphone immediately after cancelling a permission request", async () => {
+        const permission = Promise.withResolvers<MediaStream>();
+        const cancelled = fakeStream("audio");
+        const current = fakeStream("audio");
+        getUserMedia.mockReturnValueOnce(permission.promise).mockResolvedValueOnce(current.stream);
+        const test = new MicrophoneTest(vi.fn());
+        const firstStart = test.start();
+        test.stop();
+        await test.start();
+        const currentPlayback = audio;
+
+        permission.resolve(cancelled.stream);
+        await firstStart;
+
+        expect(getUserMedia).toHaveBeenCalledTimes(2);
+        expect(cancelled.track.stop).toHaveBeenCalledOnce();
+        expect(current.track.stop).not.toHaveBeenCalled();
+        expect(test.active).toBe(true);
+        expect(test.playing).toBe(true);
+        expect(audio).toBe(currentPlayback);
+        expect(play).toHaveBeenCalledOnce();
+    });
+
+    it("does not close the new microphone when a cancelled permission request fails", async () => {
+        const permission = Promise.withResolvers<MediaStream>();
+        getUserMedia.mockReturnValueOnce(permission.promise);
+        const test = new MicrophoneTest(vi.fn());
+        const firstStart = test.start();
+        test.stop();
+        await test.start();
+
+        permission.reject(new DOMException("no", "NotAllowedError"));
+        await expect(firstStart).resolves.toBeUndefined();
+
+        expect(test.active).toBe(true);
+        expect(test.playing).toBe(true);
+        expect(micTrack.stop).not.toHaveBeenCalled();
+    });
+
+    it("keeps the new test running when cancelled processing finishes loading", async () => {
+        const worklet = Promise.withResolvers<void>();
+        vi.mocked(loadMicrophoneGateWorklet).mockReturnValueOnce(worklet.promise);
+        const test = new MicrophoneTest(vi.fn());
+        const firstStart = test.start();
+        await vi.waitFor(() => expect(test.active).toBe(true));
+        test.stop();
+        const current = fakeStream("audio");
+        getUserMedia.mockResolvedValueOnce(current.stream);
+        await test.start();
+
+        worklet.resolve();
+        await expect(firstStart).resolves.toBeUndefined();
+
+        expect(micTrack.stop).toHaveBeenCalledOnce();
+        expect(current.track.stop).not.toHaveBeenCalled();
+        expect(test.active).toBe(true);
+        expect(test.playing).toBe(true);
+    });
+
+    it("does not start playback after it was disabled while waiting for microphone access", async () => {
+        const permission = Promise.withResolvers<MediaStream>();
+        getUserMedia.mockReturnValueOnce(permission.promise);
+        const test = new MicrophoneTest(vi.fn());
+        const started = test.start();
+        await test.setPlayback(false);
+        permission.resolve(fakeStream("audio").stream);
+        await started;
+
+        expect(test.active).toBe(true);
+        expect(test.playing).toBe(false);
+        expect(play).not.toHaveBeenCalled();
+    });
+
+    it("does not play after being stopped during speaker selection", async () => {
+        const sink = Promise.withResolvers<void>();
+        setSinkId.mockReturnValueOnce(sink.promise);
+        const test = new MicrophoneTest(vi.fn());
+        const started = test.start();
+        await vi.waitFor(() => expect(setSinkId).toHaveBeenCalledOnce());
+        const cancelledPlayback = audio;
+        test.stop();
+        sink.resolve();
+        await started;
+
+        expect(cancelledPlayback.srcObject).toBeNull();
+        expect(play).not.toHaveBeenCalled();
+        expect(test.playing).toBe(false);
+        expect(test.active).toBe(false);
+    });
+
+    it("does not let a delayed playback completion replace a restarted test", async () => {
+        const playback = Promise.withResolvers<void>();
+        play.mockReturnValueOnce(playback.promise);
+        const test = new MicrophoneTest(vi.fn());
+        const firstStart = test.start();
+        await vi.waitFor(() => expect(play).toHaveBeenCalledOnce());
+        const cancelledPlayback = audio;
+        test.stop();
+        await test.start();
+        const currentPlayback = audio;
+        playback.resolve();
+        await firstStart;
+
+        expect(cancelledPlayback.srcObject).toBeNull();
+        expect(currentPlayback.srcObject).not.toBeNull();
+        expect(test.playing).toBe(true);
+        expect(test.active).toBe(true);
+        expect(play).toHaveBeenCalledTimes(2);
+    });
+
+    it("shares speaker selection and playback between concurrent callers", async () => {
+        const sink = Promise.withResolvers<void>();
+        setSinkId.mockReturnValueOnce(sink.promise);
+        const test = new MicrophoneTest(vi.fn());
+        const firstStart = test.start();
+        const secondStart = test.start();
+        await vi.waitFor(() => expect(setSinkId).toHaveBeenCalledOnce());
+        sink.resolve();
+        await Promise.all([firstStart, secondStart]);
+
+        expect(getUserMedia).toHaveBeenCalledOnce();
+        expect(play).toHaveBeenCalledOnce();
+        expect(test.playing).toBe(true);
+    });
+
+    it("can restart playback while cancelled speaker selection is still pending", async () => {
+        const firstSink = Promise.withResolvers<void>();
+        const secondSink = Promise.withResolvers<void>();
+        setSinkId.mockReturnValueOnce(firstSink.promise).mockReturnValueOnce(secondSink.promise);
+        const test = new MicrophoneTest(vi.fn());
+        await test.start({ playback: false });
+        const firstPlayback = test.setPlayback(true);
+        await vi.waitFor(() => expect(setSinkId).toHaveBeenCalledOnce());
+        const cancelledPlayback = audio;
+        await test.setPlayback(false);
+        const secondPlayback = test.setPlayback(true);
+        await vi.waitFor(() => expect(setSinkId).toHaveBeenCalledTimes(2));
+
+        firstSink.resolve();
+        await firstPlayback;
+        const sharedPlayback = test.setPlayback(true);
+        secondSink.resolve();
+        await Promise.all([secondPlayback, sharedPlayback]);
+
+        expect(cancelledPlayback.srcObject).toBeNull();
+        expect(audio.srcObject).not.toBeNull();
+        expect(setSinkId).toHaveBeenCalledTimes(2);
+        expect(play).toHaveBeenCalledOnce();
+        expect(micTrack.stop).not.toHaveBeenCalled();
+        expect(test.active).toBe(true);
+    });
+
+    it("closes the microphone and processing when playback fails", async () => {
+        play.mockRejectedValueOnce(new Error("speaker unavailable"));
+        const test = new MicrophoneTest(vi.fn());
+        await expect(test.start()).rejects.toThrow("speaker unavailable");
+
+        expect(micTrack.stop).toHaveBeenCalledOnce();
+        expect(outputTrack.stop).toHaveBeenCalledOnce();
+        expect(close).toHaveBeenCalled();
+        expect(audio.srcObject).toBeNull();
+        expect(test.active).toBe(false);
+        expect(test.playing).toBe(false);
     });
 
     it("reports a refusal and leaves nothing open", async () => {

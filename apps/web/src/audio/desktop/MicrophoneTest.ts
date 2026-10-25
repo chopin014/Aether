@@ -28,8 +28,10 @@ export class MicrophoneTest {
     private stream?: MediaStream;
     private playback?: HTMLAudioElement;
     private processor?: MicrophoneProcessor;
-    private starting = false;
+    private generation = 0;
+    private playbackGeneration = 0;
     private opening?: Promise<void>;
+    private startingPlayback?: Promise<void>;
 
     /**
      * @param onLevel called with the loudness in dB, whether it would be sent and the threshold in use.
@@ -54,15 +56,21 @@ export class MicrophoneTest {
      * @throws the reason from `getUserMedia` when the microphone cannot be opened.
      */
     public async start({ playback = true }: { playback?: boolean } = {}): Promise<void> {
+        const generation = this.generation;
+        const playbackGeneration = this.playbackGeneration;
         // A second caller, such as the user starting the test while the level is being set up, shares the first.
-        this.opening ??= this.open().finally(() => (this.opening = undefined));
-        await this.opening;
-        if (playback && this.stream) await this.setPlayback(true);
+        const opening = (this.opening ??= this.open(generation));
+        try {
+            await opening;
+        } finally {
+            if (this.opening === opening) this.opening = undefined;
+        }
+        if (generation !== this.generation || playbackGeneration !== this.playbackGeneration) return;
+        if (playback) await this.setPlayback(true);
     }
 
-    private async open(): Promise<void> {
+    private async open(generation: number): Promise<void> {
         if (this.stream) return;
-        this.starting = true;
         try {
             const deviceId = MediaDeviceHandler.getAudioInput();
             const stream = await navigator.mediaDevices.getUserMedia({
@@ -74,21 +82,25 @@ export class MicrophoneTest {
                 },
             });
             // The user may have stopped the test while the browser was asking for permission.
-            if (!this.starting) {
+            if (generation !== this.generation) {
                 stream.getTracks().forEach((track) => track.stop());
                 return;
             }
             this.stream = stream;
             const processor = new MicrophoneProcessor(this.gateConfig());
-            processor.onLevel = this.onLevel;
-            processor.onDenoiserStatus = this.onDenoiserStatus;
+            processor.onLevel = (...level) => {
+                if (generation === this.generation) this.onLevel(...level);
+            };
+            processor.onDenoiserStatus = (status) => {
+                if (generation === this.generation) this.onDenoiserStatus?.(status);
+            };
             this.processor = processor;
             await processor.init({ kind: "audio", track: stream.getAudioTracks()[0] });
         } catch (error) {
+            // A cancelled opener must not close a newer microphone or report its cancellation as a failure.
+            if (generation !== this.generation) return;
             this.stop();
             throw error;
-        } finally {
-            this.starting = false;
         }
     }
 
@@ -100,12 +112,35 @@ export class MicrophoneTest {
 
     /** Starts or stops hearing yourself, while the level keeps being measured. */
     public async setPlayback(enabled: boolean): Promise<void> {
-        if (!enabled) this.stopPlayback();
-        else if (!this.playback) await this.play(this.processor?.processedTrack);
+        if (!enabled) {
+            this.stopPlayback();
+            return;
+        }
+        const generation = this.generation;
+        const playbackGeneration = this.playbackGeneration;
+        await this.opening;
+        if (generation !== this.generation || playbackGeneration !== this.playbackGeneration) return;
+        if (this.startingPlayback) return this.startingPlayback;
+        if (this.playback || !this.processor?.processedTrack) return;
+        const starting = (this.startingPlayback = this.play(
+            this.processor.processedTrack,
+            generation,
+            playbackGeneration,
+        ));
+        try {
+            await starting;
+        } catch (error) {
+            if (generation !== this.generation || playbackGeneration !== this.playbackGeneration) return;
+            this.stop();
+            throw error;
+        } finally {
+            if (this.startingPlayback === starting) this.startingPlayback = undefined;
+        }
     }
 
     public stop(): void {
-        this.starting = false;
+        ++this.generation;
+        this.opening = undefined;
         this.stream?.getTracks().forEach((track) => track.stop());
         void this.processor?.destroy();
         this.stopPlayback();
@@ -113,6 +148,8 @@ export class MicrophoneTest {
     }
 
     private stopPlayback(): void {
+        ++this.playbackGeneration;
+        this.startingPlayback = undefined;
         if (this.playback) {
             this.playback.pause();
             this.playback.srcObject = null;
@@ -129,14 +166,25 @@ export class MicrophoneTest {
         return SettingsStore.getValue("desktopSpeakerVolume") / 100;
     }
 
-    private async play(track: MediaStreamTrack | undefined): Promise<void> {
-        if (!track) return;
+    private async play(track: MediaStreamTrack, generation: number, playbackGeneration: number): Promise<void> {
         const audio = new Audio();
         audio.srcObject = new MediaStream([track]);
         audio.volume = this.speakerVolume();
-        const output = MediaDeviceHandler.getAudioOutput();
-        if (output && audio.setSinkId) await audio.setSinkId(output).catch(() => {});
         this.playback = audio;
-        await audio.play();
+        try {
+            const output = MediaDeviceHandler.getAudioOutput();
+            if (output && audio.setSinkId) await audio.setSinkId(output).catch(() => {});
+            if (generation !== this.generation || playbackGeneration !== this.playbackGeneration) return;
+            await audio.play();
+        } catch (error) {
+            if (generation !== this.generation || playbackGeneration !== this.playbackGeneration) return;
+            throw error;
+        } finally {
+            // Sink selection and playback can finish after stop, or after another test has started.
+            if (generation !== this.generation || playbackGeneration !== this.playbackGeneration) {
+                audio.pause();
+                audio.srcObject = null;
+            }
+        }
     }
 }
