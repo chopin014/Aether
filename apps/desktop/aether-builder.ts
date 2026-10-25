@@ -6,19 +6,32 @@ Please see LICENSE in the repository root for full details.
 */
 
 import base from "./electron-builder.ts";
+import desktopPackageJson from "./package.json" with { type: "json" };
+
+const version = process.env.VERSION ?? desktopPackageJson.version;
 
 /** Aether release identity. Internal workspace names stay stable for upstream merges. */
 const config = {
     ...base,
     appId: "io.github.chopin014.aether",
     artifactName: "Aether-${version}-${os}-${arch}.${ext}",
-    publish: null,
+    publish: [
+        {
+            provider: "github",
+            owner: "chopin014",
+            repo: "Aether",
+            private: false,
+            // Prerelease builds also check the stable feed so they can upgrade to the first stable release.
+            channel: "latest",
+        },
+    ],
+    generateUpdatesFilesForAllChannels: true,
     extraMetadata: {
         ...base.extraMetadata,
         name: "aether",
         productName: "Aether",
         description: "Aether desktop messenger for Matrix",
-        version: process.env.VERSION ?? "0.1.0-dev.1",
+        version,
         desktopName: "aether.desktop",
         electron_appId: "io.github.chopin014.aether",
         electron_protocol: "aether",
@@ -36,8 +49,19 @@ const config = {
         maintainer: "Aether contributors <156453220+chopin014@users.noreply.github.com>",
     },
     deb: { ...base.deb, recommends: [] },
-    win: { ...base.win, target: ["nsis"], icon: "aether/icon.ico" },
-    nsis: { oneClick: false, allowToChangeInstallationDirectory: true, createDesktopShortcut: true },
+    win: {
+        ...base.win,
+        target: ["nsis"],
+        icon: "aether/icon.ico",
+        forceCodeSigning: false,
+    },
+    nsis: {
+        oneClick: false,
+        perMachine: false,
+        allowElevation: false,
+        allowToChangeInstallationDirectory: true,
+        createDesktopShortcut: true,
+    },
 };
 
 export default config;
