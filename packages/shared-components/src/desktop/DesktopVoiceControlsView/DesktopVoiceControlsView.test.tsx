@@ -71,7 +71,10 @@ describe("DesktopVoiceControlsView", () => {
     it("shows only an actual connected call and keeps navigation, media and hang-up available", async () => {
         const vm = makeVm({ roomName: "Lounge" });
         render(<DesktopVoiceConnectionView vm={vm} />);
-        await userEvent.click(screen.getByRole("button", { name: "Voice Connected Lounge" }));
+        const call = screen.getByRole("button", { name: "Voice Connected Lounge" });
+        // Chromium excludes nested live status text from the button's implicit accessible name.
+        expect(call).toHaveAttribute("aria-label", "Voice Connected Lounge");
+        await userEvent.click(call);
         expect(vm.showCall).toHaveBeenCalledOnce();
         await userEvent.click(screen.getByRole("button", { name: "Turn on camera" }));
         expect(vm.toggleVideo).toHaveBeenCalledOnce();

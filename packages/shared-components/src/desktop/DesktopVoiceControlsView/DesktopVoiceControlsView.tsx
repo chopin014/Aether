@@ -166,7 +166,12 @@ export function DesktopVoiceConnectionView({ vm }: { vm: DesktopVoiceControlsVie
                                 <rect x="17" y="3" width="4" height="18" rx="1" />
                             </svg>
                         </button>
-                        <button className={styles.callIdentity} type="button" onClick={vm.showCall}>
+                        <button
+                            className={styles.callIdentity}
+                            type="button"
+                            aria-label={`${status} ${roomName}`}
+                            onClick={vm.showCall}
+                        >
                             <Text className={styles.connectedLabel} size="sm" weight="semibold">
                                 <VolumeOnIcon />
                                 <span role="status">{status}</span>
