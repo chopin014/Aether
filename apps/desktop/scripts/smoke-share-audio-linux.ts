@@ -113,6 +113,7 @@ async function main(): Promise<void> {
         const capturedChunks: Buffer[] = [];
         let capturedBytes = 0;
         let captureError: Error | null = null;
+        let targetToneObserved = false;
         let stoppedCallback = false;
         const callbacks: ShareAudioCallbacks = {
             onData: (pcm) => {
@@ -123,10 +124,19 @@ async function main(): Promise<void> {
                     );
                     return;
                 }
-                if (capturedBytes < 2 * 1024 * 1024) {
-                    capturedChunks.push(Buffer.from(pcm));
-                    capturedBytes += pcm.length;
+                // PulseAudio can confirm a monitor stream before playback reaches its first buffer. Start the
+                // verification window when the expected synthetic tone is actually present, not on initial silence.
+                if (!targetToneObserved) {
+                    targetToneObserved =
+                        frequencyMagnitude(pcm, 0, 440) > 0.05 && frequencyMagnitude(pcm, 1, 440) > 0.05;
+                    if (!targetToneObserved) return;
                 }
+                if (capturedBytes >= 2 * 1024 * 1024) {
+                    captureError = new Error("Provider emitted more than the bounded synthetic PCM capture window.");
+                    return;
+                }
+                capturedChunks.push(Buffer.from(pcm));
+                capturedBytes += pcm.length;
             },
             onError: (error) => {
                 captureError = error;
@@ -142,9 +152,7 @@ async function main(): Promise<void> {
         await waitFor(
             async () => {
                 if (captureError) throw captureError;
-                return (
-                    capturedBytes >= (SAMPLE_RATE * 2 * Float32Array.BYTES_PER_ELEMENT * CAPTURE_DURATION_SECONDS) / 2
-                );
+                return capturedBytes >= SAMPLE_RATE * 2 * Float32Array.BYTES_PER_ELEMENT * CAPTURE_DURATION_SECONDS;
             },
             5000,
             abortController.signal,
