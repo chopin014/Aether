@@ -286,10 +286,10 @@ test(
             const strength = noisePanel.getByRole("slider", { name: "Suppression strength", exact: true });
             await expect(strength).toBeEnabled();
             await strength.press("End");
-            await strength.press("PageDown");
-            await expect(strength).toBeEnabled();
-            await strength.press("PageDown");
-            await expect(strength).toHaveValue("80");
+            for (let value = 99; value >= 80; value--) {
+                await strength.press("ArrowLeft");
+                await expect(strength).toHaveValue(String(value));
+            }
             await expect(noisePanel.getByText("80%", { exact: true })).toBeVisible();
             await expect
                 .poll(() =>
