@@ -7,7 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 # Desktop UI development
 
-Aether’s `ui/desktop-shell` branch implements the Discord-derived desktop presentation in Element's real Electron application. The application is named Aether. Linux and Windows are the first release targets; the icon and core palette follow the Aether brand manual v1.1, while the rest of the visual design is provisional. The research gallery and synthetic prototype live outside this repository; neither is the desktop client.
+Aether implements the Discord-derived desktop presentation in Element's real Electron application. The application is named Aether. Linux and Windows are the first release targets; the icon and core palette follow the Aether brand manual v1.1, while the rest of the visual design is provisional. The research gallery and synthetic prototype live outside this repository; neither is the desktop client.
 
 ## Launch the actual application
 
@@ -111,17 +111,17 @@ points and the non-desktop shell retain the existing card.
 
 The acceptance target is the captured Discord desktop interface and its interactions, not a recolored Element. These statuses distinguish working integration from finished visual parity.
 
-| Captured surface                | Current implementation                                                                                | Still required                                                                             |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Server text and members         | Real Space navigation, channel categories, message layout, composer, member groups and header actions | Exact typography, menus, system messages, hover states and all populated timeline variants |
-| Friends / Home                  | Real conversations, presence, incoming room invites and ignored users                                 | Exact reference layout, profile cards and explicit mutual-friend semantics if added        |
-| Voice connection dock           | Real Element Call join, persistent audio, mic/deafen controls and disconnect                          | Exact participant rows, device menus and connection diagnostics                            |
-| Voice stage                     | Working two-person audio-only Element Call                                                            | Replace the remaining Element Call presentation with the captured stage layout             |
-| Settings                        | Captured modal frame, real existing settings and security controls                                    | Reorganize and implement each captured page's content and navigation                       |
-| Server/channel administration   | Existing Matrix settings remain available                                                             | Captured layouts and explicit mappings for Discord-specific roles and permissions          |
-| Threads, pins, search and media | Existing Element actions and rendering retained                                                       | Captured panels, result layouts, menus and populated/error-state coverage                  |
-| Profiles and pickers            | Existing functional Matrix surfaces retained                                                          | Captured profile cards, editors, emoji/sticker layouts and interaction coverage            |
-| Authentication and recovery     | Existing Element flows retained                                                                       | Reference capture, visual implementation and real account validation                       |
+| Captured surface                | Current implementation                                                                                | Still required                                                                              |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Server text and members         | Real Space navigation, channel categories, message layout, composer, member groups and header actions | Exact typography, menus, system messages, hover states and all populated timeline variants  |
+| Friends / Home                  | Real conversations, presence, incoming room invites and ignored users                                 | Exact reference layout, profile cards and explicit mutual-friend semantics if added         |
+| Voice connection dock           | Real Element Call join, persistent audio, mic/deafen controls and disconnect                          | Detailed visual parity for connection diagnostics                                           |
+| Voice stage                     | Aether DesktopCallStageView over Element Call engine (grid/spotlight, stream quality, stream volume)  | Side-by-side visual review across multi-party camera/screen-share and error states          |
+| Settings                        | Channel settings use grouped channel navigation and retain Matrix settings and security controls      | Captured settings content and detailed visual parity for remaining account and server pages |
+| Server/channel administration   | Existing Matrix settings remain available                                                             | Captured layouts and explicit mappings for Discord-specific roles and permissions           |
+| Threads, pins, search and media | Existing Element actions and rendering retained                                                       | Captured panels, result layouts, menus and populated/error-state coverage                   |
+| Profiles and pickers            | Existing functional Matrix surfaces retained                                                          | Captured profile cards, editors, emoji/sticker layouts and interaction coverage             |
+| Authentication and recovery     | Existing Element flows retained                                                                       | Reference capture, visual implementation and real account validation                        |
 
 No surface is marked as having complete Discord parity. Completion requires side-by-side review at the captured viewport, keyboard/focus checks and real Matrix state transitions; passing functional tests alone does not establish visual equivalence.
 
@@ -206,6 +206,11 @@ other person, as in Discord, and the menu does not exist. Discord's "show user p
 column in a DM header, is a follow-up: the popout and `DesktopProfileViewModel` are anchored to the click that opened
 them and would need a column variant first.
 
+In the desktop shell, Edit channel, Edit topic, and the menu's encryption/history entries open the same channel
+settings dialog on Overview or Security & Privacy as appropriate. Its grouped navigation keeps the available Matrix
+permissions, people, voice, notifications, poll history, bridges and advanced controls reachable. Other shell modes
+continue to use Element's existing room settings navigation.
+
 `Ctrl+.`, Element's room info shortcut, opens the channel menu (or a direct message's profile) in the desktop shell.
 The `RoomSummary` right-panel card is refused by the right panel store under the flag, so neither a header click, a
 stored panel state nor a history "back" step can show it.
@@ -259,21 +264,18 @@ read Element's `webrtc_*` settings, so Element's pickers did not affect calls. T
 | Mirror my video              | Element Call's own camera tile follows the setting                                                 |
 | Always preview video         | The desktop voice channel join no longer skips Element Call's lobby                                |
 
-The Studio profile sends the microphone as it is: it turns echo cancellation and automatic gain off and bypasses the
-gate. Editing either switch by hand switches the profile back to Custom. Noise suppression is not offered in the
-desktop page; Element's setting and its Element Call default are untouched, and Reset leaves it alone.
-
-Unmodified Element Call behaviour that remains: devices and processing are read when a call is joined, so the page
-says so while a call is open.
+The Studio profile bypasses noise processing and the sensitivity gate. Voice Isolation uses the enhanced model and
+speech detection; Custom exposes suppression strength (0–100), sensitivity, echo cancellation and automatic gain.
+The microphone test uses the same processed audio path. Device choices are applied asynchronously to the active
+engine, with a visible error when a change fails.
 
 ### Push to talk
 
-Key presses are only seen while the Aether window is focused. Electron's `globalShortcut` is not plumbed through the
-desktop preload and reports a press but never the release, so it cannot hold a microphone open; a global key would
-need a native key-state hook. Losing focus releases the key at once. A bare letter bound without a modifier is
-ignored while typing in a text field. Until a key is recorded, a Push to talk input mode behaves as voice activity so
-the microphone cannot be left silent. Muting or deafening in the dock still wins: nothing is sent and no push to
-talk sound plays.
+The shared shortcut manager uses the desktop native or portal backend when available and falls back to focused
+window events when the platform cannot register global shortcuts. Its status explains unavailable or conflicting
+bindings. Recording a shortcut suspends registered actions. Navigation, window close, lock and suspend release held
+keys. Push to talk keeps the microphone gated until a valid key is held; an unassigned key does not open the gate.
+Explicit microphone mute and deafen continue to take precedence.
 
 ### Sounds
 
@@ -301,12 +303,12 @@ byte for byte.
 | Microphone / speaker pickers                | Implemented                                                                            |
 | Microphone / speaker volume                 | Implemented (0–100%; a call cannot play louder than 100%)                              |
 | Mic test with meter ("Let's check")         | Implemented, with loopback through the chosen speaker; closes on stop and unmount      |
-| Input profiles                              | Studio and Custom. **Voice Isolation omitted**: it depends on noise suppression        |
+| Input profiles                              | Studio, Custom and enhanced Voice Isolation                                            |
 | Input sensitivity, automatic and manual     | Implemented; the meter colours the slider yellow to green                              |
-| Noise suppression (Krisp)                   | Omitted by request                                                                     |
+| Noise suppression                           | Enhanced local model, strength control and processed microphone test                   |
 | Echo cancellation, automatic gain control   | Implemented                                                                            |
-| Push to talk, keybind, release delay, sound | Implemented, focused window only                                                       |
-| Advanced voice activity                     | Omitted: it is a Discord-side voice model with no Element Call equivalent              |
+| Push to talk, keybind, release delay, sound | Implemented; global native/portal registration where available                         |
+| Advanced voice activity                     | Speech detection in the enhanced processing pipeline                                   |
 | Voice channel switch warning                | Implemented: asks before leaving a call for another                                    |
 | Camera picker, preview, mirror              | Implemented                                                                            |
 | Always preview video                        | Implemented through Element Call's lobby                                               |
@@ -317,6 +319,58 @@ byte for byte.
 | Sound board, entry sounds                   | Omitted: Aether has no sound board and Element Call cannot inject audio; follow-up     |
 | "Voice disconnected" sound                  | Omitted: Aether plays the leave cue, and cannot tell a dropped connection from leaving |
 | Peer-to-peer and fallback call assist       | Kept; peer-to-peer only where legacy calls exist, since Element Call uses a server     |
-| Diagnostics                                 | Debug logs (the bug report dialog) and Help & About                                    |
+| Diagnostics                                 | Live SFU RTT/loss, connection states and debug logs                                    |
 | Reset all                                   | Implemented, with a confirmation                                                       |
 | OpenH264                                    | Omitted: Discord-specific codec choice                                                 |
+
+### Call stage and screen share
+
+When `feature_desktop_shell` is enabled, `WrappedElementCallComponent` supplies `renderPresentation` on
+`ElementWebHostBridge`. `DesktopCallStageView` and `DesktopCallStageViewModel` own the visible lobby, call stage,
+controls and device/quality popovers. Element Call retains MatrixRTC membership, LiveKit transport, encryption and
+remote audio rendering. Per-participant microphone volume and screen-stream audio volume use separate engine
+controls. Global speaker volume and deafen apply to both. Call sounds use Aether's existing settings.
+
+The desktop source picker has two steps: select an application or screen, then select stream quality. Changes stay
+local to the dialog until confirmation; Cancel and Escape do not change sharing preferences. Source enumeration is
+serialized, and confirmation rechecks that the selected source still exists. Non-desktop shell configurations retain
+the existing picker. `DesktopScreenSharePickerView` is a shared dumb view; `DesktopScreenSharePickerViewModel` owns
+refresh and confirmation lifetime.
+
+Deployment configuration limits the choices forwarded to the call engine:
+
+```json
+{
+    "element_call": {
+        "media_quality": {
+            "screen_share": {
+                "max_resolution": 1080,
+                "max_framerate": 30,
+                "max_bitrate": 5000000
+            }
+        }
+    }
+}
+```
+
+These are the default limits when values are absent or invalid. Resolution is the maximum capture height, frame
+rate is frames per second, and bitrate is bits per second. Values below the standard presets appear as an additional
+allowed choice. User preferences are validated and clamped before reaching the engine. The calling service's own
+transport and bandwidth limits still apply; this client configuration does not override them.
+
+This UI branch's Electron capture callback provides video only, so the picker reports that screen audio is
+unavailable. Browser capture may provide audio when supported, and stream audio status reflects an actual published
+track. The Windows/Linux native playback capture work is kept on its separate backend branch and must be integrated
+before desktop audio options are exposed.
+
+Native picker checks use an isolated Electron profile, deterministic OS source enumeration, the production modal,
+and IPC delivery to the main process. Build the renderer and desktop host first, then run:
+
+```sh
+cd apps/desktop
+env -u ELECTRON_RUN_AS_NODE pnpm exec playwright test playwright/e2e/sharing/source-picker.spec.ts --project=Desktop
+```
+
+This checks the prompt and source delivery; it does not prove OS capture or audible audio quality. The call media
+suite uses a real two-member MatrixRTC/LiveKit session for transport validation. No surface is certified as complete
+Discord parity from unit tests alone.
