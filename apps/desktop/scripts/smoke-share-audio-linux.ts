@@ -114,6 +114,7 @@ async function main(): Promise<void> {
         let capturedBytes = 0;
         let captureError: Error | null = null;
         let targetToneObserved = false;
+        let framesBeforeTargetTone = 0;
         let stoppedCallback = false;
         const callbacks: ShareAudioCallbacks = {
             onData: (pcm) => {
@@ -129,7 +130,10 @@ async function main(): Promise<void> {
                 if (!targetToneObserved) {
                     targetToneObserved =
                         frequencyMagnitude(pcm, 0, 440) > 0.05 && frequencyMagnitude(pcm, 1, 440) > 0.05;
-                    if (!targetToneObserved) return;
+                    if (!targetToneObserved) {
+                        framesBeforeTargetTone++;
+                        return;
+                    }
                 }
                 if (capturedBytes >= 2 * 1024 * 1024) {
                     captureError = new Error("Provider emitted more than the bounded synthetic PCM capture window.");
@@ -180,6 +184,7 @@ async function main(): Promise<void> {
         outputSummary = verifyPcm(pcm);
         outputSummary.application = target.name;
         outputSummary.mode = mode;
+        outputSummary.framesBeforeTargetTone = framesBeforeTargetTone;
         outputSummary.selectedPlayerPid = player440Pid;
         outputSummary.excludedPlayerPid = player880Pid;
         outputSummary.providerParecProcesses = ownedParecProcesses.size;
@@ -326,11 +331,52 @@ function verifyPcm(pcm: Buffer): Record<string, number | string | boolean> {
     const right440 = frequencyMagnitude(pcm, 1, 440);
     const left880 = frequencyMagnitude(pcm, 0, 880);
     const right880 = frequencyMagnitude(pcm, 1, 880);
-    if (left440 < 0.05 || right440 < 0.05) {
-        throw new Error(`Selected 440 Hz app tone was not present in both stereo channels (${left440}, ${right440}).`);
+
+    let activeToneFrames = 0;
+    let minimumActiveFrameMagnitude = Number.POSITIVE_INFINITY;
+    let maximumFrameMagnitude = 0;
+    let totalFrameMagnitude = 0;
+    let totalLeft440Magnitude = 0;
+    let totalRight440Magnitude = 0;
+    let totalLeft880Magnitude = 0;
+    let totalRight880Magnitude = 0;
+    const totalFrames = pcm.length / CHUNK_BYTES;
+    for (let offset = 0; offset < pcm.length; offset += CHUNK_BYTES) {
+        const frame = pcm.subarray(offset, offset + CHUNK_BYTES);
+        const leftMagnitude = frequencyMagnitude(frame, 0, 440);
+        const rightMagnitude = frequencyMagnitude(frame, 1, 440);
+        const leftLeakage = frequencyMagnitude(frame, 0, 880);
+        const rightLeakage = frequencyMagnitude(frame, 1, 880);
+        const frameMagnitude = (leftMagnitude + rightMagnitude) / 2;
+        totalLeft440Magnitude += leftMagnitude;
+        totalRight440Magnitude += rightMagnitude;
+        totalLeft880Magnitude += leftLeakage;
+        totalRight880Magnitude += rightLeakage;
+        totalFrameMagnitude += frameMagnitude;
+        maximumFrameMagnitude = Math.max(maximumFrameMagnitude, frameMagnitude);
+        if (leftMagnitude > 0.05 && rightMagnitude > 0.05) {
+            activeToneFrames++;
+            minimumActiveFrameMagnitude = Math.min(minimumActiveFrameMagnitude, leftMagnitude, rightMagnitude);
+        }
     }
-    if (left880 > left440 * 0.15 || right880 > right440 * 0.15) {
-        throw new Error(`Excluded 880 Hz app tone leaked into selected-app capture (${left880}, ${right880}).`);
+    if (activeToneFrames < totalFrames * 0.95) {
+        throw new Error(
+            `The generated 440 Hz signal was intermittent: ${activeToneFrames}/${totalFrames} frames had stereo tone.`,
+        );
+    }
+    const meanLeft440Magnitude = totalLeft440Magnitude / totalFrames;
+    const meanRight440Magnitude = totalRight440Magnitude / totalFrames;
+    const meanLeft880Magnitude = totalLeft880Magnitude / totalFrames;
+    const meanRight880Magnitude = totalRight880Magnitude / totalFrames;
+    if (meanLeft440Magnitude < 0.05 || meanRight440Magnitude < 0.05) {
+        throw new Error(
+            `Selected 440 Hz tone was not present in both channels (mean frame magnitudes ${meanLeft440Magnitude}, ${meanRight440Magnitude}).`,
+        );
+    }
+    if (meanLeft880Magnitude > meanLeft440Magnitude * 0.15 || meanRight880Magnitude > meanRight440Magnitude * 0.15) {
+        throw new Error(
+            `Excluded 880 Hz tone leaked into capture (mean frame magnitudes ${meanLeft880Magnitude}, ${meanRight880Magnitude}).`,
+        );
     }
 
     return {
@@ -341,6 +387,14 @@ function verifyPcm(pcm: Buffer): Record<string, number | string | boolean> {
         right440Magnitude: Number(right440.toFixed(4)),
         left880Leakage: Number(left880.toFixed(4)),
         right880Leakage: Number(right880.toFixed(4)),
+        activeToneFrames,
+        minimumActiveFrameMagnitude: Number(minimumActiveFrameMagnitude.toFixed(4)),
+        maximumFrameMagnitude: Number(maximumFrameMagnitude.toFixed(4)),
+        meanFrameMagnitude: Number((totalFrameMagnitude / totalFrames).toFixed(4)),
+        meanLeft440FrameMagnitude: Number(meanLeft440Magnitude.toFixed(4)),
+        meanRight440FrameMagnitude: Number(meanRight440Magnitude.toFixed(4)),
+        meanLeft880FrameLeakage: Number(meanLeft880Magnitude.toFixed(4)),
+        meanRight880FrameLeakage: Number(meanRight880Magnitude.toFixed(4)),
     };
 }
 
