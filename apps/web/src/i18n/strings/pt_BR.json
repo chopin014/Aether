@@ -3959,6 +3959,19 @@
             "fallback_microphone": "Microfone %(index)s",
             "fallback_speaker": "Alto-falante %(index)s"
         },
+        "channel_settings": {
+            "aria_label": "Configurações do canal %(roomName)s",
+            "group_access": "Acesso",
+            "group_activity": "Pessoas e atividade",
+            "group_advanced": "Avançado",
+            "group_channel": "Canal",
+            "group_integrations": "Integrações",
+            "notifications": "Notificações",
+            "overview": "Visão geral",
+            "permissions": "Permissões",
+            "title": "Configurações do canal",
+            "voice": "Voz"
+        },
         "share_picker": {
             "title": "Compartilhar sua tela"
         }

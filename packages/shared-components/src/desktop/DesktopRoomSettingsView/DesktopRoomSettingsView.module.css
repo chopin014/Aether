@@ -1,0 +1,141 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.layout {
+    position: absolute;
+    inset: var(--mx-desktop-shell-header-height, 49px) 0 0;
+    display: grid;
+    grid-template-columns: var(--mx-desktop-settings-sidebar, 252px) minmax(0, 1fr);
+    min-height: 0;
+}
+
+.navigation {
+    min-width: 0;
+    overflow-y: auto;
+    padding: var(--cpd-space-5x) var(--cpd-space-4x) var(--cpd-space-6x);
+    background: var(--cpd-color-bg-canvas-default);
+}
+
+.tabList {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.groupLabel {
+    padding: var(--cpd-space-3x) var(--cpd-space-2x) var(--cpd-space-1-5x);
+    color: var(--cpd-color-text-secondary);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.groupLabel:first-child {
+    padding-top: 0;
+}
+
+.tab {
+    display: flex;
+    width: 100%;
+    min-height: 36px;
+    align-items: center;
+    gap: var(--cpd-space-2x);
+    padding: var(--cpd-space-1-5x) var(--cpd-space-2x);
+    border: 0;
+    border-radius: 6px;
+    color: var(--cpd-color-text-secondary);
+    background: transparent;
+    text-align: start;
+    cursor: pointer;
+    transition: background-color 120ms ease;
+}
+
+.tab:hover,
+.tab[aria-selected="true"] {
+    color: var(--cpd-color-text-primary);
+    background: var(--cpd-color-bg-subtle-secondary);
+}
+
+.tab[aria-selected="true"] {
+    outline: 1px solid transparent;
+}
+
+.tab:focus-visible {
+    outline: 2px solid var(--cpd-color-border-focused);
+    outline-offset: 1px;
+}
+
+.tabIcon {
+    display: flex;
+    flex: 0 0 20px;
+    align-items: center;
+    justify-content: center;
+}
+
+.tabIcon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.tabLabel {
+    min-width: 0;
+}
+
+.main {
+    min-width: 0;
+    min-height: 0;
+}
+
+.tabPanel {
+    height: 100%;
+    min-width: 0;
+}
+
+.panelContent {
+    box-sizing: border-box;
+    padding: var(--cpd-space-7x) clamp(24px, 4vw, 64px) var(--cpd-space-12x);
+}
+
+/* stylelint-disable-next-line selector-pseudo-class-no-unknown -- CSS modules must target the retained Matrix tab root. */
+.panelContent > :global(.mx_SettingsTab) {
+    max-width: 760px;
+    min-width: 0;
+    padding: 0 0 var(--cpd-space-12x);
+}
+
+@media (max-width: 760px) {
+    .navigation {
+        padding: var(--cpd-space-4x) calc(var(--cpd-space-1x) * 2.5) var(--cpd-space-5x);
+    }
+
+    .panelContent {
+        padding: var(--cpd-space-5x) var(--cpd-space-4x) var(--cpd-space-9x);
+    }
+}
+
+@media (max-width: 520px) {
+    .tab {
+        gap: var(--cpd-space-1-5x);
+        padding-inline: var(--cpd-space-1-5x);
+    }
+
+    .tabIcon {
+        flex-basis: 18px;
+    }
+
+    .tabIcon svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    .groupLabel {
+        padding-inline: var(--cpd-space-1-5x);
+    }
+
+    .panelContent {
+        padding-inline: var(--cpd-space-3x);
+    }
+}

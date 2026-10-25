@@ -765,6 +765,19 @@
             "fallback_microphone": "Microphone %(index)s",
             "fallback_speaker": "Speaker %(index)s"
         },
+        "channel_settings": {
+            "aria_label": "Channel settings for %(roomName)s",
+            "group_access": "Access",
+            "group_activity": "People and activity",
+            "group_advanced": "Advanced",
+            "group_channel": "Channel",
+            "group_integrations": "Integrations",
+            "notifications": "Notifications",
+            "overview": "Overview",
+            "permissions": "Permissions",
+            "title": "Channel settings",
+            "voice": "Voice"
+        },
         "contacts": {
             "action_failed": "That action could not be completed. Please try again.",
             "offline": "desktop|contacts|offline",

@@ -46,6 +46,13 @@ import { SDKContext } from "../../../contexts/SDKContext";
 import { type SDKContextClass } from "../../../contexts/SDKContextClass";
 import { RoomSettingsTab } from "./RoomSettingsDialog-tab.ts";
 import SdkConfig from "../../../SdkConfig";
+import { PosthogScreenTracker } from "../../../PosthogTrackers";
+import { DesktopRoomSettingsView } from "@element-hq/web-shared-components";
+import {
+    DesktopRoomSettingsViewModel,
+    type DesktopRoomSettingsViewModelProps,
+    desktopRoomSettingsTabLabel,
+} from "../../../viewmodels/desktop/DesktopRoomSettingsViewModel";
 
 interface IProps {
     roomId: string;
@@ -61,6 +68,7 @@ interface IState {
 
 class RoomSettingsDialog extends React.Component<IProps, IState> {
     private dispatcherRef?: string;
+    private desktopSettingsViewModel?: DesktopRoomSettingsViewModel;
 
     public constructor(props: IProps) {
         super(props);
@@ -73,6 +81,9 @@ class RoomSettingsDialog extends React.Component<IProps, IState> {
         this.dispatcherRef = dis.register(this.onAction);
         MatrixClientPeg.safeGet().on(RoomEvent.Name, this.onRoomName);
         MatrixClientPeg.safeGet().on(RoomStateEvent.Events, this.onStateEvent);
+        if (SettingsStore.getValue("feature_desktop_shell")) {
+            this.desktopSettingsViewModel = new DesktopRoomSettingsViewModel(this.getDesktopSettingsViewModelProps());
+        }
         this.onRoomName();
     }
 
@@ -80,11 +91,14 @@ class RoomSettingsDialog extends React.Component<IProps, IState> {
         if (this.props.roomId !== this.state.room.roomId) {
             const room = this.getRoom();
             this.setState({ room });
+            return;
         }
+        this.desktopSettingsViewModel?.setProps(this.getDesktopSettingsViewModelProps());
     }
 
     public componentWillUnmount(): void {
         dis.unregister(this.dispatcherRef);
+        this.desktopSettingsViewModel?.dispose();
 
         MatrixClientPeg.get()?.removeListener(RoomEvent.Name, this.onRoomName);
         MatrixClientPeg.get()?.removeListener(RoomStateEvent.Events, this.onStateEvent);
@@ -125,6 +139,25 @@ class RoomSettingsDialog extends React.Component<IProps, IState> {
     private onTabChange = (tabId: RoomSettingsTab): void => {
         this.setState({ activeTabId: tabId });
     };
+
+    private getDesktopSettingsViewModelProps(): DesktopRoomSettingsViewModelProps {
+        return {
+            roomName: this.state.room.name,
+            tabs: this.getTabs(),
+            activeTabId: this.state.activeTabId,
+            onTabChange: this.onTabChange,
+        };
+    }
+
+    private renderDesktopSettings(activeTab: Tab<RoomSettingsTab>): React.ReactNode {
+        if (!this.desktopSettingsViewModel) return null;
+        return (
+            <>
+                <PosthogScreenTracker screenName={activeTab.screenName ?? "RoomSettings"} />
+                <DesktopRoomSettingsView vm={this.desktopSettingsViewModel} />
+            </>
+        );
+    }
 
     private getTabs(): NonEmptyArray<Tab<RoomSettingsTab>> {
         const tabs: Tab<RoomSettingsTab>[] = [];
@@ -230,22 +263,49 @@ class RoomSettingsDialog extends React.Component<IProps, IState> {
 
     public render(): React.ReactNode {
         const roomName = this.state.room.name;
+        const desktopShell = SettingsStore.getValue("feature_desktop_shell");
+        const tabs = this.getTabs();
+        const activeTab = tabs.find((tab) => tab.id === this.state.activeTabId) ?? tabs[0];
         return (
             <SDKContext.Provider value={this.props.sdkContext}>
                 <BaseDialog
-                    className="mx_RoomSettingsDialog"
+                    className={
+                        desktopShell ? "mx_RoomSettingsDialog mx_RoomSettingsDialog_desktop" : "mx_RoomSettingsDialog"
+                    }
                     hasCancel={true}
                     onFinished={this.props.onFinished}
-                    title={_t("room_settings|title", { roomName })}
+                    title={
+                        desktopShell
+                            ? _t(desktopRoomSettingsTabLabel(activeTab))
+                            : _t("room_settings|title", { roomName })
+                    }
+                    aria-label={desktopShell ? _t("desktop|channel_settings|aria_label", { roomName }) : undefined}
+                    top={
+                        desktopShell ? (
+                            <div className="mx_RoomSettingsDialog_desktopIdentity">
+                                <span className="mx_RoomSettingsDialog_desktopIdentity_icon" aria-hidden="true">
+                                    #
+                                </span>
+                                <span className="mx_RoomSettingsDialog_desktopIdentity_name">{roomName}</span>
+                                <span className="mx_RoomSettingsDialog_desktopIdentity_type">
+                                    {_t("desktop|channel_settings|title")}
+                                </span>
+                            </div>
+                        ) : undefined
+                    }
                 >
-                    <div className="mx_SettingsDialog_content">
-                        <TabbedView
-                            tabs={this.getTabs()}
-                            activeTabId={this.state.activeTabId}
-                            screenName="RoomSettings"
-                            onChange={this.onTabChange}
-                        />
-                    </div>
+                    {desktopShell ? (
+                        this.renderDesktopSettings(activeTab)
+                    ) : (
+                        <div className="mx_SettingsDialog_content">
+                            <TabbedView
+                                tabs={tabs}
+                                activeTabId={this.state.activeTabId}
+                                screenName="RoomSettings"
+                                onChange={this.onTabChange}
+                            />
+                        </div>
+                    )}
                 </BaseDialog>
             </SDKContext.Provider>
         );
