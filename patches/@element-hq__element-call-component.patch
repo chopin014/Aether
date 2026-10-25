@@ -1,7 +1,287 @@
+diff --git a/b/dist/aether-screen-share.js b/dist/aether-screen-share.js
+new file mode 100644
+index 0000000000..9e4d0a04ee
+--- /dev/null
++++ b/dist/aether-screen-share.js
+@@ -0,0 +1,210 @@
++/*
++Copyright 2026 Gabriel
++
++SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
++Please see LICENSE in the repository root for full details.
++*/
++
++const positive = (value) => typeof value === "number" && Number.isFinite(value) && value > 0;
++
++/** Validate a complete preference after merging a partial update, then cap it to deployment policy. */
++export function aetherResolveScreenShareQuality(policy, raw = {}) {
++    const maxHeight = positive(policy?.max_resolution) ? policy.max_resolution : 1080;
++    const maxFps = positive(policy?.max_framerate) ? Math.min(policy.max_framerate, 60) : 30;
++    const maxBr = positive(policy?.max_bitrate) ? policy.max_bitrate : 5000000;
++    return {
++        resolutionHeight: Math.min(positive(raw.resolutionHeight) ? raw.resolutionHeight : maxHeight, maxHeight),
++        frameRate: Math.min(positive(raw.frameRate) ? raw.frameRate : 30, maxFps),
++        maxBitrate: Math.min(positive(raw.maxBitrate) ? raw.maxBitrate : maxBr, maxBr),
++        includeSystemAudio: typeof raw.includeSystemAudio === "boolean" ? raw.includeSystemAudio : false,
++    };
++}
++
++/** Bound capture before publishing; ideal constraints alone can exceed a deployment maximum. */
++export async function aetherConstrainScreenTrack(track, quality) {
++    await track.mediaStreamTrack.applyConstraints({
++        width: {
++            ideal: Math.round((quality.resolutionHeight * 16) / 9),
++            max: Math.round((quality.resolutionHeight * 16) / 9),
++        },
++        height: { ideal: quality.resolutionHeight, max: quality.resolutionHeight },
++        frameRate: { ideal: quality.frameRate, max: quality.frameRate },
++    });
++}
++
++const senderLayerLimits = new WeakMap();
++
++/** Whether capture really published a live, unmuted stream audio track, regardless of the requested preference. */
++export function aetherHasLiveScreenShareAudio(reference) {
++    const publication = reference?.publication;
++    return !!publication?.track && !publication.isMuted && publication.track.mediaStreamTrack.readyState === "live";
++}
++
++/** Bound every layer and backup codec while allowing the primary layer to increase after a previous reduction. */
++export async function aetherConstrainScreenSenders(track, quality) {
++    const senders = new Set([
++        track.sender,
++        ...Array.from(track.simulcastCodecs?.values() ?? [], (codec) => codec.sender),
++    ]);
++    for (const sender of senders) {
++        if (!sender) continue;
++        const parameters = sender.getParameters();
++        const encodings = parameters.encodings ?? [];
++        let limits = senderLayerLimits.get(sender);
++        if (!limits || limits.caps.length !== encodings.length) {
++            const caps = encodings.map((encoding) => (positive(encoding.maxBitrate) ? encoding.maxBitrate : Infinity));
++            const primary = caps.indexOf(Math.max(...caps));
++            limits = { caps, primary };
++            senderLayerLimits.set(sender, limits);
++        }
++        for (let index = 0; index < encodings.length; ++index) {
++            encodings[index].maxBitrate =
++                index === limits.primary ? quality.maxBitrate : Math.min(limits.caps[index], quality.maxBitrate);
++            encodings[index].maxFramerate = quality.frameRate;
++        }
++        await sender.setParameters(parameters);
++    }
++}
++
++/** Own screen capture for one existing engine participant. Late permission results cannot publish after leave. */
++export function aetherCreateScreenShareController({
++    participant,
++    policy,
++    quality,
++    sources,
++    commit,
++    onError = () => {},
++}) {
++    let current = aetherResolveScreenShareQuality(policy, quality);
++    let desired = current;
++    let generation = 0;
++    let disposed = false;
++    let requested = false;
++    let queue = Promise.resolve();
++    const owned = new Set();
++    const enqueue = (operation) => {
++        const result = queue.then(operation);
++        queue = result.catch(() => {});
++        return result;
++    };
++    const release = async () => {
++        const tracks = new Set(owned);
++        const results = await Promise.allSettled(
++            Array.from(tracks, async (track) => {
++                track.stop();
++                owned.delete(track);
++                await participant.unpublishTrack(track);
++            }),
++        );
++        const failed = results.find((result) => result.status === "rejected");
++        if (failed) throw failed.reason;
++    };
++    const update = (patch) => {
++        // The native source picker can change quality while the browser capture request is still pending.
++        desired = aetherResolveScreenShareQuality(policy, { ...desired, ...patch });
++        return enqueue(async () => {
++            if (disposed) return;
++            const next = desired;
++            const track = participant.getTrackPublication(sources.video)?.track;
++            if (track) {
++                try {
++                    await aetherConstrainScreenTrack(track, next);
++                    await aetherConstrainScreenSenders(track, next);
++                } catch (error) {
++                    // If the sender cannot enforce policy, stop capture rather than show a setting we failed to apply.
++                    requested = false;
++                    ++generation;
++                    await release();
++                    if (desired === next) desired = current;
++                    throw error;
++                }
++            }
++            if (!disposed) {
++                current = next;
++                commit(next);
++            }
++        });
++    };
++    const setEnabled = (enabled, patch = {}) => {
++        desired = aetherResolveScreenShareQuality(policy, { ...desired, ...patch });
++        requested = enabled;
++        const ticket = ++generation;
++        return enqueue(async () => {
++            if (disposed || ticket !== generation) return;
++            if (!enabled) return release();
++            if (participant.getTrackPublication(sources.video)?.track) return;
++            const captureQuality = desired;
++            let tracks = [];
++            try {
++                tracks = await participant.createScreenTracks({
++                    audio: captureQuality.includeSystemAudio
++                        ? { autoGainControl: false, noiseSuppression: false, voiceIsolation: false }
++                        : false,
++                    resolution: {
++                        width: Math.round((captureQuality.resolutionHeight * 16) / 9),
++                        height: captureQuality.resolutionHeight,
++                        frameRate: captureQuality.frameRate,
++                    },
++                    selfBrowserSurface: "include",
++                    surfaceSwitching: "include",
++                    systemAudio: captureQuality.includeSystemAudio ? "include" : "exclude",
++                });
++                for (const track of tracks) owned.add(track);
++                if (disposed || !requested || ticket !== generation) {
++                    for (const track of tracks) {
++                        track.stop();
++                        owned.delete(track);
++                    }
++                    return;
++                }
++                const next = desired;
++                const video = tracks.find((track) => track.source === sources.video);
++                if (!video) throw Error("Screen capture returned no video track");
++                video.mediaStreamTrack.addEventListener(
++                    "ended",
++                    () => {
++                        requested = false;
++                        ++generation;
++                        void enqueue(release).catch(onError);
++                    },
++                    { once: true },
++                );
++                await aetherConstrainScreenTrack(video, next);
++                for (const track of tracks) {
++                    if (disposed || !requested || ticket !== generation) break;
++                    await participant.publishTrack(track, {
++                        screenShareEncoding: { maxBitrate: next.maxBitrate, maxFramerate: next.frameRate },
++                        // One screen layer avoids an uncontrolled aggregate bandwidth or delayed backup codec publisher.
++                        simulcast: false,
++                        backupCodec: false,
++                    });
++                }
++                if (disposed || !requested || ticket !== generation) return release();
++                await aetherConstrainScreenSenders(video, next);
++                if (disposed || !requested || ticket !== generation) return release();
++                current = next;
++                commit(next);
++            } catch (error) {
++                requested = false;
++                for (const track of tracks) track.stop();
++                await release();
++                throw error;
++            }
++        });
++    };
++    return {
++        setEnabled,
++        update,
++        get requested() {
++            return requested;
++        },
++        dispose: () => {
++            disposed = true;
++            requested = false;
++            ++generation;
++            // Stop acquired tracks immediately, even while a publisher operation is pending.
++            for (const track of owned) track.stop();
++            return enqueue(release);
++        },
++    };
++}
 diff --git a/dist/element-call.js b/dist/element-call.js
+index e597a18e59..89a52ff16f 100644
 --- a/dist/element-call.js
 +++ b/dist/element-call.js
-@@ -42634,6 +42634,33 @@
+@@ -1,3 +1,4 @@
++import { aetherResolveScreenShareQuality, aetherCreateScreenShareController, aetherHasLiveScreenShareAudio } from "./aether-screen-share.js";
+ import { a as e, c as t, d as n, f as r, g as i, h as a, i as o, l as s, m as c, n as l, o as u, r as d, s as f, t as p, u as m, v as h } from "./tslib.es6-Dvd8DmFP.js";
+ import { $ as g, $t as _, A as v, At as y, B as b, Bt as x, C as S, Ct as C, D as w, Dt as T, E, Et as D, F as O, Ft as k, G as A, Gt as j, H as ee, Ht as te, I as ne, It as re, J as M, Jt as ie, K as ae, Kt as oe, L as se, Lt as ce, M as le, Mt as ue, N as de, Nt as fe, O as pe, Ot as me, P as N, Pt as he, Q as ge, Qt as _e, R as ve, Rt as ye, S as be, St as xe, T as Se, Tt as Ce, U as we, Ut as Te, V as Ee, Vt as De, W as Oe, Wt as ke, X as Ae, Xt as je, Y as Me, Yt as Ne, Z as Pe, Zt as Fe, _ as Ie, _t as Le, a as Re, an as ze, at as Be, b as Ve, bt as He, c as Ue, cn as We, ct as Ge, d as Ke, dt as qe, en as Je, et as Ye, f as Xe, ft as Ze, g as Qe, gt as $e, h as et, ht as tt, i as nt, in as rt, it, j as at, jt as ot, k as st, kt as ct, l as lt, lt as ut, m as dt, mt as P, n as ft, nn as pt, nt as mt, o as ht, on as gt, ot as _t, p as vt, pt as yt, q as bt, qt as xt, rn as St, rt as Ct, s as wt, sn as Tt, st as Et, t as Dt, tn as Ot, tt as kt, u as At, ut as jt, v as Mt, vt as F, w as Nt, wt as Pt, x as Ft, xt as It, y as Lt, yt as Rt, z as zt, zt as Bt } from "./matrix-C_sMRXGh.js";
+ import { a as Vt, i as Ht, n as Ut, o as Wt, r as Gt, t as Kt } from "./api-BhQx_VCr.js";
+@@ -42416,7 +42417,39 @@ var x4 = /* @__PURE__ */ function(e) {
+ 		}
+ 	});
+ 	let de = e.behavior(ue.pipe(wA((e) => e === null ? Ck(!1) : E4(e)))), fe = new Rt(null), pe = null;
+-	return "getDisplayMedia" in (navigator.mediaDevices ?? {}) && !f && (pe = () => {
++    let controller = null, controllerParticipant = null;
++    const report = (error) => {
++        if (!(error instanceof DOMException && error.name === "NotAllowedError")) fe.next(error instanceof Error ? error : Error(String(error)));
++    };
++    const ensureController = () => {
++        const participant = ue.value;
++        if (!participant) return null;
++        if (controllerParticipant !== participant) {
++            if (controller) void controller.dispose().catch(report);
++            controllerParticipant = participant;
++            const created = aetherCreateScreenShareController({
++                participant, policy: ce.get().media_quality?.screen_share, quality: aetherAudio.screenShareQuality,
++                sources: { video: Z.Source.ScreenShare, audio: Z.Source.ScreenShareAudio },
++                onError: report,
++                commit: (quality) => {
++                    if (aetherActiveScreenShareState?.controller !== created) return;
++                    aetherAudio.screenShareQuality = quality;
++                    for (const listener of [...aetherAudioListeners]) listener();
++                }
++            });
++            controller = created;
++            aetherActiveScreenShareState = { controller, report };
++        }
++        return controller;
++    };
++    e.onEnd(() => {
++        const ownedController = controller;
++        if (aetherActiveScreenShareState?.controller === ownedController) aetherActiveScreenShareState = null;
++        if (ownedController) void ownedController.dispose().catch((error) => _.warn("Could not release screen capture", error));
++    });
++    return "getDisplayMedia" in (navigator.mediaDevices ?? {}) && !f && (pe = (qualityOverride) => {
++        // Keep upstream capture and developer codec settings for hosts that did not opt into Aether quality.
++        if (!p.renderPresentation && !aetherAudio.screenShareConfigured) {
+ 		let e = {
+ 			audio: {
+ 				autoGainControl: !1,
+@@ -42452,6 +42485,16 @@ var x4 = /* @__PURE__ */ function(e) {
+ 		_.info(`toggleScreenSharing called. Switching ${n ? "On" : "Off"}`);
+ 		let r = ue.value;
+ 		r && T4(r.setScreenShareEnabled(n, e, t), n, _, (e) => fe.next(e));
++            return;
++        }
++        const active = ensureController();
++        if (!active) return;
++        const quality = qualityOverride && typeof qualityOverride === "object" && !("nativeEvent" in qualityOverride) ? qualityOverride : {};
++        const enabled = !active.requested;
++        fe.next(null);
++        const operation = active.setEnabled(enabled, quality);
++        operation.catch(report);
++        return operation;
+ 	}), {
+ 		startTracks: D,
+ 		requestJoinAndPublish: k,
+@@ -42634,6 +42677,33 @@ function H4() {
  }
  //#endregion
  //#region src/state/CallViewModel/remoteMembers/ConnectionFactory.ts
@@ -35,7 +315,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  var U4 = class {
  	constructor(e, t, n, r, i, a, o) {
  		this.client = e, this.roomId = t, this.devices = n, this.processorState$ = r, this.controlledAudioDevices = a;
-@@ -42647,7 +42674,11 @@
+@@ -42647,7 +42717,11 @@ var U4 = class {
  				},
  				controlledAudioDevices: this.controlledAudioDevices
  			});
@@ -48,7 +328,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  		};
  		this.livekitRoomFactory = o ?? s;
  	}
-@@ -43118,6 +43149,277 @@
+@@ -43118,6 +43192,321 @@ function _3(e, t) {
  }
  //#endregion
  //#region src/state/media/UserMediaViewModel.ts
@@ -191,7 +471,39 @@ diff --git a/dist/element-call.js b/dist/element-call.js
 +// The deafen each remote participant last sent, kept per participant so it outlives any one subscription.
 +const aetherAnnouncedDeafen = new WeakMap();
 +// Aether: what the host asked of the call's audio and video. Kept at module level so it also applies to calls joined later.
-+const aetherAudio = { playbackVolume: 1, microphoneProcessor: null, mirrorLocalVideo: true };
++const aetherAudio = {
++	playbackVolume: 1,
++	microphoneProcessor: null,
++	mirrorLocalVideo: true,
++    screenShareConfigured: false,
++	screenShareQuality: { resolutionHeight: 1080, frameRate: 30, maxBitrate: null, includeSystemAudio: false }
++};
++let aetherActiveScreenShareState = null;
++const aetherVideoHandles = new WeakMap();
++function aetherGetVideoHandle(trackRef) {
++	const pub = trackRef?.publication;
++	if (pub && typeof pub.setSubscribed === "function" && !pub.isSubscribed) {
++		try { pub.setSubscribed(true); } catch {}
++	}
++	const track = pub?.track ?? trackRef;
++	if (!track || typeof track.attach !== "function") return null;
++	let handle = aetherVideoHandles.get(track);
++	if (!handle) {
++		handle = {
++			attach: (el) => {
++				if (pub && typeof pub.setSubscribed === "function") {
++					try { pub.setSubscribed(true); } catch {}
++				}
++				track.attach(el);
++			},
++			detach: (el) => {
++				if (el) track.detach(el);
++			}
++		};
++		aetherVideoHandles.set(track, handle);
++	}
++	return handle;
++}
 +const aetherAudioListeners = new Set();
 +const aetherObserveAudio = (read) => new C((observer) => {
 +	const report = () => observer.next(read());
@@ -214,6 +526,18 @@ diff --git a/dist/element-call.js b/dist/element-call.js
 +	if (settings.playbackVolume !== undefined) aetherAudio.playbackVolume = Math.min(1, Math.max(0, settings.playbackVolume));
 +	if (settings.microphoneProcessor !== undefined) aetherAudio.microphoneProcessor = settings.microphoneProcessor;
 +	if (settings.mirrorLocalVideo !== undefined) aetherAudio.mirrorLocalVideo = settings.mirrorLocalVideo;
++    if (settings.screenShareQuality !== undefined) {
++        aetherAudio.screenShareConfigured = true;
++        const active = aetherActiveScreenShareState;
++        if (active) {
++            const operation = active.controller.update(settings.screenShareQuality);
++            operation.catch(active.report);
++            for (const listener of [...aetherAudioListeners]) listener();
++            return operation;
++        }
++        aetherAudio.screenShareQuality = aetherResolveScreenShareQuality(ce.get().media_quality?.screen_share,
++            { ...aetherAudio.screenShareQuality, ...settings.screenShareQuality });
++    }
 +	for (const listener of [...aetherAudioListeners]) listener();
 +}
 +function aetherObserveDeafened(participant) {
@@ -326,7 +650,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType: i, ...a }) {
  	let { participant$: o } = a, s = e.behavior(o.pipe(wA((e) => (e && aL(e)) ?? Ck(void 0)))), c = new He(), l = new Rt(NaN), u = (e, t) => e.behavior(Lk([o, Et.value$]).pipe(wA(([e, n]) => e && n ? p3(e, t, i) : Ck(void 0))));
  	return {
-@@ -43127,6 +43429,7 @@
+@@ -43127,6 +43516,7 @@ function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType:
  			videoSource: Z.Source.Camera
  		}),
  		type: "user",
@@ -334,7 +658,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  		speaking$: e.behavior(o.pipe(wA((e) => e ? iL(e, J.IsSpeakingChanged).pipe(F((e) => e.isSpeaking)) : Ck(!1)))),
  		audioEnabled$: e.behavior(s.pipe(F((e) => e?.microphoneTrack?.isMuted === !1))),
  		videoEnabled$: e.behavior(s.pipe(F((e) => e?.cameraTrack?.isMuted === !1))),
-@@ -43153,7 +43456,7 @@
+@@ -43153,7 +43543,7 @@ function y3(e, { mediaDevices: t, ...n }) {
  	return {
  		...r,
  		local: !0,
@@ -343,7 +667,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  		alwaysShow$: se.value$,
  		setAlwaysShow: se.setValue,
  		switchCamera$: e.behavior(Wt === "desktop" ? Ck(null) : i.pipe(F((e) => {
-@@ -43209,7 +43512,7 @@
+@@ -43209,7 +43599,7 @@ function x3(e, { pretendToBeDisconnected$: t, ...n }) {
  		...r,
  		...b3(e, {
  			pretendToBeDisconnected$: t,
@@ -352,7 +676,15 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  		}),
  		local: !1,
  		speaking$: e.behavior(t.pipe(wA((e) => e ? Ck(!1) : r.speaking$))),
-@@ -43244,7 +43547,7 @@
+@@ -43234,6 +43624,7 @@ function S3(e, t) {
+ function C3(e, t) {
+ 	return {
+ 		...S3(e, t),
++        audioEnabled$: e.behavior(t.participant$.pipe(wA((participant) => participant ? s3(participant, Z.Source.ScreenShareAudio) : Ck(null)), F(aetherHasLiveScreenShareAudio))),
+ 		local: !0
+ 	};
+ }
+@@ -43244,7 +43635,7 @@ function w3(e, { pretendToBeDisconnected$: t, ...n }) {
  		...S3(e, n),
  		...b3(e, {
  			pretendToBeDisconnected$: t,
@@ -361,7 +693,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  		}),
  		local: !1,
  		videoEnabled$: e.behavior(t.pipe(F((e) => !e))),
-@@ -43611,6 +43914,99 @@
+@@ -43611,7 +44002,105 @@ function k3(e, t, n, r, i, a, o, s, c) {
  		let t = {};
  		return e instanceof hX ? { transportError: e } : e === C4.Waiting ? null : (e.matrix instanceof hX && (t.matrixError = e.matrix), e.media instanceof hX ? t.publishError = e.media : typeof e.media == "object" && e.media.connection instanceof hX && (t.connectionError = e.media.connection), t);
  	})), null);
@@ -459,9 +791,403 @@ diff --git a/dist/element-call.js b/dist/element-call.js
 +		e.onEnd(() => clearInterval(aetherAnnounceTimer));
 +	}
  	return {
++		userMedia$: ue,
++		screenShareMedia$: fe,
++		aetherLocalDeafened$: e.behavior(aetherLocalDeafened$, !1),
++		aetherObserveDeafened$: aetherDeafened$,
++		localParticipant$: A.participant$,
  		autoLeave$: ie,
  		ringingVm$: de,
-@@ -48021,7 +48417,9 @@
+ 		ringingStatusLocation: h === Ut.AppBar ? "app_bar" : "tile",
+@@ -45955,7 +46444,7 @@ var k5 = (e) => {
+ 		n
+ 	], t[30] = u, t[31] = e.client, t[32] = e.e2eeSystem, t[33] = e.matrixRoom, t[34] = e.muteStates, t[35] = e.onLeft, t[36] = e.rtcSession, t[37] = d, t[38] = c, t[39] = n, t[40] = g) : g = t[40], z(h, g), n === null || i === null || o === null) return null;
+ 	let _;
+-	t[41] !== o || t[42] !== i || t[43] !== e || t[44] !== n ? (_ = /* @__PURE__ */ H(A5, {
++	t[41] !== o || t[42] !== i || t[43] !== e || t[44] !== n ? (_ = /* @__PURE__ */ H(l.renderPresentation ? AetherHostInCallBridge : A5, {
+ 		...e,
+ 		vm: n,
+ 		footerVm: i,
+@@ -45967,6 +46456,300 @@ var k5 = (e) => {
+ 		rtcSession: e.rtcSession,
+ 		children: _
+ 	}), t[46] = e.rtcSession, t[47] = _, t[48] = n, t[49] = v) : v = t[49], v;
++}, AetherHostEmergencyBridge = ({ hostBridge, error, room, resetError }) => {
++    const policy = ce.get().media_quality?.screen_share;
++    return hostBridge.renderPresentation({
++        state: {
++            phase: "error", roomId: room?.roomId ?? "", roomName: room?.name ?? "",
++            connected: false, reconnecting: false, participantCount: 0,
++            localAudioEnabled: false, localVideoEnabled: false, sharingScreen: false,
++            canShareScreen: false, encrypted: false, keyRotationSuppressed: false,
++            fatalError: { code: error?.code ?? "unexpected", title: error?.localisedTitle ?? "",
++                message: error?.localisedMessage ?? error?.message ?? String(error), canReconnect: false },
++            screenShareError: null, needsDevicePermissions: false, permissionError: null,
++            supportsReactions: false, ringing: null, participants: [], screenShares: [], lobbyPreviewVideo: null,
++            screenShareQuality: aetherResolveScreenShareQuality(policy, aetherAudio.screenShareQuality),
++            screenSharePolicyLimits: { maxResolutionHeight: policy?.max_resolution ?? 1080, maxFrameRate: policy?.max_framerate ?? 30, maxBitrate: policy?.max_bitrate ?? 5000000 },
++            renderAudioElement: () => null
++        },
++        actions: {
++            joinCall: () => {}, returnToLobby: resetError, requestDevicePermissions: () => {},
++            leaveCall: () => { void hostBridge.close?.(); }, reconnect: resetError,
++            toggleLocalAudio: () => {}, toggleLocalVideo: () => {}, toggleRaisedHand: () => {}, sendReaction: () => {},
++            startScreenShare: () => {}, stopScreenShare: () => {}, updateScreenShareQuality: () => {}, dismissScreenShareError: () => {}
++        }
++    });
++}, AetherHostLobbyBridge = ({ hostBridge: p, matrixInfo: E, matrixRoom: _, muteStates: c, mediaDevices: O, participantCount: D, e2eeSystem: T, error: l, left: ee, returnToLobby: S, onJoin, onReconnect, onReturnToLobby }) => {
++	let [, forceRender] = B(0);
++    const [permissionError, setPermissionError] = B(null);
++    const needsDevicePermissions = !P(O.usingNames$);
++	z(() => {
++		let bump = () => forceRender((n) => n + 1);
++		aetherAudioListeners.add(bump);
++		return () => aetherAudioListeners.delete(bump);
++	}, []);
++	let policy = ce.get().media_quality?.screen_share;
++	let audioEn = P(c.audio.enabled$);
++	let videoEn = P(c.video.enabled$);
++	let selVideoId = P(O.videoInput.selected$)?.id;
++	let previewTracks = qT({ audio: false, video: videoEn ? { deviceId: selVideoId } : false }, (error) => setPermissionError(error.message));
++	let previewVideoTrack = previewTracks?.find((tr) => tr.kind === Z.Kind.Video) ?? null;
++	let lobbyVideoHandle = aetherGetVideoHandle(previewVideoTrack);
++	return p.renderPresentation({
++		state: {
++			phase: l ? "error" : ee && !S ? "ended" : "lobby",
++			roomId: E.roomId,
++			roomName: E.roomName ?? _.name ?? E.roomId,
++			connected: !1,
++			reconnecting: !1,
++			participantCount: D,
++			localAudioEnabled: audioEn,
++			localVideoEnabled: videoEn,
++			sharingScreen: !1,
++			canShareScreen: !1,
++			keyRotationSuppressed: !1,
++			encrypted: T.kind !== re.NONE,
++			fatalError: l ? {
++				code: l.code ?? "call_error",
++				title: l.localisedTitle ?? "",
++				message: l.localisedMessage ?? l.message ?? String(l),
++				canReconnect: l instanceof _X
++			} : null,
++			screenShareError: null,
++            supportsReactions: false,
++            ringing: null,
++            needsDevicePermissions,
++            permissionError,
++			participants: [],
++			screenShares: [],
++			lobbyPreviewVideo: lobbyVideoHandle,
++			screenShareQuality: aetherResolveScreenShareQuality(policy, aetherAudio.screenShareQuality),
++			screenSharePolicyLimits: {
++				maxResolutionHeight: policy?.max_resolution ?? null,
++				maxFrameRate: policy?.max_framerate ?? null,
++				maxBitrate: policy?.max_bitrate ?? null
++			},
++			renderAudioElement: () => null
++		},
++		actions: {
++			joinCall: onJoin,
++            returnToLobby: onReturnToLobby,
++            requestDevicePermissions: async () => {
++                try {
++                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
++                    stream.getTracks().forEach((track) => track.stop());
++                    O.requestDeviceNames();
++                    setPermissionError(null);
++                } catch (error) { setPermissionError(error.message ?? String(error)); }
++            },
++            toggleRaisedHand: () => {},
++            sendReaction: () => {},
++			leaveCall: () => { void p.close?.(); },
++			reconnect: onReconnect,
++			toggleLocalAudio: () => c.audio.toggle$?.value?.(),
++			toggleLocalVideo: () => c.video.toggle$?.value?.(),
++			startScreenShare: () => {},
++			stopScreenShare: () => {},
++			updateScreenShareQuality: (q) => aetherConfigureMedia({ screenShareQuality: q }),
++			dismissScreenShareError: () => {}
++		}
++	});
++}, AetherHostInCallBridge = ({ client: e, vm: t, matrixInfo: i, matrixRoom: a, muteStates: o, onFatalError }) => {
++	N2();
++	let u = pe(), S = P(v5);
++    const { sendReaction, toggleRaisedHand, supportsReactions } = rZ();
++	let C = P(t.ringingVm$), w = P(t.livekitRoomItems$);
++	let se = P(t.fatalError$);
++	let [, forceRender] = B(0);
++	z(() => {
++		let bump = () => forceRender((n) => n + 1);
++		aetherAudioListeners.add(bump);
++		let subs = [];
++		let sub = (obs, fn) => {
++			if (obs?.subscribe) subs.push(obs.subscribe(fn || bump));
++		};
++		sub(t.connected$);
++        sub(C?.pickupState$);
++		sub(t.reconnecting$);
++		sub(t.participantCount$);
++		sub(t.sharingScreen$);
++		sub(t.keyRotationSuppressed$);
++		sub(t.screenShareError$);
++		sub(t.aetherLocalDeafened$);
++		sub(o.audio.enabled$);
++		sub(o.video.enabled$);
++		let mediaSubs = [];
++		let clearMediaSubs = () => {
++			for (let s of mediaSubs) s.unsubscribe();
++			mediaSubs = [];
++		};
++		let bindMediaItem = (item) => {
++			for (let key of ["displayName$", "mxcAvatarUrl$", "speaking$", "audioEnabled$", "videoEnabled$", "mirror$", "waitingForMedia$", "unencryptedWarning$", "encryptionStatus$", "handRaised$", "reaction$", "video$", "playbackVolume$", "playbackMuted$", "screenShares$"]) {
++				if (item[key]?.subscribe) mediaSubs.push(item[key].subscribe(bump));
++			}
++			if (item.video$?.subscribe) {
++				let trackSub = null;
++				mediaSubs.push({ unsubscribe: () => trackSub?.unsubscribe() });
++				mediaSubs.push(item.video$.subscribe((tr) => {
++					trackSub?.unsubscribe();
++					trackSub = null;
++					if (tr?.participant) {
++						trackSub = iL(
++							tr.participant,
++							J.TrackSubscribed,
++							J.TrackUnsubscribed,
++							J.TrackSubscriptionStatusChanged,
++							J.TrackMuted,
++							J.TrackUnmuted,
++							J.TrackPublished,
++							J.TrackUnpublished,
++							J.LocalTrackPublished,
++							J.LocalTrackUnpublished
++						).subscribe(bump);
++					}
++					bump();
++				}));
++			}
++			if (item.microphoneParticipant$?.subscribe) {
++				mediaSubs.push(item.microphoneParticipant$.pipe(wA((p) => p ? aetherObserveSpeaking(p, item.speaking$) : Ck(!1))).subscribe((speaking) => {
++					item._aetherSpeaking = speaking;
++					bump();
++				}));
++			}
++			if (!item.local && item.microphoneParticipant$?.subscribe && t.aetherObserveDeafened$) {
++				mediaSubs.push(item.microphoneParticipant$.pipe(wA((p) => t.aetherObserveDeafened$(p))).subscribe((deaf) => {
++					item._aetherDeafened = deaf;
++					bump();
++				}));
++			}
++		};
++		let rebindAllMedia = () => {
++			clearMediaSubs();
++			for (let item of t.userMedia$?.value ?? []) bindMediaItem(item);
++			for (let share of t.screenShareMedia$?.value ?? []) bindMediaItem(share);
++			bump();
++		};
++		sub(t.userMedia$, rebindAllMedia);
++		sub(t.screenShareMedia$, rebindAllMedia);
++		rebindAllMedia();
++		return () => {
++			aetherAudioListeners.delete(bump);
++			clearMediaSubs();
++			for (let s of subs) s.unsubscribe();
++		};
++	}, [t, o, C]);
++	z(() => { if (se) onFatalError(se); }, [se, onFatalError]);
++	let encMap = ["connecting", "okay", "key_missing", "key_invalid", "password_invalid"];
++	let makeVolumeCtrl = (vm) => {
++		if (vm.local || !vm.playbackVolume$) return null;
++		return {
++			volume: vm.playbackVolume$.value ?? 1,
++			muted: vm.playbackMuted$?.value ?? !1,
++			setVolume: (v) => {
++				let clamped = Math.min(1, Math.max(0, Number.isFinite(v) ? v : 1));
++				vm.adjustPlaybackVolume?.(clamped);
++				vm.commitPlaybackVolume?.();
++			},
++			toggleMuted: () => vm.togglePlaybackMuted?.()
++		};
++	};
++	let localDeaf = t.aetherLocalDeafened$?.value ?? !1;
++	let participants = (t.userMedia$?.value ?? []).map((m) => ({
++		id: m.id,
++		userId: m.userId,
++		displayName: m.displayName$?.value ?? m.userId,
++		avatarMxcUrl: m.mxcAvatarUrl$?.value,
++		local: !!m.local,
++		speaking: ((m._aetherSpeaking ?? m.speaking$?.value) ?? !1) && (m.audioEnabled$?.value ?? !1),
++		audioEnabled: m.audioEnabled$?.value ?? !1,
++		videoEnabled: m.videoEnabled$?.value ?? !1,
++		deafened: m.local ? localDeaf : !!m._aetherDeafened,
++		mirror: m.local ? (m.mirror$?.value ?? !0) : !1,
++		waitingForMedia: m.local ? !1 : (m.waitingForMedia$?.value ?? !1),
++		unencryptedWarning: m.unencryptedWarning$?.value ?? !1,
++		encryptionStatus: encMap[m.encryptionStatus$?.value ?? 1] ?? "okay",
++		handRaisedAt: m.handRaised$?.value ?? null,
++		reactionEmoji: m.reaction$?.value?.emoji ?? null,
++		video: (m.videoEnabled$?.value ?? !1) ? aetherGetVideoHandle(m.video$?.value) : null,
++		microphoneVolume: makeVolumeCtrl(m)
++	}));
++	let screenShares = (t.screenShareMedia$?.value ?? []).map((s) => ({
++		id: s.id,
++		userId: s.userId,
++		displayName: s.displayName$?.value ?? s.userId,
++		avatarMxcUrl: s.mxcAvatarUrl$?.value,
++		local: !!s.local,
++		videoEnabled: s.local ? !0 : (s.videoEnabled$?.value ?? !0),
++		audioEnabled: s.audioEnabled$?.value ?? !1,
++		unencryptedWarning: s.unencryptedWarning$?.value ?? !1,
++		encryptionStatus: encMap[s.encryptionStatus$?.value ?? 1] ?? "okay",
++		video: aetherGetVideoHandle(s.video$?.value),
++		streamAudioVolume: makeVolumeCtrl(s)
++	}));
++	let audioEl = [
++		...w.map(({ livekitRoom: lr, url: lurl, participants: vp }) => /* @__PURE__ */ H(h5, {
++			url: lurl,
++			livekitRoom: lr,
++			validIdentities: vp,
++			muted: S
++		}, lurl)),
++		C ? /* @__PURE__ */ H(T5, { vm: C, muted: S }, "ringing") : null
++	];
++	let policy = ce.get().media_quality?.screen_share;
++	let reconnecting = t.reconnecting$?.value ?? !1;
++	let connected = t.connected$?.value ?? !1;
++	let bridge = {
++		state: {
++			phase: reconnecting ? "reconnecting" : connected ? "in_call" : "joining",
++			roomId: i.roomId,
++			roomName: i.roomName ?? a.name ?? i.roomId,
++			connected,
++			reconnecting,
++			participantCount: t.participantCount$?.value ?? participants.length,
++			localAudioEnabled: o.audio.enabled$?.value ?? !1,
++			localVideoEnabled: o.video.enabled$?.value ?? !1,
++			sharingScreen: t.sharingScreen$?.value ?? !1,
++			canShareScreen: t.toggleScreenSharing !== null,
++			keyRotationSuppressed: t.keyRotationSuppressed$?.value ?? !1,
++			encrypted: i.e2eeSystem.kind !== re.NONE,
++			fatalError: null,
++            supportsReactions,
++            ringing: C?.pickupState$?.value ?? null,
++            needsDevicePermissions: false,
++            permissionError: null,
++			screenShareError: t.screenShareError$?.value ? String(t.screenShareError$.value.message || t.screenShareError$.value) : null,
++			participants,
++			screenShares,
++			lobbyPreviewVideo: null,
++			screenShareQuality: aetherResolveScreenShareQuality(policy, aetherAudio.screenShareQuality),
++			screenSharePolicyLimits: {
++				maxResolutionHeight: policy?.max_resolution ?? null,
++				maxFrameRate: policy?.max_framerate ?? null,
++				maxBitrate: policy?.max_bitrate ?? null
++			},
++			renderAudioElement: () => audioEl
++		},
++		actions: {
++			joinCall: () => t.join(),
++            returnToLobby: () => {},
++            requestDevicePermissions: () => {},
++			leaveCall: () => t.hangup(),
++			reconnect: () => {},
++            toggleRaisedHand: () => toggleRaisedHand(),
++            sendReaction: (emoji) => sendReaction(emoji),
++			toggleLocalAudio: () => o.audio.toggle$?.value?.(),
++			toggleLocalVideo: () => o.video.toggle$?.value?.(),
++            startScreenShare: (q) => {
++                if (!(t.sharingScreen$?.value ?? !1)) return t.toggleScreenSharing?.(q);
++            },
++            stopScreenShare: () => {
++                if (aetherActiveScreenShareState?.controller.requested || t.sharingScreen$?.value) return t.toggleScreenSharing?.();
++            },
++            updateScreenShareQuality: (q) => aetherConfigureMedia({ screenShareQuality: q }),
++			dismissScreenShareError: () => t.dismissScreenShareError()
++		}
++	};
++	return u.renderPresentation(bridge);
+ }, A5 = ({ client: e, vm: t, footerVm: n, developerSettingsVm: r, matrixInfo: i, matrixRoom: a, muteStates: o, onShareClick: s }) => {
+ 	let c = V.getChild("[InCallView]"), { t: l } = Je(), u = pe(), { sendReaction: d, toggleRaisedHand: f } = rZ();
+ 	N2();
+@@ -47656,6 +48439,8 @@ var L5 = /* @__PURE__ */ c(((e, t) => {
+ 	}) }), t[23] = n.localisedTitle, t[24] = a, t[25] = c, t[26] = u, t[27] = d, t[28] = f, t[29] = p) : p = t[29], p;
+ }, v7 = (e) => {
+ 	let t = I(8), { recoveryActionHandler: n, onError: r, children: i } = e, a;
++    const host = pe();
++    if (host.renderPresentation) return H(oo, { fallback: () => null, onError: r, children: i });
+ 	t[0] === n ? a = t[1] : (a = (e) => {
+ 		let { error: t, resetError: r } = e, i = t instanceof hX ? t : new xX(t instanceof Error ? t : /* @__PURE__ */ Error());
+ 		return /* @__PURE__ */ H(_7, {
+@@ -47874,8 +48659,8 @@ var T7 = (e) => {
+ 		s
+ 	]);
+ 	let [ee, te] = B(!1), ne = st(), M = nn((e) => {
+-		let r;
+-		switch (e) {
++		let r = Promise.resolve();
++		if (!p.renderPresentation) switch (e) {
+ 			case "allOthersLeft":
+ 				r = g.current?.playSound("left", 0);
+ 				break;
+@@ -47925,7 +48710,8 @@ var T7 = (e) => {
+ 		a
+ 	]);
+ 	let ie = F5(_), [ae, oe] = B(!1), se = nn(() => oe(!1), [oe]), ce = nn(() => oe(!0), [oe]), le = ie === Hn.Public ? ce : null;
+-	if (!h_() && T.kind !== re.NONE) throw new bX();
++	let aetherErr = l || (!h_() && T.kind !== re.NONE ? new bX() : null);
++	if (!p.renderPresentation && aetherErr && !l) throw aetherErr;
+ 	let ue = /* @__PURE__ */ H(g7, {
+ 		room: _,
+ 		open: ae,
+@@ -47940,9 +48726,26 @@ var T7 = (e) => {
+ 		participantCount: D,
+ 		onShareClick: le
+ 	})] }), fe;
++	if (p.renderPresentation && (!o || aetherErr)) {
++		return /* @__PURE__ */ H(AetherHostLobbyBridge, {
++			hostBridge: p,
++			matrixInfo: E,
++			matrixRoom: _,
++			muteStates: c,
++			mediaDevices: O,
++			participantCount: D,
++			e2eeSystem: T,
++			error: aetherErr,
++			left: ee,
++			returnToLobby: S,
++			onJoin: () => { u(null); te(!1); s(!0); },
++            onReturnToLobby: () => { u(null); te(!1); s(!1); },
++			onReconnect: () => { u(null); te(!1); void j(a); }
++		});
++	}
+ 	return fe = l ? /* @__PURE__ */ H(() => {
+ 		throw l;
+-	}, {}) : o ? /* @__PURE__ */ U(Wr, { children: [ue, /* @__PURE__ */ H(k5, {
++	}, {}) : o ? /* @__PURE__ */ U(Wr, { children: [p.renderPresentation ? null : ue, /* @__PURE__ */ H(k5, {
+ 		client: e,
+ 		matrixInfo: E,
+ 		rtcSession: a,
+@@ -47950,6 +48753,7 @@ var T7 = (e) => {
+ 		onLeft: M,
+ 		muteStates: c,
+ 		e2eeSystem: T,
++        onFatalError: (error) => { u(error instanceof hX ? error : new xX(error instanceof Error ? error : Error(String(error)))); M("error"); },
+ 		onShareClick: le
+ 	})] }) : ee && !m ? t || tt.instance.isEnabled() ? /* @__PURE__ */ H(sQ, {
+ 		endedCallId: a.room.roomId,
+@@ -47964,7 +48768,10 @@ var T7 = (e) => {
+ 			}));
+ 		},
+ 		onError: (e) => {
+-			a.isJoined() && M("error"), p.setAlwaysOnScreen(!1);
++			if (p.renderPresentation) {
++				u(e instanceof hX ? e : new xX(e instanceof Error ? e : Error(String(e))));
++			}
++			(p.renderPresentation || a.isJoined()) && M("error"), p.setAlwaysOnScreen(!1);
+ 		},
+ 		children: fe
+ 	});
+@@ -48021,7 +48828,9 @@ function j7(e, t, n) {
  		themeChange$: new FO(1),
  		join$: new He(),
  		hangUp$: new He(),
@@ -472,7 +1198,7 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  	}));
  	z(() => {
  		n !== void 0 && i.themeChange$.next({
-@@ -48045,6 +48443,21 @@
+@@ -48045,6 +48854,24 @@ function j7(e, t, n) {
  		notifyDeviceMute: async (e) => {
  			await r.current.notifyDeviceMute?.(e);
  		},
@@ -491,17 +1217,20 @@ diff --git a/dist/element-call.js b/dist/element-call.js
 +			let e = r.current.notifyVoiceStates;
 +			return e === void 0 ? void 0 : async (states) => await e(states);
 +		},
++		get renderPresentation() {
++			return r.current.renderPresentation;
++		},
  		get close() {
  			let e = r.current.close;
  			return e === void 0 ? void 0 : async () => await e();
-@@ -48061,7 +48474,20 @@
+@@ -48061,7 +48888,20 @@ function j7(e, t, n) {
  	return on(t, () => ({
  		join: async (e) => await A7(i.join$, "join a call", e),
  		hangUp: async () => await A7(i.hangUp$, "hang up", {}),
 -		setDeviceMute: async (e) => await A7(i.deviceMute$, "change the mute state", e)
 +		setDeviceMute: async (e) => await A7(i.deviceMute$, "change the mute state", e),
 +		configureMedia: async (settings) => {
-+			aetherConfigureMedia(settings);
++			await aetherConfigureMedia(settings);
 +		},
 +		toggleScreenSharing: async () => {
 +			await A7(i.screenShareToggle$, "share a screen", {});
@@ -516,10 +1245,20 @@ diff --git a/dist/element-call.js b/dist/element-call.js
  	}), [i]), a;
  }
  //#endregion
+@@ -48173,7 +49013,7 @@ var I7 = (e) => {
+ 		children: /* @__PURE__ */ H(dt, {
+ 			value: m,
+ 			children: /* @__PURE__ */ H(oo, {
+-				fallback: z7,
++				fallback: (failure) => d.renderPresentation ? H(AetherHostEmergencyBridge, { hostBridge: d, room: O, ...failure }) : z7(failure),
+ 				onError: () => void d.setAlwaysOnScreen(!1),
+ 				children: /* @__PURE__ */ H(I7, { children: /* @__PURE__ */ H(zn, { children: /* @__PURE__ */ H(Mt, {
+ 					client: n,
 diff --git a/dist/types/component/api.d.ts b/dist/types/component/api.d.ts
+index 313605238c..a93d113490 100644
 --- a/dist/types/component/api.d.ts
 +++ b/dist/types/component/api.d.ts
-@@ -21,7 +21,7 @@
+@@ -21,7 +21,7 @@ import type { MatrixClient } from "matrix-js-sdk";
  import type { UrlProperties } from "../src/UrlParams";
  import type { ElementCallHandle, ElementCallHostBridge } from "./host";
  import { BackgroundStyle, configurationForIntent, HeaderStyle, type UrlConfiguration, UserIntent } from "../src/UrlConfiguration";
@@ -529,20 +1268,23 @@ diff --git a/dist/types/component/api.d.ts b/dist/types/component/api.d.ts
  export type { JoinCallData } from "../src/widget";
  export type { ConfigOptions } from "../src/config/ConfigOptions";
 diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
+index 0d9ec1bba7..ccb917eafc 100644
 --- a/dist/types/component/host.d.ts
 +++ b/dist/types/component/host.d.ts
-@@ -10,8 +10,9 @@
+@@ -9,9 +9,10 @@
+  * requests through an imperative handle on the component, the way it would
   * call `play()` on a video element. This module adapts the one to the other.
   */
- import { type Ref } from "react";
+-import { type Ref } from "react";
 -import { type DeviceMuteRequest, type DeviceMuteState, type HostBridge } from "../src/HostBridge";
++import { type ReactNode, type Ref } from "react";
 +import { type DeviceMuteRequest, type DeviceMuteState, type HostBridge, type ScreenShareState, type VoiceState, type ConnectionStats } from "../src/HostBridge";
  import { type JoinCallData } from "../src/widget";
 +export type { ScreenShareState, VoiceState, ConnectionStats };
  /**
   * What Element Call tells the application hosting it as a component.
   * Everything is optional: a host implements what it wants to hear about.
-@@ -33,6 +34,14 @@
+@@ -33,6 +34,14 @@ export interface ElementCallHostBridge {
      notifyHungUp?(): Promise<void>;
      /** Tells the host the user's current audio and video mute state. */
      notifyDeviceMute?(state: DeviceMuteState): Promise<void>;
@@ -557,7 +1299,16 @@ diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
      /**
       * Asks the host to close Element Call: to unmount the component. Its
       * presence is what makes Element Call offer a close button on its error
-@@ -74,6 +83,52 @@
+@@ -41,6 +50,8 @@ export interface ElementCallHostBridge {
+      * the situation, or nothing.
+      */
+     close?(): Promise<void>;
++    /** Optional host presentation renderer replacing Element Call UI while keeping engine + MatrixAudioRenderer active. */
++    renderPresentation?(bridge: unknown): ReactNode;
+     /**
+      * Whether Element Call may send and receive reactions in this room.
+      * Defaults to true.
+@@ -74,6 +85,59 @@ export interface ElementCallHandle {
       * reports the state that results.
       */
      setDeviceMute(request: DeviceMuteRequest): Promise<DeviceMuteState>;
@@ -607,10 +1358,18 @@ diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
 +    mirrorLocalVideo?: boolean;
 +    /** Processes the microphone before it is sent, or null to send it as captured. */
 +    microphoneProcessor?: ElementCallMicrophoneProcessor | null;
++    /** Optional screen share capture/encoding quality preferences. */
++    screenShareQuality?: {
++        resolutionHeight?: number | null;
++        frameRate?: number;
++        maxBitrate?: number | null;
++        includeSystemAudio?: boolean;
++    };
  }
  /**
   * The {@link HostBridge} the rest of Element Call sees, built from what a
 diff --git a/dist/types/src/HostBridge.d.ts b/dist/types/src/HostBridge.d.ts
+index b95e092b28..4e523ba0be 100644
 --- a/dist/types/src/HostBridge.d.ts
 +++ b/dist/types/src/HostBridge.d.ts
 @@ -1,5 +1,22 @@
@@ -636,11 +1395,10 @@ diff --git a/dist/types/src/HostBridge.d.ts b/dist/types/src/HostBridge.d.ts
  /** The mute state Element Call and its host exchange. */
  export type DeviceMuteState = {
      audio_enabled: boolean;
-@@ -21,6 +38,15 @@
-     data: Data;
+@@ -22,6 +39,15 @@ export interface HostRequest<Data, Reply = void> {
      /** Acknowledges the request. Should be called exactly once. */
      reply(reply: Reply): void;
-+}
+ }
 +/** This device's media connection to the call server, sampled once a second. Missing measurements are null. */
 +export interface ConnectionStats {
 +    state: "connecting" | "connected" | "reconnecting" | "disconnected";
@@ -649,10 +1407,11 @@ diff --git a/dist/types/src/HostBridge.d.ts b/dist/types/src/HostBridge.d.ts
 +    averageRttMs: number | null;
 +    outboundPacketLossPercent: number | null;
 +    history: readonly (number | null)[];
- }
++}
  /**
   * Element Call's view of the application hosting it.
-@@ -48,6 +74,14 @@
+  *
+@@ -48,6 +74,14 @@ export interface HostBridge {
      notifyHungUp(): Promise<void>;
      /** Tells the host the user's current audio and video mute state. */
      notifyDeviceMute(state: DeviceMuteState): Promise<void>;
@@ -667,7 +1426,7 @@ diff --git a/dist/types/src/HostBridge.d.ts b/dist/types/src/HostBridge.d.ts
      /**
       * Asks the host to close Element Call, and stops communicating with it. No
       * further calls should be made on this bridge afterwards.
-@@ -67,6 +101,12 @@
+@@ -67,6 +101,12 @@ export interface HostBridge {
      hangUp$: Observable<HostRequest<Record<string, never>>>;
      /** The host wants to change, or read back, the device mute state. */
      deviceMute$: Observable<HostRequest<DeviceMuteRequest, DeviceMuteState>>;

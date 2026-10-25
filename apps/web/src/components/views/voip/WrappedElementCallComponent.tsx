@@ -17,6 +17,7 @@ import { getCurrentLanguage } from "../../../languageHandler";
 import { useTheme } from "../../../hooks/useTheme";
 import Spinner from "../elements/Spinner";
 import { ElementWebHostBridge } from "./ElementWebHostBridge";
+import { DesktopCallStage } from "./DesktopCallStage";
 
 /**
  * What `WrappedElementCallComponent` needs from an Element Call component module: satisfied by
@@ -82,13 +83,25 @@ const MarkReadyOnMount = ({ call }: { call: ElementCallModel }): null => {
  */
 export const WrappedElementCallComponent: FC<{ call: ElementCallModel; client: MatrixClient }> = ({ call, client }) => {
     // Real component or mock: independent of the widget-vs-React choice CallAppTile makes.
-    const ElementCall = useSettingValue("Developer.elementCallMockComponent") ? MockElementCall : RealElementCall;
+    const useMock = Boolean(useSettingValue("Developer.elementCallMockComponent"));
+    const desktopShell = Boolean(useSettingValue("feature_desktop_shell"));
+    const ElementCall = useMock ? MockElementCall : RealElementCall;
     const { effectiveTheme: theme } = useTheme();
     // Not a hook: changing the language reloads Element Web, so there is no live change to follow
     const language = getCurrentLanguage().replace("_", "-");
     const bridge = useMemo(
-        () => new ElementWebHostBridge(call, { widgetId: call.widget.id, widgetRoomId: call.widget.roomId }),
-        [call],
+        () =>
+            new ElementWebHostBridge(call, {
+                widgetId: call.widget.id,
+                widgetRoomId: call.widget.roomId,
+                renderPresentation:
+                    desktopShell && !useMock
+                        ? (presentationBridge) => (
+                              <DesktopCallStage client={client} call={call} bridge={presentationBridge} />
+                          )
+                        : undefined,
+            }),
+        [call, client, desktopShell, useMock],
     );
     const { intent, config } = call.componentOptions;
 

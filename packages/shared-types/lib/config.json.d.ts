@@ -125,6 +125,17 @@ export interface WebConfigJson {
         brand?: string;
         use_exclusively?: boolean;
         disable?: boolean;
+        /** Deployment limits forwarded to the embedded Element Call engine. */
+        media_quality?: {
+            screen_share?: {
+                /** Maximum capture height in pixels. Defaults to 1080. */
+                max_resolution?: number;
+                /** Maximum publication frame rate. Defaults to 30. */
+                max_framerate?: number;
+                /** Maximum publication bitrate in bits per second. Defaults to 5,000,000. */
+                max_bitrate?: number;
+            };
+        };
     };
 
     logout_redirect_url?: string;

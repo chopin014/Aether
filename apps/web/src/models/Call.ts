@@ -48,6 +48,7 @@ import DMRoomMap from "../utils/DMRoomMap.ts";
 import { type WidgetMessaging, WidgetMessagingEvent } from "../stores/widgets/WidgetMessaging.ts";
 import { BugReportEndpointURLLocal } from "../IConfigOptions.ts";
 import { DesktopVoicePipeline } from "../audio/desktop/DesktopVoicePipeline";
+import { getScreenSharePolicyLimits } from "../audio/desktop/ScreenShareQuality";
 import { type CallConnectionStats, emptyCallConnectionStats, isCallConnectionStats } from "./CallConnectionStats";
 // From the component package's `api` entry point, which carries the types and enums without the
 // component: `BackgroundStyle` is needed as a value here, on the widget path, where the component
@@ -912,6 +913,17 @@ export class ElementCall extends Call {
      */
     public static getConfigOptions(transports: Transport[] = []): ConfigOptions {
         const options: ConfigOptions = {};
+        const mediaQuality = SdkConfig.get("element_call")?.media_quality;
+        if (mediaQuality) {
+            const limits = getScreenSharePolicyLimits();
+            options.media_quality = {
+                screen_share: {
+                    max_resolution: limits.maxResolutionHeight ?? undefined,
+                    max_framerate: limits.maxFrameRate ?? undefined,
+                    max_bitrate: limits.maxBitrate ?? undefined,
+                },
+            };
+        }
 
         const livekitTransport = transports.find(
             (t): t is Transport & { livekit_service_url: string } =>

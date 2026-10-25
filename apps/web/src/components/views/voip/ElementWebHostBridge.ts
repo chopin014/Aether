@@ -5,6 +5,7 @@
  * Please see LICENSE files in the repository root for full details.
  */
 
+import type { ReactNode } from "react";
 import MediaDeviceHandler from "../../../MediaDeviceHandler";
 import ActiveWidgetStore from "../../../stores/ActiveWidgetStore";
 import { CallStore } from "../../../stores/CallStore";
@@ -19,12 +20,15 @@ import {
 import { logger } from "matrix-js-sdk/src/logger";
 
 import { confirmVoiceChannelSwitch } from "./confirmVoiceChannelSwitch";
+import type { AetherCallPresentationBridge } from "./AetherCallPresentationTypes";
 
 export interface ElementWebHostBridgeOptions {
     /** The id of the (virtual) widget that is this call's identity in the widget stores. */
     widgetId: string;
     /** The room the widget belongs to, as `ActiveWidgetStore` keys it. */
     widgetRoomId: string | null;
+    /** Optional Aether presentation renderer replacing Element Call's built-in UI while preserving engine & audio. */
+    renderPresentation?: (bridge: AetherCallPresentationBridge) => ReactNode;
 }
 
 /**
@@ -52,10 +56,17 @@ export class ElementWebHostBridge implements ElementCallHostBridge {
         return !MediaDeviceHandler.startWithAudioMuted;
     }
 
+    public readonly renderPresentation?: (bridge: unknown) => ReactNode;
+
     public constructor(
         private readonly call: ElementCall,
         private readonly opts: ElementWebHostBridgeOptions,
-    ) {}
+    ) {
+        if (opts.renderPresentation) {
+            const render = opts.renderPresentation;
+            this.renderPresentation = (bridge: unknown): ReactNode => render(bridge as AetherCallPresentationBridge);
+        }
+    }
 
     public readonly setAlwaysOnScreen = async (alwaysOnScreen: boolean): Promise<void> => {
         // Only one call can be on screen. Before this one becomes sticky, hang up every other connected

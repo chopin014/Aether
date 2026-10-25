@@ -1592,6 +1592,25 @@ describe("ElementCall with the React component embedding", () => {
     });
 
     describe("getConfigOptions", () => {
+        afterEach(() => SdkConfig.reset());
+
+        it("forwards deployment screen-share limits to the embedded call engine", () => {
+            SdkConfig.put({
+                element_call: {
+                    media_quality: {
+                        screen_share: { max_resolution: 540, max_framerate: 15, max_bitrate: 900_000 },
+                    },
+                },
+            });
+            expect(ElementCall.getConfigOptions().media_quality).toEqual({
+                screen_share: {
+                    max_resolution: 540,
+                    max_framerate: 15,
+                    max_bitrate: 900_000,
+                },
+            });
+        });
+
         it("passes the first LiveKit transport Element Web discovered as the configured service URL", () => {
             const options = ElementCall.getConfigOptions([
                 { type: "something_else", url: "https://ignored.example.org" },

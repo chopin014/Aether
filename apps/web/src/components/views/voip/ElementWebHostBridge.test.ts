@@ -206,4 +206,17 @@ describe("ElementWebHostBridge", () => {
         expect(hostBridge.supportsReactions).toBe(true);
         expect(hostBridge.allowJoinUnmutedViaIntent).toBe(true);
     });
+
+    it("wires custom renderPresentation when provided for Aether desktop shell", () => {
+        expect(bridge.renderPresentation).toBeUndefined();
+        const renderPresentation = vi.fn(() => "custom-stage");
+        const customBridge = new ElementWebHostBridge(call as unknown as ElementCall, {
+            widgetId,
+            widgetRoomId: roomId,
+            renderPresentation,
+        });
+        const presentation = { state: {}, actions: {} };
+        expect(customBridge.renderPresentation?.(presentation)).toBe("custom-stage");
+        expect(renderPresentation).toHaveBeenCalledExactlyOnceWith(presentation);
+    });
 });

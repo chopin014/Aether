@@ -760,6 +760,11 @@
         "title": "Decline invitation"
     },
     "desktop": {
+        "call_stage": {
+            "fallback_camera": "Camera %(index)s",
+            "fallback_microphone": "Microphone %(index)s",
+            "fallback_speaker": "Speaker %(index)s"
+        },
         "contacts": {
             "action_failed": "That action could not be completed. Please try again.",
             "offline": "desktop|contacts|offline",

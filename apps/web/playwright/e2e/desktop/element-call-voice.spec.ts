@@ -99,11 +99,82 @@ async function decodedAudioEnergy(page: Page): Promise<number> {
     });
 }
 
+/** Supply only the OS capture boundary; publication, transport, encryption and remote decoding remain real. */
+async function syntheticDisplayCapture(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        navigator.mediaDevices.getDisplayMedia = async (options) => {
+            const canvas = document.createElement("canvas");
+            canvas.width = 1280;
+            canvas.height = 720;
+            const context = canvas.getContext("2d")!;
+            let tick = 0;
+            const draw = (): void => {
+                context.fillStyle = tick++ % 2 ? "#5865f2" : "#3ba55d";
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                context.fillStyle = "white";
+                context.font = "48px sans-serif";
+                context.fillText(`Aether encrypted screen ${tick}`, 64, 120);
+            };
+            draw();
+            const timer = window.setInterval(draw, 33);
+            const stream = canvas.captureStream(30);
+            let audio: AudioContext | undefined;
+            if (options?.audio) {
+                audio = new AudioContext();
+                const oscillator = audio.createOscillator();
+                const destination = audio.createMediaStreamDestination();
+                oscillator.frequency.value = 330;
+                oscillator.connect(destination);
+                oscillator.start();
+                await audio.resume();
+                stream.addTrack(destination.stream.getAudioTracks()[0]);
+            }
+            const video = stream.getVideoTracks()[0];
+            const stop = video.stop.bind(video);
+            video.stop = () => {
+                window.clearInterval(timer);
+                void audio?.close();
+                stop();
+            };
+            return stream;
+        };
+    });
+}
+
+async function decodedVideoFrames(page: Page): Promise<number> {
+    return page.evaluate(async () => {
+        const peers = (window as Window & { __desktopVoicePeers?: RTCPeerConnection[] }).__desktopVoicePeers ?? [];
+        let frames = 0;
+        for (const peer of peers) {
+            for (const entry of (await peer.getStats()).values()) {
+                if (entry.type === "inbound-rtp" && entry.kind === "video") frames += entry.framesDecoded ?? 0;
+            }
+        }
+        return frames;
+    });
+}
+
+/** Inspect the actual audio renderer elements, tracking the pre-existing microphone separately from a new stream. */
+async function playbackGains(page: Page): Promise<{ microphone: number[]; stream: number[]; muted: boolean[] }> {
+    return page.evaluate(() => {
+        const elements = Array.from(document.querySelectorAll("audio")).filter(
+            (audio) => audio.srcObject instanceof MediaStream,
+        );
+        return {
+            microphone: elements
+                .filter((audio) => audio.dataset.microphoneProof === "true")
+                .map((audio) => audio.volume),
+            stream: elements.filter((audio) => audio.dataset.microphoneProof !== "true").map((audio) => audio.volume),
+            muted: elements.map((audio) => audio.muted),
+        };
+    });
+}
+
 test(
     "two members use a persistent Element Call voice room without Jitsi",
     { tag: ["@no-firefox", "@no-webkit"] },
     async ({ page, app, user, browser, homeserver, config }, testInfo) => {
-        test.setTimeout(180_000);
+        test.setTimeout(300_000);
         const jitsiRequests: string[] = [];
         const soundResponses = new Map<string, number>();
         const onSound = (response: Response): void => {
@@ -207,6 +278,160 @@ test(
                     )
                     .toBe(true);
             }
+
+            // Exercise camera and screen media through the real encrypted MatrixRTC/LiveKit connection.
+            await page.getByRole("button", { name: "Reactions", exact: true }).click();
+            await page.getByRole("button", { name: "Raise hand", exact: true }).click();
+            await expect(bobPage.getByLabel("Hand raised", { exact: true })).toBeVisible();
+            await page.getByRole("button", { name: "Lower hand", exact: true }).click();
+            await expect(bobPage.getByLabel("Hand raised", { exact: true })).toHaveCount(0);
+            await page.getByRole("button", { name: "Send reaction 🎉", exact: true }).click();
+            await expect(
+                bobPage.getByTestId("videoTile").filter({ hasText: "Alice" }).getByText("🎉", { exact: true }),
+            ).toBeVisible();
+            await page.getByRole("button", { name: "Turn On Camera", exact: true }).click();
+            const remoteCamera = bobPage.getByTestId(`participant-video-${user.userId}`);
+            await expect(remoteCamera).toBeVisible();
+            await expect
+                .poll(() =>
+                    remoteCamera.evaluate(
+                        (element: HTMLVideoElement) => element.getVideoPlaybackQuality().totalVideoFrames,
+                    ),
+                )
+                .toBeGreaterThan(3);
+            await expect.poll(() => decodedVideoFrames(bobPage)).toBeGreaterThan(3);
+            await syntheticDisplayCapture(page);
+            await bobPage.locator("audio").evaluateAll((elements) => {
+                elements.forEach((node) => {
+                    const element = node as HTMLAudioElement;
+                    if (element.srcObject instanceof MediaStream) element.dataset.microphoneProof = "true";
+                });
+            });
+            await page.getByRole("button", { name: "Stream Quality", exact: true }).click();
+            await page.getByRole("checkbox").check();
+            await page.getByRole("button", { name: "Go Live", exact: true }).click();
+            const remoteScreen = bobPage.getByTestId(`screenshare-video-${user.userId}`);
+            await expect(remoteScreen).toBeVisible({ timeout: 30_000 });
+            await expect
+                .poll(() =>
+                    remoteScreen.evaluate(
+                        (element: HTMLVideoElement) => element.getVideoPlaybackQuality().totalVideoFrames,
+                    ),
+                )
+                .toBeGreaterThan(3);
+            await expect
+                .poll(() =>
+                    bobPage.evaluate(async () => {
+                        const audio = Array.from(document.querySelectorAll("audio")).find(
+                            (element) =>
+                                element.srcObject instanceof MediaStream && element.dataset.microphoneProof !== "true",
+                        );
+                        const trackId = (audio?.srcObject as MediaStream | undefined)?.getAudioTracks()[0]?.id;
+                        const peers =
+                            (window as Window & { __desktopVoicePeers?: RTCPeerConnection[] }).__desktopVoicePeers ??
+                            [];
+                        let energy = 0;
+                        for (const peer of peers) {
+                            for (const receiver of peer.getReceivers()) {
+                                if (receiver.track.id !== trackId) continue;
+                                (await receiver.getStats()).forEach((entry) => {
+                                    if (entry.type === "inbound-rtp" && entry.kind === "audio")
+                                        energy += entry.totalAudioEnergy ?? 0;
+                                });
+                            }
+                        }
+                        return energy;
+                    }),
+                )
+                .toBeGreaterThan(0);
+            await expect.poll(() => playbackGains(bobPage)).toMatchObject({ microphone: [1], stream: [1] });
+            await page.getByRole("button", { name: "Stream Quality", exact: true }).click();
+            await page.getByTestId("screenshare-res-720p").click();
+            await page.getByTestId("screenshare-fps-15").click();
+            const localScreenTrackId = await page
+                .getByTestId(`screenshare-video-${user.userId}`)
+                .evaluate((video: HTMLVideoElement) => (video.srcObject as MediaStream).getVideoTracks()[0].id);
+            await expect
+                .poll(() =>
+                    page.evaluate(async (screenTrackId) => {
+                        const peers =
+                            (window as Window & { __desktopVoicePeers?: RTCPeerConnection[] }).__desktopVoicePeers ??
+                            [];
+                        for (const peer of peers) {
+                            for (const sender of peer.getSenders()) {
+                                if (sender.track?.id === screenTrackId) {
+                                    const settings = sender.track.getSettings();
+                                    return (
+                                        settings.frameRate! <= 15 &&
+                                        settings.height! <= 720 &&
+                                        sender
+                                            .getParameters()
+                                            .encodings.every(
+                                                (encoding) =>
+                                                    encoding.maxFramerate! <= 15 && encoding.maxBitrate! <= 5_000_000,
+                                            )
+                                    );
+                                }
+                            }
+                        }
+                        return false;
+                    }, localScreenTrackId),
+                )
+                .toBe(true);
+            await page.keyboard.press("Escape");
+            await bobPage.getByRole("button", { name: "Stream volume for Alice", exact: true }).click();
+            const streamVolume = bobPage.getByRole("slider", { name: "Stream volume for Alice", exact: true });
+            await streamVolume.press("Home");
+            for (let i = 0; i < 5; ++i) await streamVolume.press("ArrowRight");
+            await expect.poll(() => playbackGains(bobPage)).toMatchObject({ microphone: [1], stream: [0.05] });
+            await bobPage.keyboard.press("Escape");
+            await bobPage.getByRole("button", { name: "Audio options for Alice", exact: true }).click();
+            const microphoneVolume = bobPage.getByRole("slider", { name: "Volume for Alice", exact: true });
+            await microphoneVolume.press("Home");
+            for (let i = 0; i < 8; ++i) await microphoneVolume.press("ArrowRight");
+            await expect.poll(() => playbackGains(bobPage)).toMatchObject({ microphone: [0.08], stream: [0.05] });
+            await bobPage.keyboard.press("Escape");
+            const bobDock = bobPage.getByRole("group", { name: "User menu" });
+            await bobPage.evaluate(async (level) => {
+                await window.mxSettingsStore.setValue("desktopSpeakerVolume", null, level, 50);
+            }, SettingLevel.DEVICE);
+            await expect.poll(() => playbackGains(bobPage)).toMatchObject({ microphone: [0.04], stream: [0.025] });
+            await bobPage.evaluate(async (level) => {
+                await window.mxSettingsStore.setValue("desktopSpeakerVolume", null, level, 100);
+            }, SettingLevel.DEVICE);
+            await bobDock.getByRole("button", { name: "Deafen", exact: true }).click();
+            await expect.poll(() => playbackGains(bobPage)).toMatchObject({ muted: [true, true] });
+            await bobDock.getByRole("button", { name: "Undeafen", exact: true }).click();
+            await expect
+                .poll(() => playbackGains(bobPage))
+                .toMatchObject({ microphone: [0.08], stream: [0.05], muted: [false, false] });
+            for (const memberPage of [page, bobPage]) {
+                await settle(memberPage);
+                await memberPage.mouse.move(0, 0);
+            }
+            await page.screenshot({ path: testInfo.outputPath("aether-camera-and-screen-local.png") });
+            await bobPage.screenshot({ path: testInfo.outputPath("aether-camera-and-screen-remote.png") });
+            const framesBeforeNavigation = await decodedVideoFrames(bobPage);
+            const peersBeforeNavigation = await page.evaluate(
+                () => (window as Window & { __desktopVoicePeers?: RTCPeerConnection[] }).__desktopVoicePeers?.length,
+            );
+            await page.getByRole("button", { name: "Open room chat", exact: true }).click();
+            await expect.poll(() => decodedVideoFrames(bobPage)).toBeGreaterThan(framesBeforeNavigation + 3);
+            await page
+                .getByRole("group", { name: "User menu" })
+                .getByRole("button", { name: /Voice Connected/ })
+                .click();
+            expect(
+                await page.evaluate(
+                    () =>
+                        (window as Window & { __desktopVoicePeers?: RTCPeerConnection[] }).__desktopVoicePeers?.length,
+                ),
+            ).toBe(peersBeforeNavigation);
+            await page.getByRole("button", { name: "Stop Streaming", exact: true }).click();
+            await expect(remoteScreen).toHaveCount(0);
+            await expect.poll(() => playbackGains(bobPage)).toMatchObject({ microphone: [0.08], stream: [] });
+            await page.getByRole("button", { name: "Turn Off Camera", exact: true }).click();
+            await expect(remoteCamera).toHaveCount(0);
             const participants = page.getByRole("group", { name: "People in Lounge" });
             await expect(participants.getByRole("button", { name: "Alice (speaking)", exact: true })).toBeVisible();
             await expect(participants.getByRole("button", { name: "Bob (speaking)", exact: true })).toBeVisible();
