@@ -6,7 +6,7 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import type { X509Api, X509IpcCommand } from "shared-types";
+import type { ScreenShareAudioApi, ScreenShareAudioEvent, X509Api, X509IpcCommand } from "shared-types";
 import { ipcRenderer } from "electron";
 import type { ShortcutConfiguration, ShortcutEvent, ShortcutResult } from "./global-shortcuts/types.js";
 
@@ -70,6 +70,25 @@ describe("preload x509 ipc", () => {
 
         await expect(x509.getUserCertificate()).resolves.toBe(result);
         expectInvoked("getUserCertificate");
+    });
+
+    it("exposes screen audio through narrow channels and acknowledges bounded PCM even if a listener throws", async () => {
+        const api = (exposed.get("electron") as { screenShareAudio: ScreenShareAudioApi }).screenShareAudio;
+        const request = { id: "share-1", videoSourceId: "screen:1:0", target: { kind: "system" } as const };
+        await api.start(request);
+        expect(invoke).toHaveBeenLastCalledWith("aether:share-audio-start", request);
+        await api.stop(request.id);
+        expect(invoke).toHaveBeenLastCalledWith("aether:share-audio-stop", request.id);
+        const listener = vi.fn(() => {
+            throw new Error("listener stopped");
+        });
+        const unsubscribe = api.onEvent(listener);
+        const [channel, handler] = vi.mocked(ipcRenderer.on).mock.calls.at(-1)!;
+        const event: ScreenShareAudioEvent = { type: "data", id: request.id, sequence: 1, pcm: new Uint8Array(8) };
+        expect(() => handler({} as Electron.IpcRendererEvent, event)).toThrow("listener stopped");
+        expect(ipcRenderer.send).toHaveBeenLastCalledWith("aether:share-audio-ack", request.id, 1);
+        unsubscribe();
+        expect(ipcRenderer.removeListener).toHaveBeenCalledWith(channel, handler);
     });
 
     it("calls listHardwareKeys correctly", async () => {

@@ -25,6 +25,8 @@ import DesktopCapturerSourcePicker from "../../components/views/elements/Desktop
 import ElectronPlatform from "./ElectronPlatform";
 import * as windowControlsTheme from "./watchWindowControlsTheme";
 import ToastStore from "../../stores/ToastStore.ts";
+import * as screenShareAudio from "../../audio/desktop/ScreenShareAudio";
+import type { ScreenShareAudioApi, ScreenShareAudioTarget } from "shared-types";
 
 vi.mock("../../rageshake/rageshake", () => ({
     flush: vi.fn(),
@@ -55,9 +57,11 @@ describe("ElectronPlatform", () => {
 
     const userId = "@alice:server.org";
     const deviceId = "device-id";
+    const screenShareAudioApi = {} as ScreenShareAudioApi;
 
     beforeEach(() => {
         window.electron = mockElectron;
+        mockElectron.screenShareAudio = screenShareAudioApi;
         vi.clearAllMocks();
         Object.defineProperty(window, "navigator", { value: { userAgent: defaultUserAgent }, writable: true });
     });
@@ -121,6 +125,42 @@ describe("ElectronPlatform", () => {
     it("should load config", async () => {
         const platform = new ElectronPlatform();
         await expect(platform.getConfig()).resolves.toEqual({ _config: true });
+    });
+
+    it("delegates explicitly selected screen audio and preserves its cleanup action", async () => {
+        const capture = vi.spyOn(screenShareAudio, "captureScreenShareAudio");
+        const platform = new ElectronPlatform();
+        const video = {} as MediaStream;
+        const target: ScreenShareAudioTarget = { kind: "application", id: "application-1" };
+        const signal = new AbortController().signal;
+        const stop = vi.fn().mockResolvedValue(undefined);
+        const result = { stream: video, stop };
+        capture.mockResolvedValue(result);
+
+        try {
+            await expect(platform.captureScreenShareAudio(video, "screen:7:0", target, signal)).resolves.toBe(result);
+            expect(capture).toHaveBeenCalledWith(video, "screen:7:0", target, { signal, api: screenShareAudioApi });
+
+            await result.stop();
+            expect(stop).toHaveBeenCalledOnce();
+        } finally {
+            capture.mockRestore();
+        }
+    });
+
+    it("propagates screen audio setup failures", async () => {
+        const capture = vi.spyOn(screenShareAudio, "captureScreenShareAudio");
+        const platform = new ElectronPlatform();
+        const error = new Error("native audio capture unavailable");
+        capture.mockRejectedValue(error);
+
+        try {
+            await expect(
+                platform.captureScreenShareAudio({} as MediaStream, "screen:7:0", { kind: "system" }),
+            ).rejects.toBe(error);
+        } finally {
+            capture.mockRestore();
+        }
     });
 
     it("should return oidc client state as expected", async () => {

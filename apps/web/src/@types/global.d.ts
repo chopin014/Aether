@@ -39,6 +39,7 @@ import { type ModuleApiType } from "../modules/Api.ts";
 import type { RoomListStoreV3Class } from "../stores/room-list-v3/RoomListStoreV3.ts";
 import { type SDKContextClass } from "../contexts/SDKContextClass.ts";
 import { type GlobalShortcutApi } from "../audio/desktop/DesktopShortcutManager";
+import { type ScreenShareAudioApi } from "shared-types";
 
 type ElectronChannel =
     | "app_onAction"
@@ -119,6 +120,7 @@ declare global {
 
     interface Electron {
         globalShortcuts?: GlobalShortcutApi;
+        screenShareAudio?: ScreenShareAudioApi;
         // Legacy
         on(channel: ElectronChannel, listener: (event: Event, ...args: any[]) => void): void;
         send(channel: ElectronChannel, ...args: any[]): void;

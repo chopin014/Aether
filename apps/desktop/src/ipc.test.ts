@@ -9,7 +9,7 @@ import { expect, describe, it, beforeEach, afterEach, vi } from "vitest";
 import { desktopCapturer, nativeImage, TouchBar } from "electron";
 
 import { getConfig } from "./config.js";
-import { consumeDisplayMediaCallback } from "./displayMediaCallback.js";
+import { consumeDisplayMediaCallback, getDisplayMediaSource, setDisplayMediaSources } from "./displayMediaCallback.js";
 import { clearData } from "./store.js";
 
 const { ipcHandlers, mockStore, send, randomArray } = vi.hoisted(() => ({
@@ -59,7 +59,10 @@ vi.mock("./store.js", () => ({
 vi.mock("./utils.js", () => ({ randomArray }));
 vi.mock("./displayMediaCallback.js", () => ({
     consumeDisplayMediaCallback: vi.fn(),
+    getDisplayMediaSource: vi.fn(),
+    setDisplayMediaSources: vi.fn(),
 }));
+vi.mock("./screenshare/audio/setupShareAudio.js", () => ({ resetShareAudio: vi.fn() }));
 vi.mock("./config.js");
 
 await import("./ipc.js");
@@ -67,7 +70,8 @@ await import("./ipc.js");
 const ARGS = ["@alice:example.org", "DEVICEID"];
 
 async function callIpc(name: string, id = 1, args: unknown[] = ARGS): Promise<void> {
-    await ipcHandlers["ipcCall"]({}, { id, name, args });
+    const sender = global.mainWindow!.webContents;
+    await ipcHandlers["ipcCall"]({ sender, senderFrame: sender.mainFrame }, { id, name, args });
 }
 
 describe("ipc pickle key handling", () => {
@@ -183,6 +187,9 @@ describe("ipcCall: getDesktopCapturerSources", () => {
         ] as never);
 
         await callIpc("getDesktopCapturerSources", 11, [{ types: ["screen"] }]);
+        expect(setDisplayMediaSources).toHaveBeenCalledWith([
+            expect.objectContaining({ id: "screen:1", name: "Screen 1", thumbnail: expect.any(Object) }),
+        ]);
 
         expect(send).toHaveBeenCalledWith("ipcReply", {
             id: 11,
@@ -266,11 +273,13 @@ describe("ipcCall: callDisplayMediaCallback", () => {
     it("invokes the consumed callback once with the chosen video source", async () => {
         const callback = vi.fn();
         vi.mocked(consumeDisplayMediaCallback).mockReturnValue(callback);
+        const source = { id: "screen:1", name: "Native screen" } as Electron.DesktopCapturerSource;
+        vi.mocked(getDisplayMediaSource).mockReturnValueOnce(source);
 
         await callIpc("callDisplayMediaCallback", 13, [{ id: "screen:1" }]);
 
         expect(consumeDisplayMediaCallback).toHaveBeenCalledTimes(1);
-        expect(callback).toHaveBeenCalledWith({ video: { id: "screen:1" } });
+        expect(callback).toHaveBeenCalledWith({ video: source });
         expect(send).toHaveBeenCalledWith("ipcReply", { id: 13, reply: null });
     });
 
@@ -280,6 +289,23 @@ describe("ipcCall: callDisplayMediaCallback", () => {
         await callIpc("callDisplayMediaCallback", 14, [{}]);
 
         expect(send).toHaveBeenCalledWith("ipcReply", { id: 14, reply: null });
+    });
+
+    it("cancels a forged source instead of trusting renderer metadata", async () => {
+        const callback = vi.fn();
+        vi.mocked(consumeDisplayMediaCallback).mockReturnValue(callback);
+        vi.mocked(getDisplayMediaSource).mockReturnValueOnce(undefined);
+        await callIpc("callDisplayMediaCallback", 15, [{ id: "window:forged", name: "Spoofed" }]);
+        expect(callback).toHaveBeenCalledWith({ video: { id: "", name: "" } });
+    });
+
+    it("does not consume a selection sent by another renderer frame", async () => {
+        const sender = global.mainWindow!.webContents;
+        await ipcHandlers["ipcCall"](
+            { sender, senderFrame: {} },
+            { id: 16, name: "callDisplayMediaCallback", args: [] },
+        );
+        expect(consumeDisplayMediaCallback).not.toHaveBeenCalled();
     });
 });
 

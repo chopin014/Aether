@@ -10,7 +10,9 @@ Please see LICENSE files in the repository root for full details.
 
 import { ipcRenderer, contextBridge, type IpcRendererEvent } from "electron";
 import type { ConfigOptions } from "./config.js" with { "resolution-mode": "import" };
-import type { X509Api } from "shared-types" with { "resolution-mode": "import" };
+import type { X509Api, ScreenShareAudioApi, ScreenShareAudioEvent } from "shared-types" with {
+    "resolution-mode": "import",
+};
 
 import type { ShortcutConfiguration, ShortcutEvent, ShortcutResult } from "./global-shortcuts/types.js" with {
     "resolution-mode": "import",
@@ -92,6 +94,26 @@ contextBridge.exposeInMainWorld("electron", {
             return () => ipcRenderer.removeListener("aether:global-shortcut", handler);
         },
     },
+
+    screenShareAudio: {
+        capabilities: () => ipcRenderer.invoke("aether:share-audio-capabilities"),
+        applications: () => ipcRenderer.invoke("aether:share-audio-applications"),
+        start: (request) => ipcRenderer.invoke("aether:share-audio-start", request),
+        stop: (id) => ipcRenderer.invoke("aether:share-audio-stop", id),
+        onEvent: (listener) => {
+            const handler = (_event: IpcRendererEvent, event: ScreenShareAudioEvent): void => {
+                try {
+                    listener(event);
+                } finally {
+                    if (event.type === "data") {
+                        ipcRenderer.send("aether:share-audio-ack", event.id, event.sequence);
+                    }
+                }
+            };
+            ipcRenderer.on("aether:share-audio-event", handler);
+            return () => ipcRenderer.removeListener("aether:share-audio-event", handler);
+        },
+    } satisfies ScreenShareAudioApi,
 
     // X.509 hardware-key IPC
     x509: {

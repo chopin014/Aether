@@ -16,6 +16,7 @@ import {
     type MatrixEvent,
     type OAuthRegistrationRequest,
 } from "matrix-js-sdk/src/matrix";
+import type { ScreenShareAudioTarget } from "shared-types";
 import React from "react";
 import { logger } from "matrix-js-sdk/src/logger";
 import { uniqueId } from "lodash";
@@ -46,6 +47,10 @@ import { watchWindowControlsTheme } from "./watchWindowControlsTheme";
 import { _t } from "../../languageHandler";
 import { BadgeOverlayRenderer } from "../../favicon";
 import { GenericToast } from "@element-hq/web-shared-components";
+import {
+    captureScreenShareAudio as captureDesktopShareAudio,
+    type ScreenShareAudioCapture,
+} from "../../audio/desktop/ScreenShareAudio";
 
 interface SquirrelUpdate {
     releaseNotes: string;
@@ -246,6 +251,28 @@ export default class ElectronPlatform extends BasePlatform {
     public async getConfig(): Promise<IConfigOptions | undefined> {
         await this.initialised;
         return this.config;
+    }
+
+    /**
+     * Attach explicitly selected native desktop audio to a video stream approved by the desktop picker.
+     * Callers must invoke this only after the user selects a screen audio source.
+     *
+     * @param video The approved display stream.
+     * @param videoSourceId The source identifier returned by the desktop picker grant.
+     * @param target The user's explicit system, window, or application audio choice.
+     * @param signal Optional signal used to stop setup or active capture.
+     * @returns The combined stream and its cleanup action.
+     */
+    public captureScreenShareAudio(
+        video: MediaStream,
+        videoSourceId: string,
+        target: ScreenShareAudioTarget,
+        signal?: AbortSignal,
+    ): Promise<ScreenShareAudioCapture> {
+        return captureDesktopShareAudio(video, videoSourceId, target, {
+            signal,
+            api: this.electron.screenShareAudio,
+        });
     }
 
     private onBreadcrumbsUpdate = (): void => {

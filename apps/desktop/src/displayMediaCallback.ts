@@ -5,14 +5,30 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import type { Streams } from "electron";
+import type { DesktopCapturerSource, Streams } from "electron";
 
 type DisplayMediaCallback = (streams: Streams) => void;
 
 let displayMediaCallback: DisplayMediaCallback | null = null;
+const displayMediaSources = new Map<string, DesktopCapturerSource>();
 
 export const setDisplayMediaCallback = (callback: DisplayMediaCallback | null): void => {
+    const previous = displayMediaCallback;
     displayMediaCallback = callback;
+    displayMediaSources.clear();
+    previous?.({ video: { id: "", name: "" } });
+};
+
+/** Keep native sources in main; renderer metadata cannot authorize a different source. */
+export const setDisplayMediaSources = (sources: DesktopCapturerSource[]): void => {
+    if (!displayMediaCallback) return;
+    displayMediaSources.clear();
+    for (const source of sources) displayMediaSources.set(source.id, source);
+};
+
+/** Look up a renderer selection in the pending picker results. */
+export const getDisplayMediaSource = (id: unknown): DesktopCapturerSource | undefined => {
+    return typeof id === "string" ? displayMediaSources.get(id) : undefined;
 };
 
 /**
@@ -27,5 +43,6 @@ export const setDisplayMediaCallback = (callback: DisplayMediaCallback | null): 
 export const consumeDisplayMediaCallback = (): DisplayMediaCallback | null => {
     const callback = displayMediaCallback;
     displayMediaCallback = null;
+    displayMediaSources.clear();
     return callback;
 };

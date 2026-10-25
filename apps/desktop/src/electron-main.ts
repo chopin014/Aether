@@ -39,7 +39,8 @@ import webContentsHandler from "./webcontents-handler.js";
 import * as updater from "./updater.js";
 import ProtocolHandler from "./protocol.js";
 import { _t, AppLocalization } from "./language-helper.js";
-import { setDisplayMediaCallback } from "./displayMediaCallback.js";
+import { consumeDisplayMediaCallback, setDisplayMediaCallback } from "./displayMediaCallback.js";
+import { authorizeShareAudioVideo, resetShareAudio, setupShareAudio } from "./screenshare/audio/setupShareAudio.js";
 import { setupMacosTitleBar } from "./macos-titlebar.js";
 import { setupMediaAuth } from "./media-auth.js";
 import { handleWindowClose, revealMainWindow } from "./window-close.js";
@@ -275,6 +276,7 @@ app.on("ready", async () => {
     });
 
     setupGlobalShortcuts(global.mainWindow, config);
+    setupShareAudio(global.mainWindow);
 
     global.mainWindow.setContentProtection(store.get("enableContentProtection"));
 
@@ -345,6 +347,7 @@ app.on("ready", async () => {
         }
 
         // Exit the app
+        resetShareAudio();
         app.exit();
     });
 
@@ -373,27 +376,42 @@ app.on("ready", async () => {
     // renderer stays a permanent blank window the user can only escape by killing the whole app.
     rendererRecovery = setupRendererRecovery(global.mainWindow);
 
+    let displayRequestGeneration = 0;
     session.defaultSession.setDisplayMediaRequestHandler(
-        (_, callback) => {
+        (request, callback) => {
+            const generation = ++displayRequestGeneration;
+            const mainFrame = request.frame === global.mainWindow?.webContents.mainFrame;
+            resetShareAudio();
+            setDisplayMediaCallback((streams) => {
+                if (
+                    generation === displayRequestGeneration &&
+                    mainFrame &&
+                    streams.video &&
+                    "id" in streams.video &&
+                    streams.video.id
+                ) {
+                    authorizeShareAudioVideo(streams.video.id);
+                }
+                callback(streams);
+            });
             if (process.env.XDG_SESSION_TYPE === "wayland") {
                 // On Wayland, calling getSources() opens the xdg-desktop-portal picker.
                 // The user can only select a single source there, so Electron will return an array with exactly one entry.
                 desktopCapturer
                     .getSources({ types: ["screen", "window"] })
                     .then((sources) => {
-                        // oxlint-disable-next-line promise/no-callback-in-promise
-                        callback({ video: sources[0] });
+                        if (generation !== displayRequestGeneration) return;
+                        consumeDisplayMediaCallback()?.({ video: sources[0] ?? { id: "", name: "" } });
                     })
                     .catch((err) => {
+                        if (generation !== displayRequestGeneration) return;
                         // If the user cancels the dialog an error occurs "Failed to get sources"
                         console.error("Wayland: failed to get user-selected source:", err);
-                        // oxlint-disable-next-line promise/no-callback-in-promise
-                        callback({ video: { id: "", name: "" } }); // The promise does not return if no dummy is passed here as source
+                        consumeDisplayMediaCallback()?.({ video: { id: "", name: "" } });
                     });
             } else {
                 global.mainWindow?.webContents.send("openDesktopCapturerSourcePicker");
             }
-            setDisplayMediaCallback(callback);
         },
         { useSystemPicker: true },
     ); // Use Mac OS 15+ native picker

@@ -72,6 +72,7 @@ export default {
                 "!src/test/**!",
                 "!recorder-worklet-loader.cjs!",
                 "!microphone-gate-worklet-loader.cjs!",
+                "!screenshare-audio-worklet-loader.cjs!",
                 "!src/**/*-{mock,mocks,snapshot,actions}.*!",
             ],
             ignoreDependencies: [

@@ -447,6 +447,15 @@ export default (env: string, argv: Record<string, any>): webpack.Configuration =
                     ],
                 },
                 {
+                    // Native share playback uses the same runtime public-path handling as the microphone worklet.
+                    test: /ScreenShareAudioWorklet\.ts$/,
+                    type: "javascript/auto",
+                    use: [
+                        { loader: path.join(__dirname, "screenshare-audio-worklet-loader.cjs") },
+                        { loader: "babel-loader" },
+                    ],
+                },
+                {
                     // This is from the same place as the encoderWorker above, but only needed
                     // for Safari support.
                     test: /decoderWorker\.min\.js$/,

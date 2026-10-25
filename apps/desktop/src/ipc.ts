@@ -9,7 +9,8 @@ import { app, autoUpdater, desktopCapturer, ipcMain, powerSaveBlocker, TouchBar,
 
 import IpcMainEvent = Electron.IpcMainEvent;
 import { randomArray } from "./utils.js";
-import { consumeDisplayMediaCallback } from "./displayMediaCallback.js";
+import { consumeDisplayMediaCallback, getDisplayMediaSource, setDisplayMediaSources } from "./displayMediaCallback.js";
+import { resetShareAudio } from "./screenshare/audio/setupShareAudio.js";
 import Store, { clearData } from "./store.js";
 import { getConfig } from "./config.js";
 import { setDesktopShellTitleBarColors } from "./desktop-shell-titlebar.js";
@@ -32,6 +33,7 @@ let powerSaveBlockerId: number | null = null;
 ipcMain.on("app_onAction", function (_ev: IpcMainEvent, payload) {
     switch (payload.action) {
         case "call_state": {
+            if (payload.state === "ended") resetShareAudio();
             if (powerSaveBlockerId !== null && powerSaveBlocker.isStarted(powerSaveBlockerId)) {
                 if (payload.state === "ended") {
                     powerSaveBlocker.stop(powerSaveBlockerId);
@@ -163,7 +165,9 @@ ipcMain.on("ipcCall", async function (_ev: IpcMainEvent, payload) {
             break;
         case "getDesktopCapturerSources":
             try {
-                ret = (await desktopCapturer.getSources(args[0])).map((source) => ({
+                const sources = await desktopCapturer.getSources(args[0]);
+                setDisplayMediaSources(sources);
+                ret = sources.map((source) => ({
                     id: source.id,
                     name: source.name,
                     thumbnailURL: source.thumbnail.toDataURL(),
@@ -173,10 +177,17 @@ ipcMain.on("ipcCall", async function (_ev: IpcMainEvent, payload) {
                 ret = [];
             }
             break;
-        case "callDisplayMediaCallback":
-            consumeDisplayMediaCallback()?.({ video: args[0] });
+        case "callDisplayMediaCallback": {
+            if (_ev.sender !== global.mainWindow.webContents || _ev.senderFrame !== _ev.sender.mainFrame) break;
+            const source = getDisplayMediaSource(args[0]?.id);
+            const callback = consumeDisplayMediaCallback();
+            if (callback) {
+                if (!source) resetShareAudio();
+                callback({ video: source ?? { id: "", name: "" } });
+            }
             ret = null;
             break;
+        }
 
         case "clearStorage":
             await clearData(global.mainWindow.webContents.session);
