@@ -219,7 +219,8 @@ describe("Aether distribution identity", () => {
                 encoding: "utf8",
             });
             expect(allPlatforms.error).toBeUndefined();
-            expect(allPlatforms.status, allPlatforms.stderr).toBe(0);
+            expect(allPlatforms.stderr).toBe("");
+            expect(allPlatforms.status).toBe(0);
 
             const unsupportedPlatform = spawnSync(process.execPath, [scriptPath, "mac", version, directory], {
                 encoding: "utf8",
