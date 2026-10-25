@@ -245,6 +245,21 @@ describe("LinuxShareAudioProvider", () => {
         expect(capabilities.reason).toContain("0.9.11");
     });
 
+    it("should accept PulseAudio server versions without a patch component", async () => {
+        const { dependencies } = createHarness([]);
+        const originalExecute = dependencies.execute;
+        dependencies.execute = async (executable, args, timeoutMs) => {
+            if (executable === "pactl" && args[0] === "info") {
+                return "Server Name: pulseaudio\nServer Version: 16.1";
+            }
+            return originalExecute(executable, args, timeoutMs);
+        };
+
+        const capabilities = await createLinuxShareAudioProvider(dependencies).capabilities();
+        expect(capabilities.system).toBe(true);
+        expect(capabilities.application).toBe(true);
+    });
+
     it("should observe cancellation after daemon availability and before session creation", async () => {
         const { dependencies, state } = createHarness([]);
         const originalExecute = dependencies.execute;

@@ -47,9 +47,11 @@ export class LinuxPulseAudioClient {
     public async assertAvailable(): Promise<void> {
         try {
             const info = await this.dependencies.execute(this.dependencies.pactlExecutable, ["info"], 3000);
-            const versionMatch = info.match(/^Server Version:\s*(\d+)\.(\d+)\.(\d+)/m);
+            const versionMatch = info.match(/^Server Version:\s*(\d+)\.(\d+)(?:\.(\d+))?/m);
             if (!versionMatch) throw new Error("PulseAudio server version is unavailable.");
-            const [major, minor, patch] = versionMatch.slice(1).map(Number);
+            const major = Number(versionMatch[1]);
+            const minor = Number(versionMatch[2]);
+            const patch = Number(versionMatch[3] ?? 0);
             if (major === 0 && (minor < 9 || (minor === 9 && patch < 11))) {
                 throw new Error("PulseAudio 0.9.11 or later is required for per-stream playback capture.");
             }
