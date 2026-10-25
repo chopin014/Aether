@@ -39,6 +39,11 @@ import {
 import { MicrophoneTest, mediaTestError } from "../../audio/desktop/MicrophoneTest";
 import { CameraTest } from "../../audio/desktop/CameraTest";
 import {
+    customizeDesktopVoiceProfile,
+    DESKTOP_VOICE_PROFILE_PRESETS,
+    type DesktopVoiceProfilePreset,
+} from "../../audio/desktop/DesktopVoiceProfiles";
+import {
     describePushToTalkKey,
     formatPushToTalkKey,
     pushToTalkBindingFromEvent,
@@ -102,25 +107,6 @@ const RESET_SETTINGS = [
     ["webrtc_audiooutput", SettingLevel.DEVICE],
     ["webrtc_videoinput", SettingLevel.DEVICE],
 ] as const satisfies ReadonlyArray<readonly [SettingKey, SettingLevel]>;
-
-/** What a profile other than custom decides for the user, as the custom settings would express it. */
-interface ProfilePreset {
-    noiseSuppression: DesktopNoiseSuppression;
-    noiseSuppressionStrength?: number;
-    voiceDetection: boolean;
-    sensitivityAuto?: boolean;
-}
-
-/** Keep in step with `getMicrophoneGateConfig`, which applies the same choices to calls. */
-const PROFILE_PRESETS: Record<Exclude<DesktopInputProfile, "custom">, ProfilePreset> = {
-    voice_isolation: {
-        noiseSuppression: "enhanced",
-        noiseSuppressionStrength: 100,
-        voiceDetection: true,
-        sensitivityAuto: true,
-    },
-    studio: { noiseSuppression: "none", voiceDetection: false },
-};
 
 /** How often the microphone meter redraws, in ms. Audio arrives far faster than the eye needs. */
 const METER_INTERVAL_MS = 50;
@@ -243,7 +229,8 @@ export class DesktopVoiceVideoSettingsViewModel
         const canSetFallbackIce = SettingsStore.canSetValue("fallbackICEServerAllowed", null, SettingLevel.DEVICE);
         const inputProfile = SettingsStore.getValue("desktopInputProfile");
         // A preset shows what it does, while the custom settings keep the user's own choices for later.
-        const preset: Partial<ProfilePreset> = inputProfile === "custom" ? {} : PROFILE_PRESETS[inputProfile];
+        const preset: Partial<DesktopVoiceProfilePreset> =
+            inputProfile === "custom" ? {} : DESKTOP_VOICE_PROFILE_PRESETS[inputProfile];
         this.snapshot.merge({
             microphoneVolume: SettingsStore.getValue("desktopMicrophoneVolume"),
             speakerVolume: SettingsStore.getValue("desktopSpeakerVolume"),
@@ -411,18 +398,7 @@ export class DesktopVoiceVideoSettingsViewModel
      * what the preset was doing, so the only thing that changes is the setting the user edited.
      */
     private async leaveProfile(): Promise<void> {
-        const profile = SettingsStore.getValue("desktopInputProfile");
-        if (profile === "custom") return;
-        const preset = PROFILE_PRESETS[profile];
-        await this.setSetting("desktopNoiseSuppression", preset.noiseSuppression);
-        await this.setSetting("desktopVoiceDetection", preset.voiceDetection);
-        if (preset.noiseSuppressionStrength !== undefined) {
-            await this.setSetting("desktopNoiseSuppressionStrength", preset.noiseSuppressionStrength);
-        }
-        if (preset.sensitivityAuto !== undefined) {
-            await this.setSetting("desktopInputSensitivityAuto", preset.sensitivityAuto);
-        }
-        await this.setSetting("desktopInputProfile", "custom");
+        await customizeDesktopVoiceProfile();
     }
 
     public setNoiseSuppression = async (mode: DesktopNoiseSuppression): Promise<void> => {

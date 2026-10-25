@@ -122,3 +122,174 @@ Please see LICENSE in the repository root for full details.
 .error {
     color: var(--cpd-color-text-critical-primary);
 }
+
+.connection[data-tone="neutral"] {
+    --connection-color: var(--cpd-color-text-secondary);
+}
+.connection[data-tone="success"] {
+    --connection-color: var(--cpd-color-text-success-primary);
+}
+.connection[data-tone="warning"] {
+    --connection-color: var(--cpd-color-text-warning-primary);
+}
+.connection[data-tone="critical"] {
+    --connection-color: var(--cpd-color-text-critical-primary);
+}
+.connection .connectedLabel {
+    color: var(--connection-color);
+}
+.connectionRow > .signalButton {
+    color: var(--connection-color);
+    background: color-mix(in srgb, var(--connection-color) 10%, transparent);
+    border: 0;
+    cursor: pointer;
+    flex: none;
+}
+.signalIcon {
+    width: 100%;
+    height: 100%;
+    fill: currentColor;
+}
+.signalButton:hover,
+.signalButton[aria-expanded="true"] {
+    background: color-mix(in srgb, var(--connection-color) 20%, transparent);
+}
+.connectionRow > .noiseButton[data-enabled="true"] {
+    color: var(--cpd-color-icon-accent-primary);
+}
+.popover {
+    --track-height: var(--cpd-space-1x);
+    --knob-size: var(--cpd-space-5x);
+    position: fixed;
+    z-index: 1000;
+    box-sizing: border-box;
+    width: min(380px, calc(100vw - var(--cpd-space-6x)));
+    max-height: calc(100vh - var(--cpd-space-6x));
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-3x);
+    padding: var(--cpd-space-4x);
+    color: var(--cpd-color-text-primary);
+    background: var(--cpd-color-bg-canvas-default);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-3x);
+    box-shadow: 0 var(--cpd-space-2x) var(--cpd-space-6x)
+        color-mix(in srgb, var(--cpd-color-text-primary) 18%, transparent);
+}
+.popover:focus-visible,
+.signalButton:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: var(--cpd-space-1x);
+}
+.panelHeader,
+.panelRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--cpd-space-3x);
+}
+.panelHeader > *,
+.panelRow > *,
+.description,
+.localProcessing {
+    margin: 0;
+}
+.panelHeader > button {
+    flex: none;
+    width: var(--cpd-space-6x);
+    height: var(--cpd-space-6x);
+    padding: var(--cpd-space-1x);
+}
+.description,
+.localProcessing,
+.rangeLabels {
+    color: var(--cpd-color-text-secondary);
+}
+.strength {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-2x);
+}
+.numeric,
+.metrics dd {
+    font-variant-numeric: tabular-nums;
+}
+.rangeLabels {
+    display: flex;
+    justify-content: space-between;
+    font: var(--cpd-font-body-xs-regular);
+}
+.testSection {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-2x);
+    border-block-start: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    padding-block-start: var(--cpd-space-3x);
+}
+.testSection > * {
+    margin: 0;
+}
+.testRow {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-3x);
+}
+.testRow > button {
+    flex: none;
+}
+.testRow > [role="meter"] {
+    flex: 1;
+    min-width: 0;
+}
+.localProcessing {
+    padding-block-start: var(--cpd-space-2x);
+}
+.pingChart {
+    display: block;
+    width: 100%;
+    height: var(--cpd-space-15x);
+    color: var(--cpd-color-icon-accent-primary);
+    overflow: visible;
+}
+.pingChart polyline {
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.pingChart circle {
+    fill: currentColor;
+}
+.chartBaseline {
+    stroke: var(--cpd-color-border-interactive-secondary);
+    stroke-width: 1;
+}
+.metrics {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-2x);
+    margin: 0;
+    font: var(--cpd-font-body-sm-regular);
+}
+.metrics > div {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--cpd-space-4x);
+}
+.metrics dt {
+    color: var(--cpd-color-text-secondary);
+}
+.metrics dd {
+    margin: 0;
+    font-weight: var(--cpd-font-weight-semibold);
+}
+.networkWarning {
+    margin: 0;
+    padding: var(--cpd-space-3x);
+    border-radius: var(--cpd-space-2x);
+    color: var(--cpd-color-text-warning-primary);
+    background: color-mix(in srgb, var(--cpd-color-text-warning-primary) 8%, transparent);
+}

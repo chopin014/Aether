@@ -27,6 +27,18 @@ const disconnectedVoice: DesktopVoiceControlsViewSnapshot = {
     screenShareAvailable: true,
     screenSharing: false,
     busy: false,
+    panel: null,
+    noiseSuppression: true,
+    noiseSuppressionStrength: 100,
+    microphoneTest: { active: false, level: null, open: false },
+    connection: {
+        state: "disconnected",
+        quality: "unknown",
+        rttMs: null,
+        averageRttMs: null,
+        outboundPacketLossPercent: null,
+        history: [],
+    },
 };
 
 function DockStory({
@@ -40,6 +52,10 @@ function DockStory({
         toggleScreenShare: fn(),
         disconnect: fn(),
         showCall: fn(),
+        setPanel: fn(),
+        setNoiseSuppression: fn(),
+        setNoiseSuppressionStrength: fn(),
+        toggleMicrophoneTest: fn(),
     });
     const vm = useMockedViewModel<UserMenuViewSnapshot, UserMenuViewActions>(snapshot, {
         setOpen: fn(),
