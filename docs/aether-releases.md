@@ -10,9 +10,9 @@ Please see LICENSE in the repository root for full details.
 Aether releases target Linux x64 (AppImage) and Windows x64 (NSIS installer).
 Both formats support automatic and manual updates inside Aether. Release builds exclude `.deb` and `.tar.gz`
 packages because those formats require users to replace the application manually.
-The source remains the Element monorepo; `element-desktop` and `element-web` are internal workspace names.
+`element-desktop` and `element-web` are internal workspace names used by the build system.
 The app ID is `io.github.chopin014.aether`, executable `aether`, and callback protocol `aether://`.
-These identities isolate Aether from installed Element clients. Package versions are independent of upstream.
+Aether uses its own application profile and independently versioned packages.
 
 ## Development build
 
@@ -34,8 +34,8 @@ pnpm --dir apps/desktop run build:aether --linux --x64
 
 `build:aether` uses `--publish never`: the build does not upload anything, while its explicit public GitHub provider
 still embeds the update feed and creates local update metadata. `VERSION` overrides the package version for local
-builds; otherwise `apps/desktop/package.json` supplies it. The renderer config deliberately has no Element update
-feed, telemetry, or crash upload endpoint.
+builds; otherwise `apps/desktop/package.json` supplies it. The desktop packaging supplies the GitHub update feed. The renderer config does not set a legacy update URL,
+telemetry, or crash upload endpoint.
 
 ## Prepare a release
 

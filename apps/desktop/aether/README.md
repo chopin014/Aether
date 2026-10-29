@@ -11,4 +11,4 @@ Stable releases are offered by the updater. Prerelease builds are available for 
 Windows installers are unsigned and install per-user so updates do not require administrator prompts. See
 [the Aether release guide](../../../docs/aether-releases.md) for the tag, draft review, publishing, and first-install
 steps.
-Do not use Element update URLs, telemetry endpoints or release workflows for Aether releases.
+Use Aether's own update feed and release workflow. The desktop configuration does not enable telemetry or crash uploads.

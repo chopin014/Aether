@@ -1,13 +1,13 @@
 {
     "name": "element-web-monorepo",
     "version": "0.0.0",
-    "description": "Element: the future of secure communication",
-    "author": "New Vector Ltd.",
+    "description": "Aether: community chat and voice on Matrix",
+    "author": "Aether contributors",
     "repository": {
         "type": "git",
-        "url": "https://github.com/element-hq/element-web"
+        "url": "https://github.com/chopin014/Aether"
     },
-    "license": "SEE LICENSE IN README.md",
+    "license": "SEE LICENSE IN NOTICE.md",
     "type": "module",
     "scripts": {
         "i18n": "pnpm -r i18n",

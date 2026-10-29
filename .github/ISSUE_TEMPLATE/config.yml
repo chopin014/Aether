@@ -1,8 +1,5 @@
-blank_issues_enabled: false
+blank_issues_enabled: true
 contact_links:
-    - name: Questions & support
-      url: https://matrix.to/#/#element-web:matrix.org
-      about: Please ask and answer questions here.
-    - name: Bug report for the Element flatpak app
-      url: https://github.com/flathub/im.riot.Riot/issues
-      about: Please file bugs with the Flatpak application on the respective repository.
+    - name: Aether releases
+      url: https://github.com/chopin014/Aether/releases
+      about: Find Aether builds and release notes.

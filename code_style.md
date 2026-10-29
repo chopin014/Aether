@@ -1,7 +1,9 @@
-# Element Web/Desktop code style guide
+# Aether code style guide
 
-This code style applies to projects which the element-web team directly maintains or is reasonably
-adjacent to.
+Keep existing copyright headers unchanged. For new files, use the current year and your own name or organization
+as the copyright holder, with the applicable project license identifier. See [upstream notices](NOTICE.md).
+
+This style guide applies to Aether and its workspace packages.
 
 ## Guiding principles
 
@@ -283,7 +285,7 @@ Inheriting all the rules of TypeScript, the following additionally apply:
 > [!NOTE]
 > We use PostCSS + some plugins to process our styles. It looks like SCSS, but actually it is not.
 
-**PostCSS should be use when working in the main Element Web codebase (not shared-components).**
+**PostCSS should be use when working in the main Aether codebase (not shared-components).**
 
 #### Naming and file structure
 

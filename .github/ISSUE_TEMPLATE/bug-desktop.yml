@@ -1,5 +1,5 @@
-name: Bug report for the Element desktop app (not in a browser)
-description: File a bug report if you are using the desktop Element application.
+name: Aether bug report
+description: Report a problem with Aether.
 labels: [T-Defect, A-Electron]
 body:
     - type: markdown
@@ -7,7 +7,7 @@ body:
           value: |
               Thanks for taking the time to fill out this bug report!
 
-              Please report security issues by email to security@matrix.org
+              Include steps to reproduce and remove account tokens or private messages from attached logs.
     - type: textarea
       id: reproduction-steps
       attributes:
@@ -43,7 +43,7 @@ body:
       attributes:
           label: Application version
           description: You can find the version information in Settings -> Help & About.
-          placeholder: e.g. Element version 1.7.34, olm version 3.2.3
+          placeholder: e.g. Aether 0.1.0 or a source commit
       validations:
           required: false
     - type: input
@@ -51,7 +51,7 @@ body:
       attributes:
           label: How did you install the app?
           description: Where did you install the app from? Please give a link or a description.
-          placeholder: e.g. From https://element.io/get-started
+          placeholder: e.g. GitHub release AppImage, Windows installer, or built from source
       validations:
           required: false
     - type: input
@@ -63,14 +63,11 @@ body:
           placeholder: e.g. matrix.org or Synapse 1.50.0rc1
       validations:
           required: false
-    - type: dropdown
-      id: rageshake
+    - type: textarea
+      id: logs
       attributes:
-          label: Will you send logs?
-          description: |
-              Did you know that you can send a /rageshake command from your application to submit logs for this issue? Trigger the defect, then type `/rageshake` into the message input area followed by a description of the problem and send the command. You will be able to add a link to this defect report and submit anonymous logs to the developers.
-          options:
-              - "Yes"
-              - "No"
+          label: Relevant logs
+          description: Paste relevant diagnostic output after removing tokens and private information.
+          render: text
       validations:
-          required: true
+          required: false

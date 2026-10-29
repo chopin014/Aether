@@ -9,23 +9,21 @@ This backwards compatibility will be getting removed in a future release so plea
 ---
 
 You can configure the app by copying `config.sample.json` to `config.json` or `config.$domain.json` and customising it.
-Element will attempt to load first `config.$domain.json` and if it fails `config.json`. This mechanism allows different
+Aether will attempt to load first `config.$domain.json` and if it fails `config.json`. This mechanism allows different
 configuration options depending on if you're hitting e.g. `app1.example.com` or `app2.example.com`. Configs are not mixed
 in any way, it either entirely uses the domain config, or entirely uses `config.json`.
 
-The possible configuration options are described here. If you run into issues, please visit
-[#element-web:matrix.org](https://matrix.to/#/#element-web:matrix.org) on Matrix.
-
-For a good example of a production-tuned config, see https://app.element.io/config.json
-
-For an example of a development/beta-tuned config, see https://develop.element.io/config.json
+The options below cover the inherited renderer configuration surface. Start from
+`apps/desktop/config.desktop.json` for Aether's desktop defaults. Some options apply only to browser deployments
+or legacy configurations. Use [Aether issues](https://github.com/chopin014/Aether/issues) for configuration questions.
+Configuration keys and protocol identifiers retain their existing names.
 
 After changing the config, the app will need to be reloaded. For web browsers this is a simple page refresh, however
 for the desktop app the application will need to be exited fully (including via the task tray) and re-started.
 
 ## Homeserver configuration
 
-In order for Element to even start you will need to tell it what homeserver to connect to _by default_. Users will be
+In order for Aether to even start you will need to tell it what homeserver to connect to _by default_. Users will be
 able to use a different homeserver if they like, though this can be disabled with `"disable_custom_urls": true` in your
 config.
 
@@ -41,7 +39,7 @@ One of the following options **must** be supplied:
                 "base_url": "https://matrix-client.matrix.org"
             },
             "m.identity_server": {
-                "base_url": "https://vector.im"
+                "base_url": "https://identity.example.org"
             }
         }
     }
@@ -53,13 +51,13 @@ One of the following options **must** be supplied:
    information. These are the same values seen as `base_url` in the `default_server_config` example, with `default_is_url`
    being optional.
 
-If both `default_server_config` and `default_server_name` are used, Element will try to look up the connection
+If both `default_server_config` and `default_server_name` are used, Aether will try to look up the connection
 information using `.well-known`, and if that fails, take `default_server_config` as the homeserver connection
 information.
 
-1. `enable_client_well_known_lookups`: Controls whether Element makes runtime requests to the logged-in user's
+1. `enable_client_well_known_lookups`: Controls whether Aether makes runtime requests to the logged-in user's
    [`<server_name>/.well-known/matrix/...`](https://spec.matrix.org/latest/client-server-api/#getwell-knownmatrixclient)
-   endpoints (for example, polling for client configuration after login). Set it to `false` to stop Element making these
+   endpoints (for example, polling for client configuration after login). Set it to `false` to stop Aether making these
    requests, so it only contacts the homeserver base URL; the `well_known` object returned inline in the `/login` response
    is unaffected. Defaults to `true`.
    This option covers those runtime requests only; login-time `.well-known` autodiscovery is separate. Setting
@@ -91,7 +89,7 @@ the functionality.
 
 ## Default settings
 
-Some settings additionally support being specified at the config level to affect the user experience of your Element Web
+Some settings additionally support being specified at the config level to affect the user experience of your Aether
 instance. As of writing those settings are not fully documented, however a few are:
 
 1. `default_federate`: When `true` (default), rooms will be marked as "federatable" during creation. Typically this setting
@@ -118,26 +116,23 @@ instance. As of writing those settings are not fully documented, however a few a
     }
     ```
     These values will take priority over the hardcoded defaults for the settings. For a list of available settings, see
-    [Settings.tsx](https://github.com/element-hq/element-web/blob/develop/apps/web/src/settings/Settings.tsx).
+    [Settings.tsx](https://github.com/chopin014/Aether/blob/main/apps/web/src/settings/Settings.tsx).
 
 ## Customisation & branding
 
-<!-- Author's note: https://english.stackexchange.com/questions/570116/alternative-ways-of-saying-white-labeled -->
-
-Element supports some customisation of the user experience through various branding and theme options. While it doesn't support
-complete re-branding/private labeling, a more personalised experience can be achieved for your users.
+Branding and theme options customize the renderer. Aether's desktop configuration sets the app name and artwork.
 
 1. `default_theme`: Typically either `light` (the default) or `dark`, this is the optional name of the colour theme to use.
    If using custom themes, this can be a theme name from that as well.
 2. `default_device_display_name`: Optional public name for devices created by login and registration, instead of the default
    templated string. Note that this option does not support templating, currently.
-3. `brand`: Optional name for the app. Defaults to `Element`. This is used throughout the application in various strings/locations.
-4. `permalink_prefix`: An optional URL pointing to an Element Web deployment. For example, `https://app.element.io`. This will
-   change all permalinks (via the "Share" menus) to point at the Element Web deployment rather than `matrix.to`.
+3. `brand`: Optional name for the app. Aether sets this to `Aether`; the inherited renderer fallback is `Element`. This is used throughout the application in various strings/locations.
+4. `permalink_prefix`: An optional URL pointing to an Aether deployment. For example, `https://chat.example.org`. This will
+   change all permalinks (via the "Share" menus) to point at the Aether deployment rather than `matrix.to`.
 5. `desktop_builds`: Optional. Where the desktop builds for the application are, if available. This is explained in more detail
    down below.
 6. `mobile_builds`: Optional. Like `desktop_builds`, except for the mobile apps. Also described in more detail down below.
-7. `mobile_guide_toast`: When `true` (default), users accessing the Element Web instance from a mobile device will be prompted to
+7. `mobile_guide_toast`: When `true` (default), users accessing the Aether instance from a mobile device will be prompted to
    download the app instead.
 8. `mobile_guide_app_variant`: Optional. The mobile app that the user is prompted to download from the `/mobile_guide` page. When omitted
    the mobile guide will be configured for the new Element X apps. Allowed values are as follows:
@@ -188,12 +183,13 @@ Starting with `desktop_builds`, the following sub-properties are available:
 6. `url_win64arm`: Optional. Direct link to download Windows ARM 64-bit desktop app.
 7. `url_linux`: Optional. Direct link to download Linux desktop app.
 
-When `desktop_builds` is not specified at all, the app will assume desktop downloads are available from https://element.io
+Without `desktop_builds`, the inherited renderer falls back to upstream downloads. Set an explicit Aether release URL
+for your deployment rather than relying on this fallback.
 
 For `mobile_builds`, the following subproperties are available:
 
 1. `ios`: The URL for where to download the iOS app, such as an App Store link. When explicitly `null`, the app will assume the
-   iOS app cannot be downloaded. When not provided, the default Element app will be assumed available.
+   iOS app cannot be downloaded. When not provided, the inherited renderer assumes the corresponding upstream mobile app is available. Aether does not ship a mobile app.
 2. `android`: The same as `ios`, except for Android instead.
 3. `fdroid`: The same as `android`, except for FDroid instead.
 
@@ -204,7 +200,7 @@ Together, these two options might look like the following in your config:
     "desktop_builds": {
         "available": true,
         "logo": "https://example.org/assets/logo-small.svg",
-        "url": "https://example.org/not_element/download"
+        "url": "https://example.org/download"
     },
     "mobile_builds": {
         "ios": null,
@@ -258,17 +254,17 @@ Together, the options might look like this in your config:
 ```
 
 Note that `index.html` also has an og:image meta tag that is set to an image hosted on element.io. This is the image used if
-links to your copy of Element appear in some websites like Facebook, and indeed Element itself. This has to be static in the HTML
+links to your copy of Aether appear in some websites like Facebook, and indeed Aether itself. This has to be static in the HTML
 and an absolute URL (and HTTP rather than HTTPS), so it's not possible for this to be an option in config.json. If you'd like to
-change it, you can build Element, but run `RIOT_OG_IMAGE_URL="http://example.com/logo.png" pnpm build`. Alternatively, you can edit
-the `og:image` meta tag in `index.html` directly each time you download a new version of Element.
+change it, you can build Aether, but run `RIOT_OG_IMAGE_URL="http://example.com/logo.png" pnpm build`. Alternatively, you can edit
+the `og:image` meta tag in `index.html` directly each time you download a new version of Aether.
 
 ## SSO setup
 
-When Element is deployed alongside a homeserver with SSO-only login, some options to ease the user experience might want to be set:
+When Aether is deployed alongside a homeserver with SSO-only login, some options to ease the user experience might want to be set:
 
 1. `logout_redirect_url`: Optional URL to redirect the user to after they have logged out. Some SSO systems support a page that the
-   user can be sent to in order to log them out of that system too, making logout symmetric between Element and the SSO system.
+   user can be sent to in order to log them out of that system too, making logout symmetric between Aether and the SSO system.
 2. `sso_redirect_options`: Options to define how to handle unauthenticated users. If the object contains `"immediate": true`, then
    all unauthenticated users will be automatically redirected to the SSO/OIDC system to start their login. If instead you'd only like to
    have users which land on the welcome page to be redirected, use `"on_welcome_page": true`. Additionally, there is an option to
@@ -321,13 +317,14 @@ As an example:
 }
 ```
 
-## VoIP / Jitsi calls
+## Calling
 
-Currently, Element uses Jitsi to offer conference calls in rooms, with an experimental Element Call implementation in the works.
-A set of defaults are applied, pointing at our Jitsi and Element Call instances, to ensure conference calling works, however you
-can point Element at your own if you prefer.
+Aether's desktop configuration uses MatrixRTC calling with the embedded Element Call component and
+`element_call.use_exclusively: true`. The homeserver must provide compatible calling services.
+See [desktop calling](desktop-ui.md#matrix-and-calling).
 
-More information about the Jitsi setup can be found [here](./jitsi.md).
+The inherited renderer also supports legacy VoIP and Jitsi configuration for custom deployments.
+The following options describe that wider configuration surface, rather than Aether's desktop defaults.
 
 The VoIP and Jitsi options are:
 
@@ -364,7 +361,7 @@ The VoIP and Jitsi options are:
         }
     }
     ```
-4. `widget_build_url`: Optional URL to have Element make a request to when a user presses the voice/video call buttons in the app,
+4. `widget_build_url`: Optional URL to have Aether make a request to when a user presses the voice/video call buttons in the app,
    if a call would normally be started by the action. The URL will be called with a `roomId` query parameter to identify the room
    being called in. The URL must respond with a JSON object similar to the following:
     ```json
@@ -392,7 +389,7 @@ The VoIP and Jitsi options are:
     ```
     The `widget` is the `content` of a normal widget state event. The `layout` is the layout specifier for the widget being created,
     as defined by the `io.element.widgets.layout` state event. By default this applies to all rooms, but the behaviour can be skipped for
-    2-person rooms, causing Element to fall back to 1:1 VoIP, by setting the option `widget_build_url_ignore_dm` to `true`.
+    2-person rooms, causing Aether to fall back to 1:1 VoIP, by setting the option `widget_build_url_ignore_dm` to `true`.
 5. `audio_stream_url`: Optional URL to pass to Jitsi to enable live streaming. This option is considered experimental and may be removed
    at any time without notice.
 6. `element_call`: Optional configuration for native group calls using Element Call, with the following subkeys:
@@ -406,7 +403,7 @@ The VoIP and Jitsi options are:
     - `brand`: Optional name for the app. Defaults to `Element Call`. This is
       used throughout the application in various strings/locations.
     - `guest_spa_url`: Optional URL for an Element Call single-page app (SPA),
-      for guest links. If this is set, Element Web will expose a "join" link
+      for guest links. If this is set, Aether will expose a "join" link
       for public video rooms, which can then be shared to non-matrix users.
       The target Element Call SPA is typically set up to use a homeserver that
       allows users to register without email ("passwordless guest users") and to
@@ -417,8 +414,8 @@ The VoIP and Jitsi options are:
 If you run your own rageshake server to collect bug reports, the following options may be of interest:
 
 1. `bug_report_endpoint_url`: URL for where to submit rageshake logs to. Rageshakes include feedback submissions and bug reports. When
-   not present in the config, the app will disable all rageshake functionality. Set to `https://rageshakes.element.io/api/submit` to submit
-   rageshakes to us, or use your own rageshake server.
+   not present in the config, the app will disable all rageshake functionality. Aether does not configure a hosted
+   log submission endpoint. Configure only a server you operate or trust.
    You may also set the value to `"local"` if you wish to only store logs locally, in order to download them for debugging.
 2. `existing_issues_url`: URL for where to find existing issues.
 3. `new_issue_url`: URL for where to submit new issues.
@@ -441,14 +438,14 @@ For example:
 
 ## Integration managers
 
-Integration managers are embedded applications within Element to help the user configure bots, bridges, and widgets. An integration manager
+Integration managers are embedded applications within Aether to help the user configure bots, bridges, and widgets. An integration manager
 is a separate piece of software not typically available with your homeserver. To disable integrations, set the options defined here to `null`.
 
 1. `integrations_ui_url`: The UI URL for the integration manager.
 2. `integrations_rest_url`: The REST interface URL for the integration manager.
 3. `integrations_widgets_urls`: A list of URLs the integration manager uses to host widgets.
 
-If you would like to use Scalar, the integration manager maintained by Element, the following options would apply:
+If you would like to use Scalar, the integration manager maintained by Aether, the following options would apply:
 
 ```json
 {
@@ -502,12 +499,12 @@ analytics are deemed impossible and the user won't be asked to opt in to the sys
 There are additional root-level options which can be specified:
 
 1. `analytics_owner`: the company name used in dialogs talking about analytics - this defaults to `brand`,
-   and is useful when the provider of analytics is different from the provider of the Element instance.
+   and is useful when the provider of analytics is different from the provider of the Aether instance.
 2. `privacy_policy_url`: URL to the privacy policy including the analytics collection policy.
 
 ## Miscellaneous
 
-Element supports other options which don't quite fit into other sections of this document.
+Aether supports other options which don't quite fit into other sections of this document.
 
 To configure whether presence UI is shown for a given homeserver, set `enable_presence_by_hs_url`. It is recommended to
 set this value to the following at a minimum:
@@ -527,10 +524,10 @@ The identity server is used for inviting other users to a room via third party
 identifiers like emails and phone numbers. It is not used to store your password
 or account information.
 
-As of Element 1.4.0, all identity server functions are optional and you are
+All identity server functions are optional and you are
 prompted to agree to terms before data is sent to the identity server.
 
-Element will check multiple sources when looking for an identity server to use in
+Aether will check multiple sources when looking for an identity server to use in
 the following order of preference:
 
 1. The identity server set in the user's account data
@@ -538,19 +535,13 @@ the following order of preference:
       if the user visits Settings and manually changes their identity server.
 2. The identity server provided by the `.well-known` lookup that occurred at
    login
-3. The identity server provided by the Riot config file
+3. The identity server provided by the app config file
 
-If none of these sources have an identity server set, then Element will prompt the
+If none of these sources have an identity server set, then Aether will prompt the
 user to set an identity server first when attempting to use features that
 require one.
 
-Currently, the only two public identity servers are https://vector.im and
-https://matrix.org, however in the future identity servers will be
-decentralised.
-
-## Desktop app configuration
-
-See https://github.com/element-hq/element-web/blob/develop/apps/desktop/README.md#user-specified-configjson
+Identity servers are optional services separate from the homeserver. Configure one only if you need its features.
 
 ## UI Features
 
@@ -596,7 +587,7 @@ Currently, the following UI feature flags are supported:
 
 ## Modules
 
-`modules`: An optional array of module paths to load at runtime. Each entry is a URL or path to a JavaScript module entry point that will be dynamically imported when Element Web starts.
+`modules`: An optional array of module paths to load at runtime. Each entry is a URL or path to a JavaScript module entry point that will be dynamically imported when Aether starts.
 
 **Example:**
 
@@ -606,7 +597,7 @@ Currently, the following UI feature flags are supported:
 }
 ```
 
-Each module URL is loaded using dynamic import (`import()`). The modules are loaded in order after Element Web initializes but before the application fully starts. Modules must be accessible from the browser and should export a compatible module format that works with the [Module API](https://github.com/element-hq/element-web/tree/develop/packages/module-api).
+Each module URL is loaded using dynamic import (`import()`). The modules are loaded in order after Aether initializes but before the application fully starts. Modules must be accessible from the browser and should export a compatible module format that works with the [Module API](https://github.com/chopin014/Aether/tree/main/packages/module-api).
 
 ## Undocumented / developer options
 
@@ -617,14 +608,14 @@ The following are undocumented or intended for developer use only.
 3. `dangerously_allow_unsafe_and_insecure_passwords`
 4. `latex_maths_delims`: An optional setting to override the default delimiters used for maths parsing. See https://github.com/matrix-org/matrix-react-sdk/pull/5939 for details. Only used when `feature_latex_maths` is enabled.
 
-## Additional config options for Element Desktop
+## Desktop app configuration
 
-1. `update_base_url`: Specifies the URL of the update server, see [document](https://github.com/element-hq/element-web/blob/develop/apps/desktop/docs/updates.md).
-2. `web_base_url`: Specifies the Element Web URL when performing actions such as popout widget. Defaults to `https://app.element.io/`.
+Aether's bundled configuration is `apps/desktop/config.desktop.json`. See the
+[desktop README](../apps/desktop/README.md#user-specified-configjson) for per-user overrides.
+Restart the application fully after changing its configuration.
 
----
-
-The app contains a configuration file specified at build time using [these instructions](https://github.com/element-hq/element-web/blob/develop/apps/desktop/README.md#config).
-This config can be overwritten by the end using by creating a `config.json` file at the paths described [here](https://github.com/element-hq/element-web/blob/develop/apps/desktop/README.md#user-specified-configjson).
-
-After changing the config, the app will need to be exited fully (including via the task tray) and re-started.
+Aether uses the GitHub Releases updater configured by its packaging. See the
+[release guide](aether-releases.md#update-behavior-and-platform-support).
+The legacy `update_base_url` option belongs to the inherited update system and should not be set for Aether releases.
+`web_base_url` controls browser URLs used by actions such as popout widgets; set it to your own renderer deployment
+if you use those actions. Its inherited fallback is `https://app.element.io/`.

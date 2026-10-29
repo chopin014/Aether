@@ -1,14 +1,12 @@
 # Labs features
 
-If Labs is enabled in the [Element config](config.md), you can enable some of these features by going
-to `Settings->Labs`. This list is non-exhaustive and subject to change, chat in
-[#element-web:matrix.org](https://matrix.to/#/#element-web:matrix.org) for more information.
+Enable `show_labs_settings` in the [configuration](config.md) to expose `Settings → Labs`.
+The list below describes inherited experimental features; availability depends on the build and homeserver.
+Aether's desktop configuration enables its shell and MatrixRTC calling separately.
+See [feature flags](feature-flags.md) and [desktop status](desktop-ui.md) for Aether development.
 
-If a labs features gets more stable, it _may_ be promoted to a beta feature
-(see [Betas](https://github.com/element-hq/element-web/blob/develop/docs/betas.md)).
-
-**Be warned! Labs features are not finalised, they may be fragile, they may change, they may be
-dropped. Ask in the room if you are unclear about any details here.**
+Experimental features may change or be removed. Report problems through
+[Aether issues](https://github.com/chopin014/Aether/issues).
 
 ## Render LaTeX maths in messages (`feature_latex_maths`)
 
@@ -112,7 +110,7 @@ it may have unintended consequences.
 
 ## Log in with QR (`feature_login_with_qr`)
 
-Enables logging in to Element Web/Desktop by using Element X to scan a QR code.
+Enables logging in to Aether by using Element X to scan a QR code.
 Requires server support, based on the v2024 edition of [MSC4108](https://github.com/matrix-org/matrix-spec-proposals/pull/4108).
 Can only be configured via config.json, as labs flags cannot be set until after login, and are cleared on log out. The UI option is disabled.
 Note, this does not affect the existing `Link new device` flow using the same MSC.

@@ -1,13 +1,16 @@
-# Playwright in Element Web
+# Playwright in Aether
 
 ## Overview
 
-Element Web contains two sets of Playwright tests:
+Aether contains two sets of Playwright tests:
 
-1. **Element Web E2E Tests** (`playwright/e2e/`) - Full end-to-end tests of the Element Web application with real homeserver instances
+1. **Aether E2E Tests** (`playwright/e2e/`) - Full end-to-end tests of the Aether application with real homeserver instances
 2. **Shared Components Tests** (`packages/shared-components/`) - Visual regression tests for the shared component library using Storybook
 
-Both test suites run automatically in CI on every pull request and on every merge to develop & master.
+Run application commands in this guide from `apps/web` unless stated otherwise; `playwright/` paths are relative
+to that workspace. Shared-component commands run from `packages/shared-components`.
+Aether validation runs on pull requests and pushes to `main`; see `.github/workflows/aether-validation.yaml`
+for the selected test suites.
 
 ## Prerequisites
 
@@ -28,9 +31,9 @@ pnpm playwright install --with-deps
 
 See [Supported Container Runtimes](#supported-container-runtimes) for details on supported container runtimes (Docker, Podman, Colima).
 
-### 3. Element Web Server (for E2E tests)
+### 3. Renderer server (for E2E tests)
 
-Element Web E2E tests require an instance running on `http://localhost:8080` (configured in `playwright.config.ts`).
+Aether E2E tests require an instance running on `http://localhost:8080` (configured in `playwright.config.ts`).
 
 You can either:
 
@@ -39,9 +42,9 @@ You can either:
 
 ## Running the Tests
 
-### Element Web E2E Tests
+### Aether E2E Tests
 
-Our main Playwright tests run against a full Element Web instance with Synapse/Dendrite homeservers.
+Our main Playwright tests run against a full Aether instance with Synapse/Dendrite homeservers.
 
 **Run all E2E tests:**
 
@@ -70,7 +73,7 @@ pnpm run test:playwright:open
 pnpm run test:playwright:screenshots
 ```
 
-For more information about visual testing, see [Visual Testing](playwright#visual-testing).
+For more information about visual testing, see [Visual Testing](#visual-testing).
 
 **Additional command line options:** <https://playwright.dev/docs/test-cli>
 
@@ -87,15 +90,14 @@ By default, Playwright runs tests against all "Projects": Chrome, Firefox, "Safa
 
 Misc:
 
-- **Pull Request CI:** Tests run only against Chrome
-- **Merge Queue:** Tests run against all projects
+- Choose `--project=Chrome` for a focused local run; other configured projects cover additional environments.
 - Some tests are excluded from certain browsers due to incompatibilities (see [Test Tags](#test-tags))
 
 ## How the Tests Work
 
 ### Test Structure
 
-**Element Web tests** are located in the `playwright/` subdirectory:
+**Aether tests** are located in the `playwright/` subdirectory:
 
 - `playwright/e2e/` - E2E test files
 - `playwright/testcontainers/` - Testcontainers for Synapse/Dendrite instances

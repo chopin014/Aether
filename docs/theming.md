@@ -1,9 +1,9 @@
-# Theming Element
+# Theming Aether
 
 Themes are a very basic way of providing simple alternative look & feels to the
-Element app via CSS & custom imagery.
+Aether app via CSS & custom imagery.
 
-To define a theme for Element:
+To define a theme for Aether:
 
 1.  Pick a name, e.g. `teal`. at time of writing we have `light` and `dark`.
 2.  Fork `res/themes/dark/css/dark.pcss` to be `teal.pcss`
@@ -96,6 +96,6 @@ e.g. in config.json:
     }
 ```
 
-`compound` may contain overrides for any [semantic design token](https://compound.element.io/?path=/docs/tokens-semantic-colors--docs) belonging to our design system. The above example shows how you might change the accent color to blue by setting the relevant semantic tokens to refer to blue [base tokens](https://compound.element.io/?path=/docs/tokens-color-palettes--docs).
+`compound` may contain overrides for any [semantic design token](https://compound.element.io/?path=/docs/tokens-semantic-colors--docs) in Compound. The above example shows how you might change the accent color to blue by setting the relevant semantic tokens to refer to blue [base tokens](https://compound.element.io/?path=/docs/tokens-color-palettes--docs).
 
 All properties in `fonts` are optional, and will default to the standard Riot fonts.

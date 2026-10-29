@@ -1,5 +1,5 @@
-# Aether project page
+# Legacy landing page
 
-Static landing page with the Aether logo and core palette (brand manual v1.1). No account data, private captures,
-third-party tracking, remote fonts, or Discord assets. Publish only this directory to the `gh-pages` branch.
-The product remains in development; do not show download buttons until reviewed platform artifacts exist.
+This directory contains the temporary static page used by the Pages workflow until Aether's website replaces it.
+Publish only this directory to `gh-pages`. The repository README does not link to this page.
+Keep product copy consistent with the [Aether README](../README.md).
