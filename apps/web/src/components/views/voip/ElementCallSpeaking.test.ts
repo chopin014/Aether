@@ -48,7 +48,7 @@ const rxjs = componentRequire("rxjs") as Record<string, unknown> & {
 };
 const source = readFileSync(componentPath, "utf8");
 const start = source.indexOf("// Forward real, unmuted speech activity to component hosts");
-const end = source.indexOf("\n\treturn {\n\t\tautoLeave$:", start);
+const end = source.indexOf("\n\t// Let component hosts such as Aether's sidebar offer screen sharing", start);
 const helperStart = source.indexOf("let aetherSpeakingContext;");
 const helperEnd = source.indexOf("function v3(", helperStart);
 
