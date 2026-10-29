@@ -7,7 +7,9 @@ Please see LICENSE in the repository root for full details.
 
 # Desktop UI development
 
-Aether’s `ui/desktop-shell` branch implements the Discord-derived desktop presentation in Element's real Electron application. The application is named Aether. Linux and Windows are the first release targets; the icon and core palette follow the Aether brand manual v1.1, while the rest of the visual design is provisional. The research gallery and synthetic prototype live outside this repository; neither is the desktop client.
+Aether's desktop shell provides community navigation, text channels, direct conversations, and voice in an
+Electron application. Linux and Windows are the first release targets. The icon and core palette follow the Aether
+brand manual; interface work remains in progress. This guide describes the running client and its development setup.
 
 ## Launch the actual application
 
@@ -26,7 +28,7 @@ cd apps/desktop
 env -u ELECTRON_RUN_AS_NODE pnpm exec electron . --config config.desktop.json
 ```
 
-This loads the locally built renderer through `vector://`, retaining Element's preload, isolation, native window controls and IPC. Sign in with a Matrix account. Discord credentials cannot authenticate a Matrix account.
+This loads the locally built renderer through `vector://`, using the desktop preload, isolation, native window controls and IPC. Sign in with a Matrix account. Discord credentials cannot authenticate a Matrix account.
 
 `config.desktop.json` enables `feature_desktop_shell`, selects the dark theme, and enables the embedded Element Call component. The feature remains disabled by default for other configurations.
 
@@ -62,9 +64,9 @@ command and restart Electron. AppImage or installer packaging is only needed to 
 
 ## Matrix and calling
 
-The implementation uses the existing SpacePanel, room-list view models, RoomView, timeline, composer, account model, settings actions and resizer. Direct messages retain profile avatars; ordinary rooms use channel symbols and MatrixRTC rooms use voice symbols. Room IDs, encryption, unread state, drafts, permissions and membership continue to come from Element and the Matrix SDK.
+The implementation uses the existing SpacePanel, room-list view models, RoomView, timeline, composer, account model, settings actions and resizer. Direct messages retain profile avatars; ordinary rooms use channel symbols and MatrixRTC rooms use voice symbols. Room IDs, encryption, unread state, drafts, permissions and membership continue to come from Aether and the Matrix SDK.
 
-Voice-room creation uses `RoomType.UnstableCall`. With `element_call.use_exclusively`, legacy video-room creation requests are normalized to MatrixRTC and call discovery does not fall back to Jitsi. Selecting a desktop call room uses the voice-only intent and skips the initial lobby. Leaving returns to the lobby. The dock controls the microphone through `ElementCallHandle.setDeviceMute` and playback through Element Call’s `window.controls.setAudioEnabled` host API. Deafen mutes both playback and microphone; undeafen restores the prior microphone state. Device preferences persist locally. Existing upstream Jitsi implementation files remain for configurations without this policy; they are not the desktop product's call engine.
+Voice-room creation uses `RoomType.UnstableCall`. With `element_call.use_exclusively`, legacy video-room creation requests are normalized to MatrixRTC and call discovery does not fall back to Jitsi. Selecting a desktop call room uses the voice-only intent and skips the initial lobby unless the user enables the call preview. Leaving returns to the lobby. The dock controls the microphone through `ElementCallHandle.setDeviceMute` and playback through Element Call’s `window.controls.setAudioEnabled` host API. Deafen mutes both playback and microphone; undeafen restores the prior microphone state. Device preferences persist locally. Existing upstream Jitsi implementation files remain for configurations without this policy; they are not the desktop product's call engine.
 
 Element Call needs a homeserver with a supported MatrixRTC transport and its associated calling services. The desktop client does not supply those server components.
 
@@ -91,9 +93,9 @@ Close the Electron window to finish the review and release the test services. Th
 
 Implemented surfaces include window controls drawn over the app in place of the system title bar on Linux and Windows, a Discord-sized Space rail, a server-name menu, collapsible text/voice categories, channel symbols, an account dock spanning the rail and sidebar, grouped message metadata, left-side attachments, channel-header controls and a notification bell using actual Matrix push rules, the centered server welcome, a compact presence-grouped member panel, contacts Home, connected-call status and device controls, portal theme inheritance and the captured floating settings frame. Light and high-contrast themes retain their Compound colors.
 
-The contacts page uses `m.direct` conversations as contacts. Online and All reflect actual SDK presence; Pending contains actual incoming room invitations; Blocked uses Matrix ignored-user account data. Accept joins the invited Matrix room, Ignore leaves it, and Unblock updates ignored users. Add Friend opens Element’s existing Matrix user lookup and direct-chat flow. This is an explicit compatibility mapping; it does not add a separate mutual-friend protocol or Discord’s relationship graph. Home keeps existing rooms reachable, including rooms outside Spaces.
+The contacts page uses `m.direct` conversations as contacts. Online and All reflect actual SDK presence; Pending contains actual incoming room invitations; Blocked uses Matrix ignored-user account data. Accept joins the invited Matrix room, Ignore leaves it, and Unblock updates ignored users. Add Friend opens Aether’s existing Matrix user lookup and direct-chat flow. This is an explicit compatibility mapping; it does not add a separate mutual-friend protocol or Discord’s relationship graph. Home keeps existing rooms reachable, including rooms outside Spaces.
 
-Space categories are presentation-only projections of actual room types. They do not mutate Matrix tags, memberships or permissions. Existing custom sections remain available. Message rendering retains the original reply, encryption, context-menu, reaction, thread and receipt slots. Desktop calls retain the channel sidebar and connection dock rather than triggering Element’s automatic call collapse. The collapsed sidebar uses the actual resizer state; Playwright must set `lockLeftPanelWidth: false` when testing collapse.
+Space categories are presentation-only projections of actual room types. They do not mutate Matrix tags, memberships or permissions. Existing custom sections remain available. Message rendering retains the original reply, encryption, context-menu, reaction, thread and receipt slots. Desktop calls retain the channel sidebar and connection dock while the legacy renderer can collapse the sidebar automatically. The collapsed sidebar uses the actual resizer state; Playwright must set `lockLeftPanelWidth: false` when testing collapse.
 
 ## Reference-to-implementation status
 
@@ -103,13 +105,13 @@ Matrix ID on hover or keyboard focus. Requested status stays separate from recei
 missing data for other members is neutral rather than Offline.
 
 The desktop header pin button opens an anchored, nonmodal message browser without replacing
-members or changing the active channel. Cards retain Element's authenticated message and attachment
+members or changing the active channel. Cards retain Aether's authenticated message and attachment
 rendering, original-event jumps, live edits and permission-checked unpin actions. Loading, unavailable
 messages and failed requests have explicit states and retry actions. Escape, outside click and the
 header button dismiss the browser; explicit dismissal returns focus to the button. Other pin entry
 points and the non-desktop shell retain the existing card.
 
-The acceptance target is the captured Discord desktop interface and its interactions, not a recolored Element. These statuses distinguish working integration from finished visual parity.
+The acceptance target is the captured Discord desktop interface and its interactions, with Aether branding. These statuses distinguish working integration from finished visual parity.
 
 | Captured surface                | Current implementation                                                                                | Still required                                                                             |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
@@ -119,9 +121,9 @@ The acceptance target is the captured Discord desktop interface and its interact
 | Voice stage                     | Working two-person audio-only Element Call                                                            | Replace the remaining Element Call presentation with the captured stage layout             |
 | Settings                        | Captured modal frame, real existing settings and security controls                                    | Reorganize and implement each captured page's content and navigation                       |
 | Server/channel administration   | Existing Matrix settings remain available                                                             | Captured layouts and explicit mappings for Discord-specific roles and permissions          |
-| Threads, pins, search and media | Existing Element actions and rendering retained                                                       | Captured panels, result layouts, menus and populated/error-state coverage                  |
+| Threads, pins, search and media | Existing Aether actions and rendering retained                                                        | Captured panels, result layouts, menus and populated/error-state coverage                  |
 | Profiles and pickers            | Existing functional Matrix surfaces retained                                                          | Captured profile cards, editors, emoji/sticker layouts and interaction coverage            |
-| Authentication and recovery     | Existing Element flows retained                                                                       | Reference capture, visual implementation and real account validation                       |
+| Authentication and recovery     | Existing Aether flows retained                                                                        | Reference capture, visual implementation and real account validation                       |
 
 No surface is marked as having complete Discord parity. Completion requires side-by-side review at the captured viewport, keyboard/focus checks and real Matrix state transitions; passing functional tests alone does not establish visual equivalence.
 
@@ -129,7 +131,8 @@ No surface is marked as having complete Discord parity. Completion requires side
 
 Full visual and interaction parity is unfinished. Profiles, threads, search results, media, detailed settings content, channel/server creation and administration, picker content and call-stage presentation still need the captured design applied and reviewed. Authentication, recovery, verification and error states need separate visual coverage. Matrix-specific permissions and privacy controls must retain their actual semantics; Discord roles, friends, forums and paid features are not interchangeable backend objects.
 
-This is a development build, not a signed release. Branding, app identity, updates, packaging and Windows/macOS validation remain open.
+See the [release guide](aether-releases.md) for current packaging, updates, and platform validation.
+Visual parity remains a separate development task.
 
 ## Aether voice additions
 
@@ -147,7 +150,7 @@ Each cue has its own switch under Voice & Video → Sounds, described below. See
 
 Opening a server lands in its last channel, or its first text channel on a first visit. Text channels open with the
 member list on the right until the user closes it; that choice is kept per channel. Direct messages, voice channels
-and Spaces keep Element's closed default.
+and Spaces keep Aether's closed default.
 
 An occupied voice channel shows a filled speaker icon and how long people have been in it, counted from the oldest
 MatrixRTC membership still in the call. A channel's Matrix room avatar is its custom icon in the channel list and
@@ -164,7 +167,7 @@ files, audio and voice messages appear as Aether media cards.
 On Linux and Windows the desktop shell has no system title bar: Electron draws the window controls over the top
 right of the header row (`titleBarOverlay`, 48px). The header row moves the window, and the room header, contacts
 header and member list keep the controls' corner clear. The overlay uses Aether's dark header colours in every theme.
-macOS keeps Element's own title bar.
+macOS keeps Aether's own title bar.
 
 The server rail is 72px wide with 48px icons that round from circles into squares when hovered or selected. A pill at
 the rail's edge marks unread (8px), hovered (20px) and selected (40px) servers; mention counts stay as a badge.
@@ -206,7 +209,7 @@ other person, as in Discord, and the menu does not exist. Discord's "show user p
 column in a DM header, is a follow-up: the popout and `DesktopProfileViewModel` are anchored to the click that opened
 them and would need a column variant first.
 
-`Ctrl+.`, Element's room info shortcut, opens the channel menu (or a direct message's profile) in the desktop shell.
+`Ctrl+.`, Aether's room info shortcut, opens the channel menu (or a direct message's profile) in the desktop shell.
 The `RoomSummary` right-panel card is refused by the right panel store under the flag, so neither a header click, a
 stored panel state nor a history "back" step can show it.
 
@@ -236,7 +239,7 @@ The space and home summaries (`SpaceRoomView`, `HomePage`) are pages, not right-
 ## Voice & Video settings
 
 With `feature_desktop_shell` on, Settings → Voice & Video is Aether's page, laid out like Discord's: Voice, Video,
-Sounds and Advanced sections, each linked from the settings sidebar under the tab. With the flag off, Element's own
+Sounds and Advanced sections, each linked from the settings sidebar under the tab. With the flag off, Aether's own
 page is shown unchanged. The view is `DesktopVoiceVideoSettingsView` in shared-components, driven by
 `DesktopVoiceVideoSettingsViewModel`; it edits the same settings and `MediaDeviceHandler` devices that calls read.
 Strings are in `desktop.voice_video` (view) and `desktop.voice_settings` (model), with pt_BR next to en_EN.
@@ -244,7 +247,7 @@ Strings are in `desktop.voice_video` (view) and `desktop.voice_settings` (model)
 ### How settings reach Element Call
 
 The embedded component keeps its own device and processing settings in `matrix-setting-*` local storage and never
-read Element's `webrtc_*` settings, so Element's pickers did not affect calls. The Element Call patch
+read Aether's `webrtc_*` settings, so Aether's pickers did not affect calls. The Element Call patch
 (`patches/@element-hq__element-call-component.patch`) adds `ElementCallHandle.configureMedia`, which the
 `DesktopVoicePipeline` calls as soon as a component mounts, and again when a setting changes:
 
@@ -261,7 +264,7 @@ read Element's `webrtc_*` settings, so Element's pickers did not affect calls. T
 
 The Studio profile sends the microphone as it is: it turns echo cancellation and automatic gain off and bypasses the
 gate. Editing either switch by hand switches the profile back to Custom. Noise suppression is not offered in the
-desktop page; Element's setting and its Element Call default are untouched, and Reset leaves it alone.
+desktop page; Aether's setting and its Element Call default are untouched, and Reset leaves it alone.
 
 Unmodified Element Call behaviour that remains: devices and processing are read when a call is joined, so the page
 says so while a call is open.

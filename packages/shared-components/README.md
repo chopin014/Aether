@@ -1,27 +1,14 @@
 # @element-hq/web-shared-components
 
-[Online storybook](https://shared-components-storybook.element.dev)
+Shared React views and utilities used by Aether's renderer, built on the
+[Compound Design System](https://compound.element.io). The package keeps its inherited workspace name for imports.
+Run Storybook locally to develop and review the Aether components.
 
-Shared React components library for Element Web, Aurora, Element
-modules... This package provides opinionated UI components built on top of the
-[Compound Design System](https://compound.element.io) and [Compound
-Web](https://github.com/element-hq/compound-web). This is not a design system
-by itself, but rather a set of larger components.
+## Workspace use
 
-## Installation in a new project
-
-When adding this library to a new project, as well as installing
-`@element-hq/web-shared-components` as normal, you will also need to add
-[compound-web](https://github.com/element-hq/compound-web) as a peer
-dependency:
-
-```bash
-pnpm add @element-hq/web-shared-components
-pnpm add @vector-im/compound-web
-```
-
-(This avoids problems where we end up with different versions of compound-web in the
-top-level project and web-shared-components).
+Install dependencies from the repository root with `pnpm install`. Aether consumes this workspace package through
+its existing imports; installing the published npm package would not include Aether's local UI changes.
+Build it with `pnpm --filter @element-hq/web-shared-components build` before building the renderer.
 
 ## Usage
 
@@ -113,8 +100,8 @@ function MyApp() {
 
 ### Prerequisites
 
-- Node.js >= 20.0.0
-- pnpm => 10
+- Node.js >= 22.18
+- The repository's pinned pnpm version
 
 ### Setup
 
@@ -356,7 +343,7 @@ These tests ensure the UI components render correctly.
 Built with Storybook and run under vitest using playwright.
 
 ```bash
-pnpm test:storybook:update
+pnpm test:storybook
 ```
 
 Each story will be rendered and a screenshot will be taken and compared to the
@@ -366,7 +353,7 @@ fail.
 Screenshots are located in `packages/shared-components/__vis__/`.
 
 > [!IMPORTANT]
-> In case of docker issues with Playwright, see [playwright EW documentation](https://github.com/element-hq/element-web/blob/develop/docs/playwright.md#supported-container-runtimes).
+> In case of docker issues with Playwright, see [Playwright documentation](../../docs/playwright.md#supported-container-runtimes).
 
 ### Translations
 
@@ -376,7 +363,3 @@ To generate translation strings for this package, run:
 ```bash
 pnpm i18n
 ```
-
-## Publish a new version
-
-To carry out a release, see the documentation at [`../RELEASING.md`](../RELEASING.md).

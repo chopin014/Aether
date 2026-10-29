@@ -1,10 +1,10 @@
 # @element-hq/element-web-module-api
 
-API surface for extending Element Web in a safe & predictable way.
+API surface for extending Aether in a safe & predictable way.
 
 ## Using the API
 
-Modules are loaded by Element Web at runtime via a dynamic ecmascript import, but can be bundled into a webapp for deployment convenience.
+Modules are loaded by Aether at runtime via a dynamic ecmascript import, but can be bundled into a webapp for deployment convenience.
 
 The module's default export MUST be a class which accepts a single argument, an instance of `ModuleApi`.
 This class must also bear a static property `moduleApiVersion` which is a semver range string
@@ -50,19 +50,6 @@ class ExampleModule implements Module {
 // ...
 ```
 
-## Releases
+## License
 
-The API is versioned using semver, with the major version incremented for breaking changes.
-
-To carry out a release, see the documentation at [`../RELEASING.md`](../RELEASING.md).
-
-## Copyright & License
-
-Copyright (c) 2025 New Vector Ltd
-
-This software is multi licensed by New Vector Ltd (Element). It can be used either:
-
-(1) for free under the terms of the GNU Affero General Public License (as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version); OR
-
-(2) under the terms of a paid-for Element Commercial License agreement between you and Element (the terms of which may vary depending on what you and Element have agreed to).
-Unless required by applicable law or agreed to in writing, software distributed under the Licenses is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the Licenses for the specific language governing permissions and limitations under the Licenses.
+See [upstream notices](../../NOTICE.md#packages-module-api) and the repository license texts.

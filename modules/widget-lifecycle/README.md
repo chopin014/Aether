@@ -1,6 +1,6 @@
 # @element-hq/element-web-module-widget-lifecycle
 
-Widget lifecycle module for Element Web.
+Widget lifecycle module for Aether.
 
 Supports the following configuration options under the configuration key `io.element.element-web-modules.widget-lifecycle`:
 

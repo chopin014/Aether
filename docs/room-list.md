@@ -5,9 +5,9 @@ scoped to the active space. It is a full [MVVM](MVVM.md) feature split across th
 
 - **Model** — `RoomListStoreV3`, the store that keeps every room sorted and answers queries for
   the rooms in the active space. It lives in
-  [`apps/web/src/stores/room-list-v3/`](https://github.com/element-hq/element-web/tree/develop/apps/web/src/stores/room-list-v3/).
+  [`apps/web/src/stores/room-list-v3/`](https://github.com/chopin014/Aether/tree/main/apps/web/src/stores/room-list-v3/).
 - **View models** — adapt the store (and other stores) into snapshots for the UI. They live in
-  [`apps/web/src/viewmodels/room-list/`](https://github.com/element-hq/element-web/tree/develop/apps/web/src/viewmodels/room-list/).
+  [`apps/web/src/viewmodels/room-list/`](https://github.com/chopin014/Aether/tree/main/apps/web/src/viewmodels/room-list/).
 - **Views** — the presentational React components, owned by `@element-hq/web-shared-components`.
 
 ## Architecture
@@ -119,7 +119,7 @@ its tags:
 The store keeps an ordered list of section tags — Favourites first, Low Priority last, and the
 custom sections plus Chats reorderable in between (new custom sections are inserted just above
 Chats by default). Custom sections can be created, renamed, removed, and reordered through
-dialogs; that logic lives in [`section.ts`](https://github.com/element-hq/element-web/blob/develop/apps/web/src/stores/room-list-v3/section.ts).
+dialogs; that logic lives in [`section.ts`](https://github.com/chopin014/Aether/blob/main/apps/web/src/stores/room-list-v3/section.ts).
 
 Each custom section also records the space it was created in, which controls the visibility of
 empty sections: an empty custom section is only shown in the space it belongs to, so sections
@@ -164,7 +164,7 @@ device-local so that collapsing a section on one device doesn't affect the other
 
 ## View models
 
-The view models in [`apps/web/src/viewmodels/room-list/`](https://github.com/element-hq/element-web/tree/develop/apps/web/src/viewmodels/room-list/)
+The view models in [`apps/web/src/viewmodels/room-list/`](https://github.com/chopin014/Aether/tree/main/apps/web/src/viewmodels/room-list/)
 extend `BaseViewModel` and produce immutable snapshots consumed by the views (see [MVVM](MVVM.md)
 for the base pattern).
 
@@ -189,14 +189,14 @@ through the global dispatcher, in both directions — collapse-all-sections, for
 requested by the header and the resulting state dispatched back to it.
 
 Permission and create-room helpers used by these view models live in
-[`utils.ts`](https://github.com/element-hq/element-web/blob/develop/apps/web/src/viewmodels/room-list/utils.ts).
+[`utils.ts`](https://github.com/chopin014/Aether/blob/main/apps/web/src/viewmodels/room-list/utils.ts).
 
 ## Views
 
 The presentational components are owned by `@element-hq/web-shared-components` (developed in
 Storybook); `apps/web` supplies the view models, a `renderAvatar` callback and a key handler for
 landmark navigation, and the shared package owns the rendering. The app-side entry point is
-[`RoomListPanel`](https://github.com/element-hq/element-web/blob/develop/apps/web/src/components/views/rooms/RoomListPanel/RoomListPanel.tsx), which
+[`RoomListPanel`](https://github.com/chopin014/Aether/blob/main/apps/web/src/components/views/rooms/RoomListPanel/RoomListPanel.tsx), which
 composes the search row, the header view, and the room list itself.
 
 The room list proper is `RoomListView`, which renders the filter chips and any toast above a body
