@@ -8,7 +8,7 @@ Please see LICENSE in the repository root for full details.
 import React from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
-import { Badge, Button, Menu, MenuItem, Switch, TooltipProvider } from "@vector-im/compound-web";
+import { Avatar, Badge, Button, Menu, MenuItem, Switch, TooltipProvider } from "@vector-im/compound-web";
 import { CheckIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
@@ -78,6 +78,45 @@ describe("Desktop shell action colours", () => {
             ),
         );
     }
+
+    it.each(["dark", "light"])("should centre server avatar initials in the %s rail", async (theme) => {
+        container.className = "mx_MatrixChat_wrapper mx_MatrixChat_desktopShell";
+        document.body.className = `mx_DesktopShell cpd-theme-${theme}`;
+        for (const selected of [false, true]) {
+            flushSync(() =>
+                root.render(
+                    <nav className="mx_SpacePanel" aria-label="Spaces">
+                        <button
+                            type="button"
+                            className={`mx_SpaceButton_narrow ${selected ? "mx_SpaceButton_active" : ""}`}
+                        >
+                            <div className="mx_SpaceButton_selectionWrapper">
+                                <div className="mx_SpaceButton_avatarWrapper">
+                                    <Avatar className="mx_BaseAvatar" id="space" name="Bug" size="32px" type="square" />
+                                </div>
+                            </div>
+                        </button>
+                    </nav>,
+                ),
+            );
+            const avatar = container.querySelector<HTMLElement>(".mx_BaseAvatar")!;
+            const assertCentred = (): void => {
+                const range = document.createRange();
+                range.selectNodeContents(avatar);
+                const letter = range.getBoundingClientRect();
+                const tile = avatar.getBoundingClientRect();
+                expect(avatar.textContent).toBe("B");
+                expect(tile.width).toBe(48);
+                expect(tile.height).toBe(48);
+                expect(Math.abs(letter.x + letter.width / 2 - tile.x - tile.width / 2)).toBeLessThan(1);
+                expect(Math.abs(letter.y + letter.height / 2 - tile.y - tile.height / 2)).toBeLessThan(1);
+            };
+            assertCentred();
+            await page.getByRole("button").hover();
+            assertCentred();
+            await page.getByRole("button").unhover();
+        }
+    });
 
     it.each(["dark", "light"])("should let portal menu rows share the %s menu surface", (theme) => {
         document.body.className = `mx_DesktopShell cpd-theme-${theme}`;
