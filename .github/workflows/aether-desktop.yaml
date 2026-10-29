@@ -229,6 +229,13 @@ jobs:
                           echo "Refusing to modify already-published release $tag" >&2
                           exit 1
                       fi
+                      manual_packages="$(gh release view "$tag" --repo "$REPOSITORY" --json assets \
+                          --jq '.assets[].name | select(endswith(".deb") or endswith(".tar.gz"))')"
+                      if [[ -n "$manual_packages" ]]; then
+                          while IFS= read -r asset; do
+                              gh release delete-asset "$tag" "$asset" --yes --repo "$REPOSITORY"
+                          done <<< "$manual_packages"
+                      fi
                       gh release upload "$tag" "${assets[@]}" --clobber --repo "$REPOSITORY"
                   else
                       create_args=(--draft --title "Aether $tag" --generate-notes --target "$GITHUB_SHA")
@@ -239,4 +246,10 @@ jobs:
                           create_args+=(--verify-tag)
                       fi
                       gh release create "$tag" "${create_args[@]}" "${assets[@]}" --repo "$REPOSITORY"
+                  fi
+                  manual_package_count="$(gh release view "$tag" --repo "$REPOSITORY" --json assets \
+                      --jq '[.assets[].name | select(endswith(".deb") or endswith(".tar.gz"))] | length')"
+                  if [[ "$manual_package_count" != "0" ]]; then
+                      echo "Release draft contains installers without in-app update support" >&2
+                      exit 1
                   fi
