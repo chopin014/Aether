@@ -622,3 +622,39 @@ test(
         }
     },
 );
+
+test("startup restores the last text channel while clicking voice still joins", async ({ page, app, user }) => {
+    test.setTimeout(120_000);
+    await settle(page);
+    const firstTextId = await app.client.createRoom({ name: "general" });
+    const lastTextId = await app.client.createRoom({ name: "off-topic" });
+    const voiceId = await app.client.createRoom({
+        name: "Lounge",
+        creation_content: { type: "org.matrix.msc3417.call" },
+    });
+    const spaceId = await app.client.createSpace({
+        name: "Startup space",
+        initial_state: [firstTextId, lastTextId, voiceId].map((roomId) => ({
+            type: "m.space.child",
+            state_key: roomId,
+            content: { via: [user.homeServer] },
+        })),
+    });
+    await app.viewSpaceByName("Startup space");
+    await app.viewRoomById(lastTextId);
+    await expect(page.getByRole("heading", { name: "off-topic", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Open room Lounge", exact: true }).click({ timeout: 15_000 });
+    await expect(page.getByTestId("aether-call-stage")).toHaveAttribute("data-phase", "in_call", {
+        timeout: 60_000,
+    });
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("mx_last_room_id"))).toBe(lastTextId);
+    await expect
+        .poll(() => page.evaluate((id) => localStorage.getItem(`mx_space_context_${id}`), spaceId))
+        .toBe(lastTextId);
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "off-topic", exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("aether-call-stage")).toHaveCount(0);
+    await expect(
+        page.getByRole("group", { name: "User menu" }).getByRole("button", { name: "Disconnect" }),
+    ).toHaveCount(0);
+});

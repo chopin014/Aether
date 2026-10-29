@@ -863,6 +863,32 @@ describe("<MatrixChat />", () => {
             await expect(screen.findByRole("heading", { level: 1, name: "Welcome Ernie" })).resolves.toBeVisible();
         });
 
+        it("restores a space's text channel when an older build saved a voice channel at startup", () => {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+                name === "feature_desktop_shell" ? true : getValue(name, ...args),
+            );
+            const voice = new Room("!voice:server.org", mockClient, userId);
+            const space = new Room("!space:server.org", mockClient, userId);
+            vi.spyOn(voice, "isCallRoom").mockReturnValue(true);
+            mockClient.getRoom.mockImplementation((id) => (id === voice.roomId ? voice : null));
+            const spaceStore = SDKContextClass.instance.spaceStore;
+            vi.spyOn(spaceStore, "activeSpaceRoom", "get").mockReturnValue(space);
+            vi.spyOn(spaceStore, "getLastSelectedRoomIdForSpace").mockReturnValue("!text:server.org");
+            localStorage.setItem("mx_last_room_id", voice.roomId);
+            vi.spyOn(MatrixClientPeg, "safeGet").mockReturnValue(mockClient);
+            vi.mocked(defaultDispatcher.dispatch).mockImplementation(() => {});
+            // Exercise startup selection without mounting a new client or rendering its destination room.
+            const chat = new MatrixChat(defaultProps);
+            chat["showScreenAfterLogin"]();
+
+            expect(defaultDispatcher.dispatch).toHaveBeenCalledWith({
+                action: Action.ViewRoom,
+                room_id: "!text:server.org",
+                metricsTrigger: undefined,
+            });
+        });
+
         describe("clean up drafts", () => {
             const roomId = "!room:server.org";
             const unknownRoomId = "!room2:server.org";

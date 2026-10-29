@@ -304,7 +304,17 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
      */
     public getLastSelectedRoomIdForSpace(space: SpaceKey): string | null {
         const roomId = window.localStorage.getItem(getSpaceContextKey(space));
-        return roomId;
+        if (!SettingsStore.getValue("feature_desktop_shell") || isMetaSpace(space)) return roomId;
+        const room = roomId ? this.matrixClient?.getRoom(roomId) : null;
+        if (
+            room &&
+            !room.isCallRoom() &&
+            !room.isElementVideoRoom() &&
+            this.isRoomInSpace(space, room.roomId) &&
+            room.getMyMembership() === KnownMembership.Join
+        )
+            return roomId;
+        return this.getFirstTextChannel(space);
     }
 
     private async loadSuggestedRooms(space: Room): Promise<void> {
@@ -1204,7 +1214,13 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
                 // Persist last viewed room from a space
                 // we don't await setActiveSpace above as we only care about this.activeSpace being up to date
                 // synchronously for the below code - everything else can and should be async.
-                window.localStorage.setItem(getSpaceContextKey(this.activeSpace), payload.room_id ?? "");
+                if (
+                    !SettingsStore.getValue("feature_desktop_shell") ||
+                    isMetaSpace(this.activeSpace) ||
+                    (!room?.isCallRoom() && !room?.isElementVideoRoom())
+                ) {
+                    window.localStorage.setItem(getSpaceContextKey(this.activeSpace), payload.room_id ?? "");
+                }
                 break;
             }
 
