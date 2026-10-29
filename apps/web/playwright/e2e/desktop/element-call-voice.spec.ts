@@ -623,6 +623,92 @@ test(
     },
 );
 
+for (const camera of [false, true]) {
+    test(
+        `conversation ${camera ? "video" : "voice"} call stays above chat and publishes the requested media`,
+        { tag: ["@no-firefox", "@no-webkit"] },
+        async ({ page, app, user, browser, homeserver, config }, testInfo) => {
+            test.setTimeout(180_000);
+            await settle(page);
+            await sendMicrophoneUnprocessed(page);
+            const bob = await homeserver.registerUser(`bob-conversation-${camera}`, "password", "Bob");
+            const context = await browser.newContext({
+                baseURL: new URL(page.url()).origin,
+                permissions: ["microphone", "camera"],
+            });
+            try {
+                const bobPage = await context.newPage();
+                await routeConfigJson(context, homeserver.baseUrl, config);
+                await populateLocalStorageWithCredentials(bobPage, bob);
+                await bobPage.goto("/");
+                await bobPage.waitForSelector(".mx_MatrixChat");
+                await settle(bobPage);
+                await sendMicrophoneUnprocessed(bobPage);
+                await observePeers(bobPage);
+                const bobApp = new ElementAppPage(bobPage);
+                const roomId = await app.client.createRoom({
+                    name: "Conversation",
+                    is_direct: !camera,
+                    invite: [bob.userId],
+                    power_level_content_override: { events: { "org.matrix.msc3401.call.member": 0 } },
+                });
+                if (!camera) {
+                    await app.client.evaluate(
+                        async (client, { id, peer }) => {
+                            await client.setAccountData(
+                                "m.direct" as import("matrix-js-sdk/src/matrix").EventType.Direct,
+                                { [peer]: [id] },
+                            );
+                        },
+                        { id: roomId, peer: bob.userId },
+                    );
+                }
+                await homeserver.csApi.request("POST", `/v3/join/${roomId}`, bob.accessToken, {});
+                await expect
+                    .poll(() => bobApp.client.evaluate((client, id) => client.getRoom(id)?.getMyMembership(), roomId))
+                    .toBe("join");
+                await app.viewRoomById(roomId);
+                await bobApp.viewRoomById(roomId);
+                await page.getByRole("button", { name: camera ? "Video call" : "Voice call", exact: true }).click();
+                const stage = page.getByTestId("aether-call-stage");
+                await expect(stage).toHaveAttribute("data-presentation", "conversation");
+                await expect(stage).toHaveAttribute("data-phase", "in_call", { timeout: 60_000 });
+                await expect(page.getByTestId("timeline")).toBeVisible();
+                await expect(page.getByRole("region", { name: "Message composer" }).getByRole("textbox")).toBeVisible();
+                const stageBounds = await stage.boundingBox();
+                const timelineBounds = await page.getByTestId("timeline").boundingBox();
+                expect(stageBounds!.y + stageBounds!.height).toBeLessThanOrEqual(timelineBounds!.y + 1);
+                expect(stageBounds!.height).toBeLessThan(400);
+                await expect(stage.getByTestId("call-control-camera")).toHaveAttribute("aria-pressed", String(camera));
+                await page.screenshot({ path: testInfo.outputPath("conversation-before-answer.png") });
+                await testInfo.attach("recipient-before-answer", {
+                    body: await bobPage.locator("body").ariaSnapshot(),
+                    contentType: "text/plain",
+                });
+                await bobPage.getByTestId("join-call-button").click({ timeout: 15_000 });
+                await expect(bobPage.getByTestId("aether-call-stage")).toHaveAttribute("data-phase", "in_call", {
+                    timeout: 60_000,
+                });
+                await expect.poll(() => decodedAudioEnergy(bobPage), { timeout: 30_000 }).toBeGreaterThan(0);
+                if (camera) {
+                    await expect.poll(() => decodedVideoFrames(bobPage), { timeout: 30_000 }).toBeGreaterThan(0);
+                    const tileBounds = await stage.getByTestId("videoTile").first().boundingBox();
+                    expect(tileBounds!.height).toBeGreaterThan(tileBounds!.width / 2);
+                } else {
+                    await expect(stage.locator("video")).toHaveCount(0);
+                }
+                await page.screenshot({
+                    path: testInfo.outputPath(`conversation-${camera ? "video" : "voice"}.png`),
+                });
+                await stage.getByTestId("incall_leave").click();
+                await expect(page.getByTestId("timeline")).toBeVisible();
+            } finally {
+                await context.close();
+            }
+        },
+    );
+}
+
 test("startup restores the last text channel while clicking voice still joins", async ({ page, app, user }) => {
     test.setTimeout(120_000);
     await settle(page);

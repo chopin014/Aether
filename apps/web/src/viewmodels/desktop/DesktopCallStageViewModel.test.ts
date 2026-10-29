@@ -110,6 +110,7 @@ function createBridge(stateOverrides: Partial<AetherCallPresentationState> = {})
 
 describe("DesktopCallStageViewModel", () => {
     const mockClient = {
+        getRoom: vi.fn().mockReturnValue(null),
         getHomeserverUrl: () => "https://matrix.example.org",
     } as unknown as MatrixClient;
 

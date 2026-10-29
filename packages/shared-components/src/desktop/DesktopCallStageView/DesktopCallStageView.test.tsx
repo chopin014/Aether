@@ -66,6 +66,7 @@ class TestCallStageViewModel
         super(
             {},
             {
+                presentation: "channel",
                 phase: "in_call",
                 roomName: "General Voice",
                 participantCount: 2,
@@ -165,6 +166,25 @@ function makeScreenShare(overrides: Partial<DesktopCallStageScreenShareTile> = {
 }
 
 describe("DesktopCallStageView", () => {
+    it("keeps the voice lobby free of camera previews and in-call controls", async () => {
+        const vm = new TestCallStageViewModel({ phase: "lobby", connected: false, localVideoEnabled: false });
+        render(<DesktopCallStageView vm={vm} />);
+        await expect.element(screen.getByTestId("lobby_joinCall")).toBeVisible();
+        expect(screen.queryByText("Camera is off")).toBeNull();
+        expect(screen.queryByTestId("incall_leave")).toBeNull();
+        await fireEvent.click(screen.getByTestId("lobby_joinCall"));
+        expect(vm.joinCall).toHaveBeenCalledOnce();
+    });
+
+    it("marks audio conversation calls for the compact avatar layout", async () => {
+        const vm = new TestCallStageViewModel({ presentation: "conversation" });
+        render(<DesktopCallStageView vm={vm} />);
+        await expect
+            .element(screen.getByTestId("aether-call-stage"))
+            .toHaveAttribute("data-presentation", "conversation");
+        await expect.element(screen.getByTestId("aether-call-stage")).toHaveAttribute("data-audio-only", "true");
+    });
+
     it("renders lobby state with join button and triggers joinCall", () => {
         const vm = new TestCallStageViewModel({ phase: "lobby" });
         render(<DesktopCallStageView vm={vm} />);
@@ -332,7 +352,7 @@ describe("DesktopCallStageView", () => {
         expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
         expect(micTrigger).toHaveFocus();
         fireEvent.click(micTrigger);
-        fireEvent.pointerDown(screen.getByRole("heading", { name: "General Voice" }));
+        fireEvent.pointerDown(screen.getByTestId("aether-call-stage"));
         expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
@@ -428,6 +448,8 @@ describe("DesktopCallStageView", () => {
         const preview = { attach: vi.fn(), detach: vi.fn() };
         const vm = new TestCallStageViewModel({ phase: "lobby", localVideoEnabled: true, lobbyPreviewVideo: preview });
         const { unmount } = render(<DesktopCallStageView vm={vm} />);
+        expect(preview.attach).toHaveBeenCalledWith(screen.getByTestId("lobby-preview-video"));
+        act(() => vm.updateSnapshot({ phase: "in_call" }));
         fireEvent.click(screen.getByRole("button", { name: "Turn Off Camera" }));
         fireEvent.click(screen.getByRole("button", { name: "Mute microphone" }));
         fireEvent.click(screen.getByRole("button", { name: "Invite people to the channel" }));
@@ -440,7 +462,6 @@ describe("DesktopCallStageView", () => {
         expect(vm.showRoomChat).toHaveBeenCalledOnce();
         expect(vm.popoutCall).toHaveBeenCalledOnce();
         expect(vm.toggleFullscreen).toHaveBeenCalledWith(screen.getByTestId("aether-call-stage"));
-        expect(preview.attach).toHaveBeenCalledWith(screen.getByTestId("lobby-preview-video"));
         unmount();
         expect(preview.detach).toHaveBeenCalledOnce();
     });

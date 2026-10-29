@@ -458,6 +458,41 @@ describe("RoomViewStore", function () {
         expect(call.presented).toEqual(true);
     });
 
+    it.each([false, true])(
+        "keeps desktop audio calls visible in the conversation (skip lobby: %s)",
+        async (skipLobby) => {
+            const original = SettingsStore.getValue.bind(SettingsStore);
+            const setting = vi
+                .spyOn(SettingsStore, "getValue")
+                .mockImplementation((name, ...args) =>
+                    name === "feature_desktop_shell" ? true : original(name, ...args),
+                );
+            const call = {
+                presented: false,
+                connectionState: ConnectionState.Disconnected,
+                widget: { id: "!widget:example.org" },
+                participants: new Map(),
+                start: vi.fn(),
+            } as unknown as Call;
+            vi.spyOn(CallStore.instance, "getCall").mockReturnValue(call);
+            const persistence = vi.spyOn(ActiveWidgetStore.instance, "setWidgetPersistence");
+            await setupAsyncStoreWithClient(CallStore.instance, MatrixClientPeg.safeGet());
+            dis.dispatch<ViewRoomPayload>({
+                action: Action.ViewRoom,
+                room_id: roomId,
+                view_call: true,
+                voiceOnly: true,
+                skipLobby,
+                metricsTrigger: undefined,
+            });
+            await untilDispatch(Action.ViewRoom, dis);
+            expect(roomViewStore.isViewingCall()).toBe(true);
+            expect(persistence).not.toHaveBeenCalled();
+            expect(call.start).toHaveBeenCalledWith({ voiceOnly: true, skipLobby });
+            setting.mockRestore();
+        },
+    );
+
     it("opens a voice-intent call directly in picture-in-picture rather than maximised", async () => {
         const call = {
             presented: false,

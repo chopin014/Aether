@@ -130,6 +130,8 @@ export interface DesktopCallStageScreenShareTile {
 
 /** Complete immutable presentation state consumed by the desktop call view. */
 export interface DesktopCallStageViewSnapshot {
+    /** Conversation calls share the main column with the timeline; channels use the full stage. */
+    readonly presentation: "conversation" | "channel";
     readonly phase: DesktopCallStagePhase;
     readonly roomName: string;
     readonly participantCount: number;
@@ -651,6 +653,7 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                 key={tile.id}
                 className={styles.tile}
                 data-kind="participant"
+                data-video={tile.videoEnabled ? "true" : undefined}
                 data-participant-id={tile.userId}
                 data-speaking={tile.speaking ? "true" : undefined}
                 data-testid="videoTile"
@@ -819,6 +822,10 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
         <div
             ref={stageRef}
             className={styles.stage}
+            data-presentation={snapshot.presentation}
+            data-audio-only={
+                allScreenShares.length === 0 && !allParticipants.some((p) => p.videoEnabled) ? "true" : undefined
+            }
             data-mini={snapshot.miniMode ? "true" : undefined}
             data-phase={snapshot.phase}
             data-hovered-tile={hoveredTileId ?? undefined}
@@ -830,12 +837,6 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
             {/* Top Header */}
             <header className={styles.header}>
                 <div className={styles.headerIdentity}>
-                    <span className={styles.channelIcon}>
-                        <VolumeOnIcon />
-                    </span>
-                    <Text as="h2" size="md" weight="semibold" className={styles.channelTitle}>
-                        {snapshot.roomName}
-                    </Text>
                     <div className={styles.headerBadges}>
                         {snapshot.reconnecting ? (
                             <span className={styles.statusPill} data-tone="warning" role="status">
@@ -920,7 +921,7 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                 </div>
             )}
             {snapshot.ringing && (
-                <div className={styles.banner} role="status">
+                <div className={styles.callingStatus} role="status">
                     <Text size="sm">{_t("desktop|call_stage|calling")}</Text>
                 </div>
             )}
@@ -970,22 +971,24 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                     </div>
                 ) : snapshot.phase === "lobby" ? (
                     <div className={styles.lobbyCard} data-testid="call-lobby-card">
-                        <div className={styles.lobbyPreviewBox}>
-                            {snapshot.lobbyPreviewVideo && snapshot.localVideoEnabled ? (
-                                <AttachedVideo
-                                    attachment={snapshot.lobbyPreviewVideo}
-                                    mirror={true}
-                                    testId="lobby-preview-video"
-                                />
-                            ) : (
-                                <div className={styles.avatarFallback}>
-                                    <div className={styles.avatarCircle}>
-                                        <VolumeOnIcon />
+                        {snapshot.localVideoEnabled && (
+                            <div className={styles.lobbyPreviewBox}>
+                                {snapshot.lobbyPreviewVideo && snapshot.localVideoEnabled ? (
+                                    <AttachedVideo
+                                        attachment={snapshot.lobbyPreviewVideo}
+                                        mirror={true}
+                                        testId="lobby-preview-video"
+                                    />
+                                ) : (
+                                    <div className={styles.avatarFallback}>
+                                        <div className={styles.avatarCircle}>
+                                            <VolumeOnIcon />
+                                        </div>
+                                        <Text size="sm">{_t("desktop|call_stage|camera_off")}</Text>
                                     </div>
-                                    <Text size="sm">{_t("desktop|call_stage|camera_off")}</Text>
-                                </div>
-                            )}
-                        </div>
+                                )}
+                            </div>
+                        )}
                         <Text as="h3" size="lg" weight="semibold">
                             {snapshot.roomName}
                         </Text>
@@ -1032,328 +1035,83 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                     <div
                         className={styles.grid}
                         data-count={String(Math.min(4, allScreenShares.length + allParticipants.length))}
+                        data-solo-channel={
+                            snapshot.presentation === "channel" &&
+                            allParticipants.length === 1 &&
+                            allScreenShares.length === 0
+                                ? "true"
+                                : undefined
+                        }
                     >
                         {allScreenShares.map((s) => renderScreenShareTile(s, false))}
                         {allParticipants.map((p) => renderParticipantTile(p, false))}
+                        {snapshot.presentation === "channel" &&
+                            allParticipants.length === 1 &&
+                            allScreenShares.length === 0 && (
+                                <div className={styles.inviteTile}>
+                                    <UserAddSolidIcon width={56} height={56} aria-hidden="true" />
+                                    <Text size="lg" weight="semibold">
+                                        {_t("desktop|call_stage|lobby_empty")}
+                                    </Text>
+                                    <button type="button" className={styles.headerButton} onClick={vm.openInviteDialog}>
+                                        <UserAddSolidIcon />
+                                        {_t("desktop|call_stage|invite_friends_chip")}
+                                    </button>
+                                </div>
+                            )}
                     </div>
                 )}
             </div>
 
-            {/* Discord-style quick activity/invite chips when in call */}
-            {snapshot.phase === "in_call" && !snapshot.miniMode && allParticipants.length <= 1 && (
-                <div className={styles.stagePrompts}>
-                    <button type="button" className={styles.promptChip} onClick={vm.openInviteDialog}>
-                        <UserAddSolidIcon width={14} height={14} />
-                        <span>{_t("desktop|call_stage|invite_friends_chip")}</span>
-                    </button>
-                    {snapshot.canShareScreen && !snapshot.sharingScreen && (
-                        <button
-                            type="button"
-                            className={styles.promptChip}
-                            onClick={() => vm.setActiveMenu("screenshare")}
-                        >
-                            <ShareScreenSolidIcon width={14} height={14} />
-                            <span>{_t("desktop|call_stage|share_screen_chip")}</span>
-                        </button>
-                    )}
-                </div>
-            )}
-
             {/* Bottom Control Bar */}
-            <div className={styles.bottomBar}>
-                <div className={styles.centerControls}>
-                    {/* Camera control + device picker */}
-                    <div className={styles.controlPillGroup}>
-                        <button
-                            type="button"
-                            className={styles.controlButton}
-                            aria-label={
-                                snapshot.localVideoEnabled
-                                    ? _t("desktop|call_stage|turn_off_camera")
-                                    : _t("desktop|call_stage|turn_on_camera")
-                            }
-                            aria-pressed={snapshot.localVideoEnabled}
-                            data-active={snapshot.localVideoEnabled ? "true" : undefined}
-                            data-testid="call-control-camera"
-                            onClick={vm.toggleLocalVideo}
-                        >
-                            {snapshot.localVideoEnabled ? <VideoCallSolidIcon /> : <VideoCallOffSolidIcon />}
-                        </button>
-                        <button
-                            ref={cameraMenuTriggerRef}
-                            type="button"
-                            className={styles.chevronButton}
-                            aria-label={_t("desktop|call_stage|more_camera_options")}
-                            aria-expanded={snapshot.activeMenu === "camera"}
-                            data-testid="call-control-camera-menu"
-                            onClick={() => vm.setActiveMenu(snapshot.activeMenu === "camera" ? null : "camera")}
-                        >
-                            <ChevronDownIcon />
-                        </button>
-                        {snapshot.activeMenu === "camera" && (
-                            <StagePopover
-                                anchor={cameraMenuTriggerRef}
-                                placement="above"
-                                ariaLabel={_t("desktop|call_stage|camera_devices_title")}
-                                testId="call-camera-devices-popover"
-                                className={styles.menuPopover}
-                                onClose={() => vm.setActiveMenu(null)}
-                            >
-                                <p className={styles.menuSectionTitle}>
-                                    {_t("desktop|call_stage|camera_devices_title")}
-                                </p>
-                                <div className={styles.menuList}>
-                                    {snapshot.videoInputDevices.length === 0 ? (
-                                        <Text size="xs">{_t("desktop|call_stage|no_camera_found")}</Text>
-                                    ) : (
-                                        snapshot.videoInputDevices.map((device) => (
-                                            <button
-                                                key={device.id}
-                                                type="button"
-                                                role="menuitemradio"
-                                                aria-checked={device.selected}
-                                                className={styles.menuItem}
-                                                onClick={() => {
-                                                    vm.selectVideoInput(device.id);
-                                                    vm.setActiveMenu(null);
-                                                }}
-                                            >
-                                                <span>{device.label}</span>
-                                                {device.selected && <span>✓</span>}
-                                            </button>
-                                        ))
-                                    )}
-                                </div>
-                            </StagePopover>
-                        )}
-                    </div>
-
-                    {/* Screen Share control + quality/audio settings */}
-                    {snapshot.canShareScreen && (
+            {snapshot.phase !== "lobby" && snapshot.phase !== "ended" && (
+                <div className={styles.bottomBar}>
+                    <div className={styles.centerControls}>
+                        {/* Camera control + device picker */}
                         <div className={styles.controlPillGroup}>
                             <button
                                 type="button"
                                 className={styles.controlButton}
                                 aria-label={
-                                    snapshot.sharingScreen
-                                        ? _t("desktop|call_stage|stop_sharing")
-                                        : _t("desktop|call_stage|share_your_screen")
+                                    snapshot.localVideoEnabled
+                                        ? _t("desktop|call_stage|turn_off_camera")
+                                        : _t("desktop|call_stage|turn_on_camera")
                                 }
-                                aria-pressed={snapshot.sharingScreen}
-                                data-active={snapshot.sharingScreen ? "true" : undefined}
-                                data-testid="call-control-screenshare"
-                                onClick={vm.toggleScreenShare}
+                                aria-pressed={snapshot.localVideoEnabled}
+                                data-active={snapshot.localVideoEnabled ? "true" : undefined}
+                                data-testid="call-control-camera"
+                                onClick={vm.toggleLocalVideo}
                             >
-                                <ShareScreenSolidIcon />
+                                {snapshot.localVideoEnabled ? <VideoCallSolidIcon /> : <VideoCallOffSolidIcon />}
                             </button>
                             <button
-                                ref={screenShareMenuTriggerRef}
+                                ref={cameraMenuTriggerRef}
                                 type="button"
                                 className={styles.chevronButton}
-                                aria-label={_t("desktop|call_stage|stream_quality_settings")}
-                                aria-expanded={snapshot.activeMenu === "screenshare"}
-                                data-testid="call-control-screenshare-menu"
-                                onClick={() =>
-                                    vm.setActiveMenu(snapshot.activeMenu === "screenshare" ? null : "screenshare")
-                                }
+                                aria-label={_t("desktop|call_stage|more_camera_options")}
+                                aria-expanded={snapshot.activeMenu === "camera"}
+                                data-testid="call-control-camera-menu"
+                                onClick={() => vm.setActiveMenu(snapshot.activeMenu === "camera" ? null : "camera")}
                             >
                                 <ChevronDownIcon />
                             </button>
-                            {snapshot.activeMenu === "screenshare" && (
+                            {snapshot.activeMenu === "camera" && (
                                 <StagePopover
-                                    anchor={screenShareMenuTriggerRef}
+                                    anchor={cameraMenuTriggerRef}
                                     placement="above"
-                                    ariaLabel={_t("desktop|call_stage|stream_quality_settings")}
-                                    testId="call-screenshare-quality-popover"
+                                    ariaLabel={_t("desktop|call_stage|camera_devices_title")}
+                                    testId="call-camera-devices-popover"
                                     className={styles.menuPopover}
                                     onClose={() => vm.setActiveMenu(null)}
                                 >
                                     <p className={styles.menuSectionTitle}>
-                                        {_t("desktop|call_stage|resolution_label")}
+                                        {_t("desktop|call_stage|camera_devices_title")}
                                     </p>
-                                    <div className={styles.pillSelector}>
-                                        {resolutionOptions.map((opt) => {
-                                            const disabled =
-                                                opt.value !== null &&
-                                                snapshot.screenSharePolicyLimits.maxResolutionHeight !== null &&
-                                                opt.value > snapshot.screenSharePolicyLimits.maxResolutionHeight;
-                                            return (
-                                                <button
-                                                    key={opt.key}
-                                                    type="button"
-                                                    className={styles.pillOption}
-                                                    disabled={disabled}
-                                                    aria-pressed={
-                                                        snapshot.screenShareQuality.resolutionHeight === opt.value
-                                                    }
-                                                    data-testid={`screenshare-res-${opt.key}`}
-                                                    onClick={() =>
-                                                        vm.updateScreenShareQuality({ resolutionHeight: opt.value })
-                                                    }
-                                                >
-                                                    {opt.label}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-
-                                    <p className={styles.menuSectionTitle}>
-                                        {_t("desktop|call_stage|frame_rate_label")}
-                                    </p>
-                                    <div className={styles.pillSelector}>
-                                        {frameRateOptions.map((fps) => {
-                                            const disabled =
-                                                snapshot.screenSharePolicyLimits.maxFrameRate !== null &&
-                                                fps > snapshot.screenSharePolicyLimits.maxFrameRate;
-                                            return (
-                                                <button
-                                                    key={fps}
-                                                    type="button"
-                                                    className={styles.pillOption}
-                                                    disabled={disabled}
-                                                    aria-pressed={snapshot.screenShareQuality.frameRate === fps}
-                                                    data-testid={`screenshare-fps-${fps}`}
-                                                    onClick={() => vm.updateScreenShareQuality({ frameRate: fps })}
-                                                >
-                                                    {fps} FPS
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-
-                                    <p className={styles.menuSectionTitle}>
-                                        {_t("desktop|call_stage|max_bandwidth_label")}
-                                    </p>
-                                    <div className={styles.pillSelector}>
-                                        {bitrateOptions.map((opt) => {
-                                            const disabled =
-                                                opt.value !== null &&
-                                                snapshot.screenSharePolicyLimits.maxBitrate !== null &&
-                                                opt.value > snapshot.screenSharePolicyLimits.maxBitrate;
-                                            return (
-                                                <button
-                                                    key={opt.key}
-                                                    type="button"
-                                                    className={styles.pillOption}
-                                                    disabled={disabled}
-                                                    aria-pressed={snapshot.screenShareQuality.maxBitrate === opt.value}
-                                                    data-testid={`screenshare-bitrate-${opt.key}`}
-                                                    onClick={() =>
-                                                        vm.updateScreenShareQuality({ maxBitrate: opt.value })
-                                                    }
-                                                >
-                                                    {opt.label}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-
-                                    <label className={styles.checkboxRow}>
-                                        <span>{_t("desktop|call_stage|share_system_audio")}</span>
-                                        <input
-                                            type="checkbox"
-                                            disabled={!snapshot.canShareSystemAudio}
-                                            checked={
-                                                snapshot.canShareSystemAudio &&
-                                                snapshot.screenShareQuality.includeSystemAudio
-                                            }
-                                            data-testid="screenshare-system-audio-toggle"
-                                            onChange={(e) =>
-                                                vm.updateScreenShareQuality({
-                                                    includeSystemAudio: e.target.checked,
-                                                })
-                                            }
-                                        />
-                                    </label>
-
-                                    {!snapshot.canShareSystemAudio && (
-                                        <Text size="xs">{_t("desktop|call_stage|video_only_capture")}</Text>
-                                    )}
-                                    <button
-                                        type="button"
-                                        className={styles.primaryActionBtn}
-                                        data-testid="screenshare-menu-action-btn"
-                                        onClick={() => {
-                                            vm.setActiveMenu(null);
-                                            if (snapshot.sharingScreen) {
-                                                vm.toggleScreenShare();
-                                            } else {
-                                                vm.startScreenShareWithQuality(snapshot.screenShareQuality);
-                                            }
-                                        }}
-                                    >
-                                        {snapshot.sharingScreen
-                                            ? _t("desktop|call_stage|stop_stream_btn")
-                                            : _t("desktop|call_stage|start_stream_btn")}
-                                    </button>
-                                </StagePopover>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Microphone control + audio input/output device picker */}
-                    <div className={styles.controlPillGroup}>
-                        <button
-                            type="button"
-                            className={styles.controlButton}
-                            aria-label={
-                                snapshot.localAudioEnabled
-                                    ? _t("desktop|call_stage|mute_microphone")
-                                    : _t("desktop|call_stage|unmute_microphone")
-                            }
-                            aria-pressed={!snapshot.localAudioEnabled}
-                            data-muted={!snapshot.localAudioEnabled ? "true" : undefined}
-                            data-testid="call-control-mic"
-                            onClick={vm.toggleLocalAudio}
-                        >
-                            {snapshot.localAudioEnabled ? <MicOnIcon /> : <MicOffIcon />}
-                        </button>
-                        <button
-                            ref={micMenuTriggerRef}
-                            type="button"
-                            className={styles.chevronButton}
-                            aria-label={_t("desktop|call_stage|more_microphone_options")}
-                            aria-expanded={snapshot.activeMenu === "mic"}
-                            data-testid="call-control-mic-menu"
-                            onClick={() => vm.setActiveMenu(snapshot.activeMenu === "mic" ? null : "mic")}
-                        >
-                            <ChevronDownIcon />
-                        </button>
-                        {snapshot.activeMenu === "mic" && (
-                            <StagePopover
-                                anchor={micMenuTriggerRef}
-                                placement="above"
-                                ariaLabel={_t("desktop|call_stage|input_device_title")}
-                                testId="call-audio-devices-popover"
-                                className={styles.menuPopover}
-                                onClose={() => vm.setActiveMenu(null)}
-                            >
-                                <p className={styles.menuSectionTitle}>{_t("desktop|call_stage|input_device_title")}</p>
-                                <div className={styles.menuList}>
-                                    {snapshot.audioInputDevices.map((device) => (
-                                        <button
-                                            key={device.id}
-                                            type="button"
-                                            role="menuitemradio"
-                                            aria-checked={device.selected}
-                                            className={styles.menuItem}
-                                            onClick={() => {
-                                                vm.selectAudioInput(device.id);
-                                                vm.setActiveMenu(null);
-                                            }}
-                                        >
-                                            <span>{device.label}</span>
-                                            {device.selected && <span>✓</span>}
-                                        </button>
-                                    ))}
-                                </div>
-                                {snapshot.audioOutputDevices.length > 0 && (
-                                    <>
-                                        <p className={styles.menuSectionTitle}>
-                                            {_t("desktop|call_stage|output_device_title")}
-                                        </p>
-                                        <div className={styles.menuList}>
-                                            {snapshot.audioOutputDevices.map((device) => (
+                                    <div className={styles.menuList}>
+                                        {snapshot.videoInputDevices.length === 0 ? (
+                                            <Text size="xs">{_t("desktop|call_stage|no_camera_found")}</Text>
+                                        ) : (
+                                            snapshot.videoInputDevices.map((device) => (
                                                 <button
                                                     key={device.id}
                                                     type="button"
@@ -1361,119 +1119,371 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                                                     aria-checked={device.selected}
                                                     className={styles.menuItem}
                                                     onClick={() => {
-                                                        vm.selectAudioOutput(device.id);
+                                                        vm.selectVideoInput(device.id);
                                                         vm.setActiveMenu(null);
                                                     }}
                                                 >
                                                     <span>{device.label}</span>
                                                     {device.selected && <span>✓</span>}
                                                 </button>
-                                            ))}
-                                        </div>
-                                    </>
-                                )}
-                            </StagePopover>
-                        )}
-                    </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </StagePopover>
+                            )}
+                        </div>
 
-                    {snapshot.phase === "in_call" && (
+                        {/* Screen Share control + quality/audio settings */}
+                        {snapshot.canShareScreen && (
+                            <div className={styles.controlPillGroup}>
+                                <button
+                                    type="button"
+                                    className={styles.controlButton}
+                                    aria-label={
+                                        snapshot.sharingScreen
+                                            ? _t("desktop|call_stage|stop_sharing")
+                                            : _t("desktop|call_stage|share_your_screen")
+                                    }
+                                    aria-pressed={snapshot.sharingScreen}
+                                    data-active={snapshot.sharingScreen ? "true" : undefined}
+                                    data-testid="call-control-screenshare"
+                                    onClick={vm.toggleScreenShare}
+                                >
+                                    <ShareScreenSolidIcon />
+                                </button>
+                                <button
+                                    ref={screenShareMenuTriggerRef}
+                                    type="button"
+                                    className={styles.chevronButton}
+                                    aria-label={_t("desktop|call_stage|stream_quality_settings")}
+                                    aria-expanded={snapshot.activeMenu === "screenshare"}
+                                    data-testid="call-control-screenshare-menu"
+                                    onClick={() =>
+                                        vm.setActiveMenu(snapshot.activeMenu === "screenshare" ? null : "screenshare")
+                                    }
+                                >
+                                    <ChevronDownIcon />
+                                </button>
+                                {snapshot.activeMenu === "screenshare" && (
+                                    <StagePopover
+                                        anchor={screenShareMenuTriggerRef}
+                                        placement="above"
+                                        ariaLabel={_t("desktop|call_stage|stream_quality_settings")}
+                                        testId="call-screenshare-quality-popover"
+                                        className={styles.menuPopover}
+                                        onClose={() => vm.setActiveMenu(null)}
+                                    >
+                                        <p className={styles.menuSectionTitle}>
+                                            {_t("desktop|call_stage|resolution_label")}
+                                        </p>
+                                        <div className={styles.pillSelector}>
+                                            {resolutionOptions.map((opt) => {
+                                                const disabled =
+                                                    opt.value !== null &&
+                                                    snapshot.screenSharePolicyLimits.maxResolutionHeight !== null &&
+                                                    opt.value > snapshot.screenSharePolicyLimits.maxResolutionHeight;
+                                                return (
+                                                    <button
+                                                        key={opt.key}
+                                                        type="button"
+                                                        className={styles.pillOption}
+                                                        disabled={disabled}
+                                                        aria-pressed={
+                                                            snapshot.screenShareQuality.resolutionHeight === opt.value
+                                                        }
+                                                        data-testid={`screenshare-res-${opt.key}`}
+                                                        onClick={() =>
+                                                            vm.updateScreenShareQuality({ resolutionHeight: opt.value })
+                                                        }
+                                                    >
+                                                        {opt.label}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+
+                                        <p className={styles.menuSectionTitle}>
+                                            {_t("desktop|call_stage|frame_rate_label")}
+                                        </p>
+                                        <div className={styles.pillSelector}>
+                                            {frameRateOptions.map((fps) => {
+                                                const disabled =
+                                                    snapshot.screenSharePolicyLimits.maxFrameRate !== null &&
+                                                    fps > snapshot.screenSharePolicyLimits.maxFrameRate;
+                                                return (
+                                                    <button
+                                                        key={fps}
+                                                        type="button"
+                                                        className={styles.pillOption}
+                                                        disabled={disabled}
+                                                        aria-pressed={snapshot.screenShareQuality.frameRate === fps}
+                                                        data-testid={`screenshare-fps-${fps}`}
+                                                        onClick={() => vm.updateScreenShareQuality({ frameRate: fps })}
+                                                    >
+                                                        {fps} FPS
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+
+                                        <p className={styles.menuSectionTitle}>
+                                            {_t("desktop|call_stage|max_bandwidth_label")}
+                                        </p>
+                                        <div className={styles.pillSelector}>
+                                            {bitrateOptions.map((opt) => {
+                                                const disabled =
+                                                    opt.value !== null &&
+                                                    snapshot.screenSharePolicyLimits.maxBitrate !== null &&
+                                                    opt.value > snapshot.screenSharePolicyLimits.maxBitrate;
+                                                return (
+                                                    <button
+                                                        key={opt.key}
+                                                        type="button"
+                                                        className={styles.pillOption}
+                                                        disabled={disabled}
+                                                        aria-pressed={
+                                                            snapshot.screenShareQuality.maxBitrate === opt.value
+                                                        }
+                                                        data-testid={`screenshare-bitrate-${opt.key}`}
+                                                        onClick={() =>
+                                                            vm.updateScreenShareQuality({ maxBitrate: opt.value })
+                                                        }
+                                                    >
+                                                        {opt.label}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+
+                                        <label className={styles.checkboxRow}>
+                                            <span>{_t("desktop|call_stage|share_system_audio")}</span>
+                                            <input
+                                                type="checkbox"
+                                                disabled={!snapshot.canShareSystemAudio}
+                                                checked={
+                                                    snapshot.canShareSystemAudio &&
+                                                    snapshot.screenShareQuality.includeSystemAudio
+                                                }
+                                                data-testid="screenshare-system-audio-toggle"
+                                                onChange={(e) =>
+                                                    vm.updateScreenShareQuality({
+                                                        includeSystemAudio: e.target.checked,
+                                                    })
+                                                }
+                                            />
+                                        </label>
+
+                                        {!snapshot.canShareSystemAudio && (
+                                            <Text size="xs">{_t("desktop|call_stage|video_only_capture")}</Text>
+                                        )}
+                                        <button
+                                            type="button"
+                                            className={styles.primaryActionBtn}
+                                            data-testid="screenshare-menu-action-btn"
+                                            onClick={() => {
+                                                vm.setActiveMenu(null);
+                                                if (snapshot.sharingScreen) {
+                                                    vm.toggleScreenShare();
+                                                } else {
+                                                    vm.startScreenShareWithQuality(snapshot.screenShareQuality);
+                                                }
+                                            }}
+                                        >
+                                            {snapshot.sharingScreen
+                                                ? _t("desktop|call_stage|stop_stream_btn")
+                                                : _t("desktop|call_stage|start_stream_btn")}
+                                        </button>
+                                    </StagePopover>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Microphone control + audio input/output device picker */}
                         <div className={styles.controlPillGroup}>
                             <button
-                                ref={reactionsMenuTriggerRef}
                                 type="button"
                                 className={styles.controlButton}
-                                aria-label={_t("desktop|call_stage|reactions")}
-                                aria-expanded={snapshot.activeMenu === "reactions"}
-                                onClick={() =>
-                                    vm.setActiveMenu(snapshot.activeMenu === "reactions" ? null : "reactions")
+                                aria-label={
+                                    snapshot.localAudioEnabled
+                                        ? _t("desktop|call_stage|mute_microphone")
+                                        : _t("desktop|call_stage|unmute_microphone")
                                 }
+                                aria-pressed={!snapshot.localAudioEnabled}
+                                data-muted={!snapshot.localAudioEnabled ? "true" : undefined}
+                                data-testid="call-control-mic"
+                                onClick={vm.toggleLocalAudio}
                             >
-                                <ReactionSolidIcon />
+                                {snapshot.localAudioEnabled ? <MicOnIcon /> : <MicOffIcon />}
                             </button>
-                            {snapshot.activeMenu === "reactions" && (
+                            <button
+                                ref={micMenuTriggerRef}
+                                type="button"
+                                className={styles.chevronButton}
+                                aria-label={_t("desktop|call_stage|more_microphone_options")}
+                                aria-expanded={snapshot.activeMenu === "mic"}
+                                data-testid="call-control-mic-menu"
+                                onClick={() => vm.setActiveMenu(snapshot.activeMenu === "mic" ? null : "mic")}
+                            >
+                                <ChevronDownIcon />
+                            </button>
+                            {snapshot.activeMenu === "mic" && (
                                 <StagePopover
-                                    anchor={reactionsMenuTriggerRef}
+                                    anchor={micMenuTriggerRef}
                                     placement="above"
+                                    ariaLabel={_t("desktop|call_stage|input_device_title")}
+                                    testId="call-audio-devices-popover"
                                     className={styles.menuPopover}
-                                    ariaLabel={_t("desktop|call_stage|reactions")}
                                     onClose={() => vm.setActiveMenu(null)}
                                 >
-                                    <button
-                                        type="button"
-                                        className={styles.menuItem}
-                                        onClick={vm.toggleRaisedHand}
-                                        aria-pressed={snapshot.localHandRaised}
-                                    >
-                                        <RaisedHandSolidIcon />
-                                        {snapshot.localHandRaised
-                                            ? _t("desktop|call_stage|lower_hand")
-                                            : _t("desktop|call_stage|raise_hand")}
-                                    </button>
-                                    {snapshot.supportsReactions && (
-                                        <div className={styles.pillSelector}>
-                                            {["👍", "🎉", "❤️"].map((emoji) => (
-                                                <button
-                                                    key={emoji}
-                                                    type="button"
-                                                    className={styles.controlButton}
-                                                    aria-label={_t("desktop|call_stage|send_reaction", { emoji })}
-                                                    onClick={() => {
-                                                        vm.sendReaction(emoji);
-                                                        vm.setActiveMenu(null);
-                                                    }}
-                                                >
-                                                    {emoji}
-                                                </button>
-                                            ))}
-                                        </div>
+                                    <p className={styles.menuSectionTitle}>
+                                        {_t("desktop|call_stage|input_device_title")}
+                                    </p>
+                                    <div className={styles.menuList}>
+                                        {snapshot.audioInputDevices.map((device) => (
+                                            <button
+                                                key={device.id}
+                                                type="button"
+                                                role="menuitemradio"
+                                                aria-checked={device.selected}
+                                                className={styles.menuItem}
+                                                onClick={() => {
+                                                    vm.selectAudioInput(device.id);
+                                                    vm.setActiveMenu(null);
+                                                }}
+                                            >
+                                                <span>{device.label}</span>
+                                                {device.selected && <span>✓</span>}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {snapshot.audioOutputDevices.length > 0 && (
+                                        <>
+                                            <p className={styles.menuSectionTitle}>
+                                                {_t("desktop|call_stage|output_device_title")}
+                                            </p>
+                                            <div className={styles.menuList}>
+                                                {snapshot.audioOutputDevices.map((device) => (
+                                                    <button
+                                                        key={device.id}
+                                                        type="button"
+                                                        role="menuitemradio"
+                                                        aria-checked={device.selected}
+                                                        className={styles.menuItem}
+                                                        onClick={() => {
+                                                            vm.selectAudioOutput(device.id);
+                                                            vm.setActiveMenu(null);
+                                                        }}
+                                                    >
+                                                        <span>{device.label}</span>
+                                                        {device.selected && <span>✓</span>}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </>
                                     )}
                                 </StagePopover>
                             )}
                         </div>
-                    )}
-                    {/* Disconnect button */}
-                    <button
-                        type="button"
-                        className={styles.controlButton}
-                        data-danger="true"
-                        aria-label={_t("desktop|call_stage|disconnect")}
-                        data-testid="incall_leave"
-                        onClick={vm.leaveCall}
-                    >
-                        <EndCallIcon />
-                    </button>
-                </div>
 
-                {/* Bottom-right floating/fullscreen controls */}
-                <div className={styles.rightControls}>
-                    <button
-                        type="button"
-                        className={styles.utilityButton}
-                        aria-label={_t("desktop|call_stage|popout_call")}
-                        title={_t("desktop|call_stage|popout_call")}
-                        onClick={vm.popoutCall}
-                    >
-                        <PopOutIcon />
-                    </button>
-                    <button
-                        type="button"
-                        className={styles.utilityButton}
-                        aria-label={
-                            snapshot.isFullscreen
-                                ? _t("desktop|call_stage|exit_fullscreen")
-                                : _t("desktop|call_stage|fullscreen")
-                        }
-                        title={
-                            snapshot.isFullscreen
-                                ? _t("desktop|call_stage|exit_fullscreen")
-                                : _t("desktop|call_stage|fullscreen")
-                        }
-                        onClick={() => vm.toggleFullscreen(stageRef.current)}
-                    >
-                        {snapshot.isFullscreen ? <CollapseIcon /> : <ExpandIcon />}
-                    </button>
+                        {snapshot.phase === "in_call" && (
+                            <div className={styles.controlPillGroup}>
+                                <button
+                                    ref={reactionsMenuTriggerRef}
+                                    type="button"
+                                    className={styles.controlButton}
+                                    aria-label={_t("desktop|call_stage|reactions")}
+                                    aria-expanded={snapshot.activeMenu === "reactions"}
+                                    onClick={() =>
+                                        vm.setActiveMenu(snapshot.activeMenu === "reactions" ? null : "reactions")
+                                    }
+                                >
+                                    <ReactionSolidIcon />
+                                </button>
+                                {snapshot.activeMenu === "reactions" && (
+                                    <StagePopover
+                                        anchor={reactionsMenuTriggerRef}
+                                        placement="above"
+                                        className={styles.menuPopover}
+                                        ariaLabel={_t("desktop|call_stage|reactions")}
+                                        onClose={() => vm.setActiveMenu(null)}
+                                    >
+                                        <button
+                                            type="button"
+                                            className={styles.menuItem}
+                                            onClick={vm.toggleRaisedHand}
+                                            aria-pressed={snapshot.localHandRaised}
+                                        >
+                                            <RaisedHandSolidIcon />
+                                            {snapshot.localHandRaised
+                                                ? _t("desktop|call_stage|lower_hand")
+                                                : _t("desktop|call_stage|raise_hand")}
+                                        </button>
+                                        {snapshot.supportsReactions && (
+                                            <div className={styles.pillSelector}>
+                                                {["👍", "🎉", "❤️"].map((emoji) => (
+                                                    <button
+                                                        key={emoji}
+                                                        type="button"
+                                                        className={styles.controlButton}
+                                                        aria-label={_t("desktop|call_stage|send_reaction", { emoji })}
+                                                        onClick={() => {
+                                                            vm.sendReaction(emoji);
+                                                            vm.setActiveMenu(null);
+                                                        }}
+                                                    >
+                                                        {emoji}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </StagePopover>
+                                )}
+                            </div>
+                        )}
+                        {/* Disconnect button */}
+                        <button
+                            type="button"
+                            className={styles.controlButton}
+                            data-danger="true"
+                            aria-label={_t("desktop|call_stage|disconnect")}
+                            data-testid="incall_leave"
+                            onClick={vm.leaveCall}
+                        >
+                            <EndCallIcon />
+                        </button>
+                    </div>
+
+                    {/* Bottom-right floating/fullscreen controls */}
+                    <div className={styles.rightControls}>
+                        <button
+                            type="button"
+                            className={styles.utilityButton}
+                            aria-label={_t("desktop|call_stage|popout_call")}
+                            title={_t("desktop|call_stage|popout_call")}
+                            onClick={vm.popoutCall}
+                        >
+                            <PopOutIcon />
+                        </button>
+                        <button
+                            type="button"
+                            className={styles.utilityButton}
+                            aria-label={
+                                snapshot.isFullscreen
+                                    ? _t("desktop|call_stage|exit_fullscreen")
+                                    : _t("desktop|call_stage|fullscreen")
+                            }
+                            title={
+                                snapshot.isFullscreen
+                                    ? _t("desktop|call_stage|exit_fullscreen")
+                                    : _t("desktop|call_stage|fullscreen")
+                            }
+                            onClick={() => vm.toggleFullscreen(stageRef.current)}
+                        >
+                            {snapshot.isFullscreen ? <CollapseIcon /> : <ExpandIcon />}
+                        </button>
+                    </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 }

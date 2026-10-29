@@ -112,15 +112,17 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
     const toggleCallButton = (
         <Tooltip label={isViewingCall ? _t("voip|minimise_call") : _t("voip|maximise_call")}>
             <IconButton onClick={toggleCall}>
-                <VideoCallIcon />
+                {activeCallSessionType === CallType.Voice ? <VoiceCallIcon /> : <VideoCallIcon />}
             </IconButton>
         </Tooltip>
     );
 
+    const joinCallDisabledReason =
+        activeCallSessionType === CallType.Voice ? voiceCallDisabledReason : videoCallDisabledReason;
     const joinCallButton = (
         <Tooltip
             description={
-                videoCallDisabledReason ??
+                joinCallDisabledReason ??
                 (activeCallSessionType === CallType.Voice ? _t("voip|voice_call") : _t("voip|video_call"))
             }
         >
@@ -130,10 +132,10 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
                 // If we know this is a voice session, show the voice call. All other kinds of call are video calls.
                 Icon={activeCallSessionType === CallType.Voice ? VoiceCallIcon : VideoCallIcon}
                 className="mx_RoomHeader_join_button"
-                disabled={!!videoCallDisabledReason}
+                disabled={!!joinCallDisabledReason}
                 color="primary"
                 aria-label={
-                    videoCallDisabledReason ??
+                    joinCallDisabledReason ??
                     (activeCallSessionType === CallType.Voice
                         ? _t("room|header|join_voice_call")
                         : _t("room|header|join_video_call"))
@@ -152,7 +154,7 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
     );
 
     const voiceCallIconWithTooltip = (
-        <Tooltip label={videoCallDisabledReason ?? _t("voip|voice_call")}>
+        <Tooltip label={voiceCallDisabledReason ?? _t("voip|voice_call")}>
             <VoiceCallIcon />
         </Tooltip>
     );
@@ -315,12 +317,20 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
                 joinCallButton
             ) : (
                 <>
-                    {!isVideoRoom && (!desktopShell || isDirectMessage) && videoCallButton}
-                    {!isVideoRoom && (!desktopShell || isDirectMessage) && voiceCallButton}
+                    {!isVideoRoom &&
+                        (!desktopShell ||
+                            isDirectMessage ||
+                            !room.currentState.getStateEvents(EventType.SpaceParent).length) &&
+                        videoCallButton}
+                    {!isVideoRoom &&
+                        (!desktopShell ||
+                            isDirectMessage ||
+                            !room.currentState.getStateEvents(EventType.SpaceParent).length) &&
+                        voiceCallButton}
                 </>
             )}
 
-            {showChatButton && <VideoRoomChatButton room={room} />}
+            {showChatButton && (!desktopShell || isVideoRoom) && <VideoRoomChatButton room={room} />}
 
             {desktopShell ? (
                 <DesktopThreadBrowser key={`threads-${room.roomId}`} room={room} />

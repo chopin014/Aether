@@ -17,6 +17,7 @@ import {
     type DesktopCallStageViewSnapshot,
 } from "@element-hq/web-shared-components";
 import { type MatrixClient } from "matrix-js-sdk/src/matrix";
+import { isVideoRoom } from "../../utils/video-rooms";
 import { mediaFromMxc } from "../../customisations/Media";
 
 import type {
@@ -121,7 +122,9 @@ export class DesktopCallStageViewModel
     public constructor(props: DesktopCallStageViewModelProps) {
         const { state } = props.bridge;
         const docked = ActiveWidgetStore.instance.isDocked(props.call.widget.id, props.call.widget.roomId);
+        const room = props.client.getRoom(props.call.roomId);
         super(props, {
+            presentation: room && isVideoRoom(room) ? "channel" : "conversation",
             phase: state.phase,
             roomName: state.roomName,
             participantCount: state.participantCount,

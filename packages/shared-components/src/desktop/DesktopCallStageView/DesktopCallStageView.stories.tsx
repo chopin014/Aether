@@ -60,6 +60,7 @@ function StageStory(snapshot: DesktopCallStageViewSnapshot): JSX.Element {
 }
 
 const snapshot: DesktopCallStageViewSnapshot = {
+    presentation: "channel",
     phase: "in_call",
     roomName: "General Voice",
     participantCount: 2,
@@ -161,6 +162,8 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Connected: Story = {};
+export const Conversation: Story = { args: { presentation: "conversation" } };
+export const AloneInChannel: Story = { args: { participants: participants.slice(0, 1), participantCount: 1 } };
 export const Lobby: Story = {
     args: { phase: "lobby", connected: false, participants: [], needsDevicePermissions: true },
 };

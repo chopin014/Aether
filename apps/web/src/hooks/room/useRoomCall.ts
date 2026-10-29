@@ -39,6 +39,7 @@ import { ElementCallMemberEventType } from "../../call-types";
 import { LocalRoom, LocalRoomState } from "../../models/LocalRoom";
 import { useScopedRoomContext } from "../../contexts/ScopedRoomContext";
 import { SDKContext } from "../../contexts/SDKContext.ts";
+import SettingsStore from "../../settings/SettingsStore";
 import SdkConfig from "../../SdkConfig";
 import { ensureSlotOpen } from "../../utils/room/rtcSlot";
 
@@ -289,7 +290,7 @@ export const useRoomCall = (
                 room,
                 CallType.Voice,
                 callPlatformType,
-                evt?.shiftKey || undefined,
+                SettingsStore.getValue("feature_desktop_shell") ? true : evt?.shiftKey || undefined,
                 true,
             );
         },
@@ -323,7 +324,7 @@ export const useRoomCall = (
                 room,
                 CallType.Video,
                 callPlatformType,
-                evt?.shiftKey || undefined,
+                SettingsStore.getValue("feature_desktop_shell") ? true : evt?.shiftKey || undefined,
                 false,
             );
         },

@@ -28,6 +28,7 @@ import { SDKContextClass } from "../contexts/SDKContextClass";
 import { ClientEvent, EventType } from "matrix-js-sdk/src/matrix";
 import { act } from "react";
 import { placeCall } from "../utils/room/placeCall";
+import { CallType } from "matrix-js-sdk/src/webrtc/call";
 import { SettingLevel } from "../settings/SettingLevel";
 import SettingsStore from "../settings/SettingsStore";
 import { RTC_SLOT_ENCRYPTION_PER_MEMBER } from "matrix-js-sdk/src/matrixrtc";
@@ -241,6 +242,28 @@ describe("useRoomCall", () => {
                 session = { ensureRtcSlotOpen: vi.fn().mockResolvedValue(undefined) };
                 vi.mocked(matrixRTC.getRoomSession).mockReturnValue(
                     session as unknown as ReturnType<typeof matrixRTC.getRoomSession>,
+                );
+            });
+
+            it.each([false, true])("starts a desktop call immediately with camera=%s", async (camera) => {
+                const original = SettingsStore.getValue.bind(SettingsStore);
+                vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+                    name === "feature_desktop_shell" ? true : original(name, ...args),
+                );
+                vi.mocked(matrixRTC.isSlotClosed).mockReturnValue(false);
+                const { result } = render();
+                await waitFor(() => expect(result.current.callOptions).toContain(PlatformCallType.ElementCall));
+                await (camera ? result.current.videoCallClick : result.current.voiceCallClick)(
+                    undefined,
+                    PlatformCallType.ElementCall,
+                );
+                expect(placeCall).toHaveBeenCalledWith(
+                    expect.anything(),
+                    room,
+                    camera ? CallType.Video : CallType.Voice,
+                    PlatformCallType.ElementCall,
+                    true,
+                    !camera,
                 );
             });
 

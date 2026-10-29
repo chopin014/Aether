@@ -15,13 +15,16 @@ Please see LICENSE in the repository root for full details.
     height: 100%;
     min-height: 240px;
     box-sizing: border-box;
-    background: var(--cpd-color-bg-canvas-default);
+    background: var(--aether-call-background, var(--cpd-color-bg-canvas-default));
     color: var(--cpd-color-text-primary);
     overflow: hidden;
     user-select: none;
 }
 
 .header {
+    position: absolute;
+    inset: 0 0 auto;
+    pointer-events: none;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -38,6 +41,8 @@ Please see LICENSE in the repository root for full details.
 }
 
 .headerIdentity {
+    opacity: 0;
+    transition: opacity 120ms ease-out;
     flex: 1 1 auto;
     display: flex;
     align-items: center;
@@ -159,6 +164,15 @@ Please see LICENSE in the repository root for full details.
     border-color: color-mix(in srgb, var(--cpd-color-text-warning-primary) 45%, transparent);
 }
 
+.callingStatus {
+    position: absolute;
+    top: var(--cpd-space-4x);
+    align-self: center;
+    color: var(--cpd-color-text-secondary);
+    z-index: 3;
+    pointer-events: none;
+}
+
 .bannerContent {
     display: flex;
     flex-direction: column;
@@ -182,7 +196,7 @@ Please see LICENSE in the repository root for full details.
     display: flex;
     flex-direction: column;
     justify-content: center;
-    padding: var(--cpd-space-2x) var(--cpd-space-4x);
+    padding: var(--cpd-space-12x) var(--cpd-space-4x) var(--cpd-space-2x);
     gap: var(--cpd-space-3x);
     overflow: hidden;
 }
@@ -770,8 +784,8 @@ Please see LICENSE in the repository root for full details.
 }
 
 .primaryActionBtn {
-    width: 100%;
-    padding: var(--cpd-space-2x) var(--cpd-space-3x);
+    width: auto;
+    padding: var(--cpd-space-2x) var(--cpd-space-4x);
     border: 0;
     border-radius: var(--cpd-space-2x);
     background: var(--cpd-color-bg-accent-rest);
@@ -784,7 +798,6 @@ Please see LICENSE in the repository root for full details.
     background: var(--cpd-color-bg-accent-hovered);
 }
 
-.lobbyCard,
 .errorCard {
     margin: auto;
     width: min(460px, 100%);
@@ -831,7 +844,7 @@ Please see LICENSE in the repository root for full details.
 }
 
 /* A room chat drawer can make the call narrower without changing the browser viewport. */
-@container (max-width: 700px) {
+@container (max-width: 600px) {
     .bottomBar {
         flex-direction: column;
         gap: var(--cpd-space-2x);
@@ -864,4 +877,105 @@ Please see LICENSE in the repository root for full details.
     .utilityButton {
         border: 1px solid ButtonText;
     }
+}
+
+/* Voice channels keep the join decision central, without a camera card or inactive in-call controls. */
+.lobbyCard {
+    margin: auto;
+    max-width: min(460px, 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--cpd-space-3x);
+    text-align: center;
+}
+
+.lobbyCard h3,
+.lobbyCard p {
+    margin: 0;
+}
+
+.lobbyCard > p {
+    color: var(--cpd-color-text-secondary);
+}
+
+.header button {
+    pointer-events: auto;
+}
+
+.stage:hover .headerIdentity,
+.stage:focus-within .headerIdentity,
+.stage[data-phase="reconnecting"] .headerIdentity {
+    opacity: 1;
+}
+
+.headerActions .headerButton {
+    border: 0;
+    background: transparent;
+}
+
+.grid[data-solo-channel="true"] {
+    width: min(100%, 900px);
+    align-self: center;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    gap: var(--cpd-space-2x);
+}
+
+.grid[data-solo-channel="true"] > .tile,
+.inviteTile {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+}
+
+.inviteTile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--cpd-space-4x);
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-subtle-secondary);
+    color: var(--cpd-color-text-secondary);
+}
+
+.stage[data-presentation="conversation"][data-audio-only="true"] .grid {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--cpd-space-5x);
+    flex-wrap: wrap;
+}
+
+.stage[data-presentation="conversation"][data-audio-only="true"] .tile {
+    width: 88px;
+    height: 100px;
+    aspect-ratio: auto;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    overflow: visible;
+}
+
+.stage[data-presentation="conversation"][data-audio-only="true"] .tileBottomBar {
+    opacity: 0;
+}
+
+.stage[data-presentation="conversation"][data-audio-only="true"] .tileTopBar {
+    opacity: 0;
+}
+
+.stage[data-presentation="conversation"][data-audio-only="true"] .tile:hover .tileBottomBar,
+.stage[data-presentation="conversation"][data-audio-only="true"] .tile:focus-within .tileBottomBar {
+    opacity: 1;
+}
+
+.stage[data-presentation="conversation"][data-audio-only="true"] .tile:hover .tileTopBar,
+.stage[data-presentation="conversation"][data-audio-only="true"] .tile:focus-within .tileTopBar {
+    opacity: 1;
+}
+
+.stage[data-presentation="conversation"][data-audio-only="true"] .tile[data-speaking="true"] .avatarCircle {
+    box-shadow: 0 0 0 3px var(--cpd-color-border-success-subtle);
 }
