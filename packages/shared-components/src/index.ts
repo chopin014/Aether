@@ -132,6 +132,7 @@ export * from "./desktop/DesktopThreadCreateView";
 export * from "./desktop/DesktopProfileIdentity";
 export * from "./desktop/DesktopProfilePopoutView";
 export * from "./desktop/DesktopFullProfileView";
+export * from "./desktop/ChannelKindPicker";
 export * from "./desktop/ChannelMenuView";
 export * from "./desktop/TopicDialogView";
 export * from "./desktop/DesktopSearchBoxView";

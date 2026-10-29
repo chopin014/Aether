@@ -17,6 +17,8 @@ import React, {
 } from "react";
 import { type Room, RoomType, JoinRule, Preset, Visibility } from "matrix-js-sdk/src/matrix";
 import { Form, SettingsToggleInput } from "@vector-im/compound-web";
+import { RoomIcon, VolumeOnIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
+import { type ChannelKind, ChannelKindPicker } from "@element-hq/web-shared-components";
 
 import SdkConfig from "../../../SdkConfig";
 import withValidation, { type IFieldState, type IValidationResult } from "../elements/Validation";
@@ -39,6 +41,8 @@ interface IProps {
     defaultPublic?: boolean;
     defaultName?: string;
     parentSpace?: Room;
+    /** The room list section the new channel will be listed in, named beneath the title. */
+    sectionName?: string;
     defaultEncrypted?: boolean;
     defaultStateEncrypted?: boolean;
     onFinished(proceed?: false): void;
@@ -92,6 +96,15 @@ interface IState {
      * Indicates whether the user can change encryption settings for the room.
      */
     canChangeEncryption: boolean;
+    /**
+     * Whether the new desktop channel is a text or a voice room. Only used when creating a channel.
+     */
+    channelKind: ChannelKind;
+}
+
+/** Whether the room type is one the desktop shell lists as a voice channel. */
+function isCallRoomType(type?: RoomType): boolean {
+    return type === RoomType.ElementVideo || type === RoomType.UnstableCall;
 }
 
 export default class CreateRoomDialog extends React.Component<IProps, IState> {
@@ -99,6 +112,10 @@ export default class CreateRoomDialog extends React.Component<IProps, IState> {
     private readonly advancedSettingsEnabled: boolean;
     private readonly allowCreatingPublicRooms: boolean;
     private readonly supportsRestricted: boolean;
+    /**
+     * Whether this creates a desktop channel in a Space, whose kind the user picks, rather than a room of a fixed type.
+     */
+    private readonly isChannel: boolean;
     private nameField = createRef<Field>();
     private aliasField = createRef<RoomAliasField>();
 
@@ -110,6 +127,10 @@ export default class CreateRoomDialog extends React.Component<IProps, IState> {
         this.allowCreatingPublicRooms = SettingsStore.getValue(UIFeature.AllowCreatingPublicRooms);
 
         this.supportsRestricted = !!this.props.parentSpace;
+        this.isChannel =
+            SettingsStore.getValue("feature_desktop_shell") &&
+            !!this.props.parentSpace &&
+            (!this.props.type || isCallRoomType(this.props.type));
         const defaultPublic = this.allowCreatingPublicRooms && this.props.defaultPublic;
 
         let joinRule = JoinRule.Invite;
@@ -132,13 +153,20 @@ export default class CreateRoomDialog extends React.Component<IProps, IState> {
             noFederate: SdkConfig.get().default_federate === false,
             nameIsValid: false,
             canChangeEncryption: false,
+            channelKind: isCallRoomType(this.props.type) ? "voice" : "text",
         };
     }
 
     private roomCreateOptions(): IOpts {
         const opts: IOpts = {};
         const createOpts: IOpts["createOpts"] = (opts.createOpts = {});
-        opts.roomType = this.props.type;
+        if (this.isChannel) {
+            opts.roomType = this.state.channelKind === "voice" ? RoomType.UnstableCall : undefined;
+            // Opening a voice channel joins its call, which creating one should not do on its own.
+            if (this.state.channelKind === "voice") opts.andView = false;
+        } else {
+            opts.roomType = this.props.type;
+        }
         opts.name = this.state.name;
 
         if (this.state.joinRule === JoinRule.Public) {
@@ -232,6 +260,10 @@ export default class CreateRoomDialog extends React.Component<IProps, IState> {
 
     private onNameChange = (ev: ChangeEvent<HTMLInputElement>): void => {
         this.setState({ name: ev.target.value });
+    };
+
+    private onChannelKindChange = (channelKind: ChannelKind): void => {
+        this.setState({ channelKind });
     };
 
     private onTopicChange = (ev: ChangeEvent<HTMLInputElement>): void => {
@@ -425,7 +457,9 @@ export default class CreateRoomDialog extends React.Component<IProps, IState> {
 
         const isVoiceRoom = isVideoRoom && SettingsStore.getValue("feature_desktop_shell");
         let title: string;
-        if (isVideoRoom) {
+        if (this.isChannel) {
+            title = _t("create_room|title_channel");
+        } else if (isVideoRoom) {
             title = isVoiceRoom ? _t("create_room|title_voice_room") : _t("create_room|title_video_room");
         } else if (this.props.parentSpace || this.state.joinRule === JoinRule.Knock) {
             title = _t("action|create_a_room");
@@ -444,10 +478,39 @@ export default class CreateRoomDialog extends React.Component<IProps, IState> {
                 screenName="CreateRoom"
             >
                 <div className="mx_Dialog_content">
+                    {this.isChannel && (
+                        <p className="mx_CreateRoomDialog_channelContext">
+                            {_t(
+                                "create_room|channel_context",
+                                {},
+                                {
+                                    Name: () => (
+                                        <strong>
+                                            {this.props.sectionName ??
+                                                this.props.parentSpace?.name ??
+                                                _t("common|unnamed_space")}
+                                        </strong>
+                                    ),
+                                },
+                            )}
+                        </p>
+                    )}
                     <Form.Root onSubmit={this.onOk} onKeyDown={this.onKeyDown}>
+                        {this.isChannel && (
+                            <ChannelKindPicker value={this.state.channelKind} onChange={this.onChannelKindChange} />
+                        )}
                         <Field
                             ref={this.nameField}
-                            label={_t("common|name")}
+                            label={this.isChannel ? _t("create_room|channel_name_label") : _t("common|name")}
+                            prefixComponent={
+                                this.isChannel ? (
+                                    this.state.channelKind === "voice" ? (
+                                        <VolumeOnIcon className="mx_CreateRoomDialog_channelSymbol" aria-hidden />
+                                    ) : (
+                                        <RoomIcon className="mx_CreateRoomDialog_channelSymbol" aria-hidden />
+                                    )
+                                ) : undefined
+                            }
                             onChange={this.onNameChange}
                             onValidate={this.onNameValidate}
                             value={this.state.name}
@@ -502,11 +565,13 @@ export default class CreateRoomDialog extends React.Component<IProps, IState> {
                 </div>
                 <DialogButtons
                     primaryButton={
-                        isVoiceRoom
-                            ? _t("create_room|action_create_voice_room")
-                            : isVideoRoom
-                              ? _t("create_room|action_create_video_room")
-                              : _t("create_room|action_create_room")
+                        this.isChannel
+                            ? _t("create_room|action_create_channel")
+                            : isVoiceRoom
+                              ? _t("create_room|action_create_voice_room")
+                              : isVideoRoom
+                                ? _t("create_room|action_create_video_room")
+                                : _t("create_room|action_create_room")
                     }
                     onPrimaryButtonClick={this.onOk}
                     onCancel={this.onCancel}

@@ -537,4 +537,90 @@ describe("<CreateRoomDialog />", () => {
         expect(screen.getByRole("button", { name: /^Create voice room$/ })).toBeInTheDocument();
         expect(screen.queryByText(/embedded call will not/)).not.toBeInTheDocument();
     });
+
+    describe("for a desktop channel in a space", () => {
+        let parentSpace: Room;
+        beforeEach(() => {
+            parentSpace = mkSpace(mockClient, "!space:server") as unknown as Room;
+            parentSpace.name = "Terra do boi gordo";
+            const originalGetValue = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+                name === "feature_desktop_shell" ? true : originalGetValue(name, ...args),
+            );
+        });
+
+        async function createChannel(props: object, name: string): Promise<ReturnType<typeof vi.fn>> {
+            const onFinished = vi.fn();
+            render(<CreateRoomDialog parentSpace={parentSpace} onFinished={onFinished} {...props} />);
+            await flushPromises();
+            fireEvent.change(screen.getByLabelText("Channel name"), { target: { value: name } });
+            fireEvent.click(screen.getByRole("button", { name: "Create channel" }));
+            await flushPromises();
+            return onFinished;
+        }
+
+        it("names the section the channel goes into, or else the space", async () => {
+            const { unmount } = render(
+                <CreateRoomDialog parentSpace={parentSpace} sectionName="Voz" onFinished={vi.fn()} />,
+            );
+            await flushPromises();
+            const context = (): HTMLElement | null => document.querySelector(".mx_CreateRoomDialog_channelContext");
+            expect(screen.getByRole("heading", { name: "Create channel" })).toBeInTheDocument();
+            expect(context()).toHaveTextContent("in Voz");
+            unmount();
+
+            render(<CreateRoomDialog parentSpace={parentSpace} onFinished={vi.fn()} />);
+            await flushPromises();
+            expect(context()).toHaveTextContent("in Terra do boi gordo");
+        });
+
+        it("starts on the kind of the room type it was opened for", async () => {
+            render(<CreateRoomDialog parentSpace={parentSpace} type={RoomType.UnstableCall} onFinished={vi.fn()} />);
+            await flushPromises();
+            expect(screen.getByRole("radio", { name: "Voice" })).toBeChecked();
+            expect(screen.getByRole("radio", { name: "Text" })).not.toBeChecked();
+        });
+
+        it("creates a text channel by default", async () => {
+            const onFinished = await createChannel({}, "geral");
+            expect(onFinished).toHaveBeenCalledWith(
+                true,
+                expect.objectContaining({ name: "geral", roomType: undefined }),
+            );
+            // A text channel opens as soon as it exists.
+            expect(onFinished.mock.calls[0][1]).not.toHaveProperty("andView");
+        });
+
+        it("creates the kind the user picks", async () => {
+            const onFinished = vi.fn();
+            render(<CreateRoomDialog parentSpace={parentSpace} onFinished={onFinished} />);
+            await flushPromises();
+            fireEvent.click(screen.getByRole("radio", { name: "Voice" }));
+            fireEvent.change(screen.getByLabelText("Channel name"), { target: { value: "Geral#3" } });
+            fireEvent.click(screen.getByRole("button", { name: "Create channel" }));
+            await flushPromises();
+            expect(onFinished).toHaveBeenCalledWith(
+                true,
+                // Creating a voice channel must not join its call by opening it.
+                expect.objectContaining({ name: "Geral#3", roomType: RoomType.UnstableCall, andView: false }),
+            );
+        });
+
+        it("can turn a voice channel back into a text channel", async () => {
+            const onFinished = vi.fn();
+            render(<CreateRoomDialog parentSpace={parentSpace} type={RoomType.UnstableCall} onFinished={onFinished} />);
+            await flushPromises();
+            fireEvent.click(screen.getByRole("radio", { name: "Text" }));
+            fireEvent.change(screen.getByLabelText("Channel name"), { target: { value: "anúncios" } });
+            fireEvent.click(screen.getByRole("button", { name: "Create channel" }));
+            await flushPromises();
+            expect(onFinished).toHaveBeenCalledWith(true, expect.objectContaining({ roomType: undefined }));
+        });
+
+        it("keeps other room types, which are not channels", async () => {
+            render(<CreateRoomDialog parentSpace={parentSpace} type={RoomType.Space} onFinished={vi.fn()} />);
+            await flushPromises();
+            expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+        });
+    });
 });

@@ -155,6 +155,13 @@
             "your_stream_suffix": "%(name)s (Your Stream)",
             "your_stream_watching": "You are sharing your screen"
         },
+        "channel_kind": {
+            "text": "Text",
+            "text_description": "Send messages, images, files and threads",
+            "title": "Channel type",
+            "voice": "Voice",
+            "voice_description": "Talk together with voice, video and screen sharing"
+        },
         "channel_menu": {
             "copy_link": "Copy link",
             "create_channel": "Create text channel",
