@@ -116,6 +116,7 @@ describe("DesktopCallStageViewModel", () => {
 
     const mockCall = {
         roomId: "!voice:example.org",
+        setLocalLeavePending: vi.fn(),
         widget: {
             id: "widget-1",
             roomId: "!voice:example.org",
@@ -124,6 +125,7 @@ describe("DesktopCallStageViewModel", () => {
 
     beforeEach(() => {
         vi.restoreAllMocks();
+        vi.mocked(mockCall.setLocalLeavePending).mockReset();
     });
 
     it("waits for device changes, reports failure, and ignores a late failure after disposal", async () => {
@@ -495,6 +497,19 @@ describe("DesktopCallStageViewModel", () => {
         vm.dispose();
         vm.setBridge(createBridge({ roomName: "Ignored" }));
         expect(vm.getSnapshot().roomName).toBe("Lobby Voice");
+    });
+
+    it("echoes leaving before calling the engine and restores participants if the action throws", () => {
+        const bridge = createBridge();
+        vi.mocked(bridge.actions.leaveCall).mockImplementation(() => {
+            expect(mockCall.setLocalLeavePending).toHaveBeenLastCalledWith(true);
+            throw new Error("Engine unavailable");
+        });
+        const vm = new DesktopCallStageViewModel({ client: mockClient, call: mockCall, bridge });
+        vm.leaveCall();
+        expect(mockCall.setLocalLeavePending).toHaveBeenLastCalledWith(false);
+        expect(vm.getSnapshot().deviceError).toBe("Engine unavailable");
+        vm.dispose();
     });
 
     it("forwards retained lifecycle actions, reports async failures and ignores failures after disposal", async () => {

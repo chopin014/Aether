@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import { type Page, type Request, type Response } from "@playwright/test";
+import { type Page, type Request, type Response, type Route } from "@playwright/test";
 import {
     closeReleaseAnnouncementIfExists,
     populateLocalStorageWithCredentials,
@@ -598,7 +598,47 @@ test(
             await page.screenshot({ path: testInfo.outputPath("element-call-voice.png") });
             const bounds = await participants.boundingBox();
             expect(bounds?.width).toBeGreaterThan(180);
-            await dock.getByRole("button", { name: "Disconnect", exact: true }).click();
+            // Hold the server-side leave to prove the sidebar responds to the click itself.
+            const releaseLeave = Promise.withResolvers<void>();
+            const leaveSent = Promise.withResolvers<void>();
+            let leaveHeld = false;
+            const holdLeave = async (route: Route): Promise<void> => {
+                const request = route.request();
+                const url = decodeURIComponent(request.url());
+                const body = request.postDataJSON();
+                const membershipLeave =
+                    request.method() === "PUT" &&
+                    url.includes(`/rooms/${roomId}/state/org.matrix.msc3401.call.member/`) &&
+                    body &&
+                    Object.keys(body).length === 0;
+                const delayedLeave =
+                    request.method() === "POST" &&
+                    url.includes("/delayed_events/") &&
+                    (url.endsWith("/send") || body?.action === "send");
+                if (membershipLeave || delayedLeave) {
+                    leaveHeld = true;
+                    await releaseLeave.promise;
+                    try {
+                        await route.continue();
+                    } finally {
+                        leaveSent.resolve();
+                    }
+                } else {
+                    await route.fallback();
+                }
+            };
+            await page.route("**/_matrix/client/**", holdLeave);
+            try {
+                await dock.getByRole("button", { name: "Disconnect", exact: true }).click();
+                await expect.poll(() => leaveHeld).toBe(true);
+                await expect(dock.getByRole("button", { name: "Disconnect", exact: true })).toHaveCount(0);
+                await expect(participants.getByRole("button", { name: /^Alice(?: \(speaking\))?$/ })).toHaveCount(0);
+                await expect(participants.getByRole("button", { name: "Bob", exact: true })).toBeVisible();
+            } finally {
+                releaseLeave.resolve();
+                if (leaveHeld) await leaveSent.promise;
+                await page.unroute("**/_matrix/client/**", holdLeave);
+            }
             await expect(page.getByTestId("lobby_joinCall")).toBeVisible();
             await expect(participants.getByRole("button", { name: "Bob", exact: true })).toBeVisible();
             await expect(participants.getByRole("button", { name: /^Alice(?: \(speaking\))?$/ })).toHaveCount(0);

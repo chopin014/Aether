@@ -325,7 +325,13 @@ export class DesktopCallStageViewModel
     };
 
     public leaveCall = (): void => {
-        this.bridge.actions.leaveCall();
+        this.props.call.setLocalLeavePending(true);
+        try {
+            this.bridge.actions.leaveCall();
+        } catch (error) {
+            this.props.call.setLocalLeavePending(false);
+            this.reportActionError(error);
+        }
     };
 
     public requestDevicePermissions = (): void => this.bridge.actions.requestDevicePermissions();

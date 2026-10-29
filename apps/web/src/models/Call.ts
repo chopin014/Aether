@@ -1129,6 +1129,19 @@ export class ElementCall extends Call {
     }
 
     private desktopDisconnect?: Promise<void>;
+    private localLeavePending = false;
+
+    /** Whether the desktop UI should already show this device as having left. */
+    public get locallyLeaving(): boolean {
+        return this.localLeavePending;
+    }
+
+    /** Echo an explicit leave locally while the engine and server finish disconnecting. */
+    public setLocalLeavePending(pending: boolean): void {
+        if (this.localLeavePending === pending) return;
+        this.localLeavePending = pending;
+        this.updateParticipants();
+    }
 
     /** Dismiss desktop calls even if their media engine has already stopped or cannot acknowledge hangup. */
     public override async disconnect(): Promise<void> {
@@ -1136,6 +1149,7 @@ export class ElementCall extends Call {
             return super.disconnect();
         }
         if (this.desktopDisconnect) return this.desktopDisconnect;
+        this.setLocalLeavePending(true);
         this.desktopDisconnect = (async () => {
             try {
                 if (this.connected) {
@@ -1319,6 +1333,12 @@ export class ElementCall extends Call {
         const participants = new Map<RoomMember, Set<string>>();
 
         for (const m of this.session.memberships) {
+            if (
+                this.localLeavePending &&
+                m.sender === this.client.getUserId() &&
+                m.deviceId === this.client.getDeviceId()
+            )
+                continue;
             if (!m.sender) continue;
             const member = this.room.getMember(m.sender);
             if (member) {
@@ -1344,6 +1364,7 @@ export class ElementCall extends Call {
     /** The user has joined the call (`HostBridge.notifyJoined` / `io.element.join`). */
     public handleJoined(): void {
         this.componentNeedsRestart = false;
+        this.setLocalLeavePending(false);
         // Joining and requesting persistence are separate callbacks. Keep the mounted call alive
         // before connected listeners can navigate away, even if the persistence request is delayed.
         ActiveWidgetStore.instance.setWidgetPersistence(this.widget.id, this.widget.roomId, true);

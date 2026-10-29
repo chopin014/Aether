@@ -1544,6 +1544,57 @@ describe("ElementCall with the React component embedding", () => {
         ]);
     });
 
+    it("hides only this device immediately while the server and engine finish leaving", async () => {
+        const alice = room.getMember(client.getUserId()!)!;
+        const bob = room.getMember("@bob:example.org")!;
+        const memberships = [
+            { sender: alice.userId, deviceId: client.getDeviceId()! },
+            { sender: bob.userId, deviceId: client.getDeviceId()! },
+        ] as CallMembership[];
+        call.session.memberships = memberships;
+        call.session.emit(MatrixRTCSessionEvent.MembershipsChanged, [], []);
+        call.handleJoined();
+        const hangup = Promise.withResolvers<void>();
+        call.setComponentHandle({ hangUp: () => hangup.promise } as unknown as ElementCallHandle);
+        enabledSettings.add("feature_desktop_shell");
+        try {
+            const leaving = call.disconnect();
+            expect(call.locallyLeaving).toBe(true);
+            expect(call.connectionState).toBe(ConnectionState.Disconnecting);
+            expect(call.participants.has(alice)).toBe(false);
+            expect(call.participants.has(bob)).toBe(true);
+            expect(call.session.memberships).toBe(memberships);
+            call.session.emit(MatrixRTCSessionEvent.MembershipsChanged, [], []);
+            expect(call.participants.has(alice)).toBe(false);
+
+            hangup.resolve();
+            await leaving;
+            expect(call.participants.has(alice)).toBe(false);
+            call.handleJoined();
+            expect(call.locallyLeaving).toBe(false);
+            expect(call.participants.has(alice)).toBe(true);
+        } finally {
+            hangup.resolve();
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
+    it("preserves another device's membership when locally leaving and supports rollback", () => {
+        const alice = room.getMember(client.getUserId()!)!;
+        call.session.memberships = [
+            { sender: alice.userId, deviceId: client.getDeviceId()! },
+            { sender: alice.userId, deviceId: "other-device" },
+        ] as CallMembership[];
+        call.setLocalLeavePending(true);
+        expect(call.participants.get(alice)).toEqual(new Set(["other-device"]));
+        const changed = vi.fn();
+        call.on(CallEvent.Participants, changed);
+        call.setLocalLeavePending(true);
+        expect(changed).not.toHaveBeenCalled();
+        call.setLocalLeavePending(false);
+        expect(call.participants.get(alice)).toEqual(new Set([client.getDeviceId(), "other-device"]));
+    });
+
     it("disconnects by asking the component to hang up and waiting for its reply", async () => {
         call.handleJoined();
         const hangUp = vi.fn(async () => {

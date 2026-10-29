@@ -82,6 +82,11 @@ describe("DesktopVoiceControlsViewModel", () => {
         // Retain the real model's mute notifications while replacing transport operations.
         call = Object.create(ElementCall.prototype) as ElementCall;
         Object.defineProperty(call, "roomId", { value: "!voice:example.org" });
+        Object.defineProperty(call, "locallyLeaving", { value: false, writable: true });
+        call.setLocalLeavePending = vi.fn((pending) => {
+            Object.defineProperty(call, "locallyLeaving", { value: pending, writable: true });
+            call.emit(CallEvent.Participants, new Map(), new Map());
+        });
         // This transport fixture skips the constructor that initializes speaking state.
         Object.defineProperty(call, "speakingUserIds", { value: new Set<string>(), writable: true });
         Object.defineProperty(call, "_screenShare", { value: NO_SCREEN_SHARE, writable: true });
@@ -112,10 +117,44 @@ describe("DesktopVoiceControlsViewModel", () => {
         vi.restoreAllMocks();
     });
     async function connect(): Promise<void> {
+        call.setLocalLeavePending(false);
         store.connectedCalls.add(call);
         store.emit(CallStoreEvent.ConnectedCalls);
         await vi.waitFor(() => expect(vm.getSnapshot().busy).toBe(false));
     }
+    it("hides the dock immediately while hangup is pending and ignores late transport updates", async () => {
+        await connect();
+        vm.setPanel("noise");
+        const hangup = Promise.withResolvers<void>();
+        vi.mocked(call.disconnect).mockImplementation(async () => {
+            await hangup.promise;
+            store.connectedCalls.clear();
+            store.emit(CallStoreEvent.ConnectedCalls);
+        });
+
+        const leaving = vm.disconnect();
+        expect(vm.getSnapshot()).toMatchObject({ roomName: undefined, panel: null });
+        expect(vm.getSnapshot().connection.state).toBe("disconnected");
+        expect(store.connectedCalls.has(call)).toBe(true);
+        call.handleConnectionStats(emptyCallConnectionStats("connected"));
+        call.handleDeviceMute({ audio_enabled: true, video_enabled: true });
+        expect(vm.getSnapshot().roomName).toBeUndefined();
+
+        hangup.resolve();
+        await leaving;
+        expect(vm.getSnapshot().roomName).toBeUndefined();
+        expect(store.connectedCalls.size).toBe(0);
+    });
+
+    it("restores the dock and reports a rejected disconnect", async () => {
+        await connect();
+        vi.mocked(call.disconnect).mockRejectedValue(new Error("Leave failed"));
+        await vm.disconnect();
+        expect(call.locallyLeaving).toBe(false);
+        expect(vm.getSnapshot().roomName).toBe("Lounge");
+        expect(vm.getSnapshot().error).toBeDefined();
+    });
+
     it("routes configured focused shortcuts through the production call mute/deafen actions", async () => {
         vm.dispose();
         preferences.set("feature_desktop_shell", true);
