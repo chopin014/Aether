@@ -843,3 +843,98 @@ test("switches calls only after confirmation and remembers Don't ask again", asy
     await stage.getByTestId("incall_leave").click();
     await expect.poll(joinedRooms).toEqual([]);
 });
+
+test("joining on another device moves voice there and can move back", async ({
+    page,
+    app,
+    user,
+    browser,
+    homeserver,
+    config,
+}) => {
+    test.setTimeout(180_000);
+    await settle(page);
+    const lounge = await app.client.createRoom({
+        name: "Device lounge",
+        creation_content: { type: "org.matrix.msc3417.call" },
+    });
+    const studio = await app.client.createRoom({
+        name: "Device studio",
+        creation_content: { type: "org.matrix.msc3417.call" },
+    });
+    await app.client.createSpace({
+        name: "Device space",
+        initial_state: [lounge, studio].map((roomId) => ({
+            type: "m.space.child",
+            state_key: roomId,
+            content: { via: [user.homeServer] },
+        })),
+    });
+    const secondDevice = await homeserver.loginUser(user.userId, user.password!);
+    const context = await browser.newContext({
+        baseURL: new URL(page.url()).origin,
+        permissions: ["microphone", "camera"],
+    });
+    const joinedRooms = (clientApp: ElementAppPage): Promise<string[]> =>
+        clientApp.client.evaluate((client) =>
+            client
+                .getRooms()
+                .filter((room) => client.matrixRTC.getRoomSession(room).isJoined())
+                .map((room) => room.roomId),
+        );
+    const ownMemberships = (): Promise<number> =>
+        app.client.evaluate(
+            (client) =>
+                client
+                    .getRooms()
+                    .flatMap((room) =>
+                        client.matrixRTC
+                            .getRoomSession(room)
+                            .memberships.filter((member) => member.userId === client.getUserId()),
+                    ).length,
+        );
+    try {
+        const secondPage = await context.newPage();
+        await routeConfigJson(context, homeserver.baseUrl, config);
+        await populateLocalStorageWithCredentials(secondPage, secondDevice);
+        await secondPage.goto("/");
+        await secondPage.waitForSelector(".mx_MatrixChat");
+        await settle(secondPage);
+        const secondApp = new ElementAppPage(secondPage);
+        await app.viewSpaceByName("Device space");
+        await secondApp.viewSpaceByName("Device space");
+        await page.getByRole("button", { name: "Open room Device lounge", exact: true }).click();
+        await expect.poll(() => joinedRooms(app), { timeout: 60_000 }).toEqual([lounge]);
+        await expect.poll(ownMemberships, { timeout: 15_000 }).toBe(1);
+        await secondPage.getByRole("button", { name: "Open room Device studio", exact: true }).click();
+        await expect.poll(() => joinedRooms(secondApp), { timeout: 60_000 }).toEqual([studio]);
+        await expect.poll(() => joinedRooms(app), { timeout: 30_000 }).toEqual([]);
+        await expect(page.getByText("Call moved to another device", { exact: true })).toBeVisible();
+        await page
+            .getByRole("alert")
+            .filter({ hasText: "Call moved to another device" })
+            .getByRole("button", { name: "Dismiss", exact: true })
+            .click();
+        await expect.poll(ownMemberships, { timeout: 15_000 }).toBe(1);
+        // The first client still displays its post-call lobby. Clicking its voice channel must join again.
+        await page.getByRole("button", { name: "Open room Device lounge", exact: true }).click();
+        await expect.poll(() => joinedRooms(app), { timeout: 60_000 }).toEqual([lounge]);
+        await expect.poll(() => joinedRooms(secondApp), { timeout: 30_000 }).toEqual([]);
+        await expect(secondPage.getByText("Call moved to another device", { exact: true })).toBeVisible();
+        await secondPage
+            .getByRole("alert")
+            .filter({ hasText: "Call moved to another device" })
+            .getByRole("button", { name: "Dismiss", exact: true })
+            .click();
+        await expect.poll(ownMemberships, { timeout: 15_000 }).toBe(1);
+        // Joining the same channel from another device also replaces the existing copy of ourselves.
+        await secondPage.getByRole("button", { name: /^Open room Device lounge(?:,|$)/ }).click();
+        await expect.poll(() => joinedRooms(secondApp), { timeout: 60_000 }).toEqual([lounge]);
+        await expect.poll(() => joinedRooms(app), { timeout: 30_000 }).toEqual([]);
+        await expect.poll(ownMemberships, { timeout: 15_000 }).toBe(1);
+        await secondPage.getByTestId("aether-call-stage").filter({ visible: true }).getByTestId("incall_leave").click();
+        await expect.poll(ownMemberships, { timeout: 15_000 }).toBe(0);
+    } finally {
+        await context.close();
+    }
+});
