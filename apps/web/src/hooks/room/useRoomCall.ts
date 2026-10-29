@@ -240,7 +240,10 @@ export const useRoomCall = (
     );
 
     const state = useMemo((): State => {
-        if (connectedCalls.find((call) => call.roomId != room.roomId)) {
+        if (
+            connectedCalls.find((call) => call.roomId !== room.roomId) &&
+            !(SettingsStore.getValue("feature_desktop_shell") && callOptions.includes(PlatformCallType.ElementCall))
+        ) {
             return State.Ongoing;
         }
         if (hasGroupCall && (hasJitsiWidget || hasManagedHybridWidget)) {

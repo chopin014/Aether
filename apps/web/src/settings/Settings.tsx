@@ -1496,7 +1496,7 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
     },
     "desktopVoiceSwitchWarning": {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
-        default: false,
+        default: true,
     },
     "desktopAlwaysPreviewVideo": {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,

@@ -744,3 +744,87 @@ test("startup restores the last text channel while clicking voice still joins", 
         page.getByRole("group", { name: "User menu" }).getByRole("button", { name: "Disconnect" }),
     ).toHaveCount(0);
 });
+
+test("switches calls only after confirmation and remembers Don't ask again", async ({
+    page,
+    app,
+    user,
+    homeserver,
+}, testInfo) => {
+    test.setTimeout(180_000);
+    await settle(page);
+    const lounge = await app.client.createRoom({
+        name: "Lounge",
+        creation_content: { type: "org.matrix.msc3417.call" },
+    });
+    const studio = await app.client.createRoom({
+        name: "Studio",
+        creation_content: { type: "org.matrix.msc3417.call" },
+    });
+    const bob = await homeserver.registerUser("bob-switch-call", "password", "Bob");
+    const conversation = await app.client.createRoom({
+        name: "Switch conversation",
+        is_direct: true,
+        invite: [bob.userId],
+        power_level_content_override: { events: { "org.matrix.msc3401.call.member": 0 } },
+    });
+    await homeserver.csApi.request("POST", `/v3/join/${conversation}`, bob.accessToken, {});
+    await app.client.createSpace({
+        name: "Switch space",
+        initial_state: [lounge, studio, conversation].map((roomId) => ({
+            type: "m.space.child",
+            state_key: roomId,
+            content: { via: [user.homeServer] },
+        })),
+    });
+    await app.viewSpaceByName("Switch space");
+    await page.getByRole("button", { name: "Open room Lounge", exact: true }).click();
+    const stage = page.getByTestId("aether-call-stage").filter({ visible: true });
+    await expect(stage).toHaveCount(1, { timeout: 15_000 });
+    await expect(stage).toHaveAttribute("data-phase", "in_call", { timeout: 60_000 });
+    const joinedRooms = (): Promise<string[]> =>
+        app.client.evaluate((client) =>
+            client
+                .getRooms()
+                .filter((room) => client.matrixRTC.getRoomSession(room).isJoined())
+                .map((room) => room.roomId),
+        );
+    await expect.poll(joinedRooms).toEqual([lounge]);
+    await page.getByRole("button", { name: "Open room Studio", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Leave your current call?" });
+    await expect(dialog).toContainText("Studio");
+    await expect.poll(joinedRooms).toEqual([lounge]);
+    await page.screenshot({ path: testInfo.outputPath("switch-call-confirmation.png") });
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect.poll(joinedRooms).toEqual([lounge]);
+    await page.getByRole("button", { name: "Open room Studio", exact: true }).click();
+    await dialog.getByRole("button", { name: "Switch channel", exact: true }).click();
+    await expect(stage).toHaveCount(1, { timeout: 15_000 });
+    await expect(stage).toHaveAttribute("data-phase", "in_call", { timeout: 60_000 });
+    await expect.poll(joinedRooms, { timeout: 15_000 }).toEqual([studio]);
+    await app.viewRoomById(conversation);
+    await page.getByRole("button", { name: "Video call", exact: true }).click();
+    await expect(dialog).toContainText("Switch conversation");
+    await expect.poll(joinedRooms).toEqual([studio]);
+    await dialog.getByRole("checkbox", { name: "Don’t ask again" }).check();
+    await dialog.getByRole("button", { name: "Switch channel", exact: true }).click();
+    await expect(stage).toHaveCount(1, { timeout: 15_000 });
+    await expect(stage).toHaveAttribute("data-phase", "in_call", { timeout: 60_000 });
+    await expect(stage.getByTestId("call-control-camera")).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(joinedRooms, { timeout: 15_000 }).toEqual([conversation]);
+    await expect
+        .poll(() =>
+            page.evaluate(
+                () => JSON.parse(localStorage.getItem("mx_local_settings") ?? "{}").desktopVoiceSwitchWarning,
+            ),
+        )
+        .toBe(false);
+    await page.getByRole("button", { name: "Open room Lounge", exact: true }).click();
+    await expect(stage).toHaveCount(1, { timeout: 15_000 });
+    await expect(stage).toHaveAttribute("data-phase", "in_call", { timeout: 60_000 });
+    await expect.poll(joinedRooms, { timeout: 15_000 }).toEqual([lounge]);
+    await expect(dialog).toHaveCount(0);
+    await stage.getByTestId("incall_leave").click();
+    await expect.poll(joinedRooms).toEqual([]);
+});

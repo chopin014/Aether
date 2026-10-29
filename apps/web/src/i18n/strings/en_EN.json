@@ -841,8 +841,12 @@
             "sound_unmute": "Unmute",
             "sound_user_joined": "Someone joined your call",
             "sound_user_left": "Someone left your call",
+            "switch_error_description": "Your current call could not be disconnected. Try leaving it before switching calls.",
+            "switch_error_title": "Could not switch calls",
             "switch_warning_confirm": "Switch channel",
             "switch_warning_description": "You are already in a voice channel. Joining this one will disconnect you from it.",
+            "switch_warning_destination": "You are already in another call. Do you want to leave it and switch to <b>%(roomName)s</b>?",
+            "switch_warning_do_not_ask": "Don’t ask again",
             "switch_warning_title": "Leave your current call?"
         }
     },

@@ -271,6 +271,25 @@ describe("ElementCallAppTile", () => {
         await waitFor(() => expect(screen.getByRole("list", { name: "HostBridge log" })).toHaveTextContent("← hangUp"));
     });
 
+    it("restarts a retained lobby with the new explicit join options", async () => {
+        vi.spyOn(room, "getType").mockReturnValue(RoomType.UnstableCall);
+        await renderTile();
+        await screen.findByText("Element Call (mock)");
+        act(() => {
+            call.presented = true;
+            call.handleClose();
+        });
+        let starting: Promise<unknown>;
+        act(() => {
+            starting = call.start({ skipLobby: true, voiceOnly: true });
+        });
+        await waitFor(() => {
+            const shown = JSON.parse(screen.getByLabelText("Effective configuration").textContent!);
+            expect(shown.intent).toBe("join_existing_voice");
+        });
+        await expect(starting!).resolves.toBeNull();
+    });
+
     describe("leaving the room", () => {
         beforeEach(async () => {
             await renderTile();

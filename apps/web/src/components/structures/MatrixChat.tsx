@@ -1019,6 +1019,8 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
 
     // switch view to the given room
     private async viewRoom(roomInfo: ViewRoomPayload): Promise<void> {
+        const callSwitch = this.stores.roomViewStore.getCallSwitch(roomInfo.room_id);
+        if (callSwitch && !(await callSwitch)) return;
         this.focusNext = roomInfo.focusNext ?? "composer";
 
         if (roomInfo.room_alias) {

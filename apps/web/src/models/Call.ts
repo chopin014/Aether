@@ -114,6 +114,7 @@ export enum CallEvent {
     ScreenShare = "screen_share",
     VoiceStates = "voice_states",
     ConnectionStats = "connection_stats",
+    ComponentRestart = "component_restart",
 }
 
 interface CallEventHandlerMap {
@@ -130,6 +131,7 @@ interface CallEventHandlerMap {
     [CallEvent.ScreenShare]: (state: ScreenShareState) => void;
     [CallEvent.VoiceStates]: (states: ReadonlyMap<string, VoiceState>) => void;
     [CallEvent.ConnectionStats]: (stats: CallConnectionStats) => void;
+    [CallEvent.ComponentRestart]: () => void;
 }
 
 const NO_VOICE_STATES: ReadonlyMap<string, VoiceState> = new Map();
@@ -793,6 +795,13 @@ export class ElementCall extends Call {
      * closed, so that the next call in the room (say, joining one that has since started) decides afresh.
      */
     private frozenComponentOptions: { intent?: UserIntent; config: ElementCallConfiguration } | null = null;
+    private componentNeedsRestart = false;
+    private _componentGeneration = 0;
+
+    /** Changes only when an explicit start must replace a retained post-call lobby. */
+    public get componentGeneration(): number {
+        return this._componentGeneration;
+    }
 
     public get componentOptions(): { intent?: UserIntent; config: ElementCallConfiguration } {
         this.frozenComponentOptions ??= this.getCallOptions();
@@ -1145,6 +1154,12 @@ export class ElementCall extends Call {
         this.widgetGenerationParameters = { ...this.widgetGenerationParameters, ...widgetGenerationParameters };
 
         if (ElementCall.usesReactComponent) {
+            if (this.componentNeedsRestart && this.componentHandle) {
+                this.componentNeedsRestart = false;
+                this.frozenComponentOptions = null;
+                this._componentGeneration++;
+                this.emit(CallEvent.ComponentRestart);
+            }
             // No iframe, no widget messaging: the React component reports readiness via the host bridge.
             await this.waitForReactComponent();
             return null;
@@ -1247,6 +1262,7 @@ export class ElementCall extends Call {
         // and gets its options decided afresh.
         this.ready = Promise.withResolvers<void>();
         this.frozenComponentOptions = null;
+        this.componentNeedsRestart = true;
         this._deviceMuteState = undefined;
         this.handleConnectionStats(emptyCallConnectionStats("disconnected"));
         this.handleScreenShare(NO_SCREEN_SHARE);
@@ -1317,6 +1333,7 @@ export class ElementCall extends Call {
 
     /** The user has joined the call (`HostBridge.notifyJoined` / `io.element.join`). */
     public handleJoined(): void {
+        this.componentNeedsRestart = false;
         // Joining and requesting persistence are separate callbacks. Keep the mounted call alive
         // before connected listeners can navigate away, even if the persistence request is delayed.
         ActiveWidgetStore.instance.setWidgetPersistence(this.widget.id, this.widget.roomId, true);

@@ -10,7 +10,7 @@ import { type MatrixClient } from "matrix-js-sdk/src/matrix";
 // Type-only: the component itself is loaded lazily below
 import type * as ElementCallComponent from "@element-hq/element-call-component";
 
-import { ElementCall as ElementCallModel } from "../../../models/Call";
+import { CallEvent, ElementCall as ElementCallModel } from "../../../models/Call";
 import { CallStore } from "../../../stores/CallStore";
 import { useSettingValue } from "../../../hooks/useSettings";
 import { getCurrentLanguage } from "../../../languageHandler";
@@ -18,6 +18,7 @@ import { useTheme } from "../../../hooks/useTheme";
 import Spinner from "../elements/Spinner";
 import { ElementWebHostBridge } from "./ElementWebHostBridge";
 import { DesktopCallStage } from "./DesktopCallStage";
+import { useTypedEventEmitterState } from "../../../hooks/useEventEmitter";
 
 /**
  * What `WrappedElementCallComponent` needs from an Element Call component module: satisfied by
@@ -104,20 +105,23 @@ export const WrappedElementCallComponent: FC<{ call: ElementCallModel; client: M
         [call, client, desktopShell, useMock],
     );
     const { intent, config } = call.componentOptions;
+    const generation = useTypedEventEmitterState(call, CallEvent.ComponentRestart, () => call.componentGeneration);
 
     return (
         <Suspense fallback={<Spinner />}>
-            <ElementCall
-                client={client}
-                roomId={call.roomId}
-                intent={intent}
-                config={config}
-                hostBridge={bridge}
-                ref={call.setComponentHandle}
-                theme={theme}
-                language={language}
-            />
-            <MarkReadyOnMount call={call} />
+            <React.Fragment key={generation}>
+                <ElementCall
+                    client={client}
+                    roomId={call.roomId}
+                    intent={intent}
+                    config={config}
+                    hostBridge={bridge}
+                    ref={call.setComponentHandle}
+                    theme={theme}
+                    language={language}
+                />
+                <MarkReadyOnMount call={call} />
+            </React.Fragment>
         </Suspense>
     );
 };
