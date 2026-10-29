@@ -13,6 +13,7 @@ const version = process.env.VERSION ?? desktopPackageJson.version;
 /** Aether release identity. Internal workspace names stay stable for upstream merges. */
 const config = {
     ...base,
+    productName: "Aether",
     appId: "io.github.chopin014.aether",
     artifactName: "Aether-${version}-${os}-${arch}.${ext}",
     publish: [

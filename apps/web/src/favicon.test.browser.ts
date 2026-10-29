@@ -174,6 +174,20 @@ describe("Favicon", () => {
         return iconLink().getAttribute("href")!;
     }
 
+    it.each([0, 1, "×"])("preserves the Aether logo when rendering badge %s", async (value) => {
+        const base = await readPixels(baseFaviconUrl);
+        // The top of the Aether tile is dark; Element's icon is green here.
+        const offset = (Math.floor(base.height / 10) * base.width + Math.floor(base.width / 2)) * 4;
+        expect(Array.from(base.data.slice(offset, offset + 4))).toEqual([9, 10, 18, 255]);
+        const favicon = new Favicon();
+        favicon.badge(value);
+        const pixels = await readPixels(await badgedHref(baseFaviconUrl));
+        expect([pixels.width, pixels.height]).toEqual([base.width, base.height]);
+        // Badges occupy the lower part of the tile, leaving this part of the logo intact.
+        const end = base.width * Math.floor(base.height / 4) * 4;
+        expect(pixels.data.slice(0, end)).toEqual(base.data.slice(0, end));
+    });
+
     it.runIf(canCompareScreenshots).each([1, 10, 99, 100, 1000])("badges the favicon with %s", async (value) => {
         const favicon = new Favicon();
         favicon.badge(value);

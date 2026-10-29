@@ -40,6 +40,7 @@ async function writeValidPlatformArtifacts(
 
 describe("Aether distribution identity", () => {
     it("isolates installation, profiles and callback URLs from Element", () => {
+        expect(config.productName).toBe("Aether");
         expect(config.appId).toBe("io.github.chopin014.aether");
         expect(config.extraMetadata).toMatchObject({
             name: "aether",
@@ -251,6 +252,22 @@ describe("Aether distribution identity", () => {
         // A width byte of 0 means 256 px in the ICO directory.
         const sizes = Array.from({ length: ico.readUInt16LE(4) }, (_, i) => ico[6 + i * 16] || 256);
         expect(sizes).toEqual([16, 24, 32, 48, 64, 128, 256]);
+    });
+    it("uses the packaged Aether logo as the renderer favicon", () => {
+        expect(readFileSync("../web/res/vector-icons/512.png").equals(readFileSync("aether/icon.png"))).toBe(true);
+        const manifest = JSON.parse(readFileSync("../web/res/manifest.json", "utf8"));
+        for (const icon of manifest.icons) {
+            const png = readFileSync(`../web/res${icon.src}`);
+            expect(`${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`).toBe(icon.sizes);
+        }
+    });
+    it("uses Aether in the renderer install and startup names", () => {
+        const manifest = JSON.parse(readFileSync("../web/res/manifest.json", "utf8"));
+        expect(manifest).toMatchObject({ name: "Aether", short_name: "Aether" });
+        const html = readFileSync("../web/src/vector/index.html", "utf8");
+        expect(html).toContain("<title>Aether</title>");
+        expect(html).toContain('name="application-name" content="Aether"');
+        expect(html).toContain('name="apple-mobile-web-app-title" content="Aether"');
     });
     it("brands the sign-in screens with files the web app serves", () => {
         const { branding } = JSON.parse(readFileSync("config.desktop.json", "utf8"));

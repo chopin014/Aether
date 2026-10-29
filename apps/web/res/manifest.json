@@ -1,8 +1,8 @@
 {
-    "name": "Element",
-    "short_name": "Element",
+    "name": "Aether",
+    "short_name": "Aether",
     "display": "standalone",
-    "theme_color": "#76CFA6",
+    "theme_color": "#090A12",
     "start_url": "index.html",
     "icons": [
         {
