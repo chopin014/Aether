@@ -1067,6 +1067,93 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
             {snapshot.phase !== "lobby" && snapshot.phase !== "ended" && (
                 <div className={styles.bottomBar}>
                     <div className={styles.centerControls}>
+                        {/* Microphone control + audio input/output device picker */}
+                        <div className={styles.controlPillGroup}>
+                            <button
+                                type="button"
+                                className={styles.controlButton}
+                                aria-label={
+                                    snapshot.localAudioEnabled
+                                        ? _t("desktop|call_stage|mute_microphone")
+                                        : _t("desktop|call_stage|unmute_microphone")
+                                }
+                                aria-pressed={!snapshot.localAudioEnabled}
+                                data-muted={!snapshot.localAudioEnabled ? "true" : undefined}
+                                data-testid="call-control-mic"
+                                onClick={vm.toggleLocalAudio}
+                            >
+                                {snapshot.localAudioEnabled ? <MicOnIcon /> : <MicOffIcon />}
+                            </button>
+                            <button
+                                ref={micMenuTriggerRef}
+                                type="button"
+                                className={styles.chevronButton}
+                                aria-label={_t("desktop|call_stage|more_microphone_options")}
+                                aria-expanded={snapshot.activeMenu === "mic"}
+                                data-testid="call-control-mic-menu"
+                                onClick={() => vm.setActiveMenu(snapshot.activeMenu === "mic" ? null : "mic")}
+                            >
+                                <ChevronDownIcon />
+                            </button>
+                            {snapshot.activeMenu === "mic" && (
+                                <StagePopover
+                                    anchor={micMenuTriggerRef}
+                                    placement="above"
+                                    ariaLabel={_t("desktop|call_stage|input_device_title")}
+                                    testId="call-audio-devices-popover"
+                                    className={styles.menuPopover}
+                                    onClose={() => vm.setActiveMenu(null)}
+                                >
+                                    <p className={styles.menuSectionTitle}>
+                                        {_t("desktop|call_stage|input_device_title")}
+                                    </p>
+                                    <div className={styles.menuList}>
+                                        {snapshot.audioInputDevices.map((device) => (
+                                            <button
+                                                key={device.id}
+                                                type="button"
+                                                role="menuitemradio"
+                                                aria-checked={device.selected}
+                                                className={styles.menuItem}
+                                                onClick={() => {
+                                                    vm.selectAudioInput(device.id);
+                                                    vm.setActiveMenu(null);
+                                                }}
+                                            >
+                                                <span>{device.label}</span>
+                                                {device.selected && <span>✓</span>}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {snapshot.audioOutputDevices.length > 0 && (
+                                        <>
+                                            <p className={styles.menuSectionTitle}>
+                                                {_t("desktop|call_stage|output_device_title")}
+                                            </p>
+                                            <div className={styles.menuList}>
+                                                {snapshot.audioOutputDevices.map((device) => (
+                                                    <button
+                                                        key={device.id}
+                                                        type="button"
+                                                        role="menuitemradio"
+                                                        aria-checked={device.selected}
+                                                        className={styles.menuItem}
+                                                        onClick={() => {
+                                                            vm.selectAudioOutput(device.id);
+                                                            vm.setActiveMenu(null);
+                                                        }}
+                                                    >
+                                                        <span>{device.label}</span>
+                                                        {device.selected && <span>✓</span>}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </>
+                                    )}
+                                </StagePopover>
+                            )}
+                        </div>
+
                         {/* Camera control + device picker */}
                         <div className={styles.controlPillGroup}>
                             <button
@@ -1297,93 +1384,6 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                                 )}
                             </div>
                         )}
-
-                        {/* Microphone control + audio input/output device picker */}
-                        <div className={styles.controlPillGroup}>
-                            <button
-                                type="button"
-                                className={styles.controlButton}
-                                aria-label={
-                                    snapshot.localAudioEnabled
-                                        ? _t("desktop|call_stage|mute_microphone")
-                                        : _t("desktop|call_stage|unmute_microphone")
-                                }
-                                aria-pressed={!snapshot.localAudioEnabled}
-                                data-muted={!snapshot.localAudioEnabled ? "true" : undefined}
-                                data-testid="call-control-mic"
-                                onClick={vm.toggleLocalAudio}
-                            >
-                                {snapshot.localAudioEnabled ? <MicOnIcon /> : <MicOffIcon />}
-                            </button>
-                            <button
-                                ref={micMenuTriggerRef}
-                                type="button"
-                                className={styles.chevronButton}
-                                aria-label={_t("desktop|call_stage|more_microphone_options")}
-                                aria-expanded={snapshot.activeMenu === "mic"}
-                                data-testid="call-control-mic-menu"
-                                onClick={() => vm.setActiveMenu(snapshot.activeMenu === "mic" ? null : "mic")}
-                            >
-                                <ChevronDownIcon />
-                            </button>
-                            {snapshot.activeMenu === "mic" && (
-                                <StagePopover
-                                    anchor={micMenuTriggerRef}
-                                    placement="above"
-                                    ariaLabel={_t("desktop|call_stage|input_device_title")}
-                                    testId="call-audio-devices-popover"
-                                    className={styles.menuPopover}
-                                    onClose={() => vm.setActiveMenu(null)}
-                                >
-                                    <p className={styles.menuSectionTitle}>
-                                        {_t("desktop|call_stage|input_device_title")}
-                                    </p>
-                                    <div className={styles.menuList}>
-                                        {snapshot.audioInputDevices.map((device) => (
-                                            <button
-                                                key={device.id}
-                                                type="button"
-                                                role="menuitemradio"
-                                                aria-checked={device.selected}
-                                                className={styles.menuItem}
-                                                onClick={() => {
-                                                    vm.selectAudioInput(device.id);
-                                                    vm.setActiveMenu(null);
-                                                }}
-                                            >
-                                                <span>{device.label}</span>
-                                                {device.selected && <span>✓</span>}
-                                            </button>
-                                        ))}
-                                    </div>
-                                    {snapshot.audioOutputDevices.length > 0 && (
-                                        <>
-                                            <p className={styles.menuSectionTitle}>
-                                                {_t("desktop|call_stage|output_device_title")}
-                                            </p>
-                                            <div className={styles.menuList}>
-                                                {snapshot.audioOutputDevices.map((device) => (
-                                                    <button
-                                                        key={device.id}
-                                                        type="button"
-                                                        role="menuitemradio"
-                                                        aria-checked={device.selected}
-                                                        className={styles.menuItem}
-                                                        onClick={() => {
-                                                            vm.selectAudioOutput(device.id);
-                                                            vm.setActiveMenu(null);
-                                                        }}
-                                                    >
-                                                        <span>{device.label}</span>
-                                                        {device.selected && <span>✓</span>}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </>
-                                    )}
-                                </StagePopover>
-                            )}
-                        </div>
 
                         {snapshot.phase === "in_call" && (
                             <div className={styles.controlPillGroup}>
