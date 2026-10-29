@@ -5,14 +5,14 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import { posix } from "node:path";
+import path from "node:path";
 import { withMermaid } from "vitepress-plugin-mermaid";
 
 // Files outside the documentation source are read on GitHub rather than emitted as docs pages.
 function resolveRepositoryLink(href: string, currentPath: string): string {
     if (!href.startsWith("../")) return href;
     const [file, fragment] = href.split("#", 2);
-    const target = posix.normalize(posix.join("docs", posix.dirname(currentPath), file));
+    const target = path.posix.normalize(path.posix.join("docs", path.posix.dirname(currentPath), file));
     if (target.startsWith("docs/")) return href;
     return `https://github.com/chopin014/Aether/blob/main/${target}${fragment ? `#${fragment}` : ""}`;
 }
