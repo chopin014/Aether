@@ -177,8 +177,6 @@ jobs:
                   name: Aether-${{ matrix.platform }}-x64
                   path: |
                       apps/desktop/dist/*.AppImage
-                      apps/desktop/dist/*.deb
-                      apps/desktop/dist/*.tar.gz
                       apps/desktop/dist/*.exe
                       apps/desktop/dist/*.blockmap
                       apps/desktop/dist/latest*.yml
@@ -221,8 +219,6 @@ jobs:
                   tag="v$VERSION"
                   assets=(
                       apps/desktop/dist/*.AppImage
-                      apps/desktop/dist/*.deb
-                      apps/desktop/dist/*.tar.gz
                       apps/desktop/dist/*.exe
                       apps/desktop/dist/*.blockmap
                       apps/desktop/dist/latest*.yml

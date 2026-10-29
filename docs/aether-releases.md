@@ -7,7 +7,9 @@ Please see LICENSE in the repository root for full details.
 
 # Aether desktop releases
 
-Aether's initial targets are Linux x64 (AppImage, deb, tar.gz) and Windows x64 (NSIS installer).
+Aether releases target Linux x64 (AppImage) and Windows x64 (NSIS installer).
+Both formats support automatic and manual updates inside Aether. Release builds exclude `.deb` and `.tar.gz`
+packages because those formats require users to replace the application manually.
 The source remains the Element monorepo; `element-desktop` and `element-web` are internal workspace names.
 The app ID is `io.github.chopin014.aether`, executable `aether`, and callback protocol `aether://`.
 These identities isolate Aether from installed Element clients. Package versions are independent of upstream.
@@ -65,15 +67,16 @@ draft when it is ready. Drafts are not visible to the updater; users receive a r
 Keep all uploaded installer files, Windows `.blockmap` files, and `latest.yml` / `latest-linux.yml` metadata attached
 to the release. The workflow checks that the metadata version matches the package, that it references the expected
 NSIS installer or AppImage, and that each `files[].sha512` checksum matches its installer. Do not hand-edit the
-generated metadata or remove assets that it references. Linux packages are AppImage, Debian `.deb`, and `.tar.gz`.
+generated metadata or remove assets that it references. The Linux release package is an AppImage.
 
 ## Update behavior and platform support
 
 Stable and prerelease builds embed the public `latest` feed for `chopin014/Aether`. GitHub marks prerelease releases
 separately, while the desktop updater checks stable releases only. Prerelease builds are for manual download and
 testing; they do not opt users into preview updates. Stable releases publish `latest.yml` for Windows and
-`latest-linux.yml` for Linux. Linux automatic updates are supported for the AppImage build. The `.deb` and `.tar.gz`
-files are manual installation formats and are not updated by the app.
+`latest-linux.yml` for Linux. Linux automatic updates are supported for the AppImage build. Keep the AppImage in a
+folder the user can write to so Aether can replace it during an update. Releases exclude `.deb` and `.tar.gz` files;
+any custom builds using those formats must be replaced manually.
 
 The first updater-enabled build must be installed manually by users who already have an older Aether build. After that
 one upgrade, the app can find published stable releases through GitHub. Windows installers install per-user to avoid

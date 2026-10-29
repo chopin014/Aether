@@ -43,7 +43,7 @@ const config = {
     protocols: { name: "Aether", schemes: ["aether"] },
     linux: {
         ...base.linux,
-        target: ["AppImage", "deb", "tar.gz"],
+        target: ["AppImage"],
         executableName: "aether",
         icon: "aether/icon.png",
         maintainer: "Aether contributors <156453220+chopin014@users.noreply.github.com>",
