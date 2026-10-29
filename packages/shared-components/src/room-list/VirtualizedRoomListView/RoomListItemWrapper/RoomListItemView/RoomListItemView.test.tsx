@@ -80,13 +80,23 @@ describe("<RoomListItemView />", () => {
         }
     });
 
-    it("shows a channel's custom icon instead of its symbol", () => {
-        const { container } = render(<DesktopChannelWithIcon />);
+    it.each(["text", "voice"] as const)("keeps a %s channel's symbol before its custom icon", (kind) => {
+        const { container } = render(<DesktopChannelWithIcon channelKind={kind} />);
         const icon = container.querySelector("img");
         expect(icon).toHaveAttribute("src", DesktopChannelWithIcon.args.channelIconUrl);
-        // The image takes the place of the channel symbol, before the name
-        expect(icon?.previousElementSibling).toBeNull();
-        expect(icon?.nextElementSibling).toHaveTextContent("General");
+        // Any image can belong to either kind of channel, so the symbol still says which one it is
+        expect(icon?.previousElementSibling).toBe(screen.getByTestId(`channel-kind-${kind}`));
+        expect(icon?.parentElement?.nextElementSibling).toHaveTextContent("General");
+    });
+
+    it("marks an occupied voice channel with a custom icon through its symbol", () => {
+        render(
+            <DesktopVoiceChannelOccupied
+                channelIconUrl={DesktopChannelWithIcon.args.channelIconUrl}
+                callStartedAt={Date.now()}
+            />,
+        );
+        expect(screen.getByTestId("channel-kind-voice").getAttribute("class")).toMatch(/occupied/);
     });
 
     it("shows no duration while a voice channel is empty", () => {

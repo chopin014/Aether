@@ -562,13 +562,17 @@ export default function RoomHeader({
         <CurrentRightPanelPhaseContextProvider roomId={room.roomId}>
             <Flex as="header" align="center" gap="var(--cpd-space-3x)" className="mx_RoomHeader light-panel">
                 {desktopChannel ? (
-                    hasChannelIcon ? (
-                        <RoomAvatar room={room} size="24px" className="mx_DesktopShell_channelIcon" />
-                    ) : room.isCallRoom() || room.isElementVideoRoom() ? (
-                        <VolumeOnIcon className="mx_DesktopShell_channelIcon" aria-hidden />
-                    ) : (
-                        <RoomIcon className="mx_DesktopShell_channelIcon" aria-hidden />
-                    )
+                    // The kind symbol stays beside a custom icon, which could belong to either kind of channel.
+                    <span className="mx_DesktopShell_channelSymbols">
+                        {room.isCallRoom() || room.isElementVideoRoom() ? (
+                            <VolumeOnIcon className="mx_DesktopShell_channelIcon" aria-hidden />
+                        ) : (
+                            <RoomIcon className="mx_DesktopShell_channelIcon" aria-hidden />
+                        )}
+                        {hasChannelIcon && (
+                            <RoomAvatar room={room} size="24px" className="mx_DesktopShell_channelImage" />
+                        )}
+                    </span>
                 ) : (
                     <WithPresenceIndicator room={room}>
                         {/* We hide this from the tabIndex list as it is a pointer shortcut and superfluous for a11y */}

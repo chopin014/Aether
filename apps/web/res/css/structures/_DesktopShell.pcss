@@ -686,11 +686,28 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         font: var(--cpd-font-body-md-regular);
     }
 
+    .mx_DesktopShell_channelSymbols {
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        gap: var(--cpd-space-1-5x);
+    }
+
     .mx_DesktopShell_channelIcon {
         height: 24px;
         width: 24px;
         flex-shrink: 0;
-        color: var(--cpd-color-icon-secondary);
+        color: var(--cpd-color-icon-tertiary);
+    }
+
+    /* Same rounded square as the channel's icon in the room list. */
+    .mx_DesktopShell_channelImage {
+        flex-shrink: 0;
+
+        &,
+        img {
+            border-radius: var(--cpd-space-1-5x);
+        }
     }
 
     .mx_EventTile {

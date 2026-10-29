@@ -243,7 +243,7 @@ describe("RoomHeader", () => {
         });
     });
 
-    it("shows a desktop channel's room avatar as its icon", () => {
+    it("shows a desktop channel's room avatar beside its kind symbol", () => {
         const getValue = SettingsStore.getValue.bind(SettingsStore);
         const setting = vi
             .spyOn(SettingsStore, "getValue")
@@ -259,7 +259,10 @@ describe("RoomHeader", () => {
                 }),
             ]);
             const { container } = render(<RoomHeader room={room} />, getWrapper());
-            expect(container.querySelector(".mx_BaseAvatar.mx_DesktopShell_channelIcon")).toBeInTheDocument();
+            const symbols = container.querySelector(".mx_DesktopShell_channelSymbols");
+            // The custom icon follows the text channel symbol rather than replacing it.
+            expect(symbols?.firstElementChild).toHaveClass("mx_DesktopShell_channelIcon");
+            expect(symbols?.lastElementChild).toHaveClass("mx_BaseAvatar", "mx_DesktopShell_channelImage");
         } finally {
             setting.mockRestore();
         }

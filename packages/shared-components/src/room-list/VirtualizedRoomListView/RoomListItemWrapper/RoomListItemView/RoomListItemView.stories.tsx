@@ -358,7 +358,7 @@ export const DesktopVoiceChannelOccupied: Story = {
     },
 };
 
-/** A channel with a room avatar shows it as its custom icon. */
+/** A channel with a room avatar shows it as its custom icon, after the symbol of its kind. */
 export const DesktopChannelWithIcon: Story = {
     args: {
         channelKind: "text",
