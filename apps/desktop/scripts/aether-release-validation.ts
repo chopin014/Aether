@@ -75,15 +75,12 @@ export async function validatePlatformArtifacts(
     platform: AetherReleasePlatform,
 ): Promise<void> {
     const names = new Set(await readdir(directory));
-    // electron-builder uses each Linux format's native architecture name.
     const installerNames =
-        platform === "win"
-            ? [`Aether-${version}-win-x64.exe`]
-            : [
-                  `Aether-${version}-linux-x86_64.AppImage`,
-                  `Aether-${version}-linux-amd64.deb`,
-                  `Aether-${version}-linux-x64.tar.gz`,
-              ];
+        platform === "win" ? [`Aether-${version}-win-x64.exe`] : [`Aether-${version}-linux-x86_64.AppImage`];
+
+    if (platform === "linux" && [...names].some((name) => name.endsWith(".deb") || name.endsWith(".tar.gz"))) {
+        throw new Error("Linux release assets must use AppImage for in-app updates");
+    }
 
     for (const installerName of installerNames) assertExists(names, installerName);
 
