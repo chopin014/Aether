@@ -1,9 +1,9 @@
 # Upstream copyright and license notices
 
 Aether is derived from [Element Web and Element Desktop](https://github.com/element-hq/element-web).
-Upstream copyright and license notices are retained below and in the source files. Full license texts are in
-[LICENSE-AGPL-3.0](LICENSE-AGPL-3.0), [LICENSE-GPL-3.0](LICENSE-GPL-3.0), and
-[LICENSE-COMMERCIAL](LICENSE-COMMERCIAL).
+Upstream copyright and license notices are retained below and in the source files. The open-source license texts are
+in [LICENSE-AGPL-3.0](LICENSE-AGPL-3.0) and [LICENSE-GPL-3.0](LICENSE-GPL-3.0). The inherited
+[commercial licensing notice](legal/upstream-commercial-notice.txt) is preserved separately.
 
 Copyright (c) 2014-2017 OpenMarket Ltd
 Copyright (c) 2017 Vector Creations Ltd
