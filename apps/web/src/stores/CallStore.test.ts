@@ -21,6 +21,8 @@ import {
 import { ElementCall } from "../models/Call";
 import { CallStore } from "./CallStore";
 import SdkConfig from "../SdkConfig";
+import SettingsStore from "../settings/SettingsStore";
+import { SettingLevel } from "../settings/SettingLevel";
 
 describe("CallStore", () => {
     let client: ReturnType<typeof setUpClientRoomAndStores>["client"];
@@ -36,6 +38,27 @@ describe("CallStore", () => {
     afterEach(() => {
         cleanUpClientRoomAndStores(client, room);
         vi.restoreAllMocks();
+    });
+
+    it.each([true, false])("keeps recovery markers until stale membership cleanup succeeds: %s", async (succeeds) => {
+        ElementCall.create(room);
+        const original = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+        vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+            name === "activeCallRoomIds" ? [room.roomId] : original(name, ...args),
+        );
+        const saved = vi.spyOn(SettingsStore, "setValue").mockResolvedValue(undefined);
+        const cleanup = vi.spyOn(ElementCall.prototype, "clean");
+        if (succeeds) cleanup.mockResolvedValue(undefined);
+        else cleanup.mockRejectedValue(new Error("offline"));
+        await setupAsyncStoreWithClient(CallStore.instance, client);
+        expect(cleanup).toHaveBeenCalled();
+        expect(saved).toHaveBeenCalledWith(
+            "activeCallRoomIds",
+            null,
+            SettingLevel.DEVICE,
+            succeeds ? [] : [room.roomId],
+        );
+        CallStore.instance.getCall(room.roomId)?.destroy();
     });
 
     it("constructs one call for one MatrixRTC session", async () => {

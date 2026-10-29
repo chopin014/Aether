@@ -78,13 +78,18 @@ export class CallStore extends AsyncStoreWithClient<EmptyObject> {
         // properly, and need to clean up after ourselves
         const uncleanlyDisconnectedRoomIds = SettingsStore.getValue("activeCallRoomIds");
         if (uncleanlyDisconnectedRoomIds.length) {
-            await Promise.all([
-                ...uncleanlyDisconnectedRoomIds.map(async (uncleanlyDisconnectedRoomId): Promise<void> => {
-                    logger.log(`Cleaning up call state for room ${uncleanlyDisconnectedRoomId}`);
-                    await this.getCall(uncleanlyDisconnectedRoomId)?.clean();
+            const results = await Promise.allSettled(
+                uncleanlyDisconnectedRoomIds.map(async (roomId) => {
+                    logger.log(`Cleaning up call state for room ${roomId}`);
+                    await this.getCall(roomId)?.clean();
                 }),
-                SettingsStore.setValue("activeCallRoomIds", null, SettingLevel.DEVICE, []),
-            ]);
+            );
+            const failedRoomIds = uncleanlyDisconnectedRoomIds.filter(
+                (_, index) => results[index].status === "rejected",
+            );
+            if (failedRoomIds.length)
+                logger.warn("Call membership cleanup will be retried at next startup", failedRoomIds);
+            await SettingsStore.setValue("activeCallRoomIds", null, SettingLevel.DEVICE, failedRoomIds);
         }
     }
 

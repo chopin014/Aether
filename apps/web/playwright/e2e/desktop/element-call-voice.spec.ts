@@ -727,7 +727,7 @@ test("startup restores the last text channel while clicking voice still joins", 
         })),
     });
     await app.viewSpaceByName("Startup space");
-    await app.viewRoomById(lastTextId);
+    await page.getByRole("button", { name: "Open room off-topic", exact: true }).click();
     await expect(page.getByRole("heading", { name: "off-topic", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Open room Lounge", exact: true }).click({ timeout: 15_000 });
     await expect(page.getByTestId("aether-call-stage")).toHaveAttribute("data-phase", "in_call", {
@@ -743,6 +743,21 @@ test("startup restores the last text channel while clicking voice still joins", 
     await expect(
         page.getByRole("group", { name: "User menu" }).getByRole("button", { name: "Disconnect" }),
     ).toHaveCount(0);
+    await expect
+        .poll(() =>
+            app.client.evaluate((client, id) => {
+                const room = client.getRoom(id);
+                return room
+                    ? client.matrixRTC
+                          .getRoomSession(room)
+                          .memberships.filter(
+                              (member) =>
+                                  member.userId === client.getUserId() && member.deviceId === client.getDeviceId(),
+                          ).length
+                    : undefined;
+            }, voiceId),
+        )
+        .toBe(0);
 });
 
 test("switches calls only after confirmation and remembers Don't ask again", async ({

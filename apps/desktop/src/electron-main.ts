@@ -51,6 +51,7 @@ import { getArgs } from "./args.js";
 import { type ConfigOptions, loadConfig } from "./config.js";
 import { setupGlobalShortcuts } from "./global-shortcuts/setupGlobalShortcuts.js";
 import { getDesktopShellTitleBarOptions } from "./desktop-shell-titlebar.js";
+import { setupGracefulQuit } from "./graceful-quit.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -351,9 +352,13 @@ app.on("ready", async () => {
     global.mainWindow.on("closed", () => {
         global.mainWindow = null;
     });
-    global.mainWindow.on("close", (e) =>
-        handleWindowClose(e, global.mainWindow, { appQuitting: global.appQuitting, hasTray: tray.hasTray() }),
-    );
+    global.mainWindow.on("close", (e) => {
+        if (global.appQuitting && gracefulQuit.isWaiting()) {
+            e.preventDefault();
+            return;
+        }
+        handleWindowClose(e, global.mainWindow, { appQuitting: global.appQuitting, hasTray: tray.hasTray() });
+    });
 
     if (process.platform === "win32") {
         // Handle forward/backward mouse buttons in Windows
@@ -414,9 +419,10 @@ app.on("activate", () => {
     global.mainWindow?.show();
 });
 
+const gracefulQuit = setupGracefulQuit(() => global.mainWindow);
+
 function beforeQuit(): void {
     global.appQuitting = true;
-    global.mainWindow?.webContents.send("before-quit");
 }
 
 app.on("before-quit", beforeQuit);

@@ -18,6 +18,7 @@ import {
 } from "matrix-js-sdk/src/matrix";
 import React from "react";
 import { logger } from "matrix-js-sdk/src/logger";
+import { CallStore } from "../../stores/CallStore";
 import { uniqueId } from "lodash";
 
 import BasePlatform, { UpdateCheckStatus, type UpdateStatus } from "../../BasePlatform";
@@ -139,10 +140,10 @@ export default class ElectronPlatform extends BasePlatform {
             this.electron.send("serverSupportedVersions", await MatrixClientPeg.get()?.getVersions());
         });
 
-        // try to flush the rageshake logs to indexeddb before quit.
-        this.electron.on("before-quit", function () {
+        this.electron.on("before-quit", async () => {
             logger.log("element-desktop closing");
-            rageshake.flush();
+            await Promise.allSettled([this.leaveCallsBeforeQuit(), Promise.resolve().then(() => rageshake.flush())]);
+            this.electron.send("quit-ready");
         });
 
         this.electron.on("update-downloaded", this.onUpdateDownloaded);
@@ -402,7 +403,12 @@ export default class ElectronPlatform extends BasePlatform {
         this.electron.send("check_updates");
     }
 
-    public installUpdate(): void {
+    private async leaveCallsBeforeQuit(): Promise<void> {
+        await Promise.allSettled([...CallStore.instance.connectedCalls].map((call) => call.disconnect()));
+    }
+
+    public async installUpdate(): Promise<void> {
+        await this.leaveCallsBeforeQuit();
         // IPC to the main process to install the update, since quitAndInstall
         // doesn't fire the before-quit event so the main process needs to know
         // it should exit.

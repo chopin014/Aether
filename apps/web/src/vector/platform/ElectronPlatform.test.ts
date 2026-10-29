@@ -24,6 +24,8 @@ import Modal from "../../Modal";
 import { DesktopCapturerSourcePicker } from "../../components/views/elements/DesktopCapturerSourcePicker";
 import ElectronPlatform from "./ElectronPlatform";
 import * as windowControlsTheme from "./watchWindowControlsTheme";
+import { CallStore } from "../../stores/CallStore";
+import type { Call } from "../../models/Call";
 import ToastStore from "../../stores/ToastStore.ts";
 
 vi.mock("../../rageshake/rageshake", () => ({
@@ -106,16 +108,37 @@ describe("ElectronPlatform", () => {
         }
     });
 
-    it("flushes rageshake before quitting", () => {
+    it("flushes rageshake before quitting", async () => {
         new ElectronPlatform();
         const [event, handler] = getElectronEventHandlerCall("before-quit")!;
         // correct event bound
         expect(event).toBeTruthy();
 
-        handler();
+        await handler();
 
+        expect(mockElectron.send).toHaveBeenCalledWith("quit-ready");
         expect(logSpy).toHaveBeenCalled();
         expect(rageshake.flush).toHaveBeenCalled();
+    });
+
+    it("waits for call leave before acknowledging shutdown", async () => {
+        const leave = Promise.withResolvers<void>();
+        const disconnect = vi.fn(() => leave.promise);
+        const calls = vi
+            .spyOn(CallStore.instance, "connectedCalls", "get")
+            .mockReturnValue(new Set([{ disconnect } as unknown as Call]));
+        try {
+            new ElectronPlatform();
+            const [, handler] = getElectronEventHandlerCall("before-quit")!;
+            const quitting = handler();
+            expect(disconnect).toHaveBeenCalledOnce();
+            expect(mockElectron.send).not.toHaveBeenCalledWith("quit-ready");
+            leave.resolve();
+            await quitting;
+            expect(mockElectron.send).toHaveBeenCalledWith("quit-ready");
+        } finally {
+            calls.mockRestore();
+        }
     });
 
     it("should load config", async () => {
@@ -248,9 +271,9 @@ describe("ElectronPlatform", () => {
             expect(mockElectron.send).toHaveBeenCalledWith("check_updates");
         });
 
-        it("installs update", () => {
+        it("installs update", async () => {
             const platform = new ElectronPlatform();
-            platform.installUpdate();
+            await platform.installUpdate();
             expect(mockElectron.send).toHaveBeenCalledWith("install_update");
         });
     });
@@ -418,9 +441,9 @@ describe("ElectronPlatform", () => {
     });
 
     describe("versions", () => {
-        it("calls install update", () => {
+        it("calls install update", async () => {
             const platform = new ElectronPlatform();
-            platform.installUpdate();
+            await platform.installUpdate();
 
             expect(mockElectron.send).toHaveBeenCalledWith("install_update");
         });

@@ -9,7 +9,15 @@ Please see LICENSE files in the repository root for full details.
 // @vitest-environment happy-dom
 
 import EventEmitter from "node:events";
-import { RoomType, type Room, RoomEvent, MatrixEvent, type IMyDevice, type RoomMember } from "matrix-js-sdk/src/matrix";
+import {
+    RoomType,
+    type Room,
+    RoomEvent,
+    EventType,
+    MatrixEvent,
+    type IMyDevice,
+    type RoomMember,
+} from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { Widget } from "matrix-widget-api";
 import {
@@ -1188,6 +1196,58 @@ describe("ElementCall with the React component embedding", () => {
         enabledSettings.delete("feature_element_call_react");
         cleanUpClientRoomAndStores(client, room);
         vi.useRealTimers();
+    });
+
+    it("cleans stale memberships only for this user's device while it is not in the call", async () => {
+        enabledSettings.add("feature_desktop_shell");
+        const session = client.matrixRTC.getRoomSession(room);
+        session.isJoined = vi.fn().mockReturnValue(false);
+        const member = (key: string, user: string, device: string, application = "m.call"): MatrixEvent =>
+            new MatrixEvent({
+                type: EventType.GroupCallMemberPrefix,
+                room_id: room.roomId,
+                state_key: key,
+                sender: user,
+                event_id: `$${key}`,
+                content: { application, device_id: device, call_id: "", expires: 14_400_000, foci_preferred: [] },
+            });
+        room.currentState.setStateEvents([
+            member("stale", client.getUserId()!, client.getDeviceId()!),
+            member("other-device", client.getUserId()!, "another-device"),
+            member("other-user", "@bob:example.org", client.getDeviceId()!),
+            member("other-app", client.getUserId()!, client.getDeviceId()!, "other-app"),
+        ]);
+        client.sendStateEvent.mockClear();
+        try {
+            await call.clean();
+            expect(client.sendStateEvent).toHaveBeenCalledOnce();
+            expect(client.sendStateEvent).toHaveBeenCalledWith(
+                room.roomId,
+                EventType.GroupCallMemberPrefix,
+                {},
+                "stale",
+            );
+            client.sendStateEvent.mockClear();
+            vi.mocked(session.isJoined).mockReturnValue(true);
+            await call.clean();
+            expect(client.sendStateEvent).not.toHaveBeenCalled();
+        } finally {
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
+    it("preserves the recovery marker when unloading before a server-confirmed hangup", () => {
+        enabledSettings.add("feature_desktop_shell");
+        call.handleJoined();
+        const connection = vi.fn();
+        call.on(CallEvent.ConnectionState, connection);
+        try {
+            window.dispatchEvent(new Event("beforeunload"));
+            expect(connection).not.toHaveBeenCalled();
+        } finally {
+            call.off(CallEvent.ConnectionState, connection);
+            enabledSettings.delete("feature_desktop_shell");
+        }
     });
 
     it("starts once the component reports ready, without widget messaging", async () => {

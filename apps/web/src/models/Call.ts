@@ -10,6 +10,7 @@ import {
     TypedEventEmitter,
     RoomEvent,
     RoomStateEvent,
+    EventType,
     type MatrixClient,
     type IMyDevice,
     type Room,
@@ -25,6 +26,7 @@ import {
     MatrixRTCSessionEvent,
     MatrixRTCSessionManagerEvents,
     type Transport,
+    type SessionMembershipData,
 } from "matrix-js-sdk/src/matrixrtc";
 
 // oxlint-disable-next-line no-restricted-imports
@@ -417,7 +419,15 @@ export abstract class Call extends TypedEventEmitter<CallEvent, CallEventHandler
     };
 
     private beforeUnload = (): void => {
-        this.setDisconnected();
+        if (!SettingsStore.getValue("feature_desktop_shell")) {
+            this.setDisconnected();
+            this.close();
+            return;
+        }
+        // Keep the persisted recovery marker: unloading cannot wait for a server-confirmed leave.
+        // The next startup must still know which membership to clean if shutdown was interrupted.
+        this.room.off(RoomEvent.MyMembership, this.onMyMembership);
+        window.removeEventListener("beforeunload", this.beforeUnload);
         this.close();
     };
 }
@@ -1515,7 +1525,23 @@ export class ElementCall extends Call {
         this.handleClose();
     };
 
-    public clean(): Promise<void> {
-        return Promise.resolve();
+    public async clean(): Promise<void> {
+        if (!SettingsStore.getValue("feature_desktop_shell") || this.connected || this.session.isJoined()) return;
+        const userId = this.client.getUserId();
+        const deviceId = this.client.getDeviceId();
+        if (!userId || !deviceId) return;
+        const staleMemberships = this.room.currentState
+            .getStateEvents(EventType.GroupCallMemberPrefix)
+            .filter((event) => {
+                const content = event.getContent<Partial<SessionMembershipData>>();
+                return (
+                    event.getSender() === userId && content.device_id === deviceId && content.application === "m.call"
+                );
+            });
+        await Promise.all(
+            staleMemberships.map((event) =>
+                this.client.sendStateEvent(this.roomId, EventType.GroupCallMemberPrefix, {}, event.getStateKey()),
+            ),
+        );
     }
 }
