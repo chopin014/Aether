@@ -24,8 +24,8 @@ Organize your community in a Space, move between conversations, and stay in voic
 
 ## Project status
 
-**Aether is in active development.** The desktop interface is still being built, and there is no production release yet.
-Some screens and interactions remain unfinished. Linux and Windows are the first release targets, with Linux x64
+**Aether is in active development.** The desktop interface is still being built, and some screens and interactions
+remain unfinished. Linux and Windows are the first release targets, with Linux x64
 AppImage and Windows x64 installer builds.
 
 Voice channels require a homeserver with MatrixRTC calling services configured. Aether is a client and does not

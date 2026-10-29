@@ -1,7 +1,7 @@
 # Native Node Modules
 
-For some features, the desktop version of Element can make use of native Node
-modules. These allow Element to integrate with the desktop in ways that a browser
+For some features, the desktop version of Aether can make use of native Node
+modules. These allow Aether to integrate with the desktop in ways that a browser
 cannot.
 
 Currently the only native module is [Seshat](https://github.com/matrix-org/seshat),
@@ -10,7 +10,7 @@ which adds support for local event indexing and full text search in E2E encrypte
 ## Prebuilt binaries
 
 Seshat is consumed via the [`@matrix-org/seshat`](https://www.npmjs.com/package/@matrix-org/seshat)
-npm package, which ships prebuilt binaries for every platform Element Desktop supports as
+npm package, which ships prebuilt binaries for every platform Aether desktop supports as
 per-platform `optionalDependencies`:
 
 | Platform | Architectures | SQLCipher |
@@ -31,16 +31,14 @@ supportedArchitectures:
     cpu: [x64, arm64]
 ```
 
-The CI workflows do this automatically. The electron-builder configuration prunes binaries
+Cross-platform custom builds must install the matching binaries before packaging. The electron-builder configuration prunes binaries
 for other platforms and architectures from the packaged app, so only the ones needed by the
 target end up in the package.
 
 ## Verifying a Linux package
 
-The Linux CI workflow checks every `.node` file in the packaged app with
-`apps/desktop/scripts/glibc-check.sh` to ensure it does not require a newer glibc than
-our oldest supported distribution ships. If you upgrade Seshat and this check fails,
-the `MAX_GLIBC` value in `.github/workflows/build_desktop_linux.yaml` documents the current ceiling.
+For a custom Linux package, use `apps/desktop/scripts/glibc-check.sh` to inspect packaged `.node` files.
+See [Aether releases](aether-releases.md) for the actual release targets and packaging checks.
 
 ## Building from source
 

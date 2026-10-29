@@ -6,7 +6,7 @@ Such a custom home page can be used to communicate helpful information and impor
 
 ## Configuration
 
-To provide a custom home page for all element-web/desktop users of a homeserver, include the following in `.well-known/matrix/client`:
+To provide a custom home page for all Aether users of a homeserver, include the following in `.well-known/matrix/client`:
 
 ```
 {
@@ -16,7 +16,7 @@ To provide a custom home page for all element-web/desktop users of a homeserver,
 }
 ```
 
-The home page can be overridden in `config.json` to provide all users of an element-web installation with the same experience:
+The home page can be overridden in `config.json` to provide all users of a deployment of the Aether renderer with the same experience:
 
 ```
 {
@@ -56,7 +56,7 @@ The following is a simple example for a custom `home.html`:
 
 When choosing colors, be aware that the home page may be displayed in either light or dark mode.
 
-It may be needed to set CORS headers for the `home.html` to enable element-desktop to fetch it, with e.g., the following nginx config:
+It may be needed to set CORS headers for the `home.html` to allow the desktop client to fetch it, with e.g., the following nginx config:
 
 ```
 add_header Access-Control-Allow-Origin *;

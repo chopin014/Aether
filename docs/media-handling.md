@@ -5,9 +5,8 @@ Not quite. Matrix uses something called a Matrix Content URI (better known as MX
 content, which is then converted to a regular HTTPS URL on the homeserver. However, sometimes that
 URL can change depending on deployment considerations.
 
-The react-sdk features a [customisation endpoint](https://github.com/vector-im/element-web/blob/develop/docs/customisations.md)
-for media handling where all conversions from MXC URI to HTTPS URL happen. This is to ensure that
-those obscure deployments can route all their media to the right place.
+Use the media helpers in `apps/web/src/customisations/Media.ts` for conversions from MXC URIs to HTTPS URLs.
+This keeps authenticated downloads and deployment-specific media routing consistent.
 
 For development, there are currently two functions available: `mediaFromMxc` and `mediaFromContent`.
 The `mediaFromMxc` function should be self-explanatory. `mediaFromContent` takes an event content as
