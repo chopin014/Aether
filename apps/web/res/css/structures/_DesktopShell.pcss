@@ -503,6 +503,10 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
             .mx_BaseAvatar {
                 --cpd-avatar-size: var(--mx-desktop-rail-icon);
 
+                /* The room's inline avatar size can be smaller than the rail tile. */
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
                 width: var(--mx-desktop-rail-icon);
                 height: var(--mx-desktop-rail-icon);
                 border-radius: inherit;

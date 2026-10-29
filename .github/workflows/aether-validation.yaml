@@ -68,6 +68,9 @@ jobs:
                   src/room/timeline/event-tile/EventTileView
                   src/room-list/VirtualizedRoomListView/RoomListItemWrapper/RoomListItemView
                   src/settings/MicrophoneSettingsView
+            - name: Desktop shell layout in Chromium
+              working-directory: apps/web
+              run: pnpm exec vitest run --project browser src/components/structures/DesktopShell.test.browser.tsx
             - name: Audio processing in Chromium
               working-directory: apps/web
               shell: bash
