@@ -1499,6 +1499,57 @@ describe("ElementCall with the React component embedding", () => {
         expect(onClose).toHaveBeenCalled();
     });
 
+    it.each(["already stopped", "missing component", "failed hangup"])(
+        "dismisses the desktop call and its persistent controls after %s",
+        async (failure) => {
+            const close = vi.fn();
+            call.on(CallEvent.Close, close);
+            const release = vi.spyOn(ActiveWidgetStore.instance, "destroyPersistentWidget");
+            ActiveWidgetStore.instance.setWidgetPersistence(call.widget.id, call.widget.roomId, true);
+            if (failure !== "already stopped") call.handleJoined();
+            if (failure === "failed hangup")
+                call.setComponentHandle({
+                    hangUp: vi.fn().mockRejectedValue(new Error("Engine stopped")),
+                    configureMedia: vi.fn().mockResolvedValue(undefined),
+                } as unknown as ElementCallHandle);
+            enabledSettings.add("feature_desktop_shell");
+            try {
+                await call.disconnect();
+                expect(call.connectionState).toBe(ConnectionState.Disconnected);
+                expect(close).toHaveBeenCalledOnce();
+                expect(release).toHaveBeenCalledWith(call.widget.id, call.widget.roomId);
+                expect(ActiveWidgetStore.instance.getWidgetPersistence(call.widget.id, call.widget.roomId)).toBe(false);
+            } finally {
+                enabledSettings.delete("feature_desktop_shell");
+                call.off(CallEvent.Close, close);
+                release.mockRestore();
+            }
+        },
+    );
+
+    it("cleans up a timed-out desktop hangup and shares concurrent leave requests", async () => {
+        const hangUp = vi.fn(() => new Promise<void>(() => {}));
+        call.setComponentHandle({ hangUp } as unknown as ElementCallHandle);
+        call.handleJoined();
+        enabledSettings.add("feature_desktop_shell");
+        vi.useFakeTimers();
+        const close = vi.fn();
+        call.on(CallEvent.Close, close);
+        try {
+            const first = call.disconnect();
+            const second = call.disconnect();
+            expect(hangUp).toHaveBeenCalledOnce();
+            await vi.advanceTimersByTimeAsync(16_000);
+            await Promise.all([first, second]);
+            expect(call.connectionState).toBe(ConnectionState.Disconnected);
+            expect(close).toHaveBeenCalledOnce();
+        } finally {
+            enabledSettings.delete("feature_desktop_shell");
+            call.off(CallEvent.Close, close);
+            vi.useRealTimers();
+        }
+    });
+
     it("fails to disconnect when no component is listening", async () => {
         call.handleJoined();
         await expect(call.disconnect()).rejects.toThrow("no Element Call component is mounted");

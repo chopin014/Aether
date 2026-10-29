@@ -1109,6 +1109,36 @@ export class ElementCall extends Call {
         ElementCall.createOrGetCallWidget(room.roomId, room.client);
     }
 
+    private desktopDisconnect?: Promise<void>;
+
+    /** Dismiss desktop calls even if their media engine has already stopped or cannot acknowledge hangup. */
+    public override async disconnect(): Promise<void> {
+        if (!ElementCall.usesReactComponent || !SettingsStore.getValue("feature_desktop_shell")) {
+            return super.disconnect();
+        }
+        if (this.desktopDisconnect) return this.desktopDisconnect;
+        this.desktopDisconnect = (async () => {
+            try {
+                if (this.connected) {
+                    this.connectionState = ConnectionState.Disconnecting;
+                    await this.requestHangUpFromReactComponent();
+                }
+            } catch (error) {
+                // Release the retained call even when its engine can no longer acknowledge leaving.
+                logger.warn("Closing an unresponsive desktop call", error);
+            } finally {
+                this.setDisconnected();
+                this.close();
+                ActiveWidgetStore.instance.destroyPersistentWidget(this.widget.id, this.widget.roomId);
+            }
+        })();
+        try {
+            await this.desktopDisconnect;
+        } finally {
+            this.desktopDisconnect = undefined;
+        }
+    }
+
     public async start(widgetGenerationParameters: WidgetGenerationParameters): Promise<ClientWidgetApi | null> {
         // Some parameters may only be set once the user has chosen to interact with the call, so they are
         // merged in at this point in case any of them have changed.
