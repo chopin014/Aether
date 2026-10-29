@@ -14,6 +14,7 @@ import {
     type ElementCallHostBridge,
     type ScreenShareState,
     type VoiceState,
+    type ConnectionStats,
 } from "@element-hq/element-call-component/api";
 import { logger } from "matrix-js-sdk/src/logger";
 
@@ -109,6 +110,11 @@ export class ElementWebHostBridge implements ElementCallHostBridge {
     /** Forward who is muted or deafened, so the channel list can show it beside each person. */
     public readonly notifyVoiceStates = async (states: VoiceState[]): Promise<void> => {
         this.call.handleVoiceStates(states);
+    };
+
+    /** Forward media transport measurements, which the model validates before showing them. */
+    public readonly notifyConnectionStats = async (stats: ConnectionStats): Promise<void> => {
+        this.call.handleConnectionStats(stats);
     };
 
     public readonly close = async (): Promise<void> => {

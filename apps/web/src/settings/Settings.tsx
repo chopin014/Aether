@@ -366,7 +366,10 @@ export interface Settings {
     "desktopVoiceSoundToggles": IBaseSetting<Record<string, boolean>>;
     "desktopMicrophoneVolume": IBaseSetting<number>;
     "desktopSpeakerVolume": IBaseSetting<number>;
-    "desktopInputProfile": IBaseSetting<"studio" | "custom">;
+    "desktopInputProfile": IBaseSetting<"voice_isolation" | "studio" | "custom">;
+    "desktopNoiseSuppression": IBaseSetting<"enhanced" | "standard" | "none">;
+    "desktopNoiseSuppressionStrength": IBaseSetting<number>;
+    "desktopVoiceDetection": IBaseSetting<boolean>;
     "desktopInputSensitivityAuto": IBaseSetting<boolean>;
     "desktopInputSensitivity": IBaseSetting<number>;
     "desktopInputMode": IBaseSetting<"voice_activity" | "push_to_talk">;
@@ -1444,9 +1447,25 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
         default: 100,
     },
+    // Voice isolation chooses the noise suppression, voice detection and sensitivity below by itself.
     "desktopInputProfile": {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
-        default: "custom",
+        default: "voice_isolation",
+    },
+    // Enhanced is DeepFilterNet running in the app; standard is the browser's own noise suppression.
+    "desktopNoiseSuppression": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: "enhanced",
+    },
+    // How strongly enhanced noise suppression lowers the noise, 0 to 100, where 100 removes it completely.
+    "desktopNoiseSuppressionStrength": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: 100,
+    },
+    // Whether only speech, as enhanced noise suppression hears it, opens the microphone in voice activity mode.
+    "desktopVoiceDetection": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: true,
     },
     "desktopInputSensitivityAuto": {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,

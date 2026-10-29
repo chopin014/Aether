@@ -1,8 +1,7 @@
 diff --git a/dist/element-call.js b/dist/element-call.js
-index e597a18e59..5c6cdf44f8 100644
 --- a/dist/element-call.js
 +++ b/dist/element-call.js
-@@ -42634,6 +42634,33 @@ function H4() {
+@@ -42634,6 +42634,33 @@
  }
  //#endregion
  //#region src/state/CallViewModel/remoteMembers/ConnectionFactory.ts
@@ -36,7 +35,7 @@ index e597a18e59..5c6cdf44f8 100644
  var U4 = class {
  	constructor(e, t, n, r, i, a, o) {
  		this.client = e, this.roomId = t, this.devices = n, this.processorState$ = r, this.controlledAudioDevices = a;
-@@ -42647,7 +42674,11 @@ var U4 = class {
+@@ -42647,7 +42674,11 @@
  				},
  				controlledAudioDevices: this.controlledAudioDevices
  			});
@@ -49,10 +48,139 @@ index e597a18e59..5c6cdf44f8 100644
  		};
  		this.livekitRoomFactory = o ?? s;
  	}
-@@ -43118,6 +43149,147 @@ function _3(e, t) {
+@@ -43118,6 +43149,277 @@
  }
  //#endregion
  //#region src/state/media/UserMediaViewModel.ts
++// Aether: media transport health, sampled once a second without overlapping getStats requests.
++function aetherObserveConnectionStats(room, ready, reconnecting, disconnected) {
++	const inFlight = aetherObserveConnectionStats.inFlight ??= new WeakSet();
++	return new C((observer) => {
++		let disposed = false, pending = false, generation = 0, transport;
++		let history = [], previous = new Map();
++		let rttMs = null, loss = null;
++		const numeric = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0;
++		const state = () => disconnected ? "disconnected" : reconnecting || room?.state === "reconnecting" || room?.state === "signalReconnecting" ? "reconnecting" : ready && room?.state === "disconnected" ? "disconnected" : ready && room?.state === "connected" ? "connected" : "connecting";
++		let lastState = state();
++		const report = () => {
++			const current = state();
++			if (current !== lastState || current !== "connected") {
++				generation++;
++				history = [];
++				previous = new Map();
++				rttMs = loss = null;
++			}
++			lastState = current;
++			const values = history.filter((value) => value !== null);
++			const livekit = room?.localParticipant.connectionQuality;
++			let quality = "unknown";
++			if (current === "connected") {
++				if (livekit === "lost") quality = "lost";
++				else if (rttMs > 500 || loss > 10) quality = "bad";
++				else if (livekit === "poor" || rttMs > 250 || loss > 5) quality = "poor";
++				else if (rttMs !== null || loss !== null) quality = "good";
++			}
++			observer.next({
++				state: current,
++				quality,
++				rttMs,
++				averageRttMs: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null,
++				outboundPacketLossPercent: loss,
++				history: [...history]
++			});
++		};
++		const sample = async () => {
++			if (disposed || pending || state() !== "connected" || inFlight.has(room)) return;
++			pending = true;
++			inFlight.add(room);
++			const started = generation;
++			try {
++				const manager = room?.engine?.pcManager;
++				if (manager?.publisher !== transport) {
++					transport = manager?.publisher;
++					history = [];
++					previous = new Map();
++					rttMs = loss = null;
++				}
++				const reports = await Promise.all([manager?.publisher?.getStats?.(), manager?.subscriber?.getStats?.()]);
++				if (disposed || generation !== started || state() !== "connected") return;
++				let roundTrip = null, lostPackets = 0, sentPackets = 0;
++				let weightedLoss = 0, weightedPackets = 0;
++				const next = new Map();
++				for (let index = 0; index < reports.length; index++) {
++					const stats = reports[index];
++					if (!stats?.forEach || !stats?.get) continue;
++					let selected;
++					stats.forEach((item) => {
++						if (item.type === "transport" && item.selectedCandidatePairId) selected = stats.get(item.selectedCandidatePairId);
++					});
++					if (!selected) stats.forEach((item) => {
++						if (item.type === "candidate-pair" && item.state === "succeeded" && (item.nominated || item.selected)) selected = item;
++					});
++					if (roundTrip === null && numeric(selected?.currentRoundTripTime)) roundTrip = selected.currentRoundTripTime * 1000;
++					// Remote-inbound reports describe our sent audio; received audio and video loss are different metrics.
++					if (index !== 0) continue;
++					stats.forEach((outbound) => {
++						if (outbound.type !== "outbound-rtp" || (outbound.kind ?? outbound.mediaType) !== "audio") return;
++						let remote = stats.get(outbound.remoteId);
++						if (!remote) stats.forEach((item) => {
++							if (item.type === "remote-inbound-rtp" && item.localId === outbound.id) remote = item;
++						});
++						if (roundTrip === null && numeric(remote?.roundTripTime)) roundTrip = remote.roundTripTime * 1000;
++						if (!numeric(outbound.packetsSent) || !remote) return;
++						// RTCP feedback can stop before the transport notices a broken network. Do not call old loss current.
++						if (numeric(outbound.timestamp) && numeric(remote.timestamp) && outbound.timestamp - remote.timestamp > 5000) return;
++						const current = { sent: outbound.packetsSent, lost: Number.isFinite(remote.packetsLost) ? remote.packetsLost : null };
++						const before = previous.get(outbound.id);
++						next.set(outbound.id, current);
++						const sent = before && current.sent >= before.sent ? current.sent - before.sent : 1;
++						if (sent <= 0) return;
++						// fractionLost is the server's RTCP interval; use counter deltas only when the browser omits it.
++						if (numeric(remote.fractionLost) && remote.fractionLost <= 1) {
++							weightedLoss += remote.fractionLost * sent;
++							weightedPackets += sent;
++						} else if (before && current.sent > before.sent && current.lost !== null && before.lost !== null) {
++							sentPackets += sent;
++							lostPackets += Math.max(0, current.lost - before.lost);
++						}
++					});
++				}
++				previous = next;
++				rttMs = roundTrip;
++				loss = sentPackets + weightedPackets > 0 ? Math.min(100, (lostPackets + weightedLoss) / (sentPackets + weightedPackets) * 100) : null;
++				history = [...history.slice(-29), rttMs];
++				report();
++			} catch {
++				if (!disposed && generation === started && state() === "connected") {
++					rttMs = loss = null;
++					previous = new Map();
++					history = [...history.slice(-29), null];
++					report();
++				}
++			} finally {
++				pending = false;
++				inFlight.delete(room);
++			}
++		};
++		const onState = () => { report(); void sample(); };
++		const onQuality = (_quality, participant) => {
++			if (participant === room?.localParticipant) report();
++		};
++		room?.on("connectionStateChanged", onState);
++		room?.on("connectionQualityChanged", onQuality);
++		report();
++		void sample();
++		const timer = setInterval(sample, 1000);
++		return () => {
++			disposed = true;
++			generation++;
++			clearInterval(timer);
++			room?.off("connectionStateChanged", onState);
++			room?.off("connectionQualityChanged", onQuality);
++		};
++	});
++}
++
 +// Aether's sidebar observes existing microphone tracks instead of delayed SFU speaker notifications.
 +let aetherSpeakingContext;
 +// Aether: how a remote device announces its deafen, as a LiveKit attribute or, where the JWT service does not let
@@ -82,6 +210,7 @@ index e597a18e59..5c6cdf44f8 100644
 +	if (settings.videoInput !== undefined && yt.getValue() !== device(settings.videoInput)) yt.setValue(device(settings.videoInput));
 +	if (settings.autoGainControl !== undefined && b.getValue() !== settings.autoGainControl) b.setValue(settings.autoGainControl);
 +	if (settings.echoCancellation !== undefined && Ae.getValue() !== settings.echoCancellation) Ae.setValue(settings.echoCancellation);
++	if (settings.noiseSuppression !== undefined && Ye.getValue() !== settings.noiseSuppression) Ye.setValue(settings.noiseSuppression);
 +	if (settings.playbackVolume !== undefined) aetherAudio.playbackVolume = Math.min(1, Math.max(0, settings.playbackVolume));
 +	if (settings.microphoneProcessor !== undefined) aetherAudio.microphoneProcessor = settings.microphoneProcessor;
 +	if (settings.mirrorLocalVideo !== undefined) aetherAudio.mirrorLocalVideo = settings.mirrorLocalVideo;
@@ -197,7 +326,7 @@ index e597a18e59..5c6cdf44f8 100644
  function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType: i, ...a }) {
  	let { participant$: o } = a, s = e.behavior(o.pipe(wA((e) => (e && aL(e)) ?? Ck(void 0)))), c = new He(), l = new Rt(NaN), u = (e, t) => e.behavior(Lk([o, Et.value$]).pipe(wA(([e, n]) => e && n ? p3(e, t, i) : Ck(void 0))));
  	return {
-@@ -43127,6 +43299,7 @@ function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType:
+@@ -43127,6 +43429,7 @@
  			videoSource: Z.Source.Camera
  		}),
  		type: "user",
@@ -205,7 +334,7 @@ index e597a18e59..5c6cdf44f8 100644
  		speaking$: e.behavior(o.pipe(wA((e) => e ? iL(e, J.IsSpeakingChanged).pipe(F((e) => e.isSpeaking)) : Ck(!1)))),
  		audioEnabled$: e.behavior(s.pipe(F((e) => e?.microphoneTrack?.isMuted === !1))),
  		videoEnabled$: e.behavior(s.pipe(F((e) => e?.cameraTrack?.isMuted === !1))),
-@@ -43153,7 +43326,7 @@ function y3(e, { mediaDevices: t, ...n }) {
+@@ -43153,7 +43456,7 @@
  	return {
  		...r,
  		local: !0,
@@ -214,7 +343,7 @@ index e597a18e59..5c6cdf44f8 100644
  		alwaysShow$: se.value$,
  		setAlwaysShow: se.setValue,
  		switchCamera$: e.behavior(Wt === "desktop" ? Ck(null) : i.pipe(F((e) => {
-@@ -43209,7 +43382,7 @@ function x3(e, { pretendToBeDisconnected$: t, ...n }) {
+@@ -43209,7 +43512,7 @@
  		...r,
  		...b3(e, {
  			pretendToBeDisconnected$: t,
@@ -223,7 +352,7 @@ index e597a18e59..5c6cdf44f8 100644
  		}),
  		local: !1,
  		speaking$: e.behavior(t.pipe(wA((e) => e ? Ck(!1) : r.speaking$))),
-@@ -43244,7 +43417,7 @@ function w3(e, { pretendToBeDisconnected$: t, ...n }) {
+@@ -43244,7 +43547,7 @@
  		...S3(e, n),
  		...b3(e, {
  			pretendToBeDisconnected$: t,
@@ -232,10 +361,18 @@ index e597a18e59..5c6cdf44f8 100644
  		}),
  		local: !1,
  		videoEnabled$: e.behavior(t.pipe(F((e) => !e))),
-@@ -43611,6 +43784,91 @@ function k3(e, t, n, r, i, a, o, s, c) {
+@@ -43611,6 +43914,99 @@
  		let t = {};
  		return e instanceof hX ? { transportError: e } : e === C4.Waiting ? null : (e.matrix instanceof hX && (t.matrixError = e.matrix), e.media instanceof hX ? t.publishError = e.media : typeof e.media == "object" && e.media.connection instanceof hX && (t.connectionError = e.media.connection), t);
  	})), null);
++	// Aether: membership joins before media connects. Forward transport health independently of notifyJoined.
++	if (p.notifyConnectionStats) {
++		Lk([A.connection$, A.connected$, A.reconnecting$, A.disconnected$]).pipe(
++			wA(([connection, ready, reconnecting, disconnected]) => aetherObserveConnectionStats(connection?.livekitRoom, ready, reconnecting, disconnected)),
++			e.bind()
++		).subscribe((stats) => Promise.resolve(p.notifyConnectionStats(stats)).catch((error) => l.warn("Could not send connection statistics to the host", error)));
++		e.onEnd(() => Promise.resolve(p.notifyConnectionStats({ state: "disconnected", quality: "unknown", rttMs: null, averageRttMs: null, outboundPacketLossPercent: null, history: [] })).catch((error) => l.warn("Could not reset connection statistics", error)));
++	}
 +	// Forward real, unmuted speech activity to component hosts such as Aether's channel list.
 +	if (p.notifySpeakingUsers) {
 +		const notifySpeakingUsers = (userIds) => {
@@ -324,7 +461,7 @@ index e597a18e59..5c6cdf44f8 100644
  	return {
  		autoLeave$: ie,
  		ringingVm$: de,
-@@ -48021,7 +48279,9 @@ function j7(e, t, n) {
+@@ -48021,7 +48417,9 @@
  		themeChange$: new FO(1),
  		join$: new He(),
  		hangUp$: new He(),
@@ -335,7 +472,7 @@ index e597a18e59..5c6cdf44f8 100644
  	}));
  	z(() => {
  		n !== void 0 && i.themeChange$.next({
-@@ -48045,6 +48305,17 @@ function j7(e, t, n) {
+@@ -48045,6 +48443,21 @@
  		notifyDeviceMute: async (e) => {
  			await r.current.notifyDeviceMute?.(e);
  		},
@@ -346,6 +483,10 @@ index e597a18e59..5c6cdf44f8 100644
 +			let e = r.current.notifyScreenShare;
 +			return e === void 0 ? void 0 : async (state) => await e(state);
 +		},
++		get notifyConnectionStats() {
++			let e = r.current.notifyConnectionStats;
++			return e === void 0 ? void 0 : async (stats) => await e(stats);
++		},
 +		get notifyVoiceStates() {
 +			let e = r.current.notifyVoiceStates;
 +			return e === void 0 ? void 0 : async (states) => await e(states);
@@ -353,7 +494,7 @@ index e597a18e59..5c6cdf44f8 100644
  		get close() {
  			let e = r.current.close;
  			return e === void 0 ? void 0 : async () => await e();
-@@ -48061,7 +48332,20 @@ function j7(e, t, n) {
+@@ -48061,7 +48474,20 @@
  	return on(t, () => ({
  		join: async (e) => await A7(i.join$, "join a call", e),
  		hangUp: async () => await A7(i.hangUp$, "hang up", {}),
@@ -376,20 +517,18 @@ index e597a18e59..5c6cdf44f8 100644
  }
  //#endregion
 diff --git a/dist/types/component/api.d.ts b/dist/types/component/api.d.ts
-index 313605238c..f2f838f070 100644
 --- a/dist/types/component/api.d.ts
 +++ b/dist/types/component/api.d.ts
-@@ -21,7 +21,7 @@ import type { MatrixClient } from "matrix-js-sdk";
+@@ -21,7 +21,7 @@
  import type { UrlProperties } from "../src/UrlParams";
  import type { ElementCallHandle, ElementCallHostBridge } from "./host";
  import { BackgroundStyle, configurationForIntent, HeaderStyle, type UrlConfiguration, UserIntent } from "../src/UrlConfiguration";
 -export type { ElementCallHandle, ElementCallHostBridge } from "./host";
-+export type { ElementCallMediaSettings, ElementCallHandle, ElementCallHostBridge, ElementCallMicrophoneProcessor, ScreenShareState, VoiceState, } from "./host";
++export type { ElementCallMediaSettings, ElementCallHandle, ElementCallHostBridge, ElementCallMicrophoneProcessor, ScreenShareState, VoiceState, ConnectionStats, } from "./host";
  export type { DeviceMuteRequest, DeviceMuteState } from "../src/HostBridge";
  export type { JoinCallData } from "../src/widget";
  export type { ConfigOptions } from "../src/config/ConfigOptions";
 diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
-index 0d9ec1bba7..d3e98307f6 100644
 --- a/dist/types/component/host.d.ts
 +++ b/dist/types/component/host.d.ts
 @@ -10,8 +10,9 @@
@@ -397,13 +536,13 @@ index 0d9ec1bba7..d3e98307f6 100644
   */
  import { type Ref } from "react";
 -import { type DeviceMuteRequest, type DeviceMuteState, type HostBridge } from "../src/HostBridge";
-+import { type DeviceMuteRequest, type DeviceMuteState, type HostBridge, type ScreenShareState, type VoiceState } from "../src/HostBridge";
++import { type DeviceMuteRequest, type DeviceMuteState, type HostBridge, type ScreenShareState, type VoiceState, type ConnectionStats } from "../src/HostBridge";
  import { type JoinCallData } from "../src/widget";
-+export type { ScreenShareState, VoiceState };
++export type { ScreenShareState, VoiceState, ConnectionStats };
  /**
   * What Element Call tells the application hosting it as a component.
   * Everything is optional: a host implements what it wants to hear about.
-@@ -33,6 +34,12 @@ export interface ElementCallHostBridge {
+@@ -33,6 +34,14 @@
      notifyHungUp?(): Promise<void>;
      /** Tells the host the user's current audio and video mute state. */
      notifyDeviceMute?(state: DeviceMuteState): Promise<void>;
@@ -413,10 +552,12 @@ index 0d9ec1bba7..d3e98307f6 100644
 +    notifyScreenShare?(state: ScreenShareState): Promise<void>;
 +    /** Who is muted or deafened, sorted by user, sent whenever it changes. Empty once the call ends. */
 +    notifyVoiceStates?(states: VoiceState[]): Promise<void>;
++    /** Media transport health, cleared on reconnect and when the call ends. */
++    notifyConnectionStats?(stats: ConnectionStats): Promise<void>;
      /**
       * Asks the host to close Element Call: to unmount the component. Its
       * presence is what makes Element Call offer a close button on its error
-@@ -74,6 +81,50 @@ export interface ElementCallHandle {
+@@ -74,6 +83,52 @@
       * reports the state that results.
       */
      setDeviceMute(request: DeviceMuteRequest): Promise<DeviceMuteState>;
@@ -458,6 +599,8 @@ index 0d9ec1bba7..d3e98307f6 100644
 +    videoInput?: string;
 +    autoGainControl?: boolean;
 +    echoCancellation?: boolean;
++    /** The browser's own noise suppression. Hosts that remove noise themselves turn it off, as doing both harms speech. */
++    noiseSuppression?: boolean;
 +    /** How loud the call is played, from 0 to 1, on top of each person's own volume. */
 +    playbackVolume?: number;
 +    /** Whether your own camera is shown flipped horizontally, as in a mirror. On unless turned off. */
@@ -468,7 +611,6 @@ index 0d9ec1bba7..d3e98307f6 100644
  /**
   * The {@link HostBridge} the rest of Element Call sees, built from what a
 diff --git a/dist/types/src/HostBridge.d.ts b/dist/types/src/HostBridge.d.ts
-index b95e092b28..e80bebf411 100644
 --- a/dist/types/src/HostBridge.d.ts
 +++ b/dist/types/src/HostBridge.d.ts
 @@ -1,5 +1,22 @@
@@ -494,7 +636,23 @@ index b95e092b28..e80bebf411 100644
  /** The mute state Element Call and its host exchange. */
  export type DeviceMuteState = {
      audio_enabled: boolean;
-@@ -48,6 +65,12 @@ export interface HostBridge {
+@@ -21,6 +38,15 @@
+     data: Data;
+     /** Acknowledges the request. Should be called exactly once. */
+     reply(reply: Reply): void;
++}
++/** This device's media connection to the call server, sampled once a second. Missing measurements are null. */
++export interface ConnectionStats {
++    state: "connecting" | "connected" | "reconnecting" | "disconnected";
++    quality: "unknown" | "good" | "poor" | "bad" | "lost";
++    rttMs: number | null;
++    averageRttMs: number | null;
++    outboundPacketLossPercent: number | null;
++    history: readonly (number | null)[];
+ }
+ /**
+  * Element Call's view of the application hosting it.
+@@ -48,6 +74,14 @@
      notifyHungUp(): Promise<void>;
      /** Tells the host the user's current audio and video mute state. */
      notifyDeviceMute(state: DeviceMuteState): Promise<void>;
@@ -504,10 +662,12 @@ index b95e092b28..e80bebf411 100644
 +    readonly notifyScreenShare?: (state: ScreenShareState) => Promise<void>;
 +    /** Who is muted or deafened in the call, for component hosts that want to hear about it. */
 +    readonly notifyVoiceStates?: (states: VoiceState[]) => Promise<void>;
++    /** Media transport health for component hosts. Independent of Matrix membership. */
++    readonly notifyConnectionStats?: (stats: ConnectionStats) => Promise<void>;
      /**
       * Asks the host to close Element Call, and stops communicating with it. No
       * further calls should be made on this bridge afterwards.
-@@ -67,6 +90,12 @@ export interface HostBridge {
+@@ -67,6 +101,12 @@
      hangUp$: Observable<HostRequest<Record<string, never>>>;
      /** The host wants to change, or read back, the device mute state. */
      deviceMute$: Observable<HostRequest<DeviceMuteRequest, DeviceMuteState>>;

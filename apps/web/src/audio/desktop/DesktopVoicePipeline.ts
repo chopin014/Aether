@@ -27,6 +27,9 @@ const WATCHED_SETTINGS = [
     "desktopMicrophoneVolume",
     "desktopSpeakerVolume",
     "desktopInputProfile",
+    "desktopNoiseSuppression",
+    "desktopNoiseSuppressionStrength",
+    "desktopVoiceDetection",
     "desktopInputSensitivityAuto",
     "desktopInputSensitivity",
     "desktopInputMode",
@@ -36,20 +39,43 @@ const WATCHED_SETTINGS = [
 
 /** The gate settings the stored preferences ask for. Shared with the microphone test in the settings. */
 export function getMicrophoneGateConfig(): MicrophoneGateConfig {
+    const volume = SettingsStore.getValue("desktopMicrophoneVolume") / 100;
     const pushToTalk = SettingsStore.getValue("desktopInputMode") === "push_to_talk";
-    let threshold: MicrophoneGateConfig["threshold"] = "auto";
-    // Studio sends the microphone as it is, so it never gates.
-    if (SettingsStore.getValue("desktopInputProfile") === "studio") threshold = null;
-    else if (!SettingsStore.getValue("desktopInputSensitivityAuto")) {
-        threshold = SettingsStore.getValue("desktopInputSensitivity");
+    switch (SettingsStore.getValue("desktopInputProfile")) {
+        // Studio sends the microphone as it is, so it never gates.
+        case "studio":
+            return { volume, threshold: null, pushToTalk, noiseSuppression: null, voiceDetection: false };
+        case "voice_isolation":
+            return { volume, threshold: "auto", pushToTalk, noiseSuppression: 100, voiceDetection: true };
     }
-    return { volume: SettingsStore.getValue("desktopMicrophoneVolume") / 100, threshold, pushToTalk };
+    const enhanced = SettingsStore.getValue("desktopNoiseSuppression") === "enhanced";
+    return {
+        volume,
+        threshold: SettingsStore.getValue("desktopInputSensitivityAuto")
+            ? "auto"
+            : SettingsStore.getValue("desktopInputSensitivity"),
+        pushToTalk,
+        noiseSuppression: enhanced ? SettingsStore.getValue("desktopNoiseSuppressionStrength") : null,
+        voiceDetection: enhanced && SettingsStore.getValue("desktopVoiceDetection"),
+    };
 }
 
 /**
- * Applies the voice and video settings to every Element Call on screen: the devices, echo cancellation and
- * automatic gain, mirroring your own video, the speaker volume, and a microphone processor for the microphone volume, sensitivity and
- * push to talk. Does nothing unless the desktop shell is on.
+ * Whether the browser should suppress noise itself. Only when asked for: under enhanced noise suppression it
+ * would distort the speech the model then has to clean up.
+ */
+export function getBrowserNoiseSuppression(): boolean {
+    return (
+        SettingsStore.getValue("desktopInputProfile") === "custom" &&
+        SettingsStore.getValue("desktopNoiseSuppression") === "standard"
+    );
+}
+
+/**
+ * Applies the voice and video settings to every Element Call on screen: the devices, echo cancellation,
+ * automatic gain and the browser's noise suppression, mirroring your own video, the speaker volume, and a
+ * microphone processor for noise suppression, the microphone volume, sensitivity and push to talk. Does nothing
+ * unless the desktop shell is on.
  */
 export class DesktopVoicePipeline {
     private static current?: DesktopVoicePipeline;
@@ -147,6 +173,7 @@ export class DesktopVoicePipeline {
             videoInput: MediaDeviceHandler.getVideoInput(),
             autoGainControl: MediaDeviceHandler.getAudioAutoGainControl(),
             echoCancellation: MediaDeviceHandler.getAudioEchoCancellation(),
+            noiseSuppression: getBrowserNoiseSuppression(),
             playbackVolume: SettingsStore.getValue("desktopSpeakerVolume") / 100,
             mirrorLocalVideo: SettingsStore.getValue("VideoView.flipVideoHorizontally"),
             microphoneProcessor: this.processor,

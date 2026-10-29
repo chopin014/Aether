@@ -128,6 +128,9 @@ test("global holds control the actual transmitted microphone while another windo
         await app.settings.setValue("desktopPushToTalkKey", null, SettingLevel.DEVICE, "Control+Shift+KeyV");
         await app.settings.setValue("desktopPushToTalkReleaseDelay", null, SettingLevel.DEVICE, 0);
         await app.settings.setValue("desktopInputMode", null, SettingLevel.DEVICE, "push_to_talk");
+        // The fake microphone's beep is not speech, so noise suppression would keep it out of the call.
+        await app.settings.setValue("desktopInputProfile", null, SettingLevel.DEVICE, "custom");
+        await app.settings.setValue("desktopNoiseSuppression", null, SettingLevel.DEVICE, "none");
         await app.settings.setValue("desktopShortcutBindings", null, SettingLevel.DEVICE, {
             push_to_mute: "Control+Shift+KeyB",
             toggle_mute: "Control+Shift+KeyM",

@@ -48,6 +48,7 @@ import DMRoomMap from "../utils/DMRoomMap.ts";
 import { type WidgetMessaging, WidgetMessagingEvent } from "../stores/widgets/WidgetMessaging.ts";
 import { BugReportEndpointURLLocal } from "../IConfigOptions.ts";
 import { DesktopVoicePipeline } from "../audio/desktop/DesktopVoicePipeline";
+import { type CallConnectionStats, emptyCallConnectionStats, isCallConnectionStats } from "./CallConnectionStats";
 // From the component package's `api` entry point, which carries the types and enums without the
 // component: `BackgroundStyle` is needed as a value here, on the widget path, where the component
 // itself must not be loaded.
@@ -62,6 +63,8 @@ import {
     type VoiceState,
     type UserIntent,
 } from "@element-hq/element-call-component/api";
+
+export type { CallConnectionStats } from "./CallConnectionStats";
 
 const TIMEOUT_MS = 16000;
 const logger = rootLogger.getChild("models/Call");
@@ -109,6 +112,7 @@ export enum CallEvent {
     SpeakingUsers = "speaking_users",
     ScreenShare = "screen_share",
     VoiceStates = "voice_states",
+    ConnectionStats = "connection_stats",
 }
 
 interface CallEventHandlerMap {
@@ -124,6 +128,7 @@ interface CallEventHandlerMap {
     [CallEvent.SpeakingUsers]: (userIds: ReadonlySet<string>) => void;
     [CallEvent.ScreenShare]: (state: ScreenShareState) => void;
     [CallEvent.VoiceStates]: (states: ReadonlyMap<string, VoiceState>) => void;
+    [CallEvent.ConnectionStats]: (stats: CallConnectionStats) => void;
 }
 
 const NO_VOICE_STATES: ReadonlyMap<string, VoiceState> = new Map();
@@ -735,6 +740,31 @@ export class ElementCall extends Call {
      */
     private componentHandle: ElementCallHandle | null = null;
     private stopFollowingVoiceSettings?: () => void;
+    private _connectionStats = emptyCallConnectionStats("disconnected");
+
+    /** Real media transport health, separately from joining the Matrix call. */
+    public get connectionStats(): CallConnectionStats {
+        return this._connectionStats;
+    }
+
+    /** Receives validated media measurements from the embedded call, without changing call membership. */
+    public handleConnectionStats(stats: unknown): void {
+        if (this.destroyed || !isCallConnectionStats(stats)) return;
+        const previous = this._connectionStats;
+        if (
+            previous.state === stats.state &&
+            previous.quality === stats.quality &&
+            previous.rttMs === stats.rttMs &&
+            previous.averageRttMs === stats.averageRttMs &&
+            previous.outboundPacketLossPercent === stats.outboundPacketLossPercent &&
+            previous.history.length === stats.history.length &&
+            previous.history.every((value, index) => value === stats.history[index])
+        ) {
+            return;
+        }
+        this._connectionStats = { ...stats, history: [...stats.history] };
+        this.emit(CallEvent.ConnectionStats, this._connectionStats);
+    }
 
     /**
      * Registers (or, with null, forgets) the mounted React component's handle. Stable, so that it can be
@@ -742,6 +772,9 @@ export class ElementCall extends Call {
      * when a tile that shows the call is replaced by another.
      */
     public readonly setComponentHandle = (handle: ElementCallHandle | null): void => {
+        if (handle !== this.componentHandle) {
+            this.handleConnectionStats(emptyCallConnectionStats(handle ? "connecting" : "disconnected"));
+        }
         this.componentHandle = handle;
         // The desktop shell's voice settings follow the component for as long as it is mounted.
         this.stopFollowingVoiceSettings?.();
@@ -1173,6 +1206,7 @@ export class ElementCall extends Call {
         this.ready = Promise.withResolvers<void>();
         this.frozenComponentOptions = null;
         this._deviceMuteState = undefined;
+        this.handleConnectionStats(emptyCallConnectionStats("disconnected"));
         this.handleScreenShare(NO_SCREEN_SHARE);
         this.handleVoiceStates([]);
         super.close();
@@ -1185,6 +1219,7 @@ export class ElementCall extends Call {
     public destroy(): void {
         // close() above may re-enter here via checkDestroy while destroying
         if (this.destroyed) return;
+        this.handleConnectionStats(emptyCallConnectionStats("disconnected"));
         this.destroyed = true;
 
         this.componentHandle = null;
@@ -1243,7 +1278,15 @@ export class ElementCall extends Call {
         // Joining and requesting persistence are separate callbacks. Keep the mounted call alive
         // before connected listeners can navigate away, even if the persistence request is delayed.
         ActiveWidgetStore.instance.setWidgetPersistence(this.widget.id, this.widget.roomId, true);
+        if (!ElementCall.usesReactComponent) this.handleConnectionStats(emptyCallConnectionStats("connected"));
+        else if (this.connectionStats.state === "disconnected")
+            this.handleConnectionStats(emptyCallConnectionStats("connecting"));
         this.setConnected();
+    }
+
+    protected override setDisconnected(): void {
+        this.handleConnectionStats(emptyCallConnectionStats("disconnected"));
+        super.setDisconnected();
     }
 
     /** The user has hung up (`HostBridge.notifyHungUp` / `im.vector.hangup`). */

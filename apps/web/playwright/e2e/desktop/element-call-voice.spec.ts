@@ -41,6 +41,17 @@ async function settle(page: Page): Promise<void> {
     await closeReleaseAnnouncementIfExists(page, "Introducing Sections");
 }
 
+/**
+ * Sends Chromium's fake microphone without noise suppression. Its beep is not speech, so Voice Isolation would
+ * rightly keep it out of the call, while these tests need sound to arrive.
+ */
+async function sendMicrophoneUnprocessed(page: Page): Promise<void> {
+    await page.evaluate(async (level) => {
+        await window.mxSettingsStore.setValue("desktopInputProfile", null, level, "custom");
+        await window.mxSettingsStore.setValue("desktopNoiseSuppression", null, level, "none");
+    }, SettingLevel.DEVICE);
+}
+
 /** Observe actual inbound audio rather than treating a participant tile as proof of media. */
 async function observePeers(page: Page): Promise<void> {
     const instrument = (): void => {
@@ -105,6 +116,7 @@ test(
         const onRequest = (request: Request): void => checkRequest(request.url());
         page.on("request", onRequest);
         await settle(page);
+        await sendMicrophoneUnprocessed(page);
         await observePeers(page);
         const bob = await homeserver.registerUser("bob-desktop-voice", "password", "Bob");
         const bobContext = await browser.newContext({
@@ -119,6 +131,7 @@ test(
             await bobPage.goto("/");
             await bobPage.waitForSelector(".mx_MatrixChat");
             await settle(bobPage);
+            await sendMicrophoneUnprocessed(bobPage);
             await observePeers(bobPage);
             const bobApp = new ElementAppPage(bobPage);
             // Reproduce existing Element clients: a per-join key UUID with a legacy membership/backend ID.
@@ -262,6 +275,87 @@ test(
             await expect.poll(() => decodedAudioEnergy(page), { timeout: 15_000 }).toBeGreaterThan(energyAfterUndeafen);
             await expect.poll(() => soundResponses.size).toBeGreaterThanOrEqual(5);
             expect([...soundResponses.values()].every((status) => status === 200 || status === 206)).toBe(true);
+
+            await dock.getByRole("button", { name: "Advanced noise suppression", exact: true }).click();
+            const noisePanel = page.getByRole("dialog", { name: "Advanced noise suppression", exact: true });
+            const suppression = noisePanel.getByRole("switch", { name: "Noise suppression", exact: true });
+            await expect(suppression).not.toBeChecked();
+            const denoiser = page.waitForResponse((response) => /aether-denoiser\.[^/]+\.wasm$/.test(response.url()));
+            await suppression.check();
+            expect((await denoiser).status()).toBe(200);
+            const strength = noisePanel.getByRole("slider", { name: "Suppression strength", exact: true });
+            await expect(strength).toBeEnabled();
+            await strength.press("End");
+            for (let value = 99; value >= 80; value--) {
+                await strength.press("ArrowLeft");
+                await expect(strength).toHaveValue(String(value));
+            }
+            await expect(noisePanel.getByText("80%", { exact: true })).toBeVisible();
+            await expect
+                .poll(() =>
+                    page.evaluate(() => {
+                        // The fixture declares only writes; read these two settings from the app's exposed store.
+                        const settings = window.mxSettingsStore as typeof window.mxSettingsStore & {
+                            getValue: (name: string) => unknown;
+                        };
+                        return {
+                            suppression: settings.getValue("desktopNoiseSuppression"),
+                            strength: settings.getValue("desktopNoiseSuppressionStrength"),
+                        };
+                    }),
+                )
+                .toEqual({ suppression: "enhanced", strength: 80 });
+            await noisePanel.getByRole("button", { name: "Let's check", exact: true }).click();
+            await expect(noisePanel.getByRole("meter", { name: "Microphone level", exact: true })).toBeVisible();
+            await expect(dock.getByRole("button", { name: "Undeafen", exact: true })).toHaveAttribute(
+                "aria-pressed",
+                "true",
+            );
+            await expect(noisePanel.getByRole("alert")).toHaveCount(0);
+            await noisePanel.getByRole("button", { name: "Stop testing", exact: true }).click();
+            await expect(dock.getByRole("button", { name: "Deafen", exact: true })).toHaveAttribute(
+                "aria-pressed",
+                "false",
+            );
+            await expect(dock.getByRole("button", { name: "Mute", exact: true })).toBeVisible();
+            // Restore the unprocessed synthetic beep for the rest of the real-media checks.
+            await suppression.uncheck();
+            await page.keyboard.press("Escape");
+            await expect(noisePanel).toHaveCount(0);
+            await expect(dock.getByRole("button", { name: "Advanced noise suppression", exact: true })).toBeFocused();
+
+            await dock.getByRole("button", { name: "Connection", exact: true }).click();
+            const connectionPanel = page.getByRole("dialog", { name: "Connection", exact: true });
+            await expect(connectionPanel.getByRole("img", { name: "Recent ping", exact: true })).toBeVisible();
+            await expect(connectionPanel.getByText("Last ping", { exact: true })).toBeVisible();
+            await expect(connectionPanel.getByRole("definition").nth(1)).toHaveText(/^\d+ ms$/, { timeout: 30_000 });
+            await expect(connectionPanel.getByRole("definition").first()).toHaveText(/^\d+ ms$/);
+            // The displayed samples come from these real call transports, without a fabricated telemetry source.
+            await expect
+                .poll(() =>
+                    page.evaluate(async () => {
+                        const peers =
+                            (window as Window & { __desktopVoicePeers?: RTCPeerConnection[] }).__desktopVoicePeers ??
+                            [];
+                        for (const peer of peers) {
+                            const stats = await peer.getStats();
+                            for (const entry of stats.values()) {
+                                if (
+                                    entry.type === "candidate-pair" &&
+                                    entry.state === "succeeded" &&
+                                    typeof entry.currentRoundTripTime === "number"
+                                ) {
+                                    return true;
+                                }
+                            }
+                        }
+                        return false;
+                    }),
+                )
+                .toBe(true);
+            await page.keyboard.press("Escape");
+            await expect(connectionPanel).toHaveCount(0);
+
             await page.getByRole("button", { name: "Open room chat", exact: true }).click();
             await expect(page.getByRole("heading", { name: "chat", exact: true })).toBeVisible();
             await expect(dock.getByText("Voice Connected", { exact: true })).toBeVisible();

@@ -23,6 +23,9 @@ import { type ViewRoomPayload } from "../../dispatcher/payloads/ViewRoomPayload"
 import { _t, _td } from "../../languageHandler";
 
 import { DesktopShortcutManager } from "../../audio/desktop/DesktopShortcutManager";
+import { MicrophoneTest, mediaTestError } from "../../audio/desktop/MicrophoneTest";
+import { getMicrophoneGateConfig } from "../../audio/desktop/DesktopVoicePipeline";
+import { customizeDesktopVoiceProfile } from "../../audio/desktop/DesktopVoiceProfiles";
 
 import { playDesktopVoiceSound } from "../../audio/DesktopVoiceSounds";
 
@@ -45,6 +48,22 @@ export class DesktopVoiceControlsViewModel
     private wasSharingScreen = false;
     private pendingAction?: Promise<void>;
     private stopShortcuts?: () => void;
+    private testGeneration = 0;
+    private restoreAfterTest?: { call: ElementCall; microphoneMuted: boolean };
+    private readonly microphoneTest = new MicrophoneTest(
+        (level, open) => {
+            if (!this.isDisposed && this.snapshot.current.microphoneTest.active) {
+                this.snapshot.merge({ microphoneTest: { active: true, level, open } });
+            }
+        },
+        (status) => {
+            if (!this.isDisposed) {
+                this.snapshot.merge({
+                    noiseSuppressionProblem: status === "active" ? undefined : status,
+                });
+            }
+        },
+    );
 
     public constructor(props: Props) {
         super(props, {
@@ -54,19 +73,59 @@ export class DesktopVoiceControlsViewModel
             screenShareAvailable: false,
             screenSharing: false,
             busy: false,
+            panel: null,
+            noiseSuppression: false,
+            noiseSuppressionStrength: 100,
+            microphoneTest: { active: false, level: null, open: false },
+            connection: {
+                state: "disconnected",
+                quality: "unknown",
+                rttMs: null,
+                averageRttMs: null,
+                outboundPacketLossPercent: null,
+                history: [],
+            },
         });
         props.callStore.on(CallStoreEvent.ConnectedCalls, this.onCallsChanged);
         this.disposables.track(() => props.callStore.off(CallStoreEvent.ConnectedCalls, this.onCallsChanged));
         this.disposables.trackListener(props.client, RoomEvent.Name, this.refresh);
-        for (const setting of ["audioInputMuted", "desktopDeafened"] as const) {
-            const ref = SettingsStore.watchSetting(setting, null, this.refresh);
+        for (const setting of [
+            "audioInputMuted",
+            "desktopDeafened",
+            "desktopInputProfile",
+            "desktopNoiseSuppression",
+            "desktopNoiseSuppressionStrength",
+            "desktopVoiceDetection",
+            "desktopInputSensitivityAuto",
+            "desktopInputSensitivity",
+            "desktopMicrophoneVolume",
+            "desktopSpeakerVolume",
+        ] as const) {
+            const ref = SettingsStore.watchSetting(setting, null, this.onSettingsChanged);
             this.disposables.track(() => SettingsStore.unwatchSetting(ref));
         }
         this.disposables.track(() => this.call?.off(CallEvent.DeviceMute, this.onDeviceMute));
         this.disposables.track(() => this.call?.off(CallEvent.ScreenShare, this.onScreenShare));
         this.disposables.track(() => this.call?.off(CallEvent.Participants, this.onParticipants));
+        this.disposables.track(() => this.call?.off(CallEvent.ConnectionStats, this.refresh));
         this.onCallsChanged();
     }
+
+    public override dispose(): void {
+        this.testGeneration++;
+        this.microphoneTest.stop();
+        // Let an in-flight deafen finish before restoring it, so its completion cannot mute the call again.
+        const restore = (): Promise<void> => this.restoreTestAudio();
+        void (this.pendingAction ? this.pendingAction.then(restore, restore) : restore()).catch((error) =>
+            logger.warn("Could not restore audio after microphone test", error),
+        );
+        super.dispose();
+    }
+
+    private readonly onSettingsChanged = (): void => {
+        this.refresh();
+        this.microphoneTest.update();
+    };
 
     /** Starts session shortcuts after the dock commits, so discarded StrictMode renders cannot register actions. */
     public startShortcuts = (): (() => void) => {
@@ -100,6 +159,8 @@ export class DesktopVoiceControlsViewModel
     };
 
     private readonly refresh = (): void => {
+        if (this.isDisposed) return;
+        const processing = getMicrophoneGateConfig();
         this.snapshot.merge({
             microphoneMuted: this.call?.deviceMuteState
                 ? !this.call.deviceMuteState.audio_enabled
@@ -109,6 +170,122 @@ export class DesktopVoiceControlsViewModel
             screenShareAvailable: this.call?.screenShare.available ?? false,
             screenSharing: this.call?.screenShare.sharing ?? false,
             roomName: this.call ? (this.props.client.getRoom(this.call.roomId)?.name ?? this.call.roomId) : undefined,
+            noiseSuppression: processing.noiseSuppression !== null,
+            noiseSuppressionStrength:
+                processing.noiseSuppression ?? SettingsStore.getValue("desktopNoiseSuppressionStrength"),
+            connection: this.call?.connectionStats ?? {
+                state: this.call ? "connecting" : "disconnected",
+                quality: "unknown",
+                rttMs: null,
+                averageRttMs: null,
+                outboundPacketLossPercent: null,
+                history: [],
+            },
+        });
+    };
+
+    /** Only the quick microphone test owns capture; closing its panel releases it immediately. */
+    public setPanel = (panel: DesktopVoiceControlsViewSnapshot["panel"]): void => {
+        if (this.isDisposed) return;
+        this.snapshot.merge({ panel });
+        if (panel !== "noise") void this.stopMicrophoneTest();
+    };
+
+    public setNoiseSuppression = async (enabled: boolean): Promise<void> => {
+        await this.perform(async () => {
+            await customizeDesktopVoiceProfile();
+            await SettingsStore.setValue(
+                "desktopNoiseSuppression",
+                null,
+                SettingLevel.DEVICE,
+                enabled ? "enhanced" : "none",
+            );
+            this.microphoneTest.update();
+            this.snapshot.merge({ noiseSuppressionProblem: undefined });
+        });
+    };
+
+    public setNoiseSuppressionStrength = async (percent: number): Promise<void> => {
+        if (!Number.isFinite(percent)) return;
+        await this.perform(async () => {
+            await customizeDesktopVoiceProfile();
+            await SettingsStore.setValue(
+                "desktopNoiseSuppressionStrength",
+                null,
+                SettingLevel.DEVICE,
+                Math.max(0, Math.min(100, Math.round(percent))),
+            );
+            this.microphoneTest.update();
+        });
+    };
+
+    private async restoreTestAudio(): Promise<void> {
+        const restore = this.restoreAfterTest;
+        this.restoreAfterTest = undefined;
+        if (!restore) return;
+        try {
+            if (this.call === restore.call && this.props.callStore.connectedCalls.has(restore.call)) {
+                restore.call.setAudioOutputEnabled(true);
+                await restore.call.setDeviceMute({ audio_enabled: !restore.microphoneMuted });
+            }
+        } finally {
+            // Restore preferences even if the call ended or its media controls are already unavailable.
+            await SettingsStore.setValue("audioInputMuted", null, SettingLevel.DEVICE, restore.microphoneMuted);
+            await SettingsStore.setValue("desktopDeafened", null, SettingLevel.DEVICE, false);
+        }
+    }
+
+    private stopMicrophoneTest = async (): Promise<void> => {
+        if (!this.snapshot.current.microphoneTest.active && !this.restoreAfterTest) return;
+        this.testGeneration++;
+        this.microphoneTest.stop();
+        if (!this.isDisposed) this.snapshot.merge({ microphoneTest: { active: false, level: null, open: false } });
+        await this.perform(() => this.restoreTestAudio());
+    };
+
+    /** Tests the processed microphone locally, deafening the call only for the duration of playback. */
+    public toggleMicrophoneTest = async (): Promise<void> => {
+        if (this.snapshot.current.microphoneTest.active) return this.stopMicrophoneTest();
+        if (this.isDisposed || this.snapshot.current.panel !== "noise") return;
+        const generation = ++this.testGeneration;
+        this.snapshot.merge({
+            microphoneTest: { active: true, level: null, open: false },
+            noiseSuppressionProblem: undefined,
+        });
+        const failed = (error: unknown): void => {
+            if (this.isDisposed || generation !== this.testGeneration) return;
+            logger.warn("Could not test the microphone", error);
+            this.microphoneTest.stop();
+            this.snapshot.merge({
+                microphoneTest: {
+                    active: false,
+                    level: null,
+                    open: false,
+                    error: mediaTestError(error),
+                },
+            });
+        };
+        try {
+            // Do not hold the call controls busy while a microphone permission prompt is pending.
+            await this.microphoneTest.start({ playback: false });
+        } catch (error) {
+            failed(error);
+            return;
+        }
+        if (this.isDisposed || generation !== this.testGeneration) return;
+        await this.perform(async () => {
+            if (generation !== this.testGeneration) return;
+            try {
+                if (this.call && !SettingsStore.getValue("desktopDeafened")) {
+                    this.restoreAfterTest = { call: this.call, microphoneMuted: this.snapshot.current.microphoneMuted };
+                    await this.setDeafened(true);
+                }
+                if (generation !== this.testGeneration || this.isDisposed) return;
+                await this.microphoneTest.setPlayback(true);
+            } catch (error) {
+                failed(error);
+                await this.restoreTestAudio();
+            }
         });
     };
 
@@ -161,16 +338,20 @@ export class DesktopVoiceControlsViewModel
             (call): call is ElementCall => call instanceof ElementCall,
         );
         if (call !== this.call) {
+            void this.stopMicrophoneTest();
+            this.snapshot.merge({ panel: null });
             if (this.observedCalls) void playDesktopVoiceSound(call ? "join" : "leave");
             this.call?.off(CallEvent.DeviceMute, this.onDeviceMute);
             this.call?.off(CallEvent.ScreenShare, this.onScreenShare);
             this.call?.off(CallEvent.Participants, this.onParticipants);
+            this.call?.off(CallEvent.ConnectionStats, this.refresh);
             this.call = call;
             this.wasVideoEnabled = call?.deviceMuteState?.video_enabled ?? false;
             this.wasSharingScreen = call?.screenShare.sharing ?? false;
             call?.on(CallEvent.DeviceMute, this.onDeviceMute);
             call?.on(CallEvent.ScreenShare, this.onScreenShare);
             call?.on(CallEvent.Participants, this.onParticipants);
+            call?.on(CallEvent.ConnectionStats, this.refresh);
             if (call) {
                 void this.perform(async () => {
                     if (this.call !== call || this.isDisposed) return;
@@ -242,6 +423,7 @@ export class DesktopVoiceControlsViewModel
     };
 
     public toggleMicrophone = async (): Promise<void> => {
+        await this.stopMicrophoneTest();
         await this.perform(async () => {
             if (this.snapshot.current.deafened) await this.setDeafened(false, true);
             else await this.setMicrophoneMuted(!this.snapshot.current.microphoneMuted);
@@ -249,6 +431,7 @@ export class DesktopVoiceControlsViewModel
         });
     };
     public toggleDeafened = async (): Promise<void> => {
+        await this.stopMicrophoneTest();
         await this.perform(async () => {
             await this.setDeafened(!this.snapshot.current.deafened);
             void playDesktopVoiceSound(SettingsStore.getValue("desktopDeafened") ? "deafen" : "undeafen");
@@ -265,6 +448,7 @@ export class DesktopVoiceControlsViewModel
         }, _td("desktop|voice|screen_share_failed"));
     };
     public disconnect = async (): Promise<void> => {
+        await this.stopMicrophoneTest();
         await this.perform(async () => {
             await this.call?.disconnect();
         });

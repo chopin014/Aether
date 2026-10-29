@@ -78,6 +78,18 @@ function voiceModel() {
             screenShareAvailable: false,
             screenSharing: false,
             busy: false,
+            panel: null,
+            noiseSuppression: true,
+            noiseSuppressionStrength: 100,
+            microphoneTest: { active: false, level: null, open: false },
+            connection: {
+                state: "disconnected",
+                quality: "unknown",
+                rttMs: null,
+                averageRttMs: null,
+                outboundPacketLossPercent: null,
+                history: [],
+            },
         }),
         {
             toggleMicrophone: vi.fn().mockResolvedValue(undefined),
@@ -86,6 +98,10 @@ function voiceModel() {
             toggleScreenShare: vi.fn().mockResolvedValue(undefined),
             disconnect: vi.fn().mockResolvedValue(undefined),
             showCall: vi.fn(),
+            setPanel: vi.fn(),
+            setNoiseSuppression: vi.fn(),
+            setNoiseSuppressionStrength: vi.fn(),
+            toggleMicrophoneTest: vi.fn(),
         },
     );
 }

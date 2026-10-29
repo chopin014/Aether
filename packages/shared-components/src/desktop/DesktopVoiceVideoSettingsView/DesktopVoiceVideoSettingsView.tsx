@@ -26,6 +26,15 @@ import styles from "./DesktopVoiceVideoSettingsView.module.css";
 
 export type { VoiceVideoDevice } from "./DeviceSelect";
 
+/**
+ * How the microphone is processed: voice isolation removes noise and only lets speech through, studio sends the
+ * microphone untouched, and custom uses the individual settings.
+ */
+export type DesktopInputProfile = "voice_isolation" | "studio" | "custom";
+
+/** Noise suppression: enhanced runs a speech model in the app, standard is the browser's own. */
+export type DesktopNoiseSuppression = "enhanced" | "standard" | "none";
+
 /** The parts of the page, which the settings sidebar links to. */
 export type DesktopVoiceVideoSection = "voice" | "video" | "sounds" | "advanced";
 
@@ -67,7 +76,20 @@ export interface DesktopVoiceVideoSettingsViewSnapshot {
         /** Whether the input settings would send this sound. */
         open: boolean;
     };
-    inputProfile: "studio" | "custom";
+    /**
+     * The microphone as the sensitivity sees it, measured while the page is open: its level in dB after noise
+     * suppression (null until measured), whether it would be sent, and the threshold in use (null when none).
+     */
+    inputLevel: { level: number | null; open: boolean; threshold: number | null };
+    inputProfile: DesktopInputProfile;
+    /** The noise suppression in effect: enhanced runs in the app, standard is the browser's own. */
+    noiseSuppression: DesktopNoiseSuppression;
+    /** How strongly enhanced noise suppression lowers the noise, 0 to 100. */
+    noiseSuppressionStrength: number;
+    /** Whether only speech, as enhanced noise suppression hears it, opens the microphone. */
+    voiceDetection: boolean;
+    /** Why enhanced noise suppression stopped during the microphone test, if it did. */
+    noiseSuppressionProblem?: "failed" | "overloaded";
     sensitivityAuto: boolean;
     /** Threshold in dB, -100 to 0. */
     sensitivity: number;
@@ -103,7 +125,10 @@ export interface DesktopVoiceVideoSettingsViewActions {
     setMicrophoneVolume: (percent: number) => void;
     setSpeakerVolume: (percent: number) => void;
     toggleMicrophoneTest: () => void;
-    setInputProfile: (profile: "studio" | "custom") => void;
+    setInputProfile: (profile: DesktopInputProfile) => void;
+    setNoiseSuppression: (mode: DesktopNoiseSuppression) => void;
+    setNoiseSuppressionStrength: (percent: number) => void;
+    setVoiceDetection: (enabled: boolean) => void;
     setSensitivityAuto: (auto: boolean) => void;
     setSensitivity: (db: number) => void;
     setInputMode: (mode: "voice_activity" | "push_to_talk") => void;
@@ -177,6 +202,10 @@ export function DesktopVoiceVideoSettingsView({ vm }: { vm: DesktopVoiceVideoSet
     } = snapshot;
     // Written out rather than built from the names, so that the string extraction can see every key.
     const profileText = {
+        voice_isolation: {
+            title: _t("desktop|voice_video|profile_voice_isolation"),
+            description: _t("desktop|voice_video|profile_voice_isolation_description"),
+        },
         studio: {
             title: _t("desktop|voice_video|profile_studio"),
             description: _t("desktop|voice_video|profile_studio_description"),
@@ -186,10 +215,25 @@ export function DesktopVoiceVideoSettingsView({ vm }: { vm: DesktopVoiceVideoSet
             description: _t("desktop|voice_video|profile_custom_description"),
         },
     };
+    const noiseSuppressionOptions = [
+        { id: "enhanced", label: _t("desktop|voice_video|noise_suppression_enhanced") },
+        { id: "standard", label: _t("desktop|voice_video|noise_suppression_standard") },
+        { id: "none", label: _t("desktop|voice_video|noise_suppression_none") },
+    ];
+    const noiseSuppressionProblem =
+        snapshot.noiseSuppressionProblem === "overloaded"
+            ? _t("desktop|voice_video|noise_suppression_overloaded")
+            : snapshot.noiseSuppressionProblem
+              ? _t("desktop|voice_video|noise_suppression_failed")
+              : null;
     const modeText = {
         voice_activity: _t("desktop|voice_video|mode_voice_activity"),
         push_to_talk: _t("desktop|voice_video|mode_push_to_talk"),
     };
+    const { inputLevel } = snapshot;
+    // Automatic sensitivity moves with the room's noise, so the knob shows where it currently is.
+    const sensitivity =
+        sensitivityAuto && inputLevel.threshold !== null ? Math.round(inputLevel.threshold) : snapshot.sensitivity;
     const shownSounds = sounds.filter((sound) => moreSounds || !sound.extra);
     const extraSounds = sounds.filter((sound) => sound.extra);
     const micError =
@@ -288,7 +332,7 @@ export function DesktopVoiceVideoSettingsView({ vm }: { vm: DesktopVoiceVideoSet
                     <H3 className={styles.fieldLabel} id="desktop-input-profile">
                         {_t("desktop|voice_video|input_profile")}
                     </H3>
-                    {(["studio", "custom"] as const).map((profile) => (
+                    {(["voice_isolation", "studio", "custom"] as const).map((profile) => (
                         <label
                             key={profile}
                             htmlFor={`desktop-profile-${profile}-input`}
@@ -315,6 +359,37 @@ export function DesktopVoiceVideoSettingsView({ vm }: { vm: DesktopVoiceVideoSet
                 </div>
 
                 <div className={styles.group}>
+                    <DeviceSelect
+                        label={_t("desktop|voice_video|noise_suppression")}
+                        icon={<MicOnIcon />}
+                        devices={noiseSuppressionOptions}
+                        value={snapshot.noiseSuppression}
+                        onChange={(mode) => vm.setNoiseSuppression(mode as DesktopNoiseSuppression)}
+                    />
+                    <p className={styles.description}>{_t("desktop|voice_video|noise_suppression_description")}</p>
+                    {snapshot.noiseSuppression === "enhanced" && (
+                        <>
+                            <span className={styles.fieldLabel}>
+                                {_t("desktop|voice_video|noise_suppression_strength")}
+                            </span>
+                            <RangeSlider
+                                label={_t("desktop|voice_video|noise_suppression_strength")}
+                                value={snapshot.noiseSuppressionStrength}
+                                min={0}
+                                max={100}
+                                valueText={`${snapshot.noiseSuppressionStrength}%`}
+                                onChange={vm.setNoiseSuppressionStrength}
+                            />
+                        </>
+                    )}
+                    {noiseSuppressionProblem && (
+                        <Text size="md" role="alert" className={styles.error}>
+                            {noiseSuppressionProblem}
+                        </Text>
+                    )}
+                </div>
+
+                <div className={styles.group}>
                     <H3 className={styles.rowLabel}>{_t("desktop|voice_video|sensitivity")}</H3>
                     <p className={styles.description}>{_t("desktop|voice_video|sensitivity_description")}</p>
                     <ToggleRow
@@ -326,13 +401,21 @@ export function DesktopVoiceVideoSettingsView({ vm }: { vm: DesktopVoiceVideoSet
                     />
                     <RangeSlider
                         label={_t("desktop|voice_video|sensitivity_slider")}
-                        value={snapshot.sensitivity}
+                        value={sensitivity}
                         min={-100}
                         max={0}
-                        valueText={_t("desktop|voice_video|sensitivity_value", { db: snapshot.sensitivity })}
+                        valueText={_t("desktop|voice_video|sensitivity_value", { db: sensitivity })}
                         disabled={sensitivityAuto || inputProfile === "studio"}
-                        sensitivity={{ level: micTest.active ? micTest.level : null }}
+                        sensitivity={{ level: inputLevel.level, open: inputLevel.open }}
                         onChange={vm.setSensitivity}
+                    />
+                    <ToggleRow
+                        id="desktop-voice-detection"
+                        label={_t("desktop|voice_video|voice_detection")}
+                        description={_t("desktop|voice_video|voice_detection_description")}
+                        checked={snapshot.voiceDetection}
+                        disabled={snapshot.noiseSuppression !== "enhanced"}
+                        onChange={vm.setVoiceDetection}
                     />
                 </div>
 

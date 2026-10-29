@@ -7,6 +7,8 @@ Please see LICENSE in the repository root for full details.
 
 import {
     BaseViewModel,
+    type DesktopInputProfile,
+    type DesktopNoiseSuppression,
     type DesktopVoiceVideoSettingsViewSnapshot,
     type DesktopVoiceVideoSettingsViewModel as DesktopVoiceVideoSettingsViewModelInterface,
     type VoiceVideoDevice,
@@ -37,6 +39,11 @@ import {
 import { MicrophoneTest, mediaTestError } from "../../audio/desktop/MicrophoneTest";
 import { CameraTest } from "../../audio/desktop/CameraTest";
 import {
+    customizeDesktopVoiceProfile,
+    DESKTOP_VOICE_PROFILE_PRESETS,
+    type DesktopVoiceProfilePreset,
+} from "../../audio/desktop/DesktopVoiceProfiles";
+import {
     describePushToTalkKey,
     formatPushToTalkKey,
     pushToTalkBindingFromEvent,
@@ -64,6 +71,9 @@ const WATCHED_SETTINGS: SettingKey[] = [
     "desktopMicrophoneVolume",
     "desktopSpeakerVolume",
     "desktopInputProfile",
+    "desktopNoiseSuppression",
+    "desktopNoiseSuppressionStrength",
+    "desktopVoiceDetection",
     "desktopInputSensitivityAuto",
     "desktopInputSensitivity",
     "desktopInputMode",
@@ -75,11 +85,14 @@ const WATCHED_SETTINGS: SettingKey[] = [
     "desktopAlwaysPreviewVideo",
 ];
 
-/** The settings that return to their default when Voice & Video is reset. Noise suppression is not offered here. */
+/** The settings that return to their default when Voice & Video is reset. */
 const RESET_SETTINGS = [
     ["desktopMicrophoneVolume", SettingLevel.DEVICE],
     ["desktopSpeakerVolume", SettingLevel.DEVICE],
     ["desktopInputProfile", SettingLevel.DEVICE],
+    ["desktopNoiseSuppression", SettingLevel.DEVICE],
+    ["desktopNoiseSuppressionStrength", SettingLevel.DEVICE],
+    ["desktopVoiceDetection", SettingLevel.DEVICE],
     ["desktopInputSensitivityAuto", SettingLevel.DEVICE],
     ["desktopInputSensitivity", SettingLevel.DEVICE],
     ["desktopInputMode", SettingLevel.DEVICE],
@@ -109,7 +122,12 @@ export class DesktopVoiceVideoSettingsViewModel
     extends BaseViewModel<DesktopVoiceVideoSettingsViewSnapshot, Props>
     implements DesktopVoiceVideoSettingsViewModelInterface
 {
-    private readonly microphoneTest = new MicrophoneTest((level, open) => this.onMicrophoneLevel(level, open));
+    private readonly microphoneTest = new MicrophoneTest(
+        (level, open, threshold) => this.onMicrophoneLevel(level, open, threshold),
+        (status) => {
+            if (!this.isDisposed && status !== "active") this.snapshot.merge({ noiseSuppressionProblem: status });
+        },
+    );
     private readonly cameraTest = new CameraTest();
     private lastMeterUpdate = 0;
     private stopRecording?: () => void;
@@ -127,7 +145,11 @@ export class DesktopVoiceVideoSettingsViewModel
             microphoneVolume: 100,
             speakerVolume: 100,
             microphoneTest: { active: false, level: null, open: false },
-            inputProfile: "custom",
+            inputLevel: { level: null, open: false, threshold: null },
+            inputProfile: "voice_isolation",
+            noiseSuppression: "enhanced",
+            noiseSuppressionStrength: 100,
+            voiceDetection: true,
             sensitivityAuto: true,
             sensitivity: -50,
             inputMode: "voice_activity",
@@ -175,22 +197,49 @@ export class DesktopVoiceVideoSettingsViewModel
         this.microphoneTest.update();
     };
 
-    private onMicrophoneLevel(level: number, open: boolean): void {
+    private onMicrophoneLevel(level: number, open: boolean, threshold: number | null): void {
         const now = performance.now();
         if (this.isDisposed || now - this.lastMeterUpdate < METER_INTERVAL_MS) return;
         this.lastMeterUpdate = now;
-        this.snapshot.merge({ microphoneTest: { ...this.snapshot.current.microphoneTest, level, open } });
+        const { microphoneTest } = this.snapshot.current;
+        this.snapshot.merge({
+            inputLevel: { level, open, threshold },
+            microphoneTest: microphoneTest.active ? { ...microphoneTest, level, open } : microphoneTest,
+        });
+    }
+
+    /**
+     * Measures the microphone without playing it back while the page is open, as Discord does, so the input
+     * sensitivity always shows where the voice sits. Only once access is granted: it must not prompt by itself.
+     */
+    private async startLevelMonitor(): Promise<void> {
+        if (this.isDisposed || this.microphoneTest.active || !this.snapshot.current.devicesVisible) return;
+        try {
+            await this.microphoneTest.start({ playback: false });
+        } catch (error) {
+            logger.debug("Could not measure the microphone level", error);
+        }
+        // The page may have closed while the microphone was opening.
+        if (this.isDisposed) this.microphoneTest.stop();
     }
 
     private refreshSettings(): void {
         if (this.isDisposed) return;
         const toggles = getDesktopVoiceSoundToggles();
         const canSetFallbackIce = SettingsStore.canSetValue("fallbackICEServerAllowed", null, SettingLevel.DEVICE);
+        const inputProfile = SettingsStore.getValue("desktopInputProfile");
+        // A preset shows what it does, while the custom settings keep the user's own choices for later.
+        const preset: Partial<DesktopVoiceProfilePreset> =
+            inputProfile === "custom" ? {} : DESKTOP_VOICE_PROFILE_PRESETS[inputProfile];
         this.snapshot.merge({
             microphoneVolume: SettingsStore.getValue("desktopMicrophoneVolume"),
             speakerVolume: SettingsStore.getValue("desktopSpeakerVolume"),
-            inputProfile: SettingsStore.getValue("desktopInputProfile"),
-            sensitivityAuto: SettingsStore.getValue("desktopInputSensitivityAuto"),
+            inputProfile,
+            noiseSuppression: preset.noiseSuppression ?? SettingsStore.getValue("desktopNoiseSuppression"),
+            noiseSuppressionStrength:
+                preset.noiseSuppressionStrength ?? SettingsStore.getValue("desktopNoiseSuppressionStrength"),
+            voiceDetection: preset.voiceDetection ?? SettingsStore.getValue("desktopVoiceDetection"),
+            sensitivityAuto: preset.sensitivityAuto ?? SettingsStore.getValue("desktopInputSensitivityAuto"),
             sensitivity: SettingsStore.getValue("desktopInputSensitivity"),
             inputMode: SettingsStore.getValue("desktopInputMode"),
             pushToTalk: {
@@ -247,6 +296,7 @@ export class DesktopVoiceVideoSettingsViewModel
             videoInputs: list(MediaDeviceKindEnum.VideoInput),
         });
         this.refreshSelectedDevices();
+        void this.startLevelMonitor();
     }
 
     private refreshSelectedDevices(): void {
@@ -286,7 +336,7 @@ export class DesktopVoiceVideoSettingsViewModel
         }
         this.refreshSelectedDevices();
         // A running test keeps the device it opened, so open it again on the new one.
-        if (kind === MediaDeviceKindEnum.AudioInput && this.microphoneTest.active) await this.restartMicrophoneTest();
+        if (kind === MediaDeviceKindEnum.AudioInput && this.microphoneTest.active) await this.reopenMicrophone();
         if (kind === MediaDeviceKindEnum.VideoInput && this.cameraTest.active) await this.startCameraTest();
     }
 
@@ -298,15 +348,21 @@ export class DesktopVoiceVideoSettingsViewModel
         this.setSetting("desktopMicrophoneVolume", percent);
     public setSpeakerVolume = (percent: number): Promise<void> => this.setSetting("desktopSpeakerVolume", percent);
 
-    private async restartMicrophoneTest(): Promise<void> {
+    /** Opens the newly chosen microphone, keeping playback as it was. */
+    private async reopenMicrophone(): Promise<void> {
         this.microphoneTest.stop();
-        await this.startMicrophoneTest();
+        if (this.snapshot.current.microphoneTest.active) await this.startMicrophoneTest();
+        else await this.startLevelMonitor();
     }
 
     private async startMicrophoneTest(): Promise<void> {
-        this.snapshot.merge({ microphoneTest: { active: true, level: null, open: false } });
+        this.snapshot.merge({
+            microphoneTest: { active: true, level: null, open: false },
+            noiseSuppressionProblem: undefined,
+        });
         try {
-            await this.microphoneTest.start();
+            if (this.microphoneTest.active) await this.microphoneTest.setPlayback(true);
+            else await this.microphoneTest.start();
         } catch (error) {
             logger.warn("Could not test the microphone", error);
             if (!this.isDisposed) {
@@ -319,31 +375,52 @@ export class DesktopVoiceVideoSettingsViewModel
 
     public toggleMicrophoneTest = async (): Promise<void> => {
         if (this.snapshot.current.microphoneTest.active) {
-            this.microphoneTest.stop();
+            // Stop hearing yourself, but keep measuring for the input sensitivity.
+            await this.microphoneTest.setPlayback(false);
             this.snapshot.merge({ microphoneTest: { active: false, level: null, open: false } });
         } else {
             await this.startMicrophoneTest();
         }
     };
 
-    public setInputProfile = async (profile: "studio" | "custom"): Promise<void> => {
-        if (profile === "studio") {
-            // Studio sends the microphone as it is. The profile is written last, so that changing the two
-            // switches does not look like the user editing them by hand.
-            await MediaDeviceHandler.setAudioAutoGainControl(false);
-            await MediaDeviceHandler.setAudioEchoCancellation(false);
+    public setInputProfile = async (profile: DesktopInputProfile): Promise<void> => {
+        // Studio sends the microphone as it is, and voice isolation uses every kind of processing. The profile
+        // is written last, so that changing the two switches does not look like the user editing them by hand.
+        if (profile !== "custom") {
+            await MediaDeviceHandler.setAudioAutoGainControl(profile === "voice_isolation");
+            await MediaDeviceHandler.setAudioEchoCancellation(profile === "voice_isolation");
         }
         await this.setSetting("desktopInputProfile", profile);
     };
 
-    /** Editing a processing switch by hand leaves the Studio profile, which promises there is none. */
-    private async leaveStudio(): Promise<void> {
-        if (SettingsStore.getValue("desktopInputProfile") === "studio")
-            await this.setSetting("desktopInputProfile", "custom");
+    /**
+     * Editing a processing setting by hand leaves a preset profile for custom. The custom settings first take on
+     * what the preset was doing, so the only thing that changes is the setting the user edited.
+     */
+    private async leaveProfile(): Promise<void> {
+        await customizeDesktopVoiceProfile();
     }
 
-    public setSensitivityAuto = (auto: boolean): Promise<void> => this.setSetting("desktopInputSensitivityAuto", auto);
-    public setSensitivity = (db: number): Promise<void> => this.setSetting("desktopInputSensitivity", db);
+    public setNoiseSuppression = async (mode: DesktopNoiseSuppression): Promise<void> => {
+        await this.leaveProfile();
+        await this.setSetting("desktopNoiseSuppression", mode);
+    };
+    public setNoiseSuppressionStrength = async (percent: number): Promise<void> => {
+        await this.leaveProfile();
+        await this.setSetting("desktopNoiseSuppressionStrength", percent);
+    };
+    public setVoiceDetection = async (enabled: boolean): Promise<void> => {
+        await this.leaveProfile();
+        await this.setSetting("desktopVoiceDetection", enabled);
+    };
+    public setSensitivityAuto = async (auto: boolean): Promise<void> => {
+        await this.leaveProfile();
+        await this.setSetting("desktopInputSensitivityAuto", auto);
+    };
+    public setSensitivity = async (db: number): Promise<void> => {
+        await this.leaveProfile();
+        await this.setSetting("desktopInputSensitivity", db);
+    };
     public setInputMode = (mode: "voice_activity" | "push_to_talk"): Promise<void> =>
         this.setSetting("desktopInputMode", mode);
 
@@ -392,12 +469,12 @@ export class DesktopVoiceVideoSettingsViewModel
         setDesktopVoiceSoundEnabled(PUSH_TO_TALK_SOUNDS, enabled);
 
     public setEchoCancellation = async (enabled: boolean): Promise<void> => {
-        await this.leaveStudio();
+        await this.leaveProfile();
         await MediaDeviceHandler.setAudioEchoCancellation(enabled);
         this.refreshSettings();
     };
     public setAutoGainControl = async (enabled: boolean): Promise<void> => {
-        await this.leaveStudio();
+        await this.leaveProfile();
         await MediaDeviceHandler.setAudioAutoGainControl(enabled);
         this.refreshSettings();
     };
@@ -472,5 +549,7 @@ export class DesktopVoiceVideoSettingsViewModel
             SettingsStore.getDefaultValue("webrtc_audio_echoCancellation"),
         );
         this.refreshSettings();
+        this.snapshot.merge({ inputLevel: { level: null, open: false, threshold: null } });
+        await this.startLevelMonitor();
     };
 }

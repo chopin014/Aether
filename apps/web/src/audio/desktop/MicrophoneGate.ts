@@ -16,6 +16,16 @@ export interface MicrophoneGateConfig {
     threshold: number | "auto" | null;
     /** Only let sound through while {@link MicrophoneGate.setPushToTalkActive} says so, ignoring the threshold. */
     pushToTalk: boolean;
+    /**
+     * How strongly DeepFilterNet removes background noise before the level is measured, from 0 to 100.
+     * Absent or null leaves the microphone as the browser delivers it.
+     */
+    noiseSuppression?: number | null;
+    /**
+     * Only open for sound the noise suppression hears as speech, so that claps, typing and music cannot open the
+     * gate however loud they are. Has no effect without noise suppression.
+     */
+    voiceDetection?: boolean;
 }
 
 /** The quietest level the meters and the sensitivity setting use. */
@@ -87,12 +97,15 @@ export class MicrophoneGate {
         this.shortcutMuted = muted;
     }
 
-    /** Applies the gate and volume to one block of samples. `output` may be the same array as `input`. */
-    public processBlock(input: Float32Array, output: Float32Array): void {
+    /**
+     * Applies the gate and volume to one block of samples. `output` may be the same array as `input`.
+     * @param speechDetected whether the noise suppression hears speech, or undefined when it is not running.
+     */
+    public processBlock(input: Float32Array, output: Float32Array, speechDetected?: boolean): void {
         const durationMs = (input.length / this.sampleRate) * 1000;
         this._level = levelDb(input);
         this._threshold = this.resolveThreshold(durationMs);
-        this._open = this.shouldOpen(durationMs);
+        this._open = this.shouldOpen(durationMs, speechDetected);
         // Explicit privacy controls close immediately, including the first block after a backend reset.
         if (this.shortcutMuted || this.config.volume === 0 || (this.config.pushToTalk && !this.pushToTalkActive)) {
             this._open = false;
@@ -129,10 +142,11 @@ export class MicrophoneGate {
         return threshold === null || threshold <= MIN_LEVEL_DB ? null : threshold;
     }
 
-    private shouldOpen(durationMs: number): boolean {
+    private shouldOpen(durationMs: number, speechDetected?: boolean): boolean {
         if (this.config.pushToTalk) return this.pushToTalkActive;
         if (this._threshold === null) return true;
-        if (this._level >= this._threshold) this.holdLeftMs = HOLD_MS;
+        const speech = !this.config.voiceDetection || speechDetected !== false;
+        if (speech && this._level >= this._threshold) this.holdLeftMs = HOLD_MS;
         else this.holdLeftMs = Math.max(0, this.holdLeftMs - durationMs);
         return this.holdLeftMs > 0;
     }

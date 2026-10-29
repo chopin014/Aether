@@ -19,6 +19,7 @@ import Modal from "../../Modal";
 import { UserTab } from "../../components/views/dialogs/UserTab";
 import { CallStore } from "../../stores/CallStore";
 import * as sounds from "../../audio/DesktopVoiceSounds";
+import { MicrophoneTest } from "../../audio/desktop/MicrophoneTest";
 
 let stored: Map<string, unknown>;
 let watchers: Map<string, Set<() => void>>;
@@ -167,8 +168,75 @@ describe("DesktopVoiceVideoSettingsViewModel", () => {
         });
 
         it("keeps Custom when a switch is changed in Custom", async () => {
+            await vm.setInputProfile("custom");
             await vm.setAutoGainControl(false);
             expect(vm.getSnapshot()).toMatchObject({ inputProfile: "custom", autoGainControl: false });
+        });
+
+        it("starts in Voice Isolation, which removes noise and only lets speech through", () => {
+            expect(vm.getSnapshot()).toMatchObject({
+                inputProfile: "voice_isolation",
+                noiseSuppression: "enhanced",
+                noiseSuppressionStrength: 100,
+                voiceDetection: true,
+                sensitivityAuto: true,
+            });
+        });
+
+        it("turns echo cancellation and automatic gain back on for Voice Isolation", async () => {
+            await vm.setInputProfile("studio");
+            expect(vm.getSnapshot()).toMatchObject({ noiseSuppression: "none", voiceDetection: false });
+            await vm.setInputProfile("voice_isolation");
+            expect(vm.getSnapshot()).toMatchObject({
+                inputProfile: "voice_isolation",
+                echoCancellation: true,
+                autoGainControl: true,
+                noiseSuppression: "enhanced",
+            });
+        });
+
+        it("shows a preset's choices without overwriting the custom ones", async () => {
+            await vm.setInputProfile("custom");
+            await vm.setNoiseSuppression("standard");
+            await vm.setInputProfile("voice_isolation");
+            expect(vm.getSnapshot().noiseSuppression).toBe("enhanced");
+            await vm.setInputProfile("custom");
+            expect(vm.getSnapshot().noiseSuppression).toBe("standard");
+        });
+
+        it("carries Voice Isolation over into Custom when one of its settings is edited", async () => {
+            await vm.setInputProfile("custom");
+            await vm.setNoiseSuppression("none");
+            await vm.setSensitivityAuto(false);
+            await vm.setInputProfile("voice_isolation");
+            await vm.setNoiseSuppressionStrength(40);
+            // Only the edited setting changes; the rest stays as Voice Isolation had it.
+            expect(vm.getSnapshot()).toMatchObject({
+                inputProfile: "custom",
+                noiseSuppression: "enhanced",
+                noiseSuppressionStrength: 40,
+                voiceDetection: true,
+                sensitivityAuto: true,
+            });
+        });
+
+        it("stores the noise suppression and voice detection at device level", async () => {
+            await vm.setInputProfile("custom");
+            await vm.setNoiseSuppression("standard");
+            await vm.setVoiceDetection(false);
+            expect(SettingsStore.setValue).toHaveBeenCalledWith(
+                "desktopNoiseSuppression",
+                null,
+                SettingLevel.DEVICE,
+                "standard",
+            );
+            expect(SettingsStore.setValue).toHaveBeenCalledWith(
+                "desktopVoiceDetection",
+                null,
+                SettingLevel.DEVICE,
+                false,
+            );
+            expect(vm.getSnapshot()).toMatchObject({ noiseSuppression: "standard", voiceDetection: false });
         });
     });
 
@@ -360,7 +428,8 @@ describe("DesktopVoiceVideoSettingsViewModel", () => {
             await vm.resetAll();
             expect(vm.getSnapshot()).toMatchObject({
                 microphoneVolume: 100,
-                inputProfile: "custom",
+                inputProfile: "voice_isolation",
+                noiseSuppression: "enhanced",
                 inputMode: "voice_activity",
                 echoCancellation: true,
                 autoGainControl: true,
@@ -415,6 +484,65 @@ describe("DesktopVoiceVideoSettingsViewModel", () => {
             getUserMedia.mockRejectedValue(new DOMException("no", "NotAllowedError"));
             await vm.toggleVideoTest();
             expect(vm.getSnapshot().videoTest).toMatchObject({ active: false, error: "denied" });
+        });
+
+        describe("microphone level", () => {
+            let onLevel: (level: number, open: boolean, threshold: number | null) => void;
+            let start: ReturnType<typeof vi.spyOn>;
+            let setPlayback: ReturnType<typeof vi.spyOn>;
+            let active: boolean;
+
+            beforeEach(async () => {
+                vm.dispose();
+                active = false;
+                start = vi.spyOn(MicrophoneTest.prototype, "start").mockImplementation(async function (
+                    this: MicrophoneTest,
+                ) {
+                    onLevel = (this as unknown as { onLevel: typeof onLevel }).onLevel;
+                    active = true;
+                });
+                setPlayback = vi.spyOn(MicrophoneTest.prototype, "setPlayback").mockResolvedValue(undefined);
+                vi.spyOn(MicrophoneTest.prototype, "active", "get").mockImplementation(() => active);
+                vi.spyOn(MicrophoneTest.prototype, "stop").mockImplementation(() => {
+                    active = false;
+                });
+                vi.spyOn(performance, "now").mockReturnValue(1e9);
+                vm = await create();
+                await vi.waitFor(() => expect(start).toHaveBeenCalled());
+            });
+
+            it("is measured without playback as soon as the page opens", () => {
+                expect(start).toHaveBeenCalledWith({ playback: false });
+                onLevel(-42, true, -55);
+                expect(vm.getSnapshot().inputLevel).toEqual({ level: -42, open: true, threshold: -55 });
+                // The test meter only moves while you are listening to yourself.
+                expect(vm.getSnapshot().microphoneTest.level).toBeNull();
+            });
+
+            it("plays back for the test and keeps measuring after it", async () => {
+                await vm.toggleMicrophoneTest();
+                expect(setPlayback).toHaveBeenLastCalledWith(true);
+                expect(start).toHaveBeenCalledOnce();
+                expect(vm.getSnapshot().microphoneTest.active).toBe(true);
+                await vm.toggleMicrophoneTest();
+                expect(setPlayback).toHaveBeenLastCalledWith(false);
+                expect(MicrophoneTest.prototype.stop).not.toHaveBeenCalled();
+                expect(vm.getSnapshot().microphoneTest.active).toBe(false);
+            });
+
+            it("does not open the microphone before access is granted", async () => {
+                vm.dispose();
+                start.mockClear();
+                vi.mocked(MediaDeviceHandler.hasAnyLabeledDevices).mockResolvedValue(false);
+                vm = new DesktopVoiceVideoSettingsViewModel({ client: client as unknown as MatrixClient, openTab });
+                await vi.waitFor(() => expect(vm.getSnapshot().audioInputs).toEqual([]));
+                expect(start).not.toHaveBeenCalled();
+            });
+
+            it("closes the microphone when the page goes away", () => {
+                vm.dispose();
+                expect(MicrophoneTest.prototype.stop).toHaveBeenCalled();
+            });
         });
 
         it("explains a blocked microphone", async () => {

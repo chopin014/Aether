@@ -46,6 +46,7 @@ import DMRoomMap from "../utils/DMRoomMap.ts";
 import { WidgetMessagingEvent, type WidgetMessaging } from "../stores/widgets/WidgetMessaging.ts";
 import { BugReportEndpointURLLocal } from "../IConfigOptions.ts";
 import { DesktopVoicePipeline } from "../audio/desktop/DesktopVoicePipeline";
+import { emptyCallConnectionStats } from "./CallConnectionStats";
 
 const { enabledSettings } = enableCalls();
 
@@ -1229,6 +1230,48 @@ describe("ElementCall with the React component embedding", () => {
     it("reports a missing component rather than pretending to mute", async () => {
         await expect(call.setDeviceMute({ audio_enabled: false })).rejects.toThrow("not ready");
         expect(call.deviceMuteState).toBeUndefined();
+    });
+
+    describe("connection statistics", () => {
+        const measured = {
+            ...emptyCallConnectionStats("connected"),
+            quality: "good" as const,
+            rttMs: 17,
+            averageRttMs: 17,
+            outboundPacketLossPercent: 0,
+            history: [17],
+        };
+
+        it("distinguishes joining the Matrix call from connecting the media transport", () => {
+            call.setComponentHandle({} as ElementCallHandle);
+            call.handleJoined();
+            expect(call.connectionState).toBe(ConnectionState.Connected);
+            expect(call.connectionStats).toEqual(emptyCallConnectionStats("connecting"));
+            call.handleConnectionStats(measured);
+            expect(call.connectionStats).toEqual(measured);
+        });
+
+        it("validates reports, copies history and only publishes changes", () => {
+            const changed = vi.fn();
+            call.on(CallEvent.ConnectionStats, changed);
+            call.handleConnectionStats({ ...measured, rttMs: Number.NaN });
+            expect(changed).not.toHaveBeenCalled();
+            const history = [17];
+            call.handleConnectionStats({ ...measured, history });
+            history.push(999);
+            expect(call.connectionStats.history).toEqual([17]);
+            call.handleConnectionStats(measured);
+            expect(changed).toHaveBeenCalledTimes(1);
+        });
+
+        it.each(["unmount", "hangup", "close"])("clears measurements on %s", (reason) => {
+            call.setComponentHandle({} as ElementCallHandle);
+            call.handleConnectionStats(measured);
+            if (reason === "unmount") call.setComponentHandle(null);
+            else if (reason === "hangup") call.handleHangup();
+            else call.handleClose();
+            expect(call.connectionStats).toEqual(emptyCallConnectionStats("disconnected"));
+        });
     });
 
     describe("speaking activity", () => {

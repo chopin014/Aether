@@ -18,14 +18,39 @@ import { stubClient } from "test-utils";
 
 import { DesktopVoiceControlsViewModel } from "./DesktopVoiceControlsViewModel";
 import { Call, CallEvent, ElementCall, NO_SCREEN_SHARE } from "../../models/Call";
+import { emptyCallConnectionStats } from "../../models/CallConnectionStats";
 import { CallStoreEvent } from "../../stores/CallStore";
 import { DesktopShortcutManager } from "../../audio/desktop/DesktopShortcutManager";
+import { type DenoiserStatus } from "../../audio/desktop/denoiser/DenoiserStatus";
 
 import SettingsStore from "../../settings/SettingsStore";
 
 import { playDesktopVoiceSound } from "../../audio/DesktopVoiceSounds";
 
 vi.mock("../../audio/DesktopVoiceSounds", () => ({ playDesktopVoiceSound: vi.fn() }));
+
+const microphone = vi.hoisted(() => ({
+    start: vi.fn<() => Promise<void>>(),
+    setPlayback: vi.fn<(enabled: boolean) => Promise<void>>(),
+    stop: vi.fn(),
+    update: vi.fn(),
+    onLevel: undefined as ((level: number, open: boolean) => void) | undefined,
+    onStatus: undefined as ((status: DenoiserStatus) => void) | undefined,
+}));
+
+vi.mock("../../audio/desktop/MicrophoneTest", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../../audio/desktop/MicrophoneTest")>()),
+    MicrophoneTest: class {
+        public start = microphone.start;
+        public setPlayback = microphone.setPlayback;
+        public stop = microphone.stop;
+        public update = microphone.update;
+        public constructor(onLevel: typeof microphone.onLevel, onStatus: typeof microphone.onStatus) {
+            microphone.onLevel = onLevel;
+            microphone.onStatus = onStatus;
+        }
+    },
+}));
 
 const preferences = new Map<string, unknown>();
 
@@ -35,6 +60,10 @@ describe("DesktopVoiceControlsViewModel", () => {
     let store: EventEmitter & { connectedCalls: Set<Call> };
     let call: ElementCall;
     beforeEach(() => {
+        microphone.start.mockReset().mockResolvedValue(undefined);
+        microphone.setPlayback.mockReset().mockResolvedValue(undefined);
+        microphone.stop.mockReset();
+        microphone.update.mockReset();
         preferences.clear();
         vi.mocked(playDesktopVoiceSound).mockClear();
         client = stubClient();
@@ -48,6 +77,7 @@ describe("DesktopVoiceControlsViewModel", () => {
             preferences.set(key, value as boolean);
         });
         vi.spyOn(SettingsStore, "unwatchSetting");
+        vi.spyOn(SettingsStore, "watchSetting");
         store = Object.assign(new EventEmitter(), { connectedCalls: new Set<Call>() });
         // Retain the real model's mute notifications while replacing transport operations.
         call = Object.create(ElementCall.prototype) as ElementCall;
@@ -55,6 +85,10 @@ describe("DesktopVoiceControlsViewModel", () => {
         // This transport fixture skips the constructor that initializes speaking state.
         Object.defineProperty(call, "speakingUserIds", { value: new Set<string>(), writable: true });
         Object.defineProperty(call, "_screenShare", { value: NO_SCREEN_SHARE, writable: true });
+        Object.defineProperty(call, "_connectionStats", {
+            value: emptyCallConnectionStats("connecting"),
+            writable: true,
+        });
         call.toggleScreenShare = vi.fn(async () => {
             call.handleScreenShare({ ...call.screenShare, sharing: !call.screenShare.sharing });
         });
@@ -321,7 +355,10 @@ describe("DesktopVoiceControlsViewModel", () => {
         expect(call.listenerCount(CallEvent.DeviceMute)).toBe(0);
         expect(call.listenerCount(CallEvent.ScreenShare)).toBe(0);
         expect(call.listenerCount(CallEvent.Participants)).toBe(0);
-        expect(SettingsStore.unwatchSetting).toHaveBeenCalledTimes(2);
+        expect(call.listenerCount(CallEvent.ConnectionStats)).toBe(0);
+        expect(SettingsStore.unwatchSetting).toHaveBeenCalledTimes(
+            vi.mocked(SettingsStore.watchSetting).mock.calls.length,
+        );
     });
     it("turns the camera on and off in the real call", async () => {
         await connect();
@@ -350,6 +387,159 @@ describe("DesktopVoiceControlsViewModel", () => {
             screenSharing: false,
             busy: false,
             error: "Screen sharing could not be changed. Please try again.",
+        });
+    });
+
+    describe("quick voice panels", () => {
+        it("edits the effective preset while retaining its other processing choices", async () => {
+            preferences.set("desktopInputProfile", "voice_isolation");
+            await vm.setNoiseSuppressionStrength(67.6);
+            expect(preferences.get("desktopInputProfile")).toBe("custom");
+            expect(preferences.get("desktopVoiceDetection")).toBe(true);
+            expect(preferences.get("desktopInputSensitivityAuto")).toBe(true);
+            expect(vm.getSnapshot()).toMatchObject({ noiseSuppression: true, noiseSuppressionStrength: 68 });
+            await vm.setNoiseSuppression(false);
+            expect(preferences.get("desktopNoiseSuppression")).toBe("none");
+            expect(vm.getSnapshot().noiseSuppression).toBe(false);
+            await vm.setNoiseSuppression(true);
+            expect(vm.getSnapshot()).toMatchObject({ noiseSuppression: true, noiseSuppressionStrength: 68 });
+        });
+
+        it("bounds strength without accepting invalid values", async () => {
+            await vm.setNoiseSuppressionStrength(-1);
+            expect(preferences.get("desktopNoiseSuppressionStrength")).toBe(0);
+            await vm.setNoiseSuppressionStrength(101);
+            expect(preferences.get("desktopNoiseSuppressionStrength")).toBe(100);
+            const saves = vi.mocked(SettingsStore.setValue).mock.calls.length;
+            await vm.setNoiseSuppressionStrength(Number.NaN);
+            expect(SettingsStore.setValue).toHaveBeenCalledTimes(saves);
+        });
+
+        it("opens a panel without capturing, then tests locally with a temporarily deafened call", async () => {
+            await connect();
+            vm.setPanel("noise");
+            expect(microphone.start).not.toHaveBeenCalled();
+            await vm.toggleMicrophoneTest();
+            expect(microphone.start).toHaveBeenCalledWith({ playback: false });
+            expect(microphone.setPlayback).toHaveBeenCalledWith(true);
+            expect(call.setAudioOutputEnabled).toHaveBeenLastCalledWith(false);
+            expect(vm.getSnapshot()).toMatchObject({ microphoneMuted: true, deafened: true });
+            microphone.onLevel?.(-24, true);
+            expect(vm.getSnapshot().microphoneTest).toMatchObject({ active: true, level: -24, open: true });
+            await vm.toggleMicrophoneTest();
+            expect(microphone.stop).toHaveBeenCalled();
+            expect(call.setAudioOutputEnabled).toHaveBeenLastCalledWith(true);
+            expect(vm.getSnapshot()).toMatchObject({ microphoneMuted: false, deafened: false });
+        });
+
+        it("preserves mute and a deafen the user had already chosen", async () => {
+            await connect();
+            await vm.toggleMicrophone();
+            vm.setPanel("noise");
+            await vm.toggleMicrophoneTest();
+            await vm.toggleMicrophoneTest();
+            expect(vm.getSnapshot()).toMatchObject({ microphoneMuted: true, deafened: false });
+            await vm.toggleDeafened();
+            await vm.toggleMicrophoneTest();
+            await vm.toggleMicrophoneTest();
+            expect(vm.getSnapshot()).toMatchObject({ microphoneMuted: true, deafened: true });
+        });
+
+        it("restores call audio when closing the panel or disposing the dock", async () => {
+            await connect();
+            vm.setPanel("noise");
+            await vm.toggleMicrophoneTest();
+            vm.setPanel("connection");
+            await vi.waitFor(() => expect(vm.getSnapshot().deafened).toBe(false));
+            expect(vm.getSnapshot().microphoneTest.active).toBe(false);
+            vm.setPanel("noise");
+            await vm.toggleMicrophoneTest();
+            vm.dispose();
+            await vi.waitFor(() => expect(preferences.get("desktopDeafened")).toBe(false));
+            expect(preferences.get("audioInputMuted")).toBe(false);
+            expect(call.setAudioOutputEnabled).toHaveBeenLastCalledWith(true);
+            expect(call.setDeviceMute).toHaveBeenLastCalledWith({ audio_enabled: true });
+        });
+
+        it("keeps call controls usable during permission prompts and cancels playback on close", async () => {
+            const opening = Promise.withResolvers<void>();
+            microphone.start.mockReturnValueOnce(opening.promise);
+            await connect();
+            vm.setPanel("noise");
+            const starting = vm.toggleMicrophoneTest();
+            expect(vm.getSnapshot().busy).toBe(false);
+            vm.setPanel(null);
+            opening.resolve();
+            await starting;
+            expect(microphone.setPlayback).not.toHaveBeenCalled();
+            expect(vm.getSnapshot().microphoneTest.active).toBe(false);
+        });
+
+        it("restores audio after an in-flight test deafen finishes during disposal", async () => {
+            await connect();
+            const pending = Promise.withResolvers<void>();
+            const setDeviceMute = vi.mocked(call.setDeviceMute).getMockImplementation()!;
+            vi.mocked(call.setDeviceMute).mockImplementationOnce(async (request) => {
+                await pending.promise;
+                return setDeviceMute(request);
+            });
+            vm.setPanel("noise");
+            const starting = vm.toggleMicrophoneTest();
+            await vi.waitFor(() => expect(call.setDeviceMute).toHaveBeenCalledWith({ audio_enabled: false }));
+            vm.dispose();
+            pending.resolve();
+            await starting;
+            await vi.waitFor(() => expect(preferences.get("desktopDeafened")).toBe(false));
+            expect(call.setAudioOutputEnabled).toHaveBeenLastCalledWith(true);
+            expect(call.setDeviceMute).toHaveBeenLastCalledWith({ audio_enabled: true });
+            expect(microphone.setPlayback).not.toHaveBeenCalled();
+        });
+
+        it("releases the test and restores preferences when the call ends elsewhere", async () => {
+            await connect();
+            vm.setPanel("noise");
+            await vm.toggleMicrophoneTest();
+            vi.mocked(call.setDeviceMute).mockClear();
+            store.connectedCalls.clear();
+            store.emit(CallStoreEvent.ConnectedCalls);
+            await vi.waitFor(() => expect(preferences.get("desktopDeafened")).toBe(false));
+            expect(preferences.get("audioInputMuted")).toBe(false);
+            expect(call.setDeviceMute).not.toHaveBeenCalled();
+            expect(vm.getSnapshot()).toMatchObject({
+                panel: null,
+                roomName: undefined,
+                microphoneTest: { active: false },
+            });
+        });
+
+        it("reports microphone and denoiser failures and restores the call after playback fails", async () => {
+            vm.setPanel("noise");
+            microphone.start.mockRejectedValueOnce(new DOMException("blocked", "NotAllowedError"));
+            await vm.toggleMicrophoneTest();
+            expect(vm.getSnapshot().microphoneTest).toMatchObject({ active: false, error: "denied" });
+            await connect();
+            vm.setPanel("noise");
+            microphone.setPlayback.mockRejectedValueOnce(new Error("Output unavailable"));
+            await vm.toggleMicrophoneTest();
+            expect(vm.getSnapshot()).toMatchObject({ deafened: false, microphoneMuted: false });
+            expect(vm.getSnapshot().microphoneTest).toMatchObject({ active: false, error: "unavailable" });
+            microphone.onStatus?.("overloaded");
+            expect(vm.getSnapshot().noiseSuppressionProblem).toBe("overloaded");
+        });
+
+        it("reflects real connection reports and clears the previous call's diagnostics", async () => {
+            await connect();
+            call.handleConnectionStats({
+                state: "connected",
+                quality: "poor",
+                rttMs: 280,
+                averageRttMs: 200,
+                outboundPacketLossPercent: 6,
+                history: [120, 280],
+            });
+            expect(vm.getSnapshot().connection).toMatchObject({ quality: "poor", rttMs: 280 });
+            await vm.disconnect();
+            expect(vm.getSnapshot().connection).toMatchObject({ state: "disconnected", rttMs: null, history: [] });
         });
     });
 });

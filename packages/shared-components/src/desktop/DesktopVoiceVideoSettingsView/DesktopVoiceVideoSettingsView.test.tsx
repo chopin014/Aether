@@ -32,7 +32,11 @@ const baseSnapshot: DesktopVoiceVideoSettingsViewSnapshot = {
     microphoneVolume: 80,
     speakerVolume: 60,
     microphoneTest: { active: false, level: null, open: false },
+    inputLevel: { level: null, open: false, threshold: null },
     inputProfile: "custom",
+    noiseSuppression: "enhanced",
+    noiseSuppressionStrength: 100,
+    voiceDetection: true,
     sensitivityAuto: true,
     sensitivity: -50,
     inputMode: "voice_activity",
@@ -62,6 +66,9 @@ function makeVm(snapshot: Partial<DesktopVoiceVideoSettingsViewSnapshot> = {}) {
         setSpeakerVolume: vi.fn(),
         toggleMicrophoneTest: vi.fn(),
         setInputProfile: vi.fn(),
+        setNoiseSuppression: vi.fn(),
+        setNoiseSuppressionStrength: vi.fn(),
+        setVoiceDetection: vi.fn(),
         setSensitivityAuto: vi.fn(),
         setSensitivity: vi.fn(),
         setInputMode: vi.fn(),
@@ -101,10 +108,9 @@ describe("DesktopVoiceVideoSettingsView", () => {
         }
     });
 
-    it("offers no noise suppression, Krisp or voice isolation", () => {
+    it("names no third-party noise suppression", () => {
         render(<DesktopVoiceVideoSettingsView vm={makeVm()} />);
-        expect(screen.queryByText(/noise/i)).toBeNull();
-        expect(screen.queryByText(/krisp|isolation/i)).toBeNull();
+        expect(screen.queryByText(/krisp/i)).toBeNull();
     });
 
     describe("voice", () => {
@@ -162,9 +168,45 @@ describe("DesktopVoiceVideoSettingsView", () => {
             const vm = makeVm();
             render(<DesktopVoiceVideoSettingsView vm={vm} />);
             const group = screen.getByRole("radiogroup", { name: "Input profile" });
+            expect(within(group).getAllByRole("radio")).toHaveLength(3);
             expect(within(group).getByRole("radio", { name: /Custom/ })).toBeChecked();
             await userEvent.click(within(group).getByRole("radio", { name: /Studio/ }));
             expect(vm.setInputProfile).toHaveBeenCalledWith("studio");
+            await userEvent.click(within(group).getByRole("radio", { name: /Voice Isolation/ }));
+            expect(vm.setInputProfile).toHaveBeenCalledWith("voice_isolation");
+        });
+
+        it("chooses the noise suppression and its strength", async () => {
+            const vm = makeVm();
+            render(<DesktopVoiceVideoSettingsView vm={vm} />);
+            const select = screen.getByRole("combobox", { name: "Noise suppression" });
+            expect(select).toHaveValue("enhanced");
+            await userEvent.selectOptions(select, "standard");
+            expect(vm.setNoiseSuppression).toHaveBeenCalledWith("standard");
+            const strength = screen.getByRole("slider", { name: "Suppression strength" });
+            expect(strength).toHaveAttribute("aria-valuetext", "100%");
+            fireEvent.change(strength, { target: { value: "60" } });
+            expect(vm.setNoiseSuppressionStrength).toHaveBeenCalledWith(60);
+        });
+
+        it("only offers the strength and voice detection with enhanced noise suppression", () => {
+            render(<DesktopVoiceVideoSettingsView vm={makeVm({ noiseSuppression: "standard" })} />);
+            expect(screen.queryByRole("slider", { name: "Suppression strength" })).toBeNull();
+            expect(screen.getByRole("switch", { name: "Advanced voice detection" })).toBeDisabled();
+        });
+
+        it("switches advanced voice detection", async () => {
+            const vm = makeVm();
+            render(<DesktopVoiceVideoSettingsView vm={vm} />);
+            const toggle = screen.getByRole("switch", { name: "Advanced voice detection" });
+            expect(toggle).toBeChecked();
+            await userEvent.click(toggle);
+            expect(vm.setVoiceDetection).toHaveBeenCalledWith(false);
+        });
+
+        it("explains when enhanced noise suppression had to stop", () => {
+            render(<DesktopVoiceVideoSettingsView vm={makeVm({ noiseSuppressionProblem: "overloaded" })} />);
+            expect(screen.getByRole("alert").textContent).toContain("could not keep up");
         });
 
         it("only lets the sensitivity be set by hand when it is not automatic", () => {
@@ -177,17 +219,46 @@ describe("DesktopVoiceVideoSettingsView", () => {
             expect(slider).toHaveAttribute("aria-valuetext", "-50 dB");
         });
 
-        it("changes the sensitivity and shows the live level under it while testing", () => {
-            const vm = makeVm({
-                sensitivityAuto: false,
-                microphoneTest: { active: true, level: -25, open: true },
-            });
+        it("changes the sensitivity and shows the live level in it without a test running", () => {
+            const vm = makeVm({ sensitivityAuto: false, inputLevel: { level: -25, open: true, threshold: -50 } });
             render(<DesktopVoiceVideoSettingsView vm={vm} />);
             fireEvent.change(screen.getByRole("slider", { name: "Input sensitivity threshold" }), {
                 target: { value: "-35" },
             });
             expect(vm.setSensitivity).toHaveBeenCalledWith(-35);
-            expect(screen.getByTestId("sensitivity-level")).toHaveStyle({ width: "75%" });
+            const level = screen.getByTestId("sensitivity-level");
+            expect(level.style.getPropertyValue("--level")).toBe("75%");
+            expect(level).toHaveAttribute("data-open");
+        });
+
+        it("shows sound above the threshold that is still held back as held back", () => {
+            render(
+                <DesktopVoiceVideoSettingsView
+                    vm={makeVm({ inputLevel: { level: -20, open: false, threshold: -50 } })}
+                />,
+            );
+            expect(screen.getByTestId("sensitivity-level")).not.toHaveAttribute("data-open");
+        });
+
+        it("places the knob where automatic sensitivity currently is", () => {
+            const { rerender } = render(
+                <DesktopVoiceVideoSettingsView
+                    vm={makeVm({ sensitivity: -50, inputLevel: { level: -40, open: true, threshold: -62.4 } })}
+                />,
+            );
+            const slider = screen.getByRole("slider", { name: "Input sensitivity threshold" });
+            expect(slider).toHaveValue("-62");
+            expect(slider).toHaveAttribute("aria-valuetext", "-62 dB");
+            rerender(
+                <DesktopVoiceVideoSettingsView
+                    vm={makeVm({
+                        sensitivityAuto: false,
+                        sensitivity: -50,
+                        inputLevel: { level: -40, open: true, threshold: -50 },
+                    })}
+                />,
+            );
+            expect(slider).toHaveValue("-50");
         });
 
         it("switches between automatic and manual sensitivity", async () => {
