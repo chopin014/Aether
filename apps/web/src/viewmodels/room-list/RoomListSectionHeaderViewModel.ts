@@ -15,7 +15,12 @@ import {
     type RoomListSectionHeaderViewSnapshot,
 } from "@element-hq/web-shared-components";
 
-import { DESKTOP_TEXT_CHANNELS, DESKTOP_VOICE_CHANNELS, isDesktopChannelSection } from "./DesktopChannelSections";
+import {
+    DESKTOP_TEXT_CHANNELS,
+    DESKTOP_VOICE_CHANNELS,
+    isDesktopChannelList,
+    isDesktopChannelSection,
+} from "./DesktopChannelSections";
 import { hasCreateRoomRights } from "./utils";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import { showCreateNewRoom } from "../../utils/space";
@@ -59,10 +64,20 @@ function getAcceptedRoomKind(tag: string): AcceptedRoomKind {
 }
 
 /**
- * The kind of channel a desktop channel category creates from its header, if the user may add rooms to the Space.
+ * The kind of channel preselected when creating a channel from a desktop section's header, or undefined when the
+ * section cannot create one. The Text and Voice categories create their own kind. A section the user files rooms
+ * into, such as a custom section or Favourites, preselects the kind most of its rooms have, so a section of voice
+ * channels offers another voice channel.
  */
-function getCreateChannelKind(tag: string, spaceId: string): "text" | "voice" | undefined {
-    const kind = tag === DESKTOP_TEXT_CHANNELS ? "text" : tag === DESKTOP_VOICE_CHANNELS ? "voice" : undefined;
+function getCreateChannelKind(tag: string, spaceId: string, rooms: Room[]): "text" | "voice" | undefined {
+    let kind: "text" | "voice" | undefined;
+    if (tag === DESKTOP_TEXT_CHANNELS) kind = "text";
+    else if (tag === DESKTOP_VOICE_CHANNELS) kind = "voice";
+    else if (isCustomSectionTag(tag) || tag === DefaultTagID.Favourite || tag === DefaultTagID.LowPriority) {
+        if (!isDesktopChannelList(spaceId)) return undefined;
+        const voice = rooms.filter((room) => room.isCallRoom() || room.isElementVideoRoom()).length;
+        kind = voice > rooms.length - voice ? "voice" : "text";
+    }
     if (!kind) return undefined;
     const client = MatrixClientPeg.get();
     const space = client?.getRoom(spaceId);
@@ -93,6 +108,11 @@ export class RoomListSectionHeaderViewModel
      */
     private currentCalls = new Set<Call>();
 
+    /**
+     * The rooms currently in this section, which decide the kind of channel its header creates.
+     */
+    private rooms: Room[] = [];
+
     public constructor(props: RoomListSectionHeaderViewModelProps) {
         const isDefaultSection = isDefaultSectionTag(props.tag) || isDesktopChannelSection(props.tag);
         super(props, {
@@ -103,7 +123,7 @@ export class RoomListSectionHeaderViewModel
             displaySectionMenu: !isDefaultSection,
             canBeReordered: isReorderableSection(props.tag, getCustomSectionData()),
             acceptedRoomKind: getAcceptedRoomKind(props.tag),
-            createChannelKind: getCreateChannelKind(props.tag, props.spaceId),
+            createChannelKind: getCreateChannelKind(props.tag, props.spaceId, []),
         });
         const sectionWatherRef = SettingsStore.watchSetting("RoomList.CustomSectionData", null, () =>
             this.onCustomSectionDataChange(),
@@ -149,14 +169,20 @@ export class RoomListSectionHeaderViewModel
     public setSpace(spaceId: string): void {
         this.props.spaceId = spaceId;
         const isExpanded = isSectionExpanded(this.props.spaceId, this.props.tag);
-        this.snapshot.merge({ isExpanded, createChannelKind: getCreateChannelKind(this.props.tag, spaceId) });
+        this.snapshot.merge({
+            isExpanded,
+            createChannelKind: getCreateChannelKind(this.props.tag, spaceId, this.rooms),
+        });
     }
 
     public createChannel = (): void => {
         const space = MatrixClientPeg.get()?.getRoom(this.props.spaceId);
         if (!space) return;
         const type = this.snapshot.current.createChannelKind === "voice" ? RoomType.UnstableCall : undefined;
-        void showCreateNewRoom(space, type);
+        // The Text and Voice categories list rooms by their type, while any other section lists the rooms tagged
+        // with it, so the new channel is tagged to appear where it was created.
+        const sectionTag = isDesktopChannelSection(this.props.tag) ? undefined : this.props.tag;
+        void showCreateNewRoom(space, type, { sectionTag, sectionName: this.snapshot.current.title });
     };
 
     /**
@@ -189,6 +215,8 @@ export class RoomListSectionHeaderViewModel
         }
 
         this.roomNotificationStates = newStates;
+        this.rooms = rooms;
+        this.snapshot.merge({ createChannelKind: getCreateChannelKind(this.props.tag, this.props.spaceId, rooms) });
         this.updateCallListeners();
         this.updateNotificationState();
     }

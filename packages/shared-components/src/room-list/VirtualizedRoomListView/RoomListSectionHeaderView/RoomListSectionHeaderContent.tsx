@@ -69,11 +69,7 @@ export const RoomListSectionHeaderContent = memo(function RoomListSectionHeaderC
             {createChannelKind && !isDragging && (
                 <IconButton
                     className={styles.createChannel}
-                    tooltip={
-                        createChannelKind === "voice"
-                            ? _t("room_list|section_header|create_voice_channel")
-                            : _t("room_list|section_header|create_text_channel")
-                    }
+                    tooltip={_t("room_list|section_header|create_channel_in", { section: title })}
                     size="24px"
                     style={{ padding: "4px" }}
                     onClick={(evt) => {
