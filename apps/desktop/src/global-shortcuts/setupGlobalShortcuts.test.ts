@@ -41,11 +41,30 @@ vi.mock("../window-close.js", () => ({ revealMainWindow: vi.fn() }));
 describe("setupGlobalShortcuts", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.reset.mockReset();
         mocks.configure.mockResolvedValue({ backend: "unsupported", bindings: [] });
+    });
+    it("cleans up after the native window closes without reading its destroyed webContents getter", () => {
+        const f = fixture();
+        Object.defineProperty(f.window, "webContents", {
+            get: () => {
+                throw new Error("Object has been destroyed");
+            },
+        });
+        vi.spyOn(f.contents, "isDestroyed").mockReturnValue(true);
+        mocks.reset.mockImplementation(() => mocks.send!({ id: "push_to_talk", pressed: false }));
+        expect(() => f.window.emit("closed")).not.toThrow();
+        expect(f.contents.send).not.toHaveBeenCalled();
+        expect(powerMonitor.listenerCount("suspend")).toBe(0);
+        expect(ipcMain.removeHandler).toHaveBeenCalledWith("aether:configure-global-shortcuts");
     });
     function fixture(enabled = true) {
         const mainFrame = {};
-        const contents = Object.assign(new EventEmitter(), { mainFrame, isDestroyed: () => false, send: vi.fn() });
+        const contents = Object.assign(new EventEmitter(), {
+            mainFrame,
+            isDestroyed: (): boolean => false,
+            send: vi.fn(),
+        });
         const window = Object.assign(new EventEmitter(), {
             webContents: contents,
             hide: vi.fn(),

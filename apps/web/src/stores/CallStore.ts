@@ -18,6 +18,10 @@ import SettingsStore from "../settings/SettingsStore";
 import { SettingLevel } from "../settings/SettingLevel";
 import { Call, CallEvent, ConnectionState } from "../models/Call";
 import SdkConfig from "../SdkConfig.ts";
+import { DesktopCallHandoff } from "../models/DesktopCallHandoff";
+import ToastStore from "./ToastStore";
+import { GenericToast } from "@element-hq/web-shared-components";
+import { _t } from "../languageHandler";
 
 export enum CallStoreEvent {
     // Signals a change in the call associated with a given room
@@ -52,6 +56,26 @@ export class CallStore extends AsyncStoreWithClient<EmptyObject> {
 
     protected async onReady(): Promise<any> {
         if (!this.matrixClient) return;
+        this.handoff?.dispose();
+        this.handoff = SettingsStore.getValue("feature_desktop_shell")
+            ? new DesktopCallHandoff(
+                  this.matrixClient,
+                  () => this.connectedCalls,
+                  () => {
+                      ToastStore.sharedInstance().addOrReplaceToast({
+                          key: "desktop-call-moved",
+                          priority: 40,
+                          title: _t("desktop|voice_settings|call_moved_title"),
+                          component: GenericToast,
+                          props: {
+                              description: _t("desktop|voice_settings|call_moved_description"),
+                              primaryLabel: _t("action|dismiss"),
+                              onPrimaryClick: () => ToastStore.sharedInstance().dismissToast("desktop-call-moved"),
+                          },
+                      });
+                  },
+              )
+            : undefined;
         // Fetch transports, but don't await the result.
         this.matrixClient.cachedRtcTransports
             .wait()
@@ -78,17 +102,24 @@ export class CallStore extends AsyncStoreWithClient<EmptyObject> {
         // properly, and need to clean up after ourselves
         const uncleanlyDisconnectedRoomIds = SettingsStore.getValue("activeCallRoomIds");
         if (uncleanlyDisconnectedRoomIds.length) {
-            await Promise.all([
-                ...uncleanlyDisconnectedRoomIds.map(async (uncleanlyDisconnectedRoomId): Promise<void> => {
-                    logger.log(`Cleaning up call state for room ${uncleanlyDisconnectedRoomId}`);
-                    await this.getCall(uncleanlyDisconnectedRoomId)?.clean();
+            const results = await Promise.allSettled(
+                uncleanlyDisconnectedRoomIds.map(async (roomId) => {
+                    logger.log(`Cleaning up call state for room ${roomId}`);
+                    await this.getCall(roomId)?.clean();
                 }),
-                SettingsStore.setValue("activeCallRoomIds", null, SettingLevel.DEVICE, []),
-            ]);
+            );
+            const failedRoomIds = uncleanlyDisconnectedRoomIds.filter(
+                (_, index) => results[index].status === "rejected",
+            );
+            if (failedRoomIds.length)
+                logger.warn("Call membership cleanup will be retried at next startup", failedRoomIds);
+            await SettingsStore.setValue("activeCallRoomIds", null, SettingLevel.DEVICE, failedRoomIds);
         }
     }
 
     protected async onNotReady(): Promise<any> {
+        this.handoff?.dispose();
+        this.handoff = undefined;
         for (const [call, listenerMap] of this.callListeners) {
             // It's important that we remove the listeners before destroying the
             // call, because otherwise the call's onDestroy callback would fire
@@ -106,6 +137,7 @@ export class CallStore extends AsyncStoreWithClient<EmptyObject> {
     }
 
     private _connectedCalls: Set<Call> = new Set();
+    private handoff: DesktopCallHandoff | undefined;
     /**
      * The calls to which the user is currently connected.
      */
@@ -147,6 +179,10 @@ export class CallStore extends AsyncStoreWithClient<EmptyObject> {
                 const onConnectionState = (state: ConnectionState): void => {
                     if (state === ConnectionState.Connected) {
                         this.connectedCalls = new Set([...this.connectedCalls, call]);
+                        if (this.handoff) ToastStore.sharedInstance().dismissToast("desktop-call-moved");
+                        void this.handoff
+                            ?.claim(call)
+                            .catch((error) => logger.warn("Could not take over voice on this device", error));
                     } else if (state === ConnectionState.Disconnected) {
                         this.connectedCalls = new Set([...this.connectedCalls].filter((c) => c !== call));
                     }

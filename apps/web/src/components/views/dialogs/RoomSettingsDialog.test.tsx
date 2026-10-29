@@ -24,9 +24,12 @@ import { getMockClientWithEventEmitter, mockClientMethodsUser, TestSDKContext } 
 
 import RoomSettingsDialog from "./RoomSettingsDialog";
 import MatrixClientContext from "../../../contexts/MatrixClientContext";
+import { SDKContextClass } from "../../../contexts/SDKContextClass";
 import SettingsStore from "../../../settings/SettingsStore";
 import { UIFeature } from "../../../settings/UIFeature";
 import DMRoomMap from "../../../utils/DMRoomMap";
+import { RoomSettingsTab } from "./RoomSettingsDialog-tab.ts";
+import type SpaceStore from "../../../stores/spaces/SpaceStore";
 
 describe("<RoomSettingsDialog />", () => {
     const userId = "@alice:server.org";
@@ -35,6 +38,8 @@ describe("<RoomSettingsDialog />", () => {
         isRoomEncrypted: vi.fn().mockReturnValue(false),
         getRoom: vi.fn(),
         getDomain: vi.fn().mockReturnValue("server.org"),
+        getClientWellKnown: vi.fn().mockReturnValue(undefined),
+        getCrypto: vi.fn().mockReturnValue(undefined),
         getLocalAliases: vi.fn().mockResolvedValue({ aliases: [] }),
         getRoomDirectoryVisibility: vi.fn().mockResolvedValue({ visibility: Visibility.Private }),
         getOrCreateFilter: vi.fn(),
@@ -96,6 +101,50 @@ describe("<RoomSettingsDialog />", () => {
         it("renders default tabs correctly", () => {
             const { container } = getComponent();
             expect(container.querySelectorAll(".mx_TabbedView_tabLabel")).toMatchSnapshot();
+        });
+
+        it("uses the channel settings navigation in the desktop shell", () => {
+            vi.spyOn(SettingsStore, "getValue").mockImplementation(
+                (settingName) => settingName === "feature_desktop_shell",
+            );
+            const { container } = getComponent();
+
+            expect(screen.getByRole("dialog", { name: "Channel settings for Test Room" })).toBeInTheDocument();
+            expect(screen.getByRole("navigation", { name: "Channel settings for Test Room" })).toBeInTheDocument();
+            expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
+            expect(screen.getByRole("tab", { name: "Security & Privacy" })).toBeInTheDocument();
+            expect(screen.getByRole("tab", { name: "Permissions" })).toBeInTheDocument();
+            expect(container.querySelector(".mx_TabbedView_tabLabels")).not.toBeInTheDocument();
+        });
+
+        it("opens the selected security tab in the desktop shell", () => {
+            vi.spyOn(SettingsStore, "getValue").mockImplementation(
+                (settingName) => settingName === "feature_desktop_shell",
+            );
+            const spaceStoreSpy = vi.spyOn(SDKContextClass.instance, "spaceStore", "get").mockReturnValue({
+                activeSpaceRoom: undefined,
+            } as unknown as SpaceStore);
+            const { unmount } = render(
+                <RoomSettingsDialog
+                    roomId={roomId}
+                    initialTabId={RoomSettingsTab.Security}
+                    onFinished={vi.fn()}
+                    sdkContext={sdkContext}
+                />,
+                {
+                    wrapper: ({ children }) => (
+                        <MatrixClientContext.Provider value={mockClient}>{children}</MatrixClientContext.Provider>
+                    ),
+                },
+            );
+
+            expect(screen.getByRole("tab", { name: "Security & Privacy" })).toHaveAttribute("aria-selected", "true");
+            expect(screen.getByRole("tabpanel")).toHaveAttribute(
+                "aria-labelledby",
+                "mx_tabpanel_ROOM_SECURITY_TAB_label",
+            );
+            unmount();
+            spaceStoreSpy.mockRestore();
         });
 
         describe("people settings tab", () => {

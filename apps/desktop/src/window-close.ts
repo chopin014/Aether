@@ -48,7 +48,14 @@ export function handleWindowClose(
     opts: { appQuitting: boolean; hasTray: boolean },
 ): void {
     const behavior = resolveWindowCloseBehavior({ ...opts, platform: process.platform });
-    if (behavior === "quit") return;
+    if (behavior === "quit") {
+        if (!opts.appQuitting) {
+            // Start app shutdown while the renderer is still alive to publish its call leave.
+            event.preventDefault();
+            app.quit();
+        }
+        return;
+    }
 
     event.preventDefault();
     const hide = behavior === "hide-app" ? (): void => app.hide() : (): void => window?.hide();

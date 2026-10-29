@@ -14,6 +14,7 @@ import { handleWindowClose, revealMainWindow } from "./window-close.js";
 vi.mock("electron", () => ({
     app: {
         hide: vi.fn(),
+        quit: vi.fn(),
         show: vi.fn(),
     },
 }));
@@ -49,6 +50,7 @@ function usePlatform(platform: NodeJS.Platform): void {
 describe("handleWindowClose", () => {
     beforeEach(() => {
         vi.mocked(app.hide).mockClear();
+        vi.mocked(app.quit).mockClear();
         vi.mocked(app.show).mockClear();
     });
 
@@ -100,26 +102,28 @@ describe("handleWindowClose", () => {
         expect(app.hide).not.toHaveBeenCalled();
     });
 
-    it("lets the window close on Linux without a tray", () => {
+    it("starts graceful app shutdown on Linux without a tray", () => {
         usePlatform("linux");
         const window = mockWindow();
         const event = mockEvent();
 
         handleWindowClose(event, window, { appQuitting: false, hasTray: false });
 
-        expect(event.preventDefault).not.toHaveBeenCalled();
+        expect(event.preventDefault).toHaveBeenCalledOnce();
+        expect(app.quit).toHaveBeenCalledOnce();
         expect(window.hide).not.toHaveBeenCalled();
         expect(app.hide).not.toHaveBeenCalled();
     });
 
-    it("lets the window close on Windows without a tray", () => {
+    it("starts graceful app shutdown on Windows without a tray", () => {
         usePlatform("win32");
         const window = mockWindow();
         const event = mockEvent();
 
         handleWindowClose(event, window, { appQuitting: false, hasTray: false });
 
-        expect(event.preventDefault).not.toHaveBeenCalled();
+        expect(event.preventDefault).toHaveBeenCalledOnce();
+        expect(app.quit).toHaveBeenCalledOnce();
         expect(window.hide).not.toHaveBeenCalled();
     });
 

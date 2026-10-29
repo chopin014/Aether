@@ -17,6 +17,8 @@ export interface IQuestionDialogProps {
     title?: string;
     description?: React.ReactNode;
     extraButtons?: React.ReactNode;
+    /** Content displayed beside the confirmation and cancellation buttons. */
+    additive?: React.ReactNode;
     button?: string;
     buttonDisabled?: boolean;
     danger?: boolean;
@@ -68,6 +70,7 @@ export default class QuestionDialog extends React.Component<IQuestionDialogProps
                     {this.props.description}
                 </div>
                 <DialogButtons
+                    additive={this.props.additive}
                     primaryButton={this.props.button || _t("action|ok")}
                     primaryButtonClass={primaryButtonClass}
                     primaryDisabled={this.props.buttonDisabled}

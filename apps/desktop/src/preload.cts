@@ -23,6 +23,7 @@ const CHANNELS = [
     "app_onAction",
     "aether:update-state",
     "before-quit",
+    "quit-ready",
     "check_updates",
     "install_update",
     "ipcCall",

@@ -13,9 +13,12 @@ import React from "react";
 import { render, screen } from "test-utils-rtl";
 import userEvent from "@testing-library/user-event";
 
-import DesktopCapturerSourcePicker from "./DesktopCapturerSourcePicker";
+import { DesktopCapturerSourcePicker } from "./DesktopCapturerSourcePicker";
 import PlatformPeg from "../../../PlatformPeg";
 import type BasePlatform from "../../../BasePlatform";
+import { DesktopVoicePipeline } from "../../../audio/desktop/DesktopVoicePipeline";
+import SettingsStore from "../../../settings/SettingsStore";
+import SdkConfig from "../../../SdkConfig";
 
 const SOURCES = [
     {
@@ -32,15 +35,23 @@ const SOURCES = [
 
 describe("DesktopCapturerSourcePicker", () => {
     beforeEach(() => {
+        vi.spyOn(SettingsStore, "getValue").mockReturnValue(false);
         const plaf = {
             getDesktopCapturerSources: vi.fn().mockResolvedValue(SOURCES),
             supportsSetting: vi.fn().mockReturnValue(false),
         };
         vi.spyOn(PlatformPeg, "get").mockReturnValue(plaf as unknown as BasePlatform);
+        DesktopVoicePipeline.instance.setScreenShareQuality({
+            resolutionHeight: 1080,
+            frameRate: 30,
+            maxBitrate: null,
+            includeSystemAudio: true,
+        });
     });
 
     afterEach(() => {
         vi.restoreAllMocks();
+        SdkConfig.reset();
     });
 
     it("should render the component", () => {
@@ -91,5 +102,40 @@ describe("DesktopCapturerSourcePicker", () => {
         await userEvent.click(screen1Button);
         await userEvent.click(screen.getByRole("button", { name: "Share" }));
         expect(onFinished).toHaveBeenCalledWith(SOURCES[0]);
+    });
+
+    it("confirms the chosen source and quality only after both desktop picker steps", async () => {
+        vi.mocked(SettingsStore.getValue).mockImplementation((key) => key === "feature_desktop_shell");
+        SdkConfig.put({
+            element_call: {
+                media_quality: {
+                    screen_share: {
+                        max_resolution: 1440,
+                        max_framerate: 60,
+                        max_bitrate: 6_000_000,
+                    },
+                },
+            },
+        });
+        const onFinished = vi.fn();
+        render(<DesktopCapturerSourcePicker onFinished={onFinished} />);
+
+        await userEvent.click(await screen.findByRole("button", { name: "Window 1" }));
+        await userEvent.click(screen.getByRole("button", { name: "Next" }));
+
+        await userEvent.click(screen.getByRole("button", { name: "1440p" }));
+        await userEvent.click(screen.getByRole("button", { name: "60 FPS" }));
+        await userEvent.click(screen.getByRole("button", { name: "6 Mbps" }));
+        expect(onFinished).not.toHaveBeenCalled();
+        expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+        await userEvent.click(screen.getByRole("button", { name: "Share" }));
+
+        expect(onFinished).toHaveBeenCalledWith(SOURCES[1]);
+        expect(DesktopVoicePipeline.instance.getScreenShareQuality()).toEqual({
+            resolutionHeight: 1440,
+            frameRate: 60,
+            maxBitrate: 6_000_000,
+            includeSystemAudio: false,
+        });
     });
 });

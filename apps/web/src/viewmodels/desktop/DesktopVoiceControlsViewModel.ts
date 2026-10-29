@@ -160,21 +160,23 @@ export class DesktopVoiceControlsViewModel
 
     private readonly refresh = (): void => {
         if (this.isDisposed) return;
+        const call = this.call?.locallyLeaving ? undefined : this.call;
         const processing = getMicrophoneGateConfig();
         this.snapshot.merge({
-            microphoneMuted: this.call?.deviceMuteState
-                ? !this.call.deviceMuteState.audio_enabled
+            ...(this.call?.locallyLeaving ? { error: undefined, panel: null } : {}),
+            microphoneMuted: call?.deviceMuteState
+                ? !call.deviceMuteState.audio_enabled
                 : SettingsStore.getValue("audioInputMuted"),
             deafened: SettingsStore.getValue("desktopDeafened"),
-            videoEnabled: this.call?.deviceMuteState?.video_enabled ?? false,
-            screenShareAvailable: this.call?.screenShare.available ?? false,
-            screenSharing: this.call?.screenShare.sharing ?? false,
-            roomName: this.call ? (this.props.client.getRoom(this.call.roomId)?.name ?? this.call.roomId) : undefined,
+            videoEnabled: call?.deviceMuteState?.video_enabled ?? false,
+            screenShareAvailable: call?.screenShare.available ?? false,
+            screenSharing: call?.screenShare.sharing ?? false,
+            roomName: call ? (this.props.client.getRoom(call.roomId)?.name ?? call.roomId) : undefined,
             noiseSuppression: processing.noiseSuppression !== null,
             noiseSuppressionStrength:
                 processing.noiseSuppression ?? SettingsStore.getValue("desktopNoiseSuppressionStrength"),
-            connection: this.call?.connectionStats ?? {
-                state: this.call ? "connecting" : "disconnected",
+            connection: call?.connectionStats ?? {
+                state: call ? "connecting" : "disconnected",
                 quality: "unknown",
                 rttMs: null,
                 averageRttMs: null,
@@ -294,6 +296,7 @@ export class DesktopVoiceControlsViewModel
         participants: ReadonlyMap<RoomMember, unknown>,
         previous: ReadonlyMap<RoomMember, unknown>,
     ): void => {
+        this.refresh();
         const ids = (members: ReadonlyMap<RoomMember, unknown>): Set<string> =>
             new Set(
                 [...members.keys()].map((member) => member.userId).filter((id) => id !== this.props.client.getUserId()),
@@ -448,9 +451,16 @@ export class DesktopVoiceControlsViewModel
         }, _td("desktop|voice|screen_share_failed"));
     };
     public disconnect = async (): Promise<void> => {
+        const call = this.call;
+        call?.setLocalLeavePending(true);
         await this.stopMicrophoneTest();
         await this.perform(async () => {
-            await this.call?.disconnect();
+            try {
+                await call?.disconnect();
+            } catch (error) {
+                call?.setLocalLeavePending(false);
+                throw error;
+            }
         });
     };
     public showCall = (): void => {

@@ -9,6 +9,7 @@ Please see LICENSE files in the repository root for full details.
 import React, { type FC, useContext, useEffect, type AriaRole, useCallback } from "react";
 
 import type { Room } from "matrix-js-sdk/src/matrix";
+import { logger } from "matrix-js-sdk/src/logger";
 import { type Call, CallEvent } from "../../../models/Call";
 import { CallAppTile } from "./CallAppTile";
 import { CallStore } from "../../../stores/CallStore";
@@ -34,7 +35,7 @@ const JoinCallView: FC<JoinCallViewProps> = ({ room, resizing, call, role, onClo
 
     useEffect(() => {
         // We'll take this opportunity to tidy up our room state
-        void call.clean();
+        void call.clean().catch((error) => logger.warn("Could not clean previous call membership", error));
     }, [call]);
 
     const disconnectAllOtherCalls: () => Promise<void> = useCallback(async () => {

@@ -7,6 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 /* Theme aliases inherit into portal roots, including settings and verification dialogs. */
 body.mx_DesktopShell {
+    --aether-call-background: var(--cpd-color-bg-canvas-default);
     /* Aether colour primitives from the identity package (tokens/aether-tokens.css). Use the semantic roles. */
     --ae-vacuo: #090a12;
     --ae-orbita: #12142a;
@@ -164,6 +165,95 @@ body.mx_DesktopShell {
 
         .mx_SettingsTab_heading {
             font: var(--cpd-font-heading-md-semibold);
+        }
+    }
+
+    .mx_RoomSettingsDialog_desktop {
+        --mx-desktop-settings-sidebar: clamp(260px, 28vw, 360px);
+        position: relative;
+
+        &::before {
+            display: none;
+        }
+
+        .mx_Dialog_header {
+            padding-inline-start: calc(var(--mx-desktop-settings-sidebar) + 24px);
+        }
+
+        .mx_Dialog_title {
+            font: var(--cpd-font-heading-sm-semibold) !important;
+        }
+
+        .mx_Dialog_cancelButton {
+            z-index: 2;
+            border-radius: 50%;
+            outline: 1px solid var(--cpd-color-border-interactive-secondary);
+        }
+    }
+
+    .mx_RoomSettingsDialog_desktopIdentity {
+        position: absolute;
+        z-index: 1;
+        inset: 0 auto auto 24px;
+        width: calc(var(--mx-desktop-settings-sidebar) - 48px);
+        height: 49px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        overflow: hidden;
+        color: var(--cpd-color-text-primary);
+        font: var(--cpd-font-body-md-semibold);
+        pointer-events: none;
+    }
+
+    .mx_RoomSettingsDialog_desktopIdentity_icon {
+        color: var(--cpd-color-text-secondary);
+        font: var(--cpd-font-heading-sm-semibold);
+    }
+
+    .mx_RoomSettingsDialog_desktopIdentity_name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .mx_RoomSettingsDialog_desktopIdentity_type {
+        margin-inline-start: auto;
+        padding-inline-start: 8px;
+        color: var(--cpd-color-text-secondary);
+        font: var(--cpd-font-body-xs-medium);
+        white-space: nowrap;
+    }
+
+    @media (max-width: 760px) {
+        .mx_Dialog_border:has(.mx_RoomSettingsDialog_desktop) {
+            width: calc(100% - 32px);
+            height: calc(100% - 32px);
+            max-height: calc(100% - 2 * max(16px, var(--mx-window-controls-block-size)));
+        }
+
+        .mx_RoomSettingsDialog_desktop {
+            --mx-desktop-settings-sidebar: 216px;
+
+            .mx_Dialog_header {
+                padding-inline-start: calc(var(--mx-desktop-settings-sidebar) + 16px);
+            }
+        }
+
+        .mx_RoomSettingsDialog_desktopIdentity {
+            inset-inline-start: 16px;
+            width: calc(var(--mx-desktop-settings-sidebar) - 32px);
+        }
+    }
+
+    @media (max-width: 520px) {
+        .mx_RoomSettingsDialog_desktop {
+            --mx-desktop-settings-sidebar: 164px;
+        }
+
+        .mx_RoomSettingsDialog_desktopIdentity_type {
+            display: none;
         }
     }
 }
@@ -1032,4 +1122,27 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
     inset-block-end: 8px;
     z-index: 20;
     max-width: calc(100% - 16px);
+}
+
+/* Conversations keep their live timeline and composer below the persistent call surface. */
+body.mx_DesktopShell .mx_RoomView_conversationCallStage {
+    flex: 0 0 clamp(240px, 32vh, 360px);
+    min-height: 0;
+    overflow: hidden;
+}
+
+body.mx_DesktopShell .mx_RoomView_conversationCallStage .mx_CallView {
+    width: 100%;
+    height: 100%;
+}
+
+/* The retained call is portalled into the body; video needs more height than an avatar row. */
+body.mx_DesktopShell:has([data-presentation="conversation"]:not([data-audio-only="true"]):not([data-mini="true"]))
+    .mx_RoomView_conversationCallStage {
+    flex-basis: clamp(320px, 46vh, 520px);
+}
+
+body.mx_DesktopShell.cpd-theme-dark,
+body.mx_DesktopShell.cpd-theme-dark-hc {
+    --aether-call-background: #000000;
 }

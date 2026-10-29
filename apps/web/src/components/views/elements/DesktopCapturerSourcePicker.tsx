@@ -6,7 +6,8 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import React from "react";
+import React, { type JSX } from "react";
+import { DesktopScreenSharePickerView, useCreateAutoDisposedViewModel } from "@element-hq/web-shared-components";
 import classNames from "classnames";
 
 import { _t, _td } from "../../../languageHandler";
@@ -16,6 +17,8 @@ import AccessibleButton from "./AccessibleButton";
 import TabbedView, { Tab, TabLocation } from "../../structures/TabbedView";
 import PlatformPeg from "../../../PlatformPeg";
 import { type NonEmptyArray } from "../../../@types/common";
+import { useSettingValue } from "../../../hooks/useSettings";
+import { DesktopScreenSharePickerViewModel } from "../../../viewmodels/desktop/DesktopScreenSharePickerViewModel";
 
 export function getDesktopCapturerSources(): Promise<Array<DesktopCapturerSource>> {
     const options: GetSourcesOptions = {
@@ -70,10 +73,10 @@ export interface PickerIState {
     selectedSource?: DesktopCapturerSource;
 }
 export interface PickerIProps {
-    onFinished(source?: DesktopCapturerSource): void;
+    onFinished: (source?: DesktopCapturerSource) => void;
 }
 
-export default class DesktopCapturerSourcePicker extends React.Component<PickerIProps, PickerIState> {
+class LegacyDesktopCapturerSourcePicker extends React.Component<PickerIProps, PickerIState> {
     public interval?: number;
 
     public constructor(props: PickerIProps) {
@@ -166,4 +169,29 @@ export default class DesktopCapturerSourcePicker extends React.Component<PickerI
             </BaseDialog>
         );
     }
+}
+
+function AetherScreenSharePicker({ onFinished }: PickerIProps): JSX.Element {
+    const vm = useCreateAutoDisposedViewModel(
+        () =>
+            new DesktopScreenSharePickerViewModel({
+                getSources: getDesktopCapturerSources,
+                onFinished,
+            }),
+    );
+    return (
+        <BaseDialog
+            className="mx_AetherScreenSharePicker"
+            onFinished={vm.cancel}
+            title={_t("desktop|share_picker|title")}
+        >
+            <DesktopScreenSharePickerView vm={vm} />
+        </BaseDialog>
+    );
+}
+
+/** Show Aether's sharing prompt in the desktop shell and preserve the existing picker elsewhere. */
+export function DesktopCapturerSourcePicker(props: PickerIProps): JSX.Element {
+    const desktopShell = useSettingValue("feature_desktop_shell");
+    return desktopShell ? <AetherScreenSharePicker {...props} /> : <LegacyDesktopCapturerSourcePicker {...props} />;
 }

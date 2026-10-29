@@ -66,14 +66,77 @@ for (const theme of ["dark", "light"] as const) {
             await expect(trigger).toBeFocused();
         });
 
-        test("toggles favourite and opens the room settings from Edit channel", async ({ page }) => {
-            await channelName(page).click();
+        test("opens channel settings, changes a setting and returns focus", async ({ page, app, roomId }) => {
+            const trigger = channelName(page);
+            await trigger.click();
             await menu(page).getByRole("menuitemcheckbox", { name: "Favourite" }).click();
             await expect(menu(page)).not.toBeVisible();
-            await channelName(page).click();
+            await trigger.click();
             await expect(menu(page).getByRole("menuitemcheckbox", { name: "Favourite" })).toBeChecked();
             await menu(page).getByRole("menuitem", { name: "Edit channel" }).click();
-            await expect(page.locator(".mx_RoomSettingsDialog")).toBeVisible();
+
+            const settings = page.getByRole("dialog", { name: "Channel settings for general" });
+            await expect(settings).toBeVisible();
+            await expect(settings.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
+            await expect(settings.getByRole("tab", { name: "Permissions" })).toBeVisible();
+            await expect(settings.locator(".mx_TabbedView_tabLabels")).toHaveCount(0);
+            await page.screenshot({ path: `${CAPTURES}/channel-settings-${theme}.png` });
+
+            const overviewTab = settings.getByRole("tab", { name: "Overview" });
+            await overviewTab.focus();
+            await page.keyboard.press("ArrowDown");
+            await expect(settings.getByRole("tab", { name: "Security & Privacy" })).toBeFocused();
+            await expect(settings.getByRole("tab", { name: "Security & Privacy" })).toHaveAttribute(
+                "aria-selected",
+                "true",
+            );
+            await page.keyboard.press("ArrowDown");
+            await expect(settings.getByRole("tab", { name: "Permissions" })).toHaveAttribute("aria-selected", "true");
+            await overviewTab.click();
+            const topicField = settings.getByRole("textbox", { name: "Room Topic" });
+            const updatedTopic = `${TOPIC} updated`;
+            await topicField.fill(updatedTopic);
+            await settings.getByRole("button", { name: "Save" }).click();
+            await expect
+                .poll(() =>
+                    app.client.evaluate(async (client, id) => {
+                        const state = await client.getStateEvent(
+                            id,
+                            "m.room.topic" as import("matrix-js-sdk/src/matrix").EventType.RoomTopic,
+                            "",
+                        );
+                        return state.topic;
+                    }, roomId),
+                )
+                .toBe(updatedTopic);
+
+            await page.keyboard.press("Escape");
+            await expect(settings).not.toBeVisible();
+            await expect(trigger).toBeFocused();
+        });
+
+        test("opens channel settings from topic and security actions", async ({ page }) => {
+            const topicTrigger = page.getByRole("banner").getByRole("button", { name: TOPIC });
+            await topicTrigger.click();
+            const topicDialog = page.getByRole("dialog", { name: "general" });
+            await expect(topicDialog).toBeVisible();
+            await topicDialog.getByRole("button", { name: "Edit topic" }).click();
+
+            let settings = page.getByRole("dialog", { name: "Channel settings for general" });
+            await expect(settings).toBeVisible();
+            await expect(settings.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
+            await page.keyboard.press("Escape");
+            await expect(topicTrigger).toBeFocused();
+
+            await channelName(page).click();
+            await menu(page).getByRole("menuitem", { name: "Not encrypted" }).click();
+            settings = page.getByRole("dialog", { name: "Channel settings for general" });
+            await expect(settings).toBeVisible();
+            await expect(settings.getByRole("tab", { name: "Security & Privacy" })).toHaveAttribute(
+                "aria-selected",
+                "true",
+            );
+            await page.keyboard.press("Escape");
         });
 
         test("opens Files in the header search and keeps the channel name readable", async ({

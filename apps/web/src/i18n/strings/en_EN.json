@@ -760,6 +760,24 @@
         "title": "Decline invitation"
     },
     "desktop": {
+        "call_stage": {
+            "fallback_camera": "Camera %(index)s",
+            "fallback_microphone": "Microphone %(index)s",
+            "fallback_speaker": "Speaker %(index)s"
+        },
+        "channel_settings": {
+            "aria_label": "Channel settings for %(roomName)s",
+            "group_access": "Access",
+            "group_activity": "People and activity",
+            "group_advanced": "Advanced",
+            "group_channel": "Channel",
+            "group_integrations": "Integrations",
+            "notifications": "Notifications",
+            "overview": "Overview",
+            "permissions": "Permissions",
+            "title": "Channel settings",
+            "voice": "Voice"
+        },
         "contacts": {
             "action_failed": "That action could not be completed. Please try again.",
             "offline": "desktop|contacts|offline",
@@ -786,6 +804,9 @@
         "members": {
             "invited": "Invited"
         },
+        "share_picker": {
+            "title": "Share your screen"
+        },
         "text_channels": "Text Channels",
         "threads": {
             "close": "Close thread",
@@ -809,6 +830,8 @@
         },
         "voice_channels": "Voice Channels",
         "voice_settings": {
+            "call_moved_description": "You joined a call on another Aether device. Voice is now connected there.",
+            "call_moved_title": "Call moved to another device",
             "nav_advanced": "Advanced",
             "nav_sounds": "Sounds",
             "nav_video": "Video",
@@ -830,8 +853,12 @@
             "sound_unmute": "Unmute",
             "sound_user_joined": "Someone joined your call",
             "sound_user_left": "Someone left your call",
+            "switch_error_description": "Your current call could not be disconnected. Try leaving it before switching calls.",
+            "switch_error_title": "Could not switch calls",
             "switch_warning_confirm": "Switch channel",
             "switch_warning_description": "You are already in a voice channel. Joining this one will disconnect you from it.",
+            "switch_warning_destination": "You are already in another call. Do you want to leave it and switch to <b>%(roomName)s</b>?",
+            "switch_warning_do_not_ask": "Don’t ask again",
             "switch_warning_title": "Leave your current call?"
         }
     },

@@ -3953,6 +3953,27 @@
             "switch_warning_confirm": "Trocar de canal",
             "switch_warning_description": "Você já está em um canal de voz. Entrar neste vai desconectar você do outro.",
             "switch_warning_title": "Sair da chamada atual?"
+        },
+        "call_stage": {
+            "fallback_camera": "Câmera %(index)s",
+            "fallback_microphone": "Microfone %(index)s",
+            "fallback_speaker": "Alto-falante %(index)s"
+        },
+        "channel_settings": {
+            "aria_label": "Configurações do canal %(roomName)s",
+            "group_access": "Acesso",
+            "group_activity": "Pessoas e atividade",
+            "group_advanced": "Avançado",
+            "group_channel": "Canal",
+            "group_integrations": "Integrações",
+            "notifications": "Notificações",
+            "overview": "Visão geral",
+            "permissions": "Permissões",
+            "title": "Configurações do canal",
+            "voice": "Voz"
+        },
+        "share_picker": {
+            "title": "Compartilhar sua tela"
         }
     }
 }

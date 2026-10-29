@@ -15,6 +15,15 @@ import { MicrophoneProcessor } from "./MicrophoneProcessor";
 import { PushToTalkController } from "./PushToTalk";
 import { DesktopShortcutManager } from "./DesktopShortcutManager";
 import { playDesktopVoiceSound } from "../DesktopVoiceSounds";
+import { resolveScreenShareQuality } from "./ScreenShareQuality";
+
+/** User-selected capture and publication preferences, bounded by the deployment policy. */
+export interface ScreenShareQualityPreference {
+    resolutionHeight: number | null;
+    frameRate: number;
+    maxBitrate: number | null;
+    includeSystemAudio: boolean;
+}
 
 /** The settings the audio follows; a change to any of them is sent to the calls on screen. */
 const WATCHED_SETTINGS = [
@@ -91,10 +100,35 @@ export class DesktopVoicePipeline {
     private watchers: string[] = [];
     private stopListening?: () => void;
     private stopShortcuts?: () => void;
+    private screenShareQuality: ScreenShareQualityPreference = {
+        resolutionHeight: 1080,
+        frameRate: 30,
+        maxBitrate: null,
+        includeSystemAudio: false,
+    };
 
     /** The microphone processor, for the settings' microphone test to compare against. */
     public get microphoneProcessor(): MicrophoneProcessor {
         return this.processor;
+    }
+
+    /** Current screen share quality preference shared between the source picker and call stage. */
+    public getScreenShareQuality(): ScreenShareQualityPreference {
+        return resolveScreenShareQuality(this.screenShareQuality);
+    }
+
+    /** Updates screen share quality preferences and forwards them to all active Element Call handles. */
+    public setScreenShareQuality(patch: Partial<ScreenShareQualityPreference>): ScreenShareQualityPreference {
+        this.screenShareQuality = resolveScreenShareQuality({
+            ...this.screenShareQuality,
+            ...patch,
+        });
+        for (const handle of this.handles) {
+            handle
+                .configureMedia({ screenShareQuality: this.screenShareQuality })
+                .catch((error) => logger.warn("Could not apply screen share quality settings", error));
+        }
+        return this.getScreenShareQuality();
     }
 
     /**
@@ -177,6 +211,7 @@ export class DesktopVoicePipeline {
             playbackVolume: SettingsStore.getValue("desktopSpeakerVolume") / 100,
             mirrorLocalVideo: SettingsStore.getValue("VideoView.flipVideoHorizontally"),
             microphoneProcessor: this.processor,
+            screenShareQuality: this.getScreenShareQuality(),
         };
         for (const handle of handles) {
             handle.configureMedia(settings).catch((error) => logger.warn("Could not apply the voice settings", error));

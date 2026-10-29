@@ -28,10 +28,12 @@ import { SDKContextClass } from "../contexts/SDKContextClass";
 import { ClientEvent, EventType } from "matrix-js-sdk/src/matrix";
 import { act } from "react";
 import { placeCall } from "../utils/room/placeCall";
+import { CallType } from "matrix-js-sdk/src/webrtc/call";
 import { SettingLevel } from "../settings/SettingLevel";
 import SettingsStore from "../settings/SettingsStore";
 import { RTC_SLOT_ENCRYPTION_PER_MEMBER } from "matrix-js-sdk/src/matrixrtc";
 import Modal from "../Modal";
+import type { Call } from "../models/Call";
 
 vi.mock("../utils/room/placeCall");
 
@@ -88,6 +90,26 @@ describe("useRoomCall", () => {
     }
 
     describe("Element Call focus detection", () => {
+        it("keeps desktop voice and video buttons enabled while connected to another room", async () => {
+            const original = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+                name === "feature_desktop_shell" ? true : original(name, ...args),
+            );
+            vi.mocked(client.cachedRtcTransports.get).mockReturnValue([
+                { type: "livekit", livekit_service_url: "https://example.org" },
+            ]);
+            vi.spyOn(room.currentState, "mayClientSendStateEvent").mockReturnValue(true);
+            await setupAsyncStoreWithClient(CallStore.instance, client);
+            vi.spyOn(CallStore.instance, "connectedCalls", "get").mockReturnValue(
+                new Set([{ roomId: "!another-room" } as Call]),
+            );
+            const { result } = render();
+            await waitFor(() => expect(result.current.callOptions).toContain(PlatformCallType.ElementCall));
+            expect(result.current.voiceCallDisabledReason).toBeNull();
+            expect(result.current.videoCallDisabledReason).toBeNull();
+            vi.mocked(client.cachedRtcTransports.get).mockReturnValue([]);
+        });
+
         it("Blocks Element Call if required foci are not configured", async () => {
             await setupAsyncStoreWithClient(CallStore.instance, client);
             const { result } = render();
@@ -241,6 +263,28 @@ describe("useRoomCall", () => {
                 session = { ensureRtcSlotOpen: vi.fn().mockResolvedValue(undefined) };
                 vi.mocked(matrixRTC.getRoomSession).mockReturnValue(
                     session as unknown as ReturnType<typeof matrixRTC.getRoomSession>,
+                );
+            });
+
+            it.each([false, true])("starts a desktop call immediately with camera=%s", async (camera) => {
+                const original = SettingsStore.getValue.bind(SettingsStore);
+                vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+                    name === "feature_desktop_shell" ? true : original(name, ...args),
+                );
+                vi.mocked(matrixRTC.isSlotClosed).mockReturnValue(false);
+                const { result } = render();
+                await waitFor(() => expect(result.current.callOptions).toContain(PlatformCallType.ElementCall));
+                await (camera ? result.current.videoCallClick : result.current.voiceCallClick)(
+                    undefined,
+                    PlatformCallType.ElementCall,
+                );
+                expect(placeCall).toHaveBeenCalledWith(
+                    expect.anything(),
+                    room,
+                    camera ? CallType.Video : CallType.Voice,
+                    PlatformCallType.ElementCall,
+                    true,
+                    !camera,
                 );
             });
 

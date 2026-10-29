@@ -56,6 +56,7 @@ import { ConnectionState, ElementCall } from "../models/Call";
 import { isVideoRoom } from "../utils/video-rooms";
 import { ModuleApi } from "../modules/Api";
 import ActiveWidgetStore from "./ActiveWidgetStore";
+import { confirmVoiceChannelSwitch } from "../components/views/voip/confirmVoiceChannelSwitch";
 
 const NUM_JOIN_RETRY = 5;
 
@@ -337,7 +338,18 @@ export class RoomViewStore extends EventEmitter {
         }
     }
 
+    private viewRequest = 0;
+    private switchingCallToRoomId: string | null = null;
+    private callSwitchResult: Promise<boolean> | undefined;
+
+    /** Let the app shell keep the current room mounted until its call switch is decided. */
+    public getCallSwitch(roomId: string | undefined): Promise<boolean> | undefined {
+        return roomId === this.switchingCallToRoomId ? this.callSwitchResult : undefined;
+    }
+
     public async viewRoom(payload: ViewRoomPayload): Promise<void> {
+        if (payload.room_id && payload.room_id === this.switchingCallToRoomId) return;
+        const viewRequest = ++this.viewRequest;
         if (payload.room_id) {
             const room = MatrixClientPeg.safeGet().getRoom(payload.room_id);
 
@@ -366,8 +378,15 @@ export class RoomViewStore extends EventEmitter {
 
             let viewingCall = payload.view_call;
             if (viewingCall === undefined) {
+                // Clicking a voice channel is a fresh join, including after leaving it on this device.
+                if (
+                    SettingsStore.getValue("feature_desktop_shell") &&
+                    room?.isCallRoom() &&
+                    payload.metricsTrigger === "RoomList"
+                )
+                    viewingCall = true;
                 // Default behavior: keep the same call state as before if viewing the same room
-                if (payload.room_id === this.state.roomId) viewingCall = this.state.viewingCall;
+                else if (payload.room_id === this.state.roomId) viewingCall = this.state.viewingCall;
                 // Always view the call in video rooms
                 else if (room && isVideoRoom(room)) viewingCall = true;
                 // Otherwise, only view if actively connected
@@ -375,6 +394,39 @@ export class RoomViewStore extends EventEmitter {
             }
 
             if (room && viewingCall) {
+                if (SettingsStore.getValue("feature_desktop_shell")) {
+                    const otherCalls = [...CallStore.instance.connectedCalls].filter(
+                        (call) => call.roomId !== room.roomId,
+                    );
+                    if (otherCalls.length > 0) {
+                        if (this.switchingCallToRoomId) return;
+                        this.switchingCallToRoomId = room.roomId;
+                        const result = Promise.withResolvers<boolean>();
+                        this.callSwitchResult = result.promise;
+                        let switched = false;
+                        try {
+                            if (!(await confirmVoiceChannelSwitch(room.name)) || viewRequest !== this.viewRequest) {
+                                return;
+                            }
+                            // Closing the old stage must not navigate back to its room during the switch.
+                            for (const call of otherCalls) call.presented = false;
+                            await Promise.all(otherCalls.map((call) => call.disconnect()));
+                            if (viewRequest !== this.viewRequest) return;
+                            switched = true;
+                        } catch (error) {
+                            logger.warn("Could not switch calls", error);
+                            Modal.createDialog(ErrorDialog, {
+                                title: _t("desktop|voice_settings|switch_error_title"),
+                                description: _t("desktop|voice_settings|switch_error_description"),
+                            });
+                            return;
+                        } finally {
+                            result.resolve(switched);
+                            this.switchingCallToRoomId = null;
+                            this.callSwitchResult = undefined;
+                        }
+                    }
+                }
                 let call = CallStore.instance.getCall(payload.room_id);
                 // Start a call if not already there
                 if (call === null) {
@@ -385,7 +437,11 @@ export class RoomViewStore extends EventEmitter {
                 // Custom case where we start voice calls in pip. Joining a call that is already in progress
                 // (the header's Join button) opens it maximised so that the lobby isn't squeezed into the pip,
                 // unless the lobby is skipped (as when answering from the incoming call toast).
-                if ((payload.voiceOnly ?? false) && (call.participants.size === 0 || payload.skipLobby)) {
+                if (
+                    !SettingsStore.getValue("feature_desktop_shell") &&
+                    (payload.voiceOnly ?? false) &&
+                    (call.participants.size === 0 || payload.skipLobby)
+                ) {
                     viewingCall = false;
                     ActiveWidgetStore.instance.setWidgetPersistence(call.widget.id, room.roomId, true);
                 }
@@ -398,7 +454,7 @@ export class RoomViewStore extends EventEmitter {
             }
             // If we switch to a different room from the call, we are no longer presenting it
             const prevRoomCall = this.state.roomId ? CallStore.instance.getCall(this.state.roomId) : null;
-            if (prevRoomCall !== null && (!payload.view_call || payload.room_id !== this.state.roomId))
+            if (prevRoomCall !== null && (!viewingCall || payload.room_id !== this.state.roomId))
                 prevRoomCall.presented = false;
 
             if (SettingsStore.getValue("feature_simplified_sliding_sync") && this.state.roomId !== payload.room_id) {

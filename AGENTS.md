@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Instructions for AI coding agents working in this repository. Humans should read
+Instructions for AI coding agents working in the Aether repository. Humans should read
 [CONTRIBUTING.md](./CONTRIBUTING.md) and [code_style.md](./code_style.md) instead — this file summarises those and
 adds the things that are easy to get wrong here.
 
@@ -191,4 +191,6 @@ Keep comments short and relevant.
 
 ## Pull requests
 
-- Don't open PR. This should be done by the human, not the agent.
+- Agents may open and update pull requests in Aether as part of authorized work.
+- Keep unrelated changes in separate pull requests and include relevant validation results in the description.
+- Merging requires explicit user authorization.

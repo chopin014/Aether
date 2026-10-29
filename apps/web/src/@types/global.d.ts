@@ -41,6 +41,7 @@ import { type SDKContextClass } from "../contexts/SDKContextClass.ts";
 import { type GlobalShortcutApi } from "../audio/desktop/DesktopShortcutManager";
 
 type ElectronChannel =
+    | "quit-ready"
     | "app_onAction"
     | "aether:update-state"
     | "before-quit"

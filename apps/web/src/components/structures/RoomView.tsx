@@ -2688,36 +2688,40 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             mainSplitContentType = MainSplitContentType.Timeline;
         }
 
+        const conversationCall =
+            desktopShell && !isVideoRoom(this.state.room) && mainSplitContentType === MainSplitContentType.Call;
+
         const mainClasses = classNames("mx_RoomView", {
             mx_RoomView_inCall: Boolean(activeCall),
-            mx_RoomView_immersive: mainSplitContentType !== MainSplitContentType.Timeline,
+            mx_RoomView_immersive: mainSplitContentType !== MainSplitContentType.Timeline && !conversationCall,
         });
 
         const showChatEffects = SettingsStore.getValue("showChatEffects");
 
         let mainSplitBody: JSX.Element | undefined;
         let mainSplitContentClassName: string | undefined;
+        const timelineBody = (
+            <RoomUploadContextProvider>
+                <Measured sensor={this.roomViewBody} onMeasurement={this.onMeasurement} />
+                {auxPanel}
+                {pinnedMessageBanner}
+                <main className={timelineClasses} data-testid="timeline">
+                    <FileDropTarget parent={this.roomView.current} />
+                    {topUnreadMessagesBar}
+                    {jumpToBottom}
+                    {messagePanel}
+                    {searchResultsPanel}
+                </main>
+                {statusBarArea}
+                {previewBar}
+                {messageComposer}
+            </RoomUploadContextProvider>
+        );
         // Decide what to show in the main split
         switch (mainSplitContentType) {
             case MainSplitContentType.Timeline:
                 mainSplitContentClassName = "mx_MainSplit_timeline";
-                mainSplitBody = (
-                    <RoomUploadContextProvider>
-                        <Measured sensor={this.roomViewBody} onMeasurement={this.onMeasurement} />
-                        {auxPanel}
-                        {pinnedMessageBanner}
-                        <main className={timelineClasses} data-testid="timeline">
-                            <FileDropTarget parent={this.roomView.current} />
-                            {topUnreadMessagesBar}
-                            {jumpToBottom}
-                            {messagePanel}
-                            {searchResultsPanel}
-                        </main>
-                        {statusBarArea}
-                        {previewBar}
-                        {messageComposer}
-                    </RoomUploadContextProvider>
-                );
+                mainSplitBody = timelineBody;
                 break;
             case MainSplitContentType.MaximisedWidget:
                 mainSplitContentClassName = "mx_MainSplit_maximisedWidget";
@@ -2734,16 +2738,25 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 );
                 break;
             case MainSplitContentType.Call: {
-                mainSplitContentClassName = "mx_MainSplit_call";
+                mainSplitContentClassName = conversationCall
+                    ? "mx_MainSplit_timeline mx_RoomView_conversationCall"
+                    : "mx_MainSplit_call";
+                const callView = (
+                    <CallView
+                        room={this.state.room}
+                        resizing={this.state.resizing}
+                        role="main"
+                        onClose={this.onCallClose}
+                    />
+                );
                 mainSplitBody = (
                     <>
-                        <CallView
-                            room={this.state.room}
-                            resizing={this.state.resizing}
-                            role="main"
-                            onClose={this.onCallClose}
-                        />
-                        {previewBar}
+                        {conversationCall ? (
+                            <div className="mx_RoomView_conversationCallStage">{callView}</div>
+                        ) : (
+                            callView
+                        )}
+                        {conversationCall ? timelineBody : previewBar}
                     </>
                 );
             }

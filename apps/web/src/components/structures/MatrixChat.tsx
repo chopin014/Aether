@@ -1019,6 +1019,8 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
 
     // switch view to the given room
     private async viewRoom(roomInfo: ViewRoomPayload): Promise<void> {
+        const callSwitch = this.stores.roomViewStore.getCallSwitch(roomInfo.room_id);
+        if (callSwitch && !(await callSwitch)) return;
         this.focusNext = roomInfo.focusNext ?? "composer";
 
         if (roomInfo.room_alias) {
@@ -1051,7 +1053,14 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
 
             // Store this as the ID of the last room accessed. This is so that we can
             // persist which room is being stored across refreshes and browser quits.
-            localStorage?.setItem("mx_last_room_id", room.roomId);
+            const spaceStore = this.stores.spaceStore;
+            const restoredTextRoom =
+                SettingsStore.getValue("feature_desktop_shell") &&
+                (room.isCallRoom() || room.isElementVideoRoom()) &&
+                spaceStore.activeSpaceRoom
+                    ? spaceStore.getLastSelectedRoomIdForSpace(spaceStore.activeSpace)
+                    : null;
+            localStorage?.setItem("mx_last_room_id", restoredTextRoom ?? room.roomId);
         }
 
         // If we are redirecting to a Room Alias and it is for the room we already showing then replace history item
@@ -1522,9 +1531,16 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
     }
 
     private viewLastRoom(): void {
+        let roomId = localStorage.getItem("mx_last_room_id") ?? undefined;
+        const room = MatrixClientPeg.safeGet().getRoom(roomId);
+        if (SettingsStore.getValue("feature_desktop_shell") && (room?.isCallRoom() || room?.isElementVideoRoom())) {
+            const spaceStore = this.stores.spaceStore;
+            const space = spaceStore.activeSpaceRoom ?? spaceStore.getParents(room.roomId)[0];
+            if (space) roomId = spaceStore.getLastSelectedRoomIdForSpace(space.roomId) ?? space.roomId;
+        }
         dis.dispatch<ViewRoomPayload>({
             action: Action.ViewRoom,
-            room_id: localStorage.getItem("mx_last_room_id") ?? undefined,
+            room_id: roomId,
             metricsTrigger: undefined, // other
         });
     }

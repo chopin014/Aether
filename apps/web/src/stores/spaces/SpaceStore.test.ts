@@ -1111,6 +1111,18 @@ describe("SpaceStore", () => {
                 expect(getCurrentRoom()).toBe(room2);
             });
 
+            it("restores a text channel when an older build saved a voice channel", async () => {
+                store.setActiveSpace(space2);
+                viewRoom(room2);
+                vi.spyOn(client.getRoom(room1)!, "isCallRoom").mockReturnValue(true);
+                // A stale stored voice channel from an older build must also be ignored.
+                localStorage.setItem(`mx_space_context_${space2}`, room1);
+                expect(store.getLastSelectedRoomIdForSpace(space2)).toBe(room2);
+                store.setActiveSpace(space1);
+                store.setActiveSpace(space2);
+                expect(getCurrentRoom()).toBe(room2);
+            });
+
             it("skips voice channels and shows the space home when there is no text channel", async () => {
                 vi.spyOn(client.getRoom(room2)!, "isCallRoom").mockReturnValue(true);
                 store.setActiveSpace(space1);

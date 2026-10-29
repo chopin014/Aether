@@ -10,13 +10,15 @@ import { type MatrixClient } from "matrix-js-sdk/src/matrix";
 // Type-only: the component itself is loaded lazily below
 import type * as ElementCallComponent from "@element-hq/element-call-component";
 
-import { ElementCall as ElementCallModel } from "../../../models/Call";
+import { CallEvent, ElementCall as ElementCallModel } from "../../../models/Call";
 import { CallStore } from "../../../stores/CallStore";
 import { useSettingValue } from "../../../hooks/useSettings";
 import { getCurrentLanguage } from "../../../languageHandler";
 import { useTheme } from "../../../hooks/useTheme";
 import Spinner from "../elements/Spinner";
 import { ElementWebHostBridge } from "./ElementWebHostBridge";
+import { DesktopCallStage } from "./DesktopCallStage";
+import { useTypedEventEmitterState } from "../../../hooks/useEventEmitter";
 
 /**
  * What `WrappedElementCallComponent` needs from an Element Call component module: satisfied by
@@ -82,29 +84,44 @@ const MarkReadyOnMount = ({ call }: { call: ElementCallModel }): null => {
  */
 export const WrappedElementCallComponent: FC<{ call: ElementCallModel; client: MatrixClient }> = ({ call, client }) => {
     // Real component or mock: independent of the widget-vs-React choice CallAppTile makes.
-    const ElementCall = useSettingValue("Developer.elementCallMockComponent") ? MockElementCall : RealElementCall;
+    const useMock = Boolean(useSettingValue("Developer.elementCallMockComponent"));
+    const desktopShell = Boolean(useSettingValue("feature_desktop_shell"));
+    const ElementCall = useMock ? MockElementCall : RealElementCall;
     const { effectiveTheme: theme } = useTheme();
     // Not a hook: changing the language reloads Element Web, so there is no live change to follow
     const language = getCurrentLanguage().replace("_", "-");
     const bridge = useMemo(
-        () => new ElementWebHostBridge(call, { widgetId: call.widget.id, widgetRoomId: call.widget.roomId }),
-        [call],
+        () =>
+            new ElementWebHostBridge(call, {
+                widgetId: call.widget.id,
+                widgetRoomId: call.widget.roomId,
+                renderPresentation:
+                    desktopShell && !useMock
+                        ? (presentationBridge) => (
+                              <DesktopCallStage client={client} call={call} bridge={presentationBridge} />
+                          )
+                        : undefined,
+            }),
+        [call, client, desktopShell, useMock],
     );
     const { intent, config } = call.componentOptions;
+    const generation = useTypedEventEmitterState(call, CallEvent.ComponentRestart, () => call.componentGeneration);
 
     return (
         <Suspense fallback={<Spinner />}>
-            <ElementCall
-                client={client}
-                roomId={call.roomId}
-                intent={intent}
-                config={config}
-                hostBridge={bridge}
-                ref={call.setComponentHandle}
-                theme={theme}
-                language={language}
-            />
-            <MarkReadyOnMount call={call} />
+            <React.Fragment key={generation}>
+                <ElementCall
+                    client={client}
+                    roomId={call.roomId}
+                    intent={intent}
+                    config={config}
+                    hostBridge={bridge}
+                    ref={call.setComponentHandle}
+                    theme={theme}
+                    language={language}
+                />
+                <MarkReadyOnMount call={call} />
+            </React.Fragment>
         </Suspense>
     );
 };

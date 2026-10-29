@@ -16,6 +16,7 @@ import { DesktopShortcutManager, type DesktopShortcutEvent } from "./DesktopShor
 import SettingsStore from "../../settings/SettingsStore";
 import MediaDeviceHandler from "../../MediaDeviceHandler";
 import { playDesktopVoiceSound } from "../DesktopVoiceSounds";
+import SdkConfig from "../../SdkConfig";
 
 vi.mock("../DesktopVoiceSounds", () => ({ playDesktopVoiceSound: vi.fn() }));
 
@@ -144,7 +145,48 @@ describe("DesktopVoicePipeline", () => {
         vi.mocked(playDesktopVoiceSound).mockClear();
         pipeline = new (DesktopVoicePipeline as unknown as new () => DesktopVoicePipeline)();
     });
-    afterEach(() => vi.restoreAllMocks());
+    afterEach(() => {
+        SdkConfig.reset();
+        vi.restoreAllMocks();
+    });
+
+    it("caps partial sharing preferences and forwards the validated values to attached engines", () => {
+        SdkConfig.put({
+            element_call: {
+                media_quality: { screen_share: { max_resolution: 540, max_framerate: 12, max_bitrate: 750_000 } },
+            },
+        });
+        const handle = fakeHandle();
+        const detach = pipeline.attach(handle);
+        handle.configureMedia.mockClear();
+        expect(
+            pipeline.setScreenShareQuality({ resolutionHeight: 1440, frameRate: 60, maxBitrate: 6_000_000 }),
+        ).toEqual({
+            resolutionHeight: 540,
+            frameRate: 12,
+            maxBitrate: 750_000,
+            includeSystemAudio: false,
+        });
+        expect(handle.configureMedia).toHaveBeenLastCalledWith({
+            screenShareQuality: pipeline.getScreenShareQuality(),
+        });
+        expect(pipeline.setScreenShareQuality({ includeSystemAudio: true })).toEqual({
+            resolutionHeight: 540,
+            frameRate: 12,
+            maxBitrate: 750_000,
+            includeSystemAudio: true,
+        });
+        const calls = handle.configureMedia.mock.calls.length;
+        detach();
+        pipeline.setScreenShareQuality({ frameRate: Number.NaN, maxBitrate: -1 });
+        expect(handle.configureMedia).toHaveBeenCalledTimes(calls);
+        expect(pipeline.getScreenShareQuality()).toEqual({
+            resolutionHeight: 540,
+            frameRate: 12,
+            maxBitrate: null,
+            includeSystemAudio: true,
+        });
+    });
 
     it("leaves calls alone when the desktop shell is off", () => {
         values.feature_desktop_shell = false;
@@ -168,6 +210,7 @@ describe("DesktopVoicePipeline", () => {
             playbackVolume: 0.35,
             mirrorLocalVideo: true,
             microphoneProcessor: pipeline.microphoneProcessor,
+            screenShareQuality: { resolutionHeight: 1080, frameRate: 30, maxBitrate: null, includeSystemAudio: false },
         });
     });
 

@@ -9,7 +9,15 @@ Please see LICENSE files in the repository root for full details.
 // @vitest-environment happy-dom
 
 import EventEmitter from "node:events";
-import { RoomType, type Room, RoomEvent, MatrixEvent, type IMyDevice, type RoomMember } from "matrix-js-sdk/src/matrix";
+import {
+    RoomType,
+    type Room,
+    RoomEvent,
+    EventType,
+    MatrixEvent,
+    type IMyDevice,
+    type RoomMember,
+} from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { Widget } from "matrix-widget-api";
 import {
@@ -1190,6 +1198,58 @@ describe("ElementCall with the React component embedding", () => {
         vi.useRealTimers();
     });
 
+    it("cleans stale memberships only for this user's device while it is not in the call", async () => {
+        enabledSettings.add("feature_desktop_shell");
+        const session = client.matrixRTC.getRoomSession(room);
+        session.isJoined = vi.fn().mockReturnValue(false);
+        const member = (key: string, user: string, device: string, application = "m.call"): MatrixEvent =>
+            new MatrixEvent({
+                type: EventType.GroupCallMemberPrefix,
+                room_id: room.roomId,
+                state_key: key,
+                sender: user,
+                event_id: `$${key}`,
+                content: { application, device_id: device, call_id: "", expires: 14_400_000, foci_preferred: [] },
+            });
+        room.currentState.setStateEvents([
+            member("stale", client.getUserId()!, client.getDeviceId()!),
+            member("other-device", client.getUserId()!, "another-device"),
+            member("other-user", "@bob:example.org", client.getDeviceId()!),
+            member("other-app", client.getUserId()!, client.getDeviceId()!, "other-app"),
+        ]);
+        client.sendStateEvent.mockClear();
+        try {
+            await call.clean();
+            expect(client.sendStateEvent).toHaveBeenCalledOnce();
+            expect(client.sendStateEvent).toHaveBeenCalledWith(
+                room.roomId,
+                EventType.GroupCallMemberPrefix,
+                {},
+                "stale",
+            );
+            client.sendStateEvent.mockClear();
+            vi.mocked(session.isJoined).mockReturnValue(true);
+            await call.clean();
+            expect(client.sendStateEvent).not.toHaveBeenCalled();
+        } finally {
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
+    it("preserves the recovery marker when unloading before a server-confirmed hangup", () => {
+        enabledSettings.add("feature_desktop_shell");
+        call.handleJoined();
+        const connection = vi.fn();
+        call.on(CallEvent.ConnectionState, connection);
+        try {
+            window.dispatchEvent(new Event("beforeunload"));
+            expect(connection).not.toHaveBeenCalled();
+        } finally {
+            call.off(CallEvent.ConnectionState, connection);
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
     it("starts once the component reports ready, without widget messaging", async () => {
         const started = call.start({ skipLobby: true });
         call.markReady();
@@ -1484,6 +1544,57 @@ describe("ElementCall with the React component embedding", () => {
         ]);
     });
 
+    it("hides only this device immediately while the server and engine finish leaving", async () => {
+        const alice = room.getMember(client.getUserId()!)!;
+        const bob = room.getMember("@bob:example.org")!;
+        const memberships = [
+            { sender: alice.userId, deviceId: client.getDeviceId()! },
+            { sender: bob.userId, deviceId: client.getDeviceId()! },
+        ] as CallMembership[];
+        call.session.memberships = memberships;
+        call.session.emit(MatrixRTCSessionEvent.MembershipsChanged, [], []);
+        call.handleJoined();
+        const hangup = Promise.withResolvers<void>();
+        call.setComponentHandle({ hangUp: () => hangup.promise } as unknown as ElementCallHandle);
+        enabledSettings.add("feature_desktop_shell");
+        try {
+            const leaving = call.disconnect();
+            expect(call.locallyLeaving).toBe(true);
+            expect(call.connectionState).toBe(ConnectionState.Disconnecting);
+            expect(call.participants.has(alice)).toBe(false);
+            expect(call.participants.has(bob)).toBe(true);
+            expect(call.session.memberships).toBe(memberships);
+            call.session.emit(MatrixRTCSessionEvent.MembershipsChanged, [], []);
+            expect(call.participants.has(alice)).toBe(false);
+
+            hangup.resolve();
+            await leaving;
+            expect(call.participants.has(alice)).toBe(false);
+            call.handleJoined();
+            expect(call.locallyLeaving).toBe(false);
+            expect(call.participants.has(alice)).toBe(true);
+        } finally {
+            hangup.resolve();
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
+    it("preserves another device's membership when locally leaving and supports rollback", () => {
+        const alice = room.getMember(client.getUserId()!)!;
+        call.session.memberships = [
+            { sender: alice.userId, deviceId: client.getDeviceId()! },
+            { sender: alice.userId, deviceId: "other-device" },
+        ] as CallMembership[];
+        call.setLocalLeavePending(true);
+        expect(call.participants.get(alice)).toEqual(new Set(["other-device"]));
+        const changed = vi.fn();
+        call.on(CallEvent.Participants, changed);
+        call.setLocalLeavePending(true);
+        expect(changed).not.toHaveBeenCalled();
+        call.setLocalLeavePending(false);
+        expect(call.participants.get(alice)).toEqual(new Set([client.getDeviceId(), "other-device"]));
+    });
+
     it("disconnects by asking the component to hang up and waiting for its reply", async () => {
         call.handleJoined();
         const hangUp = vi.fn(async () => {
@@ -1497,6 +1608,57 @@ describe("ElementCall with the React component embedding", () => {
         expect(hangUp).toHaveBeenCalledTimes(1);
         expect(call.connectionState).toBe(ConnectionState.Disconnected);
         expect(onClose).toHaveBeenCalled();
+    });
+
+    it.each(["already stopped", "missing component", "failed hangup"])(
+        "dismisses the desktop call and its persistent controls after %s",
+        async (failure) => {
+            const close = vi.fn();
+            call.on(CallEvent.Close, close);
+            const release = vi.spyOn(ActiveWidgetStore.instance, "destroyPersistentWidget");
+            ActiveWidgetStore.instance.setWidgetPersistence(call.widget.id, call.widget.roomId, true);
+            if (failure !== "already stopped") call.handleJoined();
+            if (failure === "failed hangup")
+                call.setComponentHandle({
+                    hangUp: vi.fn().mockRejectedValue(new Error("Engine stopped")),
+                    configureMedia: vi.fn().mockResolvedValue(undefined),
+                } as unknown as ElementCallHandle);
+            enabledSettings.add("feature_desktop_shell");
+            try {
+                await call.disconnect();
+                expect(call.connectionState).toBe(ConnectionState.Disconnected);
+                expect(close).toHaveBeenCalledOnce();
+                expect(release).toHaveBeenCalledWith(call.widget.id, call.widget.roomId);
+                expect(ActiveWidgetStore.instance.getWidgetPersistence(call.widget.id, call.widget.roomId)).toBe(false);
+            } finally {
+                enabledSettings.delete("feature_desktop_shell");
+                call.off(CallEvent.Close, close);
+                release.mockRestore();
+            }
+        },
+    );
+
+    it("cleans up a timed-out desktop hangup and shares concurrent leave requests", async () => {
+        const hangUp = vi.fn(() => new Promise<void>(() => {}));
+        call.setComponentHandle({ hangUp } as unknown as ElementCallHandle);
+        call.handleJoined();
+        enabledSettings.add("feature_desktop_shell");
+        vi.useFakeTimers();
+        const close = vi.fn();
+        call.on(CallEvent.Close, close);
+        try {
+            const first = call.disconnect();
+            const second = call.disconnect();
+            expect(hangUp).toHaveBeenCalledOnce();
+            await vi.advanceTimersByTimeAsync(16_000);
+            await Promise.all([first, second]);
+            expect(call.connectionState).toBe(ConnectionState.Disconnected);
+            expect(close).toHaveBeenCalledOnce();
+        } finally {
+            enabledSettings.delete("feature_desktop_shell");
+            call.off(CallEvent.Close, close);
+            vi.useRealTimers();
+        }
     });
 
     it("fails to disconnect when no component is listening", async () => {
@@ -1592,6 +1754,25 @@ describe("ElementCall with the React component embedding", () => {
     });
 
     describe("getConfigOptions", () => {
+        afterEach(() => SdkConfig.reset());
+
+        it("forwards deployment screen-share limits to the embedded call engine", () => {
+            SdkConfig.put({
+                element_call: {
+                    media_quality: {
+                        screen_share: { max_resolution: 540, max_framerate: 15, max_bitrate: 900_000 },
+                    },
+                },
+            });
+            expect(ElementCall.getConfigOptions().media_quality).toEqual({
+                screen_share: {
+                    max_resolution: 540,
+                    max_framerate: 15,
+                    max_bitrate: 900_000,
+                },
+            });
+        });
+
         it("passes the first LiveKit transport Element Web discovered as the configured service URL", () => {
             const options = ElementCall.getConfigOptions([
                 { type: "something_else", url: "https://ignored.example.org" },

@@ -817,6 +817,26 @@ describe("RoomView", () => {
             vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
         });
 
+        it("keeps the desktop conversation timeline and composer beneath its call", async () => {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+                name === "feature_desktop_shell" ? true : getValue(name, ...args),
+            );
+            const { container } = await mountRoomView();
+            await act(() =>
+                stores.roomViewStore.viewRoom({
+                    action: Action.ViewRoom,
+                    room_id: room.roomId,
+                    view_call: true,
+                    metricsTrigger: undefined,
+                }),
+            );
+            expect(screen.getByTestId("timeline")).toBeInTheDocument();
+            expect(screen.getByRole("region", { name: "Message composer" })).toBeInTheDocument();
+            expect(container.querySelector(".mx_RoomView_conversationCallStage")).toBeInTheDocument();
+            expect(container.querySelector(".mx_RoomView_immersive")).not.toBeInTheDocument();
+        });
+
         it("hides the right panel chat when closing a call", async () => {
             await mountRoomView();
 

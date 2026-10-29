@@ -50,6 +50,9 @@ import { type Call, ConnectionState } from "../models/Call.ts";
 import ActiveWidgetStore from "./ActiveWidgetStore";
 import { ModuleApi } from "../modules/Api";
 import { type JoinRoomPayload } from "../dispatcher/payloads/JoinRoomPayload.ts";
+import { confirmVoiceChannelSwitch } from "../components/views/voip/confirmVoiceChannelSwitch";
+
+vi.mock("../components/views/voip/confirmVoiceChannelSwitch");
 
 vi.mock("../Modal");
 
@@ -456,6 +459,177 @@ describe("RoomViewStore", function () {
         await untilDispatch(Action.ViewRoom, dis);
 
         expect(call.presented).toEqual(true);
+    });
+
+    it.each([false, true])(
+        "keeps desktop audio calls visible in the conversation (skip lobby: %s)",
+        async (skipLobby) => {
+            const original = SettingsStore.getValue.bind(SettingsStore);
+            const setting = vi
+                .spyOn(SettingsStore, "getValue")
+                .mockImplementation((name, ...args) =>
+                    name === "feature_desktop_shell" ? true : original(name, ...args),
+                );
+            const call = {
+                presented: false,
+                connectionState: ConnectionState.Disconnected,
+                widget: { id: "!widget:example.org" },
+                participants: new Map(),
+                start: vi.fn(),
+            } as unknown as Call;
+            vi.spyOn(CallStore.instance, "getCall").mockReturnValue(call);
+            const persistence = vi.spyOn(ActiveWidgetStore.instance, "setWidgetPersistence");
+            await setupAsyncStoreWithClient(CallStore.instance, MatrixClientPeg.safeGet());
+            dis.dispatch<ViewRoomPayload>({
+                action: Action.ViewRoom,
+                room_id: roomId,
+                view_call: true,
+                voiceOnly: true,
+                skipLobby,
+                metricsTrigger: undefined,
+            });
+            await untilDispatch(Action.ViewRoom, dis);
+            expect(roomViewStore.isViewingCall()).toBe(true);
+            expect(persistence).not.toHaveBeenCalled();
+            expect(call.start).toHaveBeenCalledWith({ voiceOnly: true, skipLobby });
+            setting.mockRestore();
+        },
+    );
+
+    describe("switching desktop calls", () => {
+        afterEach(() => {
+            vi.mocked(SettingsStore.getValue).mockRestore();
+            vi.mocked(CallStore.instance.getCall).mockRestore();
+            vi.spyOn(CallStore.instance, "connectedCalls", "get").mockRestore();
+        });
+
+        function prepareSwitch(): { oldCall: Call; newCall: Call; view: () => Promise<void> } {
+            const original = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+                name === "feature_desktop_shell" ? true : original(name, ...args),
+            );
+            const oldCall = {
+                roomId: roomId2,
+                presented: true,
+                disconnect: vi.fn().mockResolvedValue(undefined),
+            } as unknown as Call;
+            const newCall = {
+                roomId,
+                presented: false,
+                connectionState: ConnectionState.Disconnected,
+                start: vi.fn(),
+            } as unknown as Call;
+            vi.spyOn(CallStore.instance, "connectedCalls", "get").mockReturnValue(new Set([oldCall]));
+            vi.spyOn(CallStore.instance, "getCall").mockImplementation((id) => (id === roomId ? newCall : oldCall));
+            vi.mocked(confirmVoiceChannelSwitch).mockResolvedValue(true);
+            return {
+                oldCall,
+                newCall,
+                view: () =>
+                    roomViewStore.viewRoom({
+                        action: Action.ViewRoom,
+                        room_id: roomId,
+                        view_call: true,
+                        voiceOnly: true,
+                        skipLobby: true,
+                        metricsTrigger: undefined,
+                    }),
+            };
+        }
+
+        it("waits for confirmation and hangup before starting the destination call", async () => {
+            const { oldCall, newCall, view } = prepareSwitch();
+            const confirmation = Promise.withResolvers<boolean>();
+            const hangup = Promise.withResolvers<void>();
+            vi.mocked(confirmVoiceChannelSwitch).mockReturnValue(confirmation.promise);
+            vi.mocked(oldCall.disconnect).mockReturnValue(hangup.promise);
+            const switching = view();
+            expect(confirmVoiceChannelSwitch).toHaveBeenCalledWith(room.name);
+            expect(oldCall.disconnect).not.toHaveBeenCalled();
+            expect(newCall.start).not.toHaveBeenCalled();
+            confirmation.resolve(true);
+            await flushPromises();
+            expect(oldCall.presented).toBe(false);
+            expect(oldCall.disconnect).toHaveBeenCalledOnce();
+            expect(newCall.start).not.toHaveBeenCalled();
+            hangup.resolve();
+            await switching;
+            expect(newCall.start).toHaveBeenCalledWith({ voiceOnly: true, skipLobby: true });
+            expect(roomViewStore.getRoomId()).toBe(roomId);
+        });
+
+        it("keeps the original call intact on cancellation", async () => {
+            const { oldCall, newCall, view } = prepareSwitch();
+            vi.mocked(confirmVoiceChannelSwitch).mockResolvedValue(false);
+            await view();
+            expect(oldCall.presented).toBe(true);
+            expect(oldCall.disconnect).not.toHaveBeenCalled();
+            expect(newCall.start).not.toHaveBeenCalled();
+        });
+
+        it("rejoins a selected voice channel when it is clicked after leaving", async () => {
+            const { newCall } = prepareSwitch();
+            vi.spyOn(CallStore.instance, "connectedCalls", "get").mockReturnValue(new Set());
+            const callRoom = vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+            try {
+                await roomViewStore.viewRoom({
+                    action: Action.ViewRoom,
+                    room_id: roomId,
+                    view_call: false,
+                    metricsTrigger: undefined,
+                });
+                expect(roomViewStore.isViewingCall()).toBe(false);
+                await roomViewStore.viewRoom({
+                    action: Action.ViewRoom,
+                    room_id: roomId,
+                    metricsTrigger: "RoomList",
+                });
+                expect(roomViewStore.isViewingCall()).toBe(true);
+                expect(newCall.presented).toBe(true);
+                expect(newCall.start).toHaveBeenCalledOnce();
+            } finally {
+                callRoom.mockRestore();
+            }
+        });
+
+        it("does not duplicate a switch when the same call is clicked twice", async () => {
+            const { oldCall, newCall, view } = prepareSwitch();
+            const confirmation = Promise.withResolvers<boolean>();
+            vi.mocked(confirmVoiceChannelSwitch).mockReturnValue(confirmation.promise);
+            const switching = view();
+            await view();
+            confirmation.resolve(true);
+            await switching;
+            expect(confirmVoiceChannelSwitch).toHaveBeenCalledOnce();
+            expect(oldCall.disconnect).toHaveBeenCalledOnce();
+            expect(newCall.start).toHaveBeenCalledOnce();
+        });
+
+        it("abandons the pending switch when the user navigates elsewhere", async () => {
+            const { oldCall, newCall, view } = prepareSwitch();
+            const confirmation = Promise.withResolvers<boolean>();
+            vi.mocked(confirmVoiceChannelSwitch).mockReturnValue(confirmation.promise);
+            const switching = view();
+            await roomViewStore.viewRoom({
+                action: Action.ViewRoom,
+                room_id: roomId2,
+                view_call: false,
+                metricsTrigger: undefined,
+            });
+            confirmation.resolve(true);
+            await switching;
+            expect(oldCall.disconnect).not.toHaveBeenCalled();
+            expect(newCall.start).not.toHaveBeenCalled();
+            expect(roomViewStore.getRoomId()).toBe(roomId2);
+        });
+
+        it("does not start another call if the current call cannot be disconnected", async () => {
+            const { oldCall, newCall, view } = prepareSwitch();
+            vi.mocked(oldCall.disconnect).mockRejectedValue(new Error("hangup failed"));
+            await view();
+            expect(newCall.start).not.toHaveBeenCalled();
+            expect(Modal.createDialog).toHaveBeenCalledWith(ErrorDialog, expect.anything());
+        });
     });
 
     it("opens a voice-intent call directly in picture-in-picture rather than maximised", async () => {
