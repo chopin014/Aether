@@ -164,7 +164,7 @@ export const WithNotificationDecoration: Story = {
     },
 };
 
-/** A desktop channel category offers to create a channel of its kind from its header, as in Discord. */
+/** A desktop channel section offers to create a channel from its header, as in Discord. */
 export const DesktopChannelCategory: Story = {
     args: {
         id: "desktop.voice_channels",

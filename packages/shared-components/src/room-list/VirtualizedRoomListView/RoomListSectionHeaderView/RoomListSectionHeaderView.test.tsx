@@ -50,14 +50,14 @@ describe("<RoomListSectionHeaderView /> stories", () => {
         createChannel.mockClear();
         render(<DesktopChannelCategory />);
 
-        await user.click(screen.getByRole("button", { name: "Create voice channel" }));
+        await user.click(screen.getByRole("button", { name: "Create channel in Voice Channels" }));
         expect(createChannel).toHaveBeenCalled();
         expect(onClick).not.toHaveBeenCalled();
     });
 
     it("offers no channel creation in an ordinary section", () => {
         render(<Default />);
-        expect(screen.queryByRole("button", { name: /Create .* channel/ })).toBeNull();
+        expect(screen.queryByRole("button", { name: /Create channel/ })).toBeNull();
     });
 
     it("focuses the button when isFocused is true", () => {

@@ -9,6 +9,7 @@ Please see LICENSE files in the repository root for full details.
 import React from "react";
 import { type Room, type ICreateRoomStateEvent, type RoomType, EventType, JoinRule } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
+import { logger } from "matrix-js-sdk/src/logger";
 
 import { calculateRoomVia } from "./permalinks/Permalinks";
 import Modal from "../Modal";
@@ -67,15 +68,36 @@ export const showAddExistingRooms = (space: Room): void => {
     });
 };
 
-export const showCreateNewRoom = async (space: Room, type?: RoomType): Promise<boolean> => {
+/**
+ * Where a new room is listed in the room list, when created from one of its sections.
+ */
+export interface CreateNewRoomSection {
+    /** The section tag to give the new room, so that it is listed in the section it was created from. */
+    sectionTag?: string;
+    /** The section's name, shown in the dialog. */
+    sectionName?: string;
+}
+
+export const showCreateNewRoom = async (
+    space: Room,
+    type?: RoomType,
+    { sectionTag, sectionName }: CreateNewRoomSection = {},
+): Promise<boolean> => {
     const modal = Modal.createDialog(CreateRoomDialog, {
         type,
         defaultPublic: space.getJoinRule() === JoinRule.Public,
         parentSpace: space,
+        sectionName,
     });
     const [shouldCreate, opts] = await modal.finished;
     if (shouldCreate) {
-        await createRoom(space.client, opts!);
+        const roomId = await createRoom(space.client, opts!);
+        if (roomId && sectionTag) {
+            // The room exists by now, so failing to file it only leaves it in its default section.
+            await space.client
+                .setRoomTag(roomId, sectionTag, {})
+                .catch((error) => logger.warn(`Failed to add ${roomId} to section ${sectionTag}`, error));
+        }
     }
     return !!shouldCreate;
 };

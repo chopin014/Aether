@@ -297,7 +297,82 @@ describe("RoomListSectionHeaderViewModel", () => {
         ])("creates a %s room in the Space", (tag, type) => {
             const showCreateNewRoom = vi.spyOn(spaceUtils, "showCreateNewRoom").mockResolvedValue(true);
             makeViewModel(tag).createChannel();
-            expect(showCreateNewRoom).toHaveBeenCalledWith(space, type);
+            // The categories list rooms by type, so the new room needs no section tag to appear in them.
+            expect(showCreateNewRoom).toHaveBeenCalledWith(space, type, {
+                sectionTag: undefined,
+                sectionName: "Channels",
+            });
+        });
+
+        describe("in a section the user files rooms into", () => {
+            const CUSTOM = "element.io.section.voz";
+
+            function mkChannel(roomId: string, voice: boolean): Room {
+                const room = mkRoom(matrixClient, roomId);
+                vi.mocked(room.isCallRoom).mockReturnValue(voice);
+                return room;
+            }
+
+            function setDesktopShell(enabled: boolean): void {
+                vi.mocked(SettingsStore.getValue).mockImplementation((setting) => {
+                    if (setting === "feature_desktop_shell") return enabled;
+                    if (setting === "RoomList.OrderedCustomSections") return [];
+                    if (setting === "RoomList.SectionExpansionState") return sectionExpansionState;
+                    return null;
+                });
+            }
+
+            beforeEach(() => {
+                setDesktopShell(true);
+                vi.spyOn(RoomNotificationStateStore.instance, "getRoomState").mockReturnValue({
+                    on: vi.fn(),
+                    off: vi.fn(),
+                } as unknown as RoomNotificationState);
+            });
+
+            it.each([CUSTOM, DefaultTagID.Favourite, DefaultTagID.LowPriority])(
+                "offers a text channel from an empty %s section",
+                (tag) => {
+                    expect(makeViewModel(tag).getSnapshot().createChannelKind).toBe("text");
+                },
+            );
+
+            it("offers the kind most of its rooms have", () => {
+                const vm = makeViewModel(CUSTOM);
+                vm.setRooms([
+                    mkChannel("!a:server", true),
+                    mkChannel("!b:server", true),
+                    mkChannel("!c:server", false),
+                ]);
+                expect(vm.getSnapshot().createChannelKind).toBe("voice");
+                // A tie goes to text, the more common kind of channel.
+                vm.setRooms([mkChannel("!a:server", true), mkChannel("!c:server", false)]);
+                expect(vm.getSnapshot().createChannelKind).toBe("text");
+            });
+
+            it.each([DefaultTagID.Invite, DefaultTagID.DM])("offers none from the %s section", (tag) => {
+                expect(makeViewModel(tag).getSnapshot().createChannelKind).toBeUndefined();
+            });
+
+            it("offers none outside a Space", () => {
+                expect(makeViewModel(CUSTOM, "home").getSnapshot().createChannelKind).toBeUndefined();
+            });
+
+            it("offers none without the desktop shell, where rooms are not channels", () => {
+                setDesktopShell(false);
+                expect(makeViewModel(CUSTOM).getSnapshot().createChannelKind).toBeUndefined();
+            });
+
+            it("files the new channel into the section it was created from", () => {
+                const showCreateNewRoom = vi.spyOn(spaceUtils, "showCreateNewRoom").mockResolvedValue(true);
+                const vm = makeViewModel(CUSTOM);
+                vm.setRooms([mkChannel("!a:server", true)]);
+                vm.createChannel();
+                expect(showCreateNewRoom).toHaveBeenCalledWith(space, RoomType.UnstableCall, {
+                    sectionTag: CUSTOM,
+                    sectionName: "Channels",
+                });
+            });
         });
     });
 

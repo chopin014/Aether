@@ -54,19 +54,22 @@ export const RoomListItemContent = memo(function RoomListItemContent({
             align="center"
         >
             {item.channelKind ? (
-                item.channelIconUrl ? (
-                    <img
-                        className={classNames(styles.channelIcon, styles.channelImage, { [styles.occupied]: occupied })}
-                        src={item.channelIconUrl}
-                        alt=""
-                    />
-                ) : occupied ? (
-                    <VolumeOnSolidIcon className={classNames(styles.channelIcon, styles.occupied)} aria-hidden />
-                ) : item.channelKind === "voice" ? (
-                    <VolumeOnIcon className={styles.channelIcon} aria-hidden />
-                ) : (
-                    <RoomIcon className={styles.channelIcon} aria-hidden />
-                )
+                // The kind symbol stays when the channel has a custom icon, because any image can be used for
+                // either kind and would not say whether clicking joins a call.
+                <span className={styles.channelSymbols}>
+                    {occupied ? (
+                        <VolumeOnSolidIcon
+                            className={classNames(styles.channelIcon, styles.occupied)}
+                            data-testid="channel-kind-voice"
+                            aria-hidden
+                        />
+                    ) : item.channelKind === "voice" ? (
+                        <VolumeOnIcon className={styles.channelIcon} data-testid="channel-kind-voice" aria-hidden />
+                    ) : (
+                        <RoomIcon className={styles.channelIcon} data-testid="channel-kind-text" aria-hidden />
+                    )}
+                    {item.channelIconUrl && <img className={styles.channelImage} src={item.channelIconUrl} alt="" />}
+                </span>
             ) : (
                 renderAvatar(item.room)
             )}

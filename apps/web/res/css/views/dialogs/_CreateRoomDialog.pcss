@@ -113,3 +113,29 @@ Please see LICENSE files in the repository root for full details.
     color: $muted-fg-color;
     margin-top: var(--cpd-space-6x);
 }
+
+/* Names the Space section a new desktop channel goes into, right beneath the dialog title. */
+.mx_CreateRoomDialog .mx_CreateRoomDialog_channelContext {
+    margin: calc(-1 * var(--cpd-space-3x)) 0 var(--cpd-space-6x);
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-md-regular);
+
+    strong {
+        color: var(--cpd-color-text-primary);
+        font-weight: var(--cpd-font-weight-semibold);
+    }
+}
+
+/* The channel's symbol leads its name, as it will in the room list. */
+.mx_CreateRoomDialog .mx_CreateRoomDialog_name .mx_Field_prefix {
+    display: flex;
+    align-items: center;
+    padding-inline-start: var(--cpd-space-3x);
+    border: none;
+}
+
+.mx_CreateRoomDialog_channelSymbol {
+    width: var(--cpd-space-5x);
+    height: var(--cpd-space-5x);
+    color: var(--cpd-color-icon-tertiary);
+}
