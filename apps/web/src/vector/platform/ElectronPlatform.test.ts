@@ -276,6 +276,86 @@ describe("ElectronPlatform", () => {
             await platform.installUpdate();
             expect(mockElectron.send).toHaveBeenCalledWith("install_update");
         });
+
+        it("publishes native update state to current subscribers", () => {
+            const platform = new ElectronPlatform();
+            const listener = vi.fn();
+            platform.onDesktopUpdateStateChanged(listener);
+            const [event, handler] = getElectronEventHandlerCall("aether:update-state")!;
+            const state = {
+                status: "downloading",
+                currentVersion: "1.4.2",
+                version: "1.5.0",
+                percent: 36,
+            } as const;
+
+            handler({}, state);
+
+            expect(event).toBeTruthy();
+            expect(listener).toHaveBeenCalledWith(state);
+        });
+
+        it("shows one direct restart toast for the native ready event and ignores the legacy duplicate", () => {
+            localStorage.removeItem("mx_defer_update");
+            const platform = new ElectronPlatform();
+            const addToast = vi.spyOn(ToastStore.sharedInstance(), "addOrReplaceToast");
+            const getAppVersion = vi.spyOn(platform, "getAppVersion");
+            const [, stateHandler] = getElectronEventHandlerCall("aether:update-state")!;
+            const [, legacyHandler] = getElectronEventHandlerCall("update-downloaded")!;
+
+            stateHandler({}, { status: "ready", currentVersion: "1.4.2", version: "1.5.0" });
+            legacyHandler({}, { releaseName: "1.5.0" });
+
+            expect(addToast).toHaveBeenCalledTimes(1);
+            expect(addToast).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    title: "Aether 1.5.0 is ready",
+                    props: expect.objectContaining({
+                        primaryLabel: "Restart to update",
+                        secondaryLabel: "Later",
+                    }),
+                }),
+            );
+            expect(getAppVersion).not.toHaveBeenCalled();
+        });
+
+        it("shows a deferred ready update again after the deferment expires", () => {
+            localStorage.removeItem("mx_defer_update");
+            vi.useFakeTimers();
+            const now = new Date("2025-01-01T12:00:00");
+            vi.setSystemTime(now);
+            try {
+                const platform = new ElectronPlatform();
+                const addToast = vi.spyOn(ToastStore.sharedInstance(), "addOrReplaceToast");
+                const [, stateHandler] = getElectronEventHandlerCall("aether:update-state")!;
+                const readyState = { status: "ready", currentVersion: "1.4.2", version: "1.5.0" } as const;
+
+                stateHandler({}, readyState);
+                platform.deferUpdate("1.5.0");
+                stateHandler({}, readyState);
+                expect(addToast).toHaveBeenCalledTimes(1);
+
+                vi.setSystemTime(new Date(now.getTime() + 36 * 60 * 60 * 1000));
+                stateHandler({}, readyState);
+
+                expect(addToast).toHaveBeenCalledTimes(2);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it("does not replace a ready update with an optimistic check state", () => {
+            const platform = new ElectronPlatform();
+            const listener = vi.fn();
+            platform.onDesktopUpdateStateChanged(listener);
+            const [, stateHandler] = getElectronEventHandlerCall("aether:update-state")!;
+
+            stateHandler({}, { status: "ready", currentVersion: "1.4.2", version: "1.5.0" });
+            platform.startUpdateCheck();
+
+            expect(listener).toHaveBeenCalledTimes(1);
+            expect(mockElectron.send).toHaveBeenCalledWith("check_updates");
+        });
     });
 
     it("returns human readable name", () => {

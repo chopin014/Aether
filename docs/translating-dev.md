@@ -1,9 +1,9 @@
-# How to translate Element (Dev Guide)
+# How to translate Aether (Dev Guide)
 
 ## Requirements
 
-- A working [Development Setup](../README.md#setting-up-a-dev-environment)
-- Latest LTS version of Node.js installed
+- A working [development setup](../developer_guide.md#set-up-the-repository)
+- Node.js 22.18 or newer and the pinned pnpm version
 - Be able to understand English
 
 ## Translating strings vs. marking strings for translation
@@ -35,12 +35,11 @@ function getColorName(hex) {
 
 ## Key naming rules
 
-These rules are based on https://github.com/element-hq/element-x-android/blob/develop/tools/localazy/README.md
 At this time we are not trying to have a translation key per UI element as some methodologies use,
 whilst that would offer the greatest flexibility, it would also make reuse between projects nigh impossible.
 We are aiming for a set of common strings to be shared then some more localised translations per context they may appear in.
 
-1. Ensure the string doesn't already exist in a related project, such as https://localazy.com/p/element
+1. Check existing keys in the workspace's `src/i18n/strings/en_EN.json` before adding a new one.
 2. Keys for common strings, i.e. strings that can be used at multiple places must start by `action_` if this is a verb, or `common_` if not
 3. Keys for common accessibility strings must start by `a11y_`. Example: `a11y_hide_password`
 4. Otherwise, try to group keys logically and nest where appropriate, such as `keyboard_` for strings relating to keyboard shortcuts.
@@ -56,8 +55,8 @@ We are aiming for a set of common strings to be shared then some more localised 
 
 ## Editing non-English UK existing strings
 
-Edits to existing **non-en_EN** strings should be performed only via Localazy.
-There you can also require all translations to be redone if the meaning of the string has changed significantly.
+Edit the locale JSON files in this repository and submit the changes in an Aether pull request.
+When the source meaning changes, update the key and review affected translations.
 
 ### Editing English UK (en_EN) strings
 
@@ -69,7 +68,8 @@ When changing a string, be careful to rename the key if the meaning changes. For
 
 You can remove an existing string by removing the key from `en_EN.json`. Do not modify other language json files for this purpose.
 
-Localazy will mark the keys you removed as deprecated. See https://localazy.com/docs/general/editing-source-language#source-key-states for more information about the difference between deprecated keys and deleted keys.
+Run `pnpm i18n` after changing source keys and review the generated diff.
+Renderer and shared-component translations live in their respective workspaces.
 
 ## Adding variables inside a string.
 

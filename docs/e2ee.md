@@ -1,7 +1,7 @@
 # End to end encryption by default
 
-By default, Element will create encrypted DM rooms if the user you are chatting with has keys uploaded on their account.
-For private room creation, Element will default to encryption on but give you the choice to opt-out.
+By default, Aether will create encrypted DM rooms if the user you are chatting with has keys uploaded on their account.
+For private room creation, Aether will default to encryption on but give you the choice to opt-out.
 
 ## Disabling encryption by default
 
@@ -40,7 +40,7 @@ this behaviour will be overridden.
 
 # Setting up recovery
 
-By default, Element strongly encourages (but does not require) users to set up
+By default, Aether strongly encourages (but does not require) users to set up
 recovery so that you can access history on your new devices as well as retain access to your message history and cryptographic identity when you lose all of your devices.
 
 ## Removal of old settings
@@ -56,5 +56,5 @@ still works, but is not exposed in the UI when setting up recovery.
 # Compatibility
 
 The settings above were first proposed under a `im.vector.riot.e2ee` key, which
-is now deprecated. Element will check for either key, preferring
+is now deprecated. Aether will check for either key, preferring
 `io.element.e2ee` if both exist.

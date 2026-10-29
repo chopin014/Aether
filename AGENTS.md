@@ -10,10 +10,10 @@ A pnpm + nx monorepo (`element-web-monorepo`). Workspaces are `apps/*`, `package
 
 | Path                                                                                                  | Contents                                                                                                      |
 | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `apps/web`                                                                                            | The Element Web app. Also hosts view models (`src/viewmodels/`) and the Playwright e2e suite (`playwright/`). |
-| `apps/desktop`                                                                                        | Element Desktop.                                                                                              |
-| `packages/shared-components`                                                                          | Published UI component library, `@element-hq/web-shared-components`. New views go here.                       |
-| `packages/module-api`, `packages/shared-utils`, `packages/shared-types`, `packages/playwright-common` | Published support packages.                                                                                   |
+| `apps/web`                                                                                            | The Aether renderer. Also hosts view models (`src/viewmodels/`) and the Playwright e2e suite (`playwright/`). |
+| `apps/desktop`                                                                                        | Aether desktop host.                                                                                          |
+| `packages/shared-components`                                                                          | Shared UI component library, `@element-hq/web-shared-components`. New views go here.                          |
+| `packages/module-api`, `packages/shared-utils`, `packages/shared-types`, `packages/playwright-common` | Shared support packages.                                                                                      |
 | `modules/*`                                                                                           | Optional runtime modules (banner, widget toggles, …).                                                         |
 | `docs/`                                                                                               | VitePress docs site.                                                                                          |
 
@@ -142,9 +142,9 @@ Read [code_style.md](./code_style.md). The points most often missed:
     */
     ```
 
-    The holder is `Element Creations Ltd.` **only for contributions made as part of Element**. An external
-    contributor puts their own name or their company's there instead. Note that `oxlint --fix` inserts the Element
-    line unconditionally, so external contributors should write the header by hand and check what the autofix added.
+    Use your own name or organization as the copyright holder for Aether contributions. Existing upstream
+    copyright headers stay unchanged. `oxlint --fix` may insert `Element Creations Ltd.` automatically;
+    check and correct the holder on new files rather than assigning your work to another organization.
 
 - TypeScript only, named exports only — avoid `export default`.
 - 4-space indent, 120-column limit, double quotes, semicolons.

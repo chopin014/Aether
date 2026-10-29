@@ -5,136 +5,53 @@
     </picture>
 </h1>
 
-A desktop Matrix client with a Discord-style interface, built on Element Desktop.
-Linux and Windows are the first release targets. Voice rooms use Element Call.
+Aether is an open-source desktop app for communities to talk, share, and spend time together.
+It brings text channels, direct messages, and drop-in voice into a Discord-style interface on the Matrix network.
+Organize your community in a Space, move between conversations, and stay in voice while catching up on messages.
 
-**In development:** UI migration is incomplete. There is no production release yet.
-The icon and core palette follow the Aether brand manual; the interface design is not final.
-See [implementation status](docs/desktop-ui.md) and [Aether builds](docs/aether-releases.md).
+[Releases](https://github.com/chopin014/Aether/releases) ·
+[Report an issue](https://github.com/chopin014/Aether/issues)
 
-- [Project page](https://chopin014.github.io/Aether/)
-- [Issues](https://github.com/chopin014/Aether/issues)
-- [Upstream Element](https://github.com/element-hq/element-web)
+## What you can do
 
-Aether retains Element's Matrix SDK, encryption, verification and native desktop integration.
-Original upstream documentation follows. Licensing and attribution remain in the repository.
+- **Bring your community together.** Organize Matrix Spaces into text and voice channels, with member lists,
+  unread indicators, and channel notification controls.
+- **Keep the conversation going.** Send direct messages, share files, reply, react, and follow threads.
+- **Drop into voice.** See who's in a channel, join a call, and keep talking while browsing text channels.
+  Microphone, deafen, device selection, and voice sound controls are close at hand.
+- **Connect through Matrix.** Sign in with a Matrix account on your chosen homeserver and communicate across
+  the network, with support for encrypted conversations, device verification, and account recovery.
 
----
+## Project status
 
-[![Chat](https://img.shields.io/matrix/element-web:matrix.org?logo=matrix)](https://matrix.to/#/#element-web:matrix.org)
-![Tests](https://github.com/element-hq/element-web/actions/workflows/tests.yaml/badge.svg)
-![Static Analysis](https://github.com/element-hq/element-web/actions/workflows/static_analysis.yaml/badge.svg)
-[![Localazy](https://img.shields.io/endpoint?url=https%3A%2F%2Fconnect.localazy.com%2Fstatus%2Felement-web%2Fdata%3Fcontent%3Dall%26title%3Dlocalazy%26logo%3Dtrue)](https://localazy.com/p/element-web)
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=element-web&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=element-web)
-[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=element-web&metric=coverage)](https://sonarcloud.io/summary/new_code?id=element-web)
-[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=element-web&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=element-web)
-[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=element-web&metric=bugs)](https://sonarcloud.io/summary/new_code?id=element-web)
+**Aether is in active development.** The desktop interface is still being built, and some screens and interactions
+remain unfinished. Linux and Windows are the first release targets, with Linux x64
+AppImage and Windows x64 installer builds.
 
-# Element
+Voice channels require a homeserver with MatrixRTC calling services configured. Aether is a client and does not
+include those server components.
 
-Element (formerly known as Vector and Riot) is a Matrix web & desktop client built using the [Matrix
-JS SDK](https://github.com/matrix-org/matrix-js-sdk).
+See the [implementation status](docs/desktop-ui.md) for working features and remaining work, and the
+[release guide](docs/aether-releases.md) for builds, installation, and updates.
 
-# Supported Environments
+## Development
 
-Element has several tiers of support for different environments:
+Use Node.js 22.18 or newer and the repository's pinned pnpm version. Start with the
+[desktop development guide](docs/desktop-ui.md#launch-the-actual-application) to build and run Aether locally.
+For distributable packages, follow the [desktop build instructions](docs/aether-releases.md#development-build).
 
-- Supported
-    - Definition:
-        - Issues **actively triaged**, regressions **block** the release
-    - Last 2 major versions of Chrome, Firefox, and Edge on desktop OSes
-    - Last 2 versions of Safari
-    - Latest release of official Element Desktop app on desktop OSes
-    - Desktop OSes means macOS, Windows, and Linux versions for desktop devices
-      that are actively supported by the OS vendor and receive security updates
-- Best effort
-    - Definition:
-        - Issues **accepted**, regressions **do not block** the release
-        - The wider Element Products (including Element Call and the Enterprise Server Suite) do still not officially support these browsers.
-        - The element web project and its contributors should keep the client functioning and gracefully degrade where other sibling features (E.g. Element Call) may not function.
-    - Last major release of Firefox ESR and Chrome/Edge Extended Stable
-- Community Supported
-    - Definition:
-        - Issues **accepted**, regressions **do not block** the release
-        - Community contributions are welcome to support these issues
-    - Mobile web for current stable version of Chrome, Firefox, and Safari on Android, iOS, and iPadOS
-- Not supported
-    - Definition: Issues only affecting unsupported environments are **closed**
-    - Everything else
+The repository contains:
 
-The period of support for these tiers should last until the releases specified above, plus 1 app release cycle(2 weeks). In the case of Firefox ESR this is extended further to allow it land in Debian Stable.
+- `apps/desktop` — the Electron desktop application and packaging.
+- `apps/web` — the chat interface, application logic, and end-to-end tests.
+- `packages/shared-components` — shared UI components.
+- `modules` — optional runtime modules.
+- `docs` — configuration, development, and release documentation.
 
-For accessing Element on an Android or iOS device, we currently recommend the
-native apps [element-x-android](https://github.com/element-hq/element-x-android)
-and [element-x-ios](https://github.com/element-hq/element-x-ios).
+Before contributing, read the [contribution guide](CONTRIBUTING.md) and [code style](code_style.md).
+See the [Playwright guide](docs/playwright.md) for end-to-end testing and the
+[translation guide](docs/translating.md) to help with localization.
 
-# Getting Started
+## License
 
-The easiest way to test Element is to just use the hosted copy at <https://app.element.io>.
-The `develop` branch is continuously deployed to <https://develop.element.io>
-for those who like living dangerously.
-
-To host your own instance of Element see [Installing Element Web](docs/install.md).
-
-To install Element as a desktop application, see [Running as a desktop app](#running-as-a-desktop-app) below.
-
----
-
-# Monorepo
-
-This repository is a monorepo hosting Element Web and other related projects in various subdirectories.
-You can read more about the structure [here](docs/monorepo.md).
-
-# Element Web
-
-To learn more about Element Web [click here](apps/web/README.md)
-
-# Running as a Desktop app
-
-Element can also be run as a desktop app, wrapped in Electron. You can download a
-pre-built version from <https://element.io/get-started> or, if you prefer,
-build it yourself.
-
-To build it yourself, follow the instructions at <https://github.com/element-hq/element-web/tree/develop/apps/desktop>.
-
-Many thanks to @aviraldg for the initial work on the Electron integration.
-
-The [configuration docs](docs/config.md#desktop-app-configuration) show how to override the desktop app's default settings if desired.
-
-# Development
-
-Please read through the following:
-
-1. [Developer guide](./developer_guide.md)
-2. [Code style](./code_style.md)
-3. [Contribution guide](./CONTRIBUTING.md)
-
-# Translations
-
-To add a new translation, head to the [translating doc](docs/translating.md).
-
-For a developer guide, see the [translating dev doc](docs/translating-dev.md).
-
-# Triaging issues
-
-Issues are triaged by community members and the Web App Team, following the [triage process](https://github.com/element-hq/element-meta/wiki/Triage-process).
-
-We use [issue labels](https://github.com/element-hq/element-meta/wiki/Issue-labelling) to sort all incoming issues.
-
-## Copyright & License
-
-Copyright (c) 2014-2017 OpenMarket Ltd
-Copyright (c) 2017 Vector Creations Ltd
-Copyright (c) 2017-2025 New Vector Ltd
-
-This software is multi licensed by New Vector Ltd (Element). It can be used either:
-
-(1) for free under the terms of the GNU Affero General Public License (as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version); OR
-
-(2) for free under the terms of the GNU General Public License (as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version); OR
-
-(3) under the terms of a paid-for Element Commercial License agreement between you and Element (the terms of which may vary depending on what you and Element have agreed to).
-Unless required by applicable law or agreed to in writing, software distributed under the Licenses is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the Licenses for the specific language governing permissions and limitations under the Licenses.
-
-Please contact [licensing@element.io](mailto:licensing@element.io) to purchase
-an Element commercial license for this software.
+See the [license texts](LICENSE-AGPL-3.0) and [upstream copyright and license notices](NOTICE.md).

@@ -1,14 +1,101 @@
 # Copyright 2026 Gabriel. SPDX-License-Identifier: AGPL-3.0-only
 name: Aether desktop builds
 on:
+    push:
+        tags: ["v*"]
     workflow_dispatch:
+        inputs:
+            version:
+                description: Semantic version to package; blank uses apps/desktop/package.json
+                required: false
+                default: ""
+                type: string
+            create_draft:
+                description: Create or update a draft GitHub release after all artifacts pass validation
+                required: false
+                default: false
+                type: boolean
 permissions:
     contents: read
 concurrency:
     group: aether-desktop-${{ github.ref }}
     cancel-in-progress: true
 jobs:
+    version:
+        runs-on: ubuntu-24.04
+        outputs:
+            version: ${{ steps.version.outputs.version }}
+            prerelease: ${{ steps.version.outputs.prerelease }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+                  fetch-depth: 0
+            - name: Require a release from main
+              if: github.event_name == 'push' || inputs.create_draft
+              shell: bash
+              run: |
+                  if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$GITHUB_REF" != "refs/heads/main" ]]; then
+                      echo "Release drafts must be created from main" >&2
+                      exit 1
+                  fi
+                  git fetch --no-tags origin main
+                  if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+                      echo "Release commits must belong to main" >&2
+                      exit 1
+                  fi
+            - name: Resolve and validate release version
+              id: version
+              shell: bash
+              env:
+                  INPUT_VERSION: ${{ inputs.version }}
+              run: |
+                  if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+                      release_version="${GITHUB_REF_NAME#v}"
+                  elif [[ -n "$INPUT_VERSION" ]]; then
+                      release_version="$INPUT_VERSION"
+                  else
+                      release_version="$(node -p "require('./apps/desktop/package.json').version")"
+                  fi
+
+                  numeric='(0|[1-9][0-9]*)'
+                  prerelease_id='(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)'
+                  build_id='[0-9A-Za-z-]+'
+                  semver_pattern="^${numeric}\\.${numeric}\\.${numeric}(-${prerelease_id}(\\.${prerelease_id})*)?(\\+${build_id}(\\.${build_id})*)?$"
+                  if [[ ! "$release_version" =~ $semver_pattern ]]; then
+                      echo "Invalid semantic version: $release_version" >&2
+                      exit 1
+                  fi
+
+                  release_core="${release_version%%+*}"
+                  if [[ "$release_core" == *-* ]]; then
+                      is_prerelease="true"
+                  else
+                      is_prerelease="false"
+                  fi
+
+                  echo "Resolved Aether version $release_version (prerelease: $is_prerelease)"
+                  echo "version=$release_version" >> "$GITHUB_OUTPUT"
+                  echo "prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
+    preflight:
+        name: Desktop unit tests and typechecks
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+            - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+              with:
+                  node-version-file: apps/desktop/.node-version
+                  install: false
+            - run: pnpm install --frozen-lockfile
+            - name: Typecheck desktop sources, tests, and scripts
+              run: pnpm --dir apps/desktop run lint:types
+            - name: Run desktop unit tests
+              run: pnpm --dir apps/desktop exec vitest run
     renderer:
+        needs: [version, preflight]
         runs-on: ubuntu-24.04
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -33,7 +120,7 @@ jobs:
                   path: apps/desktop/webapp.asar
                   if-no-files-found: error
     desktop:
-        needs: renderer
+        needs: [version, preflight, renderer]
         strategy:
             fail-fast: false
             matrix:
@@ -43,8 +130,9 @@ jobs:
                     - os: windows-2025
                       platform: win
         runs-on: ${{ matrix.os }}
+        timeout-minutes: 30
         env:
-            VERSION: 0.1.0-dev.1
+            VERSION: ${{ needs.version.outputs.version }}
             CSC_IDENTITY_AUTO_DISCOVERY: "false"
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -61,13 +149,107 @@ jobs:
                   path: apps/desktop
             - run: pnpm --dir apps/desktop exec tsc
             - run: pnpm --dir apps/desktop exec node scripts/copy-res.ts
+            - name: Validate Windows installer smoke syntax
+              if: matrix.platform == 'win'
+              shell: pwsh
+              run: |
+                  $syntaxTokens = $null
+                  $syntaxErrors = $null
+                  $null = [System.Management.Automation.Language.Parser]::ParseFile(
+                      "$PWD/apps/desktop/scripts/aether-windows-install-smoke.ps1",
+                      [ref]$syntaxTokens,
+                      [ref]$syntaxErrors
+                  )
+                  if ($syntaxErrors.Count -gt 0) { throw ($syntaxErrors | Out-String) }
             - run: pnpm --dir apps/desktop run build:aether --${{ matrix.platform }} --x64
+            - name: Validate installers and updater metadata
+              shell: bash
+              run: pnpm --dir apps/desktop exec node scripts/aether-release-validation.ts ${{ matrix.platform }} "$VERSION"
+            - name: Smoke-test per-user NSIS install and same-version reinstall
+              if: matrix.platform == 'win'
+              shell: pwsh
+              run: >-
+                  ./apps/desktop/scripts/aether-windows-install-smoke.ps1
+                  -InstallerPath "apps/desktop/dist/Aether-${env:VERSION}-win-x64.exe"
+                  -ExpectedVersion "$env:VERSION"
             - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
               with:
                   name: Aether-${{ matrix.platform }}-x64
                   path: |
                       apps/desktop/dist/*.AppImage
-                      apps/desktop/dist/*.deb
-                      apps/desktop/dist/*.tar.gz
                       apps/desktop/dist/*.exe
+                      apps/desktop/dist/*.blockmap
+                      apps/desktop/dist/latest*.yml
                   if-no-files-found: error
+                  retention-days: 14
+    draft-release:
+        name: Prepare draft release
+        if: >-
+            github.repository == 'chopin014/Aether' &&
+            (github.event_name == 'push' || (inputs.create_draft && github.ref == 'refs/heads/main'))
+        needs: [version, desktop]
+        runs-on: ubuntu-24.04
+        permissions:
+            contents: write
+        env:
+            VERSION: ${{ needs.version.outputs.version }}
+            IS_PRERELEASE: ${{ needs.version.outputs.prerelease }}
+            REPOSITORY: chopin014/Aether
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+            - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+              with:
+                  node-version-file: apps/desktop/.node-version
+                  install: false
+            - run: pnpm install --frozen-lockfile --filter element-desktop
+            - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+              with:
+                  pattern: Aether-*-x64
+                  merge-multiple: true
+                  path: apps/desktop/dist
+            - name: Recheck all platform artifacts before release creation
+              run: pnpm --dir apps/desktop exec node scripts/aether-release-validation.ts all "$VERSION"
+            - name: Create or update the draft release
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  tag="v$VERSION"
+                  assets=(
+                      apps/desktop/dist/*.AppImage
+                      apps/desktop/dist/*.exe
+                      apps/desktop/dist/*.blockmap
+                      apps/desktop/dist/latest*.yml
+                  )
+                  if gh release view "$tag" --repo "$REPOSITORY" >/dev/null 2>&1; then
+                      is_draft="$(gh release view "$tag" --repo "$REPOSITORY" --json isDraft --jq .isDraft)"
+                      if [[ "$is_draft" != "true" ]]; then
+                          echo "Refusing to modify already-published release $tag" >&2
+                          exit 1
+                      fi
+                      manual_packages="$(gh release view "$tag" --repo "$REPOSITORY" --json assets \
+                          --jq '.assets[].name | select(endswith(".deb") or endswith(".tar.gz"))')"
+                      if [[ -n "$manual_packages" ]]; then
+                          while IFS= read -r asset; do
+                              gh release delete-asset "$tag" "$asset" --yes --repo "$REPOSITORY"
+                          done <<< "$manual_packages"
+                      fi
+                      gh release upload "$tag" "${assets[@]}" --clobber --repo "$REPOSITORY"
+                  else
+                      create_args=(--draft --title "Aether $tag" --generate-notes --target "$GITHUB_SHA")
+                      if [[ "$IS_PRERELEASE" == "true" ]]; then
+                          create_args+=(--prerelease)
+                      fi
+                      if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+                          create_args+=(--verify-tag)
+                      fi
+                      gh release create "$tag" "${create_args[@]}" "${assets[@]}" --repo "$REPOSITORY"
+                  fi
+                  manual_package_count="$(gh release view "$tag" --repo "$REPOSITORY" --json assets \
+                      --jq '[.assets[].name | select(endswith(".deb") or endswith(".tar.gz"))] | length')"
+                  if [[ "$manual_package_count" != "0" ]]; then
+                      echo "Release draft contains installers without in-app update support" >&2
+                      exit 1
+                  fi

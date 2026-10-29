@@ -32,7 +32,7 @@ import InfoDialog from "../../components/views/dialogs/InfoDialog";
 import Spinner from "../../components/views/elements/Spinner";
 import { Action } from "../../dispatcher/actions";
 import { type ActionPayload } from "../../dispatcher/payloads";
-import { showToast as showUpdateToast } from "../../toasts/UpdateToast";
+import { showDesktopUpdateToast } from "../../toasts/UpdateToast";
 import { type CheckUpdatesPayload } from "../../dispatcher/payloads/CheckUpdatesPayload";
 import ToastStore from "../../stores/ToastStore";
 import GenericExpiringToast from "../../components/views/toasts/GenericExpiringToast";
@@ -47,6 +47,7 @@ import { watchWindowControlsTheme } from "./watchWindowControlsTheme";
 import { _t } from "../../languageHandler";
 import { BadgeOverlayRenderer } from "../../favicon";
 import { GenericToast } from "@element-hq/web-shared-components";
+import { type DesktopUpdateState } from "shared-types";
 
 interface SquirrelUpdate {
     releaseNotes: string;
@@ -100,6 +101,10 @@ export default class ElectronPlatform extends BasePlatform {
     private config!: IConfigOptions;
     private supportedSettings?: Record<string, boolean>;
     private clientStartedPromiseWithResolvers = Promise.withResolvers<void>();
+    private updateStateRevision = 0;
+    private updateStateSnapshotRequest = 0;
+    private hasReceivedDesktopUpdateState = false;
+    private lastToastedReadyVersion?: string;
 
     public constructor() {
         super();
@@ -120,7 +125,9 @@ export default class ElectronPlatform extends BasePlatform {
                 action: Action.CheckUpdates,
                 ...getUpdateCheckStatus(status),
             });
+            if (!this.hasReceivedDesktopUpdateState) this.applyLegacyCheckStatus(status);
         });
+        this.electron.on("aether:update-state", this.onDesktopUpdateState);
 
         // `userAccessToken` (IPC) is requested by the main process when appending authentication
         // to media downloads. A reply is sent over the same channel.
@@ -211,6 +218,9 @@ export default class ElectronPlatform extends BasePlatform {
         BreadcrumbsStore.instance.on(UPDATE_EVENT, this.onBreadcrumbsUpdate);
 
         this.initialised = this.initialise();
+        void this.getDesktopUpdateState().catch((error) => {
+            logger.warn("Unable to read desktop update state", error);
+        });
     }
 
     protected onAction(payload: ActionPayload): void {
@@ -263,15 +273,47 @@ export default class ElectronPlatform extends BasePlatform {
         void this.ipc.call("breadcrumbs", rooms);
     };
 
-    private onUpdateDownloaded = async (ev: Event, { releaseNotes, releaseName }: SquirrelUpdate): Promise<void> => {
+    private onUpdateDownloaded = (ev: Event, { releaseName }: SquirrelUpdate): void => {
         dis.dispatch<CheckUpdatesPayload>({
             action: Action.CheckUpdates,
             status: UpdateCheckStatus.Ready,
         });
-        if (this.shouldShowUpdate(releaseName)) {
-            showUpdateToast(await this.getAppVersion(), releaseName, releaseNotes);
-        }
+        if (this.hasReceivedDesktopUpdateState) return;
+        this.updateStateRevision++;
+        this.applyDesktopUpdateState({
+            ...this.currentDesktopUpdateState,
+            status: "ready",
+            version: releaseName,
+        });
     };
+
+    private onDesktopUpdateState = (_ev: Event, state: DesktopUpdateState): void => {
+        this.updateStateRevision++;
+        this.hasReceivedDesktopUpdateState = true;
+        this.applyDesktopUpdateState(state);
+    };
+
+    private applyDesktopUpdateState(state: DesktopUpdateState): void {
+        this.publishDesktopUpdateState(state);
+        if (state.status !== "ready" || !state.version) return;
+
+        if (this.isUpdateDeferred(state.version) || state.version === this.lastToastedReadyVersion) return;
+
+        this.lastToastedReadyVersion = state.version;
+        showDesktopUpdateToast(state.version);
+    }
+
+    private applyLegacyCheckStatus(status: boolean | string): void {
+        this.updateStateRevision++;
+        const current = this.currentDesktopUpdateState;
+        if (status === true) {
+            this.publishDesktopUpdateState({ ...current, status: "downloading" });
+        } else if (status === false) {
+            this.publishDesktopUpdateState({ ...current, status: "idle", lastChecked: Date.now() });
+        } else {
+            this.publishDesktopUpdateState({ ...current, status: "error" });
+        }
+    }
 
     public getHumanReadableName(): string {
         return "Electron Platform"; // no translation required: only used for analytics
@@ -398,7 +440,27 @@ export default class ElectronPlatform extends BasePlatform {
         return Boolean(feedUrl);
     }
 
+    public override async getDesktopUpdateState(): Promise<DesktopUpdateState> {
+        const request = ++this.updateStateSnapshotRequest;
+        const revision = this.updateStateRevision;
+        const state = (await this.ipc.call("getDesktopUpdateState")) as DesktopUpdateState;
+        if (request === this.updateStateSnapshotRequest && revision === this.updateStateRevision) {
+            this.hasReceivedDesktopUpdateState = true;
+            this.applyDesktopUpdateState(state);
+        }
+        return { ...this.currentDesktopUpdateState };
+    }
+
+    public override deferUpdate(newVersion: string): void {
+        super.deferUpdate(newVersion);
+        if (this.lastToastedReadyVersion === newVersion) this.lastToastedReadyVersion = undefined;
+    }
+
     public startUpdateCheck(): void {
+        if (!["ready", "downloading", "unsupported"].includes(this.currentDesktopUpdateState.status)) {
+            this.updateStateRevision++;
+            this.publishDesktopUpdateState({ ...this.currentDesktopUpdateState, status: "checking" });
+        }
         super.startUpdateCheck();
         this.electron.send("check_updates");
     }

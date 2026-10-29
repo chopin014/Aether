@@ -5,161 +5,94 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
+import { posix } from "node:path";
 import { withMermaid } from "vitepress-plugin-mermaid";
 
-function customPathResolver(href: string, currentPath: string): string {
-    const [link, fragment] = href.split("#", 2);
-    if (currentPath === "index.md") {
-        if (link.startsWith("./docs/")) {
-            return `../docs/${href.slice(7)}`;
-        } else if (link.startsWith("docs/")) {
-            return `../${href}`;
-        }
-    }
-
-    switch (link) {
-        case "../packages/shared-components/README.md":
-            return `../docs/readme-shared-components.md#${fragment}`;
-        case "../apps/web/README.md":
-            return `../docs/readme-element-web.md#${fragment}`;
-        case "../README.md":
-            return `../docs/index.md#${fragment}`;
-
-        default:
-            return `https://github.com/element-hq/element-web/blob/develop/${href.split("/").pop()}`;
-    }
+// Files outside the documentation source are read on GitHub rather than emitted as docs pages.
+function resolveRepositoryLink(href: string, currentPath: string): string {
+    if (!href.startsWith("../")) return href;
+    const [file, fragment] = href.split("#", 2);
+    const target = posix.normalize(posix.join("docs", posix.dirname(currentPath), file));
+    if (target.startsWith("docs/")) return href;
+    return `https://github.com/chopin014/Aether/blob/main/${target}${fragment ? `#${fragment}` : ""}`;
 }
 
-// https://vitepress.dev/reference/site-config
 export default withMermaid({
-    title: "Element Web & Desktop docs",
-    description: "Documentation",
-    srcExclude: ["changelogs"],
+    title: "Aether docs",
+    description: "Build, configure, and contribute to Aether.",
+    srcExclude: ["changelogs/**"],
     markdown: {
         config: (md) => {
-            // Custom rule to fix links
-            const defaultRender =
-                md.renderer.rules.link_open ||
-                function (tokens, idx, options, env, self) {
-                    return self.renderToken(tokens, idx, options);
-                };
-
+            const defaultRender = md.renderer.rules.link_open;
             md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
                 const token = tokens[idx];
-                const hrefIndex = token.attrIndex("href");
-
-                if (hrefIndex >= 0) {
-                    const href = token.attrs![hrefIndex][1];
-
-                    if (!href.includes("://") && href.split("#", 2)[0].endsWith(".md")) {
-                        token.attrs![hrefIndex][1] = customPathResolver(href, env.relativePath);
-                    }
-                }
-                return defaultRender(tokens, idx, options, env, self);
+                const href = token.attrGet("href");
+                if (href) token.attrSet("href", resolveRepositoryLink(href, env.relativePath));
+                return defaultRender
+                    ? defaultRender(tokens, idx, options, env, self)
+                    : self.renderToken(tokens, idx, options);
             };
         },
     },
     themeConfig: {
         nav: [
-            { text: "Home", link: "/" },
-            { text: "Website", link: "https://element.io/en" },
+            { text: "Documentation", link: "/" },
+            { text: "Source", link: "https://github.com/chopin014/Aether" },
         ],
-
-        search: {
-            provider: "local",
-        },
-
+        search: { provider: "local" },
         sidebar: [
             {
-                text: "README",
+                text: "Aether",
                 items: [
-                    { text: "Introduction", link: "/index" },
-                    { text: "Element Web", link: "/readme-element-web" },
-                    { text: "Element Desktop", link: "/readme-element-desktop" },
-                    { text: "Shared Components", link: "/readme-shared-components" },
+                    { text: "Introduction", link: "/" },
+                    { text: "Installation", link: "/install" },
+                    { text: "Desktop status and development", link: "/desktop-ui" },
+                    { text: "Releases and updates", link: "/aether-releases" },
+                    { text: "Repository layout", link: "/monorepo" },
                 ],
             },
             {
-                text: "Usage",
+                text: "Configuration",
                 items: [
-                    { text: "Betas", link: "/betas" },
-                    { text: "Labs", link: "/labs" },
-                ],
-            },
-            {
-                text: "Setup",
-                items: [
-                    { text: "Install", link: "/install" },
-                    { text: "Config", link: "/config" },
-                    { text: "Custom home page", link: "/custom-home" },
-                    { text: "Kubernetes", link: "/kubernetes" },
-                    { text: "Jitsi", link: "/jitsi" },
+                    { text: "Configuration reference", link: "/config" },
                     { text: "Encryption", link: "/e2ee" },
-                ],
-            },
-            {
-                text: "Build",
-                items: [
-                    {
-                        text: "Desktop",
-                        items: [
-                            { text: "Native Node modules", link: "/native-node-modules" },
-                            { text: "Windows requirements", link: "/windows-requirements" },
-                            { text: "Debugging", link: "/debugging" },
-                            { text: "Using gdb", link: "/gdb" },
-                        ],
-                    },
-                ],
-            },
-            {
-                text: "Distribution",
-                items: [
-                    { text: "Updates", link: "/updates" },
-                    { text: "Packaging", link: "/packaging" },
-                ],
-            },
-            {
-                text: "Contribution",
-                items: [
-                    { text: "Choosing an issue", link: "/choosing-an-issue" },
-                    { text: "Translation", link: "/translating" },
-                    { text: "Netlify builds", link: "/pr-previews" },
-                    { text: "Code review", link: "/review" },
+                    { text: "Authentication", link: "/oauth" },
+                    { text: "Themes", link: "/theming" },
+                    { text: "Labs", link: "/labs" },
+                    { text: "Custom home page", link: "/custom-home" },
                 ],
             },
             {
                 text: "Development",
                 items: [
-                    { text: "App load order", link: "/app-load.md" },
-                    { text: "Translation", link: "/translating-dev.md" },
-                    { text: "Theming", link: "/theming.md" },
-                    { text: "Playwright end to end tests", link: "/playwright.md" },
-                    { text: "Memory profiling", link: "/memory-profiles-and-leaks.md" },
-                    { text: "Jitsi", link: "/jitsi-dev.md" },
-                    { text: "Feature flags", link: "/feature-flags.md" },
-                    { text: "OAuth and delegated authentication", link: "/oauth.md" },
-                    { text: "Release Process", link: "/release.md" },
-                    { text: "MVVM", link: "/MVVM.md" },
-                    { text: "Settings", link: "/settings.md" },
+                    { text: "MVVM", link: "/MVVM" },
+                    { text: "Playwright", link: "/playwright" },
+                    { text: "Feature flags", link: "/feature-flags" },
+                    { text: "Translation guide", link: "/translating" },
+                    { text: "Translation tooling", link: "/translating-dev" },
+                    { text: "Debugging", link: "/debugging" },
+                    { text: "Native debugging", link: "/gdb" },
+                    { text: "Memory profiling", link: "/memory-profiles-and-leaks" },
+                    { text: "Native Node modules", link: "/native-node-modules" },
+                    { text: "Windows requirements", link: "/windows-requirements" },
                 ],
             },
             {
-                text: "Deep dive",
+                text: "Architecture",
                 items: [
-                    { text: "Skinning", link: "/skinning" },
-                    { text: "Cider editor", link: "/ciderEditor" },
-                    { text: "Iconography", link: "/icons" },
+                    { text: "App loading", link: "/app-load" },
+                    { text: "Settings", link: "/settings" },
+                    { text: "Room list", link: "/room-list" },
+                    { text: "Message composer", link: "/ciderEditor" },
+                    { text: "Icons", link: "/icons" },
                     { text: "Local echo", link: "/local-echo-dev" },
                     { text: "Media", link: "/media-handling" },
-                    { text: "Room List", link: "/room-list" },
                     { text: "Scrolling", link: "/scrolling" },
-                    { text: "Usercontent", link: "/usercontent" },
+                    { text: "User content", link: "/usercontent" },
                     { text: "Widget layouts", link: "/widget-layouts" },
-                    { text: "Automations", link: "/generated/automations" },
                 ],
             },
         ],
-
-        socialLinks: [{ icon: "github", link: "https://github.com/element-hq/element-web" }],
+        socialLinks: [{ icon: "github", link: "https://github.com/chopin014/Aether" }],
     },
 });

@@ -19,6 +19,6 @@ To start the server, do:
 
 ```javascript
 cy.task("startOAuthServer").then((port) => {
-    // now we can configure Synapse or Element to talk to the OAuth2 server.
+    // now we can configure Synapse or Aether to talk to the OAuth2 server.
 });
 ```

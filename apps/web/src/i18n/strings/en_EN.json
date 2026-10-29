@@ -813,6 +813,16 @@
             "removed": "Removed message",
             "start": "Start thread"
         },
+        "updates": {
+            "call_confirmation_description": "Restarting now will leave your active call. You can leave the call first and restart later.",
+            "call_confirmation_restart": "Restart now",
+            "call_confirmation_title": "Restart Aether while in a call?",
+            "later": "Later",
+            "nav_title": "Updates",
+            "restart": "Restart to update",
+            "toast_description": "Aether has downloaded an update and is ready to restart.",
+            "toast_title": "Aether %(version)s is ready"
+        },
         "voice": {
             "action_failed": "The audio control could not be changed. Please try again.",
             "camera_failed": "The camera could not be changed. Please try again.",

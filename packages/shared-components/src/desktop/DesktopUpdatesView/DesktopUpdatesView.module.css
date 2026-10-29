@@ -1,0 +1,160 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.view {
+    width: 100%;
+    max-width: calc(var(--cpd-space-16x) * 9);
+    min-width: 0;
+    box-sizing: border-box;
+    color: var(--cpd-color-text-primary);
+}
+
+.header,
+.card,
+.version,
+.manualUpdate {
+    display: flex;
+    flex-direction: column;
+}
+
+.header {
+    gap: var(--cpd-space-2x);
+}
+
+.titleRow {
+    min-width: 0;
+}
+
+.titleRow h2,
+.header p,
+.card p {
+    margin: 0;
+}
+
+.icon {
+    display: flex;
+    color: var(--cpd-color-icon-accent-primary);
+}
+
+.icon svg {
+    width: var(--cpd-space-6x);
+    height: var(--cpd-space-6x);
+}
+
+.description {
+    color: var(--cpd-color-text-secondary);
+}
+
+.card {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    gap: var(--cpd-space-4x);
+    padding: var(--cpd-space-5x);
+    background: var(--cpd-color-bg-subtle-primary);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-2x);
+}
+
+.version {
+    gap: var(--cpd-space-1x);
+}
+
+.label {
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-xs-semibold);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.status {
+    min-height: var(--cpd-space-6x);
+}
+
+.ready {
+    color: var(--cpd-color-text-success-primary);
+}
+
+.error {
+    color: var(--cpd-color-text-critical-primary);
+}
+
+.spinner {
+    flex-shrink: 0;
+    width: var(--cpd-space-4x);
+    height: var(--cpd-space-4x);
+    border: var(--cpd-border-width-2) solid var(--cpd-color-border-interactive-secondary);
+    border-block-start-color: var(--cpd-color-icon-accent-primary);
+    border-radius: 50%;
+    animation: spin 800ms linear infinite;
+}
+
+.progress progress {
+    display: block;
+    width: 100%;
+    height: var(--cpd-space-2x);
+    overflow: hidden;
+    padding: 0;
+    background: var(--cpd-color-bg-subtle-tertiary);
+    border: 0;
+    border-radius: var(--cpd-space-1x);
+    accent-color: var(--cpd-color-bg-accent-rest);
+    appearance: none;
+}
+
+.progress {
+    width: 100%;
+    min-width: 0;
+}
+
+.progress progress::-webkit-progress-bar {
+    background: var(--cpd-color-bg-subtle-tertiary);
+    border-radius: var(--cpd-space-1x);
+}
+
+.progress progress::-webkit-progress-value {
+    background: var(--cpd-color-bg-accent-rest);
+    border-radius: var(--cpd-space-1x);
+}
+
+.progress progress::-moz-progress-bar {
+    background: var(--cpd-color-bg-accent-rest);
+    border-radius: var(--cpd-space-1x);
+}
+
+.actions,
+.manualUpdate {
+    align-items: flex-start;
+}
+
+.manualUpdate {
+    gap: var(--cpd-space-3x);
+}
+
+.releaseLink {
+    color: var(--cpd-color-text-action-accent);
+    font: var(--cpd-font-body-md-medium);
+    text-decoration: underline;
+    text-underline-offset: var(--cpd-space-1x);
+}
+
+.releaseLink:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: var(--cpd-space-1x);
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .spinner {
+        animation: none;
+    }
+}

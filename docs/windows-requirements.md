@@ -2,9 +2,9 @@
 
 ## Requirements to build
 
-We rely on Github Actions `windows-2025` as per [the workflow](https://github.com/element-hq/element-web/blob/develop/.github/workflows/build_desktop_windows.yaml).
+Aether builds Windows x64 installers through the [desktop workflow](https://github.com/chopin014/Aether/actions/workflows/aether-desktop.yaml).
 
-If you want to build Element Desktop on Windows, make sure that the following tools are installed on your system.
+If you want to build Aether desktop on Windows, make sure that the following tools are installed on your system.
 
 - [Git for Windows](https://git-scm.com/download/win)
 - [Node](https://nodejs.org) (see `apps/desktop/.node-version` for the version we build with)
@@ -20,4 +20,4 @@ Once installed make sure all those utilities are accessible in your `PATH`.
 
 Native modules are consumed as prebuilt binaries, so no compiler toolchain is required.
 See [native-node-modules.md](./native-node-modules.md) for details, including how to
-build the arm64 package from an x64 host.
+inspect or rebuild native dependencies.

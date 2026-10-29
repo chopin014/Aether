@@ -34,6 +34,7 @@ import SdkConfig from "./SdkConfig";
 import { buildAndEncodePickleKey, encryptPickleKey } from "./utils/tokens/pickling";
 import Favicon from "./favicon.ts";
 import { getVectorConfig } from "./vector/getconfig.ts";
+import { type DesktopUpdateState } from "shared-types";
 
 export const SSO_HOMESERVER_URL_KEY = "mx_sso_hs_url";
 export const SSO_ID_SERVER_URL_KEY = "mx_sso_is_url";
@@ -71,6 +72,12 @@ export default abstract class BasePlatform {
     protected errorDidOccur = false;
     protected _favicon?: Favicon;
     public readonly initialised = Promise.resolve<void>(undefined);
+    private desktopUpdateState: DesktopUpdateState = {
+        status: "unsupported",
+        currentVersion: "",
+        reason: "platform",
+    };
+    private readonly desktopUpdateStateListeners = new Set<(state: DesktopUpdateState) => void>();
 
     protected constructor() {
         dis.register(this.onAction.bind(this));
@@ -117,6 +124,28 @@ export default abstract class BasePlatform {
         return false;
     }
 
+    /** Return the latest known desktop update state. */
+    public getDesktopUpdateState(): Promise<DesktopUpdateState> {
+        return Promise.resolve({ ...this.desktopUpdateState });
+    }
+
+    /** Subscribe to changes in the current desktop update state. */
+    public onDesktopUpdateStateChanged(listener: (state: DesktopUpdateState) => void): () => void {
+        this.desktopUpdateStateListeners.add(listener);
+        return () => this.desktopUpdateStateListeners.delete(listener);
+    }
+
+    /** The current cached state for platform implementations that update it from native events. */
+    protected get currentDesktopUpdateState(): DesktopUpdateState {
+        return this.desktopUpdateState;
+    }
+
+    /** Publish a new update state to settings and other platform consumers. */
+    protected publishDesktopUpdateState(state: DesktopUpdateState): void {
+        this.desktopUpdateState = { ...state };
+        for (const listener of this.desktopUpdateStateListeners) listener(this.desktopUpdateState);
+    }
+
     public startUpdateCheck(): void {
         hideUpdateToast();
         localStorage.removeItem(UPDATE_DEFER_KEY);
@@ -145,6 +174,16 @@ export default abstract class BasePlatform {
             return newVersion !== version || Date.now() > deferUntil;
         } catch {
             return true;
+        }
+    }
+
+    /** Whether the user deferred this exact version and the deferment has not expired. */
+    protected isUpdateDeferred(newVersion: string): boolean {
+        try {
+            const [version, deferUntil] = JSON.parse(localStorage.getItem(UPDATE_DEFER_KEY)!);
+            return newVersion === version && Date.now() <= deferUntil;
+        } catch {
+            return false;
         }
     }
 

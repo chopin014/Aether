@@ -123,6 +123,7 @@ export * from "./desktop/DesktopVoiceVideoSettingsView";
 export * from "./desktop/DesktopCallStageView";
 export * from "./desktop/DesktopScreenSharePickerView";
 export * from "./desktop/DesktopRoomSettingsView";
+export * from "./desktop/DesktopUpdatesView";
 
 export * from "./presence/PresenceMenuView";
 export * from "./room/PinnedMessagesView";

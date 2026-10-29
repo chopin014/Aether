@@ -5,207 +5,416 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import { app, autoUpdater, ipcMain } from "electron";
+import electronUpdater, { type AppUpdater, type UpdateDownloadedEvent } from "electron-updater";
+import { app, ipcMain, type IpcMainEvent, type WebContents } from "electron";
 import fs from "node:fs/promises";
-import os from "node:os";
+import path from "node:path";
 
-import { getSquirrelExecutable } from "./squirrelhooks.js";
-import { _t } from "./language-helper.js";
-import { initialisePromise } from "./ipc.js";
-import { getConfig } from "./config.js";
+import type { DesktopUpdateState } from "shared-types";
+
+const { autoUpdater } = electronUpdater;
 
 const UPDATE_POLL_INTERVAL_MS = 60 * 60 * 1000;
 const INITIAL_UPDATE_DELAY_MS = 30 * 1000;
+const RELEASES_URL = "https://github.com/chopin014/Aether/releases";
+const GITHUB_OWNER = "chopin014";
+const GITHUB_REPOSITORY = "Aether";
 
-function installUpdate(): void {
-    // for some reason, quitAndInstall does not fire the
-    // before-quit event, so we need to set the flag here.
-    global.appQuitting = true;
-    autoUpdater.quitAndInstall();
-}
+type UnsupportedReason = NonNullable<DesktopUpdateState["reason"]>;
 
-// Workaround for Squirrel.Mac wedging auto-restart if latest check for update failed
-// From https://github.com/vector-im/element-web/issues/12433#issuecomment-1508995119
-async function safeCheckForUpdate(): Promise<void> {
-    if (process.platform === "darwin") {
-        const feedUrl = autoUpdater.getFeedURL();
-        // On Mac if the user has already downloaded an update but not installed it and
-        // we check again and no additional new update is available the app ends up in a
-        // bad state and doesn't restart after installing any updates that are downloaded.
-        // To avoid this we check manually whether an update is available and call the
-        // autoUpdater.checkForUpdates() when something new is there.
-        try {
-            const res = await fetch(feedUrl);
-            const { currentRelease } = (await res.json()) as { currentRelease: string };
-            const latestVersionDownloaded = latestUpdateDownloaded?.releaseName;
-            console.info(
-                `Latest version from release download: ${currentRelease} (current: ${app.getVersion()}, most recent downloaded ${latestVersionDownloaded}})`,
-            );
-            if (currentRelease === app.getVersion() || currentRelease === latestVersionDownloaded) {
-                ipcChannelSendUpdateStatus(false);
-                return;
-            }
-        } catch (err) {
-            console.error(`Error checking for updates ${feedUrl}`, err);
-            ipcChannelSendUpdateStatus(false);
-            return;
-        }
-    }
-    autoUpdater.checkForUpdates();
-}
-
-async function pollForUpdates(): Promise<void> {
-    try {
-        // If we've already got a new update downloaded, then stop trying to check for new ones, as according to the doc
-        // at https://github.com/electron/electron/blob/main/docs/api/auto-updater.md#autoupdatercheckforupdates
-        // we'll just keep re-downloading the same update.
-        // As a hunch, this might also be causing https://github.com/vector-im/element-web/issues/12433
-        // due to the update checks colliding with the pending install somehow
-        if (!latestUpdateDownloaded) {
-            await safeCheckForUpdate();
-        } else {
-            console.log("Skipping update check as download already present");
-            global.mainWindow?.webContents.send("update-downloaded", latestUpdateDownloaded);
-        }
-    } catch (e) {
-        console.log("Couldn't check for update", e);
-    }
-}
-
-export async function start(updateBaseUrl: string): Promise<void> {
-    if (!(await available())) return;
-    console.log(`Starting auto update with base URL: ${updateBaseUrl}`);
-    if (!updateBaseUrl.endsWith("/")) {
-        updateBaseUrl = updateBaseUrl + "/";
-    }
-
-    try {
-        let url: string;
-        let serverType: "json" | undefined;
-
-        if (process.platform === "darwin") {
-            // On macOS it takes a JSON file with a map between versions and their URLs
-            url = `${updateBaseUrl}macos/releases.json`;
-            serverType = "json";
-        } else if (process.platform === "win32") {
-            // On windows it takes a base path and looks for files under that path.
-            url = `${updateBaseUrl}win32/${process.arch}/`;
-        } else {
-            // Squirrel / electron only supports auto-update on these two platforms.
-            // I'm not even going to try to guess which feed style they'd use if they
-            // implemented it on Linux, or if it would be different again.
-            return;
-        }
-
-        if (url) {
-            console.log(`Update URL: ${url}`);
-            autoUpdater.setFeedURL({ url, serverType });
-            // We check for updates ourselves rather than using 'updater' because we need to
-            // do it in the main process (and we don't really need to check every 10 minutes:
-            // every hour should be just fine for a desktop app)
-            // However, we still let the main window listen for the update events.
-            // We also wait a short time before checking for updates the first time because
-            // of squirrel on windows and it taking a small amount of time to release a
-            // lock file.
-            setTimeout(pollForUpdates, INITIAL_UPDATE_DELAY_MS);
-            setInterval(pollForUpdates, UPDATE_POLL_INTERVAL_MS);
-        }
-    } catch (err) {
-        // will fail if running in debug mode
-        console.log("Couldn't enable update checking", err);
-    }
-}
-
-/**
- * Check if auto update is available on this platform.
- * Has a side effect of firing showToast on EOL platforms so must only be called once!
- * @returns True if auto update is available
- */
-async function available(): Promise<boolean> {
-    if (process.platform === "linux") {
-        // Auto update is not supported on Linux
-        console.warn("Auto update not supported on this platform");
-        return false;
-    }
-
-    if (process.platform === "win32") {
-        try {
-            await fs.access(getSquirrelExecutable());
-        } catch {
-            console.warn("Squirrel not found, auto update not supported");
-            return false;
-        }
-    }
-
-    // Otherwise we're either on macOS or Windows with Squirrel
-    if (process.platform === "darwin") {
-        // OS release returns the Darwin kernel version, not the macOS version, see
-        // https://en.wikipedia.org/wiki/Darwin_(operating_system)#Release_history to interpret it
-        const release = os.release();
-        const major = parseInt(release.split(".")[0], 10);
-
-        if (major < 21) {
-            // If the macOS version is too old for modern Electron support then disable auto update to prevent the app updating and bricking itself.
-            // The oldest macOS version supported by Chromium/Electron 38 is Monterey (12.x) which started with Darwin 21.0
-            await initialisePromise.then(() => {
-                ipcMain.emit("showToast", {
-                    title: _t("eol|title"),
-                    description: _t("eol|no_more_updates", { brand: getConfig().brand }),
-                });
-            });
-            console.warn("Auto update not supported, macOS version too old");
-            return false;
-        } else if (major < 22) {
-            // If the macOS version is EOL then show a warning message.
-            // The oldest macOS version still supported by Apple is Ventura (13.x) which started with Darwin 22.0
-            await initialisePromise.then(() => {
-                ipcMain.emit("showToast", {
-                    title: _t("eol|title"),
-                    description: _t("eol|warning", { brand: getConfig().brand }),
-                });
-            });
-        }
-    }
-
-    return true;
-}
-
-ipcMain.on("install_update", installUpdate);
-ipcMain.on("check_updates", pollForUpdates);
-
-function ipcChannelSendUpdateStatus(status: boolean | string): void {
-    global.mainWindow?.webContents.send("check_updates", status);
-}
-
-interface ICachedUpdate {
+interface LegacyDownloadedUpdate {
     releaseNotes: string;
     releaseName: string;
     releaseDate: Date;
     updateURL: string;
 }
 
-// cache the latest update which has been downloaded as electron offers no api to read it
-let latestUpdateDownloaded: ICachedUpdate | undefined;
-autoUpdater
-    .on("update-available", function () {
-        ipcChannelSendUpdateStatus(true);
-    })
-    .on("update-not-available", function () {
-        if (latestUpdateDownloaded) {
-            // the only time we will get `update-not-available` if `latestUpdateDownloaded` is already set
-            // is if the user used the Manual Update check and there is no update newer than the one we
-            // have downloaded, so show it to them as the latest again.
-            global.mainWindow?.webContents.send("update-downloaded", latestUpdateDownloaded);
-        } else {
-            ipcChannelSendUpdateStatus(false);
-        }
-    })
-    .on("error", function (error) {
-        ipcChannelSendUpdateStatus(error.message);
-    });
+/** Runtime details used to decide whether this installed build can update. */
+export interface RuntimeUpdateEnvironment {
+    enabled: boolean;
+    isPackaged: boolean;
+    platform: NodeJS.Platform;
+    resourcesPath: string;
+    appImagePath?: string;
+    executablePath: string;
+}
 
-autoUpdater.on("update-downloaded", (ev, releaseNotes, releaseName, releaseDate, updateURL) => {
-    // forward to renderer
-    latestUpdateDownloaded = { releaseNotes, releaseName, releaseDate, updateURL };
-    global.mainWindow?.webContents.send("update-downloaded", latestUpdateDownloaded);
+type UpdateSupportResolver = (environment: RuntimeUpdateEnvironment) => Promise<UnsupportedReason | undefined>;
+
+interface DesktopUpdaterOptions {
+    currentVersion: string;
+    resolveUnsupportedReason: UpdateSupportResolver;
+    initialDelayMs?: number;
+    pollIntervalMs?: number;
+}
+
+function hasExpectedGitHubConfiguration(config: string): boolean {
+    const readSetting = (name: string): string | undefined => {
+        const value = new RegExp(`^${name}:\\s*["']?([^\\s"']+)["']?\\s*$`, "m").exec(config)?.[1];
+        return value;
+    };
+
+    return (
+        readSetting("provider") === "github" &&
+        readSetting("owner") === GITHUB_OWNER &&
+        readSetting("repo") === GITHUB_REPOSITORY &&
+        (readSetting("host") === undefined || readSetting("host") === "github.com")
+    );
+}
+
+/**
+ * Determines whether this build has the GitHub metadata and install form required for automatic updates.
+ * @param environment Platform, packaging, command line and resources metadata for the running app.
+ */
+export async function resolveRuntimeUnsupportedReason(
+    environment: RuntimeUpdateEnvironment,
+): Promise<UnsupportedReason | undefined> {
+    if (!environment.enabled) return "disabled";
+    if (!environment.isPackaged) return "development";
+    if (environment.platform !== "win32" && environment.platform !== "linux") return "platform";
+    if (
+        environment.platform === "linux" &&
+        (!environment.appImagePath ||
+            !path.isAbsolute(environment.appImagePath) ||
+            path.extname(environment.appImagePath).toLowerCase() !== ".appimage")
+    ) {
+        return "package";
+    }
+    if (environment.platform === "win32") {
+        try {
+            await fs.access(path.join(path.dirname(environment.executablePath), "Uninstall Aether.exe"));
+        } catch {
+            return "package";
+        }
+    }
+
+    try {
+        const config = await fs.readFile(path.join(environment.resourcesPath, "app-update.yml"), "utf8");
+        if (!hasExpectedGitHubConfiguration(config)) return "package";
+    } catch {
+        return "package";
+    }
+
+    return undefined;
+}
+
+function getRuntimeEnvironment(enabled: boolean): RuntimeUpdateEnvironment {
+    return {
+        enabled,
+        isPackaged: app.isPackaged,
+        platform: process.platform,
+        resourcesPath: process.resourcesPath,
+        appImagePath: process.env.APPIMAGE,
+        executablePath: process.execPath,
+    };
+}
+
+function isMainFrame(event: IpcMainEvent): boolean {
+    return event.sender === global.mainWindow?.webContents && event.senderFrame === event.sender.mainFrame;
+}
+
+function toLegacyDownloadedUpdate(update: UpdateDownloadedEvent): LegacyDownloadedUpdate {
+    const releaseNotes = update.releaseNotes;
+    return {
+        releaseNotes:
+            typeof releaseNotes === "string"
+                ? releaseNotes
+                : (releaseNotes
+                      ?.map((note) => note.note ?? "")
+                      .filter(Boolean)
+                      .join("\n\n") ?? ""),
+        releaseName: update.releaseName ?? update.version,
+        releaseDate: new Date(update.releaseDate),
+        updateURL: update.files[0]?.url ?? "",
+    };
+}
+
+/**
+ * Coordinates GitHub Releases update checks and exposes a renderer-safe state snapshot.
+ */
+export class DesktopUpdater {
+    private readonly currentVersion: string;
+    private readonly resolveUnsupportedReason: UpdateSupportResolver;
+    private readonly initialDelayMs: number;
+    private readonly pollIntervalMs: number;
+    private state: DesktopUpdateState;
+    private initialized = false;
+    private supported = false;
+    private disposed = false;
+    private installing = false;
+    private checkPromise?: Promise<void>;
+    private initialCheckTimer?: ReturnType<typeof setTimeout>;
+    private pollTimer?: ReturnType<typeof setInterval>;
+    private latestDownloadedUpdate?: LegacyDownloadedUpdate;
+    private readonly attachedWebContents = new Map<WebContents, () => void>();
+
+    private readonly onCheckingForUpdate = (): void => {
+        if (!this.supported || this.disposed) return;
+        if (this.state.status !== "checking") {
+            this.setState({ status: "checking", lastChecked: this.state.lastChecked });
+        }
+    };
+
+    private readonly onUpdateAvailable = (info: { version: string }): void => {
+        if (!this.supported || this.disposed) return;
+        this.sendLegacyUpdateStatus(true);
+        this.setState({ status: "downloading", version: info.version });
+    };
+
+    private readonly onUpdateNotAvailable = (): void => {
+        if (!this.supported || this.disposed) return;
+        if (this.state.status === "ready") {
+            this.sendLegacyDownloadedUpdate();
+            return;
+        }
+        this.markNoUpdateAvailable();
+    };
+
+    private readonly onDownloadProgress = (progress: { percent: number }): void => {
+        if (!this.supported || this.disposed) return;
+        if (!Number.isFinite(progress.percent)) return;
+        const percent = Math.min(100, Math.max(0, progress.percent));
+        this.setState({ status: "downloading", version: this.state.version, percent });
+    };
+
+    private readonly onUpdateDownloaded = (update: UpdateDownloadedEvent): void => {
+        if (!this.supported || this.disposed) return;
+        this.latestDownloadedUpdate = toLegacyDownloadedUpdate(update);
+        this.setState({ status: "ready", version: update.version, percent: 100 });
+        this.sendLegacyDownloadedUpdate();
+    };
+
+    private readonly onUpdateCancelled = (): void => {
+        if (!this.supported || this.disposed) return;
+        this.sendLegacyUpdateStatus("Update download cancelled");
+        this.setState({ status: "error", lastChecked: Date.now() });
+    };
+
+    private readonly onError = (error: Error): void => {
+        if (!this.supported || this.disposed) return;
+        if (this.installing) {
+            this.installing = false;
+            global.appQuitting = false;
+        }
+        this.sendLegacyUpdateStatus(error.message);
+        this.setState({ status: "error", lastChecked: Date.now() });
+    };
+
+    /**
+     * Creates an updater controller. Runtime overrides make package and timer behavior testable.
+     * @param updater Electron updater instance.
+     * @param options Current app version and runtime configuration.
+     */
+    public constructor(
+        private readonly updater: AppUpdater,
+        options: DesktopUpdaterOptions,
+    ) {
+        this.currentVersion = options.currentVersion;
+        this.resolveUnsupportedReason = options.resolveUnsupportedReason;
+        this.initialDelayMs = options.initialDelayMs ?? INITIAL_UPDATE_DELAY_MS;
+        this.pollIntervalMs = options.pollIntervalMs ?? UPDATE_POLL_INTERVAL_MS;
+        this.state = { status: "idle", currentVersion: this.currentVersion };
+
+        // All Aether production builds follow stable releases. This also lets existing dev builds
+        // move to the first stable release without consuming another prerelease-only channel.
+        this.updater.allowPrerelease = false;
+        this.updater.allowDowngrade = false;
+        this.updater.autoDownload = true;
+        this.updater.autoInstallOnAppQuit = false;
+
+        this.updater.on("checking-for-update", this.onCheckingForUpdate);
+        this.updater.on("update-available", this.onUpdateAvailable);
+        this.updater.on("update-not-available", this.onUpdateNotAvailable);
+        this.updater.on("download-progress", this.onDownloadProgress);
+        this.updater.on("update-downloaded", this.onUpdateDownloaded);
+        this.updater.on("update-cancelled", this.onUpdateCancelled);
+        this.updater.on("error", this.onError);
+    }
+
+    /**
+     * Resolves whether this installation can update, then schedules automatic update checks.
+     * @param enabled Whether `--no-update` was absent.
+     */
+    public async start(enabled: boolean): Promise<void> {
+        if (this.initialized || this.disposed) return;
+        this.initialized = true;
+        let reason: UnsupportedReason | undefined;
+        try {
+            reason = await this.resolveUnsupportedReason(getRuntimeEnvironment(enabled));
+        } catch {
+            this.setState({ status: "error", lastChecked: Date.now() });
+            return;
+        }
+        if (this.disposed) return;
+
+        if (reason) {
+            this.setState({ status: "unsupported", reason });
+            return;
+        }
+
+        this.supported = true;
+        this.updater.autoInstallOnAppQuit = true;
+        this.setState({ status: "idle" });
+        this.initialCheckTimer = setTimeout(() => void this.checkForUpdates(), this.initialDelayMs);
+        this.pollTimer = setInterval(() => void this.checkForUpdates(), this.pollIntervalMs);
+    }
+
+    /**
+     * Returns the current update state for the renderer.
+     */
+    public getState(): DesktopUpdateState {
+        return { ...this.state };
+    }
+
+    /**
+     * Returns the public release page only when this installation supports updates.
+     */
+    public getFeedUrl(): string | undefined {
+        return this.supported ? RELEASES_URL : undefined;
+    }
+
+    /**
+     * Starts one update check. Repeated calls share an in-flight check and do not interrupt downloads.
+     */
+    public checkForUpdates(): Promise<void> {
+        if (!this.initialized || !this.supported || this.disposed || this.installing) return Promise.resolve();
+        if (this.state.status === "ready") {
+            this.sendState();
+            this.sendLegacyDownloadedUpdate();
+            return Promise.resolve();
+        }
+        if (this.state.status === "downloading") {
+            this.sendState();
+            return Promise.resolve();
+        }
+        if (this.checkPromise) return this.checkPromise;
+
+        this.setState({ status: "checking", lastChecked: this.state.lastChecked });
+        this.checkPromise = this.performCheck();
+        return this.checkPromise;
+    }
+
+    /**
+     * Installs a downloaded update after a renderer explicitly requests an immediate restart.
+     */
+    public installUpdate(): void {
+        if (
+            !this.initialized ||
+            !this.supported ||
+            this.disposed ||
+            this.installing ||
+            this.state.status !== "ready" ||
+            global.appQuitting
+        ) {
+            return;
+        }
+
+        this.installing = true;
+        global.appQuitting = true;
+        try {
+            this.updater.quitAndInstall(true, true);
+        } catch (error) {
+            this.installing = false;
+            global.appQuitting = false;
+            this.onError(error instanceof Error ? error : new Error(String(error)));
+        }
+    }
+
+    /**
+     * Replays the latest state after the renderer finishes loading, including the legacy ready event.
+     * @param webContents Main window renderer.
+     */
+    public attachRenderer(webContents: WebContents): void {
+        if (this.attachedWebContents.has(webContents)) return;
+        const listener = (): void => {
+            this.sendState(webContents);
+            this.sendLegacyDownloadedUpdate(webContents);
+        };
+        this.attachedWebContents.set(webContents, listener);
+        webContents.on("did-finish-load", listener);
+    }
+
+    /**
+     * Clears polling timers and removes listeners when Electron is shutting down.
+     */
+    public dispose(): void {
+        if (this.disposed) return;
+        this.disposed = true;
+        if (this.initialCheckTimer) clearTimeout(this.initialCheckTimer);
+        if (this.pollTimer) clearInterval(this.pollTimer);
+        this.initialCheckTimer = undefined;
+        this.pollTimer = undefined;
+
+        this.updater.removeListener("checking-for-update", this.onCheckingForUpdate);
+        this.updater.removeListener("update-available", this.onUpdateAvailable);
+        this.updater.removeListener("update-not-available", this.onUpdateNotAvailable);
+        this.updater.removeListener("download-progress", this.onDownloadProgress);
+        this.updater.removeListener("update-downloaded", this.onUpdateDownloaded);
+        this.updater.removeListener("update-cancelled", this.onUpdateCancelled);
+        this.updater.removeListener("error", this.onError);
+        for (const [webContents, listener] of this.attachedWebContents) {
+            webContents.removeListener("did-finish-load", listener);
+        }
+        this.attachedWebContents.clear();
+    }
+
+    private async performCheck(): Promise<void> {
+        try {
+            const result = await this.updater.checkForUpdates();
+            if (result?.downloadPromise) {
+                await result.downloadPromise;
+            }
+            if (result === null && this.state.status === "checking") this.markNoUpdateAvailable();
+            else if (result && !result.isUpdateAvailable && this.state.status === "checking")
+                this.markNoUpdateAvailable();
+        } catch (error) {
+            // The updater emits the error event; the catch prevents an unhandled rejection from IPC/timers.
+            if (!this.disposed && this.state.status !== "error") {
+                this.onError(error instanceof Error ? error : new Error(String(error)));
+            }
+        } finally {
+            this.checkPromise = undefined;
+        }
+    }
+
+    private markNoUpdateAvailable(): void {
+        this.sendLegacyUpdateStatus(false);
+        this.setState({ status: "idle", lastChecked: Date.now() });
+    }
+
+    private setState(next: Omit<DesktopUpdateState, "currentVersion">): void {
+        this.state = { currentVersion: this.currentVersion, ...next };
+        this.sendState();
+    }
+
+    private sendState(webContents?: WebContents): void {
+        const target = webContents ?? global.mainWindow?.webContents;
+        target?.send("aether:update-state", this.getState());
+    }
+
+    private sendLegacyUpdateStatus(status: boolean | string): void {
+        global.mainWindow?.webContents.send("check_updates", status);
+    }
+
+    private sendLegacyDownloadedUpdate(webContents?: WebContents): void {
+        if (!this.latestDownloadedUpdate) return;
+        const target = webContents ?? global.mainWindow?.webContents;
+        target?.send("update-downloaded", this.latestDownloadedUpdate);
+    }
+}
+
+/** Shared main-process updater instance used by IPC and Electron startup. */
+export const desktopUpdater = new DesktopUpdater(autoUpdater, {
+    currentVersion: app.getVersion(),
+    resolveUnsupportedReason: resolveRuntimeUnsupportedReason,
 });
+
+ipcMain.on("install_update", (event: IpcMainEvent) => {
+    if (isMainFrame(event)) desktopUpdater.installUpdate();
+});
+
+ipcMain.on("check_updates", (event: IpcMainEvent) => {
+    if (isMainFrame(event)) void desktopUpdater.checkForUpdates();
+});
+
+app.once("will-quit", () => desktopUpdater.dispose());

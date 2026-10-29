@@ -43,6 +43,7 @@ import { type GlobalShortcutApi } from "../audio/desktop/DesktopShortcutManager"
 type ElectronChannel =
     | "quit-ready"
     | "app_onAction"
+    | "aether:update-state"
     | "before-quit"
     | "check_updates"
     | "install_update"

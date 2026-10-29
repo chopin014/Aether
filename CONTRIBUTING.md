@@ -1,224 +1,42 @@
-# Contributing code to Element Web
+# Contributing to Aether
 
-Everyone is welcome to contribute code to Element Web, provided that they are willing to license their contributions to Element under a [Contributor License Agreement](https://cla-assistant.io/element-hq/element-web) (CLA). This ensures that their contribution will be made available under an OSI-approved open-source license, currently licensed under Affero General Public License v3 (AGPLv3) or General Public License v3 (GPLv3) at your choice.
+Aether is an open-source desktop app for communities on Matrix. Contributions to its interface, calling,
+accessibility, translations, documentation, and reliability are welcome.
 
-If you're contributing, or thinking about contributing, please come & chat to
-us in our development room, [#element-dev](https://matrix.to/#/#element-dev:matrix.org).
-This is the best place to ask questions about the code, how to work on the project
-or whether a change is likely to be accepted. Enhancement requests won't be
-merged without an issue where it's been decided to add that feature to the product.
+Use [Aether issues](https://github.com/chopin014/Aether/issues) for bugs, questions, and feature proposals.
+For a substantial change, describe the problem and proposed behavior in an issue before starting work.
+Include your operating system, Aether version, and steps to reproduce when reporting a bug.
 
-## How to contribute
+## Development
 
-The preferred and easiest way to contribute changes to the project is to fork
-it on github, and then create a pull request to ask us to pull your changes
-into our repo (https://help.github.com/articles/using-pull-requests/)
+Read the [developer guide](developer_guide.md) to set up the repository and run the desktop app.
+Follow the [code style](code_style.md) and use [MVVM](docs/MVVM.md) for new UI.
+Linux and Windows are the first release targets. Keep Matrix permissions, encryption, verification, and
+account recovery working when changing the interface.
 
-We use GitHub's pull request workflow to review the contribution, and either
-ask you to make any refinements needed or merge it and make them ourselves.
+## Pull requests
 
-Your PR should have a title that describes what change is being made. This
-is used for the text in the Changelog entry by default (see below), so a good
-title will tell a user succinctly what change is being made. "Fix bug where
-cows had five legs" and, "Add support for miniature horses" are examples of good
-titles. Don't include an issue number here: that belongs in the description.
-Definitely don't use the GitHub default of "Update file.ts".
+1. Create a focused branch from `main` in your fork.
+2. Make one coherent change, with tests for behavior changes and updated documentation where needed.
+3. Run the checks relevant to your change. See the [developer guide](developer_guide.md#validation).
+4. Open a pull request against `chopin014/Aether` on `main`.
 
-Your PR description needs to include these things:
+Use a short, descriptive title. Explain the problem, resulting behavior, and how you tested the change.
+Link related issues and include before/after screenshots for visible changes.
+Review changed screenshot baselines and explain every difference; see the [Playwright guide](docs/playwright.md).
+Keep commits focused and use imperative subjects without conventional-commit prefixes.
 
-- A references to the bug(s) fixed by the change (in GitHub's `Fixes` notation).
-  It's the issue's job to describe why a change is necessary: the issue template
-  gives detail on what to include. All but trivial PRs require a linked issue.
-- A description of what is changing from the user's point of view so it's easy for
-  onlookers and reviewers to onboard and context switch. This information is
-  also helpful when we come back to look at this in 6 months and ask "why did
-  we do it like that?" we have a chance of finding out.
-    - Why didn't it work before? Why does it work now? What use cases does it
-      unlock?
-    - If you find yourself adding information on how the code works or why you
-      chose to do it the way you did, make sure this information is instead
-      written as comments in the code itself.
-    - Sometimes a PR can change considerably as it is developed. In this case,
-      the description should be updated to reflect the most recent state of
-      the PR. (It can be helpful to retain the old content under a suitable
-      heading, for additional context.)
-- Include both **before** and **after** screenshots to easily compare and discuss
-  what's changing.
-- Include a step-by-step testing strategy so that a reviewer can check out the
-  code locally and easily get to the point of testing your change.
-- Add comments to the diff for the reviewer that might help them to understand
-  why the change is necessary or how they might better understand and review it.
+You are responsible for understanding and validating everything you submit, including changes made with AI assistance.
 
-> [!CAUTION]
-> The PR description must be written by a human and mustn't be generated by AI tools. This is to ensure that the PR authors have a clear understanding of the change and can explain it to reviewers.
-> Any PR with a generated AI PR description will be closed.
+## Translations
 
-Please **_do not use force push_** in your PRs. Doing so means we can't see what
-has changed. We use squash merge to get a "clean" git history.
+See the [translation guide](docs/translating.md) to improve a language and the
+[translation developer guide](docs/translating-dev.md) when adding or changing UI strings.
 
-Your PR may have the `X-Needs-Iteration` label applied to it if the reviewers feel that it needs more work before it can be merged.
-This is not a negative reflection on your work, but rather a way to ensure that the PR is in a good state before it is merged.
-If no updates occur within 2 weeks a PR with this label will be automatically marked as draft.
-Draft PRs which haven't been updated in 2 months will be automatically closed.
+## Licensing and attribution
 
-### Adding a new feature or enhancement
-
-To make a great product with a great user experience, all the small efforts need to go in the same direction and be aligned and consistent with each other.
-
-Before making your contribution, please consider the following:
-
-- One product can’t do everything well. Element is focusing on private end-to-end encrypted messaging and voice - this can either be for consumers (e.g. friends and family) or for professional teams and organizations. Public forums and other types of chats without E2EE remain supported but are not the primary use case in case UX compromises need to be made.
-- There are 3 platforms - Web/Desktop, [Android](https://github.com/element-hq/element-x-android) and [iOS](https://github.com/element-hq/element-x-ios). These platforms need to have feature parity and design consistency. For some features, supporting all platforms is a must have, in some cases exceptions can be made to have it on one platform only.
-- To make sure your idea fits both from a design/solution and use case perspective, please open a new issue (or find an existing issue) in [element-meta](https://github.com/element-hq/element-meta/issues) repository describing the use case and how you plan to tackle it. Do not just describe what feature is missing, explain why the users need it with a couple of real life examples from the field.
-    - In case of an existing issue, please comment that you're planning to contribute. If you create a new issue, please specify that in the issue. In such a case we will try to review the issue ASAP and provide you with initial feedback so you can be confident if and at which conditions your contributions will be accepted.
-
-Once we know that you want to contribute and have confirmed that the new feature is overall aligned with the product direction, the designers of the core team will help you with the designs and any other type of guidance when it comes to the user experience. We will try to unblock you as quickly as we can, but it may not be instant. Having a clear understanding of the use case and the impact of the feature will help us with the prioritization and faster responses.
-
-Only once all of the above is met should you open a PR with your proposed changes.
-
-### Changelogs
-
-There's no need to manually add Changelog entries: we use information in the
-pull request to populate the information that goes into the changelogs our
-users see, both for Element Web itself and other projects on which it is based.
-The PR title will be used for the changelog entry.
-
-For some PRs, it's not useful to have an entry in the user-facing changelog (this is
-the default for PRs labelled with `T-Task`):
-
-_Remove outdated comment from `Ungulates.ts`_
-
-Other metadata can be added using labels.
-
-- `X-Breaking-Change`: A breaking change - adding this label will mean the change causes a _major_ version bump.
-- `T-Enhancement`: A new feature - adding this label will mean the change causes a _minor_ version bump.
-- `T-Defect`: A bug fix (in either code or docs).
-- `T-Task`: No user-facing changes, eg. code comments, CI fixes, refactors or tests. Won't have a changelog entry unless you specify one.
-
-If you don't have permission to add labels, your PR reviewer(s) can work with you
-to add them: ask in the PR description or comments.
-
-We use continuous integration, and all pull requests get automatically tested:
-if your change breaks the build, then the PR will show that there are failed
-checks, so please check back after a few minutes.
-
-## Tests
-
-Your PR should include tests.
-
-For new user facing features in `matrix-js-sdk` or `element-web`, you must include:
-
-1. Comprehensive unit tests written in Vitest. These are alongside the source code in a file ending in `.test.ts`.
-2. "happy path" end-to-end tests.
-   These are located in `/playwright/e2e`, and are run using `element-web`.
-   Ideally, you would also include tests for edge and error cases.
-
-Unit tests are expected even when the feature is in labs. It's good practice
-to write tests alongside the code as it ensures the code is testable from
-the start, and gives you a fast feedback loop while you're developing the
-functionality. End-to-end tests should be added prior to the feature
-leaving labs, but don't have to be present from the start (although it might
-be beneficial to have some running early, so you can test things faster).
-
-For bugs in those repos, your change must include at least one unit test or
-end-to-end test; which is best depends on what sort of test most concisely
-exercises the area.
-
-Changes to must be accompanied by unit tests written in Vitest.
-These are located in `/spec/` in `matrix-js-sdk` or alongside the source file in `element-web`.
-
-When writing unit tests, please aim for a high level of test coverage
-for new code - 80% or greater. If you cannot achieve that, please document
-why it's not possible in your PR.
-CI will validate that the coverage reached on your change is sufficient,
-you can also assert this locally by installing https://github.com/Bachmann1234/diff_cover,
-running the entire test suite in coverage mode `pnpm coverage` then running
-`pnpm coverage:diff` to see the coverage of the diff between your HEAD and `develop`.
-
-Some sections of code are not sensible to add coverage for, such as those
-which explicitly inhibit noisy logging for tests. Which can be hidden using
-an istanbul magic comment as [documented here][1]. See example:
-
-```javascript
-/* istanbul ignore if */
-if (process.env.NODE_ENV !== "test") {
-    logger.error("Log line that is noisy enough in tests to want to skip");
-}
-```
-
-Tests validate that your change works as intended and also document
-concisely what is being changed. Ideally, your new tests fail
-prior to your change, and succeed once it has been applied. You may
-find this simpler to achieve if you write the tests first.
-
-If you're spiking some code that's experimental and not being used to support
-production features, exceptions can be made to requirements for tests.
-Note that tests will still be required in order to ship the feature, and it's
-strongly encouraged to think about tests early in the process, as adding
-tests later will become progressively more difficult.
-
-If you're not sure how to approach writing tests for your change, ask for help
-in [#element-dev](https://matrix.to/#/#element-dev:matrix.org).
-
-## Code style
-
-Element Web aims to target TypeScript/ES6. All new files should be written in
-TypeScript and existing files should use ES6 principles where possible.
-
-Members should not be exported as a default export in general - it causes problems
-with the architecture of the SDK (index file becomes less clear) and could
-introduce naming problems (as default exports get aliased upon import). In
-general, avoid using `export default`.
-
-The remaining code style is documented in [code_style.md](./code_style.md).
-Contributors are encouraged to it and follow the principles set out there.
-
-Please ensure your changes match the cosmetic style of the existing project,
-and **_never_** mix cosmetic and functional changes in the same commit, as it
-makes it horribly hard to review otherwise.
-
-## Shared Components
-
-When creating new UI components, consider whether they should be added to the shared components package (`packages/shared-components`) rather than directly in the main `src/` directory. Components should be placed in shared components if they:
-
-- Are reusable across different parts of the application
-- Could potentially be used by other Element projects (Element Desktop, Aurora, Element modules...)
-- Follow established patterns and don't have tight coupling to specific application logic
-
-For more details, see the [shared components README](./packages/shared-components/README.md).
-
-## Attribution
-
-Everyone who contributes anything to Matrix is welcome to be listed in the
-AUTHORS.rst file for the project in question. Please feel free to include a
-change to AUTHORS.rst in your pull request to list yourself and a short
-description of the area(s) you've worked on. Also, we sometimes have swag to
-give away to contributors - if you feel that Matrix-branded apparel is missing
-from your life, please mail us your shipping address to matrix at matrix.org
-and we'll try to fix it :)
-
-# Review expectations
-
-See https://github.com/element-hq/element-meta/wiki/Review-process
-
-# Merge Strategy
-
-The preferred method for merging pull requests is squash merging to keep the
-commit history trim, but it is up to the discretion of the team member merging
-the change. We do not support rebase merges due to `allchange` being unable to
-handle them. When merging make sure to leave the default commit title, or
-at least leave the PR number at the end in brackets like by default.
-When stacking pull requests, you may wish to do the following:
-
-1. Branch from develop to your branch (branch1), push commits onto it and open a pull request
-2. Branch from your base branch (branch1) to your work branch (branch2), push commits and open a pull request configuring the base to be branch1, saying in the description that it is based on your other PR.
-3. Merge the first PR using a merge commit otherwise your stacked PR will need a rebase. Github will automatically adjust the base branch of your other PR to be develop.
-
-[1]: https://github.com/gotwarlost/istanbul/blob/master/ignoring-code-for-coverage.md
-
-# Decoding Stack Traces
-
-Element Web has crashed and given you an obfuscated stack trace? Don't panic:
-use the [Decoder Ring](https://app.element.io/decoder-ring/) (or /decoder-ring/
-on any Element Web deploy). It is somewhat of a manual process, but it should
-tell you what lines the stack trace corresponds to from the source maps.
+Contribute only work you have the right to submit under the applicable project licenses.
+No contributor license agreement is required for Aether contributions.
+Keep existing copyright, license, and third-party notices intact. For new files, use your own name or organization
+as the copyright holder and follow the header guidance in [code_style.md](code_style.md).
+See [NOTICE.md](NOTICE.md) for inherited notices and the license texts in the repository root.
