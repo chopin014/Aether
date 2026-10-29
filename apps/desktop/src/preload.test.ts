@@ -64,6 +64,24 @@ describe("preload x509 ipc", () => {
         expect(ipcRenderer.removeListener).toHaveBeenCalledWith(channel, handler);
     });
 
+    it("allows the Aether updater state event through the preload bridge", () => {
+        const api = exposed.get("electron") as {
+            on: (channel: string, listener: (...args: unknown[]) => void) => void;
+            send: (channel: string, ...args: unknown[]) => void;
+        };
+        const listener = vi.fn();
+        const state = { status: "ready", currentVersion: "0.1.0", version: "0.2.0" };
+
+        api.on("aether:update-state", listener);
+        const [eventChannel, handler] = vi.mocked(ipcRenderer.on).mock.calls.at(-1)!;
+        handler({ ports: [], sender: ipcRenderer, preventDefault: vi.fn(), defaultPrevented: false }, state);
+        api.send("aether:update-state", state);
+
+        expect(eventChannel).toBe("aether:update-state");
+        expect(listener).toHaveBeenCalledExactlyOnceWith(expect.anything(), state);
+        expect(ipcRenderer.send).toHaveBeenCalledWith("aether:update-state", state);
+    });
+
     it("calls getUserCertificate correctly", async () => {
         const result = { ok: true, data: "certificate" };
         invoke.mockResolvedValueOnce(result);

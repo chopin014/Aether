@@ -48,12 +48,14 @@ export default class HelpUserSettingsTab extends React.Component<EmptyObject, IS
             .catch((e) => {
                 logger.error("Error getting vector version: ", e);
             });
-        PlatformPeg.get()
-            ?.canSelfUpdate()
-            .then((v) => this.setState({ canUpdate: v }))
-            .catch((e) => {
-                logger.error("Error getting self updatability: ", e);
-            });
+        if (!window.electron) {
+            PlatformPeg.get()
+                ?.canSelfUpdate()
+                .then((v) => this.setState({ canUpdate: v }))
+                .catch((e) => {
+                    logger.error("Error getting self updatability: ", e);
+                });
+        }
     }
 
     private getVersionInfo(): { appVersion: string; cryptoVersion: string } {
@@ -212,7 +214,7 @@ export default class HelpUserSettingsTab extends React.Component<EmptyObject, IS
         );
 
         let updateButton: JSX.Element | undefined;
-        if (this.state.canUpdate) {
+        if (this.state.canUpdate && !window.electron) {
             updateButton = <UpdateCheckButton />;
         }
 

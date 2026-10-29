@@ -41,6 +41,9 @@ jobs:
             - run: pnpm install --frozen-lockfile
             - run: pnpm exec playwright install --with-deps chromium
             - run: pnpm exec nx run-many -t test:unit:prepare -p
+            - name: Desktop updater and packaging tests
+              working-directory: apps/desktop
+              run: pnpm exec vitest run
             - name: App unit tests
               working-directory: apps/web
               run: >-
@@ -52,6 +55,9 @@ jobs:
                   src/models/Call.test.ts
                   src/viewmodels/room-list/RoomListItemViewModel.test.ts
                   src/viewmodels/settings/MicrophoneSettingsViewModel.test.ts
+                  src/viewmodels/settings/DesktopUpdatesViewModel.test.ts
+                  src/toasts/restartDesktopUpdate.test.ts
+                  src/components/views/dialogs/UserSettingsDialog.test.tsx
                   src/components/views/voip/ElementCall
                   src/components/views/voip/ElementWebHostBridge.test.ts
             - name: Component tests in Chromium
@@ -69,3 +75,30 @@ jobs:
                   if test -f src/audio/NoiseSuppressionProcessor.test.browser.ts; then
                       pnpm exec vitest run --project browser src/audio
                   fi
+    updates-e2e:
+        name: Desktop updates user journey
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+            - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+              with:
+                  node-version-file: apps/desktop/.node-version
+                  install: false
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm exec playwright install --with-deps chromium
+            - run: pnpm exec nx run element-web:build
+            - run: pnpm exec nx run-many -t build:playwright -p
+            - run: cp apps/web/config.sample.json apps/web/webapp/config.json
+            - name: Check manual updates, background downloads, restart, and recovery
+              working-directory: apps/web
+              run: pnpm exec playwright test playwright/e2e/desktop/updates.spec.ts --project=Chrome --reporter=line
+            - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+              if: always()
+              with:
+                  name: desktop-update-journey
+                  path: apps/web/playwright/test-results
+                  if-no-files-found: ignore
+                  retention-days: 7

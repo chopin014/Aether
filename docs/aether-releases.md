@@ -1,4 +1,11 @@
-# Aether desktop builds
+<!--
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+-->
+
+# Aether desktop releases
 
 Aether's initial targets are Linux x64 (AppImage, deb, tar.gz) and Windows x64 (NSIS installer).
 The source remains the Element monorepo; `element-desktop` and `element-web` are internal workspace names.
@@ -23,12 +30,61 @@ pnpm --dir apps/desktop run build:aether --linux --x64
 # On Windows, use --win --x64 instead of --linux --x64.
 ```
 
-Use the Aether desktop workflow for reproducible platform builds. It creates artifacts without publishing a release.
-Set `VERSION` to a valid Aether semver before release; the development default is `0.1.0-dev.1`.
-`--publish never` and `publish: null` prevent accidental uploads.
-The renderer config deliberately has no Element update feed,
-telemetry, or crash upload endpoint. Windows signing, Aether update delivery, installed-package
-smoke tests and UI completion are required before announcing a production release.
+`build:aether` uses `--publish never`: the build does not upload anything, while its explicit public GitHub provider
+still embeds the update feed and creates local update metadata. `VERSION` overrides the package version for local
+builds; otherwise `apps/desktop/package.json` supplies it. The renderer config deliberately has no Element update
+feed, telemetry, or crash upload endpoint.
+
+## Prepare a release
+
+Push a new semantic version tag to build all release artifacts and prepare a draft:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The tag determines the package version. Tags may include a semantic version prerelease identifier, such as
+`v0.2.0-rc.1`. The [Aether desktop workflow](https://github.com/chopin014/Aether/actions/workflows/aether-desktop.yaml)
+runs desktop typechecks and unit tests, builds the renderer, then packages Linux and Windows x64 installers. It checks
+the installers, update metadata, and each metadata SHA-512 checksum before uploading anything to a GitHub release.
+Only after both platform builds and the final combined asset check pass does it create or update a draft release.
+
+You can also run **Aether desktop builds** from the Actions page. Leave the version blank to use the version in
+`apps/desktop/package.json`, or enter a semantic version to package a different version. Manual runs upload workflow
+artifacts by default. Select **Create a draft GitHub release** from **main** to create a draft after the same checks
+pass. Release tags must point to a commit on main. A manual draft targets the selected main commit and uses the
+corresponding `v<version>` tag. Use a new version when making a release; `v0.1.0-dev.1` was already published.
+
+## Review and publish
+
+Open the draft at [Aether Releases](https://github.com/chopin014/Aether/releases) and review the title, generated
+notes, prerelease setting, and assets. A prerelease version is marked as a GitHub prerelease automatically. Publish the
+draft when it is ready. Drafts are not visible to the updater; users receive a release only after it is published.
+
+Keep all uploaded installer files, Windows `.blockmap` files, and `latest.yml` / `latest-linux.yml` metadata attached
+to the release. The workflow checks that the metadata version matches the package, that it references the expected
+NSIS installer or AppImage, and that each `files[].sha512` checksum matches its installer. Do not hand-edit the
+generated metadata or remove assets that it references. Linux packages are AppImage, Debian `.deb`, and `.tar.gz`.
+
+## Update behavior and platform support
+
+Stable and prerelease builds embed the public `latest` feed for `chopin014/Aether`. GitHub marks prerelease releases
+separately, while the desktop updater checks stable releases only. Prerelease builds are for manual download and
+testing; they do not opt users into preview updates. Stable releases publish `latest.yml` for Windows and
+`latest-linux.yml` for Linux. Linux automatic updates are supported for the AppImage build. The `.deb` and `.tar.gz`
+files are manual installation formats and are not updated by the app.
+
+The first updater-enabled build must be installed manually by users who already have an older Aether build. After that
+one upgrade, the app can find published stable releases through GitHub. Windows installers install per-user to avoid
+administrator prompts during updates. Windows builds are intentionally unsigned because Aether has no signing
+identity configured. Windows may show its standard publisher or SmartScreen warning when downloading or running an
+installer.
+
+The Windows packaging job silently installs the built NSIS installer, checks the installed app version and update
+configuration, opens the app window, then runs the same installer again and verifies that an isolated user-profile
+marker survives and the app opens again. This checks the per-user install and reinstall path. It does not exercise
+electron-updater downloading and applying a different version or verify interactive sign-in.
 
 ## Voice feedback
 
@@ -50,18 +106,18 @@ The Linux x64 application was packaged with its own executable, app ID, protocol
 The packaged native smoke test signs in to a disposable Matrix server, creates a Space and text/voice rooms,
 sends and receives real messages, opens the member list and checks settings at the reference viewport.
 Playwright runs against a separate copy with its inspection fuse enabled; the distribution copy retains its
-production fuse settings. A Windows x64 NSIS installer was successfully built on the Windows runner;
-it is unsigned, and interactive Windows runtime testing is still pending.
-For `0.1.0-dev.1`, the [desktop workflow](https://github.com/chopin014/Aether/actions/runs/39852786892)
-passed its renderer, Windows installer and Linux AppImage/deb/tar.gz jobs. The packaged native smoke test
-passed in 33.3 seconds, and the legacy-key audio regression passed in 50.3 seconds after failing against
-the previous renderer with zero decoded audio energy.
+production fuse settings. The Windows x64 NSIS installer is intentionally unsigned. For `0.1.0-dev.1`, the
+[desktop workflow](https://github.com/chopin014/Aether/actions/runs/39852786892) passed its renderer, Windows installer
+and Linux AppImage/deb/tar.gz jobs. The packaged native smoke test passed in 33.3 seconds, and the legacy-key audio
+regression passed in 50.3 seconds after failing against the previous renderer with zero decoded audio energy.
+Interactive Windows installation and update runtime testing are still pending.
 
 The two-person MatrixRTC test verifies audio transport, microphone/deafen controls, call continuity while
 reading a text room, live sidebar members, and participant visibility while the local user is disconnected.
 Unit tests cover sound preferences/output routing, rejected controls, membership changes, profiles and cleanup.
 The landing page publishes only `site/` to `gh-pages`; research captures remain outside the public repository.
-Inherited upstream automation is disabled on the Aether repository. Aether builds are manually triggered.
+Inherited upstream automation is disabled on the Aether repository. Aether release builds run for `v<semver>` tag
+pushes, and manual workflow runs remain available for test builds and reviewed drafts.
 
 ## Existing Element Call clients
 

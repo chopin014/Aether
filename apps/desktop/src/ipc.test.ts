@@ -12,7 +12,7 @@ import { getConfig } from "./config.js";
 import { consumeDisplayMediaCallback } from "./displayMediaCallback.js";
 import { clearData } from "./store.js";
 
-const { ipcHandlers, mockStore, send, randomArray } = vi.hoisted(() => ({
+const { ipcHandlers, mockStore, send, randomArray, getUpdaterState, getUpdaterFeedUrl } = vi.hoisted(() => ({
     ipcHandlers: {} as Record<string, (...args: unknown[]) => unknown>,
     mockStore: {
         isSecretUndecryptable: vi.fn<(key: string) => Promise<boolean>>(),
@@ -24,11 +24,12 @@ const { ipcHandlers, mockStore, send, randomArray } = vi.hoisted(() => ({
     },
     send: vi.fn(),
     randomArray: vi.fn<(len: number) => Promise<string>>(),
+    getUpdaterState: vi.fn(),
+    getUpdaterFeedUrl: vi.fn(),
 }));
 
 vi.mock("electron", () => ({
     app: { getVersion: vi.fn(() => "1.0.0") },
-    autoUpdater: { getFeedURL: vi.fn() },
     desktopCapturer: { getSources: vi.fn() },
     ipcMain: {
         on: vi.fn((channel: string, cb: (...a: unknown[]) => unknown) => {
@@ -61,6 +62,9 @@ vi.mock("./displayMediaCallback.js", () => ({
     consumeDisplayMediaCallback: vi.fn(),
 }));
 vi.mock("./config.js");
+vi.mock("./updater.js", () => ({
+    desktopUpdater: { getState: getUpdaterState, getFeedUrl: getUpdaterFeedUrl },
+}));
 
 await import("./ipc.js");
 
@@ -213,6 +217,60 @@ describe("ipcCall: clearStorage", () => {
 
         expect(clearData).toHaveBeenCalledExactlyOnceWith(session);
         expect(send).toHaveBeenCalledWith("ipcReply", { id: 15, reply: null });
+    });
+});
+
+describe("desktop update state IPC", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        const mainFrame = {};
+        (global as unknown as { mainWindow: unknown }).mainWindow = {
+            webContents: { mainFrame, send },
+        };
+    });
+
+    it("returns the current state only to the main frame", async () => {
+        const mainWindow = (global as unknown as { mainWindow: { webContents: { mainFrame: unknown } } }).mainWindow;
+        const state = { status: "ready", currentVersion: "0.1.0", version: "0.2.0" };
+        getUpdaterState.mockReturnValue(state);
+
+        await ipcHandlers.ipcCall(
+            { sender: mainWindow.webContents, senderFrame: mainWindow.webContents.mainFrame },
+            { id: 42, name: "getDesktopUpdateState", args: [] },
+        );
+
+        expect(getUpdaterState).toHaveBeenCalledExactlyOnceWith();
+        expect(send).toHaveBeenCalledWith("ipcReply", { id: 42, reply: state });
+
+        await ipcHandlers.ipcCall(
+            { sender: mainWindow.webContents, senderFrame: {} },
+            { id: 43, name: "getDesktopUpdateState", args: [] },
+        );
+        expect(send).not.toHaveBeenCalledWith("ipcReply", expect.objectContaining({ id: 43 }));
+    });
+
+    it("returns the public release page only for a supported installation", async () => {
+        const mainWindow = (global as unknown as { mainWindow: { webContents: { mainFrame: unknown } } }).mainWindow;
+        const event = { sender: mainWindow.webContents, senderFrame: mainWindow.webContents.mainFrame };
+        getUpdaterFeedUrl.mockReturnValue("https://github.com/chopin014/Aether/releases");
+
+        await ipcHandlers.ipcCall(event, { id: 44, name: "getUpdateFeedUrl", args: [] });
+        expect(send).toHaveBeenCalledWith("ipcReply", {
+            id: 44,
+            reply: "https://github.com/chopin014/Aether/releases",
+        });
+
+        vi.clearAllMocks();
+        getUpdaterFeedUrl.mockReturnValue(undefined);
+        (global as unknown as { mainWindow: unknown }).mainWindow = {
+            webContents: { mainFrame: event.senderFrame, send },
+        };
+        const supportedWindow = (global as unknown as { mainWindow: { webContents: unknown } }).mainWindow;
+        await ipcHandlers.ipcCall(
+            { sender: supportedWindow.webContents, senderFrame: event.senderFrame },
+            { id: 45, name: "getUpdateFeedUrl", args: [] },
+        );
+        expect(send).toHaveBeenCalledWith("ipcReply", { id: 45, reply: undefined });
     });
 });
 

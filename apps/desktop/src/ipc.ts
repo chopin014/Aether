@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import { app, autoUpdater, desktopCapturer, ipcMain, powerSaveBlocker, TouchBar, nativeImage } from "electron";
+import { app, desktopCapturer, ipcMain, powerSaveBlocker, TouchBar, nativeImage } from "electron";
 
 import IpcMainEvent = Electron.IpcMainEvent;
 import { randomArray } from "./utils.js";
@@ -13,6 +13,7 @@ import { consumeDisplayMediaCallback } from "./displayMediaCallback.js";
 import Store, { clearData } from "./store.js";
 import { getConfig } from "./config.js";
 import { setDesktopShellTitleBarColors } from "./desktop-shell-titlebar.js";
+import { desktopUpdater } from "./updater.js";
 
 let focusHandlerAttached = false;
 ipcMain.on("loudNotification", function (): void {
@@ -62,7 +63,15 @@ ipcMain.on("ipcCall", async function (_ev: IpcMainEvent, payload) {
             }
             break;
         case "getUpdateFeedUrl":
-            ret = autoUpdater.getFeedURL();
+            if (_ev.sender === global.mainWindow.webContents && _ev.senderFrame === _ev.sender.mainFrame) {
+                ret = desktopUpdater.getFeedUrl();
+            } else {
+                return;
+            }
+            break;
+        case "getDesktopUpdateState":
+            if (_ev.sender !== global.mainWindow.webContents || _ev.senderFrame !== _ev.sender.mainFrame) return;
+            ret = desktopUpdater.getState();
             break;
         case "setLanguage":
             global.appLocalization.setAppLocale(args[0]);

@@ -10,18 +10,7 @@ Please see LICENSE files in the repository root for full details.
 
 // Squirrel on windows starts the app with various flags as hooks to tell us when we've been installed/uninstalled etc.
 import "./squirrelhooks.js";
-import {
-    app,
-    BrowserWindow,
-    Menu,
-    autoUpdater,
-    dialog,
-    type Input,
-    type Event,
-    session,
-    protocol,
-    desktopCapturer,
-} from "electron";
+import { app, BrowserWindow, Menu, dialog, type Input, type Event, session, protocol, desktopCapturer } from "electron";
 import * as Sentry from "@sentry/electron/main";
 import path from "node:path";
 import windowStateKeeper from "electron-window-state";
@@ -227,13 +216,7 @@ app.on("ready", async () => {
         });
     });
 
-    if (!args.update) {
-        console.log("Auto update disabled via command line flag");
-    } else if (config.update_base_url) {
-        void updater.start(config.update_base_url);
-    } else {
-        console.log("No update_base_url is defined: auto update is disabled");
-    }
+    void updater.desktopUpdater.start(args.update);
 
     // Set up i18n before loading storage as we need translations for dialogs
     global.appLocalization = new AppLocalization({
@@ -273,6 +256,7 @@ app.on("ready", async () => {
             webgl: true,
         },
     });
+    updater.desktopUpdater.attachRenderer(global.mainWindow.webContents);
 
     setupGlobalShortcuts(global.mainWindow, config);
 
@@ -420,7 +404,6 @@ function beforeQuit(): void {
 }
 
 app.on("before-quit", beforeQuit);
-autoUpdater.on("before-quit-for-update", beforeQuit);
 
 app.on("second-instance", (ev, commandLine, workingDirectory) => {
     // If other instance launched with --hidden then skip showing window
