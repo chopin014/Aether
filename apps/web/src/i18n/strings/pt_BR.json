@@ -4330,6 +4330,16 @@
             "reason": "Servidor excluído por um administrador.",
             "settings_description": "Excluir este servidor e todos os canais e subservidores dentro dele, removendo todos os membros.",
             "title": "Excluir servidor?"
+        },
+        "soundboard": {
+            "aether_sounds": "Sons do Aether",
+            "decode_failed": "Não foi possível abrir este áudio. Escolha um arquivo de áudio compatível com até 20 MB e 10 minutos.",
+            "edit_failed": "Não foi possível abrir este som para edição. Verifique sua conexão e tente novamente.",
+            "playback_failed": "Não foi possível reproduzir este som. Tente outro som ou verifique sua saída de áudio.",
+            "remove_failed": "Não foi possível remover este som. Verifique suas permissões na biblioteca e tente novamente.",
+            "save_failed": "Não foi possível salvar este som. Verifique sua conexão e suas permissões. Se o som tiver sido alterado ou removido, cancele e abra-o novamente.",
+            "send_failed": "Não foi possível enviar este som para a chamada. Verifique sua conexão e tente novamente.",
+            "upload_failed": "Não foi possível enviar este som. Verifique sua conexão e suas permissões na biblioteca e tente novamente."
         }
     },
     "create_section_dialog": {

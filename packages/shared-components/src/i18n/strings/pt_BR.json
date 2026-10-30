@@ -957,6 +957,35 @@
         },
         "server_voice_activity": {
             "people": "Na chamada de voz: %(names)s"
+        },
+        "soundboard": {
+            "all_sounds": "Todos os sons",
+            "choose_audio": "Escolher áudio",
+            "clip_title": "Ouvir e recortar áudio",
+            "clip_volume": "Volume do som",
+            "edit": "Editar %(name)s",
+            "edit_title": "Editar som",
+            "emoji": "Emoji",
+            "frequently_used": "Usados com frequência",
+            "library": "Biblioteca de sons",
+            "name": "Nome do som",
+            "no_results": "Nenhum som encontrado. Tente outra pesquisa.",
+            "preview": "Ouvir %(name)s",
+            "preview_hint": "Ouça antes de enviar. Arraste as alças para encurtar o som.",
+            "preview_selection": "Reproduzir áudio selecionado",
+            "remove": "Remover %(name)s",
+            "replace_audio": "Escolher outro áudio",
+            "search": "Encontre o som ideal",
+            "selection_end": "Fim da seleção",
+            "selection_position": "Posição da seleção",
+            "selection_start": "Início da seleção",
+            "stop_preview": "Parar prévia do áudio",
+            "title": "Painel de sons",
+            "trim_hint": "Selecione até 10 segundos. Arraste o trecho destacado para movê-lo ou as alças para recortá-lo.",
+            "upload": "Enviar um som",
+            "upload_clip": "Enviar som",
+            "upload_help": "Ouça ou recorte o áudio para até 10 segundos. Todas as pessoas com acesso a esta biblioteca poderão usar seu som.",
+            "volume": "Volume do painel de sons"
         }
     },
     "threads": {

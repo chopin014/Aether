@@ -40,6 +40,10 @@ describe("setLanguage", () => {
         // The web key type excludes shared entries, which are merged into the catalog at runtime.
         const sharedKey = "pinned_messages|empty_title" as TranslationKey;
         expect(_t(sharedKey)).toBe("Ainda não há mensagens fixadas");
+        const soundboardTitleKey = "desktop|soundboard|title" as TranslationKey;
+        const soundboardEditKey = "desktop|soundboard|edit" as TranslationKey;
+        expect(_t(soundboardTitleKey)).toBe("Painel de sons");
+        expect(_t(soundboardEditKey, { name: "Aplausos" })).toBe("Editar Aplausos");
         expect(_t("poll|option_label_with_total", { number: 1, answer: "Sim", count: 1 })).toBe("Opção 1, Sim, 1 voto");
         expect(_t("poll|option_label_with_total", { number: 1, answer: "Sim", count: 2 })).toBe(
             "Opção 1, Sim, 2 votos",
