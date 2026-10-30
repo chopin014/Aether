@@ -23,9 +23,14 @@ test.use({
 test.beforeEach(async ({ pageWithCredentials: page }) => {
     // Remember every stream and every sound the page opens, so the tests can check they are used and released.
     await page.addInitScript(() => {
-        const win = window as unknown as { __streams: MediaStream[]; __sounds: string[] };
+        const win = window as unknown as {
+            __streams: MediaStream[];
+            __sounds: string[];
+            __soundElements: HTMLMediaElement[];
+        };
         win.__streams = [];
         win.__sounds = [];
+        win.__soundElements = [];
         const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
         navigator.mediaDevices.getUserMedia = async (constraints) => {
             const stream = await getUserMedia(constraints);
@@ -34,7 +39,10 @@ test.beforeEach(async ({ pageWithCredentials: page }) => {
         };
         const play = HTMLMediaElement.prototype.play;
         HTMLMediaElement.prototype.play = function (this: HTMLMediaElement): Promise<void> {
-            if (this.src.endsWith(".wav")) win.__sounds.push(this.src);
+            if (this.src.endsWith(".wav")) {
+                win.__sounds.push(this.src);
+                win.__soundElements.push(this);
+            }
             return play.call(this);
         };
     });
@@ -231,6 +239,15 @@ test.describe("Voice & Video settings in the desktop shell", () => {
             .poll(() => page.evaluate(() => (window as unknown as { __sounds: string[] }).__sounds))
             .toEqual([expect.stringMatching(/\.wav$/)]);
 
+        await dialog.getByRole("button", { name: "Preview sound: Unmute", exact: true }).click();
+        await expect
+            .poll(() =>
+                page.evaluate(() => {
+                    const sounds = (window as unknown as { __soundElements: HTMLMediaElement[] }).__soundElements;
+                    return sounds.length === 2 && sounds[0].paused && sounds[1].duration > 0 && sounds[1].duration < 3;
+                }),
+            )
+            .toBe(true);
         await dialog.getByRole("button", { name: "Show 8 more sounds" }).click();
         await expect(dialog.getByRole("switch", { name: "Camera on" })).toBeChecked();
         await expect(dialog.getByRole("switch", { name: "Push to talk on" })).toBeChecked();

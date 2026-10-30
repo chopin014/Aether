@@ -386,6 +386,24 @@ describe("DesktopVoiceControlsViewModel", () => {
         call.emit(CallEvent.Participants, new Map([[alice, new Set(["A", "B"])]]), new Map([[alice, new Set(["A"])]]));
         expect(playDesktopVoiceSound).not.toHaveBeenCalled();
     });
+    it("keeps participant changes silent while deafened", async () => {
+        await connect();
+        await vm.toggleDeafened();
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        const alice = { userId: "@alice:example.org" } as RoomMember;
+        call.emit(CallEvent.Participants, new Map([[alice, new Set(["A"])]]), new Map());
+        expect(playDesktopVoiceSound).not.toHaveBeenCalled();
+    });
+    it("ignores camera, sharing and participant teardown after hangup starts", async () => {
+        await connect();
+        call.setLocalLeavePending(true);
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        call.handleDeviceMute({ audio_enabled: false, video_enabled: true });
+        call.handleScreenShare({ available: false, sharing: true, remoteSharerIds: [] });
+        const alice = { userId: "@alice:example.org" } as RoomMember;
+        call.emit(CallEvent.Participants, new Map(), new Map([[alice, new Set(["A"])]]));
+        expect(playDesktopVoiceSound).not.toHaveBeenCalled();
+    });
     it("disconnects the real call and releases all subscriptions on unmount", async () => {
         await connect();
         expect(vm.getSnapshot().roomName).toBe("Lounge");

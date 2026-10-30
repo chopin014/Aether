@@ -324,7 +324,12 @@ export default class LegacyCallHandler extends TypedEventEmitter<LegacyCallHandl
         return this.transferees.get(callId);
     }
 
+    private readonly pendingAudio = new Map<AudioID, symbol>();
+
     public async play(audioId: AudioID): Promise<void> {
+        if (this.pendingAudio.has(audioId) || this.playingSources[audioId]) return;
+        const request = Symbol(audioId);
+        this.pendingAudio.set(audioId, request);
         const logPrefix = `LegacyCallHandler.play(${audioId}):`;
         logger.debug(`${logPrefix} beginning of function`);
 
@@ -336,18 +341,28 @@ export default class LegacyCallHandler extends TypedEventEmitter<LegacyCallHandl
         };
 
         const [urlPrefix, loop] = audioInfo[audioId];
-        const source = await this.backgroundAudio.pickFormatAndPlay(urlPrefix, ["mp3", "ogg"], loop);
-        if (this.playingSources[audioId]) {
-            logger.warn(`${logPrefix} Already playing audio ${audioId}!`);
+        try {
+            const source = await this.backgroundAudio.pickFormatAndPlay(urlPrefix, ["mp3", "ogg"], loop);
+            // Answering or dismissing can happen before fetching/decoding finishes.
+            if (this.pendingAudio.get(audioId) !== request) {
+                source.stop();
+                return;
+            }
+            this.playingSources[audioId] = source;
+            source.addEventListener("ended", () => {
+                if (this.playingSources[audioId] === source) delete this.playingSources[audioId];
+            });
+            logger.debug(`${logPrefix} playing audio successfully`);
+        } finally {
+            if (this.pendingAudio.get(audioId) === request) this.pendingAudio.delete(audioId);
         }
-        this.playingSources[audioId] = source;
-        logger.debug(`${logPrefix} playing audio successfully`);
     }
 
     public pause(audioId: AudioID): void {
         const logPrefix = `LegacyCallHandler.pause(${audioId}):`;
         logger.debug(`${logPrefix} beginning of function`);
 
+        this.pendingAudio.delete(audioId);
         const source = this.playingSources[audioId];
         if (!source) {
             logger.debug(`${logPrefix} audio not playing`);
@@ -366,7 +381,7 @@ export default class LegacyCallHandler extends TypedEventEmitter<LegacyCallHandl
      * @param audioId the ID of the audio to query for playing state
      */
     public isPlaying(audioId: AudioID.Ring | AudioID.Ringback): boolean {
-        return !!this.playingSources[audioId];
+        return this.pendingAudio.has(audioId) || !!this.playingSources[audioId];
     }
 
     private matchesCallForThisRoom(call: MatrixCall): boolean {

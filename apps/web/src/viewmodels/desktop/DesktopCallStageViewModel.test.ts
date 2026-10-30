@@ -112,6 +112,13 @@ function createBridge(stateOverrides: Partial<AetherCallPresentationState> = {})
     };
 }
 
+const setRinging = vi.hoisted(() => vi.fn());
+vi.mock("../../audio/DesktopCallRingtone", () => ({
+    DesktopCallRingtone: class {
+        public setRinging = setRinging;
+    },
+}));
+
 describe("DesktopCallStageViewModel", () => {
     const mockClient = {
         getRoom: vi.fn().mockReturnValue(null),
@@ -129,6 +136,7 @@ describe("DesktopCallStageViewModel", () => {
 
     beforeEach(() => {
         vi.restoreAllMocks();
+        setRinging.mockClear();
         vi.mocked(mockCall.setLocalLeavePending).mockReset();
     });
 
@@ -164,6 +172,7 @@ describe("DesktopCallStageViewModel", () => {
                 participants: [me as AetherParticipantMediaItem],
             }),
         });
+        expect(setRinging).toHaveBeenLastCalledWith(true);
         expect(vm.getSnapshot().callees).toEqual([
             {
                 userId: "@bob:example.org",
@@ -181,7 +190,9 @@ describe("DesktopCallStageViewModel", () => {
 
         vm.setBridge(createBridge({ ringing: "timeout", participants: [me, bob] as AetherParticipantMediaItem[] }));
         expect(vm.getSnapshot().callees).toEqual([]);
+        expect(setRinging).toHaveBeenLastCalledWith(false);
         vm.dispose();
+        expect(setRinging).toHaveBeenLastCalledWith(false);
     });
 
     it("waits for device changes, reports failure, and ignores a late failure after disposal", async () => {

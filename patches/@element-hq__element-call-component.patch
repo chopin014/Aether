@@ -1091,7 +1091,7 @@ index e597a18e59..7a35256c6e 100644
 +			validIdentities: vp,
 +			muted: S
 +		}, lurl)),
-+		C ? /* @__PURE__ */ H(T5, { vm: C, muted: S }, "ringing") : null
++        // Outgoing ringing belongs to the Aether host, with its custom recording and output device.
 +	];
 +	let policy = ce.get().media_quality?.screen_share;
 +	let reconnecting = t.reconnecting$?.value ?? !1;

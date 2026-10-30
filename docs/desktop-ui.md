@@ -157,7 +157,21 @@ updates on join, leave and profile changes; multiple devices appear once. A prof
 Speaking rings follow actual local and remote microphone activity while connected to an embedded Element Call.
 The sidebar observes existing tracks without changing capture, gain, or noise processing; muted and departed users
 clear their ring. Reduced motion keeps a steady ring. Remote mute badges are not inferred from room membership.
-Original Aether sound cues accompany successful microphone/deafen controls and real call connection changes.
+Custom Aether recordings accompany successful microphone/deafen controls, camera and screen-share changes, and
+real call connection changes. New control feedback replaces the previous cue; repeated events cannot layer the
+same recording. Participant cues stay silent while deafened and cannot interrupt a control confirmation. Hangup
+suppresses camera, share and participant teardown cues. Failed controls do not play a success cue.
+
+Incoming calls use the incoming-call recording; outgoing calls use the separate ringback recording until pickup,
+decline, timeout or disposal. Cancelling during audio loading also cancels playback. Default message notifications
+use the custom notification recording and retain notification throttling and per-room sound overrides. Control cues
+and outgoing ringing use the selected output, falling back to the system output if that device is unavailable.
+These are local feedback, independent of the shared soundboard and its activity indicators.
+
+To rebuild the assets, run `node apps/web/scripts/generate-aether-sounds.ts "/path/to/Aether Songs"` with FFmpeg
+installed. The script trims silent tails, retains internal pauses, and balances loudness. Without an input directory
+it only regenerates the distinct participant and push-to-talk tones. MP3/OGG notification assets provide format
+fallbacks; only one format plays per notification.
 Each cue has its own switch under Voice & Video → Sounds, described below. See [packaging and release work](aether-releases.md).
 
 ## Server and channel presentation

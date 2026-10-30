@@ -41,6 +41,7 @@ import type { ElementCall } from "../../models/Call";
 import { resolveScreenShareQuality } from "../../audio/desktop/ScreenShareQuality";
 
 import { SoundboardViewModel } from "./SoundboardViewModel";
+import { DesktopCallRingtone } from "../../audio/DesktopCallRingtone";
 
 /** The existing call engine and Matrix client shown by the desktop stage. */
 export interface DesktopCallStageViewModelProps {
@@ -152,6 +153,8 @@ export class DesktopCallStageViewModel
     private readonly screenShareVolumes = new Map<string, AetherMediaVolumeController>();
     private deviceChangeGeneration = 0;
     private deviceEnumerationGeneration = 0;
+    private readonly ringtone = new DesktopCallRingtone();
+
     private qualityUpdate: Promise<void> = Promise.resolve();
 
     public constructor(props: DesktopCallStageViewModelProps) {
@@ -239,6 +242,10 @@ export class DesktopCallStageViewModel
             this.disposables.track(() => document.removeEventListener("fullscreenchange", onFullscreenChange));
         }
 
+        this.disposables.track(() => this.ringtone.setRinging(false));
+        this.ringtone.setRinging(
+            !this.props.call.locallyLeaving && state.phase === "in_call" && state.ringing === "ringing",
+        );
         void this.refreshDevices();
     }
 
@@ -248,6 +255,9 @@ export class DesktopCallStageViewModel
         const previousShareCount = this.bridge.state.screenShares.length;
         this.bridge = bridge;
         const { state } = bridge;
+        this.ringtone.setRinging(
+            !this.props.call.locallyLeaving && state.phase === "in_call" && state.ringing === "ringing",
+        );
         this.syncVolumeMaps(state.participants, state.screenShares);
 
         let { layoutMode, spotlightTileId } = this.snapshot.current;
@@ -365,6 +375,7 @@ export class DesktopCallStageViewModel
     };
 
     public leaveCall = (): void => {
+        this.ringtone.setRinging(false);
         this.props.call.setLocalLeavePending(true);
         try {
             this.bridge.actions.leaveCall();
