@@ -913,6 +913,10 @@ Please see LICENSE in the repository root for full details.
 
 /* A room chat drawer can make the call narrower without changing the browser viewport. */
 @container (max-width: 600px) {
+    .filmstrip {
+        height: clamp(48px, calc((100cqw - var(--cpd-space-4x)) * 3 / 16), 96px);
+    }
+
     .bottomBar {
         flex-direction: column;
         gap: var(--cpd-space-2x);

@@ -204,6 +204,35 @@ describe("DesktopCallStageView", () => {
         expect(width / height).toBeCloseTo(16 / 9, 1);
     });
 
+    it("fits a stream preview and two participants beside an open chat drawer", () => {
+        const vm = new TestCallStageViewModel({
+            participants: [makeParticipant(), makeParticipant({ id: "p-bob", userId: "@bob:example.org" })],
+            screenShares: [makeScreenShare()],
+            layoutMode: "spotlight",
+        });
+        render(
+            <div
+                style={
+                    {
+                        "width": "480px",
+                        "height": "600px",
+                        "--cpd-space-4x": "16px",
+                        "--cpd-space-2x": "8px",
+                    } as React.CSSProperties
+                }
+            >
+                <DesktopCallStageView vm={vm} />
+            </div>,
+        );
+        const strip = screen.getAllByTestId("videoTile")[0].parentElement!;
+        expect(strip.children).toHaveLength(3);
+        expect(strip.scrollWidth).toBeLessThanOrEqual(strip.clientWidth);
+        for (const tile of strip.children) {
+            const bounds = tile.getBoundingClientRect();
+            expect(bounds.width / bounds.height).toBeCloseTo(16 / 9, 1);
+        }
+    });
+
     it("uses the avatar's colour when the person has not chosen a profile theme", async () => {
         const canvas = document.createElement("canvas");
         canvas.width = canvas.height = 8;
