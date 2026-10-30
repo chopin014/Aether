@@ -5,6 +5,9 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+
 import { type Page, type Request, type Response, type Route } from "@playwright/test";
 import {
     closeReleaseAnnouncementIfExists,
@@ -68,6 +71,45 @@ async function observePeers(page: Page): Promise<void> {
     };
     await page.addInitScript(instrument);
     await page.evaluate(instrument);
+}
+
+/** Observe real looping sources to detect ringback restarts while the caller waits for pickup. */
+async function observeRingback(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        const sources: Array<{ source: AudioBufferSourceNode; startedAt: number; ended: boolean }> = [];
+        Object.defineProperty(window, "__ringbackSources", { value: sources });
+        const start = AudioBufferSourceNode.prototype.start;
+        AudioBufferSourceNode.prototype.start = function (...args): void {
+            if (this.loop && this.buffer && this.buffer.duration > 6 && this.buffer.duration < 7) {
+                const entry = { source: this, startedAt: this.context.currentTime, ended: false };
+                sources.push(entry);
+                this.addEventListener(
+                    "ended",
+                    () => {
+                        entry.ended = true;
+                    },
+                    { once: true },
+                );
+            }
+            start.apply(this, args);
+        };
+    });
+}
+
+async function ringbackState(page: Page): Promise<{ count: number; ended: boolean; cycles: number }> {
+    return page.evaluate(() => {
+        const sources = (
+            window as unknown as {
+                __ringbackSources: Array<{ source: AudioBufferSourceNode; startedAt: number; ended: boolean }>;
+            }
+        ).__ringbackSources;
+        const entry = sources[0];
+        return {
+            count: sources.length,
+            ended: (entry?.ended || entry?.source.context.state === "closed") ?? false,
+            cycles: entry ? (entry.source.context.currentTime - entry.startedAt) / entry.source.buffer!.duration : 0,
+        };
+    });
 }
 
 async function receivedAudioBytes(page: Page): Promise<number> {
@@ -758,6 +800,7 @@ for (const camera of [false, true]) {
                     .toBe("join");
                 await app.viewRoomById(roomId);
                 await bobApp.viewRoomById(roomId);
+                if (!camera) await observeRingback(page);
                 await page.getByRole("button", { name: camera ? "Video call" : "Voice call", exact: true }).click();
                 const stage = page.getByTestId("aether-call-stage");
                 await expect(stage).toHaveAttribute("data-presentation", "conversation");
@@ -778,12 +821,19 @@ for (const camera of [false, true]) {
                     body: await bobPage.locator("body").ariaSnapshot(),
                     contentType: "text/plain",
                 });
+                if (!camera) {
+                    await expect
+                        .poll(async () => (await ringbackState(page)).cycles, { timeout: 20_000 })
+                        .toBeGreaterThan(2);
+                    expect(await ringbackState(page)).toMatchObject({ count: 1, ended: false });
+                }
                 await bobPage.getByTestId("join-call-button").click({ timeout: 15_000 });
                 await expect(bobPage.getByTestId("aether-call-stage")).toHaveAttribute("data-phase", "in_call", {
                     timeout: 60_000,
                 });
                 await expect.poll(() => decodedAudioEnergy(bobPage), { timeout: 30_000 }).toBeGreaterThan(0);
                 await expect(stage.getByRole("img", { name: "Calling Bob" })).toHaveCount(0);
+                if (!camera) await expect.poll(() => ringbackState(page)).toMatchObject({ count: 1, ended: true });
                 if (camera) {
                     await expect.poll(() => decodedVideoFrames(bobPage), { timeout: 30_000 }).toBeGreaterThan(0);
                     const tileBounds = await stage.getByTestId("videoTile").first().boundingBox();
@@ -815,6 +865,64 @@ for (const camera of [false, true]) {
         },
     );
 }
+
+test("stage join and red hangup play one lifecycle cue per transition", async ({ page, app, user }) => {
+    test.setTimeout(120_000);
+    await settle(page);
+    await page.evaluate(() => {
+        const cues: string[] = [];
+        Object.defineProperty(window, "__callCues", { value: cues });
+        const play = HTMLMediaElement.prototype.play;
+        HTMLMediaElement.prototype.play = function (): Promise<void> {
+            if (new URL(this.src).pathname.endsWith(".wav"))
+                this.addEventListener("playing", () => cues.push(this.src), { once: true });
+            return play.call(this);
+        };
+    });
+    const voiceId = await app.client.createRoom({
+        name: "Cue lounge",
+        creation_content: { type: "org.matrix.msc3417.call" },
+    });
+    await app.client.createSpace({
+        name: "Cue space",
+        initial_state: [{ type: "m.space.child", state_key: voiceId, content: { via: [user.homeServer] } }],
+    });
+    await app.viewSpaceByName("Cue space");
+    await page.getByRole("button", { name: "Open room Cue lounge", exact: true }).click();
+    const stage = page.getByTestId("aether-call-stage").filter({ visible: true });
+    // Webpack hashes asset names. Match the bytes of actual playing audio to the intended recordings.
+    const recordings = new Map(
+        ["join", "leave"].map((name) => [
+            createHash("sha256")
+                .update(readFileSync(new URL(`../../../res/media/aether/${name}.wav`, import.meta.url)))
+                .digest("hex"),
+            name,
+        ]),
+    );
+    const cues = async (): Promise<string[]> => {
+        const hashes = await page.evaluate(async () =>
+            Promise.all(
+                (window as unknown as { __callCues: string[] }).__callCues.map(async (url) => {
+                    const bytes = await (await fetch(url)).arrayBuffer();
+                    const hash = await crypto.subtle.digest("SHA-256", bytes);
+                    return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
+                }),
+            ),
+        );
+        return hashes.map((hash) => recordings.get(hash) ?? hash);
+    };
+    await expect(stage).toHaveAttribute("data-phase", "in_call", { timeout: 60_000 });
+    await expect.poll(cues).toEqual(["join"]);
+    await stage.getByTestId("incall_leave").click();
+    await expect.poll(cues).toEqual(["join", "leave"]);
+    await expect(stage.getByTestId("lobby_joinCall")).toBeVisible();
+    await stage.getByTestId("lobby_joinCall").click();
+    await expect(stage).toHaveAttribute("data-phase", "in_call", { timeout: 60_000 });
+    await expect.poll(cues).toEqual(["join", "leave", "join"]);
+    await stage.getByTestId("incall_leave").click();
+    await expect.poll(cues).toEqual(["join", "leave", "join", "leave"]);
+    await expect(stage.getByTestId("lobby_joinCall")).toBeVisible();
+});
 
 test("startup restores the last text channel while clicking voice still joins", async ({ page, app, user }) => {
     test.setTimeout(120_000);

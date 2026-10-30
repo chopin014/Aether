@@ -44,6 +44,7 @@ import { RichProfileStore } from "../../profile/RichProfileStore";
 import { appearanceFromRichProfile } from "../../profile/richProfileView";
 
 import { SoundboardViewModel } from "./SoundboardViewModel";
+import { DesktopCallRingtone } from "../../audio/DesktopCallRingtone";
 
 /** The existing call engine and Matrix client shown by the desktop stage. */
 export interface DesktopCallStageViewModelProps {
@@ -163,6 +164,9 @@ export class DesktopCallStageViewModel
     private readonly profileSubscriptions = new Map<string, () => void>();
     private deviceChangeGeneration = 0;
     private deviceEnumerationGeneration = 0;
+    private readonly ringtone = new DesktopCallRingtone();
+    private ringtoneStarted = false;
+
     private qualityUpdate: Promise<void> = Promise.resolve();
 
     public constructor(props: DesktopCallStageViewModelProps) {
@@ -267,8 +271,29 @@ export class DesktopCallStageViewModel
                 ),
             });
         });
+        this.disposables.track(() => this.ringtone.setRinging(false));
+
         void this.refreshDevices();
     }
+
+    /** Starts audio after React commits, so discarded renders cannot leave a second ringback playing. */
+    public startRingtone = (): (() => void) => {
+        if (this.isDisposed) return () => {};
+        this.ringtoneStarted = true;
+        this.updateRingtone();
+        return () => {
+            this.ringtoneStarted = false;
+            this.ringtone.setRinging(false);
+        };
+    };
+
+    private updateRingtone = (): void => {
+        if (!this.ringtoneStarted) return;
+        const { state } = this.bridge;
+        this.ringtone.setRinging(
+            !this.props.call.locallyLeaving && state.phase === "in_call" && state.ringing === "ringing",
+        );
+    };
 
     /** Refresh engine-owned state without replacing local layout and open-menu preferences. */
     public setBridge = (bridge: AetherCallPresentationBridge): void => {
@@ -277,6 +302,7 @@ export class DesktopCallStageViewModel
         this.bridge = bridge;
         const { state } = bridge;
         this.syncProfiles();
+        this.updateRingtone();
         this.syncVolumeMaps(state.participants, state.screenShares);
 
         let { layoutMode, spotlightTileId } = this.snapshot.current;
@@ -330,7 +356,9 @@ export class DesktopCallStageViewModel
         if (this.isDisposed) return;
         this.syncProfiles();
         this.snapshot.merge({
-            participants: this.bridge.state.participants.map((p) => mapParticipantTile(this.props.client, p)),
+            participants: this.bridge.state.participants.map((p) =>
+                mapParticipantTile(this.props.client, p, this.props.call.soundboardUserIds),
+            ),
         });
     };
 
@@ -426,10 +454,14 @@ export class DesktopCallStageViewModel
         this.bridge.actions.joinCall();
     };
 
-    public leaveCall = (): void => {
+    public leaveCall = async (): Promise<void> => {
+        if (this.isDisposed || this.props.call.locallyLeaving) return;
+        this.ringtone.setRinging(false);
         this.props.call.setLocalLeavePending(true);
         try {
-            this.bridge.actions.leaveCall();
+            // Use the same model-owned disconnect as the dock. The engine's stage action can return
+            // to its lobby without notifying the host after its subscriptions have been disposed.
+            await this.props.call.disconnect();
         } catch (error) {
             this.props.call.setLocalLeavePending(false);
             this.reportActionError(error);

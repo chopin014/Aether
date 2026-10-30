@@ -120,6 +120,13 @@ function createBridge(stateOverrides: Partial<AetherCallPresentationState> = {})
     };
 }
 
+const setRinging = vi.hoisted(() => vi.fn());
+vi.mock("../../audio/DesktopCallRingtone", () => ({
+    DesktopCallRingtone: class {
+        public setRinging = setRinging;
+    },
+}));
+
 describe("DesktopCallStageViewModel", () => {
     const mockClient = {
         getRoom: vi.fn().mockReturnValue(null),
@@ -133,6 +140,7 @@ describe("DesktopCallStageViewModel", () => {
         soundboardUserIds: new Set<string>(),
         roomId: "!voice:example.org",
         setLocalLeavePending: vi.fn(),
+        disconnect: vi.fn().mockResolvedValue(undefined),
         widget: {
             id: "widget-1",
             roomId: "!voice:example.org",
@@ -149,7 +157,9 @@ describe("DesktopCallStageViewModel", () => {
                     request: vi.fn(),
                 }) as unknown as RichProfileStore,
         );
+        setRinging.mockClear();
         vi.mocked(mockCall.setLocalLeavePending).mockReset();
+        vi.mocked(mockCall.disconnect).mockReset().mockResolvedValue(undefined);
     });
 
     it("refreshes profile styling live, respects viewer settings and releases subscriptions", () => {
@@ -172,6 +182,8 @@ describe("DesktopCallStageViewModel", () => {
             userId: "@alice:example.org",
             displayName: "Alice",
         } as AetherParticipantMediaItem;
+        const soundboardUsers = mockCall.soundboardUserIds as Set<string>;
+        soundboardUsers.add(participant.userId);
         const vm = new DesktopCallStageViewModel({
             client: mockClient,
             call: mockCall,
@@ -181,6 +193,8 @@ describe("DesktopCallStageViewModel", () => {
         store.get.mockReturnValue({ theme: { primary: "#123456", accent: "#654321" } });
         notify();
         expect(vm.getSnapshot().participants[0].appearance?.theme?.primary).toBe("#123456");
+        expect(vm.getSnapshot().participants[0].soundboardPlaying).toBe(true);
+        soundboardUsers.clear();
         getValue.mockImplementation(() => false);
         notify();
         expect(vm.getSnapshot().participants[0].appearance).toBeUndefined();
@@ -243,6 +257,9 @@ describe("DesktopCallStageViewModel", () => {
                 participants: [me as AetherParticipantMediaItem],
             }),
         });
+        expect(setRinging).not.toHaveBeenCalled();
+        vm.startRingtone();
+        expect(setRinging).toHaveBeenLastCalledWith(true);
         expect(vm.getSnapshot().callees).toEqual([
             {
                 userId: "@bob:example.org",
@@ -260,7 +277,9 @@ describe("DesktopCallStageViewModel", () => {
 
         vm.setBridge(createBridge({ ringing: "timeout", participants: [me, bob] as AetherParticipantMediaItem[] }));
         expect(vm.getSnapshot().callees).toEqual([]);
+        expect(setRinging).toHaveBeenLastCalledWith(false);
         vm.dispose();
+        expect(setRinging).toHaveBeenLastCalledWith(false);
     });
 
     it("waits for device changes, reports failure, and ignores a late failure after disposal", async () => {
@@ -644,14 +663,14 @@ describe("DesktopCallStageViewModel", () => {
         expect(vm.getSnapshot().roomName).toBe("Lobby Voice");
     });
 
-    it("echoes leaving before calling the engine and restores participants if the action throws", () => {
+    it("echoes leaving before disconnecting through the model and restores participants on failure", async () => {
         const bridge = createBridge();
-        vi.mocked(bridge.actions.leaveCall).mockImplementation(() => {
+        vi.mocked(mockCall.disconnect).mockImplementation(async () => {
             expect(mockCall.setLocalLeavePending).toHaveBeenLastCalledWith(true);
             throw new Error("Engine unavailable");
         });
         const vm = new DesktopCallStageViewModel({ client: mockClient, call: mockCall, bridge });
-        vm.leaveCall();
+        await vm.leaveCall();
         expect(mockCall.setLocalLeavePending).toHaveBeenLastCalledWith(false);
         expect(vm.getSnapshot().deviceError).toBe("Engine unavailable");
         vm.dispose();
@@ -662,7 +681,9 @@ describe("DesktopCallStageViewModel", () => {
         vi.mocked(bridge.actions.sendReaction).mockRejectedValue("Reaction unavailable");
         const vm = new DesktopCallStageViewModel({ client: mockClient, call: mockCall, bridge });
         vm.joinCall();
-        vm.leaveCall();
+        await vm.leaveCall();
+        expect(mockCall.disconnect).toHaveBeenCalledOnce();
+        expect(bridge.actions.leaveCall).not.toHaveBeenCalled();
         vm.returnToLobby();
         vm.requestDevicePermissions();
         vm.reconnect();
@@ -670,7 +691,6 @@ describe("DesktopCallStageViewModel", () => {
         vm.dismissScreenShareError();
         for (const name of [
             "joinCall",
-            "leaveCall",
             "returnToLobby",
             "requestDevicePermissions",
             "reconnect",

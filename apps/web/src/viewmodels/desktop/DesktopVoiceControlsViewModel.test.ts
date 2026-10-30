@@ -326,7 +326,7 @@ describe("DesktopVoiceControlsViewModel", () => {
     });
     it("plays each cue only after its successful action and does not duplicate widget echoes", async () => {
         await connect();
-        expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("join");
+        expect(playDesktopVoiceSound).not.toHaveBeenCalled();
         await vm.toggleMicrophone();
         expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("mute");
         await vm.toggleMicrophone();
@@ -342,7 +342,8 @@ describe("DesktopVoiceControlsViewModel", () => {
         await vm.toggleMicrophone();
         expect(playDesktopVoiceSound).toHaveBeenCalledTimes(count);
         await vm.disconnect();
-        expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("leave");
+        // Call lifecycle cues belong to the model, not a second observer in the dock.
+        expect(playDesktopVoiceSound).toHaveBeenCalledTimes(count);
     });
     it("also sounds actual microphone changes from the call-stage controls", async () => {
         await connect();
@@ -400,6 +401,24 @@ describe("DesktopVoiceControlsViewModel", () => {
         // A second device of the same person is not a new person.
         vi.mocked(playDesktopVoiceSound).mockClear();
         call.emit(CallEvent.Participants, new Map([[alice, new Set(["A", "B"])]]), new Map([[alice, new Set(["A"])]]));
+        expect(playDesktopVoiceSound).not.toHaveBeenCalled();
+    });
+    it("keeps participant changes silent while deafened", async () => {
+        await connect();
+        await vm.toggleDeafened();
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        const alice = { userId: "@alice:example.org" } as RoomMember;
+        call.emit(CallEvent.Participants, new Map([[alice, new Set(["A"])]]), new Map());
+        expect(playDesktopVoiceSound).not.toHaveBeenCalled();
+    });
+    it("ignores camera, sharing and participant teardown after hangup starts", async () => {
+        await connect();
+        call.setLocalLeavePending(true);
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        call.handleDeviceMute({ audio_enabled: false, video_enabled: true });
+        call.handleScreenShare({ available: false, sharing: true, remoteSharerIds: [] });
+        const alice = { userId: "@alice:example.org" } as RoomMember;
+        call.emit(CallEvent.Participants, new Map(), new Map([[alice, new Set(["A"])]]));
         expect(playDesktopVoiceSound).not.toHaveBeenCalled();
     });
     it("disconnects the real call and releases all subscriptions on unmount", async () => {

@@ -49,7 +49,6 @@ export class DesktopVoiceControlsViewModel
 {
     private releaseSoundboard?: () => void;
     private call?: ElementCall;
-    private observedCalls = false;
     private wasVideoEnabled = false;
     private wasSharingScreen = false;
     private pendingAction?: Promise<void>;
@@ -409,6 +408,7 @@ export class DesktopVoiceControlsViewModel
         previous: ReadonlyMap<RoomMember, unknown>,
     ): void => {
         this.refresh();
+        if (!this.call || this.call.locallyLeaving || this.snapshot.current.deafened) return;
         const ids = (members: ReadonlyMap<RoomMember, unknown>): Set<string> =>
             new Set(
                 [...members.keys()].map((member) => member.userId).filter((id) => id !== this.props.client.getUserId()),
@@ -421,6 +421,7 @@ export class DesktopVoiceControlsViewModel
 
     private readonly onScreenShare = (): void => {
         this.refresh();
+        if (this.call?.locallyLeaving) return;
         const sharing = this.call?.screenShare.sharing ?? false;
         if (sharing !== this.wasSharingScreen) {
             this.wasSharingScreen = sharing;
@@ -429,6 +430,7 @@ export class DesktopVoiceControlsViewModel
     };
 
     private readonly onDeviceMute = (): void => {
+        if (this.call?.locallyLeaving) return;
         const wasMuted = this.snapshot.current.microphoneMuted;
         this.refresh();
         const { microphoneMuted, busy, videoEnabled } = this.snapshot.current;
@@ -458,7 +460,6 @@ export class DesktopVoiceControlsViewModel
             const { panel } = this.snapshot.current;
             if (panel === "noise" || panel === "connection" || panel === "soundboard")
                 this.snapshot.merge({ panel: null });
-            if (this.observedCalls) void playDesktopVoiceSound(call ? "join" : "leave");
             this.call?.off(CallEvent.DeviceMute, this.onDeviceMute);
             this.call?.off(CallEvent.ScreenShare, this.onScreenShare);
             this.call?.off(CallEvent.Participants, this.onParticipants);
@@ -488,7 +489,6 @@ export class DesktopVoiceControlsViewModel
                 });
             }
         }
-        this.observedCalls = true;
         this.refresh();
     };
 

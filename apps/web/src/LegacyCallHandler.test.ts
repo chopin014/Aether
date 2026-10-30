@@ -41,6 +41,7 @@ import { getFunctionalMembers } from "./utils/room/getFunctionalMembers";
 import SettingsStore from "./settings/SettingsStore";
 import { UIFeature } from "./settings/UIFeature";
 import { createAudioContext } from "./audio/compat";
+import { BackgroundAudio } from "./audio/BackgroundAudio";
 import * as ManagedHybrid from "./widgets/ManagedHybrid";
 import type * as audioCompat from "./audio/compat";
 
@@ -442,6 +443,30 @@ describe("LegacyCallHandler without third party protocols", () => {
         expect(fetchMock).toHaveFetchedTimes(1, "end:/media/ring.mp3");
         await callHandler.play(AudioID.Ring);
         expect(fetchMock).toHaveFetchedTimes(1, "end:/media/ring.mp3");
+    });
+
+    it("should coalesce incoming rings while audio is loading", async () => {
+        const loading = Promise.withResolvers<AudioBufferSourceNode>();
+        const load = vi.spyOn(BackgroundAudio.prototype, "pickFormatAndPlay").mockReturnValueOnce(loading.promise);
+        const playing = callHandler.play(AudioID.Ring);
+        expect(callHandler.isPlaying(AudioID.Ring)).toBe(true);
+        await callHandler.play(AudioID.Ring);
+        expect(load).toHaveBeenCalledOnce();
+        loading.resolve(mockAudioBufferSourceNode as unknown as AudioBufferSourceNode);
+        await playing;
+        load.mockRestore();
+    });
+
+    it("should stop a ringtone cancelled before decoding finishes", async () => {
+        const loading = Promise.withResolvers<AudioBufferSourceNode>();
+        const load = vi.spyOn(BackgroundAudio.prototype, "pickFormatAndPlay").mockReturnValueOnce(loading.promise);
+        const playing = callHandler.play(AudioID.Ring);
+        callHandler.pause(AudioID.Ring);
+        loading.resolve(mockAudioBufferSourceNode as unknown as AudioBufferSourceNode);
+        await playing;
+        expect(mockAudioBufferSourceNode.stop).toHaveBeenCalledOnce();
+        expect(callHandler.isPlaying(AudioID.Ring)).toBe(false);
+        load.mockRestore();
     });
 
     it("should allow silencing an incoming call ring", async () => {
