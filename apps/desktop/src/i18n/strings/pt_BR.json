@@ -88,5 +88,18 @@
         "bring_all_to_front": "Trazer Todas Para Frente",
         "label": "Janela",
         "zoom": "Zoom"
+    },
+    "download": {
+        "unable_to_open_description": "Não foi possível abrir o arquivo. Ele pode ter sido movido ou excluído.",
+        "unable_to_open_title": "Não foi possível abrir o arquivo"
+    },
+    "renderer_crash": {
+        "detail": "Feche e abra o aplicativo novamente para continuar. Se o problema persistir, reiniciar o computador ou limpar o cache do aplicativo pode ajudar.",
+        "message": "O %(brand)s se recuperou de um problema várias vezes, mas ele continua ocorrendo, então o aplicativo parou de tentar.",
+        "title": "O %(brand)s continua falhando"
+    },
+    "save_dialog": {
+        "all_files": "Todos os arquivos",
+        "named_file_type": "Arquivo %(extension)s"
     }
 }

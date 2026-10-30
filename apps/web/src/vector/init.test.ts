@@ -14,7 +14,10 @@ import fetchMock from "@fetch-mock/vitest";
 import { waitFor, screen } from "test-utils-rtl";
 import { mockPlatformPeg, unmockPlatformPeg } from "test-utils/platform.ts";
 
-import { loadApp, logAppVersion, showError, showIncompatibleBrowser } from "./init.tsx";
+import { loadApp, loadLanguage, logAppVersion, showError, showIncompatibleBrowser } from "./init.tsx";
+import SettingsStore from "../settings/SettingsStore.ts";
+import * as languageSettings from "../i18n/settings.ts";
+import * as browserLanguages from "../i18n/browser.ts";
 import SdkConfig from "../SdkConfig.ts";
 import MatrixChat from "../components/structures/MatrixChat.tsx";
 import { parseAppUrl } from "./url_utils.ts";
@@ -114,5 +117,69 @@ describe("logAppVersion", () => {
         await logAppVersion();
 
         expect(spy).toHaveBeenCalledWith("Unable to determine app version for logging", error);
+    });
+});
+
+describe("loadLanguage", () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+        unmockPlatformPeg();
+    });
+
+    it("should prefer the system language over Chromium defaults", async () => {
+        vi.spyOn(SettingsStore, "getValue").mockReturnValue(null);
+        vi.spyOn(browserLanguages, "getLanguagesFromBrowser").mockReturnValue(["en-US"]);
+        mockPlatformPeg({ getSystemLanguages: vi.fn().mockResolvedValue(["pt-BR", "en-US"]) });
+        const setLanguage = vi.spyOn(languageSettings, "setLanguage").mockResolvedValue();
+
+        await loadLanguage();
+
+        expect(setLanguage).toHaveBeenCalledWith("pt-br", "pt", "en-us", "en");
+    });
+
+    it("should follow changed system preferences on subsequent launches", async () => {
+        vi.spyOn(SettingsStore, "getValue").mockReturnValue(null);
+        const getSystemLanguages = vi.fn().mockResolvedValueOnce(["pt-BR"]).mockResolvedValueOnce(["de-DE"]);
+        mockPlatformPeg({ getSystemLanguages });
+        const setLanguage = vi.spyOn(languageSettings, "setLanguage").mockResolvedValue();
+
+        await loadLanguage();
+        await loadLanguage();
+
+        expect(setLanguage).toHaveBeenLastCalledWith("de");
+    });
+
+    it.each([undefined, []])("should use browser preferences when the host returns %s", async (languages) => {
+        vi.spyOn(SettingsStore, "getValue").mockReturnValue(null);
+        vi.spyOn(browserLanguages, "getLanguagesFromBrowser").mockReturnValue(["pt-BR"]);
+        mockPlatformPeg({ getSystemLanguages: vi.fn().mockResolvedValue(languages) });
+        const setLanguage = vi.spyOn(languageSettings, "setLanguage").mockResolvedValue();
+
+        await loadLanguage();
+
+        expect(setLanguage).toHaveBeenCalledWith("pt-br", "pt");
+    });
+
+    it("should use browser preferences when the desktop host cannot provide them", async () => {
+        vi.spyOn(SettingsStore, "getValue").mockReturnValue(null);
+        vi.spyOn(browserLanguages, "getLanguagesFromBrowser").mockReturnValue(["pt-BR"]);
+        mockPlatformPeg({ getSystemLanguages: vi.fn().mockRejectedValue(new Error("Unsupported IPC")) });
+        const setLanguage = vi.spyOn(languageSettings, "setLanguage").mockResolvedValue();
+
+        await loadLanguage();
+
+        expect(setLanguage).toHaveBeenCalledWith("pt-br", "pt");
+    });
+
+    it("should respect an explicit language choice", async () => {
+        vi.spyOn(SettingsStore, "getValue").mockReturnValue("de");
+        const getSystemLanguages = vi.fn();
+        mockPlatformPeg({ getSystemLanguages });
+        const setLanguage = vi.spyOn(languageSettings, "setLanguage").mockResolvedValue();
+
+        await loadLanguage();
+
+        expect(setLanguage).toHaveBeenCalledWith("de");
+        expect(getSystemLanguages).not.toHaveBeenCalled();
     });
 });

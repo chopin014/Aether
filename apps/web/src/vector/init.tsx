@@ -106,7 +106,15 @@ export async function loadLanguage(): Promise<void> {
     let langs: string[] = [];
 
     if (!prefLang) {
-        langs = getLanguagesFromBrowser().flatMap(getNormalizedLanguageKeys);
+        let systemLanguages: string[] | undefined;
+        try {
+            systemLanguages = await PlatformPeg.get()?.getSystemLanguages();
+        } catch (error) {
+            logger.warn("Unable to read system languages", error);
+        }
+        langs = (systemLanguages?.length ? systemLanguages : getLanguagesFromBrowser()).flatMap(
+            getNormalizedLanguageKeys,
+        );
     } else {
         langs = [prefLang];
     }

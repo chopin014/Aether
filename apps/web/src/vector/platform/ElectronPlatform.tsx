@@ -497,6 +497,11 @@ export default class ElectronPlatform extends BasePlatform {
         return this.eventIndexManager;
     }
 
+    /** Reads the operating system preferences rather than Chromium’s default language. */
+    public async getSystemLanguages(): Promise<string[]> {
+        return this.ipc.call("getSystemLanguages");
+    }
+
     public async setLanguage(preferredLangs: string[]): Promise<any> {
         return this.ipc.call("setLanguage", preferredLangs);
     }

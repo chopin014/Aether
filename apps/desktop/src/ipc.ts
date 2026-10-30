@@ -73,6 +73,9 @@ ipcMain.on("ipcCall", async function (_ev: IpcMainEvent, payload) {
             if (_ev.sender !== global.mainWindow.webContents || _ev.senderFrame !== _ev.sender.mainFrame) return;
             ret = desktopUpdater.getState();
             break;
+        case "getSystemLanguages":
+            ret = app.getPreferredSystemLanguages();
+            break;
         case "setLanguage":
             global.appLocalization.setAppLocale(args[0]);
             break;
