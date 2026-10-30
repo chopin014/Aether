@@ -49,14 +49,14 @@ const LanguageSection: React.FC = () => {
     const [language, setLanguage] = useState(getCurrentLanguage());
 
     const onLanguageChange = useCallback(
-        (newLanguage: string) => {
+        async (newLanguage: string) => {
             if (language === newLanguage) return;
 
-            void SettingsStore.setValue("language", null, SettingLevel.DEVICE, newLanguage);
+            await SettingsStore.setValue("language", null, SettingLevel.DEVICE, newLanguage);
             setLanguage(newLanguage);
             const platform = PlatformPeg.get();
             if (platform) {
-                platform.setLanguage([newLanguage]);
+                await platform.setLanguage([newLanguage]);
                 platform.reload();
             }
         },

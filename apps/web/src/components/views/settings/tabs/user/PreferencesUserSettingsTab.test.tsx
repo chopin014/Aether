@@ -58,7 +58,37 @@ describe("PreferencesUserSettingsTab", () => {
 
         const germanOption = await screen.findByText("Deutsch");
         await userEvent.click(germanOption);
-        expect(reloadStub).toHaveBeenCalled();
+        await waitFor(() => expect(reloadStub).toHaveBeenCalled());
+    });
+
+    it("should save the preference and update the desktop language before reloading", async () => {
+        const saved = Promise.withResolvers<void>();
+        const localized = Promise.withResolvers<void>();
+        const save = vi.spyOn(SettingsStore, "setValue").mockReturnValue(saved.promise);
+        const platform = PlatformPeg.get()!;
+        const setLanguage = vi.spyOn(platform, "setLanguage").mockReturnValue(localized.promise);
+        const reload = vi.fn();
+        platform.reload = reload;
+
+        try {
+            renderTab();
+            await userEvent.click(await screen.findByRole("button", { name: "Language Dropdown" }));
+            await userEvent.click(await screen.findByText("Deutsch"));
+
+            expect(save).toHaveBeenCalledWith("language", null, SettingLevel.DEVICE, "de");
+            expect(setLanguage).not.toHaveBeenCalled();
+            expect(reload).not.toHaveBeenCalled();
+
+            saved.resolve();
+            await waitFor(() => expect(setLanguage).toHaveBeenCalledWith(["de"]));
+            expect(reload).not.toHaveBeenCalled();
+
+            localized.resolve();
+            await waitFor(() => expect(reload).toHaveBeenCalledOnce());
+        } finally {
+            save.mockRestore();
+            setLanguage.mockRestore();
+        }
     });
 
     it("should search and select a user timezone", async () => {
