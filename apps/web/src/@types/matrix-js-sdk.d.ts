@@ -16,6 +16,7 @@ import type { DeviceClientInformation } from "../utils/device/types.ts";
 import type { UserWidget } from "../utils/WidgetUtils-types.ts";
 import { type MediaPreviewConfig } from "./media_preview.ts";
 import { type INVITE_RULES_ACCOUNT_DATA_TYPE, type InviteConfigAccountData } from "./invite-rules.ts";
+import type { StoredSound } from "../audio/soundboard/Soundboard";
 
 // Extend Matrix JS SDK types via Typescript declaration merging to support unspecced event fields and types
 declare module "matrix-js-sdk/src/types" {
@@ -34,7 +35,7 @@ declare module "matrix-js-sdk/src/types" {
     }
 
     export interface StateEvents {
-        "io.aether.soundboard.sound": Partial<import("../audio/soundboard/Soundboard").StoredSound>;
+        "io.aether.soundboard.sound": Partial<StoredSound>;
         // Jitsi-backed video room state events
         [JitsiCallMemberEventType]: JitsiCallMemberContent;
 
@@ -57,7 +58,7 @@ declare module "matrix-js-sdk/src/types" {
         "io.aether.soundboard.play": {
             library_id: string;
             sound_id: string;
-            sound?: import("../audio/soundboard/Soundboard").StoredSound;
+            sound?: StoredSound;
         };
         "io.element.performance_metric": {
             "io.element.performance_metrics": {
