@@ -6,7 +6,12 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import React, { type JSX, useEffect } from "react";
-import { useCreateAutoDisposedViewModel, DisambiguatedProfileView } from "@element-hq/web-shared-components";
+import {
+    useCreateAutoDisposedViewModel,
+    DisambiguatedProfileView,
+    ProfileDecoration,
+    ProfileNameplate,
+} from "@element-hq/web-shared-components";
 
 import { type RoomMember } from "../../../../../models/rooms/RoomMember";
 import { useMemberTileViewModel } from "../../../../viewmodels/memberlist/tiles/MemberTileViewModel";
@@ -21,6 +26,7 @@ import { InvitedIconView } from "./common/InvitedIconView";
 import { type MemberWithSeparator } from "../../../../viewmodels/memberlist/MemberListViewModel";
 import { DisambiguatedProfileViewModel } from "../../../../../viewmodels/room/timeline/event-tile/DisambiguatedProfileViewModel";
 import { useUserStatus } from "../../../../../hooks/useUserStatus";
+import { useRichRowProfile } from "../../../../../profile/useRichProfile";
 
 interface IProps {
     /**
@@ -41,18 +47,24 @@ interface IProps {
 export function RoomMemberTileView(props: IProps): JSX.Element {
     const vm = useMemberTileViewModel(props);
     const member = vm.member;
+    const rich = useRichRowProfile(member.isInvite ? undefined : member.userId);
     const av = (
-        <BaseAvatar
-            size="32px"
-            name={member.name}
-            idName={member.userId}
-            title={member.displayUserId}
-            url={member.avatarThumbnailUrl}
-            altText={_t("common|user_avatar")}
-        />
+        <>
+            <BaseAvatar
+                size="32px"
+                name={member.name}
+                idName={member.userId}
+                title={member.displayUserId}
+                url={member.avatarThumbnailUrl}
+                altText={_t("common|user_avatar")}
+            />
+            {rich?.appearance?.decoration && <ProfileDecoration id={rich.appearance.decoration} />}
+        </>
     );
     const name = vm.name;
-    const userStatus = useUserStatus(member.userId);
+    const syncedStatus = useUserStatus(member.userId);
+    // A status shown as its own line under the name does not also need its emoji beside the name.
+    const userStatus = rich?.status ? undefined : syncedStatus;
     const disambiguatedProfileVM = useCreateAutoDisposedViewModel(
         () =>
             new DisambiguatedProfileViewModel({
@@ -68,7 +80,14 @@ export function RoomMemberTileView(props: IProps): JSX.Element {
     useEffect(() => {
         disambiguatedProfileVM.setUserStatus(userStatus);
     }, [disambiguatedProfileVM, userStatus]);
-    const nameJSX = <DisambiguatedProfileView vm={disambiguatedProfileVM} className="mx_DisambiguatedProfile" />;
+    const nameJSX = (
+        <DisambiguatedProfileView
+            vm={disambiguatedProfileVM}
+            className="mx_DisambiguatedProfile"
+            nameStyle={rich?.appearance?.nameStyle}
+            tag={rich?.tag}
+        />
+    );
 
     const desktopShell = useFeatureEnabled("feature_desktop_shell");
     const merged = useMergedPresence(member.isInvite ? undefined : member.userId);
@@ -100,6 +119,16 @@ export function RoomMemberTileView(props: IProps): JSX.Element {
             avatarJsx={av}
             presenceJsx={presenceJSX}
             nameJsx={nameJSX}
+            backgroundJsx={
+                rich?.appearance?.nameplate ? <ProfileNameplate nameplate={rich.appearance.nameplate} /> : undefined
+            }
+            subtitleJsx={
+                rich?.status ? (
+                    <div className="mx_MemberTileView_status" title={rich.status.text}>
+                        <span aria-hidden="true">{rich.status.emoji}</span> {rich.status.text}
+                    </div>
+                ) : undefined
+            }
             userLabel={vm.userLabel}
             ariaLabel={name}
             iconJsx={iconJsx}

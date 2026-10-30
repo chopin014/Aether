@@ -22,6 +22,7 @@ import { SettingsSection } from "../settings/shared/SettingsSection";
 import { SettingsSubsection } from "../settings/shared/SettingsSubsection";
 import Modal from "../../../Modal";
 import { DeleteServerDialog } from "../dialogs/DeleteServerDialog";
+import { SpaceTagSettings } from "./SpaceTagSettings";
 
 interface IProps {
     matrixClient: MatrixClient;
@@ -122,6 +123,8 @@ const SpaceSettingsGeneralTab: React.FC<IProps> = ({ matrixClient: cli, space })
                         {busy ? _t("common|saving") : _t("room_settings|general|save")}
                     </AccessibleButton>
                 </div>
+
+                <SpaceTagSettings matrixClient={cli} space={space} />
 
                 <SettingsSubsection heading={_t("room_settings|general|leave_space")}>
                     <AccessibleButton

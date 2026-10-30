@@ -9,11 +9,12 @@ Please see LICENSE files in the repository root for full details.
 // @vitest-environment happy-dom
 
 import React from "react";
-import { describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { render, waitFor } from "test-utils-rtl";
 import userEvent from "@testing-library/user-event";
 
 import AvatarPresenceIconView from "./PresenceIconView";
+import SettingsStore from "../../../../../../settings/SettingsStore";
 
 describe("<PresenceIconView/>", () => {
     it("renders correctly for presence=online", () => {
@@ -62,5 +63,40 @@ describe("<PresenceIconView/>", () => {
         expect(tooltip).toHaveTextContent("Busy");
 
         expect(asFragment()).toMatchSnapshot();
+    });
+
+    describe("in the desktop shell", () => {
+        beforeEach(() => {
+            vi.spyOn(SettingsStore, "getValue").mockImplementation(
+                ((name: string) => name === "feature_desktop_shell") as typeof SettingsStore.getValue,
+            );
+        });
+
+        afterEach(() => {
+            vi.restoreAllMocks();
+        });
+
+        it.each([
+            ["online", "online", "mx_PresenceIconView_online"],
+            ["unavailable", "unavailable", "mx_PresenceIconView_unavailable"],
+            ["io.element.unreachable", "unavailable", "mx_PresenceIconView_unavailable"],
+            ["busy", "busy", "mx_PresenceIconView_dnd"],
+            ["offline", "offline", "mx_PresenceIconView_offline"],
+        ])("draws %s with the %s shape", (presenceState, shape, className) => {
+            const { container } = render(<AvatarPresenceIconView presenceState={presenceState} />);
+            const icon = container.querySelector("svg")!;
+            expect(icon).toHaveAttribute("data-presence", shape);
+            expect(icon).toHaveClass(className);
+        });
+
+        it("draws away as a crescent, not the same dot as online", () => {
+            const shape = (presenceState: string): string => {
+                const { container, unmount } = render(<AvatarPresenceIconView presenceState={presenceState} />);
+                const html = container.querySelector("svg")!.innerHTML;
+                unmount();
+                return html;
+            };
+            expect(shape("unavailable")).not.toEqual(shape("online"));
+        });
     });
 });

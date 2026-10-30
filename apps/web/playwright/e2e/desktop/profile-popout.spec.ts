@@ -156,7 +156,7 @@ for (const theme of ["dark", "light"] as const) {
             const modal = page.getByRole("dialog", { name: "Profile", exact: true });
             await expect(modal.getByRole("heading", { name: "Robin" })).toBeVisible();
             await expect(modal.getByText("Member since")).toBeVisible();
-            await expect(modal.getByRole("tab", { name: /mutual space/ })).toBeVisible();
+            await expect(modal.getByRole("tab", { name: /mutual server/ })).toBeVisible();
             const supportsMutualRooms = await app.client.evaluate((client) => client.doesServerSupportMutualRooms());
             if (supportsMutualRooms) {
                 await expect(modal.getByRole("tab", { name: /mutual room/ })).toBeVisible();

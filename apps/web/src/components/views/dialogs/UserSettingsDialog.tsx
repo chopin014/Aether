@@ -11,6 +11,7 @@ import { ClientEvent, type MatrixEvent } from "matrix-js-sdk/src/matrix";
 import { Toast } from "@vector-im/compound-web";
 import React, { type JSX, useRef, useState } from "react";
 import UserProfileIcon from "@vector-im/compound-design-tokens/assets/web/icons/user-profile";
+import EditIcon from "@vector-im/compound-design-tokens/assets/web/icons/edit";
 import DevicesIcon from "@vector-im/compound-design-tokens/assets/web/icons/devices";
 import VisibilityOnIcon from "@vector-im/compound-design-tokens/assets/web/icons/visibility-on";
 import NotificationsIcon from "@vector-im/compound-design-tokens/assets/web/icons/notifications";
@@ -35,6 +36,7 @@ import TabbedView, { Tab, type TabAnchor, useActiveTabWithDefault } from "../../
 import { UserSettingsNavigationContext } from "../../../contexts/UserSettingsNavigationContext";
 import { _t, _td } from "../../../languageHandler";
 import AccountUserSettingsTab from "../settings/tabs/user/AccountUserSettingsTab";
+import { DesktopProfileEditorSettings } from "../settings/tabs/user/DesktopProfileEditorSettings";
 import SettingsStore from "../../../settings/SettingsStore";
 import LabsUserSettingsTab, { showLabsFlags } from "../settings/tabs/user/LabsUserSettingsTab";
 import AppearanceUserSettingsTab from "../settings/tabs/user/AppearanceUserSettingsTab";
@@ -82,6 +84,8 @@ function titleForTabID(tabId: UserTab): React.ReactNode {
     switch (tabId) {
         case UserTab.Account:
             return _t("settings|account|dialog_title", undefined, subs);
+        case UserTab.Profile:
+            return _t("settings|profile_appearance|dialog_title", undefined, subs);
         case UserTab.SessionManager:
             return _t("settings|sessions|dialog_title", undefined, subs);
         case UserTab.Appearance:
@@ -162,6 +166,16 @@ export default function UserSettingsDialog(props: IProps): JSX.Element {
                 "UserSettingsGeneral",
             ),
         );
+        if (desktopShell) {
+            tabs.push(
+                new Tab(
+                    UserTab.Profile,
+                    _td("settings|profile_appearance|title"),
+                    <EditIcon />,
+                    <DesktopProfileEditorSettings />,
+                ),
+            );
+        }
         tabs.push(
             new Tab(
                 UserTab.SessionManager,

@@ -11,6 +11,8 @@ import { Text, Tooltip } from "@vector-im/compound-web";
 
 import { type ViewModel, useViewModel } from "../../../../../core/viewmodel";
 import { useEventPresentationAttributes } from "../../../EventPresentation/EventPresentationContext";
+import { ProfileName, type ProfileNameStyle } from "../../../../../desktop/ProfileAppearance";
+import { DesktopProfileTagChip, type DesktopProfileTag } from "../../../../../desktop/DesktopProfileIdentity";
 import styles from "./DisambiguatedProfile.module.css";
 
 /**
@@ -77,6 +79,14 @@ interface DisambiguatedProfileViewProps {
      * Optional CSS class name applied to the profile container.
      */
     className?: string;
+    /**
+     * How the person chose to draw their name.
+     */
+    nameStyle?: ProfileNameStyle;
+    /**
+     * The Space tag the person wears beside their name.
+     */
+    tag?: DesktopProfileTag;
 }
 
 /**
@@ -89,7 +99,12 @@ interface DisambiguatedProfileViewProps {
  * <DisambiguatedProfileView vm={disambiguatedProfileViewModel} />
  * ```
  */
-export function DisambiguatedProfileView({ vm, className }: Readonly<DisambiguatedProfileViewProps>): JSX.Element {
+export function DisambiguatedProfileView({
+    vm,
+    className,
+    nameStyle,
+    tag,
+}: Readonly<DisambiguatedProfileViewProps>): JSX.Element {
     const eventPresentationAttributes = useEventPresentationAttributes();
     const { displayName, colorClass, displayIdentifier, title, emphasizeDisplayName, userStatus } = useViewModel(vm);
 
@@ -121,8 +136,9 @@ export function DisambiguatedProfileView({ vm, className }: Readonly<Disambiguat
             {...eventPresentationAttributes}
         >
             <span className={displayNameClasses} dir="auto">
-                {displayName}
+                {nameStyle ? <ProfileName nameStyle={nameStyle}>{displayName}</ProfileName> : displayName}
             </span>
+            {tag && <DesktopProfileTagChip tag={tag} />}
             {userStatus && (
                 <Tooltip description={userStatus.text} maxWidth="30ch" maxLines={1}>
                     <Text

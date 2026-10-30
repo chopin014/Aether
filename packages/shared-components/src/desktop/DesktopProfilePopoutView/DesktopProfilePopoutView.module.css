@@ -6,18 +6,18 @@ Please see LICENSE in the repository root for full details.
 */
 
 .card {
-    --desktop-profile-surface: var(--cpd-color-bg-subtle-secondary);
     box-sizing: border-box;
-    width: calc(var(--cpd-space-16x) * 5.5);
+    width: 340px;
     max-width: calc(100vw - var(--cpd-space-4x));
     max-height: inherit;
     overflow: auto;
     background: var(--desktop-profile-surface);
     color: var(--cpd-color-text-primary);
     border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
-    border-radius: var(--cpd-space-2x);
-    box-shadow: 0 var(--cpd-space-2x) var(--cpd-space-6x)
-        color-mix(in srgb, var(--cpd-color-text-primary) 18%, transparent);
+    border-radius: var(--cpd-space-3x);
+    box-shadow: 0 var(--cpd-space-2x) var(--cpd-space-8x) rgb(0 0 0 / 42%);
+    transform-origin: 50% 20%;
+    animation: desktop-profile-pop 180ms cubic-bezier(0.2, 1.1, 0.4, 1);
 }
 .card h2,
 .card p {
@@ -27,7 +27,7 @@ Please see LICENSE in the repository root for full details.
     display: flex;
     flex-direction: column;
     gap: var(--cpd-space-3x);
-    padding: var(--cpd-space-3x) var(--cpd-space-4x) var(--cpd-space-4x);
+    padding: var(--cpd-space-2x) var(--cpd-space-6x) var(--cpd-space-5x);
 }
 .plainButton,
 .nameButton {
@@ -41,6 +41,10 @@ Please see LICENSE in the repository root for full details.
     text-align: start;
     cursor: pointer;
 }
+/* Flex, because an inline avatar in a block button gains a text baseline gap that pushes it off the ring's centre. */
+.plainButton {
+    display: flex;
+}
 .nameButton {
     border-radius: var(--cpd-space-1x);
 }
@@ -53,8 +57,14 @@ Please see LICENSE in the repository root for full details.
     outline-offset: var(--cpd-border-width-2);
 }
 .action {
-    background: color-mix(in srgb, var(--cpd-color-bg-canvas-default) 70%, transparent);
+    background: rgb(0 0 0 / 46%);
+    backdrop-filter: blur(6px);
     border-radius: 50%;
+    --cpd-color-icon-primary: #ffffff;
+    --cpd-color-icon-secondary: #ffffff;
+    --cpd-color-icon-tertiary: #ffffff;
+    --cpd-color-bg-subtle-primary: rgb(0 0 0 / 68%);
+    --cpd-color-bg-subtle-secondary: rgb(0 0 0 / 60%);
 }
 .composer {
     display: flex;
@@ -69,13 +79,20 @@ Please see LICENSE in the repository root for full details.
     background: var(--cpd-color-bg-canvas-default);
     color: var(--cpd-color-text-primary);
     font: var(--cpd-font-body-md-regular);
+    transition: border-color 120ms ease;
 }
 .input::placeholder {
     color: var(--cpd-color-text-secondary);
 }
+.input:hover {
+    border-color: var(--cpd-color-border-interactive-hovered);
+}
 .input:focus-visible {
     outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
     outline-offset: calc(var(--cpd-border-width-2) * -1);
+}
+.editButton {
+    width: 100%;
 }
 .error {
     color: var(--cpd-color-text-critical-primary);
@@ -92,4 +109,16 @@ Please see LICENSE in the repository root for full details.
 .menu {
     /* The menu is portalled to body. Radix copies this layer onto its positioning wrapper, above the host card (100). */
     z-index: 101;
+}
+
+@keyframes desktop-profile-pop {
+    from {
+        opacity: 0;
+        transform: scale(0.96) translateY(4px);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .card {
+        animation: none;
+    }
 }

@@ -12,6 +12,7 @@ import classNames from "classnames";
 
 import { type ViewModel, useViewModel } from "../core/viewmodel";
 import { useI18n } from "../core/i18n/i18nContext";
+import { PresenceGlyph } from "./PresenceGlyph";
 import styles from "./PresenceMenuView.module.css";
 
 /** Matrix presence intent for this device; online includes automatic idle detection. */
@@ -76,23 +77,7 @@ function PresenceIcon({
     status,
     ...props
 }: React.SVGProps<SVGSVGElement> & { status?: PresencePreference }): JSX.Element {
-    return (
-        <svg
-            {...props}
-            className={classNames(styles.dot, props.className)}
-            data-presence={status}
-            viewBox="0 0 16 16"
-            aria-hidden="true"
-        >
-            {status === "online" ? (
-                <circle cx="8" cy="8" r="7" fill="currentColor" />
-            ) : status === "unavailable" ? (
-                <path d="M15 8a7 7 0 1 1-7-7 5.5 5.5 0 0 0 7 7Z" fill="currentColor" />
-            ) : (
-                <circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" strokeWidth="4" />
-            )}
-        </svg>
-    );
+    return <PresenceGlyph {...props} status={status} className={classNames(styles.dot, props.className)} />;
 }
 
 /** Presence radio actions inside the existing account menu, separate from the custom profile status. */

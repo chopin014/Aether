@@ -711,7 +711,20 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
     }
 
     .mx_EventTile {
-        --event-tile-state-hover-background: var(--cpd-color-bg-subtle-secondary);
+        /*
+         * A faint tint of the text colour: this theme's subtle token is its darkest surface, which reads as a hole.
+         * Mixed into the page colour rather than transparent, because the tile's layers overlap and would add up.
+         */
+        --event-tile-state-hover-background: color-mix(
+            in srgb,
+            var(--cpd-color-text-primary) 4%,
+            var(--cpd-color-bg-canvas-default)
+        );
+        --event-tile-state-selected-background: color-mix(
+            in srgb,
+            var(--cpd-color-text-primary) 6%,
+            var(--cpd-color-bg-canvas-default)
+        );
         --EventTile_group_line-line-height: 22px;
     }
 
@@ -1006,10 +1019,26 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
             &:hover,
             &:focus-visible {
                 background: var(--cpd-color-bg-action-tertiary-hovered);
+                /* A list of decorated people stays still until the pointer or keyboard reaches one of them. */
+                --profile-motion: running;
+            }
+
+            .mx_MemberTileView_left,
+            .mx_MemberTileView_right {
+                position: relative;
+                z-index: 1;
             }
 
             .mx_MemberTileView_name {
                 font: var(--cpd-font-body-lg-medium);
+            }
+
+            .mx_MemberTileView_status {
+                overflow: hidden;
+                color: var(--cpd-color-text-secondary);
+                font: var(--cpd-font-body-xs-regular);
+                text-overflow: ellipsis;
+                white-space: nowrap;
             }
 
             .mx_MemberTileView_userLabel {
@@ -1024,12 +1053,13 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
             }
 
             .mx_PresenceIconView {
-                padding: 3px;
+                /* Larger than a plain dot needs: the crescent has to read as a moon at this size. */
+                padding: 2px;
                 background: var(--cpd-color-bg-canvas-default);
 
                 svg {
-                    width: 10px;
-                    height: 10px;
+                    width: 12px;
+                    height: 12px;
                 }
 
                 .mx_PresenceIconView_online {

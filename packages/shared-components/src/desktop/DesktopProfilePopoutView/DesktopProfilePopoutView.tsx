@@ -6,7 +6,8 @@ Please see LICENSE in the repository root for full details.
 */
 
 import React, { type JSX, type FormEvent, useId, useState } from "react";
-import { IconButton, Menu, MenuItem, Text } from "@vector-im/compound-web";
+import { Button, IconButton, Menu, MenuItem, Text } from "@vector-im/compound-web";
+import EditIcon from "@vector-im/compound-design-tokens/assets/web/icons/edit";
 import ChatIcon from "@vector-im/compound-design-tokens/assets/web/icons/chat";
 import OverflowHorizontalIcon from "@vector-im/compound-design-tokens/assets/web/icons/overflow-horizontal";
 import CheckCircleIcon from "@vector-im/compound-design-tokens/assets/web/icons/check-circle";
@@ -15,7 +16,10 @@ import { type ViewModel, useViewModel } from "../../core/viewmodel";
 import { useI18n } from "../../core/i18n/i18nContext";
 import {
     DesktopProfileBanner,
+    DesktopProfileBio,
     DesktopProfileNames,
+    DesktopProfileRoles,
+    DesktopProfileSurface,
     type DesktopProfileIdentitySnapshot,
 } from "../DesktopProfileIdentity";
 import styles from "./DesktopProfilePopoutView.module.css";
@@ -53,6 +57,8 @@ export interface DesktopProfilePopoutViewActions {
     toggleIgnore(this: void): void;
     moderate(this: void): void;
     openFullProfile(this: void): void;
+    /** Open the profile editor. Only offered on the person's own profile. */
+    editProfile(this: void): void;
     close(this: void): void;
 }
 
@@ -67,7 +73,7 @@ interface DesktopProfilePopoutViewProps {
     vm: DesktopProfilePopoutViewModel;
 }
 
-/** A small Discord-style profile card: banner, identity, roles and a message field. */
+/** A small Discord-style profile card: banner, identity, bio, roles and a message field. */
 export function DesktopProfilePopoutView({ vm }: DesktopProfilePopoutViewProps): JSX.Element {
     const { translate: _t } = useI18n();
     const snapshot = useViewModel(vm);
@@ -82,99 +88,120 @@ export function DesktopProfilePopoutView({ vm }: DesktopProfilePopoutViewProps):
     };
 
     return (
-        <section className={styles.card} aria-labelledby={nameId}>
-            <DesktopProfileBanner
-                identity={snapshot}
-                size="popout"
-                renderAvatar={(avatar) => (
-                    <button
-                        type="button"
-                        className={styles.plainButton}
-                        aria-label={_t("desktop|profile|view_full", { name: displayName })}
-                        onClick={vm.openFullProfile}
-                    >
-                        {avatar}
-                    </button>
-                )}
-            >
-                {snapshot.canVerify && (
-                    <IconButton
-                        className={styles.action}
-                        size="28px"
-                        tooltip={_t("desktop|profile|verify")}
-                        onClick={vm.verify}
-                    >
-                        <CheckCircleIcon />
-                    </IconButton>
-                )}
-                {canMessage && (
-                    <IconButton
-                        className={styles.action}
-                        size="28px"
-                        tooltip={_t("desktop|profile|message_button")}
-                        onClick={() => vm.message("")}
-                    >
-                        <ChatIcon />
-                    </IconButton>
-                )}
-                <Menu
-                    className={styles.menu}
-                    open={menuOpen}
-                    onOpenChange={setMenuOpen}
-                    title={_t("desktop|profile|more")}
-                    showTitle={false}
-                    align="end"
-                    trigger={
-                        <IconButton className={styles.action} size="28px" tooltip={_t("desktop|profile|more")}>
-                            <OverflowHorizontalIcon />
-                        </IconButton>
-                    }
-                >
-                    <MenuItem label={_t("desktop|profile|view_full_menu")} onSelect={vm.openFullProfile} />
-                    {snapshot.canMention && <MenuItem label={_t("desktop|profile|mention")} onSelect={vm.mention} />}
-                    <MenuItem label={_t("desktop|profile|copy_link")} onSelect={vm.copyLink} />
-                    {!snapshot.isMe && (
-                        <MenuItem
-                            kind={snapshot.isIgnored ? undefined : "critical"}
-                            label={snapshot.isIgnored ? _t("desktop|profile|unignore") : _t("desktop|profile|ignore")}
-                            onSelect={vm.toggleIgnore}
-                        />
-                    )}
-                    {snapshot.canModerate && <MenuItem label={_t("desktop|profile|moderate")} onSelect={vm.moderate} />}
-                </Menu>
-            </DesktopProfileBanner>
-            <div className={styles.body}>
-                <DesktopProfileNames
+        <section aria-labelledby={nameId}>
+            <DesktopProfileSurface identity={snapshot} className={styles.card}>
+                <DesktopProfileBanner
                     identity={snapshot}
-                    nameId={nameId}
-                    renderName={(name) => (
-                        <button type="button" className={styles.nameButton} onClick={vm.openFullProfile}>
-                            {name}
+                    size="popout"
+                    renderAvatar={(avatar) => (
+                        <button
+                            type="button"
+                            className={styles.plainButton}
+                            aria-label={_t("desktop|profile|view_full", { name: displayName })}
+                            onClick={vm.openFullProfile}
+                        >
+                            {avatar}
                         </button>
                     )}
-                />
-                {canMessage && (
-                    <form className={styles.composer} onSubmit={submit}>
-                        <label className={styles.visuallyHidden} htmlFor={`${nameId}-draft`}>
-                            {_t("desktop|profile|message_label", { name: displayName })}
-                        </label>
-                        <input
-                            id={`${nameId}-draft`}
-                            className={styles.input}
-                            value={draft}
-                            placeholder={_t("desktop|profile|message_placeholder", { name: displayName })}
-                            autoComplete="off"
-                            disabled={busy}
-                            onChange={(event) => setDraft(event.target.value)}
-                        />
-                    </form>
-                )}
-                {error && (
-                    <Text as="p" size="sm" role="alert" className={styles.error}>
-                        {_t("desktop|profile|message_error")}
-                    </Text>
-                )}
-            </div>
+                >
+                    {snapshot.canVerify && (
+                        <IconButton
+                            className={styles.action}
+                            size="28px"
+                            tooltip={_t("desktop|profile|verify")}
+                            onClick={vm.verify}
+                        >
+                            <CheckCircleIcon />
+                        </IconButton>
+                    )}
+                    {canMessage && (
+                        <IconButton
+                            className={styles.action}
+                            size="28px"
+                            tooltip={_t("desktop|profile|message_button")}
+                            onClick={() => vm.message("")}
+                        >
+                            <ChatIcon />
+                        </IconButton>
+                    )}
+                    <Menu
+                        className={styles.menu}
+                        open={menuOpen}
+                        onOpenChange={setMenuOpen}
+                        title={_t("desktop|profile|more")}
+                        showTitle={false}
+                        align="end"
+                        trigger={
+                            <IconButton className={styles.action} size="28px" tooltip={_t("desktop|profile|more")}>
+                                <OverflowHorizontalIcon />
+                            </IconButton>
+                        }
+                    >
+                        <MenuItem label={_t("desktop|profile|view_full_menu")} onSelect={vm.openFullProfile} />
+                        {snapshot.canMention && (
+                            <MenuItem label={_t("desktop|profile|mention")} onSelect={vm.mention} />
+                        )}
+                        <MenuItem label={_t("desktop|profile|copy_link")} onSelect={vm.copyLink} />
+                        {!snapshot.isMe && (
+                            <MenuItem
+                                kind={snapshot.isIgnored ? undefined : "critical"}
+                                label={
+                                    snapshot.isIgnored ? _t("desktop|profile|unignore") : _t("desktop|profile|ignore")
+                                }
+                                onSelect={vm.toggleIgnore}
+                            />
+                        )}
+                        {snapshot.canModerate && (
+                            <MenuItem label={_t("desktop|profile|moderate")} onSelect={vm.moderate} />
+                        )}
+                    </Menu>
+                </DesktopProfileBanner>
+                <div className={styles.body}>
+                    <DesktopProfileNames
+                        identity={snapshot}
+                        nameId={nameId}
+                        renderName={(name) => (
+                            <button type="button" className={styles.nameButton} onClick={vm.openFullProfile}>
+                                {name}
+                            </button>
+                        )}
+                    />
+                    {snapshot.bio && <DesktopProfileBio bio={snapshot.bio} onViewFull={vm.openFullProfile} />}
+                    <DesktopProfileRoles roles={snapshot.roles} />
+                    {snapshot.isMe && (
+                        <Button
+                            size="md"
+                            kind="secondary"
+                            Icon={EditIcon}
+                            className={styles.editButton}
+                            onClick={vm.editProfile}
+                        >
+                            {_t("desktop|profile|edit_profile")}
+                        </Button>
+                    )}
+                    {canMessage && (
+                        <form className={styles.composer} onSubmit={submit}>
+                            <label className={styles.visuallyHidden} htmlFor={`${nameId}-draft`}>
+                                {_t("desktop|profile|message_label", { name: displayName })}
+                            </label>
+                            <input
+                                id={`${nameId}-draft`}
+                                className={styles.input}
+                                value={draft}
+                                placeholder={_t("desktop|profile|message_placeholder", { name: displayName })}
+                                autoComplete="off"
+                                disabled={busy}
+                                onChange={(event) => setDraft(event.target.value)}
+                            />
+                        </form>
+                    )}
+                    {error && (
+                        <Text as="p" size="sm" role="alert" className={styles.error}>
+                            {_t("desktop|profile|message_error")}
+                        </Text>
+                    )}
+                </div>
+            </DesktopProfileSurface>
         </section>
     );
 }

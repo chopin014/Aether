@@ -15,6 +15,7 @@ import { logger } from "matrix-js-sdk/src/logger";
 import type { X509ClientInitOpts } from "@element-hq/element-web-module-api";
 
 import SettingsStore from "./settings/SettingsStore";
+import { RICH_PROFILE_SYNC_FIELDS } from "./profile/richProfile";
 import MatrixActionCreators from "./actions/MatrixActionCreators";
 import Modal from "./Modal";
 import MatrixClientBackedSettingsHandler from "./settings/handlers/MatrixClientBackedSettingsHandler";
@@ -280,6 +281,13 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         opts.threadSupport = true;
         if (SettingsStore.getValue("feature_user_status")) {
             opts.unstableMSC4429SyncUserProfileFields = ["org.matrix.msc4426.status", "org.matrix.msc4426.call"];
+        }
+        if (SettingsStore.getValue("feature_desktop_shell")) {
+            // Where the server offers it, this is how profile changes arrive without asking for them.
+            opts.unstableMSC4429SyncUserProfileFields = [
+                ...(opts.unstableMSC4429SyncUserProfileFields ?? []),
+                ...RICH_PROFILE_SYNC_FIELDS,
+            ];
         }
 
         if (SettingsStore.getValue("feature_sliding_sync")) {

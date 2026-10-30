@@ -46,6 +46,8 @@ function makeVm(snapshot: Partial<DesktopFullProfileViewSnapshot> = {}) {
             moderate: vi.fn(),
             openRoom: vi.fn(),
             retryMutualRooms: vi.fn(),
+            setNote: vi.fn(),
+            editProfile: vi.fn(),
             close: vi.fn(),
         } satisfies DesktopFullProfileViewActions,
     );
@@ -102,5 +104,41 @@ describe("DesktopFullProfileView", () => {
         rerender(<DesktopFullProfileView vm={makeVm({ isMe: true, canMessage: false })} />);
         expect(screen.queryByRole("tablist")).toBeNull();
         expect(screen.getByText("This is your own profile.")).toBeVisible();
+    });
+
+    it("shows the board first and always shows where a link really goes", async () => {
+        render(
+            <DesktopFullProfileView
+                vm={makeVm({
+                    board: { title: "Games I like", items: [{ id: "1", title: "Squad", caption: "brrr" }] },
+                    links: [{ url: "https://evil.example/", label: "My bank", host: "evil.example" }],
+                })}
+            />,
+        );
+        expect(screen.getByRole("tab", { name: "Games I like", selected: true })).toBeVisible();
+        expect(screen.getByText("Squad")).toBeVisible();
+        const link = screen.getByRole("link", { name: /My bank/ });
+        expect(link.textContent).toContain("evil.example");
+        expect(link).toHaveAttribute("rel", "noreferrer noopener");
+    });
+
+    it("saves a private note when focus leaves it, but only if it changed", async () => {
+        const vm = makeVm({ note: "" });
+        render(<DesktopFullProfileView vm={vm} />);
+        const note = screen.getByLabelText(/only you and your homeserver/);
+        await userEvent.click(note);
+        await userEvent.tab();
+        expect(vm.setNote).not.toHaveBeenCalled();
+        await userEvent.type(note, "met at FOSDEM");
+        await userEvent.tab();
+        expect(vm.setNote).toHaveBeenCalledWith("met at FOSDEM");
+    });
+
+    it("offers editing on your own profile and no note about yourself", async () => {
+        const vm = makeVm({ isMe: true, canMessage: false, note: "" });
+        render(<DesktopFullProfileView vm={vm} />);
+        expect(screen.queryByLabelText(/only you and your homeserver/)).toBeNull();
+        await userEvent.click(screen.getByRole("button", { name: "Edit profile" }));
+        expect(vm.editProfile).toHaveBeenCalled();
     });
 });

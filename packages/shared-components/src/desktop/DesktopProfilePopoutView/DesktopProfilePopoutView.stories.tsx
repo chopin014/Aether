@@ -25,6 +25,7 @@ function PopoutStory(snapshot: DesktopProfilePopoutViewSnapshot): JSX.Element {
         toggleIgnore: fn(),
         moderate: fn(),
         openFullProfile: fn(),
+        editProfile: fn(),
         close: fn(),
     });
     return <DesktopProfilePopoutView vm={vm} />;
@@ -56,3 +57,29 @@ export const WithStatus: Story = { args: { status: { emoji: "🎧", text: "Liste
 export const UnknownPresence: Story = { args: { presence: undefined, roles: [] } };
 export const OpenFailed: Story = { args: { error: true } };
 export const Self: Story = { args: { isMe: true, canMessage: false, canVerify: false, canModerate: false } };
+export const Decorated: Story = {
+    args: {
+        displayName: "Airo",
+        pronouns: "they/them",
+        status: { emoji: "🦨", text: "Skunk Works" },
+        bio: "Aerospace | UAVs | Programming | Simulators | Game Engines | CGI. Long enough to fold away behind the button that opens the rest of it.",
+        tag: { label: "ENG", emoji: "💗", colour: "#ff7ab6", spaceName: "English Server" },
+        appearance: {
+            theme: { primary: "#1b0a0a", accent: "#c8102e" },
+            decoration: "flame-crown",
+            effect: "embers",
+            nameStyle: { font: "pixel", effect: "neon", colour: "#ff3a6a", colourEnd: "#ff0044" },
+        },
+    },
+};
+export const LightTheme: Story = {
+    args: {
+        ...Decorated.args,
+        appearance: {
+            theme: { primary: "#b8d4ff", accent: "#e3c7ff" },
+            decoration: "frost-crown",
+            effect: "snow",
+            nameStyle: { font: "medieval", effect: "gradient", colour: "#d14f7a", colourEnd: "#7b2fd0" },
+        },
+    },
+};

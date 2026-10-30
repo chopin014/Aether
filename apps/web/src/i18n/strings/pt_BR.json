@@ -1716,7 +1716,6 @@
         "offline": "Offline",
         "offline_for": "Offline há %(duration)s",
         "offline_last_seen": "Offline · visto há %(duration)s",
-        "offline_last_seen": "Offline · visto há %(duration)s",
         "online": "Disponível",
         "online_for": "Online há %(duration)s",
         "unknown": "Desconhecido",
@@ -2115,7 +2114,13 @@
             "published_aliases_explainer_space": "Endereços publicados podem ser usados por qualquer um em qualquer servidor para entrar em seu espaço.",
             "published_aliases_section": "Endereços publicados",
             "save": "Salvar alterações",
-            "topic_field_label": "Descrição da sala"
+            "topic_field_label": "Descrição da sala",
+            "space_tag": "Tag de servidor",
+            "space_tag_colour": "Cor",
+            "space_tag_description": "Um rótulo curto que os membros podem usar ao lado do nome, com até 4 caracteres.",
+            "space_tag_emoji": "Emoji",
+            "space_tag_error": "Não foi possível salvar a tag.",
+            "space_tag_label": "Tag"
         },
         "notifications": {
             "browse_button": "Buscar",
@@ -2878,7 +2883,12 @@
             "voice_section": "Configurações de voz"
         },
         "warn_quit": "Avisar antes de sair",
-        "warning": "<w>AVISO:</w><description/>"
+        "warning": "<w>AVISO:</w><description/>",
+        "show_profile_appearance": "Mostrar banners, temas, decorações e efeitos de outras pessoas",
+        "profile_appearance": {
+            "dialog_title": "<strong>Configurações:</strong> Perfil",
+            "title": "Perfil"
+        }
     },
     "share": {
         "link_copied": "Link copiado",
@@ -3974,6 +3984,15 @@
         },
         "share_picker": {
             "title": "Compartilhar sua tela"
+        },
+        "profile_editor": {
+            "error_forbidden": "Seu servidor doméstico não permite essa alteração.",
+            "error_generic": "Não foi possível salvar seu perfil. O que já foi enviado foi mantido, então você pode tentar de novo.",
+            "error_image_size": "Essa imagem tem mais de 10 MB.",
+            "error_image_type": "Escolha uma imagem PNG, JPEG, GIF ou WebP.",
+            "error_link": "Um dos seus links não é um endereço válido.",
+            "error_rate_limit": "Seu servidor doméstico pediu para ir mais devagar. Tente de novo em instantes.",
+            "error_too_large": "Seu perfil é maior do que seu servidor doméstico permite. Remova alguns links ou itens do mural."
         }
     }
 }

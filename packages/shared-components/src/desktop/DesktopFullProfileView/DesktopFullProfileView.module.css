@@ -6,17 +6,18 @@ Please see LICENSE in the repository root for full details.
 */
 
 .view {
-    --desktop-profile-surface: var(--cpd-color-bg-subtle-secondary);
     position: relative;
     display: grid;
     grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
-    width: min(calc(var(--cpd-space-16x) * 13), calc(100vw - var(--cpd-space-8x)));
-    height: min(calc(var(--cpd-space-16x) * 9), calc(100vh - var(--cpd-space-8x)));
+    width: min(1000px, calc(100vw - var(--cpd-space-8x)));
+    height: min(720px, calc(100vh - var(--cpd-space-8x)));
     overflow: hidden;
     color: var(--cpd-color-text-primary);
     background: var(--cpd-color-bg-canvas-default);
     border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
-    border-radius: var(--cpd-space-3x);
+    border-radius: var(--cpd-space-4x);
+    box-shadow: 0 var(--cpd-space-4x) var(--cpd-space-16x) rgb(0 0 0 / 50%);
+    animation: desktop-full-profile-in 220ms cubic-bezier(0.2, 1, 0.4, 1);
 }
 .view p,
 .view h2,
@@ -28,7 +29,7 @@ Please see LICENSE in the repository root for full details.
     position: absolute;
     inset-block-start: var(--cpd-space-3x);
     inset-inline-end: var(--cpd-space-3x);
-    z-index: 1;
+    z-index: 3;
     background: var(--cpd-color-bg-subtle-secondary);
     border-radius: 50%;
 }
@@ -42,58 +43,134 @@ Please see LICENSE in the repository root for full details.
 .details {
     display: flex;
     flex-direction: column;
-    gap: var(--cpd-space-4x);
-    padding: var(--cpd-space-3x) var(--cpd-space-5x) var(--cpd-space-6x);
+    gap: var(--cpd-space-5x);
+    padding: var(--cpd-space-3x) var(--cpd-space-6x) var(--cpd-space-8x);
 }
 .buttons {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--cpd-space-2x);
 }
 .facts {
     display: flex;
     flex-direction: column;
-    gap: var(--cpd-space-4x);
+    gap: var(--cpd-space-5x);
 }
-.facts dt {
+.fact {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-1x);
+}
+.factLabel {
     color: var(--cpd-color-text-secondary);
-    font: var(--cpd-font-body-xs-semibold);
-    text-transform: uppercase;
+    font: var(--cpd-font-body-sm-medium);
 }
 .facts dd {
-    margin-block-start: var(--cpd-space-1x);
     font: var(--cpd-font-body-md-regular);
+}
+.links {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-1x);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.link {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-2x);
+    padding: var(--cpd-space-1-5x) var(--cpd-space-2x);
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-subtle-secondary);
+    color: var(--cpd-color-text-primary);
+    font: var(--cpd-font-body-sm-medium);
+    text-decoration: none;
+    transition: background 120ms ease;
+}
+.link:hover {
+    background: var(--cpd-color-bg-subtle-primary);
+}
+.linkHost {
+    margin-inline-start: auto;
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-xs-regular);
+}
+.note {
+    box-sizing: border-box;
+    width: 100%;
+    padding: var(--cpd-space-1-5x) var(--cpd-space-2x);
+    margin-inline: calc(var(--cpd-space-2x) * -1);
+    width: calc(100% + var(--cpd-space-4x));
+    border: var(--cpd-border-width-1) solid transparent;
+    border-radius: var(--cpd-space-2x);
+    background: transparent;
+    color: var(--cpd-color-text-primary);
+    font: var(--cpd-font-body-sm-regular);
+    resize: none;
+    transition:
+        background 120ms ease,
+        border-color 120ms ease;
+}
+.note::placeholder {
+    color: var(--cpd-color-text-secondary);
+    font-style: italic;
+}
+.note:hover {
+    background: var(--cpd-color-bg-subtle-secondary);
+}
+.note:focus {
+    outline: none;
+    border-color: var(--cpd-color-border-focused);
+    background: var(--cpd-color-bg-canvas-default);
 }
 .shared {
     display: flex;
     flex-direction: column;
     min-width: 0;
-    padding: var(--cpd-space-5x) var(--cpd-space-12x) var(--cpd-space-5x) var(--cpd-space-5x);
+    padding: var(--cpd-space-5x) var(--cpd-space-12x) var(--cpd-space-5x) var(--cpd-space-6x);
     overflow: auto;
 }
 .tabs {
     display: flex;
-    gap: var(--cpd-space-4x);
+    flex-wrap: wrap;
+    gap: var(--cpd-space-5x);
     border-block-end: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
 }
 .tab {
+    position: relative;
     padding: var(--cpd-space-2x) 0;
     border: 0;
-    border-block-end: var(--cpd-border-width-2) solid transparent;
     background: none;
     color: var(--cpd-color-text-secondary);
     font: var(--cpd-font-body-md-semibold);
     cursor: pointer;
+    transition: color 120ms ease;
+}
+.tab::after {
+    position: absolute;
+    inset-inline: 0;
+    inset-block-end: -1px;
+    height: var(--cpd-border-width-2);
+    border-radius: var(--cpd-border-width-2);
+    background: var(--cpd-color-text-primary);
+    content: "";
+    transform: scaleX(0);
+    transition: transform 160ms ease;
 }
 .tab[aria-selected="true"] {
     color: var(--cpd-color-text-primary);
-    border-block-end-color: var(--cpd-color-text-primary);
+}
+.tab[aria-selected="true"]::after {
+    transform: scaleX(1);
 }
 .tab:hover {
     color: var(--cpd-color-text-primary);
 }
 .tab:focus-visible,
-.item:focus-visible {
+.item:focus-visible,
+.link:focus-visible {
     outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
     outline-offset: var(--cpd-border-width-2);
 }
@@ -101,7 +178,39 @@ Please see LICENSE in the repository root for full details.
     display: flex;
     flex-direction: column;
     gap: var(--cpd-space-3x);
-    padding-block: var(--cpd-space-3x);
+    padding-block: var(--cpd-space-4x);
+    animation: desktop-full-profile-panel 180ms ease-out;
+}
+.board {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+    gap: var(--cpd-space-4x) var(--cpd-space-3x);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.boardItem {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-1x);
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.boardItem img,
+.boardPlaceholder {
+    display: block;
+    width: 100%;
+    aspect-ratio: 3 / 4;
+    object-fit: cover;
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-subtle-primary);
+    transition: transform 160ms ease;
+}
+.boardItem:hover img {
+    transform: translateY(-2px) scale(1.02);
+}
+.boardCaption {
+    color: var(--cpd-color-text-secondary);
 }
 .list {
     display: flex;
@@ -123,11 +232,10 @@ Please see LICENSE in the repository root for full details.
     background: none;
     color: inherit;
     text-align: start;
-}
-button.item {
     cursor: pointer;
+    transition: background 120ms ease;
 }
-button.item:hover {
+.item:hover {
     background: var(--cpd-color-bg-subtle-secondary);
 }
 .empty {
@@ -142,12 +250,38 @@ button.item:hover {
 .caption {
     color: var(--cpd-color-text-secondary);
 }
+@keyframes desktop-full-profile-in {
+    from {
+        opacity: 0;
+        transform: scale(0.97) translateY(8px);
+    }
+}
+@keyframes desktop-full-profile-panel {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+}
 @media (max-width: 720px) {
     .view {
         grid-template-columns: minmax(0, 1fr);
         overflow: auto;
     }
+    .profile {
+        overflow: visible;
+    }
     .shared {
         padding-inline-end: var(--cpd-space-5x);
+        overflow: visible;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .view,
+    .panel {
+        animation: none;
+    }
+    .tab::after,
+    .boardItem img {
+        transition: none;
     }
 }

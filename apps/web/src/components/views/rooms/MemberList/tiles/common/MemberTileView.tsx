@@ -22,6 +22,10 @@ interface Props {
     iconJsx?: JSX.Element;
     tabIndex?: number;
     focused?: boolean;
+    /** Drawn behind the whole row, such as the person's nameplate. */
+    backgroundJsx?: JSX.Element;
+    /** A second line under the name, such as the person's status. */
+    subtitleJsx?: JSX.Element;
 }
 
 export function MemberTileView(props: Props): JSX.Element {
@@ -50,12 +54,20 @@ export function MemberTileView(props: Props): JSX.Element {
                 aria-posinset={props.memberIndex + 1}
                 aria-setsize={props.memberCount}
             >
+                {props.backgroundJsx}
                 <div aria-hidden className="mx_MemberTileView_left">
                     <div className="mx_MemberTileView_avatar">
                         {props.avatarJsx}
                         <div className="mx_MemberTileView_presence">{props.presenceJsx}</div>
                     </div>
-                    <div className="mx_MemberTileView_name">{props.nameJsx}</div>
+                    {props.subtitleJsx ? (
+                        <div className="mx_MemberTileView_text">
+                            <div className="mx_MemberTileView_name">{props.nameJsx}</div>
+                            {props.subtitleJsx}
+                        </div>
+                    ) : (
+                        <div className="mx_MemberTileView_name">{props.nameJsx}</div>
+                    )}
                 </div>
                 <div aria-hidden className="mx_MemberTileView_right">
                     {userLabelJsx}

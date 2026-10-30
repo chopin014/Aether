@@ -56,6 +56,17 @@ import {
     unignoreUser,
 } from "../../components/viewmodels/right_panel/user_info/UserInfoIgnoreButtonViewModel";
 import { EDITOR_STATE_STORAGE_PREFIX } from "../../components/views/rooms/SendMessageComposer";
+import { UserTab } from "../../components/views/dialogs/UserTab";
+import { type OpenToTabPayload } from "../../dispatcher/payloads/OpenToTabPayload";
+import { RichProfileStore } from "../../profile/RichProfileStore";
+import {
+    appearanceFromRichProfile,
+    boardFromRichProfile,
+    linksFromRichProfile,
+    localTimeFromRichProfile,
+} from "../../profile/richProfileView";
+import { wornSpaceTag } from "../../profile/spaceTag";
+import { getUserNote, setUserNote } from "../../profile/userNotes";
 
 /** One snapshot serves both the popout card and the full profile. */
 export type DesktopProfileViewSnapshot = DesktopFullProfileViewSnapshot & DesktopProfilePopoutViewSnapshot;
@@ -105,6 +116,9 @@ export class DesktopProfileViewModel
             this.disposables.trackListener(client, event, this.refresh);
         }
         this.disposables.trackListener(client, ClientEvent.Event, this.onEvent);
+        const store = RichProfileStore.forClient(client);
+        this.disposables.track(store.subscribe(props.member.userId, this.refresh));
+        void store.request(props.member.userId, { onOpen: true });
         void this.loadVerification();
         void this.loadStatus();
         if (props.full) void this.loadMutualRooms();
@@ -176,6 +190,11 @@ export class DesktopProfileViewModel
         const verification = extra.verification;
         const memberSince =
             props.full && room && member?.membership === KnownMembership.Join ? joinedAt(room, userId) : undefined;
+        // An ignored person's styling goes with their messages, and the viewer may have turned all of it off.
+        const rich =
+            client.isUserIgnored(userId) || !SettingsStore.getValue("showProfileAppearance")
+                ? undefined
+                : RichProfileStore.forClient(client).get(userId);
         return {
             userId,
             displayName: name,
@@ -183,7 +202,15 @@ export class DesktopProfileViewModel
             presence:
                 presence === "online" || presence === "unavailable" || presence === "offline" ? presence : undefined,
             roles: DesktopProfileViewModel.roles(props, userId, member),
-            status: extra.status,
+            status: extra.status ?? rich?.status,
+            appearance: rich && appearanceFromRichProfile(rich, mxc),
+            pronouns: rich?.pronouns,
+            bio: rich?.bio,
+            links: rich && linksFromRichProfile(rich),
+            tag: rich && wornSpaceTag(client, rich, userId),
+            localTime: rich && localTimeFromRichProfile(rich),
+            board: rich && boardFromRichProfile(rich),
+            note: props.full && !isMe && !client.isGuest() ? getUserNote(client, userId) : undefined,
             isMe,
             canMessage: !isMe && !client.isGuest(),
             canVerify:
@@ -234,6 +261,19 @@ export class DesktopProfileViewModel
             event.getSender() === this.props.member.userId
         )
             this.refresh();
+    };
+
+    public setNote = (note: string): void => {
+        const { client, member } = this.props;
+        setUserNote(client, member.userId, note).catch((error) => logger.warn("Could not save the note", error));
+    };
+
+    public editProfile = (): void => {
+        this.props.onClose();
+        defaultDispatcher.dispatch<OpenToTabPayload>({
+            action: Action.ViewUserSettings,
+            initialTabId: UserTab.Profile,
+        });
     };
 
     private loadStatus = async (): Promise<void> => {

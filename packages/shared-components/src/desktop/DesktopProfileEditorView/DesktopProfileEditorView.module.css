@@ -1,0 +1,378 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.editor {
+    position: relative;
+    container-type: inline-size;
+    color: var(--cpd-color-text-primary);
+}
+.notice {
+    padding: var(--cpd-space-8x) var(--cpd-space-4x);
+    color: var(--cpd-color-text-secondary);
+    text-align: center;
+}
+.columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    align-items: start;
+    gap: var(--cpd-space-8x);
+}
+.form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-8x);
+    min-width: 0;
+    padding-block-end: var(--cpd-space-16x);
+}
+.privacy {
+    margin: 0;
+    padding: var(--cpd-space-3x);
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-subtle-secondary);
+    color: var(--cpd-color-text-secondary);
+}
+.section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-3x);
+    padding-block-start: var(--cpd-space-6x);
+    border-block-start: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+}
+.sectionHeading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-1x);
+}
+.sectionHeading h3,
+.sectionHeading p {
+    margin: 0;
+}
+.hint {
+    color: var(--cpd-color-text-secondary);
+}
+.row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--cpd-space-2x);
+}
+.statusRow {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: var(--cpd-space-2x);
+}
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-1x);
+    min-width: 0;
+    flex: 1;
+    font: var(--cpd-font-body-sm-medium);
+}
+.fieldHeading {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--cpd-space-2x);
+}
+.counter {
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-xs-regular);
+}
+.input {
+    box-sizing: border-box;
+    width: 100%;
+    padding: var(--cpd-space-2x) var(--cpd-space-3x);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-canvas-default);
+    color: var(--cpd-color-text-primary);
+    font: var(--cpd-font-body-md-regular);
+    resize: vertical;
+    transition: border-color 120ms ease;
+}
+.input:hover {
+    border-color: var(--cpd-color-border-interactive-hovered);
+}
+.input:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: calc(var(--cpd-border-width-2) * -1);
+}
+.input[aria-invalid="true"] {
+    border-color: var(--cpd-color-border-critical-primary);
+}
+.input::placeholder {
+    color: var(--cpd-color-text-secondary);
+}
+.input:disabled {
+    opacity: 0.6;
+}
+.fileInput {
+    display: none;
+}
+.colour {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cpd-space-2x);
+    font: var(--cpd-font-body-sm-regular);
+    cursor: pointer;
+}
+.colour input {
+    width: var(--cpd-space-8x);
+    height: var(--cpd-space-8x);
+    padding: 0;
+    overflow: hidden;
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: 50%;
+    background: none;
+    cursor: pointer;
+}
+.colour input::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+.colour input::-webkit-color-swatch {
+    border: 0;
+}
+.swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--cpd-space-2x);
+}
+.swatch {
+    width: var(--cpd-space-10x);
+    height: var(--cpd-space-10x);
+    padding: 0;
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: 50%;
+    background: var(--cpd-color-bg-subtle-secondary);
+    cursor: pointer;
+    transition: transform 120ms ease;
+}
+.swatch:hover {
+    transform: scale(1.08);
+}
+.swatch[data-selected="true"] {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: var(--cpd-border-width-2);
+}
+.swatch:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: var(--cpd-border-width-2);
+}
+.tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    gap: var(--cpd-space-2x);
+}
+.tile {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-1x);
+    padding: var(--cpd-space-1-5x);
+    overflow: hidden;
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-2x);
+    cursor: pointer;
+    transition:
+        border-color 120ms ease,
+        background 120ms ease,
+        transform 120ms ease;
+}
+.tile:hover {
+    border-color: var(--cpd-color-border-interactive-hovered);
+    background: var(--cpd-color-bg-subtle-secondary);
+    transform: translateY(-1px);
+}
+.tile[data-selected="true"] {
+    border-color: var(--cpd-color-border-focused);
+    box-shadow: inset 0 0 0 1px var(--cpd-color-border-focused);
+}
+.tile:has(.tileRadio:focus-visible) {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: var(--cpd-border-width-2);
+}
+.tileRadio {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+.tileArt {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 72px;
+    overflow: hidden;
+    border-radius: var(--cpd-space-1-5x);
+    background: var(--cpd-color-bg-subtle-secondary);
+    font: var(--cpd-font-body-md-semibold);
+    text-align: center;
+}
+.tileLabel {
+    overflow: hidden;
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-xs-regular);
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.decorationArt {
+    position: relative;
+    display: flex;
+    border-radius: 50%;
+}
+.effectArt {
+    position: absolute;
+    inset: 0;
+    background: #171a2e;
+}
+.nameplateArt {
+    position: absolute;
+    inset: 0;
+}
+.linkRow,
+.boardRow {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--cpd-space-2x);
+}
+.boardThumb {
+    width: var(--cpd-space-12x);
+    height: var(--cpd-space-16x);
+    object-fit: cover;
+    border-radius: var(--cpd-space-1-5x);
+}
+.preview {
+    position: sticky;
+    inset-block-start: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-2x);
+}
+.previewHeading {
+    margin: 0;
+    color: var(--cpd-color-text-secondary);
+}
+.previewCard {
+    overflow: hidden;
+    margin-block-end: var(--cpd-space-4x);
+    background: var(--desktop-profile-surface);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-3x);
+}
+.previewCard h2,
+.previewCard p {
+    margin: 0;
+}
+.previewBody {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-3x);
+    padding: var(--cpd-space-2x) var(--cpd-space-6x) var(--cpd-space-5x);
+}
+.memberRow {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-3x);
+    box-sizing: border-box;
+    height: 48px;
+    padding: 6px 10px;
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-subtle-secondary);
+}
+.memberAvatar {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex: none;
+    border-radius: 50%;
+}
+.memberText {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.memberName {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-1-5x);
+    overflow: hidden;
+    font: var(--cpd-font-body-md-medium);
+    white-space: nowrap;
+}
+.memberStatus {
+    overflow: hidden;
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-xs-regular);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+/* Discord's "careful, you have unsaved changes" bar: it stays in view until the choice is made. */
+.saveBar {
+    position: sticky;
+    inset-block-end: var(--cpd-space-2x);
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--cpd-space-4x);
+    margin-block-start: var(--cpd-space-4x);
+    padding: var(--cpd-space-2x) var(--cpd-space-4x);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-canvas-default);
+    box-shadow: 0 var(--cpd-space-1x) var(--cpd-space-6x) rgb(0 0 0 / 34%);
+    animation: desktop-profile-editor-bar 220ms cubic-bezier(0.2, 1.2, 0.4, 1);
+}
+.saveBar p {
+    margin: 0;
+}
+.saveBar[data-state="error"] {
+    border-color: var(--cpd-color-border-critical-primary);
+    color: var(--cpd-color-text-critical-primary);
+}
+.saveActions {
+    display: flex;
+    flex: none;
+    gap: var(--cpd-space-2x);
+}
+@keyframes desktop-profile-editor-bar {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+}
+@container (max-width: 680px) {
+    .columns {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .preview {
+        position: static;
+        order: -1;
+    }
+    .form {
+        padding-block-end: 0;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .tile,
+    .swatch,
+    .input {
+        transition: none;
+    }
+    .tile:hover,
+    .swatch:hover {
+        transform: none;
+    }
+    .saveBar {
+        animation: none;
+    }
+}
