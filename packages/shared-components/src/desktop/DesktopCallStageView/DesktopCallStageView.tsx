@@ -117,6 +117,8 @@ export interface DesktopCallStageParticipantTile {
     readonly initialLetter: string;
     readonly local: boolean;
     readonly speaking: boolean;
+    /** Sound effects use a blue activity ring, taking precedence over speech. */
+    readonly soundboardPlaying?: boolean;
     readonly audioEnabled: boolean;
     readonly videoEnabled: boolean;
     readonly deafened: boolean;
@@ -406,6 +408,7 @@ function ParticipantSurface({
             data-video={tile.videoEnabled ? "true" : undefined}
             data-participant-id={tile.userId}
             data-speaking={tile.speaking ? "true" : undefined}
+            data-soundboard={tile.soundboardPlaying || undefined}
             data-testid="videoTile"
             onMouseEnter={() => onHover(tile.id)}
             onMouseLeave={() => onHover(null)}

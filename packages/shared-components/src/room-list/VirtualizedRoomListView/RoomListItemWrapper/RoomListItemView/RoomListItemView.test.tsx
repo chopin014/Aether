@@ -154,6 +154,21 @@ describe("<RoomListItemView />", () => {
         expect(document.querySelector("[data-speaking]")).toBeNull();
     });
 
+    it("marks soundboard playback separately while the participant is also speaking", () => {
+        const participant = {
+            userId: "@alice:example.org",
+            name: "Alice",
+            isSpeaking: true,
+            isSoundboardPlaying: true,
+        };
+        const { rerender } = render(<DesktopVoiceParticipantSpeaking callParticipants={[participant]} />);
+        expect(screen.getByRole("button", { name: "Alice (speaking)" })).toHaveAttribute("data-soundboard", "true");
+        rerender(
+            <DesktopVoiceParticipantSpeaking callParticipants={[{ ...participant, isSoundboardPlaying: false }]} />,
+        );
+        expect(screen.getByRole("button", { name: "Alice (speaking)" })).not.toHaveAttribute("data-soundboard");
+    });
+
     it("clears the speaking indicator when a participant stops talking", () => {
         const participants = [{ userId: "@alice:example.org", name: "Alice", isSpeaking: true }];
         const { rerender } = render(<DesktopVoiceParticipantSpeaking callParticipants={participants} />);

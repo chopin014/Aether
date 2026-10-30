@@ -34,6 +34,10 @@ export type DesktopVoiceDevice = VoiceVideoDevice;
 export interface DesktopVoiceControlsViewSnapshot {
     /** Shared soundboard for the connected call. */
     soundboard?: SoundboardViewModel;
+    /** Local microphone activity, smoothed by the call engine. */
+    speaking?: boolean;
+    /** Local soundboard audio is playing. */
+    soundboardPlaying?: boolean;
     microphoneMuted: boolean;
     deafened: boolean;
     /** Whether our camera is on in the connected call. */

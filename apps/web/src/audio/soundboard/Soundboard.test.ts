@@ -92,6 +92,30 @@ describe("soundboard playback", () => {
         );
         return { pause, play, sink, elements, load, release };
     }
+    it("tracks actual playback through end, restart, stop, failure and the duration limit", async () => {
+        const { elements, play } = playback();
+        const client = {} as import("matrix-js-sdk/src/matrix").MatrixClient;
+        const audio = new SoundboardAudio();
+        const ended = vi.fn();
+        const started = vi.fn(() => ended);
+        await audio.play(client, "/first.wav", 1, "", started);
+        expect(started).toHaveBeenCalledOnce();
+        elements[0].onended?.();
+        expect(ended).toHaveBeenCalledOnce();
+        await audio.play(client, "/first.wav", 1, "", started);
+        await audio.play(client, "/first.wav", 1, "", started);
+        expect(ended).toHaveBeenCalledTimes(2);
+        audio.stop();
+        expect(ended).toHaveBeenCalledTimes(3);
+        play.mockRejectedValueOnce(new Error("device"));
+        await expect(audio.play(client, "/first.wav", 1, "", started)).rejects.toThrow("device");
+        expect(started).toHaveBeenCalledTimes(3);
+        await audio.play(client, "/first.wav", 1, "", started);
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(ended).toHaveBeenCalledTimes(4);
+        audio.dispose();
+    });
+
     it("uses the selected speaker, clamps volume, and stops after ten seconds", async () => {
         const { pause, play, sink, elements } = playback();
         const audio = new SoundboardAudio();

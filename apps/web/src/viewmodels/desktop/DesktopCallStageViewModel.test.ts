@@ -7,6 +7,9 @@ Please see LICENSE in the repository root for full details.
 
 // @vitest-environment happy-dom
 
+// This transport fixture needs real event subscription and cleanup.
+// oxlint-disable-next-line no-restricted-imports
+import { EventEmitter } from "events";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { MatrixClient } from "matrix-js-sdk/src/matrix";
 
@@ -19,7 +22,7 @@ import type {
     AetherScreenShareMediaItem,
     AetherVideoAttachmentHandle,
 } from "../../components/views/voip/AetherCallPresentationTypes";
-import type { ElementCall } from "../../models/Call";
+import { CallEvent, type ElementCall } from "../../models/Call";
 import SettingsStore from "../../settings/SettingsStore";
 import { DesktopVoicePipeline } from "../../audio/desktop/DesktopVoicePipeline";
 import MediaDeviceHandler, { MediaDeviceKindEnum } from "../../MediaDeviceHandler";
@@ -126,14 +129,15 @@ describe("DesktopCallStageViewModel", () => {
         getHomeserverUrl: () => "https://matrix.example.org",
     } as unknown as MatrixClient;
 
-    const mockCall = {
+    const mockCall = Object.assign(new EventEmitter(), {
+        soundboardUserIds: new Set<string>(),
         roomId: "!voice:example.org",
         setLocalLeavePending: vi.fn(),
         widget: {
             id: "widget-1",
             roomId: "!voice:example.org",
         },
-    } as unknown as ElementCall;
+    }) as unknown as ElementCall;
 
     beforeEach(() => {
         vi.restoreAllMocks();
@@ -387,7 +391,17 @@ describe("DesktopCallStageViewModel", () => {
         expect(vm.getSnapshot().participants[0].speaking).toBe(true);
         expect(vm.getSnapshot().participants[0].video).toBe(stableVideoHandle);
         expect(vm.getSnapshot().participants[0].encryptionStatus).toBe("key_missing");
+        const soundboardUsers = mockCall.soundboardUserIds as Set<string>;
+        soundboardUsers.add(participant.userId);
+        mockCall.emit(CallEvent.SoundboardUsers);
+        expect(vm.getSnapshot().participants[0].soundboardPlaying).toBe(true);
+        expect(vm.getSnapshot().participants[0].video).toBe(stableVideoHandle);
+        soundboardUsers.clear();
+        mockCall.emit(CallEvent.SoundboardUsers);
+        expect(vm.getSnapshot().participants[0].soundboardPlaying).toBeUndefined();
+        const listeners = mockCall.listenerCount(CallEvent.SoundboardUsers);
         vm.dispose();
+        expect(mockCall.listenerCount(CallEvent.SoundboardUsers)).toBe(listeners - 1);
     });
 
     it("controls remote screen share audio volume independently of participant microphone volume", () => {

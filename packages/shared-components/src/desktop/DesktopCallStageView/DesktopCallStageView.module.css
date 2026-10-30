@@ -484,8 +484,24 @@ Please see LICENSE in the repository root for full details.
     transition: box-shadow 100ms ease-out;
 }
 
-.tile[data-speaking="true"] .avatarCircle {
-    box-shadow: 0 0 0 3px var(--cpd-color-bg-success-rest);
+/* Keep the halo inside the avatar, matching the channel list and account dock. */
+.avatarCircle {
+    position: relative;
+
+    &::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        transition: box-shadow 50ms ease-out;
+    }
+}
+
+.tile[data-speaking="true"] .avatarCircle::after {
+    box-shadow:
+        inset 0 0 0 var(--cpd-border-width-2) var(--cpd-color-border-success-primary),
+        inset 0 0 0 calc(var(--cpd-border-width-2) + var(--cpd-border-width-1)) var(--cpd-color-bg-canvas-default);
 }
 
 .avatarImage {
@@ -1174,10 +1190,6 @@ Please see LICENSE in the repository root for full details.
     opacity: 1;
 }
 
-.stage[data-presentation="conversation"][data-audio-only="true"] .tile[data-speaking="true"] .avatarCircle {
-    box-shadow: 0 0 0 3px var(--cpd-color-border-success-subtle);
-}
-
 /*
  * Someone being called: their avatar waits at half strength while a soft pulse spreads from behind it, until they
  * join and take their place as a participant, or the ringing stops.
@@ -1247,5 +1259,30 @@ Please see LICENSE in the repository root for full details.
         > .avatarCircle {
             animation: none;
         }
+    }
+}
+
+.tile[data-soundboard="true"] {
+    border-color: var(--cpd-color-blue-900);
+    box-shadow: 0 0 0 1px var(--cpd-color-blue-900);
+}
+
+.tile[data-soundboard="true"] .avatarCircle::after {
+    box-shadow:
+        inset 0 0 0 var(--cpd-border-width-2) var(--cpd-color-blue-900),
+        inset 0 0 0 calc(var(--cpd-border-width-2) + var(--cpd-border-width-1)) var(--cpd-color-bg-canvas-default);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .avatarCircle::after {
+        transition: none;
+    }
+}
+
+@media (forced-colors: active) {
+    .tile[data-speaking="true"] .avatarCircle::after,
+    .tile[data-soundboard="true"] .avatarCircle::after {
+        outline: var(--cpd-border-width-2) solid Highlight;
+        outline-offset: calc(-1 * var(--cpd-border-width-2));
     }
 }

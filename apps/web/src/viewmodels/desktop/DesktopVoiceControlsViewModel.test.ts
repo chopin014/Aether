@@ -92,6 +92,7 @@ describe("DesktopVoiceControlsViewModel", () => {
             call.emit(CallEvent.Participants, new Map(), new Map());
         });
         // This transport fixture skips the constructor that initializes speaking state.
+        Object.defineProperty(call, "soundboardUserIds", { value: new Set<string>(), writable: true });
         Object.defineProperty(call, "speakingUserIds", { value: new Set<string>(), writable: true });
         Object.defineProperty(call, "_screenShare", { value: NO_SCREEN_SHARE, writable: true });
         Object.defineProperty(call, "_connectionStats", {
@@ -126,6 +127,21 @@ describe("DesktopVoiceControlsViewModel", () => {
         store.emit(CallStoreEvent.ConnectedCalls);
         await vi.waitFor(() => expect(vm.getSnapshot().busy).toBe(false));
     }
+    it("follows local microphone and soundboard activity for the account avatar", () => {
+        store.connectedCalls.add(call);
+        store.emit(CallStoreEvent.ConnectedCalls);
+        const userId = client.getSafeUserId();
+        (call.speakingUserIds as Set<string>).add(userId);
+        call.emit(CallEvent.SpeakingUsers, call.speakingUserIds);
+        expect(vm.getSnapshot().speaking).toBe(true);
+        (call.soundboardUserIds as Set<string>).add(userId);
+        call.emit(CallEvent.SoundboardUsers);
+        expect(vm.getSnapshot().soundboardPlaying).toBe(true);
+        store.connectedCalls.clear();
+        store.emit(CallStoreEvent.ConnectedCalls);
+        expect(vm.getSnapshot()).toMatchObject({ speaking: false, soundboardPlaying: false });
+    });
+
     it("hides the dock immediately while hangup is pending and ignores late transport updates", async () => {
         await connect();
         vm.setPanel("noise");

@@ -35,7 +35,7 @@ export function DesktopAccountDockView({ vm, voice }: DesktopAccountDockViewProp
         <div className={styles.dock} role="group" aria-label={_t("menus|user_menu|title")}>
             {voice && <DesktopVoiceConnectionView vm={voice} />}
             <div className={styles.identityRow}>
-                <UserMenuView vm={vm} presentation="dock" />
+                {voice ? <VoiceIdentity vm={vm} voice={voice} /> : <UserMenuView vm={vm} presentation="dock" />}
                 {voice && <DesktopVoiceControlsView vm={voice} />}
                 {actions.openSettings && (
                     <IconButton
@@ -48,5 +48,17 @@ export function DesktopAccountDockView({ vm, voice }: DesktopAccountDockViewProp
                 )}
             </div>
         </div>
+    );
+}
+
+/** Keep the account avatar subscribed to the same activity as the channel participants. */
+function VoiceIdentity({ vm, voice }: Required<DesktopAccountDockViewProps>): JSX.Element {
+    const { speaking, soundboardPlaying } = useViewModel(voice);
+    return (
+        <UserMenuView
+            vm={vm}
+            presentation="dock"
+            voiceActivity={soundboardPlaying ? "soundboard" : speaking ? "speaking" : undefined}
+        />
     );
 }

@@ -115,6 +115,7 @@ export enum CallEvent {
     CallTypeChanged = "call_type_changed",
     DeviceMute = "device_mute",
     SpeakingUsers = "speaking_users",
+    SoundboardUsers = "soundboard_users",
     ScreenShare = "screen_share",
     VoiceStates = "voice_states",
     ConnectionStats = "connection_stats",
@@ -133,6 +134,7 @@ interface CallEventHandlerMap {
     [CallEvent.CallTypeChanged]: (callType: CallType) => void;
     [CallEvent.DeviceMute]: (state: DeviceMuteState) => void;
     [CallEvent.SpeakingUsers]: (userIds: ReadonlySet<string>) => void;
+    [CallEvent.SoundboardUsers]: () => void;
     [CallEvent.ScreenShare]: (state: ScreenShareState) => void;
     [CallEvent.VoiceStates]: (states: ReadonlyMap<string, VoiceState>) => void;
     [CallEvent.ConnectionStats]: (stats: CallConnectionStats) => void;
@@ -196,7 +198,11 @@ export abstract class Call extends TypedEventEmitter<CallEvent, CallEventHandler
     protected set connectionState(value: ConnectionState) {
         const prevValue = this._connectionState;
         this._connectionState = value;
-        if (value === ConnectionState.Disconnected) this.speakingUserIds = new Set();
+        if (value === ConnectionState.Disconnected) {
+            this.speakingUserIds = new Set();
+            this.soundboardPlaybacks.clear();
+            this.emit(CallEvent.SoundboardUsers);
+        }
         this.emit(CallEvent.ConnectionState, value, prevValue);
     }
 
@@ -218,6 +224,24 @@ export abstract class Call extends TypedEventEmitter<CallEvent, CallEventHandler
         this.speakingUserIds = new Set([...this.speakingUserIds].filter((userId) => userIds.has(userId)));
         this.emit(CallEvent.Participants, value, prevValue);
     }
+
+    private readonly soundboardPlaybacks = new Map<symbol, string>();
+
+    /** Users with soundboard audio currently playing on this client. */
+    public get soundboardUserIds(): ReadonlySet<string> {
+        return new Set(this.soundboardPlaybacks.values());
+    }
+
+    /** Track one playback independently, including overlapping sounds from the same user. */
+    public beginSoundboardPlayback = (userId: string): (() => void) => {
+        if (!this.connected || this.destroyed) return () => {};
+        const token = Symbol();
+        this.soundboardPlaybacks.set(token, userId);
+        this.emit(CallEvent.SoundboardUsers);
+        return () => {
+            if (this.soundboardPlaybacks.delete(token)) this.emit(CallEvent.SoundboardUsers);
+        };
+    };
 
     private _speakingUserIds: ReadonlySet<string> = new Set();
 

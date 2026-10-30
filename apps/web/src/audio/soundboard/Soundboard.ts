@@ -105,7 +105,10 @@ export class SoundboardAudio {
     private queue: string[] = [];
     private preparing = 0;
     private disposed = false;
-    private readonly playing = new Map<string, { audio?: HTMLAudioElement; timeout?: ReturnType<typeof setTimeout> }>();
+    private readonly playing = new Map<
+        string,
+        { audio?: HTMLAudioElement; ended?: () => void; timeout?: ReturnType<typeof setTimeout> }
+    >();
 
     /** Stop all current and pending playback while retaining prepared sounds for the next click. */
     public stop = (): void => {
@@ -117,8 +120,10 @@ export class SoundboardAudio {
         if (!playback) return;
         this.playing.delete(source);
         clearTimeout(playback.timeout);
+        playback.ended?.();
         if (playback.audio) {
             playback.audio.onended = null;
+            playback.audio.onerror = null;
             playback.audio.pause();
         }
     }
@@ -263,10 +268,19 @@ export class SoundboardAudio {
         return { audio, objectUrl };
     }
 
-    /** Overlap different sounds; restart the same sound without waiting for its previous playback. */
-    public async play(client: MatrixClient, source: string, volume: number, output: string): Promise<void> {
+    /**
+     * Overlap different sounds; restart the same sound without waiting for its previous playback.
+     * onStarted returns a cleanup for activity indicators, called whenever that playback ends or stops.
+     */
+    public async play(
+        client: MatrixClient,
+        source: string,
+        volume: number,
+        output: string,
+        onStarted?: () => () => void,
+    ): Promise<void> {
         this.stopSource(source);
-        const playback: { audio?: HTMLAudioElement; timeout?: ReturnType<typeof setTimeout> } = {};
+        const playback: { audio?: HTMLAudioElement; ended?: () => void; timeout?: ReturnType<typeof setTimeout> } = {};
         this.playing.set(source, playback);
         try {
             const { audio } = await this.getAudio(client, source);
@@ -278,6 +292,10 @@ export class SoundboardAudio {
             if (this.playing.get(source) !== playback) return;
             await audio.play();
             if (this.playing.get(source) !== playback) return;
+            playback.ended = onStarted?.();
+            audio.onerror = () => {
+                if (this.playing.get(source) === playback) this.stopSource(source);
+            };
             audio.onended = () => {
                 if (this.playing.get(source) === playback) this.stopSource(source);
             };
