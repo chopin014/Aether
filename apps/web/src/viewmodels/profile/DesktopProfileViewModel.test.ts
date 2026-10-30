@@ -418,4 +418,84 @@ describe("DesktopProfileViewModel", () => {
             expect(onClose).toHaveBeenCalled();
         });
     });
+
+    describe("rich profile", () => {
+        const showAppearance = (): void => {
+            vi.mocked(SettingsStore.getValue).mockImplementation(
+                ((name: string) => name === "showProfileAppearance") as typeof SettingsStore.getValue,
+            );
+        };
+        const rich = {
+            "io.aether.profile": {
+                decoration: "halo",
+                effect: "snow",
+                links: [{ label: "Site", url: "https://example.org/" }],
+                board: { title: "Games", items: [{ title: "Squad" }] },
+            },
+            "io.fsky.nyx.pronouns": [{ summary: "they/them" }],
+            "gay.fomx.biography": { "m.text": [{ body: "Hello" }] },
+            "org.matrix.msc4426.status": { emoji: "🎧", text: "Listening" },
+        };
+
+        it("shows the profile once it arrives, however the status flag is set", async () => {
+            showAppearance();
+            client.doesServerSupportExtendedProfiles = vi.fn().mockResolvedValue(true);
+            client.getExtendedProfile = vi.fn().mockResolvedValue(rich);
+            const vm = create({ full: true });
+            expect(vm.getSnapshot().appearance).toBeUndefined();
+            await vi.waitFor(() => expect(vm.getSnapshot().bio).toBe("Hello"));
+            expect(vm.getSnapshot()).toMatchObject({
+                pronouns: "they/them",
+                status: { emoji: "🎧", text: "Listening" },
+                appearance: { decoration: "halo", effect: "snow" },
+                links: [{ label: "Site", host: "example.org" }],
+                board: { title: "Games" },
+            });
+        });
+
+        it("hides styling for ignored people and when the viewer turned it off", async () => {
+            client.doesServerSupportExtendedProfiles = vi.fn().mockResolvedValue(true);
+            client.getExtendedProfile = vi.fn().mockResolvedValue(rich);
+            const viewer = create();
+            await flush();
+            await flush();
+            expect(viewer.getSnapshot().appearance).toBeUndefined();
+
+            showAppearance();
+            vi.mocked(client.isUserIgnored).mockReturnValue(true);
+            const ignoring = create();
+            await flush();
+            expect(ignoring.getSnapshot().appearance).toBeUndefined();
+            expect(ignoring.getSnapshot().bio).toBeUndefined();
+        });
+
+        it("saves a private note and reads it back into the full profile", async () => {
+            client.getAccountData = vi
+                .fn()
+                .mockReturnValue({ getContent: () => ({ notes: { [member.userId]: "old" } }) });
+            client.setAccountData = vi.fn().mockResolvedValue(undefined);
+            const vm = create({ full: true });
+            expect(vm.getSnapshot().note).toBe("old");
+            vm.setNote("new");
+            await flush();
+            expect(client.setAccountData).toHaveBeenCalledWith("io.aether.user_notes", {
+                notes: { [member.userId]: "new" },
+            });
+        });
+
+        it("offers no notes in the popout, or about yourself", () => {
+            expect(create({ full: false }).getSnapshot().note).toBeUndefined();
+            const self = new RoomMember(room.roomId, client.getSafeUserId());
+            expect(create({ full: true, member: self }).getSnapshot().note).toBeUndefined();
+        });
+
+        it("opens the profile editor and closes the card", () => {
+            create().editProfile();
+            expect(onClose).toHaveBeenCalled();
+            expect(defaultDispatcher.dispatch).toHaveBeenCalledWith({
+                action: Action.ViewUserSettings,
+                initialTabId: "USER_PROFILE_TAB",
+            });
+        });
+    });
 });

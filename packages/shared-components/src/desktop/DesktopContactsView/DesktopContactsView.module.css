@@ -151,17 +151,20 @@ Please see LICENSE in the repository root for full details.
     position: absolute;
     inset-inline-end: calc(-1 * var(--cpd-space-0-5x));
     inset-block-end: 0;
-    width: var(--cpd-space-2x);
-    height: var(--cpd-space-2x);
-    border: var(--cpd-space-0-5x) solid var(--cpd-color-bg-canvas-default);
+    display: flex;
+    width: var(--cpd-space-3x);
+    height: var(--cpd-space-3x);
+    padding: var(--cpd-space-0-5x);
+    box-sizing: content-box;
     border-radius: 50%;
-    background: var(--cpd-color-icon-tertiary);
+    background: var(--cpd-color-bg-canvas-default);
+    color: var(--cpd-color-icon-tertiary);
 }
 .presence[data-presence="online"] {
-    background: var(--cpd-color-icon-success-primary);
+    color: var(--cpd-color-icon-success-primary);
 }
 .presence[data-presence="unavailable"] {
-    background: var(--cpd-color-icon-warning-primary);
+    color: var(--cpd-color-icon-warning-primary);
 }
 .actions {
     display: flex;

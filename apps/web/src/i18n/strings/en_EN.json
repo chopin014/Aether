@@ -830,6 +830,15 @@
         "members": {
             "invited": "Invited"
         },
+        "profile_editor": {
+            "error_forbidden": "Your homeserver does not allow this change.",
+            "error_generic": "Your profile could not be saved. What went through is kept, so you can try again.",
+            "error_image_size": "That image is larger than 10 MB.",
+            "error_image_type": "Choose a PNG, JPEG, GIF or WebP image.",
+            "error_link": "One of your links is not a valid web address.",
+            "error_rate_limit": "Your homeserver asked to slow down. Try again in a moment.",
+            "error_too_large": "Your profile is larger than your homeserver allows. Remove some links or board items."
+        },
         "share_picker": {
             "title": "Share your screen"
         },
@@ -2409,6 +2418,12 @@
             "published_aliases_explainer_space": "Published addresses can be used by anyone at any account provider to join your server.",
             "published_aliases_section": "Published Addresses",
             "save": "Save Changes",
+            "space_tag": "Server tag",
+            "space_tag_colour": "Colour",
+            "space_tag_description": "A short label members can wear beside their name, up to 4 characters.",
+            "space_tag_emoji": "Emoji",
+            "space_tag_error": "The tag could not be saved.",
+            "space_tag_label": "Tag",
             "topic_field_label": "Room Topic"
         },
         "notifications": {
@@ -2989,6 +3004,10 @@
             "time_heading": "Displaying time",
             "user_timezone": "Set timezone"
         },
+        "profile_appearance": {
+            "dialog_title": "<strong>Settings:</strong> Profile",
+            "title": "Profile"
+        },
         "prompt_invite": "Prompt before sending invites to potentially invalid matrix IDs",
         "replace_plain_emoji": "Automatically replace plain text Emoji",
         "security": {
@@ -3143,6 +3162,7 @@
         "show_message_previews": "Show message previews",
         "show_nsfw_content": "Show NSFW content",
         "show_people_sections": "Show People as a section",
+        "show_profile_appearance": "Show other people's banners, themes, decorations and effects",
         "show_read_receipts": "Show read receipts sent by other users",
         "show_redaction_placeholder": "Show a placeholder for removed messages",
         "show_sections": "Show sections",

@@ -1,0 +1,409 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+/*
+ * Everything here animates only while an ancestor sets --profile-motion to running: a card that was just opened, or
+ * a hovered or focused member row. Colours are the artwork's own, so they stay the same in every Aether theme.
+ */
+
+.decoration {
+    position: absolute;
+    /* The artwork's avatar circle is 100 units of its 120 unit canvas. */
+    inset: -10%;
+    width: 120%;
+    height: 120%;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.spinSlow,
+.spinFast,
+.spinStep,
+.spinStepReverse {
+    transform-origin: 60px 60px;
+    animation: profile-spin 14s linear infinite var(--profile-motion, paused);
+}
+.spinFast {
+    animation-duration: 5s;
+}
+.spinStep {
+    animation-duration: 6s;
+    animation-timing-function: steps(12);
+}
+.spinStepReverse {
+    animation-direction: reverse;
+    animation-duration: 4s;
+    animation-timing-function: steps(8);
+}
+.flicker {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    animation: profile-flicker 1.1s ease-in-out infinite var(--profile-motion, paused);
+}
+.twinkle {
+    animation: profile-twinkle 2.4s ease-in-out infinite var(--profile-motion, paused);
+}
+.sway {
+    transform-box: fill-box;
+    transform-origin: 50% 50%;
+    animation: profile-sway 3.6s ease-in-out infinite var(--profile-motion, paused);
+}
+.bob {
+    animation: profile-bob 3s ease-in-out infinite var(--profile-motion, paused);
+}
+.twitch {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    animation: profile-twitch 4s ease-in-out infinite var(--profile-motion, paused);
+}
+
+@keyframes profile-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+@keyframes profile-flicker {
+    0%,
+    100% {
+        transform: scaleY(1) scaleX(1);
+    }
+    35% {
+        transform: scaleY(1.22) scaleX(0.9);
+    }
+    70% {
+        transform: scaleY(0.86) scaleX(1.08);
+    }
+}
+@keyframes profile-twinkle {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.25;
+    }
+}
+@keyframes profile-sway {
+    0%,
+    100% {
+        transform: rotate(-5deg);
+    }
+    50% {
+        transform: rotate(5deg);
+    }
+}
+@keyframes profile-bob {
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-3px);
+    }
+}
+@keyframes profile-twitch {
+    0%,
+    86%,
+    100% {
+        transform: rotate(0);
+    }
+    90% {
+        transform: rotate(-8deg);
+    }
+    94% {
+        transform: rotate(6deg);
+    }
+}
+
+/* Full-card effects */
+.effect {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    overflow: hidden;
+    border-radius: inherit;
+    pointer-events: none;
+}
+.particle {
+    position: absolute;
+    inset-inline-start: var(--x);
+    inset-block-start: -8%;
+    width: calc(2px + var(--size) * 4px);
+    height: calc(2px + var(--size) * 4px);
+    border-radius: 50%;
+    background: #ffffff;
+    opacity: 0;
+    animation: profile-fall var(--duration) linear var(--delay) infinite var(--profile-motion, paused);
+}
+.effect[data-effect="sakura"] .particle {
+    width: calc(6px + var(--size) * 6px);
+    height: calc(4px + var(--size) * 4px);
+    border-radius: 80% 10% 80% 10%;
+    background: #ffb3cf;
+}
+.effect[data-effect="rain"] .particle {
+    width: 1.5px;
+    height: calc(12px + var(--size) * 16px);
+    border-radius: 1px;
+    background: #bfe3ff;
+    animation-duration: calc(var(--duration) / 5);
+}
+.effect[data-effect="confetti"] .particle {
+    width: calc(4px + var(--size) * 3px);
+    height: calc(7px + var(--size) * 4px);
+    border-radius: 1px;
+    background: oklch(0.8 0.17 var(--hue));
+}
+.effect[data-effect="stars"] .particle,
+.effect[data-effect="fireflies"] .particle {
+    inset-block-start: var(--y);
+    animation-name: profile-glimmer;
+}
+.effect[data-effect="stars"] .particle {
+    width: calc(1.5px + var(--size) * 3px);
+    height: calc(1.5px + var(--size) * 3px);
+    box-shadow: 0 0 6px #ffffff;
+}
+.effect[data-effect="fireflies"] .particle {
+    background: #eaff7a;
+    box-shadow: 0 0 10px 2px #d9ff4a;
+    animation-name: profile-firefly;
+}
+.effect[data-effect="embers"] .particle {
+    inset-block-start: auto;
+    inset-block-end: -8%;
+    background: #ff9a3c;
+    box-shadow: 0 0 8px #ff5a1f;
+    animation-name: profile-rise;
+}
+.auroraBand {
+    position: absolute;
+    inset-inline: -20%;
+    inset-block-start: -10%;
+    height: 45%;
+    background: linear-gradient(90deg, transparent, #2be8a6 30%, #6f6cff 65%, transparent);
+    opacity: 0.32;
+    filter: blur(24px);
+    animation: profile-aurora 9s ease-in-out infinite alternate var(--profile-motion, paused);
+}
+.auroraBand:nth-child(2) {
+    inset-block-start: 8%;
+    background: linear-gradient(90deg, transparent, #ff5ad1 35%, #2bc8ff 70%, transparent);
+    animation-duration: 12s;
+    animation-direction: alternate-reverse;
+}
+.auroraBand:nth-child(3) {
+    inset-block-start: 26%;
+    opacity: 0.2;
+    animation-duration: 16s;
+}
+
+@keyframes profile-fall {
+    0% {
+        opacity: 0;
+        transform: translate(0, 0) rotate(0);
+    }
+    8%,
+    88% {
+        opacity: 0.9;
+    }
+    100% {
+        opacity: 0;
+        transform: translate(var(--drift), 760px) rotate(320deg);
+    }
+}
+@keyframes profile-rise {
+    0% {
+        opacity: 0;
+        transform: translate(0, 0) scale(1);
+    }
+    12% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+        transform: translate(var(--drift), -520px) scale(0.3);
+    }
+}
+@keyframes profile-glimmer {
+    0%,
+    100% {
+        opacity: 0.1;
+        transform: scale(0.7);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.15);
+    }
+}
+@keyframes profile-firefly {
+    0%,
+    100% {
+        opacity: 0;
+        transform: translate(0, 0);
+    }
+    50% {
+        opacity: 1;
+        transform: translate(var(--drift), calc(var(--drift) * -0.6));
+    }
+}
+@keyframes profile-aurora {
+    from {
+        transform: translateX(-12%) skewY(-4deg);
+    }
+    to {
+        transform: translateX(12%) skewY(4deg);
+    }
+}
+
+/* Nameplates */
+.nameplate {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: inherit;
+    pointer-events: none;
+    mask-image: linear-gradient(to left, #000000 20%, transparent 68%);
+}
+.nameplateImage {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: right center;
+}
+.plateDrift,
+.plateDriftReverse {
+    animation: profile-plate-drift 7s ease-in-out infinite alternate var(--profile-motion, paused);
+}
+.plateDriftReverse {
+    animation-direction: alternate-reverse;
+}
+.plateFall {
+    animation: profile-plate-fall 3.4s linear infinite var(--profile-motion, paused);
+}
+.plateRise {
+    animation: profile-plate-rise 2.6s ease-out infinite var(--profile-motion, paused);
+}
+.platePulse {
+    stroke-dasharray: 14 86;
+    animation: profile-plate-pulse 2.8s linear infinite var(--profile-motion, paused);
+}
+
+@keyframes profile-plate-drift {
+    from {
+        transform: translateX(-10px);
+    }
+    to {
+        transform: translateX(10px);
+    }
+}
+@keyframes profile-plate-fall {
+    from {
+        opacity: 1;
+        transform: translate(0, 0) rotate(0);
+    }
+    to {
+        opacity: 0;
+        transform: translate(-22px, 48px) rotate(180deg);
+    }
+}
+@keyframes profile-plate-rise {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-40px);
+    }
+}
+@keyframes profile-plate-pulse {
+    to {
+        stroke-dashoffset: -100;
+    }
+}
+
+/* Styled names */
+/*
+ * Inline, so a styled name shares its line and baseline with plain text. As an inline-block it made the line taller,
+ * which pushed the name above the centre of its member row.
+ */
+.name {
+    overflow-wrap: anywhere;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+}
+.name[data-font="pixel"] {
+    font-family: "Press Start 2P", var(--cpd-font-family-sans);
+    font-size: 0.8em;
+}
+.name[data-font="medieval"] {
+    font-family: "Pirata One", var(--cpd-font-family-sans);
+    font-size: 1.14em;
+    font-weight: 400;
+}
+.name[data-font="script"] {
+    font-family: Pacifico, var(--cpd-font-family-sans);
+    font-weight: 400;
+}
+.name[data-font="scifi"] {
+    font-family: Orbitron, var(--cpd-font-family-sans);
+    font-size: 0.94em;
+}
+.name[data-font="rounded"] {
+    font-family: Fredoka, var(--cpd-font-family-sans);
+}
+.name[data-font="horror"] {
+    font-family: Creepster, var(--cpd-font-family-sans);
+    font-size: 1.12em;
+    font-weight: 400;
+    letter-spacing: 0.03em;
+}
+.name[data-coloured="true"] {
+    color: var(--name-start);
+    /* A chosen colour has to survive every background: light and dark themes, banners and nameplates. */
+    filter: drop-shadow(0 0 1px rgb(0 0 0 / 60%));
+}
+.name[data-name-effect="gradient"],
+.name[data-name-effect="shimmer"] {
+    color: transparent;
+    background-image: linear-gradient(90deg, var(--name-start), var(--name-end), var(--name-start));
+    background-size: 200% 100%;
+    background-clip: text;
+}
+.name[data-name-effect="shimmer"] {
+    animation: profile-shimmer 4s linear infinite var(--profile-motion, paused);
+}
+.name[data-name-effect="neon"] {
+    color: var(--name-start);
+    text-shadow:
+        0 0 6px var(--name-end),
+        0 0 14px var(--name-end);
+}
+.name[data-name-effect="outline"] {
+    color: var(--name-start);
+    -webkit-text-stroke: 0.5px var(--name-end);
+}
+
+@keyframes profile-shimmer {
+    to {
+        background-position: -200% 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .decoration *,
+    .effect *,
+    .nameplate *,
+    .name {
+        animation: none !important;
+    }
+    .effect {
+        display: none;
+    }
+}

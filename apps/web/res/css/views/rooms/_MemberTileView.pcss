@@ -6,6 +6,7 @@ Please see LICENSE files in the repository root for full details.
 */
 
 .mx_MemberTileView {
+    position: relative;
     display: flex;
     padding: var(--cpd-space-3x) var(--cpd-space-3x) var(--cpd-space-3x) var(--cpd-space-4x);
     box-sizing: border-box;
@@ -22,6 +23,10 @@ Please see LICENSE files in the repository root for full details.
     .mx_MemberTileView_left {
         flex-basis: 209px;
         flex-grow: 1;
+        min-width: 0;
+    }
+
+    .mx_MemberTileView_text {
         min-width: 0;
     }
 

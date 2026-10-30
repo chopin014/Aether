@@ -20,6 +20,7 @@ import classNames from "classnames";
 
 import { useViewModel, type ViewModel } from "../../core/viewmodel";
 import { useI18n } from "../../core/i18n/i18nContext";
+import { PresenceGlyph } from "../../presence/PresenceGlyph";
 import styles from "./DesktopContactsView.module.css";
 
 /** The contacts tabs are backed by Matrix DMs, invitations and ignored users. */
@@ -171,7 +172,9 @@ export function DesktopContactsView({ vm }: { vm: DesktopContactsViewModel }): J
                                                 type="round"
                                             />
                                             {!contact.invited && !contact.blocked && contact.presence !== "unknown" && (
-                                                <span className={styles.presence} data-presence={contact.presence} />
+                                                <span className={styles.presence} data-presence={contact.presence}>
+                                                    <PresenceGlyph status={contact.presence} />
+                                                </span>
                                             )}
                                         </span>
                                         <span className={styles.names}>

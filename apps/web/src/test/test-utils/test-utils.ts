@@ -121,6 +121,8 @@ export function createTestClient(): MatrixClient {
             setPendingEvents: vi.fn().mockResolvedValue(undefined),
             storeRoom: vi.fn(),
             removeRoom: vi.fn(),
+            getUserProfile: vi.fn().mockResolvedValue(undefined),
+            storeUserProfiles: vi.fn().mockResolvedValue(undefined),
         },
 
         getCrypto: vi.fn().mockReturnValue({
@@ -372,6 +374,7 @@ export function createTestClient(): MatrixClient {
         setRoomTag: vi.fn().mockResolvedValue({}),
         getExtendedProfileProperty: vi.fn(),
         setExtendedProfileProperty: vi.fn().mockResolvedValue(undefined),
+        deleteExtendedProfileProperty: vi.fn().mockResolvedValue(undefined),
         doesServerSupportExtendedProfiles: vi.fn(),
     } as unknown as MatrixClient;
 

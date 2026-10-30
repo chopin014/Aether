@@ -7,9 +7,13 @@ Please see LICENSE files in the repository root for full details.
 
 import React, { type JSX } from "react";
 import { type RoomMember } from "matrix-js-sdk/src/matrix";
+import { ProfileDecoration } from "@element-hq/web-shared-components";
 
 import MemberAvatar from "../../avatars/MemberAvatar";
+import { useRichRowProfile } from "../../../../profile/useRichProfile";
 import { type EventTileSenderSnapshot } from "../../../../viewmodels/room/timeline/event-tile/EventTileViewModel";
+
+const MIN_DECORATED_AVATAR_PX = 24;
 
 /**
  * Props for the {@link EventTileAvatarAdapter} component.
@@ -29,17 +33,27 @@ export function EventTileAvatarAdapter({
     senderSnapshot,
 }: Readonly<EventTileAvatarAdapterProps>): JSX.Element | null {
     const { avatarSize } = senderSnapshot.profileState;
+    const decoration = useRichRowProfile(avatarMember?.userId)?.appearance?.decoration;
 
     if (!avatarMember || avatarSize === null) {
         return null;
     }
 
-    return (
+    const avatar = (
         <MemberAvatar
             member={avatarMember}
             size={avatarSize}
             viewUserOnClick={senderSnapshot.viewUserOnClick}
             forceHistorical={senderSnapshot.forceHistoricalAvatar}
         />
+    );
+    // The tiny avatars beside state events like "Robin joined the room" have no room for a frame.
+    return decoration && Number.parseInt(avatarSize, 10) >= MIN_DECORATED_AVATAR_PX ? (
+        <span className="mx_EventTileAvatar_decorated">
+            {avatar}
+            <ProfileDecoration id={decoration} />
+        </span>
+    ) : (
+        avatar
     );
 }

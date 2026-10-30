@@ -10,6 +10,12 @@ import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
 import "@fontsource/inter/700.css";
+import "@fontsource/press-start-2p/latin-400.css";
+import "@fontsource/pirata-one/latin-400.css";
+import "@fontsource/pacifico/latin-400.css";
+import "@fontsource/orbitron/latin-500.css";
+import "@fontsource/fredoka/latin-500.css";
+import "@fontsource/creepster/latin-400.css";
 
 import "./compound.css";
 import "./app-web-root.css";

@@ -16,6 +16,14 @@ import "@fontsource/inter/600-italic.css";
 import "@fontsource/inter/700.css";
 import "@fontsource/inter/700-italic.css";
 
+// Display name styles. The browser only downloads a font once someone's name actually uses it.
+import "@fontsource/press-start-2p/latin-400.css";
+import "@fontsource/pirata-one/latin-400.css";
+import "@fontsource/pacifico/latin-400.css";
+import "@fontsource/orbitron/latin-500.css";
+import "@fontsource/fredoka/latin-500.css";
+import "@fontsource/creepster/latin-400.css";
+
 import "@fontsource/fira-code/latin-ext-400.css";
 import "@fontsource/fira-code/latin-400.css";
 import "@fontsource/fira-code/latin-ext-700.css";

@@ -8,6 +8,7 @@ Please see LICENSE files in the repository root for full details.
 
 export enum UserTab {
     Account = "USER_ACCOUNT_TAB",
+    Profile = "USER_PROFILE_TAB",
     Appearance = "USER_APPEARANCE_TAB",
     Notifications = "USER_NOTIFICATIONS_TAB",
     Preferences = "USER_PREFERENCES_TAB",
