@@ -439,11 +439,23 @@ test(
                 await settle(memberPage);
                 await memberPage.mouse.move(0, 0);
             }
+            for (const memberPage of [page, bobPage]) {
+                await expect(memberPage.getByText("Media is not end-to-end encrypted", { exact: true })).toHaveCount(0);
+            }
             await page.screenshot({ path: testInfo.outputPath("aether-camera-and-screen-local.png") });
             await remoteScreen.hover({ force: true });
             await bobPage.screenshot({ path: testInfo.outputPath("aether-camera-and-screen-remote.png") });
             await bobPage.getByRole("button", { name: "Close", exact: true }).click();
             await remoteScreen.hover({ force: true });
+            const streamMute = bobPage.getByRole("button", { name: "Mute Alice's stream audio", exact: true });
+            await streamMute.hover();
+            const verticalVolume = bobPage.getByRole("slider", { name: "Stream volume for Alice", exact: true });
+            await expect(verticalVolume).toHaveAttribute("aria-orientation", "vertical");
+            await verticalVolume.press("Home");
+            for (let i = 0; i < 45; ++i) await verticalVolume.press("ArrowUp");
+            await expect.poll(() => playbackGains(bobPage)).toMatchObject({ microphone: [0.08], stream: [0.45] });
+            await verticalVolume.blur();
+            await streamMute.hover();
             await bobPage.screenshot({ path: testInfo.outputPath("aether-focused-stream.png") });
             const framesBeforeNavigation = await decodedVideoFrames(bobPage);
             const peersBeforeNavigation = await page.evaluate(
@@ -723,6 +735,9 @@ for (const camera of [false, true]) {
                 const roomId = await app.client.createRoom({
                     name: "Conversation",
                     is_direct: !camera,
+                    initial_state: [
+                        { type: "m.room.encryption", state_key: "", content: { algorithm: "m.megolm.v1.aes-sha2" } },
+                    ],
                     invite: [bob.userId],
                     power_level_content_override: { events: { "org.matrix.msc3401.call.member": 0 } },
                 });
@@ -754,8 +769,10 @@ for (const camera of [false, true]) {
                 expect(stageBounds!.y + stageBounds!.height).toBeLessThanOrEqual(timelineBounds!.y + 1);
                 expect(stageBounds!.height).toBeLessThan(400);
                 await expect(stage.getByTestId("call-control-camera")).toHaveAttribute("aria-pressed", String(camera));
-                // Bob is rung as a faded, pulsing avatar until he answers.
-                await expect(stage.getByRole("img", { name: "Calling Bob" })).toBeVisible({ timeout: 30_000 });
+                // Direct calls ring Bob; a group video call is available for members to join.
+                if (!camera) {
+                    await expect(stage.getByRole("img", { name: "Calling Bob" })).toBeVisible({ timeout: 30_000 });
+                }
                 await page.screenshot({ path: testInfo.outputPath("conversation-before-answer.png") });
                 await testInfo.attach("recipient-before-answer", {
                     body: await bobPage.locator("body").ariaSnapshot(),
@@ -774,6 +791,19 @@ for (const camera of [false, true]) {
                 } else {
                     await expect(stage.locator("video")).toHaveCount(0);
                 }
+                const separator = page.getByRole("separator", { name: "Resize call area", exact: true });
+                const beforeResize = await stage.boundingBox();
+                const edge = await separator.boundingBox();
+                await page.mouse.move(edge!.x + edge!.width / 2, edge!.y + edge!.height / 2);
+                await page.mouse.down();
+                await page.mouse.move(edge!.x + edge!.width / 2, edge!.y + edge!.height / 2 + 120, { steps: 12 });
+                await page.mouse.up();
+                await expect
+                    .poll(async () => (await stage.boundingBox())!.height)
+                    .toBeGreaterThan(beforeResize!.height + 90);
+                await expect(page.getByRole("region", { name: "Message composer" }).getByRole("textbox")).toBeVisible();
+                await expect.poll(() => decodedAudioEnergy(bobPage)).toBeGreaterThan(0);
+                await expect(stage.getByText("Media is not end-to-end encrypted", { exact: true })).toHaveCount(0);
                 await page.screenshot({
                     path: testInfo.outputPath(`conversation-${camera ? "video" : "voice"}.png`),
                 });
@@ -1021,12 +1051,14 @@ test("shows profile customisation in call tiles and keeps it when focusing a par
     app,
     user,
 }, testInfo) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
     await settle(page);
     await app.client.evaluate(async (client) => {
         await client.setExtendedProfileProperty("io.aether.profile", {
             v: 1,
             theme: { primary: "#19163b", accent: "#6327a0" },
-            decoration: "neon-ring",
+            decoration: "halo",
+            effect: "embers",
             name: { font: "pixel", effect: "none", colour: "#c09aff" },
         });
     });
@@ -1034,9 +1066,14 @@ test("shows profile customisation in call tiles and keeps it when focusing a par
         name: "Profile voice",
         creation_content: { type: "org.matrix.msc3417.call" },
     });
+    const textRoomId = await app.client.createRoom({ name: "Profile text" });
     await app.client.createSpace({
         name: "Profile calls",
-        initial_state: [{ type: "m.space.child", state_key: roomId, content: { via: [user.homeServer] } }],
+        initial_state: [roomId, textRoomId].map((id) => ({
+            type: "m.space.child",
+            state_key: id,
+            content: { via: [user.homeServer] },
+        })),
     });
     await app.viewSpaceByName("Profile calls");
     await page.getByRole("button", { name: "Open room Profile voice", exact: true }).click();
@@ -1046,6 +1083,42 @@ test("shows profile customisation in call tiles and keeps it when focusing a par
     await expect(tile).toHaveCSS("--call-tile-colour", "#19163b");
     await expect(tile.getByTestId("name_tag")).toContainText("Alice");
     await expect(stage.getByRole("button", { name: "Show Chat" })).toHaveCount(0);
+    const invite = stage.getByRole("button", { name: "Invite", exact: true });
+    const inviteBounds = (await invite.boundingBox())!;
+    const stageBounds = (await stage.boundingBox())!;
+    expect(inviteBounds.x - stageBounds.x).toBeLessThan(24);
+    expect(stageBounds.y + stageBounds.height - inviteBounds.y - inviteBounds.height).toBeLessThan(24);
+    await invite.click();
+    await expect(page.getByRole("dialog", { name: /Invite to Profile voice/ })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.mouse.move(0, 0);
+    await expect(tile).toHaveCSS("--profile-motion", "running");
+    const artwork = () =>
+        tile.evaluate((element) =>
+            element
+                .getAnimations({ subtree: true })
+                .filter(
+                    (animation): animation is CSSAnimation =>
+                        animation instanceof CSSAnimation && /profile-(bob|rise)/.test(animation.animationName),
+                )
+                .map((animation) => ({
+                    name: animation.animationName,
+                    state: animation.playState,
+                    time: Number(animation.currentTime),
+                })),
+        );
+    await expect
+        .poll(async () =>
+            (await artwork()).some((animation) => animation.name.includes("bob") && animation.state === "running"),
+        )
+        .toBe(true);
+    await expect
+        .poll(async () =>
+            (await artwork()).some((animation) => animation.name.includes("rise") && animation.state === "running"),
+        )
+        .toBe(true);
+    const before = await artwork();
+    await expect.poll(async () => (await artwork()).some((animation, i) => animation.time > before[i].time)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath("personalized-call.png") });
     await stage.getByRole("button", { name: "Participant Alice", exact: true }).click();
     await expect(tile).toHaveCSS("--call-tile-colour", "#19163b");
@@ -1067,5 +1140,9 @@ test("shows profile customisation in call tiles and keeps it when focusing a par
         api?.window?.close();
     });
     await expect(stage).toBeVisible();
+    await page.getByRole("button", { name: "Open room Profile text", exact: true }).click();
+    await expect(page.getByTestId("videoTile")).toHaveCSS("--profile-motion", "paused");
+    await page.getByRole("button", { name: /^Open room Profile voice/ }).click();
+    await expect(tile).toHaveCSS("--profile-motion", "running");
     await stage.getByTestId("incall_leave").click();
 });
