@@ -49,10 +49,12 @@ Please see LICENSE in the repository root for full details.
 
 /*
  * A ring in the surface colour separates the dot from the avatar, like a cutout. Hosts whose surface changes, such
- * as on hover, set --presence-ring-background to match.
+ * as on hover, set --presence-ring-background to match. It also sits above the avatar's voice activity ring, which
+ * then stops at the cutout instead of crossing the dot.
  */
 .compactSummary {
     position: absolute;
+    z-index: 1;
     inset-inline-end: calc(-1 * var(--cpd-space-0-5x));
     inset-block-end: calc(-1 * var(--cpd-space-0-5x));
     display: flex;
