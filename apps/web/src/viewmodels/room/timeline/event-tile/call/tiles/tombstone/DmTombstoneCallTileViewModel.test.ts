@@ -12,11 +12,26 @@ import { CallDirection, CallType } from "@element-hq/web-shared-components";
 import { EventType, MatrixEventEvent } from "matrix-js-sdk/src/matrix";
 import { stubClient } from "test-utils";
 
-import { getMockedRtcDeclineEvent, getMockedRtcNotificationEvent } from "../../call-mocks";
+import { getMockedMember, getMockedRtcDeclineEvent, getMockedRtcNotificationEvent } from "../../call-mocks";
 import { formatTime } from "../../../../../../../DateUtils";
 import { DmTombstoneCallTileViewModel } from "./DmTombstoneCallTileViewModel";
 
 describe("DmTombstoneCallTileViewModel", () => {
+    it("should expose the caller display name", () => {
+        const mxEvent = getMockedRtcNotificationEvent("audio", 924285348000, 924285348000);
+        mxEvent.sender = getMockedMember(mxEvent.getRoomId()!, mxEvent.getSender()!, "Alice");
+        const vm = new DmTombstoneCallTileViewModel({ mxEvent, cli: stubClient() });
+        expect(vm.getSnapshot().startedByDisplayName).toBe("Alice");
+        vm.dispose();
+    });
+
+    it("should use the sender id when the member is unavailable", () => {
+        const mxEvent = getMockedRtcNotificationEvent("audio", 924285348000, 924285348000);
+        const vm = new DmTombstoneCallTileViewModel({ mxEvent, cli: stubClient() });
+        expect(vm.getSnapshot().startedByDisplayName).toBe(mxEvent.getSender());
+        vm.dispose();
+    });
+
     it("should compute correct state on decline", () => {
         const mxEvent = getMockedRtcNotificationEvent("video", 924285348000, 924285348000, "@alice:m.org");
         const declineEvent = getMockedRtcDeclineEvent(mxEvent, "@alice:m.org");

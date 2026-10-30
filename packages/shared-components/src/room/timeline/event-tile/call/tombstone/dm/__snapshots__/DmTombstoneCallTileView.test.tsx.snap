@@ -4,10 +4,12 @@ exports[`DmTombstoneCallTileView > renders the tile > IncomingVideoDeclined 1`] 
 <div>
   <div
     class="Flex-module_flex common-module_container"
-    style="--mx-flex-display: flex; --mx-flex-direction: row; --mx-flex-align: center; --mx-flex-justify: start; --mx-flex-gap: var(--cpd-space-2x); --mx-flex-wrap: nowrap;"
+    data-call-history="true"
+    style="--mx-flex-display: flex; --mx-flex-direction: row; --mx-flex-align: center; --mx-flex-justify: start; --mx-flex-gap: var(--cpd-space-5x); --mx-flex-wrap: nowrap;"
   >
     <svg
-      class="common-module_icon"
+      aria-hidden="true"
+      class="common-module_icon common-module_declined"
       fill="currentColor"
       height="20"
       viewBox="0 0 24 24"
@@ -22,11 +24,12 @@ exports[`DmTombstoneCallTileView > renders the tile > IncomingVideoDeclined 1`] 
       class="common-module_title"
     >
       You declined a call
-    </div>
-    <div
-      class="common-module_time"
-    >
-      12:36
+      <wbr />
+      <span
+        class="common-module_time"
+      >
+        12:36
+      </span>
     </div>
   </div>
 </div>
@@ -36,10 +39,12 @@ exports[`DmTombstoneCallTileView > renders the tile > OutgoingVideoDeclined 1`] 
 <div>
   <div
     class="Flex-module_flex common-module_container"
-    style="--mx-flex-display: flex; --mx-flex-direction: row; --mx-flex-align: center; --mx-flex-justify: start; --mx-flex-gap: var(--cpd-space-2x); --mx-flex-wrap: nowrap;"
+    data-call-history="true"
+    style="--mx-flex-display: flex; --mx-flex-direction: row; --mx-flex-align: center; --mx-flex-justify: start; --mx-flex-gap: var(--cpd-space-5x); --mx-flex-wrap: nowrap;"
   >
     <svg
-      class="common-module_icon"
+      aria-hidden="true"
+      class="common-module_icon common-module_declined"
       fill="currentColor"
       height="20"
       viewBox="0 0 24 24"
@@ -54,11 +59,12 @@ exports[`DmTombstoneCallTileView > renders the tile > OutgoingVideoDeclined 1`] 
       class="common-module_title"
     >
       Call declined
-    </div>
-    <div
-      class="common-module_time"
-    >
-      12:36
+      <wbr />
+      <span
+        class="common-module_time"
+      >
+        12:36
+      </span>
     </div>
   </div>
 </div>
@@ -68,9 +74,11 @@ exports[`DmTombstoneCallTileView > renders the tile > VideoEnded 1`] = `
 <div>
   <div
     class="Flex-module_flex common-module_container"
-    style="--mx-flex-display: flex; --mx-flex-direction: row; --mx-flex-align: center; --mx-flex-justify: start; --mx-flex-gap: var(--cpd-space-2x); --mx-flex-wrap: nowrap;"
+    data-call-history="true"
+    style="--mx-flex-display: flex; --mx-flex-direction: row; --mx-flex-align: center; --mx-flex-justify: start; --mx-flex-gap: var(--cpd-space-5x); --mx-flex-wrap: nowrap;"
   >
     <svg
+      aria-hidden="true"
       class="common-module_icon"
       fill="currentColor"
       height="20"
@@ -85,12 +93,20 @@ exports[`DmTombstoneCallTileView > renders the tile > VideoEnded 1`] = `
     <div
       class="common-module_title"
     >
-      Video call
-    </div>
-    <div
-      class="common-module_time"
-    >
-      12:36
+      <span>
+        <strong
+          class="common-module_caller"
+        >
+          Bob
+        </strong>
+         started a video call.
+      </span>
+      <wbr />
+      <span
+        class="common-module_time"
+      >
+        12:36
+      </span>
     </div>
   </div>
 </div>
@@ -100,9 +116,11 @@ exports[`DmTombstoneCallTileView > renders the tile > VoiceEnded 1`] = `
 <div>
   <div
     class="Flex-module_flex common-module_container"
-    style="--mx-flex-display: flex; --mx-flex-direction: row; --mx-flex-align: center; --mx-flex-justify: start; --mx-flex-gap: var(--cpd-space-2x); --mx-flex-wrap: nowrap;"
+    data-call-history="true"
+    style="--mx-flex-display: flex; --mx-flex-direction: row; --mx-flex-align: center; --mx-flex-justify: start; --mx-flex-gap: var(--cpd-space-5x); --mx-flex-wrap: nowrap;"
   >
     <svg
+      aria-hidden="true"
       class="common-module_icon"
       fill="currentColor"
       height="20"
@@ -117,12 +135,20 @@ exports[`DmTombstoneCallTileView > renders the tile > VoiceEnded 1`] = `
     <div
       class="common-module_title"
     >
-      Voice call
-    </div>
-    <div
-      class="common-module_time"
-    >
-      12:36
+      <span>
+        <strong
+          class="common-module_caller"
+        >
+          Bob
+        </strong>
+         started a voice call.
+      </span>
+      <wbr />
+      <span
+        class="common-module_time"
+      >
+        12:36
+      </span>
     </div>
   </div>
 </div>

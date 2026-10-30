@@ -8,13 +8,23 @@
 import { composeStories } from "@storybook/react-vite";
 import { describe, expect, it } from "vitest";
 import React from "react";
-import { render } from "@test-utils";
+import { render, screen } from "@test-utils";
+
+import { CallType } from "../../common";
 
 import * as Stories from "./RoomTombstoneCallTileView.stories";
 
 const { Default } = composeStories(Stories);
 
 describe("RoomTombstoneCallTileView", () => {
+    it.each([CallType.Voice, CallType.Video])("should show the caller and %s call intent", (type) => {
+        render(<Default type={type} startedByDisplayName="Alice" />);
+        expect(screen.getByText("Alice", { selector: "strong" })).toBeVisible();
+        expect(
+            screen.getByText(type === CallType.Voice ? /started a voice call/ : /started a video call/),
+        ).toBeVisible();
+    });
+
     it("renders the tile", () => {
         const { container } = render(<Default />);
         expect(container).toMatchSnapshot();

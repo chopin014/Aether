@@ -9,13 +9,30 @@
 
 import { it, describe, expect, vi } from "vitest";
 
-import { getMockedRtcNotificationEvent } from "../../call-mocks";
+import { CallType } from "@element-hq/web-shared-components";
+
+import { getMockedRtcNotificationEvent, getMockedMember } from "../../call-mocks";
 import { RoomTombstoneCallTileViewModel } from "./RoomTombstoneCallTileViewModel";
 import SettingsStore from "../../../../../../../settings/SettingsStore";
 import { SettingLevel } from "../../../../../../../settings/SettingLevel";
 import { formatTime } from "../../../../../../../DateUtils";
 
 describe("RoomTombstoneCallTileViewModel", () => {
+    it("should expose the caller display name and voice intent", () => {
+        const mxEvent = getMockedRtcNotificationEvent("audio", 924285348000, 924285348000);
+        mxEvent.sender = getMockedMember(mxEvent.getRoomId()!, mxEvent.getSender()!, "Alice");
+        const vm = new RoomTombstoneCallTileViewModel({ mxEvent });
+        expect(vm.getSnapshot()).toMatchObject({ startedByDisplayName: "Alice", type: CallType.Voice });
+        vm.dispose();
+    });
+
+    it("should fall back to the sender id when the member is unavailable", () => {
+        const mxEvent = getMockedRtcNotificationEvent("video", 924285348000, 924285348000);
+        const vm = new RoomTombstoneCallTileViewModel({ mxEvent });
+        expect(vm.getSnapshot()).toMatchObject({ startedByDisplayName: mxEvent.getSender(), type: CallType.Video });
+        vm.dispose();
+    });
+
     it("should compute timestamp correctly", () => {
         const mxEvent = getMockedRtcNotificationEvent("video", 924285348000, 924285348000);
         const vm = new RoomTombstoneCallTileViewModel({ mxEvent });

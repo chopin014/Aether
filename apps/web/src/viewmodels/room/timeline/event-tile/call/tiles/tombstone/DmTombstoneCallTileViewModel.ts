@@ -45,7 +45,16 @@ function generateSnapshot(props: DmTombstoneCallTileViewModelProps): {
     const declineEvent = getDeclinedEvents(mxEvent, getRelationsForEvent)?.[0] ?? null;
     const showTwelveHour = SettingsStore.getValue("showTwelveHourTimestamps");
     const timestamp = getTimeFromEvent(declineEvent ?? mxEvent, showTwelveHour);
-    return { snapshot: { timestamp, type, callDirection, isCallDeclined: !!declineEvent }, declineEvent };
+    return {
+        snapshot: {
+            timestamp,
+            type,
+            startedByDisplayName: mxEvent.sender?.name ?? startedUserId,
+            callDirection,
+            isCallDeclined: !!declineEvent,
+        },
+        declineEvent,
+    };
 }
 
 /**

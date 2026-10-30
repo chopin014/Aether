@@ -6,27 +6,44 @@
  */
 
 .container {
-    /* This is the height of the tile as per design */
-    min-height: 39px;
+    min-height: var(--cpd-space-6x);
     width: 100%;
-    border: 1px solid var(--cpd-color-border-interactive-secondary);
-    border-radius: var(--cpd-space-2x);
-    padding: var(--cpd-space-2x) var(--cpd-space-3x);
+    padding-block: var(--cpd-space-1x);
     box-sizing: border-box;
-    /* All call tiles have a 10px margin at the top and bottom */
-    margin: 10px 0;
+    margin-block: 0;
+    align-items: baseline;
+
+    /* Keep the icon beside the first line when a long caller name wraps. */
+    > svg {
+        align-self: flex-start;
+        margin-block-start: var(--cpd-space-0-5x);
+    }
 }
 
 .title {
-    font: var(--cpd-font-body-md-semibold);
-    flex: 1;
+    font: var(--cpd-font-body-md-regular);
+    color: var(--cpd-color-text-secondary);
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.caller {
+    font-weight: var(--cpd-font-weight-semibold);
+    color: var(--cpd-color-text-primary);
 }
 
 .time {
     font: var(--cpd-font-body-xs-regular);
     color: var(--cpd-color-text-secondary);
+    white-space: nowrap;
+    margin-inline-start: var(--cpd-space-1x);
 }
 
 .icon {
-    color: var(--cpd-color-icon-secondary);
+    flex-shrink: 0;
+    color: var(--cpd-color-icon-success-primary);
+}
+
+.declined {
+    color: var(--cpd-color-icon-critical-primary);
 }

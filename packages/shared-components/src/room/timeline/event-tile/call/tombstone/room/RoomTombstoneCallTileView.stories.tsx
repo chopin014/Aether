@@ -9,6 +9,7 @@ import React from "react";
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { RoomTombstoneCallTileView, type RoomTombstoneCallTileViewSnapshot } from "./RoomTombstoneCallTileView";
+import { CallType } from "../../common";
 import { useMockedViewModel } from "../../../../../../core/viewmodel";
 import { withViewDocs } from "../../../../../../../.storybook/withViewDocs";
 
@@ -30,6 +31,8 @@ const meta = {
     },
     args: {
         timestamp: "12:36",
+        startedByDisplayName: "Bob",
+        type: CallType.Voice,
     },
     parameters: {
         design: {

@@ -23,11 +23,6 @@ import { type RoomTombstoneCallTileViewSnapshot } from "../room/RoomTombstoneCal
 
 export interface DmTombstoneCallTileViewSnapshot extends RoomTombstoneCallTileViewSnapshot {
     /**
-     * What type of call this tile needs to render for.
-     */
-    type: CallType;
-
-    /**
      * Whether this is an incoming or outgoing call.
      */
     callDirection: CallDirection;
@@ -54,9 +49,23 @@ function getIcon(type: CallType, isCallDeclined: boolean): React.ReactNode {
     const VoiceIcon = isCallDeclined ? VoiceCallDeclinedSolidIcon : VoiceCallSolidIcon;
     switch (type) {
         case CallType.Video:
-            return <VideoIcon className={styles.icon} width={20} height={20} />;
+            return (
+                <VideoIcon
+                    className={classnames(styles.icon, { [styles.declined]: isCallDeclined })}
+                    width={20}
+                    height={20}
+                    aria-hidden="true"
+                />
+            );
         case CallType.Voice:
-            return <VoiceIcon className={styles.icon} width={20} height={20} />;
+            return (
+                <VoiceIcon
+                    className={classnames(styles.icon, { [styles.declined]: isCallDeclined })}
+                    width={20}
+                    height={20}
+                    aria-hidden="true"
+                />
+            );
     }
 }
 
@@ -68,23 +77,35 @@ export function DmTombstoneCallTileView({ vm, className }: DmTombstoneCallTileVi
     const { type, timestamp, isCallDeclined } = snapshot;
     const classNames = classnames(className, styles.container);
     return (
-        <Flex className={classNames} align="center" gap="var(--cpd-space-2x)">
+        <Flex className={classNames} align="center" gap="var(--cpd-space-5x)" data-call-history="true">
             {getIcon(type, isCallDeclined)}
             <div className={styles.title}>
                 {isCallDeclined ? <DeclinedContent snapshot={snapshot} /> : <NormalContent snapshot={snapshot} />}
+                <wbr />
+                <span className={styles.time}>{timestamp}</span>
             </div>
-
-            <div className={styles.time}>{timestamp}</div>
         </Flex>
     );
 }
 
 function NormalContent(props: { snapshot: DmTombstoneCallTileViewSnapshot }): React.ReactNode {
-    const { type } = props.snapshot;
+    const { type, startedByDisplayName } = props.snapshot;
     const { translate: _t } = useI18n();
     return type === CallType.Voice
-        ? _t("timeline|call_tile|voice_call_title")
-        : _t("timeline|call_tile|video_call_title");
+        ? _t(
+              "timeline|call_tile|tombstone|voice_started",
+              { name: startedByDisplayName },
+              {
+                  b: (name) => <strong className={styles.caller}>{name}</strong>,
+              },
+          )
+        : _t(
+              "timeline|call_tile|tombstone|video_started",
+              { name: startedByDisplayName },
+              {
+                  b: (name) => <strong className={styles.caller}>{name}</strong>,
+              },
+          );
 }
 
 function DeclinedContent(props: { snapshot: DmTombstoneCallTileViewSnapshot }): React.ReactNode {
