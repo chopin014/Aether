@@ -711,7 +711,20 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
     }
 
     .mx_EventTile {
-        --event-tile-state-hover-background: var(--cpd-color-bg-subtle-secondary);
+        /*
+         * A faint tint of the text colour: this theme's subtle token is its darkest surface, which reads as a hole.
+         * Mixed into the page colour rather than transparent, because the tile's layers overlap and would add up.
+         */
+        --event-tile-state-hover-background: color-mix(
+            in srgb,
+            var(--cpd-color-text-primary) 4%,
+            var(--cpd-color-bg-canvas-default)
+        );
+        --event-tile-state-selected-background: color-mix(
+            in srgb,
+            var(--cpd-color-text-primary) 6%,
+            var(--cpd-color-bg-canvas-default)
+        );
         --EventTile_group_line-line-height: 22px;
     }
 
