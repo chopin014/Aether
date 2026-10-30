@@ -134,6 +134,7 @@ export * from "./desktop/ProfileAppearance";
 export * from "./desktop/DesktopProfileIdentity";
 export * from "./desktop/DesktopProfilePopoutView";
 export * from "./desktop/DesktopFullProfileView";
+export * from "./desktop/DesktopProfileEditorView";
 export * from "./desktop/ChannelKindPicker";
 export * from "./desktop/TextChannelIcon";
 export * from "./desktop/ServerVoiceActivity";

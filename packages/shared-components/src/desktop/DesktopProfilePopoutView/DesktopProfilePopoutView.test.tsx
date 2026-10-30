@@ -43,6 +43,7 @@ function makeVm(snapshot: Partial<DesktopProfilePopoutViewSnapshot> = {}) {
             toggleIgnore: vi.fn(),
             moderate: vi.fn(),
             openFullProfile: vi.fn(),
+            editProfile: vi.fn(),
             close: vi.fn(),
         } satisfies DesktopProfilePopoutViewActions,
     );
@@ -132,5 +133,63 @@ describe("DesktopProfilePopoutView", () => {
         unmount();
         render(<DesktopProfilePopoutView vm={makeVm({ error: true })} />);
         expect(screen.getByRole("alert").textContent).toContain("Could not open the conversation");
+    });
+
+    it("folds a long bio behind a button that opens the full profile", async () => {
+        const vm = makeVm({ bio: "word ".repeat(60) });
+        render(<DesktopProfilePopoutView vm={vm} />);
+        await userEvent.click(screen.getByRole("button", { name: "View full bio" }));
+        expect(vm.openFullProfile).toHaveBeenCalled();
+    });
+
+    it("never treats a bio as markup and only links web addresses", () => {
+        render(
+            <DesktopProfilePopoutView
+                vm={makeVm({ bio: "<img src=x onerror=alert(1)> javascript:alert(1) https://example.org/a." })}
+            />,
+        );
+        expect(document.querySelector("img[src='x']")).toBeNull();
+        expect(screen.getByText(/onerror/)).toBeVisible();
+        const links = screen.getAllByRole("link");
+        expect(links).toHaveLength(1);
+        expect(links[0]).toHaveAttribute("href", "https://example.org/a");
+        expect(links[0]).toHaveAttribute("rel", "noreferrer noopener");
+    });
+
+    it("offers editing on your own card, in place of the message field", async () => {
+        const vm = makeVm({ isMe: true, canMessage: false });
+        render(<DesktopProfilePopoutView vm={vm} />);
+        expect(screen.queryByRole("textbox")).toBeNull();
+        await userEvent.click(screen.getByRole("button", { name: "Edit profile" }));
+        expect(vm.editProfile).toHaveBeenCalled();
+    });
+
+    it("draws the person's decoration, pronouns and tag", () => {
+        render(
+            <DesktopProfilePopoutView
+                vm={makeVm({
+                    pronouns: "they/them",
+                    tag: { label: "ENG", spaceName: "English Server" },
+                    appearance: { decoration: "orbit", theme: { primary: "#101018", accent: "#2a0a40" } },
+                })}
+            />,
+        );
+        expect(screen.getByText("they/them")).toBeVisible();
+        expect(screen.getByTitle("Tag of English Server")).toHaveTextContent("ENG");
+        expect(document.querySelector('[data-decoration="orbit"]')).not.toBeNull();
+        expect(document.querySelector('[data-tone="dark"]')).not.toBeNull();
+    });
+
+    it("keeps the avatar ring a circle and the decoration centred on the avatar", () => {
+        render(<DesktopProfilePopoutView vm={makeVm({ appearance: { decoration: "halo" } })} />);
+        const decoration = document.querySelector('[data-decoration="halo"]')!;
+        const box = decoration.parentElement!;
+        const measure = (element: Element): DOMRect => element.getBoundingClientRect();
+        expect(measure(box).width).toBe(80);
+        expect(measure(box).height).toBe(80);
+        expect(measure(box.parentElement!).width).toBe(measure(box.parentElement!).height);
+        expect(measure(decoration).width).toBeCloseTo(measure(decoration).height, 1);
+        expect(measure(decoration).top + measure(decoration).height / 2).toBeCloseTo(measure(box).top + 40, 1);
+        expect(measure(decoration).left + measure(decoration).width / 2).toBeCloseTo(measure(box).left + 40, 1);
     });
 });

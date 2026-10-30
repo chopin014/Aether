@@ -26,6 +26,8 @@ function FullStory(snapshot: DesktopFullProfileViewSnapshot): JSX.Element {
         moderate: fn(),
         openRoom: fn(),
         retryMutualRooms: fn(),
+        setNote: fn(),
+        editProfile: fn(),
         close: fn(),
     });
     return <DesktopFullProfileView vm={vm} />;
@@ -66,3 +68,49 @@ export const MutualRoomsUnsupported: Story = { args: { mutualRooms: { state: "un
 export const MutualRoomsLoading: Story = { args: { mutualRooms: { state: "loading", items: [] } } };
 export const MutualRoomsFailed: Story = { args: { mutualRooms: { state: "error", items: [] } } };
 export const Self: Story = { args: { isMe: true, canMessage: false, canVerify: false } };
+
+const BANNER = `data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 384"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#1c2e86"/><stop offset="1" stop-color="#b14bff"/></linearGradient></defs><rect width="960" height="384" fill="url(#g)"/><path d="M0 384 300 120l180 150 170-190 310 304Z" fill="#141a55"/></svg>`,
+)}`;
+const poster = (colour: string): string =>
+    `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 3 4"><rect width="3" height="4" fill="${colour}"/></svg>`)}`;
+
+export const Decorated: Story = {
+    args: {
+        displayName: "Benshin Jimpact",
+        pronouns: "he/him",
+        status: { emoji: "❄️", text: "Hwy starest þu on me?" },
+        bio: "Aerospace | UAVs | Programming | Simulators | Game Engines | CGI\nhttps://example.org/about",
+        tag: { label: "ENG", emoji: "💗", colour: "#ff7ab6", spaceName: "English Server" },
+        localTime: "14:32",
+        note: "",
+        links: [{ url: "https://example.org/", label: "Portfolio", host: "example.org" }],
+        board: {
+            title: "Games I like",
+            items: [
+                { id: "1", title: "Squad", caption: "brrrrrrrrr", imageUrl: poster("#7a6a3a") },
+                { id: "2", title: "DCS World", imageUrl: poster("#3a5a7a") },
+                { id: "3", title: "Arma Reforger", imageUrl: poster("#3a6a5a") },
+            ],
+        },
+        appearance: {
+            bannerUrl: BANNER,
+            theme: { primary: "#14163a", accent: "#7b2fd0" },
+            decoration: "flame-crown",
+            effect: "snow",
+            nameStyle: { font: "medieval", effect: "gradient", colour: "#ff7ab6", colourEnd: "#ffd27a" },
+        },
+    },
+};
+export const LightTheme: Story = {
+    args: {
+        ...Decorated.args,
+        appearance: {
+            ...Decorated.args?.appearance,
+            theme: { primary: "#b8d4ff", accent: "#e3c7ff" },
+            decoration: "frost-crown",
+            effect: "stars",
+            nameStyle: { font: "medieval", effect: "gradient", colour: "#b0245e", colourEnd: "#5a1fb0" },
+        },
+    },
+};
