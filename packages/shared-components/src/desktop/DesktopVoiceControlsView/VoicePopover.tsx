@@ -41,21 +41,23 @@ export function VoicePopover({
     const [position, setPosition] = useState({ left: 0, top: 0 });
     useLayoutEffect(() => {
         const trigger = anchor.current;
+        const ownerDocument = trigger?.ownerDocument ?? document;
+        const ownerWindow = ownerDocument.defaultView ?? window;
         const updatePosition = (): void => {
             if (!trigger || !panel.current) return;
             const rect = trigger.getBoundingClientRect();
             const { width, height } = panel.current.getBoundingClientRect();
             const gutter = 12;
             setPosition({
-                left: Math.max(gutter, Math.min(rect.left, window.innerWidth - width - gutter)),
-                top: Math.max(gutter, Math.min(rect.top - height - gutter, window.innerHeight - height - gutter)),
+                left: Math.max(gutter, Math.min(rect.left, ownerWindow.innerWidth - width - gutter)),
+                top: Math.max(gutter, Math.min(rect.top - height - gutter, ownerWindow.innerHeight - height - gutter)),
             });
         };
         updatePosition();
         const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(updatePosition);
         if (panel.current) observer?.observe(panel.current);
-        window.addEventListener("resize", updatePosition);
-        window.addEventListener("scroll", updatePosition, true);
+        ownerWindow.addEventListener("resize", updatePosition);
+        ownerWindow.addEventListener("scroll", updatePosition, true);
         const element = panel.current;
         let returnFocus = true;
         let filePickerOpen = false;
@@ -71,7 +73,7 @@ export function VoicePopover({
         };
         const onPointerDown = (event: PointerEvent): void => {
             const target = event.target;
-            if (target instanceof Node && !panel.current?.contains(target) && !trigger?.contains(target)) {
+            if (target && !panel.current?.contains(target as Node) && !trigger?.contains(target as Node)) {
                 returnFocus = false;
                 onClose();
             }
@@ -80,7 +82,7 @@ export function VoicePopover({
             // Native file dialogs can briefly restore focus to the page behind this panel.
             if (filePickerOpen) return;
             const target = event.target;
-            if (target instanceof Node && !element?.contains(target) && !trigger?.contains(target)) {
+            if (target && !element?.contains(target as Node) && !trigger?.contains(target as Node)) {
                 returnFocus = false;
                 onClose();
             }
@@ -92,24 +94,24 @@ export function VoicePopover({
             onClose();
             trigger?.focus();
         };
-        document.addEventListener("pointerdown", onPointerDown);
-        document.addEventListener("focusin", onFocusIn);
-        document.addEventListener("keydown", onKeyDown, true);
+        ownerDocument.addEventListener("pointerdown", onPointerDown);
+        ownerDocument.addEventListener("focusin", onFocusIn);
+        ownerDocument.addEventListener("keydown", onKeyDown, true);
         element?.addEventListener("click", onFilePickerOpen, true);
         element?.addEventListener("change", onFilePickerFinished, true);
         element?.addEventListener("cancel", onFilePickerFinished, true);
         return () => {
             observer?.disconnect();
-            window.removeEventListener("resize", updatePosition);
-            window.removeEventListener("scroll", updatePosition, true);
-            document.removeEventListener("pointerdown", onPointerDown);
-            document.removeEventListener("focusin", onFocusIn);
-            document.removeEventListener("keydown", onKeyDown, true);
+            ownerWindow.removeEventListener("resize", updatePosition);
+            ownerWindow.removeEventListener("scroll", updatePosition, true);
+            ownerDocument.removeEventListener("pointerdown", onPointerDown);
+            ownerDocument.removeEventListener("focusin", onFocusIn);
+            ownerDocument.removeEventListener("keydown", onKeyDown, true);
             element?.removeEventListener("click", onFilePickerOpen, true);
             element?.removeEventListener("change", onFilePickerFinished, true);
             element?.removeEventListener("cancel", onFilePickerFinished, true);
             // Closing through the close button returns focus without stealing focus from an outside click.
-            if (returnFocus && element?.contains(document.activeElement)) {
+            if (returnFocus && element?.contains(ownerDocument.activeElement)) {
                 trigger?.focus();
             }
         };
@@ -139,6 +141,6 @@ export function VoicePopover({
             </div>
             {children}
         </div>,
-        document.body,
+        anchor.current?.ownerDocument.body ?? document.body,
     );
 }

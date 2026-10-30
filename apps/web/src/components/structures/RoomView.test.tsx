@@ -835,6 +835,20 @@ describe("RoomView", () => {
             expect(screen.getByRole("region", { name: "Message composer" })).toBeInTheDocument();
             expect(container.querySelector(".mx_RoomView_conversationCallStage")).toBeInTheDocument();
             expect(container.querySelector(".mx_RoomView_immersive")).not.toBeInTheDocument();
+            const separator = screen.getByRole("separator", { name: "Resize call area" });
+            const callArea = container.querySelector<HTMLElement>(".mx_RoomView_conversationCallStage")!;
+            fireEvent.keyDown(separator, { key: "ArrowDown" });
+            expect(callArea.style.height).toBe("272px");
+            fireEvent.keyDown(separator, { key: "ArrowUp" });
+            expect(callArea.style.height).toBe("248px");
+            fireEvent.keyDown(separator, { key: "ArrowUp" });
+            expect(callArea.style.height).toBe("248px");
+            fireEvent.keyDown(separator, { key: "End" });
+            expect(Number.parseFloat(callArea.style.height)).toBeGreaterThan(248);
+            fireEvent.keyDown(separator, { key: "Home" });
+            expect(callArea.style.height).toBe("248px");
+            fireEvent.doubleClick(separator);
+            expect(callArea.style.height).toBe("40vh");
         });
 
         it("hides the right panel chat when closing a call", async () => {

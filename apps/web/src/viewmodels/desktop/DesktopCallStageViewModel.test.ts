@@ -29,7 +29,12 @@ import MediaDeviceHandler, { MediaDeviceKindEnum } from "../../MediaDeviceHandle
 import ActiveWidgetStore, { ActiveWidgetStoreEvent } from "../../stores/ActiveWidgetStore";
 import defaultDispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
+import { RichProfileStore } from "../../profile/RichProfileStore";
 import * as RoomInvite from "../../RoomInvite";
+
+vi.mock("../../profile/RichProfileStore", () => ({
+    RichProfileStore: { forClient: vi.fn(() => ({ get: vi.fn(), subscribe: vi.fn(() => vi.fn()), request: vi.fn() })) },
+}));
 
 vi.mock("./SoundboardViewModel", () => ({
     SoundboardViewModel: { acquire: vi.fn(() => ({ vm: undefined, release: vi.fn() })) },
@@ -118,6 +123,9 @@ function createBridge(stateOverrides: Partial<AetherCallPresentationState> = {})
 describe("DesktopCallStageViewModel", () => {
     const mockClient = {
         getRoom: vi.fn().mockReturnValue(null),
+        isUserIgnored: vi.fn().mockReturnValue(false),
+        on: vi.fn(),
+        off: vi.fn(),
         getHomeserverUrl: () => "https://matrix.example.org",
     } as unknown as MatrixClient;
 
@@ -133,7 +141,74 @@ describe("DesktopCallStageViewModel", () => {
 
     beforeEach(() => {
         vi.restoreAllMocks();
+        vi.mocked(RichProfileStore.forClient).mockImplementation(
+            () =>
+                ({
+                    get: vi.fn(),
+                    subscribe: vi.fn(() => vi.fn()),
+                    request: vi.fn(),
+                }) as unknown as RichProfileStore,
+        );
         vi.mocked(mockCall.setLocalLeavePending).mockReset();
+    });
+
+    it("refreshes profile styling live, respects viewer settings and releases subscriptions", () => {
+        const getValue = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((key) => key === "showProfileAppearance");
+        let notify: () => void = () => {};
+        const unsubscribe = vi.fn();
+        const store = {
+            get: vi.fn().mockReturnValue({ theme: { primary: "#161339", accent: "#652c9a" } }),
+            subscribe: vi.fn((_userId: string, listener: () => void) => {
+                notify = listener;
+                return unsubscribe;
+            }),
+            request: vi.fn(),
+        };
+        vi.mocked(RichProfileStore.forClient).mockReturnValue(store as unknown as RichProfileStore);
+        const participant = {
+            id: "alice",
+            userId: "@alice:example.org",
+            displayName: "Alice",
+        } as AetherParticipantMediaItem;
+        const vm = new DesktopCallStageViewModel({
+            client: mockClient,
+            call: mockCall,
+            bridge: createBridge({ participants: [participant] }),
+        });
+        expect(vm.getSnapshot().participants[0].appearance?.theme?.primary).toBe("#161339");
+        store.get.mockReturnValue({ theme: { primary: "#123456", accent: "#654321" } });
+        notify();
+        expect(vm.getSnapshot().participants[0].appearance?.theme?.primary).toBe("#123456");
+        getValue.mockImplementation(() => false);
+        notify();
+        expect(vm.getSnapshot().participants[0].appearance).toBeUndefined();
+        expect(unsubscribe).toHaveBeenCalledOnce();
+        vm.dispose();
+    });
+
+    it("does not load ignored profiles and unsubscribes when a participant leaves", () => {
+        vi.spyOn(SettingsStore, "getValue").mockImplementation((key) => key === "showProfileAppearance");
+        vi.mocked(mockClient.isUserIgnored).mockImplementation((userId) => userId === "@ignored:example.org");
+        const unsubscribe = vi.fn();
+        const store = { get: vi.fn(), subscribe: vi.fn(() => unsubscribe), request: vi.fn() };
+        vi.mocked(RichProfileStore.forClient).mockReturnValue(store as unknown as RichProfileStore);
+        const participants = ["@alice:example.org", "@ignored:example.org"].map(
+            (userId) =>
+                ({
+                    id: userId,
+                    userId,
+                    displayName: userId,
+                }) as AetherParticipantMediaItem,
+        );
+        const bridge = createBridge({ participants });
+        const vm = new DesktopCallStageViewModel({ client: mockClient, call: mockCall, bridge });
+        vm.setBridge(bridge);
+        expect(store.request).toHaveBeenCalledExactlyOnceWith("@alice:example.org");
+        vm.setBridge(createBridge());
+        expect(unsubscribe).toHaveBeenCalledOnce();
+        vm.dispose();
     });
 
     it("rings the other people in a conversation until they join, decline or the ringing times out", () => {
@@ -523,7 +598,7 @@ describe("DesktopCallStageViewModel", () => {
         expect(output).toHaveBeenCalledWith("speaker");
         expect(camera).toHaveBeenCalledWith("camera");
         vm.dispose();
-        expect(unwatch).toHaveBeenCalledTimes(4);
+        expect(unwatch).toHaveBeenCalledTimes(5);
     });
 
     it("keeps the latest device enumeration when an older request resolves later", async () => {
@@ -647,7 +722,6 @@ describe("DesktopCallStageViewModel", () => {
         });
         vm.openInviteDialog();
         vm.showRoomChat();
-        vm.popoutCall();
         expect(invite).toHaveBeenCalledWith("!voice:example.org");
         expect(dispatch).toHaveBeenCalledWith(
             expect.objectContaining({ action: Action.ViewRoom, room_id: "!voice:example.org", view_call: false }),

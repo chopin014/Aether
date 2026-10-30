@@ -27,17 +27,12 @@ Please see LICENSE in the repository root for full details.
     pointer-events: none;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     flex-wrap: wrap;
     gap: var(--cpd-space-3x);
     padding: var(--cpd-space-3x) var(--cpd-space-4x);
     flex: none;
     z-index: 2;
-    background: linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--cpd-color-bg-canvas-default) 72%, transparent) 0%,
-        transparent 100%
-    );
 }
 
 .headerIdentity {
@@ -191,17 +186,19 @@ Please see LICENSE in the repository root for full details.
 }
 
 .canvas {
+    container-type: size;
     flex: 1;
     min-height: 0;
     display: flex;
     flex-direction: column;
     justify-content: center;
-    padding: var(--cpd-space-12x) var(--cpd-space-4x) var(--cpd-space-2x);
+    padding: var(--cpd-space-5x) var(--cpd-space-4x) var(--cpd-space-2x);
     gap: var(--cpd-space-3x);
     overflow: hidden;
 }
 
 .spotlightArea {
+    container-type: size;
     flex: 1;
     min-height: 0;
     display: flex;
@@ -210,8 +207,8 @@ Please see LICENSE in the repository root for full details.
 }
 
 .spotlightArea > .tile {
-    width: 100%;
-    height: 100%;
+    width: min(100%, calc(100cqh * 16 / 9));
+    height: min(100%, calc(100cqw * 9 / 16));
     max-width: 100%;
     max-height: 100%;
     aspect-ratio: 16 / 9;
@@ -239,19 +236,36 @@ Please see LICENSE in the repository root for full details.
     justify-content: center;
 }
 
+.grid[data-count="3"],
+.grid[data-count="4"] {
+    grid-template-columns: repeat(2, minmax(0, 560px));
+    justify-content: center;
+}
+
+.grid[data-count="3"] > :last-child {
+    grid-column: 1 / -1;
+    width: calc((100% - var(--cpd-space-3x)) / 2);
+}
+
+.filmstrip > .tile[data-focused="true"]::after {
+    border-color: var(--cpd-color-border-focused);
+}
+
 .filmstrip {
     flex: none;
     display: flex;
     align-items: center;
     gap: var(--cpd-space-2x);
-    height: 124px;
+    height: clamp(96px, 18cqh, 152px);
+    justify-content: safe center;
     overflow-x: auto;
     padding-bottom: var(--cpd-space-1x);
 }
 
 .filmstrip > .tile {
-    flex: 0 0 212px;
-    height: 118px;
+    flex: 0 0 auto;
+    width: auto;
+    height: calc(100% - var(--cpd-space-1x));
     aspect-ratio: 16 / 9;
 }
 
@@ -260,9 +274,9 @@ Please see LICENSE in the repository root for full details.
     width: 100%;
     max-height: 100%;
     aspect-ratio: 16 / 9;
-    border-radius: var(--cpd-space-3x);
+    border-radius: var(--cpd-space-2x);
     background: var(--cpd-color-bg-subtle-secondary);
-    border: 2px solid transparent;
+    border: 0;
     overflow: hidden;
     display: flex;
     align-items: center;
@@ -273,9 +287,140 @@ Please see LICENSE in the repository root for full details.
         transform 100ms ease-out;
 }
 
-.tile[data-speaking="true"] {
+.tile::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 2px solid transparent;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: 4;
+}
+
+.tile[data-speaking="true"]::after {
     border-color: var(--cpd-color-bg-success-rest);
-    box-shadow: 0 0 0 1px var(--cpd-color-border-success-subtle);
+}
+
+.tile[data-kind="participant"]:not([data-video="true"]) {
+    background: linear-gradient(145deg, var(--call-tile-colour), var(--call-tile-accent));
+}
+
+.decoratedAvatar {
+    position: relative;
+    width: clamp(64px, 9cqw, 96px);
+    height: clamp(64px, 9cqw, 96px);
+    flex: none;
+}
+
+.decoratedAvatar .avatarCircle {
+    width: 100%;
+    height: 100%;
+    background: color-mix(in srgb, var(--call-tile-colour) 80%, var(--cpd-color-bg-canvas-default));
+}
+
+.filmstrip .decoratedAvatar {
+    width: var(--cpd-space-12x);
+    height: var(--cpd-space-12x);
+}
+
+.streamVolumeControl {
+    position: absolute;
+    right: var(--cpd-space-3x);
+    bottom: var(--cpd-space-3x);
+    width: var(--cpd-space-10x);
+    border-radius: var(--cpd-space-5x);
+    z-index: 3;
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+
+.tile:hover .streamVolumeControl,
+.tile:focus-within .streamVolumeControl {
+    opacity: 1;
+}
+
+.streamVolumeControl > button {
+    position: relative;
+    z-index: 1;
+    width: var(--cpd-space-10x);
+    height: var(--cpd-space-10x);
+    border-radius: var(--cpd-space-5x);
+    background: color-mix(in srgb, var(--cpd-color-bg-canvas-default) 85%, transparent);
+}
+
+.streamVolumePanel {
+    position: absolute;
+    bottom: 0;
+    inset-inline: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--cpd-space-3x);
+    padding: var(--cpd-space-3x) 0 calc(var(--cpd-space-10x) + var(--cpd-space-3x));
+    border-radius: var(--cpd-space-5x);
+    background: color-mix(in srgb, var(--cpd-color-bg-canvas-default) 92%, transparent);
+    box-shadow: 0 0 var(--cpd-space-6x) color-mix(in srgb, var(--cpd-color-purple-900) 15%, transparent);
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+
+.streamVolumeControl:hover > button,
+.streamVolumeControl:focus-within > button {
+    background: transparent;
+}
+
+.streamVolumeControl:hover .streamVolumePanel,
+.streamVolumeControl:focus-within .streamVolumePanel {
+    visibility: visible;
+    opacity: 1;
+}
+
+.streamVolumeValue {
+    font-variant-numeric: tabular-nums;
+    color: var(--cpd-color-text-primary);
+}
+
+.streamVolumeSlider {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    appearance: none;
+    width: var(--cpd-space-2x);
+    height: var(--cpd-space-28x);
+    min-height: var(--cpd-space-24x);
+    margin: 0;
+    border-radius: var(--cpd-space-4x);
+    background: linear-gradient(
+        to top,
+        var(--cpd-color-purple-900) 0%,
+        var(--cpd-color-purple-1000) var(--stream-volume),
+        color-mix(in srgb, var(--cpd-color-text-primary) 18%, transparent) var(--stream-volume)
+    );
+    cursor: pointer;
+}
+
+.streamVolumeSlider::-webkit-slider-thumb {
+    appearance: none;
+    width: var(--cpd-space-5x);
+    height: var(--cpd-space-5x);
+    border: 0;
+    border-radius: 50%;
+    background: var(--cpd-color-text-primary);
+    box-shadow: 0 0 var(--cpd-space-3x) var(--cpd-color-purple-900);
+}
+
+.streamVolumeSlider::-moz-range-thumb {
+    width: var(--cpd-space-5x);
+    height: var(--cpd-space-5x);
+    border: 0;
+    border-radius: 50%;
+    background: var(--cpd-color-text-primary);
+    box-shadow: 0 0 var(--cpd-space-3x) var(--cpd-color-purple-900);
+}
+
+.streamVolumeSlider:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: var(--cpd-space-2x);
 }
 
 .tile[data-kind="screen_share"] {
@@ -296,7 +441,7 @@ Please see LICENSE in the repository root for full details.
 }
 
 .tileClickSurface:focus-visible {
-    outline: 2px solid var(--cpd-color-border-focused);
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
     outline-offset: -2px;
 }
 
@@ -668,6 +813,36 @@ Please see LICENSE in the repository root for full details.
     height: 14px;
 }
 
+.leftControls {
+    position: absolute;
+    left: var(--cpd-space-4x);
+    bottom: var(--cpd-space-4x);
+}
+
+.inviteButton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--cpd-space-10x);
+    height: var(--cpd-space-10x);
+    padding: var(--cpd-space-2x);
+    border: 0;
+    border-radius: var(--cpd-space-2x);
+    background: transparent;
+    color: var(--cpd-color-icon-secondary);
+    cursor: pointer;
+}
+
+.inviteButton svg {
+    width: var(--cpd-space-6x);
+    height: var(--cpd-space-6x);
+}
+
+.inviteButton:hover {
+    background: var(--cpd-color-bg-action-secondary-hovered);
+    color: var(--cpd-color-icon-primary);
+}
+
 .rightControls {
     position: absolute;
     right: var(--cpd-space-4x);
@@ -847,7 +1022,8 @@ Please see LICENSE in the repository root for full details.
 
 .stage[data-mini="true"] .header,
 .stage[data-mini="true"] .stagePrompts,
-.stage[data-mini="true"] .rightControls {
+.stage[data-mini="true"] .rightControls,
+.stage[data-mini="true"] .leftControls {
     display: none;
 }
 
@@ -861,6 +1037,10 @@ Please see LICENSE in the repository root for full details.
 
 /* A room chat drawer can make the call narrower without changing the browser viewport. */
 @container (max-width: 600px) {
+    .filmstrip {
+        height: clamp(48px, calc((100cqw - var(--cpd-space-4x)) * 3 / 16), 96px);
+    }
+
     .bottomBar {
         flex-direction: column;
         gap: var(--cpd-space-2x);
@@ -931,7 +1111,7 @@ Please see LICENSE in the repository root for full details.
 }
 
 .grid[data-solo-channel="true"] {
-    width: min(100%, 900px);
+    width: min(100%, calc((100cqh - var(--cpd-space-2x)) * 8 / 9));
     align-self: center;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: repeat(2, minmax(0, 1fr));
@@ -952,7 +1132,7 @@ Please see LICENSE in the repository root for full details.
     justify-content: center;
     gap: var(--cpd-space-4x);
     border-radius: var(--cpd-space-2x);
-    background: var(--cpd-color-bg-subtle-secondary);
+    background: linear-gradient(155deg, var(--cpd-color-bg-decorative-4), var(--cpd-color-bg-subtle-secondary) 70%);
     color: var(--cpd-color-text-secondary);
 }
 
@@ -995,6 +1175,10 @@ Please see LICENSE in the repository root for full details.
 .stage[data-presentation="conversation"][data-audio-only="true"] .statusIconBadge {
     background: var(--cpd-color-bg-canvas-default);
     box-shadow: 0 0 0 var(--cpd-border-width-2) var(--cpd-color-bg-canvas-default);
+}
+
+.stage[data-presentation="conversation"][data-audio-only="true"] .tile::after {
+    display: none;
 }
 
 .stage[data-presentation="conversation"][data-audio-only="true"] .tileTopBar {

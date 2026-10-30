@@ -16,14 +16,15 @@ import React, {
     useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { Text } from "@vector-im/compound-web";
+import { Text, useIdColorHash } from "@vector-im/compound-web";
 import {
-    ChatSolidIcon,
     ChevronDownIcon,
     CollapseIcon,
     EndCallIcon,
     ErrorIcon,
     ExpandIcon,
+    GridIcon,
+    SpotlightViewIcon,
     HeadphonesOffSolidIcon,
     LockIcon,
     LockOffIcon,
@@ -45,6 +46,15 @@ import { useViewModel, type ViewModel } from "../../core/viewmodel";
 import { useI18n } from "../../core/i18n/i18nContext";
 import { SoundboardIcon, SoundboardView, type SoundboardViewModel } from "../SoundboardView";
 import { VoicePopover } from "../DesktopVoiceControlsView/VoicePopover";
+import {
+    type DesktopProfileAppearance,
+    ProfileDecoration,
+    ProfileEffectLayer,
+    ProfileName,
+} from "../ProfileAppearance";
+import { useDominantColour } from "../DesktopProfileIdentity/DesktopProfileIdentity";
+import { useCallStageWindow } from "./useCallStageWindow";
+import { useCallTileMotion } from "./useCallTileMotion";
 import styles from "./DesktopCallStageView.module.css";
 
 /** Lifecycle phase displayed by the stage. */
@@ -103,6 +113,7 @@ export interface DesktopCallStageParticipantTile {
     readonly userId: string;
     readonly displayName: string;
     readonly avatarUrl?: string;
+    readonly appearance?: DesktopProfileAppearance;
     readonly initialLetter: string;
     readonly local: boolean;
     readonly speaking: boolean;
@@ -224,7 +235,6 @@ export interface DesktopCallStageViewActions {
     toggleScreenShareAudioMuted(tileId: string): void;
     openInviteDialog(): void;
     showRoomChat(): void;
-    popoutCall(): void;
     toggleFullscreen(stageElement?: HTMLElement | null): void;
     renderAudioElement(): ReactNode;
 }
@@ -289,6 +299,8 @@ function StagePopover({
 
     useLayoutEffect(() => {
         const trigger = anchor.current;
+        const ownerDocument = trigger?.ownerDocument ?? document;
+        const ownerWindow = ownerDocument.defaultView ?? window;
         const updatePosition = (): void => {
             const panel = panelRef.current;
             if (!trigger || !panel) return;
@@ -298,22 +310,22 @@ function StagePopover({
             const rawLeft = placement === "above" ? rect.left + rect.width / 2 - width / 2 : rect.right - width;
             const rawTop = placement === "above" ? rect.top - height - 10 : rect.bottom + 8;
             setPosition({
-                left: Math.max(gutter, Math.min(rawLeft, window.innerWidth - width - gutter)),
-                top: Math.max(gutter, Math.min(rawTop, window.innerHeight - height - gutter)),
+                left: Math.max(gutter, Math.min(rawLeft, ownerWindow.innerWidth - width - gutter)),
+                top: Math.max(gutter, Math.min(rawTop, ownerWindow.innerHeight - height - gutter)),
             });
         };
         updatePosition();
         const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(updatePosition);
         if (panelRef.current) observer?.observe(panelRef.current);
-        window.addEventListener("resize", updatePosition);
-        window.addEventListener("scroll", updatePosition, true);
+        ownerWindow.addEventListener("resize", updatePosition);
+        ownerWindow.addEventListener("scroll", updatePosition, true);
         const element = panelRef.current;
         let returnFocus = true;
         element?.focus();
 
         const onPointerDown = (event: PointerEvent): void => {
             const target = event.target;
-            if (target instanceof Node && !panelRef.current?.contains(target) && !trigger?.contains(target)) {
+            if (target && !panelRef.current?.contains(target as Node) && !trigger?.contains(target as Node)) {
                 returnFocus = false;
                 closeRef.current();
             }
@@ -325,26 +337,22 @@ function StagePopover({
             closeRef.current();
             trigger?.focus();
         };
-        document.addEventListener("pointerdown", onPointerDown);
-        document.addEventListener("keydown", onKeyDown, true);
+        ownerDocument.addEventListener("pointerdown", onPointerDown);
+        ownerDocument.addEventListener("keydown", onKeyDown, true);
         return () => {
             observer?.disconnect();
-            window.removeEventListener("resize", updatePosition);
-            window.removeEventListener("scroll", updatePosition, true);
-            document.removeEventListener("pointerdown", onPointerDown);
-            document.removeEventListener("keydown", onKeyDown, true);
-            if (returnFocus && element?.contains(document.activeElement)) {
+            ownerWindow.removeEventListener("resize", updatePosition);
+            ownerWindow.removeEventListener("scroll", updatePosition, true);
+            ownerDocument.removeEventListener("pointerdown", onPointerDown);
+            ownerDocument.removeEventListener("keydown", onKeyDown, true);
+            if (returnFocus && element?.contains(ownerDocument.activeElement)) {
                 trigger?.focus();
             }
         };
     }, [anchor, placement]);
 
-    const portalRoot =
-        typeof document !== "undefined" && document.fullscreenElement instanceof HTMLElement
-            ? document.fullscreenElement
-            : typeof document !== "undefined"
-              ? document.body
-              : null;
+    const ownerDocument = anchor.current?.ownerDocument ?? document;
+    const portalRoot = ownerDocument.fullscreenElement ?? ownerDocument.body;
 
     const content = (
         <div
@@ -370,10 +378,51 @@ interface DesktopCallStageViewProps {
     vm: DesktopCallStageViewModel;
 }
 
+/** A participant surface reuses the person's profile colours and motion preferences. */
+function ParticipantSurface({
+    tile,
+    children,
+    onHover,
+    animate,
+}: {
+    tile: DesktopCallStageParticipantTile;
+    animate: boolean;
+    children: (live: boolean) => ReactNode;
+    onHover: (id: string | null) => void;
+}): JSX.Element {
+    const surface = useRef<HTMLDivElement>(null);
+    const live = useCallTileMotion(surface, animate);
+    const colour = useIdColorHash(tile.userId);
+    const dominant = useDominantColour(tile.avatarUrl, !tile.appearance?.theme);
+    const tileStyle = {
+        "--profile-motion": live ? "running" : "paused",
+        "--call-tile-colour": tile.appearance?.theme?.primary ?? dominant ?? `var(--cpd-color-bg-decorative-${colour})`,
+        "--call-tile-accent": tile.appearance?.theme?.accent ?? dominant ?? `var(--cpd-color-bg-decorative-${colour})`,
+    };
+    return (
+        <div
+            ref={surface}
+            className={styles.tile}
+            style={tileStyle as React.CSSProperties}
+            data-kind="participant"
+            data-video={tile.videoEnabled ? "true" : undefined}
+            data-participant-id={tile.userId}
+            data-speaking={tile.speaking ? "true" : undefined}
+            data-soundboard={tile.soundboardPlaying || undefined}
+            data-testid="videoTile"
+            onMouseEnter={() => onHover(tile.id)}
+            onMouseLeave={() => onHover(null)}
+        >
+            {children(live)}
+        </div>
+    );
+}
+
 /** Aether call presentation. Media capture, publication and playback remain owned by the call engine. */
 export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Element {
     const { translate: _t } = useI18n();
     const snapshot = useViewModel(vm);
+    const { popoutWindow, openPopout, canPopout, popoutFailed } = useCallStageWindow();
     const stageRef = useRef<HTMLDivElement | null>(null);
     const cameraMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
     const screenShareMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -428,20 +477,8 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
         unencryptedWarning: boolean,
         encryptionStatus: DesktopCallStageEncryptionStatus,
     ): JSX.Element | null => {
-        if (unencryptedWarning) {
-            const label = _t("desktop|call_stage|unencrypted_media_warning");
-            return (
-                <span
-                    className={styles.statusIconBadge}
-                    data-tone="warning"
-                    data-testid={`encryption-badge-${userId}`}
-                    title={label}
-                    aria-label={label}
-                >
-                    <LockOffIcon />
-                </span>
-            );
-        }
+        // Unencrypted media is explained once above the stage instead of repeating an unexplained glyph.
+        if (unencryptedWarning) return null;
         if (encryptionStatus === "key_missing") {
             const label = _t("desktop|call_stage|encryption_key_missing");
             return (
@@ -501,7 +538,11 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
         return anchor;
     };
 
-    const renderScreenShareTile = (tile: DesktopCallStageScreenShareTile, isSpotlight: boolean): JSX.Element => {
+    const renderScreenShareTile = (
+        tile: DesktopCallStageScreenShareTile,
+        isSpotlight: boolean,
+        preview = false,
+    ): JSX.Element => {
         const isMenuOpen = snapshot.openTileMenuId === tile.id;
         const qualityLabel = snapshot.screenShareQuality.resolutionHeight
             ? `${snapshot.screenShareQuality.resolutionHeight}p ${snapshot.screenShareQuality.frameRate}fps`
@@ -511,6 +552,7 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                 key={tile.id}
                 className={styles.tile}
                 data-kind="screen_share"
+                data-focused={snapshot.spotlightTileId === tile.id ? "true" : undefined}
                 data-screenshare-id={tile.userId}
                 data-testid={`call-tile-screenshare-${tile.userId}`}
                 onMouseEnter={() => setHoveredTileId(tile.id)}
@@ -522,14 +564,19 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                     aria-label={_t("desktop|call_stage|stream_tile_aria", { name: tile.displayName })}
                     onClick={() => vm.setSpotlightTileId(isSpotlight ? null : tile.id)}
                     onContextMenu={(e) => {
-                        if (tile.hasStreamAudioVolumeControl) {
+                        if (tile.hasStreamAudioVolumeControl && !preview) {
                             e.preventDefault();
                             vm.setOpenTileMenuId(isMenuOpen ? null : tile.id);
                         }
                     }}
                 />
                 {tile.video && tile.videoEnabled ? (
-                    <AttachedVideo attachment={tile.video} testId={`screenshare-video-${tile.userId}`} />
+                    <AttachedVideo
+                        attachment={tile.video}
+                        testId={
+                            preview ? `screenshare-preview-video-${tile.userId}` : `screenshare-video-${tile.userId}`
+                        }
+                    />
                 ) : (
                     <div className={styles.avatarFallback}>
                         <div className={styles.avatarCircle}>
@@ -547,68 +594,76 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                         <span className={styles.liveBadge}>{_t("desktop|call_stage|live_badge")}</span>
                         {tile.local && <span className={styles.qualityBadge}>{qualityLabel}</span>}
                     </div>
-                    <div className={styles.tileActions}>
-                        {tile.hasStreamAudioVolumeControl && (
-                            <>
-                                <button
-                                    type="button"
-                                    className={styles.tileActionBtn}
-                                    aria-label={
-                                        tile.streamAudioMuted
-                                            ? _t("desktop|call_stage|unmute_stream_audio", { name: tile.displayName })
-                                            : _t("desktop|call_stage|mute_stream_audio", { name: tile.displayName })
-                                    }
-                                    data-testid={`screenshare-audio-mute-${tile.userId}`}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        vm.toggleScreenShareAudioMuted(tile.id);
-                                    }}
-                                >
-                                    {tile.streamAudioMuted || tile.streamAudioVolumePercent === 0 ? (
-                                        <VolumeOffIcon />
-                                    ) : (
-                                        <VolumeOnIcon />
+                    {!preview && (
+                        <div className={styles.tileActions}>
+                            {tile.hasStreamAudioVolumeControl && (
+                                <>
+                                    {!isSpotlight && (
+                                        <button
+                                            type="button"
+                                            className={styles.tileActionBtn}
+                                            aria-label={
+                                                tile.streamAudioMuted
+                                                    ? _t("desktop|call_stage|unmute_stream_audio", {
+                                                          name: tile.displayName,
+                                                      })
+                                                    : _t("desktop|call_stage|mute_stream_audio", {
+                                                          name: tile.displayName,
+                                                      })
+                                            }
+                                            data-testid={`screenshare-audio-mute-${tile.userId}`}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                vm.toggleScreenShareAudioMuted(tile.id);
+                                            }}
+                                        >
+                                            {tile.streamAudioMuted || tile.streamAudioVolumePercent === 0 ? (
+                                                <VolumeOffIcon />
+                                            ) : (
+                                                <VolumeOnIcon />
+                                            )}
+                                        </button>
                                     )}
-                                </button>
-                                <button
-                                    ref={(el) => {
-                                        if (el) tileMenuTriggerRefs.current.set(tile.id, el);
-                                        else tileMenuTriggerRefs.current.delete(tile.id);
-                                    }}
-                                    type="button"
-                                    className={styles.tileActionBtn}
-                                    aria-label={_t("desktop|call_stage|stream_volume_options", {
-                                        name: tile.displayName,
-                                    })}
-                                    aria-expanded={isMenuOpen}
-                                    data-testid={`screenshare-volume-menu-btn-${tile.userId}`}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        vm.setOpenTileMenuId(isMenuOpen ? null : tile.id);
-                                    }}
-                                >
-                                    <OverflowHorizontalIcon />
-                                </button>
-                            </>
-                        )}
-                        <button
-                            type="button"
-                            className={styles.tileActionBtn}
-                            aria-label={
-                                isSpotlight
-                                    ? _t("desktop|call_stage|restore_grid")
-                                    : _t("desktop|call_stage|expand_stream")
-                            }
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                vm.setSpotlightTileId(isSpotlight ? null : tile.id);
-                            }}
-                        >
-                            {isSpotlight ? <CollapseIcon /> : <ExpandIcon />}
-                        </button>
-                    </div>
+                                    <button
+                                        ref={(el) => {
+                                            if (el) tileMenuTriggerRefs.current.set(tile.id, el);
+                                            else tileMenuTriggerRefs.current.delete(tile.id);
+                                        }}
+                                        type="button"
+                                        className={styles.tileActionBtn}
+                                        aria-label={_t("desktop|call_stage|stream_volume_options", {
+                                            name: tile.displayName,
+                                        })}
+                                        aria-expanded={isMenuOpen}
+                                        data-testid={`screenshare-volume-menu-btn-${tile.userId}`}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            vm.setOpenTileMenuId(isMenuOpen ? null : tile.id);
+                                        }}
+                                    >
+                                        <OverflowHorizontalIcon />
+                                    </button>
+                                </>
+                            )}
+                            <button
+                                type="button"
+                                className={styles.tileActionBtn}
+                                aria-label={
+                                    isSpotlight
+                                        ? _t("desktop|call_stage|restore_grid")
+                                        : _t("desktop|call_stage|expand_stream")
+                                }
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    vm.setSpotlightTileId(isSpotlight ? null : tile.id);
+                                }}
+                            >
+                                {isSpotlight ? <CollapseIcon /> : <ExpandIcon />}
+                            </button>
+                        </div>
+                    )}
                 </div>
-                {isMenuOpen && tile.hasStreamAudioVolumeControl && (
+                {!preview && isMenuOpen && tile.hasStreamAudioVolumeControl && (
                     <StagePopover
                         anchor={getTileTriggerRef(tile.id)}
                         placement="below-end"
@@ -656,6 +711,49 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                         </div>
                     </StagePopover>
                 )}
+                {isSpotlight && !isMenuOpen && tile.hasStreamAudioVolumeControl && (
+                    <div className={styles.streamVolumeControl}>
+                        <button
+                            type="button"
+                            className={styles.tileActionBtn}
+                            aria-label={
+                                tile.streamAudioMuted
+                                    ? _t("desktop|call_stage|unmute_stream_audio", { name: tile.displayName })
+                                    : _t("desktop|call_stage|mute_stream_audio", { name: tile.displayName })
+                            }
+                            onClick={() => vm.toggleScreenShareAudioMuted(tile.id)}
+                        >
+                            {tile.streamAudioMuted || tile.streamAudioVolumePercent === 0 ? (
+                                <VolumeOffIcon />
+                            ) : (
+                                <VolumeOnIcon />
+                            )}
+                        </button>
+                        <div className={styles.streamVolumePanel}>
+                            <Text size="xs" className={styles.streamVolumeValue}>
+                                {tile.streamAudioMuted ? 0 : tile.streamAudioVolumePercent}%
+                            </Text>
+                            <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                step={1}
+                                className={styles.streamVolumeSlider}
+                                style={
+                                    {
+                                        "--stream-volume": `${tile.streamAudioMuted ? 0 : tile.streamAudioVolumePercent}%`,
+                                    } as React.CSSProperties
+                                }
+                                value={tile.streamAudioMuted ? 0 : tile.streamAudioVolumePercent}
+                                aria-orientation="vertical"
+                                aria-label={_t("desktop|call_stage|stream_volume_slider_aria", {
+                                    name: tile.displayName,
+                                })}
+                                onChange={(event) => vm.setScreenShareAudioVolume(tile.id, Number(event.target.value))}
+                            />
+                        </div>
+                    </div>
+                )}
                 <div className={styles.tileBottomBar}>
                     <div className={styles.nameBadge}>
                         <ShareScreenSolidIcon width={14} height={14} />
@@ -676,163 +774,187 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
     const renderParticipantTile = (tile: DesktopCallStageParticipantTile, isSpotlight: boolean): JSX.Element => {
         const isMenuOpen = snapshot.openTileMenuId === tile.id;
         return (
-            <div
+            <ParticipantSurface
                 key={tile.id}
-                className={styles.tile}
-                data-kind="participant"
-                data-video={tile.videoEnabled ? "true" : undefined}
-                data-participant-id={tile.userId}
-                data-speaking={tile.speaking ? "true" : undefined}
-                data-soundboard={tile.soundboardPlaying || undefined}
-                data-testid="videoTile"
-                onMouseEnter={() => setHoveredTileId(tile.id)}
-                onMouseLeave={() => setHoveredTileId((prev) => (prev === tile.id ? null : prev))}
+                tile={tile}
+                onHover={setHoveredTileId}
+                animate={!snapshot.miniMode || Boolean(popoutWindow)}
             >
-                <button
-                    type="button"
-                    className={styles.tileClickSurface}
-                    aria-label={_t("desktop|call_stage|participant_tile_aria", { name: tile.displayName })}
-                    onClick={() => vm.setSpotlightTileId(isSpotlight ? null : tile.id)}
-                    onContextMenu={(e) => {
-                        if (tile.hasVolumeControl) {
-                            e.preventDefault();
-                            vm.setOpenTileMenuId(isMenuOpen ? null : tile.id);
-                        }
-                    }}
-                />
-                {tile.video && tile.videoEnabled ? (
-                    <AttachedVideo
-                        attachment={tile.video}
-                        mirror={tile.mirror}
-                        testId={`participant-video-${tile.userId}`}
-                    />
-                ) : (
-                    <div className={styles.avatarFallback}>
-                        <div className={styles.avatarCircle}>
-                            {tile.avatarUrl ? (
-                                <img src={tile.avatarUrl} alt={tile.displayName} className={styles.avatarImage} />
-                            ) : (
-                                <span>{tile.initialLetter}</span>
-                            )}
-                        </div>
-                        {tile.waitingForMedia && (
-                            <Text size="xs" className={styles.waitingLabel}>
-                                {_t("desktop|call_stage|waiting_for_media")}
-                            </Text>
-                        )}
-                    </div>
-                )}
-                <div className={styles.tileTopBar}>
-                    <div />
-                    <div className={styles.tileActions}>
-                        {tile.hasVolumeControl && (
-                            <button
-                                ref={(el) => {
-                                    if (el) tileMenuTriggerRefs.current.set(tile.id, el);
-                                    else tileMenuTriggerRefs.current.delete(tile.id);
-                                }}
-                                type="button"
-                                className={styles.tileActionBtn}
-                                aria-label={_t("desktop|call_stage|participant_audio_options", {
-                                    name: tile.displayName,
-                                })}
-                                aria-expanded={isMenuOpen}
-                                data-testid={`participant-volume-menu-btn-${tile.userId}`}
-                                onClick={(e) => {
-                                    e.stopPropagation();
+                {(live) => (
+                    <>
+                        <button
+                            type="button"
+                            className={styles.tileClickSurface}
+                            aria-label={_t("desktop|call_stage|participant_tile_aria", { name: tile.displayName })}
+                            onClick={() => vm.setSpotlightTileId(isSpotlight ? null : tile.id)}
+                            onContextMenu={(e) => {
+                                if (tile.hasVolumeControl) {
+                                    e.preventDefault();
                                     vm.setOpenTileMenuId(isMenuOpen ? null : tile.id);
-                                }}
-                            >
-                                <OverflowHorizontalIcon />
-                            </button>
-                        )}
-                    </div>
-                </div>
-                {isMenuOpen && tile.hasVolumeControl && (
-                    <StagePopover
-                        anchor={getTileTriggerRef(tile.id)}
-                        placement="below-end"
-                        ariaLabel={_t("desktop|call_stage|participant_audio_options", { name: tile.displayName })}
-                        testId={`participant-volume-popover-${tile.userId}`}
-                        className={styles.tileVolumePopover}
-                        onClose={() => vm.setOpenTileMenuId(null)}
-                    >
-                        <div className={styles.volumeRow}>
-                            <Text size="xs" weight="semibold">
-                                {_t("desktop|call_stage|user_volume_title")}
-                            </Text>
-                            <Text size="xs">{tile.microphoneMuted ? "0%" : `${tile.microphoneVolumePercent}%`}</Text>
-                        </div>
-                        <div className={styles.volumeSliderRow}>
-                            <button
-                                type="button"
-                                className={styles.tileActionBtn}
-                                aria-label={
-                                    tile.microphoneMuted
-                                        ? _t("desktop|call_stage|unmute_participant", { name: tile.displayName })
-                                        : _t("desktop|call_stage|mute_participant", { name: tile.displayName })
                                 }
-                                data-testid={`participant-audio-mute-${tile.userId}`}
-                                onClick={() => vm.toggleParticipantMicrophoneMuted(tile.id)}
-                            >
-                                {tile.microphoneMuted || tile.microphoneVolumePercent === 0 ? (
-                                    <VolumeOffIcon />
-                                ) : (
-                                    <VolumeOnIcon />
+                            }}
+                        />
+                        {tile.video && tile.videoEnabled ? (
+                            <AttachedVideo
+                                attachment={tile.video}
+                                mirror={tile.mirror}
+                                testId={`participant-video-${tile.userId}`}
+                            />
+                        ) : (
+                            <div className={styles.avatarFallback}>
+                                {tile.appearance?.effect && (
+                                    <ProfileEffectLayer id={tile.appearance.effect} seed={tile.userId} />
                                 )}
-                            </button>
-                            <input
-                                type="range"
-                                min={0}
-                                max={100}
-                                step={1}
-                                value={tile.microphoneMuted ? 0 : tile.microphoneVolumePercent}
-                                aria-label={_t("desktop|call_stage|participant_volume_slider_aria", {
+                                <div className={styles.decoratedAvatar}>
+                                    <div className={styles.avatarCircle}>
+                                        {(live && tile.appearance?.avatarAnimatedUrl) || tile.avatarUrl ? (
+                                            <img
+                                                src={(live && tile.appearance?.avatarAnimatedUrl) || tile.avatarUrl}
+                                                alt={tile.displayName}
+                                                className={styles.avatarImage}
+                                            />
+                                        ) : (
+                                            <span>{tile.initialLetter}</span>
+                                        )}
+                                    </div>
+                                    {tile.appearance?.decoration && (
+                                        <ProfileDecoration id={tile.appearance.decoration} />
+                                    )}
+                                </div>
+                                {tile.waitingForMedia && (
+                                    <Text size="xs" className={styles.waitingLabel}>
+                                        {_t("desktop|call_stage|waiting_for_media")}
+                                    </Text>
+                                )}
+                            </div>
+                        )}
+                        <div className={styles.tileTopBar}>
+                            <div />
+                            <div className={styles.tileActions}>
+                                {tile.hasVolumeControl && (
+                                    <button
+                                        ref={(el) => {
+                                            if (el) tileMenuTriggerRefs.current.set(tile.id, el);
+                                            else tileMenuTriggerRefs.current.delete(tile.id);
+                                        }}
+                                        type="button"
+                                        className={styles.tileActionBtn}
+                                        aria-label={_t("desktop|call_stage|participant_audio_options", {
+                                            name: tile.displayName,
+                                        })}
+                                        aria-expanded={isMenuOpen}
+                                        data-testid={`participant-volume-menu-btn-${tile.userId}`}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            vm.setOpenTileMenuId(isMenuOpen ? null : tile.id);
+                                        }}
+                                    >
+                                        <OverflowHorizontalIcon />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                        {isMenuOpen && tile.hasVolumeControl && (
+                            <StagePopover
+                                anchor={getTileTriggerRef(tile.id)}
+                                placement="below-end"
+                                ariaLabel={_t("desktop|call_stage|participant_audio_options", {
                                     name: tile.displayName,
                                 })}
-                                data-testid={`participant-volume-slider-${tile.userId}`}
-                                className={styles.volumeSlider}
-                                onChange={(e) => vm.setParticipantMicrophoneVolume(tile.id, Number(e.target.value))}
-                            />
+                                testId={`participant-volume-popover-${tile.userId}`}
+                                className={styles.tileVolumePopover}
+                                onClose={() => vm.setOpenTileMenuId(null)}
+                            >
+                                <div className={styles.volumeRow}>
+                                    <Text size="xs" weight="semibold">
+                                        {_t("desktop|call_stage|user_volume_title")}
+                                    </Text>
+                                    <Text size="xs">
+                                        {tile.microphoneMuted ? "0%" : `${tile.microphoneVolumePercent}%`}
+                                    </Text>
+                                </div>
+                                <div className={styles.volumeSliderRow}>
+                                    <button
+                                        type="button"
+                                        className={styles.tileActionBtn}
+                                        aria-label={
+                                            tile.microphoneMuted
+                                                ? _t("desktop|call_stage|unmute_participant", {
+                                                      name: tile.displayName,
+                                                  })
+                                                : _t("desktop|call_stage|mute_participant", { name: tile.displayName })
+                                        }
+                                        data-testid={`participant-audio-mute-${tile.userId}`}
+                                        onClick={() => vm.toggleParticipantMicrophoneMuted(tile.id)}
+                                    >
+                                        {tile.microphoneMuted || tile.microphoneVolumePercent === 0 ? (
+                                            <VolumeOffIcon />
+                                        ) : (
+                                            <VolumeOnIcon />
+                                        )}
+                                    </button>
+                                    <input
+                                        type="range"
+                                        min={0}
+                                        max={100}
+                                        step={1}
+                                        value={tile.microphoneMuted ? 0 : tile.microphoneVolumePercent}
+                                        aria-label={_t("desktop|call_stage|participant_volume_slider_aria", {
+                                            name: tile.displayName,
+                                        })}
+                                        data-testid={`participant-volume-slider-${tile.userId}`}
+                                        className={styles.volumeSlider}
+                                        onChange={(e) =>
+                                            vm.setParticipantMicrophoneVolume(tile.id, Number(e.target.value))
+                                        }
+                                    />
+                                </div>
+                            </StagePopover>
+                        )}
+                        <div className={styles.tileBottomBar}>
+                            <div className={styles.nameBadge} data-testid="name_tag">
+                                <ProfileName className={styles.nameBadgeText} nameStyle={tile.appearance?.nameStyle}>
+                                    {tile.displayName}
+                                </ProfileName>
+                                {tile.reactionEmoji && <span>{tile.reactionEmoji}</span>}
+                                {tile.handRaisedAt && (
+                                    <span
+                                        title={_t("desktop|call_stage|hand_raised")}
+                                        aria-label={_t("desktop|call_stage|hand_raised")}
+                                    >
+                                        🖐️
+                                    </span>
+                                )}
+                            </div>
+                            <div className={styles.statusIcons}>
+                                {!tile.audioEnabled && (
+                                    <span
+                                        className={styles.statusIconBadge}
+                                        title={_t("desktop|call_stage|mic_muted_badge")}
+                                        aria-label={_t("desktop|call_stage|mic_muted_badge")}
+                                    >
+                                        <MicOffIcon />
+                                    </span>
+                                )}
+                                {tile.deafened && (
+                                    <span
+                                        className={styles.statusIconBadge}
+                                        title={_t("desktop|call_stage|deafened_badge")}
+                                        aria-label={_t("desktop|call_stage|deafened_badge")}
+                                    >
+                                        <HeadphonesOffSolidIcon />
+                                    </span>
+                                )}
+                                {renderEncryptionStatusBadge(
+                                    tile.userId,
+                                    tile.unencryptedWarning,
+                                    tile.encryptionStatus,
+                                )}
+                            </div>
                         </div>
-                    </StagePopover>
+                    </>
                 )}
-                <div className={styles.tileBottomBar}>
-                    <div className={styles.nameBadge} data-testid="name_tag">
-                        <span className={styles.nameBadgeText}>{tile.displayName}</span>
-                        {tile.reactionEmoji && <span>{tile.reactionEmoji}</span>}
-                        {tile.handRaisedAt && (
-                            <span
-                                title={_t("desktop|call_stage|hand_raised")}
-                                aria-label={_t("desktop|call_stage|hand_raised")}
-                            >
-                                🖐️
-                            </span>
-                        )}
-                    </div>
-                    <div className={styles.statusIcons}>
-                        {!tile.audioEnabled && (
-                            <span
-                                className={styles.statusIconBadge}
-                                title={_t("desktop|call_stage|mic_muted_badge")}
-                                aria-label={_t("desktop|call_stage|mic_muted_badge")}
-                            >
-                                <MicOffIcon />
-                            </span>
-                        )}
-                        {tile.deafened && (
-                            <span
-                                className={styles.statusIconBadge}
-                                title={_t("desktop|call_stage|deafened_badge")}
-                                aria-label={_t("desktop|call_stage|deafened_badge")}
-                            >
-                                <HeadphonesOffSolidIcon />
-                            </span>
-                        )}
-                        {renderEncryptionStatusBadge(tile.userId, tile.unencryptedWarning, tile.encryptionStatus)}
-                    </div>
-                </div>
-            </div>
+            </ParticipantSurface>
         );
     };
 
@@ -846,7 +968,7 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
     const hasSpotlight =
         snapshot.layoutMode === "spotlight" && (spotlightShare !== null || spotlightParticipant !== null);
 
-    return (
+    const stage = (
         <div
             ref={stageRef}
             className={styles.stage}
@@ -860,30 +982,14 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
             data-testid="aether-call-stage"
         >
             {/* Preserve MatrixAudioRenderer + Ringing audio (validIdentities filtering, multiple rooms, global deafen/output) */}
-            {vm.renderAudioElement()}
 
             {/* Top Header */}
             <header className={styles.header}>
                 <div className={styles.headerIdentity}>
                     <div className={styles.headerBadges}>
-                        {snapshot.reconnecting ? (
+                        {snapshot.reconnecting && (
                             <span className={styles.statusPill} data-tone="warning" role="status">
                                 {_t("desktop|call_stage|reconnecting")}
-                            </span>
-                        ) : snapshot.connected ? (
-                            <span className={styles.statusPill} data-tone="success" role="status">
-                                {_t("desktop|call_stage|voice_connected")}
-                            </span>
-                        ) : (
-                            <span className={styles.statusPill} role="status">
-                                {snapshot.phase === "lobby"
-                                    ? _t("desktop|call_stage|ready_to_join")
-                                    : _t("desktop|call_stage|connecting")}
-                            </span>
-                        )}
-                        {snapshot.encrypted && (
-                            <span className={styles.statusPill} title={_t("desktop|call_stage|e2ee_tooltip")}>
-                                <LockIcon width={12} height={12} /> {_t("desktop|call_stage|e2ee_badge")}
                             </span>
                         )}
                         {snapshot.keyRotationSuppressed && (
@@ -898,39 +1004,19 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                         )}
                     </div>
                 </div>
-                <div className={styles.headerActions}>
-                    {(allScreenShares.length > 0 || effectiveSpotlightId !== null) && (
-                        <button
-                            type="button"
-                            className={styles.headerButton}
-                            onClick={() => vm.setLayoutMode(snapshot.layoutMode === "spotlight" ? "grid" : "spotlight")}
-                        >
-                            {snapshot.layoutMode === "spotlight"
-                                ? _t("desktop|call_stage|grid_view")
-                                : _t("desktop|call_stage|focus_view")}
-                        </button>
-                    )}
-                    <button
-                        type="button"
-                        className={styles.headerButton}
-                        aria-label={_t("desktop|call_stage|invite_aria")}
-                        onClick={vm.openInviteDialog}
-                    >
-                        <UserAddSolidIcon />
-                        <span>{_t("desktop|call_stage|invite")}</span>
-                    </button>
-                    <button
-                        type="button"
-                        className={styles.headerButton}
-                        aria-label={_t("desktop|call_stage|show_chat")}
-                        onClick={vm.showRoomChat}
-                    >
-                        <ChatSolidIcon />
-                        <span>{_t("desktop|call_stage|show_chat")}</span>
-                    </button>
-                </div>
             </header>
 
+            {[...allParticipants, ...allScreenShares].some((tile) => tile.unencryptedWarning) && (
+                <div className={styles.banner} role="status">
+                    <Text size="sm">{_t("desktop|call_stage|unencrypted_media_warning")}</Text>
+                </div>
+            )}
+
+            {popoutFailed && (
+                <div className={styles.banner} role="alert">
+                    <Text size="sm">{_t("desktop|call_stage|popout_failed")}</Text>
+                </div>
+            )}
             {snapshot.deviceError && (
                 <div className={styles.banner} role="alert">
                     <Text size="sm">
@@ -1051,8 +1137,8 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                         {allScreenShares.length + allParticipants.length > 1 && (
                             <div className={styles.filmstrip}>
                                 {allScreenShares
-                                    .filter((s) => s.id !== effectiveSpotlightId)
-                                    .map((s) => renderScreenShareTile(s, false))}
+                                    .filter((s) => spotlightShare !== null || s.id !== effectiveSpotlightId)
+                                    .map((s) => renderScreenShareTile(s, false, true))}
                                 {allParticipants
                                     .filter((p) => p.id !== effectiveSpotlightId)
                                     .map((p) => renderParticipantTile(p, false))}
@@ -1118,6 +1204,17 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
             {/* Bottom Control Bar */}
             {snapshot.phase !== "lobby" && snapshot.phase !== "ended" && (
                 <div className={styles.bottomBar}>
+                    <div className={styles.leftControls}>
+                        <button
+                            type="button"
+                            className={styles.inviteButton}
+                            aria-label={_t("action|invite")}
+                            title={_t("action|invite")}
+                            onClick={vm.openInviteDialog}
+                        >
+                            <UserAddSolidIcon />
+                        </button>
+                    </div>
                     <div className={styles.centerControls}>
                         {/* Microphone control + audio input/output device picker */}
                         <div className={styles.controlPillGroup}>
@@ -1536,15 +1633,38 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
 
                     {/* Bottom-right floating/fullscreen controls */}
                     <div className={styles.rightControls}>
-                        <button
-                            type="button"
-                            className={styles.utilityButton}
-                            aria-label={_t("desktop|call_stage|popout_call")}
-                            title={_t("desktop|call_stage|popout_call")}
-                            onClick={vm.popoutCall}
-                        >
-                            <PopOutIcon />
-                        </button>
+                        {(allScreenShares.length > 0 || effectiveSpotlightId !== null) && (
+                            <button
+                                type="button"
+                                className={styles.utilityButton}
+                                aria-label={
+                                    snapshot.layoutMode === "spotlight"
+                                        ? _t("desktop|call_stage|grid_view")
+                                        : _t("desktop|call_stage|focus_view")
+                                }
+                                title={
+                                    snapshot.layoutMode === "spotlight"
+                                        ? _t("desktop|call_stage|grid_view")
+                                        : _t("desktop|call_stage|focus_view")
+                                }
+                                onClick={() =>
+                                    vm.setLayoutMode(snapshot.layoutMode === "spotlight" ? "grid" : "spotlight")
+                                }
+                            >
+                                {snapshot.layoutMode === "spotlight" ? <GridIcon /> : <SpotlightViewIcon />}
+                            </button>
+                        )}
+                        {canPopout && !popoutWindow && (
+                            <button
+                                type="button"
+                                className={styles.utilityButton}
+                                aria-label={_t("desktop|call_stage|popout_call")}
+                                title={_t("desktop|call_stage|popout_call")}
+                                onClick={() => void openPopout(stageRef.current)}
+                            >
+                                <PopOutIcon />
+                            </button>
+                        )}
                         <button
                             type="button"
                             className={styles.utilityButton}
@@ -1566,5 +1686,11 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                 </div>
             )}
         </div>
+    );
+    return (
+        <>
+            {vm.renderAudioElement()}
+            {popoutWindow ? createPortal(stage, popoutWindow.document.body) : stage}
+        </>
     );
 }

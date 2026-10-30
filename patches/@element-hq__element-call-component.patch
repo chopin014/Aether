@@ -337,6 +337,16 @@ index e597a18e59..7a35256c6e 100644
  	};
  }
  //#endregion
+@@ -42895,7 +42969,8 @@ var c3 = class {
+ 	constructor(e, t, n, r, i, a) {
+ 		this.connection = e, this.muteStates = n, this.logger = i, this.shouldPublish = !1, this.scope = new yL();
+ 		let o = e.livekitRoom;
+-		o.setE2EEEnabled(o.options.e2ee !== void 0)?.catch((e) => {
++		// Encryption configuration moved to `encryption`; checking only `e2ee` disables encrypted publishing.
++		o.setE2EEEnabled((o.options.encryption ?? o.options.e2ee) !== void 0)?.catch((e) => {
+ 			this.logger.error("Failed to set E2EE enabled on room", e);
+ 		}), this.observeTrackProcessors(this.scope, o, r), this.observeMediaDevices(this.scope, t, a), this.workaroundRestartAudioInputTrackChrome(t, this.scope), this.connection.livekitRoom.localParticipant.on(J.LocalTrackPublished, this.onLocalTrackPublished.bind(this));
+ 	}
 @@ -43118,6 +43192,368 @@ function _3(e, t) {
  }
  //#endregion
