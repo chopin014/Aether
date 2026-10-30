@@ -46,15 +46,31 @@
     width: 100%;
 }
 
-/* The end padding matches the channel row's margin, so status icons line up with the channel's own icons. */
+/*
+ * A voice channel and the people in it share one grid. The second column holds the channel's image and the
+ * participants' avatars, so they line up with each other, and with the channel's name when it has no image.
+ * The start padding leaves room for the row's margin and padding and the kind symbol, less the participant's own
+ * hover padding. The end padding matches the channel row's margin, so status icons line up with its icons.
+ */
+.roomListItem,
 .callParticipants {
-    padding: 0 var(--mx-desktop-room-margin, var(--cpd-space-3x)) var(--cpd-space-1x) var(--cpd-space-9x);
+    --channel-symbol-size: calc(var(--cpd-space-5x) + var(--cpd-space-0-5x));
+    --channel-column-gap: var(--cpd-space-2x);
+    --channel-image-size: var(--cpd-space-6x);
+}
+
+.callParticipants {
+    padding: 0 var(--mx-desktop-room-margin, var(--cpd-space-3x)) var(--cpd-space-1x)
+        calc(
+            var(--mx-desktop-room-margin, var(--cpd-space-3x)) + var(--cpd-space-2x) + var(--channel-symbol-size) +
+                var(--channel-column-gap) - var(--cpd-space-1x)
+        );
 }
 
 .callParticipant {
     display: flex;
     align-items: center;
-    gap: var(--cpd-space-2x);
+    gap: var(--channel-column-gap);
     width: 100%;
     height: var(--cpd-space-8x);
     padding: 0 var(--cpd-space-2x) 0 var(--cpd-space-1x);
@@ -265,14 +281,14 @@
     display: flex;
     flex: none;
     align-items: center;
-    gap: var(--cpd-space-2x);
+    gap: var(--channel-column-gap);
 }
 
 /* A touch larger than the name beside it, and dimmer, like Discord's channel symbols. */
 .channelIcon {
     flex: none;
-    width: calc(var(--cpd-space-5x) + var(--cpd-space-0-5x));
-    height: calc(var(--cpd-space-5x) + var(--cpd-space-0-5x));
+    width: var(--channel-symbol-size);
+    height: var(--channel-symbol-size);
     color: var(--cpd-color-icon-tertiary);
     transition: color 120ms ease-out;
 }
@@ -292,8 +308,8 @@
 /* A custom channel icon from the room avatar. The inner hairline keeps dark images apart from the sidebar. */
 .channelImage {
     flex: none;
-    width: var(--cpd-space-5x);
-    height: var(--cpd-space-5x);
+    width: var(--channel-image-size);
+    height: var(--channel-image-size);
     border-radius: var(--cpd-space-1-5x);
     object-fit: cover;
     outline: var(--cpd-border-width-1) solid var(--cpd-color-alpha-gray-400);
@@ -315,7 +331,7 @@
 
 .channel {
     min-height: var(--cpd-space-8x);
-    gap: var(--cpd-space-2x);
+    gap: var(--channel-column-gap);
 }
 
 .bold .roomName {

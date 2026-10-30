@@ -367,6 +367,21 @@ export const DesktopChannelWithIcon: Story = {
     },
 };
 
+/** A channel's icon and its participants' avatars share a column. */
+export const DesktopVoiceChannelWithIconAndParticipants: Story = {
+    args: {
+        channelKind: "voice",
+        channelIconUrl:
+            "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'><rect width='20' height='20' fill='%238ed8ea'/></svg>",
+        callParticipants: [
+            { userId: "@alice:example.org", name: "Alice" },
+            { userId: "@bob:example.org", name: "Bob", isMuted: true },
+        ],
+        callStartedAt: Date.now() - (12 * 60 + 34) * 1000,
+        onViewCallParticipant: fn(),
+    },
+};
+
 /** A participant who is talking gets an activity ring and soft pulse around their avatar. */
 export const DesktopVoiceParticipantSpeaking: Story = {
     args: {

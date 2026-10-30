@@ -25,6 +25,7 @@ import ImageSizePanel from "../../ImageSizePanel";
 import SettingsTab from "../SettingsTab";
 import { SettingsSection } from "../../shared/SettingsSection";
 import { SettingsSubsection } from "../../shared/SettingsSubsection";
+import { ColorThemeSettings } from "./ColorThemeSettings";
 
 interface IState {
     useBundledEmojiFont: boolean;
@@ -107,6 +108,7 @@ export default class AppearanceUserSettingsTab extends React.Component<EmptyObje
             <SettingsTab data-testid="mx_AppearanceUserSettingsTab">
                 <SettingsSection>
                     <ThemeChoicePanel />
+                    {SettingsStore.getValue("feature_desktop_shell") && <ColorThemeSettings />}
                     <LayoutSwitcher />
                     <FontScalingPanel />
                     {this.renderAdvancedSection()}

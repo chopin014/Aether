@@ -42,6 +42,7 @@ import { FontWatcher } from "./watchers/FontWatcher";
 import ServerSupportUnstableFeatureController from "./controllers/ServerSupportUnstableFeatureController";
 import { WatchManager } from "./WatchManager";
 import { type CustomTheme } from "../theme";
+import { type ColorThemeSetting } from "../appearance/colorThemes";
 import AnalyticsController from "./controllers/AnalyticsController";
 import FallbackIceServerController from "./controllers/FallbackIceServerController";
 import { type IRightPanelForRoomStored } from "../stores/right-panel/RightPanelStoreIPanelState.ts";
@@ -285,6 +286,7 @@ export interface Settings {
     "VideoView.flipVideoHorizontally": IBaseSetting<boolean>;
     "theme": IBaseSetting<string>;
     "custom_themes": IBaseSetting<CustomTheme[]>;
+    "desktopColorTheme": IBaseSetting<ColorThemeSetting>;
     "use_system_theme": IBaseSetting<boolean>;
     "useBundledEmojiFont": IBaseSetting<boolean>;
     "useSystemFont": IBaseSetting<boolean>;
@@ -1012,6 +1014,11 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
         default: [],
         // Potential privacy leak via theme origin
         shouldExportToRageshake: false,
+    },
+    // Stored per device, like the light or dark theme it depends on.
+    "desktopColorTheme": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: { id: "aether" },
     },
     "use_system_theme": {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,

@@ -5,7 +5,11 @@
  * Please see LICENSE files in the repository root for full details.
  */
 
-import React from "react";
+import React, { useState } from "react";
+import { fn } from "storybook/test";
+import { EventTileView } from "../../../EventTileView/EventTileView";
+import { ActionBarAction, ActionBarView } from "../../../actions/ActionBarView/ActionBarView";
+import { EventPresentationProvider } from "../../../../EventPresentation";
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { DmTombstoneCallTileView, type DmTombstoneCallTileViewSnapshot } from "./DmTombstoneCallTileView";
@@ -40,6 +44,7 @@ const meta = {
     },
     args: {
         timestamp: "12:36",
+        startedByDisplayName: "Bob",
         callDirection: CallDirection.Incoming,
         isCallDeclined: false,
         type: CallType.Voice,
@@ -99,4 +104,67 @@ export const OutgoingVideoDeclined: Story = {
         callDirection: CallDirection.Outgoing,
         isCallDeclined: true,
     },
+};
+
+/** Call history in the same event shell used by the chat timeline. */
+function CallHistoryTimeline(): React.ReactNode {
+    const [hovered, setHovered] = useState(false);
+    const vm = useMockedViewModel(
+        {
+            timestamp: "16:50",
+            startedByDisplayName: "chopin",
+            type: CallType.Voice,
+            callDirection: CallDirection.Incoming,
+            isCallDeclined: false,
+        },
+        {},
+    );
+    const actionsVm = useMockedViewModel(
+        {
+            actions: [ActionBarAction.React, ActionBarAction.Options],
+            isDownloadEncrypted: false,
+            isDownloadLoading: false,
+            isPinned: false,
+            isQuoteExpanded: false,
+            isThreadReplyAllowed: false,
+        },
+        { onReactionsClick: fn(), onOptionsClick: fn() },
+    );
+    return (
+        <EventPresentationProvider value={{ layout: "group", density: "default", messageStyle: "desktop" }}>
+            <div style={{ paddingBlock: "var(--cpd-space-8x)", maxWidth: "960px" }}>
+                <EventTileView
+                    root={{
+                        as: "div",
+                        id: "before-call",
+                        shape: "Room",
+                        state: { isOwnEvent: false, hasReply: false },
+                    }}
+                    slots={{ sender: <strong>chopin</strong>, body: "Anyone around for a call?" }}
+                />
+                <EventTileView
+                    root={{
+                        as: "div",
+                        id: "voice-history",
+                        shape: "Room",
+                        state: { isOwnEvent: false, hasReply: false, noSender: true },
+                    }}
+                    onMouseEnter={() => setHovered(true)}
+                    onMouseLeave={() => setHovered(false)}
+                    slots={{
+                        body: <DmTombstoneCallTileView vm={vm} />,
+                        actionBar: hovered ? <ActionBarView vm={actionsVm} /> : undefined,
+                    }}
+                />
+                <EventTileView
+                    root={{ as: "div", id: "after-call", shape: "Room", state: { isOwnEvent: false, hasReply: false } }}
+                    slots={{ sender: <strong>oPon</strong>, body: "Be right there!" }}
+                />
+            </div>
+        </EventPresentationProvider>
+    );
+}
+
+export const InTimeline: Story = {
+    render: () => <CallHistoryTimeline />,
 };

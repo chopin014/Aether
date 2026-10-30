@@ -1915,3 +1915,23 @@
         }
     }
 }
+
+/* Call history uses the avatar gutter for its icon and keeps the message actions
+   and hover surface on the full event line. */
+.root.layoutGroup:has([data-call-history]) {
+    padding-top: var(--cpd-space-2x);
+
+    &:hover {
+        background: transparent;
+    }
+
+    .line {
+        border-radius: var(--cpd-space-2x);
+        padding-inline-start: var(--cpd-space-6x);
+    }
+
+    .desktopMetadata,
+    .slotTimestamp {
+        display: none;
+    }
+}

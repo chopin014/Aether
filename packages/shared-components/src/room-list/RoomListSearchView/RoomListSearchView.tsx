@@ -15,15 +15,17 @@ import { type ViewModel, useViewModel } from "../../core/viewmodel";
 import { Flex } from "../../core/utils/Flex";
 import { useI18n } from "../../core/i18n/i18nContext";
 
-/** The arrow a map shows for where you are, for exploring rooms beyond your own. */
+/** A navigation arrow pointing up and to the right, for exploring rooms beyond your own. */
 function NavigationIcon(props: SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg width="1em" height="1em" viewBox="0 0 24 24" fill="currentColor" {...props}>
             <path
                 d="M12 3.2 5.4 19.6a.6.6 0 0 0 .84.75L12 17.3l5.76 3.05a.6.6 0 0 0 .84-.75z"
                 stroke="currentColor"
-                strokeWidth={1.4}
+                strokeWidth={1.1}
                 strokeLinejoin="round"
+                // Turned about its middle, then moved so that its diagonal shape sits in the centre of the button.
+                transform="translate(14.4 9.6) rotate(45) scale(1.25) translate(-12 -12)"
             />
         </svg>
     );

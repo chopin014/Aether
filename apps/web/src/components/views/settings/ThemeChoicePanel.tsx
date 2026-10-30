@@ -66,7 +66,8 @@ function SystemTheme({ systemThemeActivated }: SystemThemeProps): JSX.Element {
         >
             <InlineField
                 name="systemTheme"
-                control={<ToggleControl name="systemTheme" defaultChecked={systemThemeActivated} />}
+                // Controlled, because choosing a colour theme also turns this off. The form handles the change.
+                control={<ToggleControl name="systemTheme" checked={systemThemeActivated} onChange={() => {}} />}
             >
                 <Label>{SettingsStore.getDisplayName("use_system_theme")}</Label>
             </InlineField>

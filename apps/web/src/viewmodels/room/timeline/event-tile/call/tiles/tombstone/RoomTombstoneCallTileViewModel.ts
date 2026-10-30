@@ -14,6 +14,7 @@ import type { SettingUpdatedPayload } from "../../../../../../../dispatcher/payl
 import type { ActionPayload } from "../../../../../../../dispatcher/payloads";
 import { Action } from "../../../../../../../dispatcher/actions";
 import type { GetRelationsForEvent } from "../../../../../../../components/views/rooms/EventTile";
+import { getIntentFromEvent } from "../../common";
 import { getTimeFromEvent } from "./common";
 
 export interface RoomTombstoneCallTileViewModelProps {
@@ -30,7 +31,11 @@ export interface RoomTombstoneCallTileViewModelProps {
 function generateSnapshot(event: MatrixEvent): RoomTombstoneCallTileViewSnapshot {
     const showTwelveHour = SettingsStore.getValue("showTwelveHourTimestamps");
     const timestamp = getTimeFromEvent(event, showTwelveHour);
-    return { timestamp };
+    return {
+        timestamp,
+        startedByDisplayName: event.sender?.name ?? event.getSender() ?? "",
+        type: getIntentFromEvent(event),
+    };
 }
 
 function isSettingsChangedPayload(payload: ActionPayload): payload is SettingUpdatedPayload {

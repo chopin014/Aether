@@ -32,10 +32,11 @@ body.mx_DesktopShell {
     --mx-desktop-header-border: 1px solid var(--cpd-color-border-interactive-secondary);
     --mx-desktop-header-padding: 14px;
     --mx-desktop-sidebar-heading-size: 16px;
-    --mx-desktop-search-height: 52px;
-    --mx-desktop-search-border: 0;
-    --mx-desktop-search-padding: 8px 10px;
-    --mx-desktop-search-button-padding: 8px;
+    --mx-desktop-search-border: var(--mx-desktop-header-border);
+    /* With the sidebar's top border, the padding centres a 32px button on the same line as the room header's. */
+    --mx-desktop-search-padding: 7px 10px 8px;
+    --mx-desktop-search-button-padding: 0 8px;
+    --mx-desktop-search-button-size: 32px;
     --mx-desktop-search-background: var(--cpd-color-bg-subtle-primary);
     /* Direct messages carry a profile avatar; channels a 24px symbol. Both keep 2px between rows. */
     --mx-desktop-room-content-height: 42px;
@@ -46,6 +47,8 @@ body.mx_DesktopShell {
     --mx-desktop-room-margin: 8px;
     --mx-desktop-room-radius: 6px;
     --mx-desktop-room-marker: transparent;
+    /* The dock's account row, which the message composer matches. */
+    --mx-desktop-dock-row-height: 60px;
     /* The account dock floats 8px above the bottom; its height is measured by DesktopAccountDockContainer. */
     --mx-desktop-dock-clearance: calc(var(--mx-desktop-dock-height, 56px) + 16px);
 
@@ -334,9 +337,24 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
     --cpd-color-text-on-solid-primary: var(--ae-on-accent);
     --cpd-color-icon-on-solid-primary: var(--ae-on-accent);
     --cpd-color-icon-accent-tertiary: var(--ae-accent);
-    --cpd-color-text-action-accent: var(--ae-accent);
-    --cpd-color-icon-accent-primary: var(--ae-accent);
-    --cpd-color-text-link-external: var(--ae-accent);
+    /* A theme's accent can be too dark to read as text or an icon, even when it works as a fill. */
+    --cpd-color-text-action-accent: var(--ae-accent-foreground, var(--ae-accent));
+    --cpd-color-icon-accent-primary: var(--ae-accent-foreground, var(--ae-accent));
+    --cpd-color-text-link-external: var(--ae-accent-foreground, var(--ae-accent));
+    /*
+     * Older styles use Compound's gray scale directly for icons and waveforms. It suits Compound's own near-black and
+     * white, and nearly disappears on any other surface, so these steps follow the theme's colours instead.
+     */
+    --cpd-color-gray-800: var(--ae-text-muted);
+    --cpd-color-gray-600: color-mix(in srgb, var(--ae-text-muted) 85%, var(--ae-surface-raised));
+}
+
+/*
+ * A tooltip has a neutral fill, where the text colour meant for accent fills may be unreadable. Compound only gives
+ * tooltips the role when they describe their button, not when they name it, so this matches its class.
+ */
+body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] {
+    --cpd-color-text-on-solid-primary: var(--cpd-color-bg-canvas-default);
 }
 
 .mx_MatrixChat_wrapper.mx_MatrixChat_desktopShell {
@@ -406,7 +424,7 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         --mx-desktop-rail-icon: 48px;
         --mx-desktop-rail-inset: 12px;
 
-        background: var(--mx-desktop-shell-frame);
+        background: var(--mx-desktop-rail-background, var(--mx-desktop-shell-frame));
         border-inline-end: none;
         padding-block-start: var(--cpd-space-2x);
         padding-block-end: var(--mx-desktop-dock-clearance);
@@ -490,7 +508,7 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
                 height: 28px;
                 padding: 10px;
                 border-radius: inherit;
-                background-color: var(--cpd-color-bg-subtle-primary);
+                background-color: var(--mx-desktop-rail-icon-background, var(--cpd-color-bg-subtle-primary));
                 transition: background-color 150ms ease-out;
             }
 
@@ -558,11 +576,26 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         }
     }
 
+    /* The sidebar's rounded corner sits on the rail, so the rail's colour has to show behind it. */
+    .mx_LeftPanel_outerWrapper {
+        background: var(--mx-desktop-rail-background, var(--mx-desktop-shell-frame));
+    }
+
     .mx_LeftPanel {
+        /* The top border takes one pixel, so the header's line still meets the room header's. */
+        --mx-desktop-shell-header-height: 48px;
+        --mx-desktop-search-height: var(--mx-desktop-shell-header-height);
+
         border-start-start-radius: var(--cpd-space-3x);
         border: 1px solid var(--cpd-color-border-interactive-secondary);
+        /* The resize separator next to the sidebar is its end border, so the two don't double up. */
         border-block-end: 0;
+        border-inline-end: 0;
         background: var(--mx-desktop-shell-frame);
+    }
+
+    .mx_Separator {
+        --cpd-color-bg-subtle-primary: var(--cpd-color-border-interactive-secondary);
     }
 
     .mx_RoomListPanel {
@@ -872,7 +905,9 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
     .mx_MessageComposer {
         /* The room view's 100% width plus these margins pushed the composer past the window's edge. */
         width: auto;
+        /* Level with the account dock: the same 8px from the window's bottom, and the same height below. */
         margin: 0 16px 8px;
+        padding-block-end: 0;
 
         .mx_MessageComposer_wrapper {
             border: 1px solid var(--cpd-color-border-interactive-secondary);
@@ -883,13 +918,22 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         }
 
         .mx_MessageComposer_row {
-            min-height: 56px;
+            min-height: var(--mx-desktop-dock-row-height);
         }
 
         .mx_MessageComposer_input,
         .mx_SendMessageComposer .mx_BasicMessageComposer {
-            min-height: 54px;
+            min-height: calc(var(--mx-desktop-dock-row-height) - 2px);
             font-size: 15px;
+        }
+
+        /* The themed red and ring, which stay readable on any composer colour. */
+        .mx_VoiceRecordComposerTile_stop {
+            border-color: var(--cpd-color-gray-600);
+
+            svg {
+                color: var(--cpd-color-icon-critical-primary);
+            }
         }
 
         .mx_MessageComposer_actions {
