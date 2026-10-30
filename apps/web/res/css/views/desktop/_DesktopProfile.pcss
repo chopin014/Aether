@@ -11,7 +11,16 @@ Please see LICENSE in the repository root for full details.
     -webkit-app-region: no-drag;
 }
 
-/* The view draws its own surface, close button and padding, so the modal frame is made transparent. */
+/* The view draws its own surface, close button and padding, so the modal's glass frame is dropped altogether. */
+.mx_Dialog_desktopProfile .mx_Dialog_border {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    backdrop-filter: none;
+}
+
 .mx_Dialog_desktopProfile .mx_Dialog {
     padding: 0;
     background: transparent;
@@ -28,4 +37,42 @@ Please see LICENSE in the repository root for full details.
     .mx_Dialog_cancelButton {
         display: none;
     }
+}
+
+/* The decoration is positioned against the avatar it surrounds. It moves only while the message is hovered. */
+.mx_EventTileAvatar_decorated {
+    position: relative;
+    display: inline-flex;
+    /* Without this the avatar stretches to the height of the tile's avatar slot and stops being round. */
+    align-items: flex-start;
+    border-radius: 50%;
+
+    /*
+     * The desktop timeline sizes its avatar slot's direct child, which is this wrapper, so the avatar has to follow or
+     * it stays small in the corner and the decoration misses it. A minimum rather than a size, because in views that
+     * do not size the slot this wrapper takes its size from the avatar, and 100% of that would collapse it.
+     */
+    > :first-child {
+        flex: none;
+        min-width: 100%;
+        min-height: 100%;
+    }
+
+    .mx_EventTile:hover & {
+        --profile-motion: running;
+    }
+}
+
+/* A neon name's glow reaches past its text, and clipping it to the name's box leaves a hard-edged rectangle. */
+.mx_DisambiguatedProfile:has([data-name-effect="neon"]),
+.mx_MemberTileView .mx_MemberTileView_name .mx_DisambiguatedProfile > span:has([data-name-effect="neon"]) {
+    overflow: clip;
+    overflow-clip-margin: var(--cpd-space-3x);
+}
+
+.mx_DesktopProfileEditorSettings {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-6x);
+    padding-inline-end: var(--cpd-space-4x);
 }

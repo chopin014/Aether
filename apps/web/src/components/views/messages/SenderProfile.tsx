@@ -14,6 +14,7 @@ import {
     DisambiguatedProfileViewModel,
     type MemberInfo,
 } from "../../../viewmodels/room/timeline/event-tile/DisambiguatedProfileViewModel";
+import { useRichRowProfile } from "../../../profile/useRichProfile";
 import { useUserStatus } from "../../../hooks/useUserStatus";
 
 interface IProps {
@@ -36,6 +37,7 @@ export default function SenderProfile(props: IProps): JSX.Element {
     const senderId = props.senderId ?? props.member?.userId;
     const member = props.member;
     const userStatus = useUserStatus(senderId);
+    const rich = useRichRowProfile(senderId);
     const isEmote = props.isEmote;
     const onClick = props.onClick;
     const withTooltip = props.withTooltip;
@@ -63,6 +65,11 @@ export default function SenderProfile(props: IProps): JSX.Element {
     return isEmote ? (
         <></>
     ) : (
-        <DisambiguatedProfileView vm={disambiguatedProfileVM} className="mx_DisambiguatedProfile" />
+        <DisambiguatedProfileView
+            vm={disambiguatedProfileVM}
+            className="mx_DisambiguatedProfile"
+            nameStyle={rich?.appearance?.nameStyle}
+            tag={rich?.tag}
+        />
     );
 }

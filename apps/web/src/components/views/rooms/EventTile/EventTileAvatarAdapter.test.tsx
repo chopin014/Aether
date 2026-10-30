@@ -13,8 +13,13 @@ import { render } from "test-utils-rtl";
 import { RoomMember } from "matrix-js-sdk/src/matrix";
 
 import MemberAvatar from "../../avatars/MemberAvatar";
+import { useRichRowProfile } from "../../../../profile/useRichProfile";
 import { EventTileAvatarAdapter } from "./EventTileAvatarAdapter";
 import { type EventTileSenderSnapshot } from "../../../../viewmodels/room/timeline/event-tile/EventTileViewModel";
+
+vi.mock("../../../../profile/useRichProfile", () => ({
+    useRichRowProfile: vi.fn(),
+}));
 
 vi.mock("../../avatars/MemberAvatar", () => ({
     default: vi.fn(() => <div data-testid="member-avatar" />),
@@ -75,5 +80,20 @@ describe("EventTileAvatarAdapter", () => {
 
         expect(container.querySelector('[data-testid="member-avatar"]')).toBeNull();
         expect(mockedMemberAvatar).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["30px", true],
+        ["14px", false],
+    ])("frames a %s avatar with the person's decoration: %s", (avatarSize, framed) => {
+        vi.mocked(useRichRowProfile).mockReturnValue({ appearance: { decoration: "halo" } });
+        const { container } = render(
+            <EventTileAvatarAdapter
+                avatarMember={{ userId: "@a:example.org" } as never}
+                senderSnapshot={makeSenderSnapshot({ profileState: { avatarSize, needsSenderProfile: true } })}
+            />,
+        );
+        expect(container.querySelector('[data-decoration="halo"]') !== null).toBe(framed);
+        vi.mocked(useRichRowProfile).mockReturnValue(undefined);
     });
 });

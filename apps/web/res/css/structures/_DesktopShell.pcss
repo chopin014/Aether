@@ -1019,10 +1019,26 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
             &:hover,
             &:focus-visible {
                 background: var(--cpd-color-bg-action-tertiary-hovered);
+                /* A list of decorated people stays still until the pointer or keyboard reaches one of them. */
+                --profile-motion: running;
+            }
+
+            .mx_MemberTileView_left,
+            .mx_MemberTileView_right {
+                position: relative;
+                z-index: 1;
             }
 
             .mx_MemberTileView_name {
                 font: var(--cpd-font-body-lg-medium);
+            }
+
+            .mx_MemberTileView_status {
+                overflow: hidden;
+                color: var(--cpd-color-text-secondary);
+                font: var(--cpd-font-body-xs-regular);
+                text-overflow: ellipsis;
+                white-space: nowrap;
             }
 
             .mx_MemberTileView_userLabel {
