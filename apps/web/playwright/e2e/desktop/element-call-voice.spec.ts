@@ -113,7 +113,7 @@ async function syntheticDisplayCapture(page: Page): Promise<void> {
                 context.fillRect(0, 0, canvas.width, canvas.height);
                 context.fillStyle = "white";
                 context.font = "48px sans-serif";
-                context.fillText(`Aether encrypted screen ${tick}`, 64, 120);
+                context.fillText(`Aether screen-share test ${tick}`, 64, 120);
             };
             draw();
             const timer = window.setInterval(draw, 33);
@@ -251,8 +251,9 @@ test(
             await app.viewSpaceByName("Voice studio");
             await page.getByRole("button", { name: "Open server menu", exact: true }).click();
             await page.getByRole("menuitem", { name: "New voice room" }).click();
-            await page.getByRole("textbox", { name: "Name", exact: true }).fill("Lounge");
-            await page.getByRole("button", { name: "Create voice room", exact: true }).click();
+            await page.getByRole("textbox", { name: "Channel name", exact: true }).fill("Lounge");
+            await page.getByRole("button", { name: "Create channel", exact: true }).click({ timeout: 15_000 });
+            await page.getByRole("button", { name: "Open room Lounge", exact: true }).click();
             await expect(page.getByTestId("videoTile")).toHaveCount(1, { timeout: 60_000 });
             const roomId = await app.getCurrentRoomIdFromUrl();
             expect(await app.client.evaluate((client, id) => client.getRoom(id)!.getType(), roomId)).toBe(
@@ -266,7 +267,29 @@ test(
             await expect
                 .poll(() => bobApp.client.evaluate((client, id) => client.getRoom(id)?.getType(), roomId))
                 .toBe("org.matrix.msc3417.call");
-            await bobPage.goto(`/#/room/${roomId}`);
+            await bobPage.evaluate(
+                (roomId) =>
+                    (
+                        window as unknown as Window & {
+                            mxDispatcher: {
+                                dispatch(payload: {
+                                    action: string;
+                                    room_id: string;
+                                    view_call: boolean;
+                                    skipLobby: boolean;
+                                    voiceOnly: boolean;
+                                }): void;
+                            };
+                        }
+                    ).mxDispatcher.dispatch({
+                        action: "view_room",
+                        room_id: roomId,
+                        view_call: true,
+                        skipLobby: true,
+                        voiceOnly: true,
+                    }),
+                roomId,
+            );
             for (const memberPage of [page, bobPage]) {
                 const memberDock = memberPage.getByRole("group", { name: "User menu" });
                 await expect(memberDock.getByText("Voice Connected", { exact: true })).toBeVisible({ timeout: 60_000 });
@@ -417,7 +440,11 @@ test(
                 await memberPage.mouse.move(0, 0);
             }
             await page.screenshot({ path: testInfo.outputPath("aether-camera-and-screen-local.png") });
+            await remoteScreen.hover({ force: true });
             await bobPage.screenshot({ path: testInfo.outputPath("aether-camera-and-screen-remote.png") });
+            await bobPage.getByRole("button", { name: "Close", exact: true }).click();
+            await remoteScreen.hover({ force: true });
+            await bobPage.screenshot({ path: testInfo.outputPath("aether-focused-stream.png") });
             const framesBeforeNavigation = await decodedVideoFrames(bobPage);
             const peersBeforeNavigation = await page.evaluate(
                 () => (window as Window & { __desktopVoicePeers?: RTCPeerConnection[] }).__desktopVoicePeers?.length,
