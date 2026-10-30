@@ -44,7 +44,6 @@ const actions: DesktopCallStageViewActions = {
     toggleScreenShareAudioMuted: fn(),
     openInviteDialog: fn(),
     showRoomChat: fn(),
-    popoutCall: fn(),
     toggleFullscreen: fn(),
     renderAudioElement: () => null,
 };
@@ -53,7 +52,7 @@ const actions: DesktopCallStageViewActions = {
 function StageStory(snapshot: DesktopCallStageViewSnapshot): JSX.Element {
     const vm = useMockedViewModel(snapshot, actions);
     return (
-        <div style={{ height: "640px" }}>
+        <div style={{ height: "100vh" }}>
             <DesktopCallStageView vm={vm} />
         </div>
     );
@@ -155,7 +154,31 @@ const participants: DesktopCallStageViewSnapshot["participants"] = [
 const meta = {
     title: "Desktop/Call stage",
     component: StageStory,
-    args: { ...snapshot, participants },
+    args: {
+        ...snapshot,
+        participants: [
+            {
+                ...participants[0],
+                displayName: "chopin",
+                initialLetter: "C",
+                appearance: {
+                    theme: { primary: "#19163b", accent: "#6327a0" },
+                    decoration: "neon-ring",
+                    effect: "embers",
+                    nameStyle: { font: "pixel", effect: "none", colour: "#c09aff" },
+                },
+            },
+            {
+                ...participants[1],
+                displayName: "Cherry",
+                initialLetter: "C",
+                appearance: {
+                    theme: { primary: "#b87852", accent: "#dfa875" },
+                    decoration: "flame-crown",
+                },
+            },
+        ],
+    },
     parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof StageStory>;
 // Storybook indexes the metadata through its required default export.

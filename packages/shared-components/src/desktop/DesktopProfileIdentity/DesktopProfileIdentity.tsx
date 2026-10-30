@@ -156,7 +156,7 @@ function PresenceBadge({ presence }: PresenceBadgeProps): JSX.Element {
  * The average colour of an avatar, which gives a plain banner something that belongs to its owner. Images a canvas
  * may not read (a media server without CORS headers) leave this undefined and the ID's colour takes over.
  */
-function useDominantColour(url: string | undefined, enabled: boolean): string | undefined {
+export function useDominantColour(url: string | undefined, enabled: boolean): string | undefined {
     const [colour, setColour] = useState<string>();
     useEffect(() => {
         setColour(undefined);

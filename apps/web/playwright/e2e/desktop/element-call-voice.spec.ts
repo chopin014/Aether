@@ -205,6 +205,13 @@ test(
             await sendMicrophoneUnprocessed(bobPage);
             await observePeers(bobPage);
             const bobApp = new ElementAppPage(bobPage);
+            await bobApp.client.evaluate(async (client) => {
+                await client.setExtendedProfileProperty("io.aether.profile", {
+                    v: 1,
+                    theme: { primary: "#b87852", accent: "#dfa875" },
+                    decoration: "neon-ring",
+                });
+            });
             // Reproduce existing Element clients: a per-join key UUID with a legacy membership/backend ID.
             await bobApp.client.evaluate((client) => {
                 const send = client.encryptAndSendToDevice.bind(client);
@@ -980,4 +987,58 @@ test("joining on another device moves voice there and can move back", async ({
     } finally {
         await context.close();
     }
+});
+
+test("shows profile customisation in call tiles and keeps it when focusing a participant", async ({
+    page,
+    app,
+    user,
+}, testInfo) => {
+    await settle(page);
+    await app.client.evaluate(async (client) => {
+        await client.setExtendedProfileProperty("io.aether.profile", {
+            v: 1,
+            theme: { primary: "#19163b", accent: "#6327a0" },
+            decoration: "neon-ring",
+            name: { font: "pixel", effect: "none", colour: "#c09aff" },
+        });
+    });
+    const roomId = await app.client.createRoom({
+        name: "Profile voice",
+        creation_content: { type: "org.matrix.msc3417.call" },
+    });
+    await app.client.createSpace({
+        name: "Profile calls",
+        initial_state: [{ type: "m.space.child", state_key: roomId, content: { via: [user.homeServer] } }],
+    });
+    await app.viewSpaceByName("Profile calls");
+    await page.getByRole("button", { name: "Open room Profile voice", exact: true }).click();
+    const stage = page.getByTestId("aether-call-stage").filter({ visible: true });
+    await expect(stage).toHaveAttribute("data-phase", "in_call", { timeout: 60_000 });
+    const tile = stage.getByTestId("videoTile");
+    await expect(tile).toHaveCSS("--call-tile-colour", "#19163b");
+    await expect(tile.getByTestId("name_tag")).toContainText("Alice");
+    await expect(stage.getByRole("button", { name: "Show Chat" })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("personalized-call.png") });
+    await stage.getByRole("button", { name: "Participant Alice", exact: true }).click();
+    await expect(tile).toHaveCSS("--call-tile-colour", "#19163b");
+    await expect(stage.getByRole("button", { name: "Grid View" })).toBeVisible();
+    await stage.getByRole("button", { name: "Pop out call" }).click();
+    await expect(stage).toHaveCount(0);
+    await expect
+        .poll(() =>
+            page.evaluate(() => {
+                const api = (window as Window & { documentPictureInPicture?: { window: Window | null } })
+                    .documentPictureInPicture;
+                return Boolean(api?.window?.document.querySelector('[data-testid="aether-call-stage"]'));
+            }),
+        )
+        .toBe(true);
+    await page.evaluate(() => {
+        const api = (window as Window & { documentPictureInPicture?: { window: Window | null } })
+            .documentPictureInPicture;
+        api?.window?.close();
+    });
+    await expect(stage).toBeVisible();
+    await stage.getByTestId("incall_leave").click();
 });

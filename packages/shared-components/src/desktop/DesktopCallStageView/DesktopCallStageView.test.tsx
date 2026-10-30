@@ -7,7 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@test-utils";
+import { act, fireEvent, render, screen, waitFor, within } from "@test-utils";
 
 import type { SoundboardViewSnapshot } from "../SoundboardView";
 import { BaseViewModel, MockViewModel } from "../../core/viewmodel";
@@ -59,7 +59,6 @@ class TestCallStageViewModel
     public toggleScreenShareAudioMuted = vi.fn();
     public openInviteDialog = vi.fn();
     public showRoomChat = vi.fn();
-    public popoutCall = vi.fn();
     public toggleFullscreen = vi.fn();
     public renderAudioElement = () => <div data-testid="matrix-audio-renderer" />;
 
@@ -168,6 +167,100 @@ function makeScreenShare(overrides: Partial<DesktopCallStageScreenShareTile> = {
 }
 
 describe("DesktopCallStageView", () => {
+    it("keeps audio in the main window and opens usable menus in the floating stage", async () => {
+        const iframe = document.createElement("iframe");
+        document.body.appendChild(iframe);
+        const target = iframe.contentWindow!;
+        vi.spyOn(target, "close").mockImplementation(() => {});
+        vi.stubGlobal("documentPictureInPicture", { requestWindow: vi.fn().mockResolvedValue(target) });
+        const vm = new TestCallStageViewModel({ participants: [makeParticipant()] });
+        const { unmount } = render(<DesktopCallStageView vm={vm} />);
+        fireEvent.click(screen.getByRole("button", { name: "Pop out call" }));
+        await waitFor(() =>
+            expect(target.document.body.querySelector('[data-testid="aether-call-stage"]')).toBeTruthy(),
+        );
+        expect(screen.getByTestId("matrix-audio-renderer")).toBeInTheDocument();
+        const floating = within(target.document.body);
+        fireEvent.click(floating.getByRole("button", { name: "More microphone options" }));
+        expect(floating.getByRole("dialog")).toBeVisible();
+        fireEvent.keyDown(target.document, { key: "Escape" });
+        expect(floating.queryByRole("dialog")).not.toBeInTheDocument();
+        await act(() => {
+            target.dispatchEvent(new Event("pagehide"));
+        });
+        expect(screen.getByTestId("aether-call-stage")).toBeInTheDocument();
+        unmount();
+        vi.unstubAllGlobals();
+        iframe.remove();
+    });
+
+    it("keeps solo participant tiles at widescreen proportions in a short call window", () => {
+        render(
+            <div style={{ "width": "1000px", "height": "600px", "--cpd-space-2x": "8px" } as React.CSSProperties}>
+                <DesktopCallStageView vm={new TestCallStageViewModel({ participants: [makeParticipant()] })} />
+            </div>,
+        );
+        const { width, height } = screen.getByTestId("videoTile").getBoundingClientRect();
+        expect(width / height).toBeCloseTo(16 / 9, 1);
+    });
+
+    it("uses the avatar's colour when the person has not chosen a profile theme", async () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = canvas.height = 8;
+        const context = canvas.getContext("2d")!;
+        context.fillStyle = "#204060";
+        context.fillRect(0, 0, 8, 8);
+        const vm = new TestCallStageViewModel({ participants: [makeParticipant({ avatarUrl: canvas.toDataURL() })] });
+        render(<DesktopCallStageView vm={vm} />);
+        await waitFor(() =>
+            expect(screen.getByTestId("videoTile").style.getPropertyValue("--call-tile-colour")).toBe("rgb(32 64 96)"),
+        );
+        expect(screen.getByRole("img", { name: "Alice" })).toBeVisible();
+    });
+
+    it("uses profile colours, decorations, effects and name styles on participant tiles", () => {
+        const tile = makeParticipant({
+            appearance: {
+                theme: { primary: "#161339", accent: "#652c9a" },
+                decoration: "neon-ring",
+                effect: "embers",
+                nameStyle: { font: "pixel", effect: "none", colour: "#dab3ff" },
+            },
+        });
+        const { container } = render(
+            <DesktopCallStageView vm={new TestCallStageViewModel({ participants: [tile] })} />,
+        );
+        expect(screen.getByTestId("videoTile").style.getPropertyValue("--call-tile-colour")).toBe("#161339");
+        expect(container.querySelector('[data-decoration="neon-ring"]')).toBeInTheDocument();
+        expect(container.querySelector('[data-effect="embers"]')).toBeInTheDocument();
+        expect(screen.getByTestId("name_tag").querySelector('[data-font="pixel"]')).toHaveTextContent(tile.displayName);
+    });
+
+    it("explains unencrypted media in text without the unexplained corner glyph or duplicate header actions", () => {
+        render(
+            <DesktopCallStageView
+                vm={new TestCallStageViewModel({ participants: [makeParticipant({ unencryptedWarning: true })] })}
+            />,
+        );
+        expect(screen.getByRole("status")).toHaveTextContent("Media is not end-to-end encrypted");
+        expect(screen.queryByTestId("encryption-badge-@alice:example.org")).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Show Chat" })).not.toBeInTheDocument();
+        expect(screen.queryByText("Voice Connected")).not.toBeInTheDocument();
+    });
+
+    it("changes only stream audio from the focused stream's visible volume slider", () => {
+        const vm = new TestCallStageViewModel({
+            participants: [makeParticipant()],
+            screenShares: [makeScreenShare()],
+            layoutMode: "spotlight",
+        });
+        render(<DesktopCallStageView vm={vm} />);
+        const slider = screen.getByRole("slider", { name: /stream volume/i });
+        fireEvent.change(slider, { target: { value: "37" } });
+        expect(vm.setScreenShareAudioVolume).toHaveBeenCalledWith(makeScreenShare().id, 37);
+        expect(vm.setParticipantMicrophoneVolume).not.toHaveBeenCalled();
+    });
+
     it("keeps the voice lobby free of camera previews and in-call controls", async () => {
         const vm = new TestCallStageViewModel({ phase: "lobby", connected: false, localVideoEnabled: false });
         render(<DesktopCallStageView vm={vm} />);
@@ -502,15 +595,9 @@ describe("DesktopCallStageView", () => {
         act(() => vm.updateSnapshot({ phase: "in_call" }));
         fireEvent.click(screen.getByRole("button", { name: "Turn Off Camera" }));
         fireEvent.click(screen.getByRole("button", { name: "Mute microphone" }));
-        fireEvent.click(screen.getByRole("button", { name: "Invite people to the channel" }));
-        fireEvent.click(screen.getByRole("button", { name: "Show Chat" }));
-        fireEvent.click(screen.getByRole("button", { name: "Pop out call" }));
         fireEvent.click(screen.getByRole("button", { name: "Fullscreen" }));
         expect(vm.toggleLocalVideo).toHaveBeenCalledOnce();
         expect(vm.toggleLocalAudio).toHaveBeenCalledOnce();
-        expect(vm.openInviteDialog).toHaveBeenCalledOnce();
-        expect(vm.showRoomChat).toHaveBeenCalledOnce();
-        expect(vm.popoutCall).toHaveBeenCalledOnce();
         expect(vm.toggleFullscreen).toHaveBeenCalledWith(screen.getByTestId("aether-call-stage"));
         unmount();
         expect(preview.detach).toHaveBeenCalledOnce();

@@ -17,7 +17,7 @@ import {
     type DesktopCallStageViewModel as DesktopCallStageViewModelInterface,
     type DesktopCallStageViewSnapshot,
 } from "@element-hq/web-shared-components";
-import { KnownMembership, type MatrixClient } from "matrix-js-sdk/src/matrix";
+import { ClientEvent, KnownMembership, type MatrixClient } from "matrix-js-sdk/src/matrix";
 import { isVideoRoom } from "../../utils/video-rooms";
 import { mediaFromMxc } from "../../customisations/Media";
 
@@ -40,6 +40,9 @@ import { _t } from "../../languageHandler";
 import type { ElementCall } from "../../models/Call";
 import { resolveScreenShareQuality } from "../../audio/desktop/ScreenShareQuality";
 
+import { RichProfileStore } from "../../profile/RichProfileStore";
+import { appearanceFromRichProfile } from "../../profile/richProfileView";
+
 import { SoundboardViewModel } from "./SoundboardViewModel";
 
 /** The existing call engine and Matrix client shown by the desktop stage. */
@@ -59,6 +62,10 @@ const mapParticipantTile = (
     const avatarUrl = item.avatarMxcUrl
         ? (mediaFromMxc(item.avatarMxcUrl, client).getSquareThumbnailHttp(96) ?? undefined)
         : undefined;
+    const profile =
+        SettingsStore.getValue("showProfileAppearance") && !client.isUserIgnored(item.userId)
+            ? RichProfileStore.forClient(client).get(item.userId)
+            : undefined;
     const vol = item.microphoneVolume;
     return {
         id: item.id,
@@ -66,6 +73,7 @@ const mapParticipantTile = (
         displayName: item.displayName,
         avatarUrl,
         initialLetter: getInitialLetter(item.displayName || item.userId) || "?",
+        appearance: profile ? appearanceFromRichProfile(profile, item.avatarMxcUrl) : undefined,
         local: item.local,
         speaking: item.speaking,
         audioEnabled: item.audioEnabled,
@@ -150,6 +158,7 @@ export class DesktopCallStageViewModel
     private bridge: AetherCallPresentationBridge;
     private readonly participantVolumes = new Map<string, AetherMediaVolumeController>();
     private readonly screenShareVolumes = new Map<string, AetherMediaVolumeController>();
+    private readonly profileSubscriptions = new Map<string, () => void>();
     private deviceChangeGeneration = 0;
     private deviceEnumerationGeneration = 0;
     private qualityUpdate: Promise<void> = Promise.resolve();
@@ -206,6 +215,14 @@ export class DesktopCallStageViewModel
         this.snapshot.merge({ soundboard: soundboard.vm });
         this.bridge = props.bridge;
         this.syncVolumeMaps(state.participants, state.screenShares);
+        this.syncProfiles();
+        this.disposables.track(() => {
+            for (const unsubscribe of this.profileSubscriptions.values()) unsubscribe();
+            this.profileSubscriptions.clear();
+        });
+        const appearanceRef = SettingsStore.watchSetting("showProfileAppearance", null, this.refreshProfiles);
+        this.disposables.track(() => SettingsStore.unwatchSetting(appearanceRef));
+        this.disposables.trackListener(props.client, ClientEvent.AccountData, this.refreshProfiles);
 
         const deafenRef = SettingsStore.watchSetting("desktopDeafened", null, this.onDeafenChanged);
         this.disposables.track(() => SettingsStore.unwatchSetting(deafenRef));
@@ -248,6 +265,7 @@ export class DesktopCallStageViewModel
         const previousShareCount = this.bridge.state.screenShares.length;
         this.bridge = bridge;
         const { state } = bridge;
+        this.syncProfiles();
         this.syncVolumeMaps(state.participants, state.screenShares);
 
         let { layoutMode, spotlightTileId } = this.snapshot.current;
@@ -294,6 +312,37 @@ export class DesktopCallStageViewModel
             callees: ringingCallees(this.props.client, this.props.call.roomId, state.ringing, state.participants),
         });
     };
+
+    private readonly refreshProfiles = (): void => {
+        if (this.isDisposed) return;
+        this.syncProfiles();
+        this.snapshot.merge({
+            participants: this.bridge.state.participants.map((p) => mapParticipantTile(this.props.client, p)),
+        });
+    };
+
+    private syncProfiles(): void {
+        const store = RichProfileStore.forClient(this.props.client);
+        const users = new Set(
+            this.bridge.state.participants
+                .filter(
+                    (p) =>
+                        SettingsStore.getValue("showProfileAppearance") && !this.props.client.isUserIgnored(p.userId),
+                )
+                .map((p) => p.userId),
+        );
+        for (const [userId, unsubscribe] of this.profileSubscriptions) {
+            if (!users.has(userId)) {
+                unsubscribe();
+                this.profileSubscriptions.delete(userId);
+            }
+        }
+        for (const userId of users) {
+            if (this.profileSubscriptions.has(userId)) continue;
+            this.profileSubscriptions.set(userId, store.subscribe(userId, this.refreshProfiles));
+            void store.request(userId);
+        }
+    }
 
     private syncVolumeMaps(
         participants: readonly AetherParticipantMediaItem[],
@@ -570,19 +619,11 @@ export class DesktopCallStageViewModel
         });
     };
 
-    public popoutCall = (): void => {
-        defaultDispatcher.dispatch({
-            action: Action.ViewRoom,
-            room_id: this.props.call.roomId,
-            view_call: false,
-            metricsTrigger: undefined,
-        });
-    };
-
     public toggleFullscreen = (stageElement?: HTMLElement | null): void => {
         if (typeof document === "undefined") return;
-        if (document.fullscreenElement) {
-            void document.exitFullscreen().catch(() => {});
+        const ownerDocument = stageElement?.ownerDocument ?? document;
+        if (ownerDocument.fullscreenElement) {
+            void ownerDocument.exitFullscreen().catch(() => {});
         } else if (stageElement?.requestFullscreen) {
             void stageElement.requestFullscreen().catch(() => {});
         }
