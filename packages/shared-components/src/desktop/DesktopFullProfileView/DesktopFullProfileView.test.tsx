@@ -74,15 +74,15 @@ describe("DesktopFullProfileView", () => {
         expect(vm.openRoom).toHaveBeenCalledWith("!a:example.org");
         screen.getByRole("tab", { name: "1 mutual room" }).focus();
         await userEvent.keyboard("{ArrowRight}");
-        expect(screen.getByRole("tab", { name: "1 mutual space", selected: true })).toHaveFocus();
+        expect(screen.getByRole("tab", { name: "1 mutual server", selected: true })).toHaveFocus();
         expect(screen.getByRole("button", { name: /Aether HQ/ })).toBeVisible();
-        expect(screen.getByText("Based on the Space members this client has loaded.")).toBeVisible();
+        expect(screen.getByText("Based on the server members this client has loaded.")).toBeVisible();
     });
 
     it("hides the mutual rooms tab when the server cannot provide them", () => {
         render(<DesktopFullProfileView vm={makeVm({ mutualRooms: { state: "unsupported", items: [] } })} />);
         expect(screen.queryByRole("tab", { name: /mutual room/ })).toBeNull();
-        expect(screen.getByRole("tab", { name: "1 mutual space", selected: true })).toBeVisible();
+        expect(screen.getByRole("tab", { name: "1 mutual server", selected: true })).toBeVisible();
     });
 
     it("reports a mutual rooms failure with a retry", async () => {

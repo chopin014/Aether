@@ -104,7 +104,7 @@ describe("<SpaceSettingsVisibilityTab />", () => {
         fireEvent.click(toggleButton);
     };
     const getGuestAccessToggle = ({ getByLabelText }: RenderResult) => getByLabelText("Enable guest access");
-    const getHistoryVisibilityToggle = ({ getByLabelText }: RenderResult) => getByLabelText("Preview space");
+    const getHistoryVisibilityToggle = ({ getByLabelText }: RenderResult) => getByLabelText("Preview server");
     const getErrorMessage = ({ getByTestId }: RenderResult) => getByTestId("space-settings-error")?.textContent;
 
     beforeEach(() => {
@@ -185,7 +185,7 @@ describe("<SpaceSettingsVisibilityTab />", () => {
                     fireEvent.click(getGuestAccessToggle(component)!);
                 });
 
-                expect(getErrorMessage(component)).toEqual("Failed to update the guest access of this space");
+                expect(getErrorMessage(component)).toEqual("Failed to update the guest access of this server");
             });
 
             it("disables guest access toggle when setting guest access is not allowed", async () => {
@@ -235,7 +235,7 @@ describe("<SpaceSettingsVisibilityTab />", () => {
                     fireEvent.click(getHistoryVisibilityToggle(component)!);
                 });
 
-                expect(getErrorMessage(component)).toEqual("Failed to update the history visibility of this space");
+                expect(getErrorMessage(component)).toEqual("Failed to update the history visibility of this server");
             });
 
             it("disables room preview toggle when history visibility changes are not allowed", () => {

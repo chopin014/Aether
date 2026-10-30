@@ -896,7 +896,7 @@ exports[`KeyboardUserSettingsTab > renders list of keyboard shortcuts 1`] = `
                 <li
                   class="mx_KeyboardShortcut_shortcutRow"
                 >
-                  Toggle space panel
+                  Toggle server panel
                   <div
                     class="mx_KeyboardShortcut"
                   >

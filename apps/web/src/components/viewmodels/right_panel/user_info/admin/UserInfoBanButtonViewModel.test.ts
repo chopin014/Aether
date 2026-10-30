@@ -128,14 +128,14 @@ describe("useBanButtonViewModel", () => {
 
         // test for space
         const { result: result3 } = renderBanButtonHook({ ...defaultAdminToolsProps, room: mockSpace });
-        expect(result3.current.banLabel).toBe("Ban from space");
+        expect(result3.current.banLabel).toBe("Ban from server");
         cleanup();
 
         const { result: result4 } = renderBanButtonHook({
             ...propsWithBanMembership,
             room: mockSpace,
         });
-        expect(result4.current.banLabel).toBe("Unban from space");
+        expect(result4.current.banLabel).toBe("Unban from server");
         cleanup();
     });
 

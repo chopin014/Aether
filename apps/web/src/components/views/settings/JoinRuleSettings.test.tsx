@@ -134,7 +134,7 @@ describe("<JoinRuleSettings />", () => {
         [
             JoinRule.Restricted,
             {
-                label: "Space members",
+                label: "Server members",
                 unsupportedRoomVersion: "8",
                 preferredRoomVersion: PreferredRoomVersions.RestrictedRooms,
             },
@@ -229,7 +229,7 @@ describe("<JoinRuleSettings />", () => {
                 expect(await screen.findByText("Sending invites... (1 out of 2)")).toBeInTheDocument();
                 deferredInvites.pop()!.resolve({});
 
-                // Usually we see "Updating space..." in the UI here, but we
+                // Usually we see "Updating server..." in the UI here, but we
                 // removed the assertion about it, because it sometimes fails,
                 // presumably because it disappeared too quickly to be visible.
 

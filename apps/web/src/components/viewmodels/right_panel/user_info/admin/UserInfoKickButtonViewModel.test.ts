@@ -177,11 +177,11 @@ describe("useRoomKickButtonViewModel", () => {
         };
 
         const { result: result3 } = renderKickButtonHook(propsWithJoinMembership);
-        expect(result3.current.kickLabel).toBe("Remove from space");
+        expect(result3.current.kickLabel).toBe("Remove from server");
         cleanup();
 
         const { result: result4 } = renderKickButtonHook(propsWithInviteMembership);
-        expect(result4.current.kickLabel).toBe("Disinvite from space");
+        expect(result4.current.kickLabel).toBe("Disinvite from server");
         cleanup();
     });
 

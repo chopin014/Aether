@@ -242,7 +242,7 @@ test(
                 { spaceId, textId },
             );
             await app.viewSpaceByName("Voice studio");
-            await page.getByRole("button", { name: "Open space menu", exact: true }).click();
+            await page.getByRole("button", { name: "Open server menu", exact: true }).click();
             await page.getByRole("menuitem", { name: "New voice room" }).click();
             await page.getByRole("textbox", { name: "Name", exact: true }).fill("Lounge");
             await page.getByRole("button", { name: "Create voice room", exact: true }).click();

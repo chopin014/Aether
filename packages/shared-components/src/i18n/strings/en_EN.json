@@ -244,11 +244,11 @@
             },
             "mutual_rooms_empty": "You do not share any rooms.",
             "mutual_spaces_count": {
-                "one": "%(count)s mutual space",
-                "other": "%(count)s mutual spaces"
+                "one": "%(count)s mutual server",
+                "other": "%(count)s mutual servers"
             },
-            "mutual_spaces_empty": "No mutual spaces are known to this client.",
-            "mutual_spaces_note": "Based on the Space members this client has loaded.",
+            "mutual_spaces_empty": "No mutual servers are known to this client.",
+            "mutual_spaces_note": "Based on the server members this client has loaded.",
             "not_verified": "Not verified",
             "presence_offline": "Offline",
             "presence_online": "Online",
@@ -801,7 +801,7 @@
             "remove_from_section": "Remove from section"
         },
         "notification_options": "Notification options",
-        "open_space_menu": "Open space menu",
+        "open_space_menu": "Open server menu",
         "primary_filters": "Room list filters",
         "room": {
             "more_options": "More Options"
@@ -828,8 +828,8 @@
             "unread_first": "Unread first"
         },
         "space_menu": {
-            "home": "Space home",
-            "space_settings": "Space settings"
+            "home": "Server home",
+            "space_settings": "Server settings"
         },
         "unread_messages": "Unread messages"
     },

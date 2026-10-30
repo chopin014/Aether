@@ -412,7 +412,7 @@ describe("MultiInviter", () => {
 
             await inviter.invite(["@user:other_server"]);
             expect(inviter.getErrorText("@user:other_server")).toMatchInlineSnapshot(
-                `"This space is unfederated. You cannot invite people from external servers"`,
+                `"This server is unfederated. You cannot invite people from other account providers"`,
             );
         });
     });

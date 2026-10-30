@@ -53,7 +53,7 @@ describe("DesktopFullProfileDialog", () => {
         expect(dialog).toBeInTheDocument();
         expect(screen.getByRole("heading", { name: "Robin" })).toBeInTheDocument();
         expect(screen.getByText("@robin:example.org")).toBeInTheDocument();
-        await screen.findByRole("tab", { name: "0 mutual spaces" });
+        await screen.findByRole("tab", { name: "0 mutual servers" });
         expect(screen.queryByRole("tab", { name: /mutual room/ })).toBeNull();
     });
 

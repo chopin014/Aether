@@ -212,7 +212,9 @@ describe("SpaceRoomView", () => {
             // Then we display an error message because it failed
             await waitFor(() => {
                 expect(
-                    view.getByText((content) => content.toLowerCase().includes("failed to create initial space rooms")),
+                    view.getByText((content) =>
+                        content.toLowerCase().includes("failed to create initial server rooms"),
+                    ),
                 ).toBeInTheDocument();
             });
         });
@@ -250,7 +252,7 @@ describe("SpaceRoomView", () => {
             // When I create a private space
             const view = await renderSpaceRoomView({
                 createOpts: { preset: Preset.PrivateChat },
-                name: "Private space",
+                name: "Private server",
                 topic: "a private space for team A",
             });
 
@@ -261,7 +263,7 @@ describe("SpaceRoomView", () => {
             act(() =>
                 view
                     .getByRole("button", {
-                        name: "Me and my teammates A private space for you and your teammates",
+                        name: "Me and my teammates A private server for you and your teammates",
                     })
                     .click(),
             );

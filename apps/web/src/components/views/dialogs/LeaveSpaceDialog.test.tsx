@@ -47,7 +47,7 @@ describe("LeaveSpaceDialog", () => {
         render(<LeaveSpaceDialog space={mockSpace} onFinished={vi.fn()} />);
 
         expect(
-            screen.getByText(/You're the only admin of this space. Leaving it will mean no one has control over it./),
+            screen.getByText(/You're the only admin of this server. Leaving it will mean no one has control over it./),
         ).toBeInTheDocument();
     });
 });

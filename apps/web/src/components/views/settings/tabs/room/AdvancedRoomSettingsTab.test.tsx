@@ -160,7 +160,7 @@ describe("AdvancedRoomSettingsTab", () => {
             const tab = renderTab();
             const link = await tab.findByText("View older version of test room.");
             expect(link).toBeInTheDocument();
-            expect(screen.getByText("Space information")).toBeInTheDocument();
+            expect(screen.getByText("Server information")).toBeInTheDocument();
         });
     });
 });

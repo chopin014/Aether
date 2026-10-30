@@ -56,7 +56,7 @@ it("opens the Space menu from the whole desktop title and retains permission-che
         canCreateVideoRoom: false,
     });
     render(<RoomListHeaderView vm={vm} desktop />);
-    const title = screen.getByRole("button", { name: "Open space menu" });
+    const title = screen.getByRole("button", { name: "Open server menu" });
     expect(title).toHaveTextContent("Design studio");
     await userEvent.click(title);
     expect(screen.queryByRole("menuitem", { name: "New voice room" })).not.toBeInTheDocument();

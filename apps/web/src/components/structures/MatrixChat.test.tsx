@@ -1075,7 +1075,7 @@ describe("<MatrixChat />", () => {
                             await screen.findByRole("dialog");
                             expect(
                                 screen.getByText(
-                                    "This room is restricted and cannot be rejoined unless you are in one of its authorised spaces or invited.",
+                                    "This room is restricted and cannot be rejoined unless you are in one of its authorised servers or invited.",
                                 ),
                             ).toBeInTheDocument();
                         });
@@ -1152,7 +1152,7 @@ describe("<MatrixChat />", () => {
                             dispatchAction();
                             await screen.findByRole("dialog");
                             expect(
-                                screen.getByText("This space is private and cannot be rejoined without an invite."),
+                                screen.getByText("This server is private and cannot be rejoined without an invite."),
                             ).toBeInTheDocument();
                         });
                         it("should say a restricted space can be rejoined from an authorised space", async () => {
@@ -1161,7 +1161,7 @@ describe("<MatrixChat />", () => {
                             await screen.findByRole("dialog");
                             expect(
                                 screen.getByText(
-                                    "This space is restricted and cannot be rejoined unless you are in one of its authorised spaces or invited.",
+                                    "This server is restricted and cannot be rejoined unless you are in one of its authorised servers or invited.",
                                 ),
                             ).toBeInTheDocument();
                         });
@@ -1172,7 +1172,7 @@ describe("<MatrixChat />", () => {
                             dispatchAction();
                             await screen.findByRole("dialog");
                             expect(
-                                screen.getByText("This space is private and cannot be rejoined without an invite."),
+                                screen.getByText("This server is private and cannot be rejoined without an invite."),
                             ).toBeInTheDocument();
                         });
                     });

@@ -240,7 +240,7 @@ export class Helpers {
      * @private
      */
     private getTacButton(): Locator {
-        return this.page.getByRole("navigation", { name: "Spaces" }).getByLabel("Threads");
+        return this.page.getByRole("navigation", { name: "Servers" }).getByLabel("Threads");
     }
 
     /**
@@ -366,14 +366,14 @@ export class Helpers {
      * Get the space panel
      */
     getSpacePanel() {
-        return this.page.getByRole("navigation", { name: "Spaces" });
+        return this.page.getByRole("navigation", { name: "Servers" });
     }
 
     /**
      * Expand the space panel
      */
     expandSpacePanel() {
-        return this.page.getByRole("navigation", { name: "Spaces" }).getByRole("button", { name: "Expand" }).click();
+        return this.page.getByRole("navigation", { name: "Servers" }).getByRole("button", { name: "Expand" }).click();
     }
 
     /**

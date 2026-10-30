@@ -117,7 +117,7 @@ test.describe("Spotlight", () => {
 
         // hitting enter should enable the public rooms filter
         await spotlight.searchBox.press("Enter");
-        await expect(spotlight.dialog.locator(".mx_SpotlightDialog_filter")).toHaveText("Public spaces");
+        await expect(spotlight.dialog.locator(".mx_SpotlightDialog_filter")).toHaveText("Public servers");
         await spotlight.searchBox.press("Backspace");
         await expect(spotlight.dialog.locator(".mx_SpotlightDialog_filter")).not.toBeAttached();
         await page.waitForTimeout(200); // Again, wait to settle so keypresses arrive correctly

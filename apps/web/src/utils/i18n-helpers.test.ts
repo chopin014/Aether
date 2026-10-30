@@ -44,7 +44,7 @@ describe("roomContextDetails", () => {
         );
         const res = roomContextDetails(room);
         expect(res!.details).toMatchInlineSnapshot(`"Beta and Charlie"`);
-        expect(res!.ariaLabel).toMatchInlineSnapshot(`"In spaces Beta and Charlie."`);
+        expect(res!.ariaLabel).toMatchInlineSnapshot(`"In servers Beta and Charlie."`);
     });
 
     it("should return n-parent variant", () => {
@@ -53,6 +53,6 @@ describe("roomContextDetails", () => {
         );
         const res = roomContextDetails(room);
         expect(res!.details).toMatchInlineSnapshot(`"Alpha and one other"`);
-        expect(res!.ariaLabel).toMatchInlineSnapshot(`"In Alpha and one other space."`);
+        expect(res!.ariaLabel).toMatchInlineSnapshot(`"In Alpha and one other server."`);
     });
 });

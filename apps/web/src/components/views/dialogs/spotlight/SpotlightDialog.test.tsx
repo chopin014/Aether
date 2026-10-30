@@ -246,7 +246,7 @@ describe("Spotlight Dialog", () => {
                 vi.advanceTimersByTime(200);
                 await flushPromisesWithFakeTimers();
                 await screen.findByText(space.name);
-                expect(screen.getByText("Public spaces")).toBeInTheDocument();
+                expect(screen.getByText("Public servers")).toBeInTheDocument();
                 expect(screen.queryByText(testPublicRoom.name!)).not.toBeInTheDocument();
                 expect(mockedClient.publicRooms).toHaveBeenCalledWith(
                     expect.objectContaining({ filter: { generic_search_term: "", room_types: [RoomType.Space] } }),
