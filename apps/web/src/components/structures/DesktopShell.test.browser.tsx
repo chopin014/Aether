@@ -13,8 +13,28 @@ import { CheckIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 
+// Use source views so this geometry check sees CSS changes without a package build.
+/* oxlint-disable no-restricted-imports */
+import { I18nContext } from "../../../../../packages/shared-components/src/core/i18n/i18nContext";
+import { MockViewModel } from "../../../../../packages/shared-components/src/core/viewmodel/MockViewModel";
+import { RoomListSearchView } from "../../../../../packages/shared-components/src/room-list/RoomListSearchView/RoomListSearchView";
+/* oxlint-enable no-restricted-imports */
+
 import desktopShellCss from "../../../res/css/structures/_DesktopShell.pcss?raw";
 import appIndexCss from "../../../res/css/_index.pcss?raw";
+
+// Translation loading is unrelated to geometry and needs Node globals in this browser runner.
+vi.mock("../../../../../packages/shared-components/src/core/i18n/i18n", () => ({
+    _t: (key: string) => key,
+    _td: (key: string) => key,
+}));
+
+const i18n = {
+    language: "en",
+    translate: (key: string): string => key,
+    register: vi.fn<() => void>(),
+    humanizeTime: vi.fn<() => string>(),
+};
 
 describe("Desktop shell action colours", () => {
     let container: HTMLDivElement;
@@ -78,6 +98,43 @@ describe("Desktop shell action colours", () => {
             ),
         );
     }
+
+    it("should centre the search row's buttons on the room header's line", () => {
+        container.className = "mx_MatrixChat_wrapper mx_MatrixChat_desktopShell";
+        // The application reset includes the header border inside its declared height.
+        stylesheet.textContent += ".mx_MatrixChat_wrapper, .mx_MatrixChat_wrapper * { box-sizing: border-box; }";
+        const vm = Object.assign(
+            new MockViewModel({ displayExploreButton: true, displayDialButton: false, searchShortcut: "Ctrl K" }),
+            {
+                onSearchClick: vi.fn<() => void>(),
+                onDialPadClick: vi.fn<() => void>(),
+                onExploreClick: vi.fn<() => void>(),
+            },
+        );
+        flushSync(() =>
+            root.render(
+                <I18nContext.Provider value={i18n}>
+                    <div style={{ display: "flex", alignItems: "flex-start" }}>
+                        <div className="mx_LeftPanel" style={{ flex: 1 }}>
+                            <RoomListSearchView vm={vm} />
+                        </div>
+                        <div className="mx_RoomHeader" data-testid="room-header" style={{ flex: 1 }} />
+                    </div>
+                </I18nContext.Provider>,
+            ),
+        );
+
+        const roomHeader = page.getByTestId("room-header").element().getBoundingClientRect();
+        expect(page.getByTestId("room-list-search").element().getBoundingClientRect().bottom).toBe(roomHeader.bottom);
+        const buttons = [...container.querySelectorAll("button")].map((button) => button.getBoundingClientRect());
+        expect(buttons).toHaveLength(2);
+        for (const { top, height } of buttons) {
+            expect(height).toBe(32);
+            // The middle of the header without its bottom border, where its own controls are centred.
+            expect(top - roomHeader.top + height / 2).toBe((roomHeader.height - 1) / 2);
+        }
+        expect(buttons[1].width).toBe(32);
+    });
 
     describe("with a colour theme's surfaces", () => {
         const LOW_CONTRAST_THEME = {

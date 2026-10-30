@@ -205,6 +205,23 @@ describe("Desktop channel list spacing", () => {
         expect(sidebarHeader.bottom).toBe(roomHeader.bottom);
     });
 
+    it("should level the message box with the account dock", () => {
+        flushSync(() =>
+            root.render(
+                <div className="mx_MessageComposer" data-testid="composer">
+                    <div className="mx_MessageComposer_wrapper" data-testid="composer-box">
+                        <div className="mx_MessageComposer_row" />
+                    </div>
+                </div>,
+            ),
+        );
+        const composer = getComputedStyle(getByTestId(container, "composer"));
+        expect(composer.marginBlockEnd).toBe("8px");
+        expect(composer.paddingBlockEnd).toBe("0px");
+        // The dock's 60px account row and 1px borders.
+        expect(getByTestId(container, "composer-box").getBoundingClientRect().height).toBe(62);
+    });
+
     it("should leave the web presentation flush below the header", async () => {
         renderList(false, 56, false);
         await expect.poll(() => queryByRole(container, "row", { name: /Text Channels/ })).toBeTruthy();

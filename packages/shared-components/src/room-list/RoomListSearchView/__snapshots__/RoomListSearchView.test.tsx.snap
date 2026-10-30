@@ -61,7 +61,8 @@ exports[`RoomListSearchView > Storybook snapshots > renders the default state 1`
           d="M12 3.2 5.4 19.6a.6.6 0 0 0 .84.75L12 17.3l5.76 3.05a.6.6 0 0 0 .84-.75z"
           stroke="currentColor"
           stroke-linejoin="round"
-          stroke-width="1.4"
+          stroke-width="1.1"
+          transform="translate(14.4 9.6) rotate(45) scale(1.25) translate(-12 -12)"
         />
       </svg>
     </button>
@@ -151,7 +152,8 @@ exports[`RoomListSearchView > Storybook snapshots > renders with all buttons vis
           d="M12 3.2 5.4 19.6a.6.6 0 0 0 .84.75L12 17.3l5.76 3.05a.6.6 0 0 0 .84-.75z"
           stroke="currentColor"
           stroke-linejoin="round"
-          stroke-width="1.4"
+          stroke-width="1.1"
+          transform="translate(14.4 9.6) rotate(45) scale(1.25) translate(-12 -12)"
         />
       </svg>
     </button>
@@ -241,7 +243,8 @@ exports[`RoomListSearchView > Storybook snapshots > renders with dial pad button
           d="M12 3.2 5.4 19.6a.6.6 0 0 0 .84.75L12 17.3l5.76 3.05a.6.6 0 0 0 .84-.75z"
           stroke="currentColor"
           stroke-linejoin="round"
-          stroke-width="1.4"
+          stroke-width="1.1"
+          transform="translate(14.4 9.6) rotate(45) scale(1.25) translate(-12 -12)"
         />
       </svg>
     </button>
