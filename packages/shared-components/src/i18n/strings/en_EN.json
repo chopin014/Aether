@@ -376,6 +376,9 @@
                 "yesterday": "Yesterday"
             }
         },
+        "server_voice_activity": {
+            "people": "In voice: %(names)s"
+        },
         "share_picker": {
             "applications": "Application window",
             "audio_unavailable": "Screen audio is unavailable for this capture method.",
