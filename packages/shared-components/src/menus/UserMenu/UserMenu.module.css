@@ -270,3 +270,37 @@
         visibility: visible;
     }
 }
+
+.dockTrigger .avatarWrapper::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    pointer-events: none;
+    transition: box-shadow 50ms ease-out;
+}
+
+.avatarWrapper[data-voice-activity]::after {
+    box-shadow:
+        inset 0 0 0 var(--cpd-border-width-2) var(--cpd-color-border-success-primary),
+        inset 0 0 0 calc(var(--cpd-border-width-2) + var(--cpd-border-width-1)) var(--cpd-color-bg-canvas-default);
+}
+
+.avatarWrapper[data-voice-activity="soundboard"]::after {
+    box-shadow:
+        inset 0 0 0 var(--cpd-border-width-2) var(--cpd-color-blue-900),
+        inset 0 0 0 calc(var(--cpd-border-width-2) + var(--cpd-border-width-1)) var(--cpd-color-bg-canvas-default);
+}
+
+@media (forced-colors: active) {
+    .avatarWrapper[data-voice-activity]::after {
+        outline: var(--cpd-border-width-2) solid Highlight;
+        outline-offset: calc(-1 * var(--cpd-border-width-2));
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dockTrigger .avatarWrapper::after {
+        transition: none;
+    }
+}

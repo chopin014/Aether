@@ -13,12 +13,21 @@ import { DesktopAccountDockView } from "./DesktopAccountDockView";
 import { type UserMenuViewSnapshot, type UserMenuViewActions } from "../../menus/UserMenu/UserMenu";
 import { MockViewModel, useMockedViewModel } from "../../core/viewmodel";
 import { type SetStatusViewSnapshot } from "../../status/SetStatusView";
+import { type PresenceSnapshot } from "../../presence/PresenceMenuView";
 import {
     type DesktopVoiceControlsViewActions,
     type DesktopVoiceControlsViewSnapshot,
 } from "../DesktopVoiceControlsView/DesktopVoiceControlsView";
 
 const statusVm = Object.assign(new MockViewModel<SetStatusViewSnapshot>({}), { setStatus: fn(), clearStatus: fn() });
+
+const presenceVm = Object.assign(
+    new MockViewModel<PresenceSnapshot>({ enabled: true, preference: "online", busy: false }),
+    {
+        setPreference: fn(),
+        retry: fn(),
+    },
+);
 
 const disconnectedVoice: DesktopVoiceControlsViewSnapshot = {
     microphoneMuted: false,
@@ -111,4 +120,31 @@ export const RestrictedAccount: Story = { args: { actions: {} } };
 export const InVoiceCall: Story = { args: { voice: { ...disconnectedVoice, roomName: "Geral#1" } } };
 export const SharingScreen: Story = {
     args: { voice: { ...disconnectedVoice, roomName: "Geral#1", videoEnabled: true, screenSharing: true } },
+};
+
+/** Local speech stays visible through the brief pauses between words, and the ring stops at the presence badge. */
+export const Speaking: Story = {
+    args: {
+        presence: presenceVm,
+        voice: {
+            ...disconnectedVoice,
+            roomName: "Geral#1",
+            connection: { ...disconnectedVoice.connection, state: "connected", quality: "good" },
+            speaking: true,
+        },
+    },
+};
+
+/** Soundboard playback takes priority even while the microphone is active. */
+export const PlayingSoundboard: Story = {
+    args: {
+        presence: presenceVm,
+        voice: {
+            ...disconnectedVoice,
+            roomName: "Geral#1",
+            connection: { ...disconnectedVoice.connection, state: "connected", quality: "good" },
+            speaking: true,
+            soundboardPlaying: true,
+        },
+    },
 };

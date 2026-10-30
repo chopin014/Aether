@@ -460,6 +460,15 @@ test("delivers repeated sounds over the encrypted call connection without Matrix
         const picker = page.getByRole("dialog", { name: "Soundboard", exact: true });
         const clicked = Date.now();
         await picker.getByRole("button", { name: "Airhorn", exact: true }).first().click();
+        for (const memberPage of [page, bobPage]) {
+            await expect
+                .poll(() =>
+                    memberPage
+                        .getByTestId("videoTile")
+                        .evaluateAll((tiles) => tiles.some((tile) => tile.getAttribute("data-soundboard") === "true")),
+                )
+                .toBe(true);
+        }
         await picker.getByRole("button", { name: "Sad horn", exact: true }).first().click();
         await picker.getByRole("button", { name: "Airhorn", exact: true }).first().click();
         const received = () =>
@@ -474,6 +483,17 @@ test("delivers repeated sounds over the encrypted call connection without Matrix
             `Remote soundboard media started ${clips[0].time - clicked} ms after clicking; Matrix sends: ${sends}`,
         );
         expect(sends).toBe(0);
+        for (const memberPage of [page, bobPage]) {
+            await expect
+                .poll(
+                    () =>
+                        memberPage
+                            .getByTestId("videoTile")
+                            .evaluateAll((tiles) => tiles.every((tile) => !tile.hasAttribute("data-soundboard"))),
+                    { timeout: 15_000 },
+                )
+                .toBe(true);
+        }
         await expect(picker.getByRole("alert")).toHaveCount(0);
         await expect(bobPage.getByRole("dialog", { name: "Soundboard" }).getByRole("alert")).toHaveCount(0);
     } finally {

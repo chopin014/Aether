@@ -6,10 +6,12 @@ Please see LICENSE in the repository root for full details.
 */
 
 import React from "react";
+import { composeStories } from "@storybook/react-vite";
 import { describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@test-utils";
 import userEvent from "@testing-library/user-event";
 
+import * as stories from "./DesktopAccountDockView.stories";
 import { DesktopAccountDockView } from "./DesktopAccountDockView";
 import { BaseViewModel, MockViewModel } from "../../core/viewmodel";
 import { type UserMenuViewSnapshot, type UserMenuViewActions } from "../../menus/UserMenu/UserMenu";
@@ -50,6 +52,17 @@ class AccountViewModel extends BaseViewModel<UserMenuViewSnapshot, void> impleme
 }
 
 describe("DesktopAccountDockView", () => {
+    it("follows speech and gives soundboard playback priority on the account avatar", () => {
+        const { InVoiceCall } = composeStories(stories);
+        const voice = InVoiceCall.args.voice!;
+        const { container, rerender } = render(<InVoiceCall voice={{ ...voice, speaking: true }} />);
+        expect(container.querySelector("[data-voice-activity]")).toHaveAttribute("data-voice-activity", "speaking");
+        rerender(<InVoiceCall voice={{ ...voice, speaking: true, soundboardPlaying: true }} />);
+        expect(container.querySelector("[data-voice-activity]")).toHaveAttribute("data-voice-activity", "soundboard");
+        rerender(<InVoiceCall voice={voice} />);
+        expect(container.querySelector("[data-voice-activity]")).toBeNull();
+    });
+
     it("updates the visible Matrix identity when the account model changes", () => {
         const vm = new AccountViewModel();
         render(<DesktopAccountDockView vm={vm} />);

@@ -106,6 +106,8 @@ export interface DesktopCallStageParticipantTile {
     readonly initialLetter: string;
     readonly local: boolean;
     readonly speaking: boolean;
+    /** Sound effects use a blue activity ring, taking precedence over speech. */
+    readonly soundboardPlaying?: boolean;
     readonly audioEnabled: boolean;
     readonly videoEnabled: boolean;
     readonly deafened: boolean;
@@ -681,6 +683,7 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                 data-video={tile.videoEnabled ? "true" : undefined}
                 data-participant-id={tile.userId}
                 data-speaking={tile.speaking ? "true" : undefined}
+                data-soundboard={tile.soundboardPlaying || undefined}
                 data-testid="videoTile"
                 onMouseEnter={() => setHoveredTileId(tile.id)}
                 onMouseLeave={() => setHoveredTileId((prev) => (prev === tile.id ? null : prev))}

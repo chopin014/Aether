@@ -37,7 +37,7 @@ import { Action } from "../../dispatcher/actions";
 import { showRoomInviteDialog } from "../../RoomInvite";
 import { DesktopVoicePipeline } from "../../audio/desktop/DesktopVoicePipeline";
 import { _t } from "../../languageHandler";
-import type { ElementCall } from "../../models/Call";
+import { CallEvent, type ElementCall } from "../../models/Call";
 import { resolveScreenShareQuality } from "../../audio/desktop/ScreenShareQuality";
 
 import { SoundboardViewModel } from "./SoundboardViewModel";
@@ -55,6 +55,7 @@ const clampVolumePercent = (percent: number): number =>
 const mapParticipantTile = (
     client: MatrixClient,
     item: AetherParticipantMediaItem,
+    soundboardUsers?: ReadonlySet<string>,
 ): DesktopCallStageParticipantTile => {
     const avatarUrl = item.avatarMxcUrl
         ? (mediaFromMxc(item.avatarMxcUrl, client).getSquareThumbnailHttp(96) ?? undefined)
@@ -68,6 +69,7 @@ const mapParticipantTile = (
         initialLetter: getInitialLetter(item.displayName || item.userId) || "?",
         local: item.local,
         speaking: item.speaking,
+        soundboardPlaying: soundboardUsers?.has(item.userId) || undefined,
         audioEnabled: item.audioEnabled,
         videoEnabled: item.videoEnabled,
         deafened: item.deafened,
@@ -183,7 +185,9 @@ export class DesktopCallStageViewModel
             audioInputDevices: [],
             audioOutputDevices: [],
             videoInputDevices: [],
-            participants: state.participants.map((p) => mapParticipantTile(props.client, p)),
+            participants: state.participants.map((p) =>
+                mapParticipantTile(props.client, p, props.call.soundboardUserIds),
+            ),
             screenShares: state.screenShares.map((s) => mapScreenShareTile(props.client, s)),
             lobbyPreviewVideo: state.lobbyPreviewVideo,
             screenShareQuality: state.screenShareQuality,
@@ -239,6 +243,13 @@ export class DesktopCallStageViewModel
             this.disposables.track(() => document.removeEventListener("fullscreenchange", onFullscreenChange));
         }
 
+        this.disposables.trackListener(props.call, CallEvent.SoundboardUsers, () => {
+            this.snapshot.merge({
+                participants: this.bridge.state.participants.map((p) =>
+                    mapParticipantTile(props.client, p, props.call.soundboardUserIds),
+                ),
+            });
+        });
         void this.refreshDevices();
     }
 
@@ -277,7 +288,9 @@ export class DesktopCallStageViewModel
             canShareScreen: state.canShareScreen,
             layoutMode,
             spotlightTileId,
-            participants: state.participants.map((p) => mapParticipantTile(this.props.client, p)),
+            participants: state.participants.map((p) =>
+                mapParticipantTile(this.props.client, p, this.props.call.soundboardUserIds),
+            ),
             screenShares: state.screenShares.map((s) => mapScreenShareTile(this.props.client, s)),
             lobbyPreviewVideo: state.lobbyPreviewVideo,
             screenShareQuality: state.screenShareQuality,

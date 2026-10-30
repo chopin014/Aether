@@ -246,12 +246,16 @@ describe("DesktopCallStageView", () => {
                     {
                         ...participant,
                         speaking: true,
+                        soundboardPlaying: true,
                         video: videoHandle,
                     },
                 ],
             });
         });
 
+        expect(screen.getByTestId("videoTile")).toHaveAttribute("data-soundboard", "true");
+        act(() => vm.updateSnapshot({ participants: [{ ...participant, speaking: true }] }));
+        expect(screen.getByTestId("videoTile")).not.toHaveAttribute("data-soundboard");
         expect(videoHandle.attach).toHaveBeenCalledTimes(1);
         expect(videoHandle.detach).not.toHaveBeenCalled();
     });
