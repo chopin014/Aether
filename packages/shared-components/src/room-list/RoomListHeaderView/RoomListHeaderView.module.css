@@ -32,11 +32,7 @@
 }
 
 .desktopHeader {
-    padding-inline: var(--cpd-space-3x);
+    padding-inline: var(--cpd-space-4x) var(--cpd-space-3x);
     flex: none;
     min-height: 49px;
-
-    > button:first-child {
-        flex: 1;
-    }
 }

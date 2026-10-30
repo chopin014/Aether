@@ -17,35 +17,46 @@
     }
 }
 
+/*
+ * Only the name and its arrow light up, as one target; the header's other actions keep their own place at the end
+ * of the row however long the name is.
+ */
 .spaceTrigger {
     border: 0;
     background: transparent;
     color: var(--cpd-color-text-primary);
     font: var(--cpd-font-body-lg-semibold);
     display: flex;
+    flex: 0 1 auto;
     align-items: center;
     gap: var(--cpd-space-1x);
     min-width: 0;
-    width: 100%;
-    padding: var(--cpd-space-2x) var(--cpd-space-1x);
+    max-width: 100%;
+    padding: var(--cpd-space-1-5x) var(--cpd-space-1-5x) var(--cpd-space-1-5x) var(--cpd-space-2x);
+    margin-inline-start: calc(-1 * var(--cpd-space-2x));
     cursor: pointer;
-    border-radius: var(--cpd-space-1x);
+    border-radius: var(--cpd-space-2x);
+    transition: background-color 120ms ease-out;
 
     &:is(:hover, [aria-expanded="true"]) {
-        background: var(--cpd-color-bg-action-secondary-hovered);
+        background: var(--cpd-color-bg-action-tertiary-hovered);
+
+        svg {
+            color: var(--cpd-color-icon-primary);
+        }
     }
 
     &:active {
-        background: var(--cpd-color-bg-action-secondary-pressed);
+        background: var(--cpd-color-bg-action-tertiary-selected);
     }
 
     &:focus-visible {
         outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
-        outline-offset: var(--cpd-space-1x);
+        outline-offset: var(--cpd-border-width-2);
     }
 
     span {
-        flex: 1;
+        min-width: 0;
         text-align: start;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -57,7 +68,9 @@
         height: 20px;
         color: var(--cpd-color-icon-secondary);
         flex: none;
-        transition: transform 0.1s linear;
+        transition:
+            transform 0.1s linear,
+            color 120ms ease-out;
     }
 }
 
