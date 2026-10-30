@@ -125,6 +125,7 @@ export * from "./desktop/DesktopScreenSharePickerView";
 export * from "./desktop/DesktopRoomSettingsView";
 export * from "./desktop/DesktopUpdatesView";
 
+export * from "./presence/PresenceGlyph";
 export * from "./presence/PresenceMenuView";
 export * from "./room/PinnedMessagesView";
 export * from "./desktop/DesktopThreadBrowserView";

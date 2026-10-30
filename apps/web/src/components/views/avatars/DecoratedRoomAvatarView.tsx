@@ -15,12 +15,13 @@ import OfflineIcon from "@vector-im/compound-design-tokens/assets/web/icons/pres
 import BusyIcon from "@vector-im/compound-design-tokens/assets/web/icons/presence-strikethrough-8x8";
 import classNames from "classnames";
 import { Tooltip } from "@vector-im/compound-web";
-import { Flex } from "@element-hq/web-shared-components";
+import { Flex, PresenceGlyph, type PresenceGlyphStatus } from "@element-hq/web-shared-components";
 
 import RoomAvatar from "./RoomAvatar";
 import { AvatarBadgeDecoration, useRoomAvatarViewModel } from "../../viewmodels/avatars/RoomAvatarViewModel";
 import { _t } from "../../../languageHandler";
 import { Presence } from "./WithPresenceIndicator";
+import SettingsStore from "../../../settings/SettingsStore";
 
 interface DecoratedRoomAvatarViewProps {
     /**
@@ -62,6 +63,25 @@ export const DecoratedRoomAvatarView = memo(function DecoratedRoomAvatarView({
  * Get the decoration for the avatar based on the presence.
  */
 function getPresenceDecoration(presence: Presence, labelOverride?: string): JSX.Element {
+    if (SettingsStore.getValue("feature_desktop_shell")) {
+        const desktop: Record<Presence, { status: PresenceGlyphStatus; color: string }> = {
+            [Presence.Online]: { status: "online", color: "var(--cpd-color-icon-success-primary)" },
+            [Presence.Away]: { status: "unavailable", color: "var(--cpd-color-icon-warning-primary)" },
+            [Presence.Busy]: { status: "busy", color: "var(--cpd-color-icon-critical-primary)" },
+            [Presence.Offline]: { status: "offline", color: "var(--cpd-color-icon-tertiary)" },
+        };
+        return (
+            <PresenceGlyph
+                {...desktop[presence]}
+                width="8px"
+                height="8px"
+                className="mx_RoomAvatarView_PresenceDecoration"
+                role="img"
+                aria-hidden={false}
+                aria-label={labelOverride ?? getPresenceLabel(presence)}
+            />
+        );
+    }
     switch (presence) {
         case Presence.Online:
             return (

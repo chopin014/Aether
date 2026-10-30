@@ -1024,12 +1024,13 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
             }
 
             .mx_PresenceIconView {
-                padding: 3px;
+                /* Larger than a plain dot needs: the crescent has to read as a moon at this size. */
+                padding: 2px;
                 background: var(--cpd-color-bg-canvas-default);
 
                 svg {
-                    width: 10px;
-                    height: 10px;
+                    width: 12px;
+                    height: 12px;
                 }
 
                 .mx_PresenceIconView_online {
