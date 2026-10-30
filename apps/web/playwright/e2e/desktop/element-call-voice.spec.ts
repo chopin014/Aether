@@ -242,7 +242,7 @@ test(
                 { spaceId, textId },
             );
             await app.viewSpaceByName("Voice studio");
-            await page.getByRole("button", { name: "Open space menu", exact: true }).click();
+            await page.getByRole("button", { name: "Open server menu", exact: true }).click();
             await page.getByRole("menuitem", { name: "New voice room" }).click();
             await page.getByRole("textbox", { name: "Name", exact: true }).fill("Lounge");
             await page.getByRole("button", { name: "Create voice room", exact: true }).click();
@@ -720,6 +720,8 @@ for (const camera of [false, true]) {
                 expect(stageBounds!.y + stageBounds!.height).toBeLessThanOrEqual(timelineBounds!.y + 1);
                 expect(stageBounds!.height).toBeLessThan(400);
                 await expect(stage.getByTestId("call-control-camera")).toHaveAttribute("aria-pressed", String(camera));
+                // Bob is rung as a faded, pulsing avatar until he answers.
+                await expect(stage.getByRole("img", { name: "Calling Bob" })).toBeVisible({ timeout: 30_000 });
                 await page.screenshot({ path: testInfo.outputPath("conversation-before-answer.png") });
                 await testInfo.attach("recipient-before-answer", {
                     body: await bobPage.locator("body").ariaSnapshot(),
@@ -730,6 +732,7 @@ for (const camera of [false, true]) {
                     timeout: 60_000,
                 });
                 await expect.poll(() => decodedAudioEnergy(bobPage), { timeout: 30_000 }).toBeGreaterThan(0);
+                await expect(stage.getByRole("img", { name: "Calling Bob" })).toHaveCount(0);
                 if (camera) {
                     await expect.poll(() => decodedVideoFrames(bobPage), { timeout: 30_000 }).toBeGreaterThan(0);
                     const tileBounds = await stage.getByTestId("videoTile").first().boundingBox();

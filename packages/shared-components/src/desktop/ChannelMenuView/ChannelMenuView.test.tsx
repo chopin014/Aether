@@ -30,6 +30,7 @@ const base: ChannelMenuViewSnapshot = {
     roomNotifState: RoomNotifState.AllMessages,
     canEditChannel: true,
     canCreateChannel: true,
+    canDeleteChannel: true,
 };
 
 function makeVm(snapshot: Partial<ChannelMenuViewSnapshot> = {}) {
@@ -43,6 +44,7 @@ function makeVm(snapshot: Partial<ChannelMenuViewSnapshot> = {}) {
         onEditTopic: vi.fn(),
         onOpenSecuritySettings: vi.fn(),
         onCreateChannel: vi.fn(),
+        onDelete: vi.fn(),
         onLeave: vi.fn(),
         onFiles: vi.fn(),
         onPolls: vi.fn(),
@@ -79,6 +81,7 @@ describe("ChannelMenuView", () => {
             "Export chat",
             "Report channel",
             "Leave channel",
+            "Delete channel",
         ];
         const positions = order.map((label) => labels.findIndex((text) => text.startsWith(label)));
         expect(positions.filter((index) => index < 0)).toEqual([]);
@@ -123,6 +126,7 @@ describe("ChannelMenuContent", () => {
 
     it("hides what the user may not do", () => {
         renderContent({
+            canDeleteChannel: false,
             canInvite: false,
             canCopyLink: false,
             canEditChannel: false,
@@ -130,6 +134,7 @@ describe("ChannelMenuContent", () => {
             canChangeNotifications: false,
         });
         for (const name of [
+            "Delete channel",
             "Invite to channel",
             "Copy link",
             "Edit channel",
@@ -191,6 +196,7 @@ describe("ChannelMenuContent", () => {
             ["Export chat", "onExport"],
             ["Report channel", "onReport"],
             ["Leave channel", "onLeave"],
+            ["Delete channel", "onDelete"],
         ];
         for (const [label, action] of cases) {
             await userEvent.click(screen.getByRole("menuitem", { name: label }));

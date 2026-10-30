@@ -11,6 +11,7 @@ export {
     type DesktopCallStageViewSnapshot,
     type DesktopCallStageViewActions,
     type DesktopCallStageParticipantTile,
+    type DesktopCallStageCallee,
     type DesktopCallStageScreenShareTile,
     type DesktopCallStageDeviceOption,
     type DesktopCallStageQualityState,

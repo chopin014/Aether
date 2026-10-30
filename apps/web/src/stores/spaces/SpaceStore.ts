@@ -147,7 +147,6 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
         SettingsStore.monitorSetting("Spaces.allRoomsInHome", null);
         SettingsStore.monitorSetting("Spaces.enabledMetaSpaces", null);
-        SettingsStore.monitorSetting("Spaces.showPeopleInSpace", null);
         SettingsStore.monitorSetting("feature_dynamic_room_predecessors", null);
     }
 
@@ -474,14 +473,6 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
         if (space === MetaSpace.Home) {
             // these spaces contain all DMs
-            return true;
-        }
-
-        if (
-            !isMetaSpace(space) &&
-            this.getSpaceFilteredUserIds(space, includeDescendantSpaces)?.has(dmPartner) &&
-            SettingsStore.getValue("Spaces.showPeopleInSpace", space)
-        ) {
             return true;
         }
 
@@ -1291,16 +1282,6 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
                         }
                         break;
                     }
-
-                    case "Spaces.showPeopleInSpace":
-                        if (payload.roomId) {
-                            // getSpaceFilteredUserIds will return the appropriate value
-                            this.emit(payload.roomId);
-                            if (!this.enabledMetaSpaces.some((s) => s === MetaSpace.Home)) {
-                                this.updateNotificationStates([payload.roomId]);
-                            }
-                        }
-                        break;
 
                     case "feature_dynamic_room_predecessors":
                         this._msc3946ProcessDynamicPredecessor = SettingsStore.getValue(

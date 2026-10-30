@@ -18,13 +18,7 @@ import { Action } from "../../dispatcher/actions";
 import SettingsStore from "../../settings/SettingsStore";
 import { SortingAlgorithm } from "../../stores/room-list-v3/skip-list/sorters";
 import RoomListStoreV3 from "../../stores/room-list-v3/RoomListStoreV3";
-import {
-    shouldShowSpaceSettings,
-    showCreateNewRoom,
-    showSpaceInvite,
-    showSpacePreferences,
-    showSpaceSettings,
-} from "../../utils/space";
+import { shouldShowSpaceSettings, showCreateNewRoom, showSpaceInvite, showSpaceSettings } from "../../utils/space";
 import { createRoom, hasCreateRoomRights } from "./utils";
 import PosthogTrackers from "../../PosthogTrackers";
 import { ReleaseAnnouncementStore } from "../../stores/ReleaseAnnouncementStore";
@@ -41,7 +35,6 @@ vi.mock("../../utils/space", () => ({
     shouldShowSpaceSettings: vi.fn(),
     showCreateNewRoom: vi.fn(),
     showSpaceInvite: vi.fn(),
-    showSpacePreferences: vi.fn(),
     showSpaceSettings: vi.fn(),
 }));
 
@@ -300,13 +293,6 @@ describe("RoomListHeaderViewModel", () => {
             vm.inviteInSpace();
 
             expect(showSpaceInvite).toHaveBeenCalledWith(mockSpace);
-        });
-
-        it("should show space preferences dialog when openSpacePreferences is called", () => {
-            vm = new RoomListHeaderViewModel({ matrixClient, spaceStore: sdkContext.spaceStore });
-            vm.openSpacePreferences();
-
-            expect(showSpacePreferences).toHaveBeenCalledWith(mockSpace);
         });
 
         it("should show space settings dialog when openSpaceSettings is called", () => {

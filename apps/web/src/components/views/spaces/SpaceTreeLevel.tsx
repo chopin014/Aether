@@ -21,6 +21,7 @@ import classNames from "classnames";
 import { type Room, RoomEvent } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { type DraggableProvidedDragHandleProps } from "react-beautiful-dnd";
+import { ServerVoiceActivity } from "@element-hq/web-shared-components";
 import {
     ChevronDownIcon,
     ChevronRightIcon,
@@ -48,6 +49,8 @@ import SpaceContextMenu from "../context_menus/SpaceContextMenu";
 import { useRovingTabIndex } from "../../../accessibility/RovingTabIndex";
 import { KeyBindingAction } from "../../../accessibility/KeyboardShortcuts";
 import { SDKContext } from "../../../contexts/SDKContext.ts";
+import { useSettingValue } from "../../../hooks/useSettings";
+import { useSpaceVoiceActivity } from "../../../hooks/useSpaceVoiceActivity";
 
 type ButtonProps<T extends keyof HTMLElementTagNameMap> = Omit<
     AccessibleButtonProps<T>,
@@ -85,6 +88,9 @@ export const SpaceButton = <T extends keyof HTMLElementTagNameMap>({
     ...props
 }: ButtonProps<T>): JSX.Element => {
     const sdkContext = useContext(SDKContext);
+    const desktopShell = useSettingValue("feature_desktop_shell");
+    // The desktop rail's tooltip also shows who is talking in the server's voice channels.
+    const voiceActivity = useSpaceVoiceActivity(sdkContext, desktopShell && isNarrow ? space : undefined);
     const [menuDisplayed, handle, openMenu, closeMenu] = useContextMenu<HTMLDivElement>(innerRef);
     const [onFocus, isActive, ref] = useRovingTabIndex<HTMLDivElement>(handle);
     const tabIndex = isActive ? 0 : -1;
@@ -157,6 +163,7 @@ export const SpaceButton = <T extends keyof HTMLElementTagNameMap>({
             })}
             aria-label={label}
             title={!isNarrow || menuDisplayed ? undefined : label}
+            caption={voiceActivity.length > 0 ? <ServerVoiceActivity channels={voiceActivity} /> : undefined}
             onClick={onClick}
             onContextMenu={openMenu}
             ref={ref}

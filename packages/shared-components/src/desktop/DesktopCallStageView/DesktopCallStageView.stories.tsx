@@ -104,6 +104,7 @@ const snapshot: DesktopCallStageViewSnapshot = {
     supportsReactions: true,
     localHandRaised: false,
     ringing: null,
+    callees: [],
     canShareSystemAudio: true,
 };
 const participants: DesktopCallStageViewSnapshot["participants"] = [
@@ -163,6 +164,25 @@ type Story = StoryObj<typeof meta>;
 
 export const Connected: Story = {};
 export const Conversation: Story = { args: { presentation: "conversation" } };
+/** Ringing Bob: his avatar waits faded and pulsing beside ours until he joins. */
+export const ConversationRinging: Story = {
+    args: {
+        presentation: "conversation",
+        participants: participants.slice(0, 1),
+        participantCount: 1,
+        ringing: "ringing",
+        callees: [{ userId: "@bob:example.org", displayName: "Bob", initialLetter: "B" }],
+    },
+};
+export const ConversationMuted: Story = {
+    args: {
+        presentation: "conversation",
+        participants: [
+            { ...participants[0], audioEnabled: false },
+            { ...participants[1], deafened: true },
+        ],
+    },
+};
 export const AloneInChannel: Story = { args: { participants: participants.slice(0, 1), participantCount: 1 } };
 export const Lobby: Story = {
     args: { phase: "lobby", connected: false, participants: [], needsDevicePermissions: true },

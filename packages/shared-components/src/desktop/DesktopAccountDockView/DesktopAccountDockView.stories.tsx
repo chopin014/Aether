@@ -31,6 +31,12 @@ const disconnectedVoice: DesktopVoiceControlsViewSnapshot = {
     noiseSuppression: true,
     noiseSuppressionStrength: 100,
     microphoneTest: { active: false, level: null, open: false },
+    audioInputs: [],
+    audioOutputs: [],
+    audioInputId: "",
+    audioOutputId: "",
+    microphoneVolume: 100,
+    speakerVolume: 100,
     connection: {
         state: "disconnected",
         quality: "unknown",
@@ -56,6 +62,11 @@ function DockStory({
         setNoiseSuppression: fn(),
         setNoiseSuppressionStrength: fn(),
         toggleMicrophoneTest: fn(),
+        setAudioInput: fn(),
+        setAudioOutput: fn(),
+        setMicrophoneVolume: fn(),
+        setSpeakerVolume: fn(),
+        openVoiceSettings: fn(),
     });
     const vm = useMockedViewModel<UserMenuViewSnapshot, UserMenuViewActions>(snapshot, {
         setOpen: fn(),

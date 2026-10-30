@@ -198,7 +198,7 @@ exports[`PreferencesUserSettingsTab > should render 1`] = `
                 <h2
                   class="mx_Heading_h4 mx_SettingsSubsectionHeading_heading"
                 >
-                  Spaces
+                  Servers
                 </h2>
               </div>
               <div

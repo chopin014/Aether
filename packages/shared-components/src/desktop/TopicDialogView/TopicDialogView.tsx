@@ -7,11 +7,12 @@ Please see LICENSE in the repository root for full details.
 
 import React, { type JSX } from "react";
 import { Button, Heading } from "@vector-im/compound-web";
-import { RoomIcon, VolumeOnIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
+import { VolumeOnIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { _t } from "../../core/i18n/i18n";
 import { useViewModel, type ViewModel } from "../../core/viewmodel";
 import { LinkedText } from "../../core/utils/LinkedText";
+import { TextChannelIcon } from "../TextChannelIcon";
 import styles from "./TopicDialogView.module.css";
 
 /** What the topic dialog shows. */
@@ -40,7 +41,7 @@ export type TopicDialogViewModel = ViewModel<TopicDialogViewSnapshot, TopicDialo
 /** The body of the dialog that opens when the channel topic is clicked in the header. */
 export function TopicDialogView({ vm }: { vm: TopicDialogViewModel }): JSX.Element {
     const { name, kind, topic, canEdit } = useViewModel(vm);
-    const KindIcon = kind === "voice" ? VolumeOnIcon : RoomIcon;
+    const KindIcon = kind === "voice" ? VolumeOnIcon : TextChannelIcon;
     return (
         <div className={styles.dialog}>
             <Heading as="h2" size="md" weight="semibold" className={styles.title}>

@@ -81,6 +81,7 @@ import { SetupEncryptionStore } from "../../stores/SetupEncryptionStore.ts";
 import { ShareFormat } from "../../dispatcher/payloads/SharePayload.ts";
 import { clearStorage } from "../../Lifecycle";
 import UserSettingsDialog from "../../components/views/dialogs/UserSettingsDialog.tsx";
+import CreateRoomDialog from "../../components/views/dialogs/CreateRoomDialog";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
 import { type QrLoginCredentials } from "../../components/views/auth/LoginWithQR.tsx";
 import { storeAuthContext } from "../../utils/oauth/persistOAuthSettings.ts";
@@ -938,6 +939,26 @@ describe("<MatrixChat />", () => {
                 vi.restoreAllMocks();
             });
 
+            it.each([false, true])("preserves the CreateRoom server context: %s", async (inSpace) => {
+                await getComponentAndWaitForReady();
+                const parentSpace = inSpace ? new Room("!parent:server.org", mockClient, userId) : undefined;
+                const createDialog = vi.spyOn(Modal, "createDialog").mockReturnValue({
+                    finished: Promise.resolve([false]),
+                    close: vi.fn(),
+                } as ReturnType<typeof Modal.createDialog>);
+                await act(async () => {
+                    defaultDispatcher.dispatch({ action: Action.CreateRoom, parent_space: parentSpace });
+                });
+                await waitFor(() =>
+                    expect(createDialog).toHaveBeenCalledWith(CreateRoomDialog, {
+                        type: undefined,
+                        defaultPublic: false,
+                        defaultName: undefined,
+                        parentSpace,
+                    }),
+                );
+            });
+
             it("ViewUserDeviceSettings should open user device settings", async () => {
                 await getComponentAndWaitForReady();
 
@@ -1075,7 +1096,7 @@ describe("<MatrixChat />", () => {
                             await screen.findByRole("dialog");
                             expect(
                                 screen.getByText(
-                                    "This room is restricted and cannot be rejoined unless you are in one of its authorised spaces or invited.",
+                                    "This room is restricted and cannot be rejoined unless you are in one of its authorised servers or invited.",
                                 ),
                             ).toBeInTheDocument();
                         });
@@ -1152,7 +1173,7 @@ describe("<MatrixChat />", () => {
                             dispatchAction();
                             await screen.findByRole("dialog");
                             expect(
-                                screen.getByText("This space is private and cannot be rejoined without an invite."),
+                                screen.getByText("This server is private and cannot be rejoined without an invite."),
                             ).toBeInTheDocument();
                         });
                         it("should say a restricted space can be rejoined from an authorised space", async () => {
@@ -1161,7 +1182,7 @@ describe("<MatrixChat />", () => {
                             await screen.findByRole("dialog");
                             expect(
                                 screen.getByText(
-                                    "This space is restricted and cannot be rejoined unless you are in one of its authorised spaces or invited.",
+                                    "This server is restricted and cannot be rejoined unless you are in one of its authorised servers or invited.",
                                 ),
                             ).toBeInTheDocument();
                         });
@@ -1172,7 +1193,7 @@ describe("<MatrixChat />", () => {
                             dispatchAction();
                             await screen.findByRole("dialog");
                             expect(
-                                screen.getByText("This space is private and cannot be rejoined without an invite."),
+                                screen.getByText("This server is private and cannot be rejoined without an invite."),
                             ).toBeInTheDocument();
                         });
                     });

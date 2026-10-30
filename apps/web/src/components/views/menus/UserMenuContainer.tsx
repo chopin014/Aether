@@ -84,6 +84,11 @@ function DesktopDockWithVoice({ vm }: { vm: UserMenuViewModel }): JSX.Element {
     return <DesktopAccountDockView vm={vm} voice={voice} />;
 }
 
+/** The server rail's width: 48px icons with a 12px inset on each side, as `.mx_SpacePanel` lays them out. */
+const RAIL_WIDTH = 72;
+/** The gap between the dock and the edges of the rail and sidebar it spans. */
+const DOCK_INSET = 8;
+
 /** Positions the account controls across the rail and the measured, resizable channel sidebar. */
 export function DesktopAccountDockContainer({ vm }: { vm: ResizerViewModel }): JSX.Element | null {
     const { isCollapsed, leftPanelWidth } = useViewModel(vm);
@@ -95,7 +100,10 @@ export function DesktopAccountDockContainer({ vm }: { vm: ResizerViewModel }): J
             hidden={isCollapsed}
             ref={dockRef}
             className="mx_DesktopShell_accountDock"
-            style={{ width: (leftPanelWidth ?? 310) + 64 - 16, display: isCollapsed ? "none" : undefined }}
+            style={{
+                width: RAIL_WIDTH + (leftPanelWidth ?? 310) - 2 * DOCK_INSET,
+                display: isCollapsed ? "none" : undefined,
+            }}
         >
             <UserMenuContainer isPanelCollapsed={false} desktopDock />
         </div>

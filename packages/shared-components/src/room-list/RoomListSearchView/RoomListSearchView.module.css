@@ -28,6 +28,22 @@
     }
 }
 
+/* The buttons beside the search share its square shape and fill, so the row reads as one bar. */
+.action {
+    flex: none;
+    align-self: stretch;
+    aspect-ratio: 1;
+    block-size: auto;
+    inline-size: auto;
+    padding: 0;
+    background: var(--mx-desktop-search-background, transparent);
+    border-radius: var(--cpd-space-1-5x);
+
+    svg {
+        fill: var(--cpd-color-icon-secondary);
+    }
+}
+
 .search_container {
     flex: 1;
 

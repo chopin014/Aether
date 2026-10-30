@@ -9,12 +9,13 @@ Please see LICENSE files in the repository root for full details.
 // @vitest-environment happy-dom
 
 import React from "react";
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "test-utils-rtl";
 import { createTestClient, getRoomContext, mkStubRoom } from "test-utils";
 
 import MatrixClientContext from "../../../contexts/MatrixClientContext";
 import { MatrixClientPeg } from "../../../MatrixClientPeg";
+import SettingsStore from "../../../settings/SettingsStore";
 import MessageComposerButtons from "./MessageComposerButtons";
 import { ScopedRoomContextProvider } from "../../../contexts/ScopedRoomContext.tsx";
 import { type RoomContextType } from "../../../contexts/RoomContext.ts";
@@ -132,6 +133,36 @@ describe("MessageComposerButtons", () => {
         );
 
         expect(getButtonLabels()).toEqual(["Emoji", "More options", ["Attachment", "Sticker", "Poll", "Location"]]);
+    });
+
+    describe("in the desktop shell", () => {
+        beforeEach(() => {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+                name === "feature_desktop_shell" ? (true as never) : getValue(name, ...args),
+            );
+        });
+        afterEach(() => {
+            vi.restoreAllMocks();
+            vi.spyOn(MatrixClientPeg, "get").mockReturnValue(mockClient);
+        });
+
+        it.each([false, true])("puts voice messages beside the emoji button (narrow: %s)", async (narrow) => {
+            wrapAndRender(
+                <MessageComposerButtons
+                    {...mockProps}
+                    isMenuOpen={true}
+                    showLocationButton={false}
+                    showPollsButton={true}
+                    showStickersButton={false}
+                />,
+                narrow,
+            );
+
+            const labels = getButtonLabels();
+            expect(labels.slice(0, 2)).toEqual(["Emoji", "Voice Message"]);
+            expect(labels.at(-1)).not.toContain("Voice Message");
+        });
     });
 
     describe("polls button", () => {

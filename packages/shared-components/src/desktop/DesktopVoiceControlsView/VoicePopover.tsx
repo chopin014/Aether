@@ -7,6 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import React, { type JSX, type ReactNode, type RefObject, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import classNames from "classnames";
 import { Heading, IconButton } from "@vector-im/compound-web";
 import { CloseIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 
@@ -18,11 +19,13 @@ interface VoicePopoverProps {
     anchor: RefObject<HTMLButtonElement | null>;
     title: string;
     onClose: () => void;
+    /** A narrower panel, for the short device menus. */
+    compact?: boolean;
     children: ReactNode;
 }
 
 /** A viewport-bounded call panel, portalled out of the dock's clipping and stacking contexts. */
-export function VoicePopover({ anchor, title, onClose, children }: VoicePopoverProps): JSX.Element {
+export function VoicePopover({ anchor, title, onClose, compact, children }: VoicePopoverProps): JSX.Element {
     const { translate: _t } = useI18n();
     const titleId = useId();
     const panel = useRef<HTMLDivElement>(null);
@@ -90,7 +93,7 @@ export function VoicePopover({ anchor, title, onClose, children }: VoicePopoverP
             role="dialog"
             aria-labelledby={titleId}
             tabIndex={-1}
-            className={styles.popover}
+            className={classNames(styles.popover, compact && styles.compactPopover)}
             style={{ left: position.left, top: position.top }}
         >
             <div className={styles.panelHeader}>

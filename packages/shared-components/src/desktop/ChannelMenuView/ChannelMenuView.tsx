@@ -16,6 +16,7 @@ import {
     FilesIcon,
     HistoryIcon,
     LeaveIcon,
+    DeleteIcon,
     LinkIcon,
     LockSolidIcon,
     MarkAsReadIcon,
@@ -70,6 +71,8 @@ export interface ChannelMenuViewSnapshot {
     canEditChannel: boolean;
     /** Whether the user may add another text channel to the channel's Space. */
     canCreateChannel: boolean;
+    /** Whether the user can close the channel and remove everyone. */
+    canDeleteChannel: boolean;
 }
 
 /** What choosing an entry in the channel menu does. */
@@ -94,6 +97,8 @@ export interface ChannelMenuViewActions {
     onCreateChannel: () => void;
     /** Leave the channel, after the usual confirmation. */
     onLeave: () => void;
+    /** Confirm deletion of the channel for everyone. */
+    onDelete: () => void;
     /** Show the channel's files. */
     onFiles: () => void;
     /** Show the channel's poll history. */
@@ -334,6 +339,16 @@ export function ChannelMenuContent({ vm, showInfo = false }: ChannelMenuContentP
                 onClick={stop}
                 hideChevron
             />
+            {s.canDeleteChannel && (
+                <MenuItem
+                    kind="critical"
+                    Icon={DeleteIcon}
+                    label={_t("desktop|delete_channel|delete")}
+                    onSelect={vm.onDelete}
+                    onClick={stop}
+                    hideChevron
+                />
+            )}
         </div>
     );
 }

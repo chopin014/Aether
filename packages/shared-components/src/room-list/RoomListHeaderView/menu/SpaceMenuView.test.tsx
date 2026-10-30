@@ -31,13 +31,13 @@ describe("<SpaceMenuView />", () => {
         const vm = new MockedViewModel(defaultSnapshot);
         render(<SpaceMenuView vm={vm} />);
 
-        const button = screen.getByRole("button", { name: "Open space menu" });
+        const button = screen.getByRole("button", { name: "Open server menu" });
         await user.click(button);
 
-        expect(screen.getByRole("menuitem", { name: "Space home" })).toBeInTheDocument();
+        expect(screen.getByRole("menuitem", { name: "Server home" })).toBeInTheDocument();
         expect(screen.getByRole("menuitem", { name: "Invite" })).toBeInTheDocument();
-        expect(screen.getByRole("menuitem", { name: "Preferences" })).toBeInTheDocument();
-        expect(screen.getByRole("menuitem", { name: "Space settings" })).toBeInTheDocument();
+        expect(screen.queryByRole("menuitem", { name: "Preferences" })).not.toBeInTheDocument();
+        expect(screen.getByRole("menuitem", { name: "Server settings" })).toBeInTheDocument();
     });
 
     it("should hide invite option when canInviteInSpace is false", async () => {
@@ -46,11 +46,11 @@ describe("<SpaceMenuView />", () => {
         const vm = new MockedViewModel({ ...defaultSnapshot, canInviteInSpace: false });
         render(<SpaceMenuView vm={vm} />);
 
-        const button = screen.getByRole("button", { name: "Open space menu" });
+        const button = screen.getByRole("button", { name: "Open server menu" });
         await user.click(button);
 
         expect(screen.queryByRole("menuitem", { name: "Invite" })).not.toBeInTheDocument();
-        expect(screen.getByRole("menuitem", { name: "Space home" })).toBeInTheDocument();
+        expect(screen.getByRole("menuitem", { name: "Server home" })).toBeInTheDocument();
     });
 
     it("should hide space settings option when canAccessSpaceSettings is false", async () => {
@@ -59,11 +59,11 @@ describe("<SpaceMenuView />", () => {
         const vm = new MockedViewModel({ ...defaultSnapshot, canAccessSpaceSettings: false });
         render(<SpaceMenuView vm={vm} />);
 
-        const button = screen.getByRole("button", { name: "Open space menu" });
+        const button = screen.getByRole("button", { name: "Open server menu" });
         await user.click(button);
 
-        expect(screen.queryByRole("menuitem", { name: "Space settings" })).not.toBeInTheDocument();
-        expect(screen.getByRole("menuitem", { name: "Space home" })).toBeInTheDocument();
+        expect(screen.queryByRole("menuitem", { name: "Server settings" })).not.toBeInTheDocument();
+        expect(screen.getByRole("menuitem", { name: "Server home" })).toBeInTheDocument();
     });
 
     it("should call openSpaceHome when Home is clicked", async () => {
@@ -72,8 +72,8 @@ describe("<SpaceMenuView />", () => {
         const vm = new MockedViewModel(defaultSnapshot);
         render(<SpaceMenuView vm={vm} />);
 
-        await user.click(screen.getByRole("button", { name: "Open space menu" }));
-        await user.click(screen.getByRole("menuitem", { name: "Space home" }));
+        await user.click(screen.getByRole("button", { name: "Open server menu" }));
+        await user.click(screen.getByRole("menuitem", { name: "Server home" }));
 
         expect(vm.openSpaceHome).toHaveBeenCalledTimes(1);
     });
@@ -84,32 +84,20 @@ describe("<SpaceMenuView />", () => {
         const vm = new MockedViewModel(defaultSnapshot);
         render(<SpaceMenuView vm={vm} />);
 
-        await user.click(screen.getByRole("button", { name: "Open space menu" }));
+        await user.click(screen.getByRole("button", { name: "Open server menu" }));
         await user.click(screen.getByRole("menuitem", { name: "Invite" }));
 
         expect(vm.inviteInSpace).toHaveBeenCalledTimes(1);
     });
 
-    it("should call openSpacePreferences when Preferences is clicked", async () => {
+    it("should call openSpaceSettings when Server settings is clicked", async () => {
         const user = userEvent.setup();
 
         const vm = new MockedViewModel(defaultSnapshot);
         render(<SpaceMenuView vm={vm} />);
 
-        await user.click(screen.getByRole("button", { name: "Open space menu" }));
-        await user.click(screen.getByRole("menuitem", { name: "Preferences" }));
-
-        expect(vm.openSpacePreferences).toHaveBeenCalledTimes(1);
-    });
-
-    it("should call openSpaceSettings when Space settings is clicked", async () => {
-        const user = userEvent.setup();
-
-        const vm = new MockedViewModel(defaultSnapshot);
-        render(<SpaceMenuView vm={vm} />);
-
-        await user.click(screen.getByRole("button", { name: "Open space menu" }));
-        await user.click(screen.getByRole("menuitem", { name: "Space settings" }));
+        await user.click(screen.getByRole("button", { name: "Open server menu" }));
+        await user.click(screen.getByRole("menuitem", { name: "Server settings" }));
 
         expect(vm.openSpaceSettings).toHaveBeenCalledTimes(1);
     });
@@ -117,7 +105,7 @@ describe("<SpaceMenuView />", () => {
     it("should group desktop actions without repeating the server title", async () => {
         const vm = new MockedViewModel({ ...defaultSnapshot, title: "Terra do boi gordo" });
         render(<SpaceMenuView vm={vm} fullWidth />);
-        const trigger = screen.getByRole("button", { name: "Open space menu" });
+        const trigger = screen.getByRole("button", { name: "Open server menu" });
         expect(trigger).toHaveAccessibleDescription("Terra do boi gordo");
         await userEvent.click(trigger);
 
@@ -126,11 +114,10 @@ describe("<SpaceMenuView />", () => {
         expect(menu).not.toHaveTextContent("Terra do boi gordo");
         expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
             "Invite",
-            "Space home",
+            "Server home",
             "New room",
             "New voice room",
-            "Preferences",
-            "Space settings",
+            "Server settings",
         ]);
         for (const item of screen.getAllByRole("menuitem")) {
             expect(item.querySelector("svg[aria-hidden=true]")).not.toBeNull();
@@ -141,13 +128,12 @@ describe("<SpaceMenuView />", () => {
         ["New room", "createRoom"],
         ["New voice room", "createVideoRoom"],
         ["Invite", "inviteInSpace"],
-        ["Space home", "openSpaceHome"],
-        ["Preferences", "openSpacePreferences"],
-        ["Space settings", "openSpaceSettings"],
+        ["Server home", "openSpaceHome"],
+        ["Server settings", "openSpaceSettings"],
     ] as const)("should select and dismiss the desktop %s action", async (label, action) => {
         const vm = new MockedViewModel(defaultSnapshot);
         render(<SpaceMenuView vm={vm} fullWidth />);
-        const trigger = screen.getByRole("button", { name: "Open space menu" });
+        const trigger = screen.getByRole("button", { name: "Open server menu" });
         await userEvent.click(trigger);
         await userEvent.click(screen.getByRole("menuitem", { name: label }));
 
@@ -168,12 +154,12 @@ describe("<SpaceMenuView />", () => {
             canAccessSpaceSettings: false,
         });
         render(<SpaceMenuView vm={vm} fullWidth />);
-        await userEvent.click(screen.getByRole("button", { name: "Open space menu" }));
+        await userEvent.click(screen.getByRole("button", { name: "Open server menu" }));
 
         expect(!!screen.queryByRole("menuitem", { name: "New room" })).toBe(permissions.canCreateRoom);
         expect(!!screen.queryByRole("menuitem", { name: "New voice room" })).toBe(permissions.canCreateVideoRoom);
         expect(screen.queryByRole("menuitem", { name: "Invite" })).not.toBeInTheDocument();
-        expect(screen.queryByRole("menuitem", { name: "Space settings" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("menuitem", { name: "Server settings" })).not.toBeInTheDocument();
         const separators = screen.getByRole("menu").querySelectorAll("[data-orientation=horizontal]");
         expect(separators).toHaveLength(permissions.canCreateRoom || permissions.canCreateVideoRoom ? 2 : 1);
     });

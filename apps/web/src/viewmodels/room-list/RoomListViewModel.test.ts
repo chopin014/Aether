@@ -845,6 +845,31 @@ describe("RoomListViewModel", () => {
     });
 
     describe("Room creation", () => {
+        it("updates empty server context and creation permissions when switching servers", async () => {
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name) => name === "feature_desktop_shell");
+            viewModel = new RoomListViewModel({
+                client: matrixClient,
+                spaceStore: SDKContextClass.instance.spaceStore,
+                roomViewStore: SDKContextClass.instance.roomViewStore,
+            });
+            expect(viewModel.getSnapshot().isSpaceChannelList).toBe(false);
+            const spaceRoom = mkStubRoom("!space:server", "Space", matrixClient);
+            vi.spyOn(SDKContextClass.instance.spaceStore, "activeSpaceRoom", "get").mockReturnValue(spaceRoom);
+            vi.mocked(hasCreateRoomRights).mockReturnValue(true);
+            vi.mocked(RoomListStoreV3.instance.getSortedRoomsInActiveSpace).mockReturnValue({
+                spaceId: spaceRoom.roomId,
+                sections: [{ tag: CHATS_TAG, rooms: [] }],
+            });
+            RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
+            await waitFor(() =>
+                expect(viewModel.getSnapshot()).toMatchObject({
+                    isSpaceChannelList: true,
+                    isRoomListEmpty: true,
+                    canCreateRoom: true,
+                }),
+            );
+        });
+
         it("should dispatch CreateChat action when createChatRoom is called", () => {
             viewModel = new RoomListViewModel({
                 client: matrixClient,

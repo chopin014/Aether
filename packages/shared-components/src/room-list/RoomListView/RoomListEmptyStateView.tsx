@@ -33,6 +33,24 @@ export const RoomListEmptyStateView: React.FC<RoomListEmptyStateViewProps> = ({ 
 
     // If there is no active filter, show the default empty state
     if (!snapshot.activeFilterId) {
+        if (snapshot.isSpaceChannelList) {
+            return (
+                <GenericPlaceholder
+                    title={_t("room_list|empty|no_channels")}
+                    description={
+                        snapshot.canCreateRoom
+                            ? _t("room_list|empty|no_channels_description")
+                            : _t("room_list|empty|no_channels_description_no_room_rights")
+                    }
+                >
+                    {snapshot.canCreateRoom && (
+                        <Button size="md" kind="secondary" Icon={RoomIcon} onClick={vm.createRoom}>
+                            {_t("room_list|empty|create_channel")}
+                        </Button>
+                    )}
+                </GenericPlaceholder>
+            );
+        }
         return (
             <GenericPlaceholder
                 title={_t("room_list|empty|no_chats")}

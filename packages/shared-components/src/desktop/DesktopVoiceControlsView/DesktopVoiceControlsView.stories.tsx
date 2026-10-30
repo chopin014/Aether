@@ -21,8 +21,6 @@ function VoiceStory(snapshot: DesktopVoiceControlsViewSnapshot): JSX.Element {
     const [current, setCurrent] = useState(snapshot);
     useEffect(() => setCurrent(snapshot), [snapshot]);
     const vm = useMockedViewModel<DesktopVoiceControlsViewSnapshot, DesktopVoiceControlsViewActions>(current, {
-        toggleMicrophone: fn(),
-        toggleDeafened: fn(),
         toggleVideo: fn(),
         toggleScreenShare: fn(),
         disconnect: fn(),
@@ -38,6 +36,15 @@ function VoiceStory(snapshot: DesktopVoiceControlsViewSnapshot): JSX.Element {
                 microphoneTest: { active: !value.microphoneTest.active, level: -24, open: true },
             })),
         ),
+        toggleMicrophone: fn(async () =>
+            setCurrent((value) => ({ ...value, microphoneMuted: !value.microphoneMuted })),
+        ),
+        toggleDeafened: fn(async () => setCurrent((value) => ({ ...value, deafened: !value.deafened }))),
+        setAudioInput: fn(async (audioInputId) => setCurrent((value) => ({ ...value, audioInputId }))),
+        setAudioOutput: fn(async (audioOutputId) => setCurrent((value) => ({ ...value, audioOutputId }))),
+        setMicrophoneVolume: fn(async (microphoneVolume) => setCurrent((value) => ({ ...value, microphoneVolume }))),
+        setSpeakerVolume: fn(async (speakerVolume) => setCurrent((value) => ({ ...value, speakerVolume }))),
+        openVoiceSettings: fn(),
     });
     return (
         <div
@@ -69,6 +76,18 @@ const meta = {
         noiseSuppression: true,
         noiseSuppressionStrength: 100,
         microphoneTest: { active: false, level: null, open: false },
+        audioInputs: [
+            { id: "", label: "Default" },
+            { id: "headset", label: "USB Headset Microphone" },
+        ],
+        audioOutputs: [
+            { id: "", label: "Default" },
+            { id: "speakers", label: "Desk Speakers" },
+        ],
+        audioInputId: "",
+        audioOutputId: "speakers",
+        microphoneVolume: 100,
+        speakerVolume: 80,
         connection: {
             state: "connected",
             quality: "good",
@@ -95,6 +114,8 @@ export const TestingMicrophone: Story = {
 export const NoiseSuppressionUnavailable: Story = {
     args: { roomName: "Lounge", panel: "noise", noiseSuppressionProblem: "failed" },
 };
+export const InputMenu: Story = { args: { panel: "input" } };
+export const OutputMenu: Story = { args: { panel: "output" } };
 export const ConnectionDetails: Story = { args: { roomName: "Lounge", panel: "connection" } };
 export const Connecting: Story = {
     args: {

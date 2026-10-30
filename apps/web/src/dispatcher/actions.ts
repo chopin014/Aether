@@ -290,11 +290,6 @@ export enum Action {
     TriggerLogout = "trigger_logout",
 
     /**
-     * Opens the user's preferences for the given space. Used with a OpenSpacePreferencesPayload.
-     */
-    OpenSpacePreferences = "open_space_preferences",
-
-    /**
      * Opens the settings for the given space. Used with a OpenSpaceSettingsPayload.
      */
     OpenSpaceSettings = "open_space_settings",

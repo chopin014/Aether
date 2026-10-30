@@ -20,6 +20,8 @@ import { getTopic } from "../../../hooks/room/useTopic";
 import SettingsTab from "../settings/tabs/SettingsTab";
 import { SettingsSection } from "../settings/shared/SettingsSection";
 import { SettingsSubsection } from "../settings/shared/SettingsSubsection";
+import Modal from "../../../Modal";
+import { DeleteServerDialog } from "../dialogs/DeleteServerDialog";
 
 interface IProps {
     matrixClient: MatrixClient;
@@ -38,6 +40,9 @@ const SpaceSettingsGeneralTab: React.FC<IProps> = ({ matrixClient: cli, space })
 
     const [name, setName] = useState<string>(space.name);
     const canSetName = space.currentState.maySendStateEvent(EventType.RoomName, userId);
+    const canDelete =
+        space.currentState.maySendStateEvent(EventType.RoomPowerLevels, userId) &&
+        space.currentState.maySendStateEvent(EventType.RoomJoinRules, userId);
     const nameChanged = name !== space.name;
 
     const currentTopic = getTopic(space)?.text ?? "";
@@ -128,6 +133,27 @@ const SpaceSettingsGeneralTab: React.FC<IProps> = ({ matrixClient: cli, space })
                         {_t("room_settings|general|leave_space")}
                     </AccessibleButton>
                 </SettingsSubsection>
+                {canDelete && (
+                    <SettingsSubsection heading={_t("desktop|delete_server|delete")}>
+                        <p>{_t("desktop|delete_server|settings_description")}</p>
+                        <AccessibleButton
+                            kind="danger"
+                            onClick={() => {
+                                Modal.createDialog(
+                                    DeleteServerDialog,
+                                    { client: cli, space },
+                                    undefined,
+                                    false,
+                                    false,
+                                    // Background clicks must not discard a deletion that may need to be retried.
+                                    { onBeforeClose: async (reason) => reason !== "backgroundClick" },
+                                );
+                            }}
+                        >
+                            {_t("desktop|delete_server|delete")}
+                        </AccessibleButton>
+                    </SettingsSubsection>
+                )}
             </SettingsSection>
         </SettingsTab>
     );

@@ -104,10 +104,6 @@ export interface RoomListHeaderViewActions {
      */
     inviteInSpace: () => void;
     /**
-     * Open the space preferences
-     */
-    openSpacePreferences: () => void;
-    /**
      * Open the space settings
      */
     openSpaceSettings: () => void;
@@ -175,6 +171,7 @@ export function RoomListHeaderView({ vm, desktop = false }: Readonly<RoomListHea
                 as="header"
                 className={`${styles.header} ${styles.desktopHeader}`}
                 align="center"
+                justify="space-between"
                 gap="var(--cpd-space-3x)"
                 data-testid="room-list-header"
             >

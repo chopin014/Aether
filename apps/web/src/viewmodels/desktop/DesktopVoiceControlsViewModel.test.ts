@@ -24,6 +24,10 @@ import { DesktopShortcutManager } from "../../audio/desktop/DesktopShortcutManag
 import { type DenoiserStatus } from "../../audio/desktop/denoiser/DenoiserStatus";
 
 import SettingsStore from "../../settings/SettingsStore";
+import MediaDeviceHandler, { MediaDeviceKindEnum } from "../../MediaDeviceHandler";
+import defaultDispatcher from "../../dispatcher/dispatcher";
+import { Action } from "../../dispatcher/actions";
+import { UserTab } from "../../components/views/dialogs/UserTab";
 
 import { playDesktopVoiceSound } from "../../audio/DesktopVoiceSounds";
 
@@ -579,6 +583,82 @@ describe("DesktopVoiceControlsViewModel", () => {
             expect(vm.getSnapshot().connection).toMatchObject({ quality: "poor", rttMs: 280 });
             await vm.disconnect();
             expect(vm.getSnapshot().connection).toMatchObject({ state: "disconnected", rttMs: null, history: [] });
+        });
+    });
+
+    describe("device menus", () => {
+        function device(kind: MediaDeviceKind, deviceId: string, label: string): MediaDeviceInfo {
+            return { kind, deviceId, label, groupId: "", toJSON: () => ({}) };
+        }
+
+        beforeEach(() => {
+            vi.spyOn(MediaDeviceHandler, "getDevices").mockResolvedValue({
+                [MediaDeviceKindEnum.AudioInput]: [
+                    device("audioinput", "default", "Default - Built-in Microphone"),
+                    device("audioinput", "headset", "USB Headset Microphone"),
+                    // Permission not granted for this one yet, so it has no label to show.
+                    device("audioinput", "hidden", ""),
+                ],
+                [MediaDeviceKindEnum.AudioOutput]: [device("audiooutput", "speakers", "Desk Speakers")],
+                [MediaDeviceKindEnum.VideoInput]: [],
+            });
+            vi.spyOn(MediaDeviceHandler, "getAudioInput").mockReturnValue("headset");
+            vi.spyOn(MediaDeviceHandler, "getAudioOutput").mockReturnValue("unplugged");
+        });
+
+        it("lists labelled devices when a device menu opens and shows each one's choice", async () => {
+            vm.setPanel("input");
+            await vi.waitFor(() => expect(vm.getSnapshot().audioInputs).toHaveLength(2));
+            expect(vm.getSnapshot()).toMatchObject({
+                audioInputs: [
+                    { id: "default", label: "Default - Built-in Microphone" },
+                    { id: "headset", label: "USB Headset Microphone" },
+                ],
+                // The browser reports no default speaker, so the system default is offered first.
+                audioOutputs: [
+                    { id: "", label: "Default Device" },
+                    { id: "speakers", label: "Desk Speakers" },
+                ],
+                audioInputId: "headset",
+                // A speaker that is no longer connected falls back to the first one.
+                audioOutputId: "",
+            });
+        });
+
+        it("switches devices through the media device handler", async () => {
+            const setDevice = vi.spyOn(MediaDeviceHandler.instance, "setDevice").mockResolvedValue();
+            await vm.setAudioInput("default");
+            expect(setDevice).toHaveBeenCalledWith("default", MediaDeviceKindEnum.AudioInput);
+            await vm.setAudioOutput("speakers");
+            expect(setDevice).toHaveBeenCalledWith("speakers", MediaDeviceKindEnum.AudioOutput);
+
+            setDevice.mockRejectedValueOnce(new Error("NotReadableError"));
+            await vm.setAudioInput("headset");
+            expect(vm.getSnapshot().error).toBe("The device could not be changed. Please try again.");
+        });
+
+        it("saves microphone and speaker volumes within 0–100%", async () => {
+            await vm.setMicrophoneVolume(64.4);
+            await vm.setSpeakerVolume(140);
+            expect(preferences.get("desktopMicrophoneVolume")).toBe(64);
+            expect(preferences.get("desktopSpeakerVolume")).toBe(100);
+        });
+
+        it("keeps a device menu open across joining a call, unlike the call's own panels", async () => {
+            vm.setPanel("output");
+            await connect();
+            expect(vm.getSnapshot().panel).toBe("output");
+            vm.setPanel("connection");
+            await vm.disconnect();
+            expect(vm.getSnapshot().panel).toBeNull();
+        });
+
+        it("closes the menu and opens the Voice & Video settings", () => {
+            const dispatch = vi.spyOn(defaultDispatcher, "dispatch");
+            vm.setPanel("input");
+            vm.openVoiceSettings();
+            expect(vm.getSnapshot().panel).toBeNull();
+            expect(dispatch).toHaveBeenCalledWith({ action: Action.ViewUserSettings, initialTabId: UserTab.Voice });
         });
     });
 });

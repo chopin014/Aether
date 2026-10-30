@@ -17,7 +17,6 @@ import RoomSettingsDialog from "../components/views/dialogs/RoomSettingsDialog";
 import ForwardDialog from "../components/views/dialogs/ForwardDialog";
 import { Action } from "../dispatcher/actions";
 import ReportEventDialog from "../components/views/dialogs/ReportEventDialog";
-import SpacePreferencesDialog from "../components/views/dialogs/SpacePreferencesDialog";
 import SpaceSettingsDialog from "../components/views/dialogs/SpaceSettingsDialog";
 import InviteDialog from "../components/views/dialogs/InviteDialog";
 import AddExistingToSpaceDialog from "../components/views/dialogs/AddExistingToSpaceDialog";
@@ -78,17 +77,6 @@ export class DialogOpener {
                         mxEvent: payload.event,
                     },
                     "mx_Dialog_reportEvent",
-                );
-                break;
-            case Action.OpenSpacePreferences:
-                Modal.createDialog(
-                    SpacePreferencesDialog,
-                    {
-                        space: payload.space,
-                    },
-                    undefined,
-                    false,
-                    true,
                 );
                 break;
             case Action.OpenSpaceSettings:

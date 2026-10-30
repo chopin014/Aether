@@ -17,7 +17,12 @@ import {
 } from "@element-hq/web-shared-components";
 import { Room, type MatrixClient, PendingEventOrdering, RoomType } from "matrix-js-sdk/src/matrix";
 
-import { getDesktopChannelSections, DESKTOP_TEXT_CHANNELS, DESKTOP_VOICE_CHANNELS } from "./DesktopChannelSections";
+import {
+    getDesktopChannelSections,
+    isDesktopChannelList,
+    DESKTOP_TEXT_CHANNELS,
+    DESKTOP_VOICE_CHANNELS,
+} from "./DesktopChannelSections";
 
 import { Action } from "../../dispatcher/actions";
 import dispatcher from "../../dispatcher/dispatcher";
@@ -235,6 +240,7 @@ export class RoomListViewModel
             isRoomListEmpty,
             filterIds,
             hidePrimaryFilters: SettingsStore.getValue("feature_desktop_shell"),
+            isSpaceChannelList: isDesktopChannelList(roomsResult.spaceId),
             activeFilterId: undefined,
             roomListState: {
                 activeRoomIndex: undefined,
@@ -1040,6 +1046,8 @@ export class RoomListViewModel
             sections: keepIfSame(previousSections, viewSections),
             isFlatList,
             hidePrimaryFilters: SettingsStore.getValue("feature_desktop_shell"),
+            isSpaceChannelList: isDesktopChannelList(roomsResult.spaceId),
+            canCreateRoom: hasCreateRoomRights(this.props.client, this.props.spaceStore.activeSpaceRoom),
         });
 
         this.notifyCollapseState(isFlatList);

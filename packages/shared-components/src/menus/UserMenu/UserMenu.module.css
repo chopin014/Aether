@@ -247,6 +247,19 @@
     visibility: hidden;
 }
 
+/* The dock's name and status read a touch larger than the body text around them. */
+.dockTrigger .dockName {
+    font-size: calc(var(--cpd-font-size-body-sm) * 1.05);
+}
+
+.dockTrigger .secondaryLine {
+    font-size: calc(var(--cpd-font-size-body-xs) * 1.05);
+
+    * {
+        font-size: inherit;
+    }
+}
+
 .dockTrigger:hover,
 .dockTrigger:focus-visible {
     .dockStatus {

@@ -5,9 +5,8 @@
  * Please see LICENSE files in the repository root for full details.
  */
 
-import React, { type JSX, type MouseEventHandler } from "react";
+import React, { type JSX, type MouseEventHandler, type SVGProps } from "react";
 import { Button } from "@vector-im/compound-web";
-import ExploreIcon from "@vector-im/compound-design-tokens/assets/web/icons/explore";
 import SearchIcon from "@vector-im/compound-design-tokens/assets/web/icons/search";
 import DialPadIcon from "@vector-im/compound-design-tokens/assets/web/icons/dial-pad";
 
@@ -15,6 +14,20 @@ import styles from "./RoomListSearchView.module.css";
 import { type ViewModel, useViewModel } from "../../core/viewmodel";
 import { Flex } from "../../core/utils/Flex";
 import { useI18n } from "../../core/i18n/i18nContext";
+
+/** The arrow a map shows for where you are, for exploring rooms beyond your own. */
+function NavigationIcon(props: SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 24 24" fill="currentColor" {...props}>
+            <path
+                d="M12 3.2 5.4 19.6a.6.6 0 0 0 .84.75L12 17.3l5.76 3.05a.6.6 0 0 0 .84-.75z"
+                stroke="currentColor"
+                strokeWidth={1.4}
+                strokeLinejoin="round"
+            />
+        </svg>
+    );
+}
 
 export interface RoomListSearchViewSnapshot {
     /**
@@ -95,6 +108,7 @@ export function RoomListSearchView({ vm }: Readonly<RoomListSearchViewProps>): J
             </Button>
             {displayDialButton && (
                 <Button
+                    className={styles.action}
                     kind="secondary"
                     size="md"
                     Icon={DialPadIcon}
@@ -105,9 +119,10 @@ export function RoomListSearchView({ vm }: Readonly<RoomListSearchViewProps>): J
             )}
             {displayExploreButton && (
                 <Button
+                    className={styles.action}
                     kind="secondary"
                     size="md"
-                    Icon={ExploreIcon}
+                    Icon={NavigationIcon}
                     iconOnly={true}
                     aria-label={_t("action|explore_rooms")}
                     onClick={vm.onExploreClick}

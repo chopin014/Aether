@@ -8,6 +8,7 @@ Please see LICENSE in the repository root for full details.
 import type { ReactNode } from "react";
 import {
     BaseViewModel,
+    type DesktopCallStageCallee,
     type DesktopCallStageDeviceOption,
     type DesktopCallStageLayoutMode,
     type DesktopCallStageParticipantTile,
@@ -16,7 +17,7 @@ import {
     type DesktopCallStageViewModel as DesktopCallStageViewModelInterface,
     type DesktopCallStageViewSnapshot,
 } from "@element-hq/web-shared-components";
-import { type MatrixClient } from "matrix-js-sdk/src/matrix";
+import { KnownMembership, type MatrixClient } from "matrix-js-sdk/src/matrix";
 import { isVideoRoom } from "../../utils/video-rooms";
 import { mediaFromMxc } from "../../customisations/Media";
 
@@ -107,6 +108,38 @@ const mapScreenShareTile = (
     };
 };
 
+/**
+ * The people a conversation call is ringing: everyone else in the room who has not joined yet, while the call still
+ * rings. They join as participants, or drop out when the ringing is declined or times out.
+ */
+const ringingCallees = (
+    client: MatrixClient,
+    roomId: string,
+    ringing: AetherCallPresentationBridge["state"]["ringing"],
+    participants: readonly AetherParticipantMediaItem[],
+): DesktopCallStageCallee[] => {
+    const room = client.getRoom(roomId);
+    if (ringing !== "ringing" || !room || isVideoRoom(room)) return [];
+    const inCall = new Set(participants.map((participant) => participant.userId));
+    return room
+        .getMembers()
+        .filter(
+            (member) =>
+                (member.membership === KnownMembership.Join || member.membership === KnownMembership.Invite) &&
+                member.userId !== client.getUserId() &&
+                !inCall.has(member.userId),
+        )
+        .map((member) => {
+            const mxc = member.getMxcAvatarUrl();
+            return {
+                userId: member.userId,
+                displayName: member.name,
+                avatarUrl: mxc ? (mediaFromMxc(mxc, client).getSquareThumbnailHttp(96) ?? undefined) : undefined,
+                initialLetter: getInitialLetter(member.name || member.userId) || "?",
+            };
+        });
+};
+
 /** Adapts the retained call engine to Aether's stage, device controls, and independent audio gains. */
 export class DesktopCallStageViewModel
     extends BaseViewModel<DesktopCallStageViewSnapshot, DesktopCallStageViewModelProps>
@@ -163,6 +196,7 @@ export class DesktopCallStageViewModel
                 (participant) => participant.local && participant.handRaisedAt !== null,
             ),
             ringing: state.ringing,
+            callees: ringingCallees(props.client, props.call.roomId, state.ringing, state.participants),
             canShareSystemAudio: !window.electron,
         });
         this.bridge = props.bridge;
@@ -252,6 +286,7 @@ export class DesktopCallStageViewModel
                 (participant) => participant.local && participant.handRaisedAt !== null,
             ),
             ringing: state.ringing,
+            callees: ringingCallees(this.props.client, this.props.call.roomId, state.ringing, state.participants),
         });
     };
 

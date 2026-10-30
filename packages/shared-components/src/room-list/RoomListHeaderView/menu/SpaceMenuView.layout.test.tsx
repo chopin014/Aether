@@ -79,7 +79,7 @@ describe("Desktop server menu", () => {
 
     async function openMenu(language = "en"): Promise<HTMLElement> {
         await page
-            .getByRole("button", { name: language === "en" ? "Open space menu" : "Abrir menu do espaço" })
+            .getByRole("button", { name: language === "en" ? "Open server menu" : "Abrir menu do espaço" })
             .click();
         const menu = page.getByRole("menu");
         await expect.element(menu).toBeVisible();
@@ -133,7 +133,7 @@ describe("Desktop server menu", () => {
     it.each(["dark", "light"])("should preserve keyboard focus and dismiss the %s menu", async (theme) => {
         document.body.className = `mx_DesktopShell cpd-theme-${theme}`;
         const vm = renderHeader();
-        const trigger = page.getByRole("button", { name: "Open space menu" });
+        const trigger = page.getByRole("button", { name: "Open server menu" });
         trigger.element().focus();
         await userEvent.keyboard("[ArrowDown]");
         const invite = page.getByRole("menuitem", { name: "Invite", exact: true });
@@ -141,11 +141,11 @@ describe("Desktop server menu", () => {
         expect(getComputedStyle(invite.element()).outlineStyle).not.toBe("none");
         expect(getComputedStyle(invite.element()).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
         await userEvent.keyboard("[End]");
-        await expect.element(page.getByRole("menuitem", { name: "Space settings" })).toHaveFocus();
+        await expect.element(page.getByRole("menuitem", { name: "Server settings" })).toHaveFocus();
         await userEvent.keyboard("[Home]");
         await expect.element(invite).toHaveFocus();
         await userEvent.keyboard("[ArrowDown]");
-        await expect.element(page.getByRole("menuitem", { name: "Space home" })).toHaveFocus();
+        await expect.element(page.getByRole("menuitem", { name: "Server home" })).toHaveFocus();
         await userEvent.keyboard("[Escape]");
         await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
         await expect.element(trigger).toHaveFocus();
@@ -163,7 +163,7 @@ describe("Desktop server menu", () => {
         document.body.className = `mx_DesktopShell cpd-theme-${theme}`;
         renderHeader();
         await openMenu();
-        const home = page.getByRole("menuitem", { name: "Space home" });
+        const home = page.getByRole("menuitem", { name: "Server home" });
         const rest = getComputedStyle(home.element()).backgroundColor;
         await home.hover();
         const hover = getComputedStyle(home.element()).backgroundColor;

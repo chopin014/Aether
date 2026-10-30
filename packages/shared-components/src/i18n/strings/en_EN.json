@@ -46,7 +46,6 @@
         "encryption_enabled": "Encryption enabled",
         "loading": "Loading…",
         "options": "Options",
-        "preferences": "Preferences",
         "state_encryption_enabled": "Experimental state encryption enabled",
         "threads": "Threads"
     },
@@ -70,6 +69,7 @@
             "call_ended": "Call ended",
             "call_error": "Call error",
             "calling": "Calling…",
+            "calling_user": "Calling %(name)s",
             "camera_devices_title": "Camera",
             "camera_off": "Camera is off",
             "connecting": "Connecting...",
@@ -216,6 +216,20 @@
             "unavailable": "Idle",
             "unblock": "Unblock"
         },
+        "delete_channel": {
+            "delete": "Delete channel",
+            "description": "This will remove everyone from %(name)s, including members from other servers, and remove the channel from this server. You will leave last. This cannot be undone.",
+            "history_note": "Previously received messages may remain in members’ history. This does not erase every copy of the channel.",
+            "left_note": "You have already left this channel. Retry will only remove it from your history."
+        },
+        "delete_server": {
+            "affected": "Channels and nested servers to delete: %(count)s",
+            "confirm_name": "Type %(name)s to confirm",
+            "delete": "Delete server",
+            "description": "Delete %(name)s and every channel and nested server inside it? Everyone will be removed, including from channels shared with other servers. You will leave last. This cannot be undone.",
+            "history_note": "Previously received messages may remain on other clients and homeservers. Deletion does not erase every copy.",
+            "room_list": "Channels and nested servers to delete"
+        },
         "keybinds": {
             "clear_action": "Clear %(action)s keybind",
             "ptt_hint": "Push to talk uses the same key and release delay as Voice & Video. In push to talk mode, an unassigned key keeps your microphone closed.",
@@ -243,11 +257,11 @@
             },
             "mutual_rooms_empty": "You do not share any rooms.",
             "mutual_spaces_count": {
-                "one": "%(count)s mutual space",
-                "other": "%(count)s mutual spaces"
+                "one": "%(count)s mutual server",
+                "other": "%(count)s mutual servers"
             },
-            "mutual_spaces_empty": "No mutual spaces are known to this client.",
-            "mutual_spaces_note": "Based on the Space members this client has loaded.",
+            "mutual_spaces_empty": "No mutual servers are known to this client.",
+            "mutual_spaces_note": "Based on the server members this client has loaded.",
             "not_verified": "Not verified",
             "presence_offline": "Offline",
             "presence_online": "Online",
@@ -375,6 +389,9 @@
                 "yesterday": "Yesterday"
             }
         },
+        "server_voice_activity": {
+            "people": "In voice: %(names)s"
+        },
         "share_picker": {
             "applications": "Application window",
             "audio_unavailable": "Screen audio is unavailable for this capture method.",
@@ -464,6 +481,9 @@
             "deafen": "Deafen",
             "disconnect": "Disconnect",
             "disconnected": "Disconnected",
+            "input_device": "Input device",
+            "input_options": "Input options",
+            "input_volume": "Input volume",
             "last_ping": "Last ping",
             "loss_value": "%(value)s%(unit)s",
             "microphone_test": "Microphone test",
@@ -474,6 +494,9 @@
             "noise_suppression_title": "Advanced noise suppression",
             "occupied_for": "People have been here for %(duration)s",
             "outbound_loss": "Sent packet loss",
+            "output_device": "Output device",
+            "output_options": "Output options",
+            "output_volume": "Output volume",
             "participant_deafened": "%(name)s (deafened)",
             "participant_muted": "%(name)s (muted)",
             "participant_muted_and_deafened": "%(name)s (muted and deafened)",
@@ -485,7 +508,8 @@
             "start_screen_share": "Share your screen",
             "stop_screen_share": "Stop sharing your screen",
             "undeafen": "Undeafen",
-            "unmute": "Unmute"
+            "unmute": "Unmute",
+            "voice_settings": "Voice settings"
         },
         "voice_video": {
             "advanced_voice": "Show advanced voice settings",
@@ -753,6 +777,10 @@
         "collapse_all_sections": "Collapse all sections",
         "collapse_filters": "Collapse filter list",
         "empty": {
+            "create_channel": "Create channel",
+            "no_channels": "No channels yet",
+            "no_channels_description": "Create a text or voice channel in this server.",
+            "no_channels_description_no_room_rights": "No channels are available yet.",
             "no_chats": "No chats yet",
             "no_chats_description": "Get started by messaging someone or by creating a room",
             "no_chats_description_no_room_rights": "Get started by messaging someone",
@@ -790,7 +818,7 @@
             "remove_from_section": "Remove from section"
         },
         "notification_options": "Notification options",
-        "open_space_menu": "Open space menu",
+        "open_space_menu": "Open server menu",
         "primary_filters": "Room list filters",
         "room": {
             "more_options": "More Options"
@@ -817,8 +845,8 @@
             "unread_first": "Unread first"
         },
         "space_menu": {
-            "home": "Space home",
-            "space_settings": "Space settings"
+            "home": "Server home",
+            "space_settings": "Server settings"
         },
         "unread_messages": "Unread messages"
     },

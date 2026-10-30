@@ -40,15 +40,15 @@ test("discovers and joins public Spaces from a separate rail button", async ({ p
     });
     await bot.createRoom({ name: roomName, visibility: "public" as Visibility, preset: "public_chat" as Preset });
 
-    const rail = page.getByRole("navigation", { name: "Spaces", exact: true });
-    await rail.getByRole("button", { name: "Create a space", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Create a space", exact: true })).toBeVisible();
+    const rail = page.getByRole("navigation", { name: "Servers", exact: true });
+    await rail.getByRole("button", { name: "Create a server", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Create a server", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
 
-    const create = rail.getByRole("button", { name: "Create a space", exact: true });
-    const discover = rail.getByRole("button", { name: "Discover public spaces", exact: true });
+    const create = rail.getByRole("button", { name: "Create a server", exact: true });
+    const discover = rail.getByRole("button", { name: "Discover public servers", exact: true });
     await discover.hover();
-    await expect(page.getByRole("tooltip")).toHaveText("Discover public spaces");
+    await expect(page.getByRole("tooltip")).toHaveText("Discover public servers");
     const createBounds = await create.boundingBox();
     const discoverBounds = await discover.boundingBox();
     expect(discoverBounds!.y).toBeGreaterThan(createBounds!.y + createBounds!.height - 1);
@@ -56,7 +56,7 @@ test("discovers and joins public Spaces from a separate rail button", async ({ p
     await discover.click();
 
     const dialog = page.getByRole("dialog", { name: "Search Dialog" });
-    await expect(dialog.getByText("Public spaces", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("Public servers", { exact: true })).toBeVisible();
     await dialog.getByRole("textbox", { name: "Search", exact: true }).fill("Aether discovery test");
     const result = dialog.getByRole("option", { name, exact: true });
     await expect(result).toBeVisible();
@@ -72,7 +72,7 @@ test("discovers and joins public Spaces from a separate rail button", async ({ p
 
 test("centres Home, servers, the divider and actions on the server rail", async ({ page, app }) => {
     await app.client.createSpace({ name: "Rail alignment space" });
-    const rail = page.getByRole("navigation", { name: "Spaces", exact: true });
+    const rail = page.getByRole("navigation", { name: "Servers", exact: true });
     await expect(rail.getByRole("button", { name: "Rail alignment space", exact: true })).toBeVisible();
 
     const geometry = await rail.evaluate((nav) => {

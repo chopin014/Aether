@@ -110,6 +110,7 @@ class TestCallStageViewModel
                 supportsReactions: true,
                 localHandRaised: false,
                 ringing: null,
+                callees: [],
                 canShareSystemAudio: true,
                 ...overrides,
             },
@@ -424,6 +425,54 @@ describe("DesktopCallStageView", () => {
         expect(vm.toggleScreenShareAudioMuted).toHaveBeenCalledWith("share-1");
         fireEvent.click(screen.getByRole("button", { name: "Focus View" }));
         expect(vm.setLayoutMode).toHaveBeenCalledWith("spotlight");
+    });
+
+    it("rings a conversation's callee as a faded, pulsing avatar until they join", () => {
+        const me = makeParticipant({ id: "me", userId: "@me:example.org", displayName: "Me", local: true });
+        const vm = new TestCallStageViewModel({
+            presentation: "conversation",
+            participants: [me],
+            ringing: "ringing",
+            callees: [{ userId: "@bob:example.org", displayName: "Bob", initialLetter: "B" }],
+        });
+        render(<DesktopCallStageView vm={vm} />);
+        const callee = screen.getByRole("img", { name: "Calling Bob" });
+        expect(callee).toBeVisible();
+        expect(getComputedStyle(callee.querySelector("span")!.parentElement!).opacity).toBe("0.45");
+        expect(screen.getByText("Calling…")).toBeVisible();
+
+        act(() =>
+            vm.updateSnapshot({
+                ringing: null,
+                callees: [],
+                participants: [me, makeParticipant({ userId: "@bob:example.org", displayName: "Bob" })],
+            }),
+        );
+        expect(screen.queryByRole("img", { name: "Calling Bob" })).toBeNull();
+        expect(screen.getByRole("button", { name: "Participant Bob" })).toBeVisible();
+        expect(screen.queryByText("Calling…")).toBeNull();
+    });
+
+    it("stops saying Calling once the ringing has timed out", () => {
+        render(
+            <DesktopCallStageView
+                vm={new TestCallStageViewModel({ presentation: "conversation", ringing: "timeout" })}
+            />,
+        );
+        expect(screen.queryByText("Calling…")).toBeNull();
+    });
+
+    it("shows mute and deafen on a conversation's avatars instead of names", () => {
+        const vm = new TestCallStageViewModel({
+            presentation: "conversation",
+            participants: [makeParticipant({ audioEnabled: false, deafened: true })],
+        });
+        render(<DesktopCallStageView vm={vm} />);
+        expect(screen.getByTestId("name_tag")).not.toBeVisible();
+        expect(screen.getByLabelText("Microphone muted")).toBeVisible();
+        expect(screen.getByLabelText("Deafened")).toBeVisible();
+        // The name is still there for assistive technology.
+        expect(screen.getByRole("button", { name: "Participant Alice" })).toBeInTheDocument();
     });
 
     it("exposes fatal recovery only for recoverable engine failures", () => {

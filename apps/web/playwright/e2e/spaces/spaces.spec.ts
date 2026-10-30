@@ -17,7 +17,7 @@ import { UIFeature } from "../../../src/settings/UIFeature";
 import { getSampleFilePath } from "../../sample-files";
 
 async function openSpaceCreateMenu(page: Page): Promise<Locator> {
-    await page.getByRole("button", { name: "Create a space" }).click();
+    await page.getByRole("button", { name: "Create a server" }).click();
     return page.locator(".mx_SpaceCreateMenu_wrapper .mx_ContextualMenu");
 }
 
@@ -256,7 +256,7 @@ test.describe("Spaces", () => {
         await bot.inviteUser(roomId, user.userId);
 
         // Assert that `Space Space` is above `My Space` due to it being an invite
-        const buttons = page.getByRole("tree", { name: "Spaces" }).locator(".mx_SpaceButton");
+        const buttons = page.getByRole("tree", { name: "Servers" }).locator(".mx_SpaceButton");
         await expect(buttons.nth(1)).toHaveAttribute("aria-label", "Space Space");
         await expect(buttons.nth(2)).toHaveAttribute("aria-label", "My Space");
     });
@@ -368,7 +368,7 @@ test.describe("Spaces", () => {
             });
 
             // Find collapsed Space panel
-            const spaceTree = page.getByRole("tree", { name: "Spaces" });
+            const spaceTree = page.getByRole("tree", { name: "Servers" });
             await expect(spaceTree.getByRole("button", { name: "Root Space" })).toBeVisible();
             await expect(spaceTree.getByRole("button", { name: "Child Space" })).not.toBeVisible();
 
@@ -471,7 +471,7 @@ test.describe("Spaces", () => {
         // Wait for toasts to clear otherwise they will mess with our screenshot
         await assertNoToasts(page);
 
-        await page.getByRole("tree", { name: "Spaces" }).getByRole("button", { name: "Home" }).hover();
+        await page.getByRole("tree", { name: "Servers" }).getByRole("button", { name: "Home" }).hover();
         await expect(page.getByRole("tooltip", { name: "Home" })).toBeVisible();
 
         await expect(page).toMatchScreenshot("space-panel-home-tooltip.png", {

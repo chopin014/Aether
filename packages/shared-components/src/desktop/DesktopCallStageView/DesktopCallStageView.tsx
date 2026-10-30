@@ -110,6 +110,14 @@ export interface DesktopCallStageParticipantTile {
     readonly microphoneMuted: boolean;
 }
 
+/** Someone a conversation call is ringing, who has not joined it yet. */
+export interface DesktopCallStageCallee {
+    readonly userId: string;
+    readonly displayName: string;
+    readonly avatarUrl?: string;
+    readonly initialLetter: string;
+}
+
 /** Presentation data for one screen stream, including independent stream playback. */
 export interface DesktopCallStageScreenShareTile {
     readonly id: string;
@@ -166,6 +174,8 @@ export interface DesktopCallStageViewSnapshot {
     readonly supportsReactions: boolean;
     readonly localHandRaised: boolean;
     readonly ringing: "ringing" | "decline" | "timeout" | null;
+    /** People the call is ringing; empty once they join, decline or the ringing times out. */
+    readonly callees: readonly DesktopCallStageCallee[];
     /** Electron's current display-media callback supplies a video track only. */
     readonly canShareSystemAudio: boolean;
 }
@@ -920,7 +930,7 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                     </Text>
                 </div>
             )}
-            {snapshot.ringing && (
+            {snapshot.ringing === "ringing" && (
                 <div className={styles.callingStatus} role="status">
                     <Text size="sm">{_t("desktop|call_stage|calling")}</Text>
                 </div>
@@ -1034,7 +1044,9 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                 ) : (
                     <div
                         className={styles.grid}
-                        data-count={String(Math.min(4, allScreenShares.length + allParticipants.length))}
+                        data-count={String(
+                            Math.min(4, allScreenShares.length + allParticipants.length + snapshot.callees.length),
+                        )}
                         data-solo-channel={
                             snapshot.presentation === "channel" &&
                             allParticipants.length === 1 &&
@@ -1045,6 +1057,28 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                     >
                         {allScreenShares.map((s) => renderScreenShareTile(s, false))}
                         {allParticipants.map((p) => renderParticipantTile(p, false))}
+                        {snapshot.callees.map((callee) => (
+                            <div
+                                key={callee.userId}
+                                className={styles.tile}
+                                data-kind="callee"
+                                data-testid="callee-tile"
+                                role="img"
+                                aria-label={_t("desktop|call_stage|calling_user", { name: callee.displayName })}
+                            >
+                                <div className={styles.avatarFallback}>
+                                    <div className={styles.calleeAvatar}>
+                                        <div className={styles.avatarCircle}>
+                                            {callee.avatarUrl ? (
+                                                <img src={callee.avatarUrl} alt="" className={styles.avatarImage} />
+                                            ) : (
+                                                <span>{callee.initialLetter}</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
                         {snapshot.presentation === "channel" &&
                             allParticipants.length === 1 &&
                             allScreenShares.length === 0 && (

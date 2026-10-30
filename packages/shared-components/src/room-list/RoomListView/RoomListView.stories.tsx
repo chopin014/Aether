@@ -155,6 +155,21 @@ export const Empty: Story = {
     },
 };
 
+export const EmptyServer: Story = {
+    args: {
+        isRoomListEmpty: true,
+        hidePrimaryFilters: true,
+        isSpaceChannelList: true,
+    },
+};
+
+export const EmptyServerWithoutCreatePermission: Story = {
+    args: {
+        ...EmptyServer.args,
+        canCreateRoom: false,
+    },
+};
+
 export const EmptyWithoutCreatePermission: Story = {
     args: {
         isRoomListEmpty: true,

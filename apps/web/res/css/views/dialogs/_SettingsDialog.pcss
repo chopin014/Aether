@@ -8,8 +8,7 @@ Please see LICENSE files in the repository root for full details.
 /* Not actually a component but things shared by settings components */
 .mx_UserSettingsDialog,
 .mx_RoomSettingsDialog,
-.mx_SpaceSettingsDialog,
-.mx_SpacePreferencesDialog {
+.mx_SpaceSettingsDialog {
     width: 90vw;
     max-width: 980px;
     /* set the height too since tabbed view scrolls itself. */
@@ -47,8 +46,7 @@ Please see LICENSE files in the repository root for full details.
 @media (max-width: 1024px) {
     .mx_UserSettingsDialog,
     .mx_RoomSettingsDialog,
-    .mx_SpaceSettingsDialog,
-    .mx_SpacePreferencesDialog {
+    .mx_SpaceSettingsDialog {
         .mx_SettingsDialog_tabLabelsAlert::after {
             right: var(--cpd-space-1x);
             top: var(--cpd-space-1x);

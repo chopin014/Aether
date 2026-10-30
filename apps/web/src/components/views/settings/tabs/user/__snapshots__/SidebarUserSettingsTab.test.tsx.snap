@@ -23,7 +23,7 @@ exports[`<SidebarUserSettingsTab /> > renders sidebar settings with guest spa ur
               <h2
                 class="mx_Heading_h4 mx_SettingsSubsectionHeading_heading"
               >
-                Spaces to show
+                Servers to show
               </h2>
             </div>
             <div
@@ -32,7 +32,7 @@ exports[`<SidebarUserSettingsTab /> > renders sidebar settings with guest spa ur
               <div
                 class="mx_SettingsSubsection_text"
               >
-                Spaces are ways to group rooms and people. Alongside the spaces you're in, you can use some pre-built ones too.
+                Servers are ways to group rooms and people. Alongside the servers you're in, you can use some pre-built ones too.
               </div>
             </div>
             <div
@@ -156,7 +156,7 @@ exports[`<SidebarUserSettingsTab /> > renders sidebar settings with guest spa ur
                       class="_message _help-message"
                       id="react-use-id-2"
                     >
-                      Show all your rooms in Home, even if they're in a space.
+                      Show all your rooms in Home, even if they're in a server.
                     </span>
                   </div>
                 </div>
@@ -204,13 +204,13 @@ exports[`<SidebarUserSettingsTab /> > renders sidebar settings with guest spa ur
                       class="_label"
                       for="checkbox_wKpa6hpi3Y"
                     >
-                      Rooms outside of a space
+                      Rooms outside of a server
                     </label>
                     <span
                       class="_message _help-message"
                       id="react-use-id-3"
                     >
-                      Group all your rooms that aren't part of a space in one place.
+                      Group all your rooms that aren't part of a server in one place.
                     </span>
                   </div>
                 </div>
@@ -313,7 +313,7 @@ exports[`<SidebarUserSettingsTab /> > renders sidebar settings without guest spa
               <h2
                 class="mx_Heading_h4 mx_SettingsSubsectionHeading_heading"
               >
-                Spaces to show
+                Servers to show
               </h2>
             </div>
             <div
@@ -322,7 +322,7 @@ exports[`<SidebarUserSettingsTab /> > renders sidebar settings without guest spa
               <div
                 class="mx_SettingsSubsection_text"
               >
-                Spaces are ways to group rooms and people. Alongside the spaces you're in, you can use some pre-built ones too.
+                Servers are ways to group rooms and people. Alongside the servers you're in, you can use some pre-built ones too.
               </div>
             </div>
             <div
@@ -446,7 +446,7 @@ exports[`<SidebarUserSettingsTab /> > renders sidebar settings without guest spa
                       class="_message _help-message"
                       id="react-use-id-2"
                     >
-                      Show all your rooms in Home, even if they're in a space.
+                      Show all your rooms in Home, even if they're in a server.
                     </span>
                   </div>
                 </div>
@@ -494,13 +494,13 @@ exports[`<SidebarUserSettingsTab /> > renders sidebar settings without guest spa
                       class="_label"
                       for="checkbox_wKpa6hpi3Y"
                     >
-                      Rooms outside of a space
+                      Rooms outside of a server
                     </label>
                     <span
                       class="_message _help-message"
                       id="react-use-id-3"
                     >
-                      Group all your rooms that aren't part of a space in one place.
+                      Group all your rooms that aren't part of a server in one place.
                     </span>
                   </div>
                 </div>

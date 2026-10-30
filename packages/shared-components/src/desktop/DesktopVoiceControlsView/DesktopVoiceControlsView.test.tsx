@@ -7,7 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@test-utils";
+import { fireEvent, render, screen, within } from "@test-utils";
 import userEvent from "@testing-library/user-event";
 
 import {
@@ -30,6 +30,18 @@ function makeVm(snapshot: Partial<DesktopVoiceControlsViewSnapshot> = {}) {
             noiseSuppression: true,
             noiseSuppressionStrength: 100,
             microphoneTest: { active: false, level: null, open: false },
+            audioInputs: [
+                { id: "", label: "Default" },
+                { id: "headset", label: "USB Headset Microphone" },
+            ],
+            audioOutputs: [
+                { id: "", label: "Default" },
+                { id: "speakers", label: "Desk Speakers" },
+            ],
+            audioInputId: "",
+            audioOutputId: "speakers",
+            microphoneVolume: 100,
+            speakerVolume: 80,
             connection: {
                 state: "connected",
                 quality: "good",
@@ -51,6 +63,11 @@ function makeVm(snapshot: Partial<DesktopVoiceControlsViewSnapshot> = {}) {
             setNoiseSuppression: vi.fn(),
             setNoiseSuppressionStrength: vi.fn(),
             toggleMicrophoneTest: vi.fn(),
+            setAudioInput: vi.fn(),
+            setAudioOutput: vi.fn(),
+            setMicrophoneVolume: vi.fn(),
+            setSpeakerVolume: vi.fn(),
+            openVoiceSettings: vi.fn(),
         },
     );
 }
@@ -67,6 +84,56 @@ describe("DesktopVoiceControlsView", () => {
         render(<DesktopVoiceControlsView vm={makeVm({ microphoneMuted: true, deafened: true, busy: true })} />);
         expect(screen.getByRole("button", { name: "Unmute" })).toHaveAttribute("aria-pressed", "true");
         expect(screen.getByRole("button", { name: "Undeafen" })).toBeDisabled();
+    });
+    it("animates the slash through a device only when it is muted or unmuted after the dock appears", () => {
+        const { container, rerender } = render(<DesktopVoiceControlsView vm={makeVm({ microphoneMuted: true })} />);
+        const [microphone, headphones] = container.querySelectorAll("[data-off]");
+        expect(microphone).toHaveAttribute("data-off", "true");
+        expect(headphones).toHaveAttribute("data-off", "false");
+        expect(container.querySelector("[data-animate]")).toBeNull();
+
+        rerender(<DesktopVoiceControlsView vm={makeVm({ microphoneMuted: false, deafened: true })} />);
+        expect(microphone).toHaveAttribute("data-off", "false");
+        expect(microphone).toHaveAttribute("data-animate", "true");
+        expect(headphones).toHaveAttribute("data-animate", "true");
+        // The device and its menu share the muted colour.
+        expect(screen.getByRole("button", { name: "Undeafen" }).parentElement).toHaveAttribute("data-muted", "true");
+    });
+    it("opens a menu for each device from the arrow beside it", async () => {
+        const vm = makeVm();
+        render(<DesktopVoiceControlsView vm={vm} />);
+        await userEvent.click(screen.getByRole("button", { name: "Input options" }));
+        expect(vm.setPanel).toHaveBeenCalledWith("input");
+        await userEvent.click(screen.getByRole("button", { name: "Output options" }));
+        expect(vm.setPanel).toHaveBeenCalledWith("output");
+    });
+    it("chooses the microphone and its volume from the input menu", async () => {
+        const vm = makeVm({ panel: "input" });
+        render(<DesktopVoiceControlsView vm={vm} />);
+        const menu = screen.getByRole("dialog", { name: "Input options" });
+        expect(screen.getByRole("button", { name: "Input options" })).toHaveAttribute("aria-expanded", "true");
+        await userEvent.selectOptions(within(menu).getByRole("combobox", { name: "Input device" }), "headset");
+        expect(vm.setAudioInput).toHaveBeenCalledWith("headset");
+        fireEvent.change(within(menu).getByRole("slider", { name: "Input volume" }), { target: { value: "60" } });
+        expect(vm.setMicrophoneVolume).toHaveBeenCalledWith(60);
+        await userEvent.click(within(menu).getByRole("button", { name: "Voice settings" }));
+        expect(vm.openVoiceSettings).toHaveBeenCalledOnce();
+    });
+    it("chooses the speaker and its volume from the output menu", async () => {
+        const vm = makeVm({ panel: "output" });
+        render(<DesktopVoiceControlsView vm={vm} />);
+        const menu = screen.getByRole("dialog", { name: "Output options" });
+        const speaker = within(menu).getByRole("combobox", { name: "Output device" });
+        expect(speaker).toHaveValue("speakers");
+        expect(within(menu).getByText("80%")).toBeVisible();
+        await userEvent.selectOptions(speaker, "");
+        expect(vm.setAudioOutput).toHaveBeenCalledWith("");
+        fireEvent.change(within(menu).getByRole("slider", { name: "Output volume" }), { target: { value: "35" } });
+        expect(vm.setSpeakerVolume).toHaveBeenCalledWith(35);
+    });
+    it("leaves the device menus to the account row, not the connected call", () => {
+        render(<DesktopVoiceConnectionView vm={makeVm({ roomName: "Lounge", panel: "input" })} />);
+        expect(screen.queryByRole("dialog")).toBeNull();
     });
     it("shows only an actual connected call and keeps navigation, media and hang-up available", async () => {
         const vm = makeVm({ roomName: "Lounge" });

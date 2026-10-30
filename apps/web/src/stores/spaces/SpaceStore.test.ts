@@ -539,12 +539,12 @@ describe("SpaceStore", () => {
                     expect(store.isRoomInSpace(space3, invite2)).toBeTruthy();
                 });
 
-                it("spaces contain dms which you have with members of that space", () => {
-                    expect(store.isRoomInSpace(space1, dm1)).toBeTruthy();
+                it("should keep conversations with server members in Home instead of server channel lists", () => {
+                    expect(store.isRoomInSpace(space1, dm1)).toBeFalsy();
                     expect(store.isRoomInSpace(space2, dm1)).toBeFalsy();
                     expect(store.isRoomInSpace(space3, dm1)).toBeFalsy();
                     expect(store.isRoomInSpace(space1, dm2)).toBeFalsy();
-                    expect(store.isRoomInSpace(space2, dm2)).toBeTruthy();
+                    expect(store.isRoomInSpace(space2, dm2)).toBeFalsy();
                     expect(store.isRoomInSpace(space3, dm2)).toBeFalsy();
                     expect(store.isRoomInSpace(space1, dm3)).toBeFalsy();
                     expect(store.isRoomInSpace(space2, dm3)).toBeFalsy();
@@ -1351,7 +1351,7 @@ describe("SpaceStore", () => {
         vi.runOnlyPendingTimers();
         expect(sdkContext.spaceStore.invitedSpaces).toStrictEqual([]);
         expect(sdkContext.spaceStore.spacePanelSpaces).toStrictEqual([rootSpace]);
-        expect(sdkContext.spaceStore.isRoomInSpace(space1, dm1)).toBeTruthy();
+        expect(sdkContext.spaceStore.isRoomInSpace(space1, dm1)).toBeFalsy();
         expect(sdkContext.spaceStore.isRoomInSpace(MetaSpace.Home, dm1)).toBeTruthy();
         expect(sdkContext.spaceStore.isRoomInSpace(MetaSpace.Orphans, dm1)).toBeFalsy();
 

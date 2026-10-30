@@ -51,13 +51,13 @@ test.describe("Header section of the room list", () => {
         await expect(roomListHeader.getByRole("heading", { name: "MySpace" })).toBeVisible();
         await expect(roomListHeader.getByRole("button", { name: "New" })).toBeVisible();
 
-        const spaceMenu = roomListHeader.getByRole("button", { name: "Open space menu" });
+        const spaceMenu = roomListHeader.getByRole("button", { name: "Open server menu" });
         await spaceMenu.click();
 
         await expect(page.getByRole("menu")).toMatchScreenshot("room-list-header-space-menu.png");
 
         // It should open the space home
-        await page.getByRole("menuitem", { name: "Space home" }).click();
+        await page.getByRole("menuitem", { name: "Server home" }).click();
         await expect(page.getByRole("main").getByRole("heading", { name: "MySpace" })).toBeVisible();
 
         // It should open the invite dialog

@@ -14,7 +14,6 @@ import {
     SettingsSolidIcon,
     LeaveIcon,
     SearchIcon,
-    PreferencesIcon,
     UserAddIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
 
@@ -26,7 +25,6 @@ import {
     showCreateNewRoom,
     showCreateNewSubspace,
     showSpaceInvite,
-    showSpacePreferences,
     showSpaceSettings,
 } from "../../../utils/space";
 import { leaveSpace } from "../../../utils/leave-behaviour";
@@ -212,14 +210,6 @@ const SpaceContextMenu: React.FC<IProps> = ({ space, hideHeader, onFinished, ...
         );
     }
 
-    const onPreferencesClick = (ev: ButtonEvent): void => {
-        ev.preventDefault();
-        ev.stopPropagation();
-
-        showSpacePreferences(space);
-        onFinished();
-    };
-
     const openSpace = (ev: ButtonEvent): void => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -256,11 +246,6 @@ const SpaceContextMenu: React.FC<IProps> = ({ space, hideHeader, onFinished, ...
                     icon={<SearchIcon />}
                     label={canAddRooms ? _t("space|context_menu|manage_and_explore") : _t("space|context_menu|explore")}
                     onClick={onExploreRoomsClick}
-                />
-                <IconizedContextMenuOption
-                    icon={<PreferencesIcon />}
-                    label={_t("common|preferences")}
-                    onClick={onPreferencesClick}
                 />
                 {devtoolsOption}
                 {settingsOption}
