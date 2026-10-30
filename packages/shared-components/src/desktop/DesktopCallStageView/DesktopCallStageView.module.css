@@ -958,17 +958,31 @@ Please see LICENSE in the repository root for full details.
     overflow: visible;
 }
 
+/*
+ * A conversation is between people who know who is in it, so the tiles show only what changes: whether each person
+ * is muted or deafened, as badges on their avatar. Their names stay in each tile's accessible name.
+ */
+.stage[data-presentation="conversation"] .nameBadge {
+    display: none;
+}
+
+.stage[data-presentation="conversation"] .tileBottomBar {
+    justify-content: flex-end;
+}
+
 .stage[data-presentation="conversation"][data-audio-only="true"] .tileBottomBar {
-    opacity: 0;
+    left: auto;
+    right: 0;
+    bottom: var(--cpd-space-2x);
+}
+
+.stage[data-presentation="conversation"][data-audio-only="true"] .statusIconBadge {
+    background: var(--cpd-color-bg-canvas-default);
+    box-shadow: 0 0 0 var(--cpd-border-width-2) var(--cpd-color-bg-canvas-default);
 }
 
 .stage[data-presentation="conversation"][data-audio-only="true"] .tileTopBar {
     opacity: 0;
-}
-
-.stage[data-presentation="conversation"][data-audio-only="true"] .tile:hover .tileBottomBar,
-.stage[data-presentation="conversation"][data-audio-only="true"] .tile:focus-within .tileBottomBar {
-    opacity: 1;
 }
 
 .stage[data-presentation="conversation"][data-audio-only="true"] .tile:hover .tileTopBar,
@@ -978,4 +992,76 @@ Please see LICENSE in the repository root for full details.
 
 .stage[data-presentation="conversation"][data-audio-only="true"] .tile[data-speaking="true"] .avatarCircle {
     box-shadow: 0 0 0 3px var(--cpd-color-border-success-subtle);
+}
+
+/*
+ * Someone being called: their avatar waits at half strength while a soft pulse spreads from behind it, until they
+ * join and take their place as a participant, or the ringing stops.
+ */
+.tile[data-kind="callee"] {
+    pointer-events: none;
+}
+
+.calleeAvatar {
+    position: relative;
+    display: grid;
+    place-items: center;
+    isolation: isolate;
+
+    &::before,
+    &::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--cpd-color-icon-accent-primary) 38%, transparent);
+        opacity: 0;
+        animation: callee-pulse 1.8s cubic-bezier(0.2, 0.6, 0.35, 1) infinite;
+    }
+
+    &::after {
+        animation-delay: 0.9s;
+    }
+
+    > .avatarCircle {
+        opacity: 0.45;
+        animation: callee-breathe 1.8s ease-in-out infinite;
+    }
+}
+
+@keyframes callee-pulse {
+    0% {
+        opacity: 0.9;
+        transform: scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(1.6);
+    }
+}
+
+@keyframes callee-breathe {
+    0%,
+    100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.04);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .calleeAvatar {
+        &::before {
+            opacity: 1;
+            transform: scale(1.15);
+            animation: none;
+        }
+
+        &::after,
+        > .avatarCircle {
+            animation: none;
+        }
+    }
 }

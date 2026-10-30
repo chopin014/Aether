@@ -128,6 +128,58 @@ describe("DesktopCallStageViewModel", () => {
         vi.mocked(mockCall.setLocalLeavePending).mockReset();
     });
 
+    it("rings the other people in a conversation until they join, decline or the ringing times out", () => {
+        const member = (userId: string, name: string, membership: string, avatar?: string) => ({
+            userId,
+            name,
+            membership,
+            getMxcAvatarUrl: () => avatar,
+        });
+        const room = {
+            isElementVideoRoom: () => false,
+            isCallRoom: () => false,
+            getMembers: () => [
+                member("@me:example.org", "Me", "join"),
+                member("@bob:example.org", "Bob", "join", "mxc://example.org/bob"),
+                member("@carol:example.org", "carol", "invite"),
+                member("@dave:example.org", "Dave", "leave"),
+            ],
+        };
+        const client = {
+            ...mockClient,
+            getRoom: vi.fn().mockReturnValue(room),
+            getUserId: () => "@me:example.org",
+            mxcUrlToHttp: (mxc: string) => mxc.replace("mxc://", "https://matrix.example.org/thumbnail/"),
+        } as unknown as MatrixClient;
+        const me = { id: "p-me", userId: "@me:example.org", displayName: "Me", local: true };
+        const vm = new DesktopCallStageViewModel({
+            client,
+            call: mockCall,
+            bridge: createBridge({
+                ringing: "ringing",
+                participants: [me as AetherParticipantMediaItem],
+            }),
+        });
+        expect(vm.getSnapshot().callees).toEqual([
+            {
+                userId: "@bob:example.org",
+                displayName: "Bob",
+                avatarUrl: expect.stringContaining("bob"),
+                initialLetter: "B",
+            },
+            { userId: "@carol:example.org", displayName: "carol", avatarUrl: undefined, initialLetter: "C" },
+        ]);
+
+        // Bob answers: he becomes a participant and the call stops ringing him.
+        const bob = { id: "p-bob", userId: "@bob:example.org", displayName: "Bob", local: false };
+        vm.setBridge(createBridge({ ringing: "ringing", participants: [me, bob] as AetherParticipantMediaItem[] }));
+        expect(vm.getSnapshot().callees.map((callee) => callee.userId)).toEqual(["@carol:example.org"]);
+
+        vm.setBridge(createBridge({ ringing: "timeout", participants: [me, bob] as AetherParticipantMediaItem[] }));
+        expect(vm.getSnapshot().callees).toEqual([]);
+        vm.dispose();
+    });
+
     it("waits for device changes, reports failure, and ignores a late failure after disposal", async () => {
         const enumerate = vi.spyOn(MediaDeviceHandler, "getDevices").mockResolvedValue(undefined);
         let rejectChange!: (reason: Error) => void;

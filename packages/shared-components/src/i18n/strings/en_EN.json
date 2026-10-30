@@ -70,6 +70,7 @@
             "call_ended": "Call ended",
             "call_error": "Call error",
             "calling": "Calling…",
+            "calling_user": "Calling %(name)s",
             "camera_devices_title": "Camera",
             "camera_off": "Camera is off",
             "connecting": "Connecting...",
