@@ -21,16 +21,41 @@ Please see LICENSE in the repository root for full details.
 .identityRow {
     display: flex;
     align-items: center;
-    gap: var(--cpd-space-2x);
-    height: 56px;
+    gap: var(--cpd-space-1-5x);
+    height: 60px;
     box-sizing: border-box;
     padding: var(--cpd-space-2x);
 }
 
-/* Square-cornered controls, matching the voice buttons beside them. */
-.identityRow > button {
-    width: var(--cpd-space-8x);
-    height: var(--cpd-space-8x);
-    padding: var(--cpd-space-1-5x);
+/* Square-cornered, matching the voice controls beside it. */
+.identityRow > .settings {
+    flex: none;
+    width: calc(var(--cpd-space-8x) + var(--cpd-space-0-5x));
+    height: calc(var(--cpd-space-8x) + var(--cpd-space-0-5x));
+    padding: 0;
     border-radius: var(--cpd-space-2x);
+
+    /* Compound sizes its icon wrapper for its own button size; centre the larger icon in this one. */
+    > * {
+        display: grid;
+        place-items: center;
+        inline-size: 100%;
+        block-size: 100%;
+    }
+
+    svg {
+        width: calc(var(--cpd-space-5x) + var(--cpd-space-0-5x));
+        height: calc(var(--cpd-space-5x) + var(--cpd-space-0-5x));
+        transition: transform 360ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    &:hover svg {
+        transform: rotate(60deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .identityRow > .settings svg {
+        transition: none;
+    }
 }

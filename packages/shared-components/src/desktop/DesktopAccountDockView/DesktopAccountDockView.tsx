@@ -38,7 +38,11 @@ export function DesktopAccountDockView({ vm, voice }: DesktopAccountDockViewProp
                 <UserMenuView vm={vm} presentation="dock" />
                 {voice && <DesktopVoiceControlsView vm={voice} />}
                 {actions.openSettings && (
-                    <IconButton tooltip={_t("user_menu|open_settings")} onClick={vm.openSettings}>
+                    <IconButton
+                        className={styles.settings}
+                        tooltip={_t("user_menu|open_settings")}
+                        onClick={vm.openSettings}
+                    >
                         <SettingsIcon />
                     </IconButton>
                 )}

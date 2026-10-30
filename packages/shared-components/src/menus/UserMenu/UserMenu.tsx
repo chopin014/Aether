@@ -162,7 +162,8 @@ export function UserMenuView({ vm, className, presentation = "rail" }: UserMenuV
                     id={userId}
                     name={displayName}
                     type="round"
-                    size="36px"
+                    // The dock's identity is a little larger than the rail's avatar.
+                    size={isDock ? "38px" : "36px"}
                     src={avatarUrl}
                     className={userStatus ? styles.avatarWithStatus : undefined}
                 />
@@ -175,7 +176,7 @@ export function UserMenuView({ vm, className, presentation = "rail" }: UserMenuV
             </div>
             {isDock && (
                 <span className={styles.identity}>
-                    <Text as="span" size="sm" weight="semibold">
+                    <Text as="span" size="sm" weight="semibold" className={styles.dockName}>
                         {displayName}
                     </Text>
                     {presence ? (
