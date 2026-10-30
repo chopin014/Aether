@@ -131,10 +131,6 @@ export class RoomListStoreV3Class extends AsyncStoreWithClient<EmptyObject> {
         // "RoomList.showPeopleSection" off, see its RequiresSettingsController.
         SettingsStore.watchSetting("RoomList.showSections", null, () => this.onSectionsChange());
         SettingsStore.watchSetting("RoomList.showPeopleSection", null, () => this.onSectionsChange());
-
-        SettingsStore.watchSetting("Spaces.showPeopleInSpace", null, (_settingName, roomId) => {
-            if (roomId === SDKContextClass.instance.spaceStore.activeSpace) this.onActiveSpaceChanged();
-        });
     }
 
     /**

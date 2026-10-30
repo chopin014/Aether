@@ -104,10 +104,6 @@ export interface RoomListHeaderViewActions {
      */
     inviteInSpace: () => void;
     /**
-     * Open the space preferences
-     */
-    openSpacePreferences: () => void;
-    /**
      * Open the space settings
      */
     openSpaceSettings: () => void;

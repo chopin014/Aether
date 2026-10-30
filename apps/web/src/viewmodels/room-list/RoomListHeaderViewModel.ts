@@ -18,13 +18,7 @@ import PosthogTrackers from "../../PosthogTrackers";
 import { Action } from "../../dispatcher/actions";
 import { getMetaSpaceName, type MetaSpace, UPDATE_HOME_BEHAVIOUR, UPDATE_SELECTED_SPACE } from "../../stores/spaces";
 import type SpaceStore from "../../stores/spaces/SpaceStore";
-import {
-    shouldShowSpaceSettings,
-    showCreateNewRoom,
-    showSpaceInvite,
-    showSpacePreferences,
-    showSpaceSettings,
-} from "../../utils/space";
+import { shouldShowSpaceSettings, showCreateNewRoom, showSpaceInvite, showSpaceSettings } from "../../utils/space";
 import type { ViewRoomPayload } from "../../dispatcher/payloads/ViewRoomPayload";
 import type { RoomListSectionsCollapseStateChangedPayload } from "../../dispatcher/payloads/RoomListSectionsCollapseStateChangedPayload";
 import SettingsStore from "../../settings/SettingsStore";
@@ -187,11 +181,6 @@ export class RoomListHeaderViewModel
     public inviteInSpace = (): void => {
         if (!this.activeSpace) return;
         showSpaceInvite(this.activeSpace);
-    };
-
-    public openSpacePreferences = (): void => {
-        if (!this.activeSpace) return;
-        showSpacePreferences(this.activeSpace);
     };
 
     public openSpaceSettings = (): void => {

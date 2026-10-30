@@ -354,7 +354,6 @@ export interface Settings {
     "Widgets.layout": IBaseSetting<ILayoutSettings | null>;
     "Spaces.allRoomsInHome": IBaseSetting<boolean>;
     "Spaces.enabledMetaSpaces": IBaseSetting<Partial<Record<MetaSpace, boolean>>>;
-    "Spaces.showPeopleInSpace": IBaseSetting<boolean>;
     "developerMode": IBaseSetting<boolean>;
     "debug_scroll_panel": IBaseSetting<boolean>;
     "debug_timeline_panel": IBaseSetting<boolean>;
@@ -1397,10 +1396,6 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
         default: {
             [MetaSpace.Home]: true,
         },
-    },
-    "Spaces.showPeopleInSpace": {
-        supportedLevels: [SettingLevel.ROOM_ACCOUNT],
-        default: true,
     },
     "developerMode": {
         displayName: _td("devtools|developer_mode"),

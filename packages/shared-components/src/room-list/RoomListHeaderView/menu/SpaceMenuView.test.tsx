@@ -36,7 +36,7 @@ describe("<SpaceMenuView />", () => {
 
         expect(screen.getByRole("menuitem", { name: "Server home" })).toBeInTheDocument();
         expect(screen.getByRole("menuitem", { name: "Invite" })).toBeInTheDocument();
-        expect(screen.getByRole("menuitem", { name: "Preferences" })).toBeInTheDocument();
+        expect(screen.queryByRole("menuitem", { name: "Preferences" })).not.toBeInTheDocument();
         expect(screen.getByRole("menuitem", { name: "Server settings" })).toBeInTheDocument();
     });
 
@@ -90,18 +90,6 @@ describe("<SpaceMenuView />", () => {
         expect(vm.inviteInSpace).toHaveBeenCalledTimes(1);
     });
 
-    it("should call openSpacePreferences when Preferences is clicked", async () => {
-        const user = userEvent.setup();
-
-        const vm = new MockedViewModel(defaultSnapshot);
-        render(<SpaceMenuView vm={vm} />);
-
-        await user.click(screen.getByRole("button", { name: "Open server menu" }));
-        await user.click(screen.getByRole("menuitem", { name: "Preferences" }));
-
-        expect(vm.openSpacePreferences).toHaveBeenCalledTimes(1);
-    });
-
     it("should call openSpaceSettings when Server settings is clicked", async () => {
         const user = userEvent.setup();
 
@@ -129,7 +117,6 @@ describe("<SpaceMenuView />", () => {
             "Server home",
             "New room",
             "New voice room",
-            "Preferences",
             "Server settings",
         ]);
         for (const item of screen.getAllByRole("menuitem")) {
@@ -142,7 +129,6 @@ describe("<SpaceMenuView />", () => {
         ["New voice room", "createVideoRoom"],
         ["Invite", "inviteInSpace"],
         ["Server home", "openSpaceHome"],
-        ["Preferences", "openSpacePreferences"],
         ["Server settings", "openSpaceSettings"],
     ] as const)("should select and dismiss the desktop %s action", async (label, action) => {
         const vm = new MockedViewModel(defaultSnapshot);

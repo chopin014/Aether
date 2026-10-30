@@ -46,7 +46,6 @@
         "encryption_enabled": "Encryption enabled",
         "loading": "Loading…",
         "options": "Options",
-        "preferences": "Preferences",
         "state_encryption_enabled": "Experimental state encryption enabled",
         "threads": "Threads"
     },

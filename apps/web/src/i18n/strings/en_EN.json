@@ -3329,10 +3329,6 @@
         "leave_dialog_title": "Leave %(spaceName)s",
         "mark_suggested": "Mark as suggested",
         "no_search_result_hint": "You may want to try a different search or check for typos.",
-        "preferences": {
-            "sections_section": "Sections to show",
-            "show_people_in_space": "This groups your chats with members of this server. Turning this off will hide those chats from your view of %(spaceName)s."
-        },
         "room_filter_placeholder": "Search for rooms",
         "search_children": "Search %(spaceName)s",
         "search_placeholder": "Search names and descriptions",

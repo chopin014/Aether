@@ -75,31 +75,6 @@ exports[`<SpaceContextMenu /> > renders menu correctly 1`] = `
               [36m</span>[39m
             [36m</li>[39m
             [36m<li[39m
-              [33maria-label[39m=[32m"Preferences"[39m
-              [33mclass[39m=[32m"mx_AccessibleButton mx_IconizedContextMenu_item"[39m
-              [33mrole[39m=[32m"menuitem"[39m
-              [33mtabindex[39m=[32m"-1"[39m
-            [36m>[39m
-              [36m<svg[39m
-                [33mfill[39m=[32m"currentColor"[39m
-                [33mheight[39m=[32m"1em"[39m
-                [33mviewBox[39m=[32m"0 0 24 24"[39m
-                [33mwidth[39m=[32m"1em"[39m
-                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
-              [36m>[39m
-                [36m<path[39m
-                  [33mclip-rule[39m=[32m"evenodd"[39m
-                  [33md[39m=[32m"M6.5 2h11a4.5 4.5 0 1 1 0 9h-11a4.5 4.5 0 0 1 0-9m0 2h7.258A4.5 4.5 0 0 0 13 6.5c0 .925.28 1.785.758 2.5H6.5a2.5 2.5 0 0 1 0-5M15 6.5a2.5 2.5 0 1 1 5 0 2.5 2.5 0 0 1-5 0m-13 11A4.5 4.5 0 0 1 6.5 13h11a4.5 4.5 0 1 1 0 9h-11q-.233 0-.46-.023A4.5 4.5 0 0 1 2 17.5m8.242-2.5H17.5a2.5 2.5 0 0 1 0 5h-7.258A4.5 4.5 0 0 0 11 17.5c0-.925-.28-1.785-.758-2.5M6.5 15a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5"[39m
-                  [33mfill-rule[39m=[32m"evenodd"[39m
-                [36m/>[39m
-              [36m</svg>[39m
-              [36m<span[39m
-                [33mclass[39m=[32m"mx_IconizedContextMenu_label"[39m
-              [36m>[39m
-                [0mPreferences[0m
-              [36m</span>[39m
-            [36m</li>[39m
-            [36m<li[39m
               [33maria-label[39m=[32m"Leave server"[39m
               [33mclass[39m=[32m"mx_AccessibleButton mx_IconizedContextMenu_option_red mx_IconizedContextMenu_item"[39m
               [33mdata-testid[39m=[32m"leave-option"[39m

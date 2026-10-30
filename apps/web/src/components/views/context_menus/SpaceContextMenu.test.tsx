@@ -36,7 +36,6 @@ vi.mock("../../../utils/space", () => ({
     showCreateNewRoom: vi.fn(),
     showCreateNewSubspace: vi.fn(),
     showSpaceInvite: vi.fn(),
-    showSpacePreferences: vi.fn(),
     showSpaceSettings: vi.fn(),
 }));
 
@@ -89,6 +88,7 @@ describe("<SpaceContextMenu />", () => {
     it("renders menu correctly", () => {
         const { baseElement } = renderComponent();
         expect(prettyDOM(baseElement)).toMatchSnapshot();
+        expect(screen.queryByRole("menuitem", { name: "Preferences" })).not.toBeInTheDocument();
     });
 
     it("renders invite option when space is public", () => {

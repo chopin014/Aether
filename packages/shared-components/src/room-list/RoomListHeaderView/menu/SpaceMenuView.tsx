@@ -10,7 +10,6 @@ import { IconButton, Menu, MenuItem, Separator } from "@vector-im/compound-web";
 import ChevronDownIcon from "@vector-im/compound-design-tokens/assets/web/icons/chevron-down";
 import HomeIcon from "@vector-im/compound-design-tokens/assets/web/icons/home";
 import SettingsIcon from "@vector-im/compound-design-tokens/assets/web/icons/settings";
-import PreferencesIcon from "@vector-im/compound-design-tokens/assets/web/icons/preferences";
 import ChatNewIcon from "@vector-im/compound-design-tokens/assets/web/icons/chat-new";
 import AudioIcon from "@vector-im/compound-design-tokens/assets/web/icons/audio";
 import UserAddIcon from "@vector-im/compound-design-tokens/assets/web/icons/user-add";
@@ -32,7 +31,7 @@ interface SpaceMenuViewProps {
 /**
  * A menu component that provides space-specific actions.
  * Displays a dropdown menu with options to navigate to space home, invite users,
- * access preferences, and manage space settings. The full-width desktop menu also groups room creation actions.
+ * and manage space settings. The full-width desktop menu also groups room creation actions.
  *
  * @example
  * ```tsx
@@ -115,12 +114,6 @@ export function SpaceMenuView({ vm, fullWidth = false }: SpaceMenuViewProps): JS
                     <Separator kind="secondary" />
                 </>
             )}
-            <MenuItem
-                Icon={PreferencesIcon}
-                label={_t("common|preferences")}
-                onSelect={vm.openSpacePreferences}
-                hideChevron
-            />
             {canAccessSpaceSettings && (
                 <MenuItem
                     Icon={SettingsIcon}
