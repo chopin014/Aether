@@ -32,6 +32,8 @@ import { customizeDesktopVoiceProfile } from "../../audio/desktop/DesktopVoicePr
 
 import { playDesktopVoiceSound } from "../../audio/DesktopVoiceSounds";
 
+import { SoundboardViewModel } from "./SoundboardViewModel";
+
 interface Props {
     client: MatrixClient;
     callStore: Pick<CallStore, "connectedCalls"> & {
@@ -45,6 +47,7 @@ export class DesktopVoiceControlsViewModel
     extends BaseViewModel<DesktopVoiceControlsViewSnapshot, Props>
     implements DesktopVoiceControlsViewModelInterface
 {
+    private releaseSoundboard?: () => void;
     private call?: ElementCall;
     private observedCalls = false;
     private wasVideoEnabled = false;
@@ -95,6 +98,7 @@ export class DesktopVoiceControlsViewModel
                 history: [],
             },
         });
+        this.disposables.track(() => this.releaseSoundboard?.());
         props.callStore.on(CallStoreEvent.ConnectedCalls, this.onCallsChanged);
         this.disposables.track(() => props.callStore.off(CallStoreEvent.ConnectedCalls, this.onCallsChanged));
         this.disposables.trackListener(props.client, RoomEvent.Name, this.refresh);
@@ -190,7 +194,9 @@ export class DesktopVoiceControlsViewModel
             ...(this.call?.locallyLeaving
                 ? {
                       error: undefined,
-                      ...(this.snapshot.current.panel === "noise" || this.snapshot.current.panel === "connection"
+                      ...(this.snapshot.current.panel === "noise" ||
+                      this.snapshot.current.panel === "connection" ||
+                      this.snapshot.current.panel === "soundboard"
                           ? { panel: null }
                           : {}),
                   }
@@ -446,12 +452,18 @@ export class DesktopVoiceControlsViewModel
             void this.stopMicrophoneTest();
             // The device menus belong to the account row and stay open; the call's own panels go with it.
             const { panel } = this.snapshot.current;
-            if (panel === "noise" || panel === "connection") this.snapshot.merge({ panel: null });
+            if (panel === "noise" || panel === "connection" || panel === "soundboard")
+                this.snapshot.merge({ panel: null });
             if (this.observedCalls) void playDesktopVoiceSound(call ? "join" : "leave");
             this.call?.off(CallEvent.DeviceMute, this.onDeviceMute);
             this.call?.off(CallEvent.ScreenShare, this.onScreenShare);
             this.call?.off(CallEvent.Participants, this.onParticipants);
             this.call?.off(CallEvent.ConnectionStats, this.refresh);
+            this.releaseSoundboard?.();
+            this.releaseSoundboard = undefined;
+            const soundboard = call ? SoundboardViewModel.acquire({ client: this.props.client, call }) : undefined;
+            this.releaseSoundboard = soundboard?.release;
+            this.snapshot.merge({ soundboard: soundboard?.vm });
             this.call = call;
             this.wasVideoEnabled = call?.deviceMuteState?.video_enabled ?? false;
             this.wasSharingScreen = call?.screenShare.sharing ?? false;

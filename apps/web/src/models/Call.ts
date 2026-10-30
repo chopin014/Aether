@@ -67,6 +67,8 @@ import {
     type UserIntent,
 } from "@element-hq/element-call-component/api";
 
+import type { SoundboardTransport } from "../audio/soundboard/SoundboardTransport";
+
 export type { CallConnectionStats } from "./CallConnectionStats";
 
 const TIMEOUT_MS = 16000;
@@ -117,6 +119,7 @@ export enum CallEvent {
     VoiceStates = "voice_states",
     ConnectionStats = "connection_stats",
     ComponentRestart = "component_restart",
+    SoundboardTransport = "soundboard_transport",
 }
 
 interface CallEventHandlerMap {
@@ -134,6 +137,7 @@ interface CallEventHandlerMap {
     [CallEvent.VoiceStates]: (states: ReadonlyMap<string, VoiceState>) => void;
     [CallEvent.ConnectionStats]: (stats: CallConnectionStats) => void;
     [CallEvent.ComponentRestart]: () => void;
+    [CallEvent.SoundboardTransport]: () => void;
 }
 
 const NO_VOICE_STATES: ReadonlyMap<string, VoiceState> = new Map();
@@ -752,6 +756,19 @@ export class ElementCall extends Call {
      * mounted. The counterpart of `widgetApi` on the iframe embedding, registered by the host bridge.
      */
     private componentHandle: ElementCallHandle | null = null;
+    private _soundboardTransport: SoundboardTransport | null = null;
+
+    /** Real-time playback signaling supplied by the mounted call engine. */
+    public get soundboardTransport(): SoundboardTransport | null {
+        return this._soundboardTransport;
+    }
+
+    /** Bind or release the call engine's data channel independently of Matrix timeline sends. */
+    public handleSoundboardTransport(transport: SoundboardTransport | null): void {
+        if (this.destroyed || this._soundboardTransport === transport) return;
+        this._soundboardTransport = transport;
+        this.emit(CallEvent.SoundboardTransport);
+    }
     private stopFollowingVoiceSettings?: () => void;
     private _connectionStats = emptyCallConnectionStats("disconnected");
 
@@ -1288,6 +1305,7 @@ export class ElementCall extends Call {
         this.frozenComponentOptions = null;
         this.componentNeedsRestart = true;
         this._deviceMuteState = undefined;
+        this.handleSoundboardTransport(null);
         this.handleConnectionStats(emptyCallConnectionStats("disconnected"));
         this.handleScreenShare(NO_SCREEN_SHARE);
         this.handleVoiceStates([]);
@@ -1301,6 +1319,7 @@ export class ElementCall extends Call {
     public destroy(): void {
         // close() above may re-enter here via checkDestroy while destroying
         if (this.destroyed) return;
+        this.handleSoundboardTransport(null);
         this.handleConnectionStats(emptyCallConnectionStats("disconnected"));
         this.destroyed = true;
 

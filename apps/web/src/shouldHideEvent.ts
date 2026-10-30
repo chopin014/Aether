@@ -9,6 +9,7 @@ Please see LICENSE files in the repository root for full details.
 import { type MatrixEvent, EventType, RelationType, M_POLL_END } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 
+import { SOUNDBOARD_EVENT, SOUNDBOARD_PLAY } from "./audio/soundboard/Soundboard";
 import SettingsStore from "./settings/SettingsStore";
 import { type IRoomState } from "./components/structures/RoomView";
 import { type SettingKey } from "./settings/Settings.tsx";
@@ -50,6 +51,8 @@ function memberEventDiff(ev: MatrixEvent): IDiff {
  *     hitting the settings store
  */
 export default function shouldHideEvent(ev: MatrixEvent, ctx?: IRoomState): boolean {
+    if (ev.getType() === SOUNDBOARD_PLAY || ev.getType() === SOUNDBOARD_EVENT) return true;
+
     // Hide all poll end events
     if (M_POLL_END.matches(ev.getType())) return true;
 

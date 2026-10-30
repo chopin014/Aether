@@ -15,7 +15,9 @@ import {
     DesktopVoiceConnectionView,
     type DesktopVoiceControlsViewSnapshot,
 } from "./DesktopVoiceControlsView";
+import type { SoundboardViewSnapshot } from "../SoundboardView";
 import { MockViewModel } from "../../core/viewmodel";
+import { VoicePopover } from "./VoicePopover";
 
 function makeVm(snapshot: Partial<DesktopVoiceControlsViewSnapshot> = {}) {
     return Object.assign(
@@ -325,4 +327,68 @@ describe("DesktopVoiceControlsView", () => {
         fireEvent.pointerDown(document.body);
         expect(vm.setPanel).toHaveBeenCalledWith(null);
     });
+});
+
+it.each(["change", "cancel"])("preserves the file picker until %s and restores focus inside the panel", (eventType) => {
+    const anchor = React.createRef<HTMLButtonElement>();
+    const close = vi.fn();
+    render(
+        <>
+            <button ref={anchor}>Soundboard</button>
+            <input aria-label="Message composer" />
+            <VoicePopover anchor={anchor} title="Soundboard" onClose={close}>
+                <input type="file" aria-label="Choose audio" />
+            </VoicePopover>
+        </>,
+    );
+    const file = screen.getByLabelText("Choose audio");
+    const composer = screen.getByRole("textbox", { name: "Message composer" });
+    fireEvent.click(file);
+    composer.focus();
+    expect(close).not.toHaveBeenCalled();
+    fireEvent(file, new Event(eventType, { bubbles: true }));
+    expect(screen.getByRole("dialog")).toHaveFocus();
+    composer.focus();
+    expect(close).toHaveBeenCalledOnce();
+});
+
+it("opens the full dock soundboard and plays a sound", async () => {
+    const soundboard = Object.assign(
+        new MockViewModel<SoundboardViewSnapshot>({
+            query: "",
+            libraries: [],
+            suggested: [{ id: "quack", name: "Quack", emoji: "🦆", libraryId: "builtin" }],
+            volume: 80,
+            busy: false,
+            uploadLibraryId: "",
+            uploadName: "",
+            uploadEmoji: "🔊",
+        }),
+        {
+            open: vi.fn(),
+            setLibrary: vi.fn(),
+            setQuery: vi.fn(),
+            setVolume: vi.fn(),
+            play: vi.fn(),
+            setUploadLibrary: vi.fn(),
+            setUploadName: vi.fn(),
+            setUploadEmoji: vi.fn(),
+            upload: vi.fn(),
+            edit: vi.fn(),
+            setClipVolume: vi.fn(),
+            setClipRange: vi.fn(),
+            previewClip: vi.fn(),
+            stopClipPreview: vi.fn(),
+            cancelClip: vi.fn(),
+            saveClip: vi.fn(),
+            remove: vi.fn(),
+        },
+    );
+    const vm = makeVm({ roomName: "Lounge", soundboard, panel: "soundboard" });
+    render(<DesktopVoiceConnectionView vm={vm} />);
+    expect(screen.getByRole("button", { name: "Soundboard" })).toHaveAttribute("aria-expanded", "true");
+    const dialog = screen.getByRole("dialog", { name: "Soundboard" });
+    expect(within(dialog).getByRole("searchbox")).toHaveFocus();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Quack" }));
+    expect(soundboard.play).toHaveBeenCalledOnce();
 });

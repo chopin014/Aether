@@ -20,6 +20,7 @@ import {
 import { logger } from "matrix-js-sdk/src/logger";
 
 import type { AetherCallPresentationBridge } from "./AetherCallPresentationTypes";
+import type { SoundboardTransport } from "../../../audio/soundboard/SoundboardTransport";
 
 export interface ElementWebHostBridgeOptions {
     /** The id of the (virtual) widget that is this call's identity in the widget stores. */
@@ -45,6 +46,11 @@ export interface ElementWebHostBridgeOptions {
  */
 export class ElementWebHostBridge implements ElementCallHostBridge {
     public readonly supportsReactions = true;
+
+    /** Bind real-time sound playback without using rate-limited Matrix timeline events. */
+    public readonly notifySoundboardTransport = async (transport: unknown): Promise<void> => {
+        this.call.handleSoundboardTransport(transport as SoundboardTransport | null);
+    };
 
     /**
      * Element Web chose the intent on the user's behalf (which button they pressed), so a call that skips

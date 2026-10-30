@@ -21,11 +21,20 @@ interface VoicePopoverProps {
     onClose: () => void;
     /** A narrower panel, for the short device menus. */
     compact?: boolean;
+    /** A self-contained picker that provides its own heading and dimensions. */
+    contentOnly?: boolean;
     children: ReactNode;
 }
 
 /** A viewport-bounded call panel, portalled out of the dock's clipping and stacking contexts. */
-export function VoicePopover({ anchor, title, onClose, compact, children }: VoicePopoverProps): JSX.Element {
+export function VoicePopover({
+    anchor,
+    title,
+    onClose,
+    compact,
+    contentOnly,
+    children,
+}: VoicePopoverProps): JSX.Element {
     const { translate: _t } = useI18n();
     const titleId = useId();
     const panel = useRef<HTMLDivElement>(null);
@@ -49,7 +58,17 @@ export function VoicePopover({ anchor, title, onClose, compact, children }: Voic
         window.addEventListener("scroll", updatePosition, true);
         const element = panel.current;
         let returnFocus = true;
+        let filePickerOpen = false;
         element?.focus();
+        const onFilePickerOpen = (event: Event): void => {
+            if (event.target instanceof HTMLInputElement && event.target.type === "file") filePickerOpen = true;
+        };
+        const onFilePickerFinished = (event: Event): void => {
+            if (!(event.target instanceof HTMLInputElement) || event.target.type !== "file") return;
+            filePickerOpen = false;
+            // Keep focus inside before the form disables its file input to decode the selected audio.
+            element?.focus({ preventScroll: true });
+        };
         const onPointerDown = (event: PointerEvent): void => {
             const target = event.target;
             if (target instanceof Node && !panel.current?.contains(target) && !trigger?.contains(target)) {
@@ -58,6 +77,8 @@ export function VoicePopover({ anchor, title, onClose, compact, children }: Voic
             }
         };
         const onFocusIn = (event: FocusEvent): void => {
+            // Native file dialogs can briefly restore focus to the page behind this panel.
+            if (filePickerOpen) return;
             const target = event.target;
             if (target instanceof Node && !element?.contains(target) && !trigger?.contains(target)) {
                 returnFocus = false;
@@ -74,6 +95,9 @@ export function VoicePopover({ anchor, title, onClose, compact, children }: Voic
         document.addEventListener("pointerdown", onPointerDown);
         document.addEventListener("focusin", onFocusIn);
         document.addEventListener("keydown", onKeyDown, true);
+        element?.addEventListener("click", onFilePickerOpen, true);
+        element?.addEventListener("change", onFilePickerFinished, true);
+        element?.addEventListener("cancel", onFilePickerFinished, true);
         return () => {
             observer?.disconnect();
             window.removeEventListener("resize", updatePosition);
@@ -81,6 +105,9 @@ export function VoicePopover({ anchor, title, onClose, compact, children }: Voic
             document.removeEventListener("pointerdown", onPointerDown);
             document.removeEventListener("focusin", onFocusIn);
             document.removeEventListener("keydown", onKeyDown, true);
+            element?.removeEventListener("click", onFilePickerOpen, true);
+            element?.removeEventListener("change", onFilePickerFinished, true);
+            element?.removeEventListener("cancel", onFilePickerFinished, true);
             // Closing through the close button returns focus without stealing focus from an outside click.
             if (returnFocus && element?.contains(document.activeElement)) {
                 trigger?.focus();
@@ -93,16 +120,22 @@ export function VoicePopover({ anchor, title, onClose, compact, children }: Voic
             role="dialog"
             aria-labelledby={titleId}
             tabIndex={-1}
-            className={classNames(styles.popover, compact && styles.compactPopover)}
+            className={classNames(
+                styles.popover,
+                compact && styles.compactPopover,
+                contentOnly && styles.contentPopover,
+            )}
             style={{ left: position.left, top: position.top }}
         >
-            <div className={styles.panelHeader}>
+            <div className={contentOnly ? styles.visuallyHidden : styles.panelHeader}>
                 <Heading as="h2" size="sm" weight="semibold" id={titleId}>
                     {title}
                 </Heading>
-                <IconButton tooltip={_t("action|close")} onClick={onClose}>
-                    <CloseIcon />
-                </IconButton>
+                {!contentOnly && (
+                    <IconButton tooltip={_t("action|close")} onClick={onClose}>
+                        <CloseIcon />
+                    </IconButton>
+                )}
             </div>
             {children}
         </div>,

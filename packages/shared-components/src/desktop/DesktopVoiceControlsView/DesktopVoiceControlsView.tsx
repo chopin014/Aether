@@ -24,6 +24,7 @@ import { VoiceConnectionPanel } from "./VoiceConnectionPanel";
 import { VoiceDevicePanel } from "./VoiceDevicePanel";
 import { AnimatedDeviceIcon } from "./AnimatedDeviceIcon";
 import { type VoiceVideoDevice } from "../DesktopVoiceVideoSettingsView/DeviceSelect";
+import { SoundboardIcon, SoundboardView, type SoundboardViewModel } from "../SoundboardView";
 import styles from "./DesktopVoiceControlsView.module.css";
 
 /** A microphone or speaker the device menus offer. */
@@ -31,6 +32,8 @@ export type DesktopVoiceDevice = VoiceVideoDevice;
 
 /** Device state and the connected Element Call, if any. */
 export interface DesktopVoiceControlsViewSnapshot {
+    /** Shared soundboard for the connected call. */
+    soundboard?: SoundboardViewModel;
     microphoneMuted: boolean;
     deafened: boolean;
     /** Whether our camera is on in the connected call. */
@@ -44,7 +47,7 @@ export interface DesktopVoiceControlsViewSnapshot {
      * The panel currently open: the call's noise suppression or connection details, or the microphone ("input")
      * or speaker ("output") menu of the account row.
      */
-    panel: "noise" | "connection" | "input" | "output" | null;
+    panel: "noise" | "connection" | "input" | "output" | "soundboard" | null;
     /** Whether the call currently uses Aether's enhanced noise suppression. */
     noiseSuppression: boolean;
     noiseSuppressionStrength: number;
@@ -175,6 +178,7 @@ export function DesktopVoiceControlsView({ vm }: { vm: DesktopVoiceControlsViewM
 export function DesktopVoiceConnectionView({ vm }: { vm: DesktopVoiceControlsViewModel }): JSX.Element | null {
     const {
         roomName,
+        soundboard,
         busy,
         error,
         videoEnabled,
@@ -184,6 +188,7 @@ export function DesktopVoiceConnectionView({ vm }: { vm: DesktopVoiceControlsVie
         connection,
         noiseSuppression,
     } = useViewModel(vm);
+    const soundboardButton = useRef<HTMLButtonElement>(null);
     const noiseButton = useRef<HTMLButtonElement>(null);
     const connectionButton = useRef<HTMLButtonElement>(null);
     const closePanel = useCallback(() => vm.setPanel(null), [vm]);
@@ -286,8 +291,29 @@ export function DesktopVoiceConnectionView({ vm }: { vm: DesktopVoiceControlsVie
                                 <ShareScreenSolidIcon />
                             </IconButton>
                         )}
+                        {soundboard && (
+                            <IconButton
+                                ref={soundboardButton}
+                                tooltip={_t("desktop|soundboard|title")}
+                                aria-haspopup="dialog"
+                                aria-expanded={panel === "soundboard"}
+                                onClick={() => vm.setPanel(panel === "soundboard" ? null : "soundboard")}
+                            >
+                                <SoundboardIcon aria-hidden="true" />
+                            </IconButton>
+                        )}
                     </div>
                 </>
+            )}
+            {soundboard && panel === "soundboard" && (
+                <VoicePopover
+                    contentOnly
+                    anchor={soundboardButton}
+                    title={_t("desktop|soundboard|title")}
+                    onClose={closePanel}
+                >
+                    <SoundboardView vm={soundboard} />
+                </VoicePopover>
             )}
             {roomName && (panel === "noise" || panel === "connection") && (
                 <VoicePopover

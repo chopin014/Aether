@@ -28,6 +28,10 @@ import defaultDispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 import * as RoomInvite from "../../RoomInvite";
 
+vi.mock("./SoundboardViewModel", () => ({
+    SoundboardViewModel: { acquire: vi.fn(() => ({ vm: undefined, release: vi.fn() })) },
+}));
+
 function createVolumeController(initialVolume = 1, initialMuted = false): AetherMediaVolumeController {
     let volume = initialVolume;
     let muted = initialMuted;
