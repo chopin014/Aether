@@ -237,6 +237,7 @@ export interface Settings {
     "feature_notifications": IFeature;
     "feature_msc4362_encrypted_state_events": IFeature;
     "feature_user_status": IFeature;
+    "showProfileAppearance": IBaseSetting<boolean>;
     "feature_login_with_qr": IFeature;
     "feature_msc4095_url_preview_bundle": IFeature;
     // These are in the feature namespace but aren't actually features
@@ -803,6 +804,11 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
         supportedLevelsAreOrdered: true,
         shouldWarn: true,
         default: false,
+    },
+    "showProfileAppearance": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        displayName: _td("settings|show_profile_appearance"),
+        default: true,
     },
     "feature_user_status": {
         isFeature: true,
