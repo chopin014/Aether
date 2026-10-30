@@ -256,7 +256,7 @@ describe("immediate microphone activity for the sidebar", () => {
         vi.unstubAllGlobals();
     });
 
-    it("detects local and remote speech within 40ms and bridges pauses and releases within 400ms", () => {
+    it("detects local and remote speech within 40ms and bridges pauses and releases within 800ms", () => {
         const local = createMicrophone("@local:example.org");
         const remote = createMicrophone("@remote:example.org");
         const publisher = createPublisher([local.media, remote.media]);
@@ -268,7 +268,7 @@ describe("immediate microphone activity for the sidebar", () => {
         vi.advanceTimersByTime(1);
         expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([local.media.userId, remote.media.userId]);
         local.track.level = remote.track.level = 0;
-        vi.advanceTimersByTime(399);
+        vi.advanceTimersByTime(799);
         expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([local.media.userId, remote.media.userId]);
         vi.advanceTimersByTime(1);
         expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([]);
@@ -279,25 +279,91 @@ describe("immediate microphone activity for the sidebar", () => {
 
     it("keeps the ring steady across syllables and restarts the silence window on speech", () => {
         const local = createMicrophone("@local:example.org");
-        local.track.level = 0.03;
         const publisher = createPublisher([local.media]);
+        local.track.level = 0.03;
+        vi.advanceTimersByTime(40);
         const count = publisher.notifySpeakingUsers.mock.calls.length;
         local.track.level = 0;
-        vi.advanceTimersByTime(320);
+        vi.advanceTimersByTime(720);
         local.track.level = 0.03;
         vi.advanceTimersByTime(40);
         local.track.level = 0;
-        vi.advanceTimersByTime(399);
+        vi.advanceTimersByTime(799);
         expect(publisher.notifySpeakingUsers).toHaveBeenCalledTimes(count);
         vi.advanceTimersByTime(1);
         expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([]);
         publisher.dispose();
     });
 
+    it("stays on for a quiet voice the call can still hear, including its fading word endings", () => {
+        const local = createMicrophone("@local:example.org");
+        const publisher = createPublisher([local.media]);
+        // -48 dBFS starts speech, and -54 dBFS only continues it.
+        local.track.level = 0.002;
+        vi.advanceTimersByTime(40);
+        expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([]);
+        local.track.level = 0.004;
+        vi.advanceTimersByTime(40);
+        expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([local.media.userId]);
+        const count = publisher.notifySpeakingUsers.mock.calls.length;
+        local.track.level = 0.002;
+        vi.advanceTimersByTime(2000);
+        expect(publisher.notifySpeakingUsers).toHaveBeenCalledTimes(count);
+        // -60 dBFS is below what can continue speech, so it releases once the hold ends.
+        local.track.level = 0.001;
+        vi.advanceTimersByTime(800);
+        expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([]);
+        publisher.dispose();
+    });
+
+    it("ignores steady background noise and still hears speech over it", () => {
+        const local = createMicrophone("@local:example.org");
+        // Loud enough to count as speech against a fixed level.
+        local.track.level = 0.02;
+        const publisher = createPublisher([local.media]);
+        vi.advanceTimersByTime(5000);
+        expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([]);
+        local.track.level = 0.08;
+        vi.advanceTimersByTime(40);
+        expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([local.media.userId]);
+        publisher.dispose();
+    });
+
+    it("lets go of noise that starts after a quiet moment", () => {
+        const local = createMicrophone("@local:example.org");
+        const publisher = createPublisher([local.media]);
+        local.track.level = 0.006;
+        vi.advanceTimersByTime(40);
+        expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([local.media.userId]);
+        vi.advanceTimersByTime(20_000);
+        expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([]);
+        publisher.dispose();
+    });
+
+    it("keeps the learned noise level while muted, so unmuting mid-sentence shows at once", () => {
+        const local = createMicrophone("@local:example.org");
+        const publisher = createPublisher([local.media]);
+        local.publication.isMuted = true;
+        vi.advanceTimersByTime(60_000);
+        local.publication.isMuted = false;
+        local.track.level = 0.03;
+        vi.advanceTimersByTime(40);
+        expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([local.media.userId]);
+        publisher.dispose();
+    });
+
+    it("measures a window longer than the time between samples", () => {
+        const local = createMicrophone("@local:example.org");
+        const publisher = createPublisher([local.media]);
+        expect(TestAudioContext.instances[0].analysers[0].fftSize).toBeGreaterThanOrEqual((48_000 * 40) / 1000);
+        publisher.dispose();
+    });
+
     it("clears muted, disabled, ended and departed microphones", () => {
         const local = createMicrophone("@local:example.org");
-        local.track.level = 0.04;
         const publisher = createPublisher([local.media]);
+        local.track.level = 0.04;
+        vi.advanceTimersByTime(40);
 
         expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([local.media.userId]);
         local.publication.isMuted = true;
@@ -324,8 +390,9 @@ describe("immediate microphone activity for the sidebar", () => {
 
     it("follows restarted or processed tracks without stopping or cloning either track", () => {
         const local = createMicrophone("@local:example.org");
-        local.track.level = 0.04;
         const publisher = createPublisher([local.media]);
+        local.track.level = 0.04;
+        vi.advanceTimersByTime(40);
         const context = TestAudioContext.instances[0];
         const replacement = { ...local.track, level: 0, stop: vi.fn(), clone: vi.fn() };
 

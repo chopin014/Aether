@@ -102,6 +102,8 @@ end, failure, stop, deafen, or disconnect; overlapping clips keep the sender act
 The ring follows the captured Discord renderer's avatar behavior (study asset `web.35f1b2f06b0104fe.js`, modules
 556525 and 778712): a two-pixel inset ring, a one-pixel background separator, a 50 ms shadow transition, and
 soundboard color precedence. The captured browser voice detector (module 113634) samples every 20 ms and combines
-a ten-frame speech history with ten silent frames, retaining activity for roughly 400 ms. Aether uses a 400 ms
-release window with its existing microphone detector; native Discord detection and volume-driven ring thickness
-are not established by this implementation. Muting or losing the microphone clears speech immediately.
+a ten-frame speech history with ten silent frames, retaining activity for roughly 400 ms. That window still left gaps
+in long phrases here, so Aether's detector differs: it measures the sent or received audio without skipping samples,
+compares it with the background noise rather than a fixed level, needs less level to continue speech than to start it,
+and holds for 800 ms. Native Discord detection and volume-driven ring thickness are not established by this
+implementation. Muting or losing the microphone clears speech immediately.
