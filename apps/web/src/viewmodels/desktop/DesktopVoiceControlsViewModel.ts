@@ -49,7 +49,6 @@ export class DesktopVoiceControlsViewModel
 {
     private releaseSoundboard?: () => void;
     private call?: ElementCall;
-    private observedCalls = false;
     private wasVideoEnabled = false;
     private wasSharingScreen = false;
     private pendingAction?: Promise<void>;
@@ -457,7 +456,6 @@ export class DesktopVoiceControlsViewModel
             const { panel } = this.snapshot.current;
             if (panel === "noise" || panel === "connection" || panel === "soundboard")
                 this.snapshot.merge({ panel: null });
-            if (this.observedCalls) void playDesktopVoiceSound(call ? "join" : "leave");
             this.call?.off(CallEvent.DeviceMute, this.onDeviceMute);
             this.call?.off(CallEvent.ScreenShare, this.onScreenShare);
             this.call?.off(CallEvent.Participants, this.onParticipants);
@@ -483,7 +481,6 @@ export class DesktopVoiceControlsViewModel
                 });
             }
         }
-        this.observedCalls = true;
         this.refresh();
     };
 

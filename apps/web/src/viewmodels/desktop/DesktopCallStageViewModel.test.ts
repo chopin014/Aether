@@ -128,6 +128,7 @@ describe("DesktopCallStageViewModel", () => {
     const mockCall = {
         roomId: "!voice:example.org",
         setLocalLeavePending: vi.fn(),
+        disconnect: vi.fn().mockResolvedValue(undefined),
         widget: {
             id: "widget-1",
             roomId: "!voice:example.org",
@@ -138,6 +139,7 @@ describe("DesktopCallStageViewModel", () => {
         vi.restoreAllMocks();
         setRinging.mockClear();
         vi.mocked(mockCall.setLocalLeavePending).mockReset();
+        vi.mocked(mockCall.disconnect).mockReset().mockResolvedValue(undefined);
     });
 
     it("rings the other people in a conversation until they join, decline or the ringing times out", () => {
@@ -172,6 +174,8 @@ describe("DesktopCallStageViewModel", () => {
                 participants: [me as AetherParticipantMediaItem],
             }),
         });
+        expect(setRinging).not.toHaveBeenCalled();
+        vm.startRingtone();
         expect(setRinging).toHaveBeenLastCalledWith(true);
         expect(vm.getSnapshot().callees).toEqual([
             {
@@ -566,14 +570,14 @@ describe("DesktopCallStageViewModel", () => {
         expect(vm.getSnapshot().roomName).toBe("Lobby Voice");
     });
 
-    it("echoes leaving before calling the engine and restores participants if the action throws", () => {
+    it("echoes leaving before disconnecting through the model and restores participants on failure", async () => {
         const bridge = createBridge();
-        vi.mocked(bridge.actions.leaveCall).mockImplementation(() => {
+        vi.mocked(mockCall.disconnect).mockImplementation(async () => {
             expect(mockCall.setLocalLeavePending).toHaveBeenLastCalledWith(true);
             throw new Error("Engine unavailable");
         });
         const vm = new DesktopCallStageViewModel({ client: mockClient, call: mockCall, bridge });
-        vm.leaveCall();
+        await vm.leaveCall();
         expect(mockCall.setLocalLeavePending).toHaveBeenLastCalledWith(false);
         expect(vm.getSnapshot().deviceError).toBe("Engine unavailable");
         vm.dispose();
@@ -584,7 +588,9 @@ describe("DesktopCallStageViewModel", () => {
         vi.mocked(bridge.actions.sendReaction).mockRejectedValue("Reaction unavailable");
         const vm = new DesktopCallStageViewModel({ client: mockClient, call: mockCall, bridge });
         vm.joinCall();
-        vm.leaveCall();
+        await vm.leaveCall();
+        expect(mockCall.disconnect).toHaveBeenCalledOnce();
+        expect(bridge.actions.leaveCall).not.toHaveBeenCalled();
         vm.returnToLobby();
         vm.requestDevicePermissions();
         vm.reconnect();
@@ -592,7 +598,6 @@ describe("DesktopCallStageViewModel", () => {
         vm.dismissScreenShareError();
         for (const name of [
             "joinCall",
-            "leaveCall",
             "returnToLobby",
             "requestDevicePermissions",
             "reconnect",

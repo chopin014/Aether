@@ -310,7 +310,7 @@ describe("DesktopVoiceControlsViewModel", () => {
     });
     it("plays each cue only after its successful action and does not duplicate widget echoes", async () => {
         await connect();
-        expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("join");
+        expect(playDesktopVoiceSound).not.toHaveBeenCalled();
         await vm.toggleMicrophone();
         expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("mute");
         await vm.toggleMicrophone();
@@ -326,7 +326,8 @@ describe("DesktopVoiceControlsViewModel", () => {
         await vm.toggleMicrophone();
         expect(playDesktopVoiceSound).toHaveBeenCalledTimes(count);
         await vm.disconnect();
-        expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("leave");
+        // Call lifecycle cues belong to the model, not a second observer in the dock.
+        expect(playDesktopVoiceSound).toHaveBeenCalledTimes(count);
     });
     it("also sounds actual microphone changes from the call-stage controls", async () => {
         await connect();

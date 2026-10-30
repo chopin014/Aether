@@ -158,7 +158,8 @@ Speaking rings follow actual local and remote microphone activity while connecte
 The sidebar observes existing tracks without changing capture, gain, or noise processing; muted and departed users
 clear their ring. Reduced motion keeps a steady ring. Remote mute badges are not inferred from room membership.
 Custom Aether recordings accompany successful microphone/deafen controls, camera and screen-share changes, and
-real call connection changes. New control feedback replaces the previous cue; repeated events cannot layer the
+real call connection changes. Join and leave cues follow the call model, including the stage’s Join Voice and red
+hangup buttons, independently of the account dock. New control feedback replaces the previous cue; repeated events cannot layer the
 same recording. Participant cues stay silent while deafened and cannot interrupt a control confirmation. Hangup
 suppresses camera, share and participant teardown cues. Failed controls do not play a success cue.
 
@@ -170,7 +171,11 @@ These are local feedback, independent of the shared soundboard and its activity 
 
 To rebuild the assets, run `node apps/web/scripts/generate-aether-sounds.ts "/path/to/Aether Songs"` with FFmpeg
 installed. The script trims silent tails, retains internal pauses, and balances loudness. Without an input directory
-it only regenerates the distinct participant and push-to-talk tones. MP3/OGG notification assets provide format
+it only regenerates the distinct participant and push-to-talk tones. Short control recordings are also matched
+to -18 LUFS maximum momentary loudness so their attacks have comparable volume. Looping music receives a 120 ms
+circular crossfade and no silent padding; outgoing ringback uses one decoded Web Audio source instead of seeking
+an HTML audio element at every repetition. Playback starts after the stage commits so discarded React renders
+cannot leave a second loop playing. MP3/OGG notification assets provide format
 fallbacks; only one format plays per notification.
 Each cue has its own switch under Voice & Video → Sounds, described below. See [packaging and release work](aether-releases.md).
 

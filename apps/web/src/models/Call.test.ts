@@ -55,6 +55,9 @@ import { WidgetMessagingEvent, type WidgetMessaging } from "../stores/widgets/Wi
 import { BugReportEndpointURLLocal } from "../IConfigOptions.ts";
 import { DesktopVoicePipeline } from "../audio/desktop/DesktopVoicePipeline";
 import { emptyCallConnectionStats } from "./CallConnectionStats";
+import { playDesktopVoiceSound } from "../audio/DesktopVoiceSounds";
+
+vi.mock("../audio/DesktopVoiceSounds", () => ({ playDesktopVoiceSound: vi.fn() }));
 
 const { enabledSettings } = enableCalls();
 
@@ -1530,6 +1533,60 @@ describe("ElementCall with the React component embedding", () => {
             expect(started).rejects.toThrow("not ready; timed out"),
             vi.advanceTimersByTimeAsync(16000),
         ]);
+    });
+
+    it("plays join and leave once from stage lifecycle callbacks without a mounted dock", () => {
+        enabledSettings.add("feature_desktop_shell");
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        try {
+            call.handleJoined();
+            call.handleJoined();
+            expect(playDesktopVoiceSound).toHaveBeenCalledExactlyOnceWith("join");
+            call.setLocalLeavePending(true);
+            expect(playDesktopVoiceSound).toHaveBeenCalledTimes(1);
+            call.handleHangup();
+            call.handleClose();
+            expect(vi.mocked(playDesktopVoiceSound).mock.calls).toEqual([["join"], ["leave"]]);
+            call.handleJoined();
+            expect(vi.mocked(playDesktopVoiceSound).mock.calls).toEqual([["join"], ["leave"], ["join"]]);
+        } finally {
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
+    it("does not play lifecycle cues for a lobby that was never joined", () => {
+        enabledSettings.add("feature_desktop_shell");
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        try {
+            call.handleHangup();
+            call.handleClose();
+            expect(playDesktopVoiceSound).not.toHaveBeenCalled();
+        } finally {
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
+    it("plays one leave cue when the dock requests a disconnect and the engine echoes hangup", async () => {
+        enabledSettings.add("feature_desktop_shell");
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        try {
+            vi.spyOn(DesktopVoicePipeline.instance, "attach").mockReturnValue(() => {});
+            call.setComponentHandle({ hangUp: vi.fn(async () => call.handleHangup()) } as unknown as ElementCallHandle);
+            call.handleJoined();
+            await call.disconnect();
+            call.handleHangup();
+            call.handleClose();
+            expect(vi.mocked(playDesktopVoiceSound).mock.calls).toEqual([["join"], ["leave"]]);
+        } finally {
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
+    it("keeps lifecycle cues disabled outside the desktop shell", () => {
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        call.handleJoined();
+        call.handleHangup();
+        expect(playDesktopVoiceSound).not.toHaveBeenCalled();
     });
 
     it("tracks the connection state through the control plane", () => {

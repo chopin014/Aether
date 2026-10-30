@@ -67,6 +67,7 @@ import {
     type UserIntent,
 } from "@element-hq/element-call-component/api";
 
+import { playDesktopVoiceSound } from "../audio/DesktopVoiceSounds";
 import type { SoundboardTransport } from "../audio/soundboard/SoundboardTransport";
 
 export type { CallConnectionStats } from "./CallConnectionStats";
@@ -1393,9 +1394,18 @@ export class ElementCall extends Call {
         this.setConnected();
     }
 
+    protected override setConnected(): void {
+        const wasConnected = this.connected;
+        super.setConnected();
+        // The call owns these cues so joining from the stage works even without a mounted account dock.
+        if (!wasConnected && SettingsStore.getValue("feature_desktop_shell")) void playDesktopVoiceSound("join");
+    }
+
     protected override setDisconnected(): void {
+        const wasConnected = this.connected;
         this.handleConnectionStats(emptyCallConnectionStats("disconnected"));
         super.setDisconnected();
+        if (wasConnected && SettingsStore.getValue("feature_desktop_shell")) void playDesktopVoiceSound("leave");
     }
 
     /** The user has hung up (`HostBridge.notifyHungUp` / `im.vector.hangup`). */
