@@ -7,22 +7,13 @@ Please see LICENSE in the repository root for full details.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+import path from "node:path";
 
-// Original one- to three-note cues (frequencies in Hz). Keep these reproducible and independent of third-party
-// sound packs: every tone is a plain sine wave with a raised-sine envelope, so there is nothing to license.
+// Only cues without a supplied recording are synthesized. Never overwrite the custom control recordings.
 const cues: Record<string, number[]> = {
-    "mute": [620, 390],
-    "unmute": [390, 620],
-    "deafen": [480, 240],
-    "undeafen": [240, 480],
-    "join": [520, 780],
-    "leave": [780, 520],
     "user-joined": [450, 675],
     "user-left": [675, 450],
-    "camera-on": [700, 930],
-    "camera-off": [930, 700],
-    "screen-share-start": [560, 700, 840],
-    "screen-share-stop": [840, 700, 560],
     "ptt-activate": [880],
     "ptt-deactivate": [660],
 };
@@ -55,4 +46,58 @@ for (const [name, notes] of Object.entries(cues)) {
         wav.writeInt16LE(Math.round(value * 32767), 44 + sample * 2);
     }
     writeFileSync(`${directory}/${name}.wav`, wav);
+}
+
+// Run with the directory of the original Aether recordings as the first argument. Originals stay outside the repo.
+const sourceDirectory = process.argv[2];
+if (sourceDirectory) {
+    const recordings: Record<string, string> = {
+        "aether/mute.wav": "v2 cosmic aether mute song.mp3",
+        "aether/unmute.wav": "v2 cosmic aether unmute song.mp3",
+        "aether/deafen.wav": "aether deafen song.mp3",
+        "aether/undeafen.wav": "aether undeafen song.mp3",
+        "aether/join.wav": "join call sound.mp3",
+        "aether/leave.wav": "leaving call sound.mp3",
+        "aether/camera-on.wav": "abrindo camera.mp3",
+        "aether/camera-off.wav": "fechando camera.mp3",
+        "aether/screen-share-start.wav": "transmitindo tela sound.mp3",
+        "aether/screen-share-stop.wav": "destransmitindo tela sound.mp3",
+        "message": "notifi.mp3",
+        "ring": "musica recebendo ligacao.mp3",
+        "ringback": "aether ligando 1.mp3",
+    };
+    const mediaDirectory = fileURLToPath(new URL("../res/media/", import.meta.url));
+    for (const [target, source] of Object.entries(recordings)) {
+        // Trim only the silent tail, leaving internal pauses and the recording's attack intact.
+        // Keep a short fade to avoid clicks at the end and use a consistent, restrained loudness.
+        const loudness = target === "message" || target === "ring" ? -26 : -20;
+        const filter =
+            "areverse,silenceremove=start_periods=1:start_duration=0.02:start_threshold=-60dB," +
+            `areverse,apad=pad_dur=0.08,loudnorm=I=${loudness}:TP=-2:LRA=7,areverse,afade=t=in:d=0.015,areverse`;
+        for (const extension of target.endsWith(".wav") ? [""] : [".mp3", ".ogg"]) {
+            const result = spawnSync(
+                "ffmpeg",
+                [
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-i",
+                    path.resolve(sourceDirectory, source),
+                    "-map_metadata",
+                    "-1",
+                    "-af",
+                    filter,
+                    "-ar",
+                    "48000",
+                    "-ac",
+                    "2",
+                    path.resolve(mediaDirectory, target + extension),
+                ],
+                { stdio: "inherit" },
+            );
+            if (result.error) throw result.error;
+            if (result.status !== 0) throw new Error(`Could not prepare ${source}`);
+        }
+    }
 }
