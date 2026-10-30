@@ -5,7 +5,8 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
@@ -67,15 +68,18 @@ if (sourceDirectory) {
         "ringback": "aether ligando 1.mp3",
     };
     const mediaDirectory = fileURLToPath(new URL("../res/media/", import.meta.url));
-    for (const [target, source] of Object.entries(recordings)) {
-        // Trim only the silent tail, leaving internal pauses and the recording's attack intact.
-        // Keep a short fade to avoid clicks at the end and use a consistent, restrained loudness.
-        const loudness = target === "message" || target === "ring" ? -26 : -20;
-        const filter =
-            "areverse,silenceremove=start_periods=1:start_duration=0.02:start_threshold=-60dB," +
-            `areverse,apad=pad_dur=0.08,loudnorm=I=${loudness}:TP=-2:LRA=7,areverse,afade=t=in:d=0.015,areverse`;
-        for (const extension of target.endsWith(".wav") ? [""] : [".mp3", ".ogg"]) {
-            const result = spawnSync(
+    const temporary = mkdtempSync(path.join(tmpdir(), "aether-audio-"));
+    try {
+        for (const [target, source] of Object.entries(recordings)) {
+            const looping = target === "ring" || target === "ringback";
+            const loudness = target === "message" || target === "ring" ? -26 : -20;
+            // Trim the silent tail without removing internal pauses. Looping music must not receive padding.
+            const filter =
+                "areverse,silenceremove=start_periods=1:start_duration=0.02:start_threshold=-60dB,areverse," +
+                (looping ? "" : "apad=pad_dur=0.08,") +
+                `loudnorm=I=${loudness}:TP=-2:LRA=7`;
+            const prepared = path.join(temporary, "prepared.wav");
+            const prepare = spawnSync(
                 "ffmpeg",
                 [
                     "-hide_banner",
@@ -92,12 +96,84 @@ if (sourceDirectory) {
                     "48000",
                     "-ac",
                     "2",
-                    path.resolve(mediaDirectory, target + extension),
+                    prepared,
                 ],
                 { stdio: "inherit" },
             );
-            if (result.error) throw result.error;
-            if (result.status !== 0) throw new Error(`Could not prepare ${source}`);
+            if (prepare.error) throw prepare.error;
+            if (prepare.status !== 0) throw new Error(`Could not prepare ${source}`);
+
+            let outputFilter = "anull";
+            if (looping) {
+                const probe = spawnSync(
+                    "ffprobe",
+                    ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", prepared],
+                    { encoding: "utf8" },
+                );
+                if (probe.status !== 0) throw new Error(`Could not measure ${source}`);
+                const duration = Number(probe.stdout.trim());
+                const overlap = 0.12;
+                if (!Number.isFinite(duration) || duration <= overlap * 2) throw new Error(`Invalid loop: ${source}`);
+                // Put the end/start crossfade at the end of the file. Its last sample flows directly into
+                // the first sample on repetition, preserving the music without an inserted silent gap.
+                outputFilter =
+                    `asplit=3[body][tail][head];` +
+                    `[body]atrim=start=${overlap}:end=${duration - overlap},asetpts=PTS-STARTPTS[middle];` +
+                    `[tail]atrim=start=${duration - overlap},asetpts=PTS-STARTPTS[end];` +
+                    `[head]atrim=end=${overlap},asetpts=PTS-STARTPTS[start];` +
+                    `[end][start]acrossfade=d=${overlap}:c1=tri:c2=tri[seam];` +
+                    `[middle][seam]concat=n=2:v=0:a=1`;
+            } else if (target.endsWith(".wav")) {
+                const meter = spawnSync(
+                    "ffmpeg",
+                    [
+                        "-v",
+                        "error",
+                        "-i",
+                        prepared,
+                        "-af",
+                        "ebur128=metadata=1,ametadata=print:key=lavfi.r128.M:file=-",
+                        "-f",
+                        "null",
+                        "-",
+                    ],
+                    { encoding: "utf8" },
+                );
+                if (meter.status !== 0) throw new Error(`Could not measure ${source}`);
+                const peaks = [...meter.stdout.matchAll(/lavfi\.r128\.M=(-?[\d.]+)/g)].map((match) => Number(match[1]));
+                const momentary = Math.max(...peaks);
+                if (!Number.isFinite(momentary)) throw new Error(`Invalid loudness: ${source}`);
+                // Short cues need matched momentary loudness as well as integrated loudness: a long,
+                // quiet tail must not make the attack louder than the paired control's attack.
+                outputFilter = `volume=${-18 - momentary}dB`;
+            }
+            for (const extension of target.endsWith(".wav") ? [""] : [".mp3", ".ogg"]) {
+                const result = spawnSync(
+                    "ffmpeg",
+                    [
+                        "-hide_banner",
+                        "-loglevel",
+                        "error",
+                        "-y",
+                        "-i",
+                        prepared,
+                        "-map_metadata",
+                        "-1",
+                        "-af",
+                        outputFilter,
+                        "-ar",
+                        "48000",
+                        "-ac",
+                        "2",
+                        path.resolve(mediaDirectory, target + extension),
+                    ],
+                    { stdio: "inherit" },
+                );
+                if (result.error) throw result.error;
+                if (result.status !== 0) throw new Error(`Could not encode ${source}`);
+            }
         }
+    } finally {
+        rmSync(temporary, { recursive: true, force: true });
     }
 }

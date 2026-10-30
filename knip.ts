@@ -43,6 +43,11 @@ export default {
         },
         "packages/module-api": {},
         "apps/web": {
+            ignoreBinaries: [
+                // System tools used only when preparing the original custom audio recordings.
+                "ffmpeg",
+                "ffprobe",
+            ],
             entry: [
                 "src/workers/*.worker.ts!",
                 "src/utils/exportUtils/exportJS.js!",
