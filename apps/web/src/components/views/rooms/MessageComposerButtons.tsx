@@ -88,6 +88,8 @@ const MessageComposerButtons: React.FC<IProps> = (props: IProps) => {
             ) : (
                 emojiButton(props)
             ),
+            // The desktop shell's recording bar fits a narrow composer, so voice messages stay a click away there too.
+            desktopShell && voiceRecordingButton(props, false),
         ];
         moreButtons = [
             // This a textual list of buttons, so we can't use the UploadButton here.
@@ -100,7 +102,7 @@ const MessageComposerButtons: React.FC<IProps> = (props: IProps) => {
                 />
             )),
             showStickersButton(props),
-            voiceRecordingButton(props, narrow),
+            !desktopShell && voiceRecordingButton(props, narrow),
             props.showPollsButton ? pollButton(room, props.relation) : null,
             showLocationButton(props, room, matrixClient),
         ];
@@ -116,10 +118,12 @@ const MessageComposerButtons: React.FC<IProps> = (props: IProps) => {
                 emojiButton(props)
             ),
             !desktopShell && <UploadButton key="upload" vm={roomUploadVM} />,
+            // Voice messages sit beside the emoji button, a click away like an attachment.
+            desktopShell && voiceRecordingButton(props, narrow),
         ];
         moreButtons = [
             showStickersButton(props),
-            voiceRecordingButton(props, narrow),
+            !desktopShell && voiceRecordingButton(props, narrow),
             props.showPollsButton ? pollButton(room, props.relation) : null,
             showLocationButton(props, room, matrixClient),
         ];
