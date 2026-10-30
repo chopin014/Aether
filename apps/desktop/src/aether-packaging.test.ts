@@ -9,6 +9,8 @@ import { describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { isBuiltin } from "node:module";
+import { ModuleKind, preProcessFile, transpileModule } from "typescript";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -39,6 +41,23 @@ async function writeValidPlatformArtifacts(
 }
 
 describe("Aether distribution identity", () => {
+    it("ships the external runtime dependencies used during localization startup", () => {
+        const source = readFileSync(new URL("./language-helper.ts", import.meta.url), "utf8");
+        const { outputText } = transpileModule(source, { compilerOptions: { module: ModuleKind.ESNext } });
+        const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+        const runtimeDependencies = new Set([
+            ...Object.keys(manifest.dependencies),
+            ...Object.keys(manifest.optionalDependencies),
+        ]);
+        const missingDependencies = preProcessFile(outputText)
+            .importedFiles.map(({ fileName }) => fileName)
+            .filter((name) => !name.startsWith(".") && !isBuiltin(name))
+            .map((name) => (name.startsWith("@") ? name.split("/").slice(0, 2).join("/") : name.split("/")[0]))
+            .filter((name) => !runtimeDependencies.has(name));
+
+        expect(missingDependencies).toEqual([]);
+    });
+
     it("isolates installation, profiles and callback URLs from Element", () => {
         expect(config.productName).toBe("Aether");
         expect(config.appId).toBe("io.github.chopin014.aether");
