@@ -12,21 +12,152 @@
         "pause": "Pausar",
         "play": "Reproduzir",
         "search": "Buscar",
-        "create": "Criar"
+        "create": "Criar",
+        "back": "Voltar",
+        "cancel": "Cancelar",
+        "clear": "Limpar",
+        "click": "Selecionar",
+        "close": "Fechar",
+        "collapse": "Recolher",
+        "download": "Baixar",
+        "edit": "Editar",
+        "go": "Próximo",
+        "hide": "Esconder",
+        "new_conversation": "Novo",
+        "new_section": "Nova seção",
+        "new_video_room": "Nova sala de vídeo",
+        "no": "Não",
+        "open_menu": "Abrir menu",
+        "pin": "Alfinete",
+        "react": "Adicionar reação",
+        "remove": "Apagar",
+        "remove_this_device": "Limpar armazenamento e sair",
+        "reply": "Responder",
+        "reply_in_thread": "Responder no tópico",
+        "retry": "Tentar novamente",
+        "save": "Salvar",
+        "start_chat": "Iniciar conversa",
+        "unpin": "Desafixar",
+        "view_source": "Ver fonte",
+        "yes": "Sim"
     },
     "common": {
         "preferences": "Preferências",
-        "threads": "Tópicos"
+        "threads": "Tópicos",
+        "attachment": "Anexo",
+        "encryption_enabled": "Criptografia ativada",
+        "loading": "Carregando...",
+        "options": "Opções",
+        "state_encryption_enabled": "Criptografia experimental de eventos de estado ativada"
     },
     "left_panel": {
-        "open_dial_pad": "Abrir o teclado de discagem"
+        "open_dial_pad": "Abrir o teclado de discagem",
+        "separator_label": "Clique ou arraste para expandir"
     },
     "room_list": {
         "open_space_menu": "Abrir menu do espaço",
         "space_menu": {
             "home": "Página inicial do espaço",
             "space_settings": "Configurações do espaço"
-        }
+        },
+        "a11y": {
+            "default": "Abrir sala %(roomName)s",
+            "drag_cancelled": "Arraste cancelado",
+            "drag_end": "%(source)s foi solto em %(target)s",
+            "drag_end_after": "%(source)s foi solto após %(target)s",
+            "drag_end_before": "%(source)s foi solto antes de %(target)s",
+            "drag_end_original": "%(source)s voltou à posição original",
+            "drag_instructions": "Pressione espaço para iniciar ou parar de arrastar, as setas para mover e Esc para cancelar.",
+            "drag_over": "%(source)s está sobre %(target)s",
+            "drag_over_after": "%(source)s será solto após %(target)s",
+            "drag_over_before": "%(source)s será solto antes de %(target)s",
+            "drag_over_original": "%(source)s voltará à posição original",
+            "drag_start": "Arrastando %(source)s",
+            "invitation": "Abrir convite da sala %(roomName)s.",
+            "mention": {
+                "one": "Abrir sala %(roomName)s com 1 menção não lida.",
+                "other": "Abrir sala %(roomName)s com %(count)s menções não lidas."
+            },
+            "unread": {
+                "one": "Abrir sala %(roomName)s com 1 mensagem não lida.",
+                "other": "Abrir sala %(roomName)s com %(count)s mensagens não lidas."
+            },
+            "unsent_message": "Abrir sala %(roomName)s com uma mensagem não enviada.",
+            "video_call": "Abrir sala %(roomName)s, chamada de vídeo em andamento.",
+            "voice_call": "Abrir sala %(roomName)s, chamada de voz em andamento."
+        },
+        "appearance": "Aparência",
+        "chat_moved": "Conversa movida",
+        "collapse_all_sections": "Recolher todas as seções",
+        "collapse_filters": "Recolher lista de filtros",
+        "empty": {
+            "no_chats": "Ainda não há conversas",
+            "no_chats_description": "Comece enviando uma mensagem para alguém ou criando uma sala",
+            "no_chats_description_no_room_rights": "Comece enviando uma mensagem para alguém",
+            "no_invites": "Você não tem convites não lidos",
+            "no_mentions": "Você não tem menções não lidas",
+            "no_people": "Você ainda não tem conversas diretas com ninguém",
+            "no_people_description": "Você pode desmarcar filtros para ver suas outras conversas",
+            "no_rooms": "Você ainda não está em nenhuma sala",
+            "no_rooms_description": "Você pode desmarcar filtros para ver suas outras conversas",
+            "no_unread": "Tudo em dia! Você não tem mensagens não lidas",
+            "show_activity": "Ver toda a atividade",
+            "show_chats": "Mostrar todas as conversas",
+            "create_channel": "Criar canal",
+            "no_channels": "Ainda não há canais",
+            "no_channels_description": "Crie um canal de texto ou voz neste servidor.",
+            "no_channels_description_no_room_rights": "Ainda não há canais disponíveis."
+        },
+        "expand_all_sections": "Expandir todas as seções",
+        "expand_filters": "Expandir lista de filtros",
+        "filters": {
+            "favourite": "Favoritos",
+            "invites": "Convites",
+            "low_priority": "Baixa prioridade",
+            "mentions": "Menções",
+            "people": "Pessoas",
+            "rooms": "Salas",
+            "unread": "Não lido"
+        },
+        "list_title": "Lista de salas",
+        "more_options": {
+            "copy_link": "Copiar link",
+            "edit_channel": "Editar canal",
+            "favourited": "Favoritado",
+            "leave_room": "Sair da sala",
+            "low_priority": "Baixa prioridade",
+            "mark_read": "Marcar como lido",
+            "mark_unread": "Marcar como não lido",
+            "move_to_section": "Mover para",
+            "remove_from_section": "Remover da seção"
+        },
+        "notification_options": "Alterar notificações",
+        "primary_filters": "Filtros da lista de salas",
+        "room": {
+            "more_options": "Mais opções"
+        },
+        "room_options": "Opções da sala",
+        "section_created": "Seção criada",
+        "section_creation": {
+            "description": "As seções são só para você",
+            "label": "Nome da seção"
+        },
+        "section_header": {
+            "create_channel_in": "Criar canal em %(section)s",
+            "edit_section": "Editar seção",
+            "more_options": "Mais opções",
+            "remove_section": "Remover seção",
+            "toggle": "Expandir ou recolher a seção %(section)s",
+            "toggle_unread": "Expandir ou recolher a seção %(section)s com salas não lidas"
+        },
+        "show_message_previews": "Mostrar prévias de mensagens",
+        "sort": "Ordenar",
+        "sort_type": {
+            "activity": "Atividade mais recente",
+            "atoz": "A-Z",
+            "unread_first": "Não lidas primeiro"
+        },
+        "unread_messages": "Mensagens não lidas"
     },
     "time": {
         "about_day_ago": "há aproximadamente um dia",
@@ -49,6 +180,90 @@
             "audio_player": "Reprodutor de Áudio",
             "error_downloading_audio": "Erro ao baixar o áudio",
             "unnamed_audio": "Áudio sem nome"
+        },
+        "call_tile": {
+            "declined": {
+                "call_declined": "Chamada recusada",
+                "call_declined_by_us": "Você recusou uma chamada"
+            },
+            "ongoing": {
+                "common": {
+                    "call_started_by": "%(startedByDisplayName)s iniciou uma chamada",
+                    "join_button": "Entrar"
+                },
+                "dm": {
+                    "call_started": "Chamada iniciada",
+                    "title": "Chamada em andamento"
+                },
+                "room": {
+                    "join_count": {
+                        "one": "%(count)s entrou",
+                        "other": "%(count)s entraram"
+                    },
+                    "title": "Chamada em grupo em andamento"
+                }
+            },
+            "tombstone": {
+                "room": {
+                    "title": "Chamada em grupo encerrada"
+                }
+            },
+            "video_call_title": "Chamada de vídeo",
+            "voice_call_title": "Chamada de voz"
+        },
+        "decryption_failure": {
+            "blocked": "O remetente bloqueou o recebimento desta mensagem porque seu dispositivo não está verificado",
+            "historical_event_no_key_backup": "Mensagens antigas não estão disponíveis neste dispositivo",
+            "historical_event_unverified_device": "Você precisa verificar este dispositivo para acessar mensagens antigas",
+            "historical_event_user_not_joined": "Você não tem acesso a esta mensagem",
+            "sender_identity_previously_verified": "A identidade verificada do remetente foi alterada",
+            "sender_unsigned_device": "Enviada de um dispositivo inseguro.",
+            "unable_to_decrypt": "Não foi possível descriptografar a mensagem"
+        },
+        "download_action_decrypting": "Descriptografando",
+        "download_action_downloading": "Baixando",
+        "e2e_state": "Estado da criptografia de ponta a ponta",
+        "m.file": {
+            "error_invalid": "Arquivo inválido"
+        },
+        "m.room.avatar": {
+            "changed_img": "%(senderDisplayName)s alterou o avatar da sala para <img/>",
+            "removed": "%(senderDisplayName)s removeu o avatar da sala."
+        },
+        "m.room.encryption": {
+            "disable_attempt": "Tentativa de desativar a criptografia ignorada",
+            "disabled": "Criptografia não ativada",
+            "enabled": "As mensagens nesta sala são criptografadas de ponta a ponta. Quando alguém entrar, você poderá verificar essa pessoa pelo perfil. Basta selecionar a foto de perfil.",
+            "enabled_dm": "As mensagens aqui são criptografadas de ponta a ponta. Verifique %(displayName)s pelo perfil — selecione a foto de perfil.",
+            "enabled_local": "As mensagens nesta conversa serão criptografadas de ponta a ponta.",
+            "parameters_changed": "Alguns parâmetros de criptografia foram alterados.",
+            "state_enabled": "As mensagens e os eventos de estado nesta sala são criptografados de ponta a ponta. Quando alguém entrar, você poderá verificar essa pessoa pelo perfil. Basta selecionar a foto de perfil.",
+            "unsupported": "A criptografia usada por esta sala não é compatível."
+        },
+        "mab": {
+            "collapse_reply_chain": "Recolher citações",
+            "copy_link_thread": "Copiar ligação para o tópico",
+            "expand_reply_chain": "Expandir citações",
+            "label": "Ações da mensagem",
+            "view_in_room": "Ver na sala"
+        },
+        "message_shared_by": "%(displayName)s (%(userId)s) compartilhou esta mensagem porque você não estava na sala quando ela foi enviada.",
+        "message_timestamp_received_at": "Recebida em: %(dateTime)s",
+        "message_timestamp_sent_at": "Enviada em: %(dateTime)s",
+        "mjolnir": {
+            "message_hidden": "Você ignorou este usuário, então a mensagem dele está oculta. <a>Mostrar mesmo assim.</a>"
+        },
+        "pending_moderation": "Mensagem pendente de moderação",
+        "pending_moderation_reason": "Mensagem pendente de moderação: %(reason)s",
+        "url_preview": {
+            "show_n_more": {
+                "one": "Mostrar mais %(count)s pré-visualização",
+                "other": "Mostrar mais %(count)s pré-visualizações"
+            },
+            "view_audio": "Ver áudio",
+            "view_file": "Ver arquivo",
+            "view_image": "Ver imagem",
+            "view_video": "Ver vídeo"
         }
     },
     "presence_controls": {
@@ -261,7 +476,19 @@
             "video_preview": "Prévia da câmera",
             "video_test_start": "Testar vídeo",
             "video_test_stop": "Parar teste",
-            "video_unavailable": "Não foi possível abrir nenhuma câmera."
+            "video_unavailable": "Não foi possível abrir nenhuma câmera.",
+            "noise_suppression": "Supressão de ruído",
+            "noise_suppression_description": "Reduz o ruído de fundo do microfone. O modo aprimorado usa um modelo de fala executado neste dispositivo, então seu áudio não é enviado a outro lugar para remover ruídos.",
+            "noise_suppression_enhanced": "Aprimorada",
+            "noise_suppression_failed": "Não foi possível executar a supressão aprimorada de ruído, então o áudio do microfone está sendo enviado sem ela.",
+            "noise_suppression_none": "Nenhuma",
+            "noise_suppression_overloaded": "A supressão aprimorada de ruído foi desativada porque este computador não conseguiu processá-la a tempo.",
+            "noise_suppression_standard": "Visível para membros do espaço",
+            "noise_suppression_strength": "Intensidade da supressão",
+            "profile_voice_isolation": "Isolamento de voz",
+            "profile_voice_isolation_description": "Só a sua voz: deixe o Aether remover o ruído ao seu redor.",
+            "voice_detection": "Detecção avançada de voz",
+            "voice_detection_description": "Somente a fala abre seu microfone, deixando de fora palmas, digitação e música. Requer supressão aprimorada de ruído."
         },
         "search": {
             "box": {
@@ -366,11 +593,15 @@
                 "approximate": "Alguns filtros são aplicados depois que os resultados chegam, então as contagens são aproximadas. Continue rolando para buscar mais antigas.",
                 "encrypted": "Salas criptografadas não são pesquisadas. Ative a busca de mensagens nas configurações de Segurança.",
                 "encrypted_action": "Abrir configurações de Segurança",
-                "browse_encrypted": "Buscas só com filtros ignoram salas criptografadas."
+                "browse_encrypted": "Buscas só com filtros ignoram salas criptografadas.",
+                "decryption_failed": "Não foi possível descriptografar algumas mensagens neste dispositivo.",
+                "empty_pending_description": "Pesquise mensagens mais antigas ou use menos filtros.",
+                "empty_pending_title": "Nenhum resultado por enquanto",
+                "search_older": "Pesquisar mensagens mais antigas"
             }
         },
         "call_stage": {
-            "bitrate_auto": "Auto",
+            "bitrate_auto": "Automática",
             "camera_devices_title": "Câmera",
             "camera_off": "Câmera desligada",
             "connecting": "Conectando...",
@@ -458,7 +689,8 @@
             "allow_devices": "Permitir acesso ao microfone",
             "device_permission_error": "Não foi possível acessar os dispositivos: %(message)s",
             "video_only_capture": "Esta captura de tela compartilha apenas vídeo.",
-            "reactions": "Reações"
+            "reactions": "Reações",
+            "calling_user": "Chamando %(name)s"
         },
         "share_picker": {
             "title": "Compartilhar sua tela",
@@ -591,10 +823,329 @@
                 "roses": "Rosas",
                 "tides": "Marés"
             }
+        },
+        "channel_kind": {
+            "text": "Texto",
+            "text_description": "Envie mensagens, imagens, arquivos e tópicos",
+            "title": "Tipo de canal",
+            "voice": "Voz",
+            "voice_description": "Converse por voz, vídeo e compartilhamento de tela"
+        },
+        "contacts": {
+            "accept": "Aceitar",
+            "active_now": "Ativos agora",
+            "add_friend": "Adicionar amigo",
+            "all": "Todos",
+            "blocked": "Bloqueados",
+            "direct_messages": "Conversas",
+            "empty": "Ainda não há ninguém aqui.",
+            "friends": "Amigos",
+            "ignore": "Ignorar",
+            "incoming_request": "Convite recebido",
+            "message": "Mensagem",
+            "more": "Mais",
+            "new_message": "Nova mensagem",
+            "no_matches": "Nenhuma pessoa corresponde à sua pesquisa.",
+            "offline": "Desconectado",
+            "online": "Disponível",
+            "pending": "Pendentes",
+            "profile": "Perfil",
+            "quiet_description": "Quando seus contatos se conectarem, você os verá aqui.",
+            "quiet_title": "Está tudo quieto por enquanto…",
+            "search": "Buscar",
+            "unavailable": "Ocioso",
+            "unblock": "Desbloquear"
+        },
+        "keybinds": {
+            "clear_action": "Limpar atalho de %(action)s",
+            "ptt_hint": "Pressionar para falar usa a mesma tecla e o mesmo atraso de liberação de Voz e vídeo. Nesse modo, se nenhuma tecla estiver atribuída, seu microfone ficará fechado.",
+            "record": "Gravar atalho",
+            "recording": "Pressione uma tecla · Esc para cancelar",
+            "title": "Atalhos de teclado"
+        },
+        "updates": {
+            "background_description": "O Aether verifica novas versões automaticamente e as baixa em segundo plano.",
+            "check": "Verificar atualizações",
+            "checking": "Verificando atualizações…",
+            "checking_action": "Verificando…",
+            "current": "O Aether está atualizado.",
+            "current_version": "Versão atual",
+            "download_progress": "Progresso do download",
+            "download_progress_value": "%(percent)s por cento",
+            "downloading": "Baixando a versão %(version)s…",
+            "downloading_hint": "Você pode continuar usando o Aether enquanto a atualização é baixada.",
+            "downloading_percent": "Baixando a versão %(version)s (%(percent)s por cento)",
+            "downloading_percent_unknown": "Baixando atualização (%(percent)s por cento)",
+            "downloading_unknown": "Baixando a atualização...",
+            "error": "Não foi possível atualizar o Aether. Verifique sua conexão e tente novamente.",
+            "idle": "Pronto para verificar atualizações.",
+            "loading": "Carregando status da atualização…",
+            "loading_description": "Verificando suporte a atualizações nesta instalação…",
+            "manual_description": "Atualizações automáticas não estão disponíveis nesta instalação. Baixe a versão mais recente manualmente.",
+            "manual_download": "Baixar a versão mais recente",
+            "ready": "A versão %(version)s foi baixada e está pronta para instalar.",
+            "ready_on_quit": "O Aether instalará a atualização na próxima vez que você fechar o aplicativo normalmente.",
+            "ready_unknown": "Uma atualização foi baixada e está pronta para instalar.",
+            "restart": "Reiniciar para atualizar",
+            "retry": "Tentar novamente",
+            "title": "Atualizações",
+            "unsupported": "Atualizações automáticas não estão disponíveis nesta instalação.",
+            "unsupported_development": "Atualizações automáticas não estão disponíveis em uma versão de desenvolvimento.",
+            "unsupported_disabled": "Atualizações automáticas estão desativadas nesta versão.",
+            "unsupported_package": "Este pacote não oferece suporte a atualizações automáticas.",
+            "unsupported_platform": "Atualizações automáticas não estão disponíveis nesta plataforma.",
+            "version_unknown": "Desconhecido"
+        },
+        "voice": {
+            "average_ping": "Ping médio",
+            "camera_off": "Desligar câmera",
+            "camera_on": "Ligar câmera",
+            "connected": "Conectado por voz",
+            "connecting": "Conectando…",
+            "connection_bad": "Conexão muito ruim",
+            "connection_details": "Conexão",
+            "connection_metrics_hint": "O ping mede o tempo de ida e volta até o servidor da chamada, não o atraso total da voz.",
+            "connection_poor": "Conexão ruim",
+            "connection_waiting": "Aguardando estatísticas da conexão…",
+            "connection_warning": "Um ping alto pode atrasar a fala. A perda de pacotes pode deixar as vozes robotizadas. Tente outra rede ou reconecte se o problema persistir.",
+            "deafen": "Desativar áudio",
+            "disconnect": "Desconectar",
+            "disconnected": "Desconectado",
+            "last_ping": "Último ping",
+            "loss_value": "%(value)s%(unit)s",
+            "microphone_test": "Teste do microfone",
+            "microphone_test_hint": "O áudio recebido da chamada fica temporariamente desativado durante o teste. Use fones de ouvido para evitar microfonia.",
+            "mute": "Silenciar",
+            "noise_suppression_description": "Reduza o ruído de fundo com o modelo de fala do Aether executado no dispositivo. Experimente falar enquanto digita ou bate palmas.",
+            "noise_suppression_local": "O áudio é processado neste dispositivo.",
+            "noise_suppression_title": "Supressão avançada de ruído",
+            "occupied_for": "Há pessoas aqui há %(duration)s",
+            "outbound_loss": "Perda de pacotes enviados",
+            "participant_deafened": "%(name)s (áudio recebido desativado)",
+            "participant_muted": "%(name)s (microfone silenciado)",
+            "participant_muted_and_deafened": "%(name)s (microfone silenciado e áudio recebido desativado)",
+            "participant_speaking": "%(name)s (falando)",
+            "participants": "Pessoas em %(roomName)s",
+            "ping_history": "Ping recente",
+            "ping_value": "%(value)s ms",
+            "reconnecting": "Reconectando…",
+            "start_screen_share": "Compartilhar sua tela",
+            "stop_screen_share": "Parar de compartilhar sua tela",
+            "undeafen": "Reativar áudio",
+            "unmute": "Dessilenciar",
+            "input_device": "Dispositivo de entrada",
+            "input_options": "Opções de entrada",
+            "input_volume": "Volume de entrada",
+            "output_device": "Dispositivo de saída",
+            "output_options": "Opções de saída",
+            "output_volume": "Volume de saída",
+            "voice_settings": "Configurações de voz"
+        },
+        "delete_channel": {
+            "delete": "Excluir canal",
+            "description": "Isso removerá todas as pessoas de %(name)s, incluindo membros de outros servidores, e removerá o canal deste servidor. Você será a última pessoa a sair. Esta ação não pode ser desfeita.",
+            "history_note": "Mensagens recebidas anteriormente podem permanecer no histórico dos membros. Isso não apaga todas as cópias do canal.",
+            "left_note": "Você já saiu deste canal. Tentar novamente apenas o removerá do seu histórico."
+        },
+        "delete_server": {
+            "affected": "Canais e subservidores a excluir: %(count)s",
+            "confirm_name": "Digite %(name)s para confirmar",
+            "delete": "Excluir servidor",
+            "description": "Excluir %(name)s e todos os canais e subservidores dentro dele? Todas as pessoas serão removidas, inclusive dos canais compartilhados com outros servidores. Você será a última pessoa a sair. Esta ação não pode ser desfeita.",
+            "history_note": "Mensagens recebidas anteriormente podem permanecer em outros clientes e servidores. A exclusão não apaga todas as cópias.",
+            "room_list": "Canais e subservidores a excluir"
+        },
+        "server_voice_activity": {
+            "people": "Na chamada de voz: %(names)s"
         }
     },
     "threads": {
         "all_threads": "Todos os tópicos",
-        "my_threads": "Meus tópicos"
+        "my_threads": "Meus tópicos",
+        "error_start_thread_existing_relation": "Você não pode iniciar uma tópico a partir desta mensagem."
+    },
+    "composer": {
+        "url_preview": {
+            "clear_all": "Limpar tudo",
+            "collapse": "Recolher pré-visualizações de URLs",
+            "failed": "Falha ao obter pré-visualização",
+            "loading": "Obtendo pré-visualização…",
+            "n_links": {
+                "one": "%(count)s link",
+                "other": "%(count)s links"
+            },
+            "remove": "Remover pré-visualização de URL"
+        }
+    },
+    "devtools": {
+        "custom_themes": {
+            "add": "Adicionar tema personalizado",
+            "downloading": "Baixando tema personalizado…",
+            "error_already_installed": "Já existe um tema instalado com esse nome.",
+            "error_downloading": "Erro ao baixar tema",
+            "error_invalid": "Estrutura do tema inválida.",
+            "error_save_failed": "Falha ao salvar a alteração. Ela ainda pode ser concluída em segundo plano.",
+            "help": "Insira a URL de um tema personalizado que deseja aplicar.",
+            "installed_heading": "Temas personalizados instalados",
+            "refresh": "Baixar tema novamente",
+            "url_label": "URL do tema personalizado"
+        },
+        "toggle_event": "Código-fonte do evento"
+    },
+    "document_viewer": {
+        "error_load": "Não foi possível carregar este arquivo.",
+        "loading": "Carregando documento…"
+    },
+    "emoji": {
+        "categories": "Categorias",
+        "category_activities": "Atividades",
+        "category_animals_nature": "Animais e natureza",
+        "category_flags": "Bandeiras",
+        "category_food_drink": "Comidas e bebidas",
+        "category_frequently_used": "Usados com frequência",
+        "category_objects": "Objetos",
+        "category_smileys_people": "Carinhas e pessoas",
+        "category_symbols": "Símbolos",
+        "category_travel_places": "Viagens e lugares",
+        "quick_reactions": "Reações rápidas"
+    },
+    "emoji_picker": {
+        "cancel_search_label": "Cancelar pesquisa",
+        "emoji_picker": "Seletor de emojis"
+    },
+    "error": {
+        "legacy_crypto_unsupported": {
+            "actions": "Volte primeiro para a versão <b>%(version)s</b> ou remova este dispositivo.",
+            "description": "O %(brand)s foi atualizado de uma versão muito antiga e não consegue migrar seu armazenamento de criptografia para um novo formato.",
+            "title": "Este dispositivo não pode ser usado"
+        }
+    },
+    "keyboard": {
+        "shift": "Shift"
+    },
+    "menus": {
+        "user_menu": {
+            "clear_status": "Limpar status",
+            "create_an_account": "Criar uma conta",
+            "got_an_account": "Já tem uma conta?",
+            "sign_in": "Entrar",
+            "title": "Menu do usuário"
+        }
+    },
+    "notifications": {
+        "all_messages": "Todas as mensagens",
+        "default_settings": "Usar configurações padrão",
+        "mark_all_read": "Marcar tudo como lido",
+        "mentions_keywords": "Menções e palavras-chave!",
+        "message_didnt_send": "A mensagem não foi enviada. Selecione para mais informações.",
+        "mute_room": "Silenciar sala"
+    },
+    "pdf_viewer": {
+        "page_label": "Página %(page)s de %(total)s",
+        "page_number": "Número da página",
+        "zoom": "Zoom",
+        "zoom_in": "Aumentar zoom",
+        "zoom_out": "Diminuir zoom"
+    },
+    "pinned_messages": {
+        "empty_description": "Fixe uma mensagem pelo menu dela para encontrá-la facilmente aqui.",
+        "empty_title": "Ainda não há mensagens fixadas",
+        "jump": "Ir para a mensagem",
+        "load_error": "Não foi possível carregar algumas mensagens fixadas. Tente novamente.",
+        "loading": "Carregando mensagens fixadas…",
+        "title": "Mensagens fixadas",
+        "unavailable": "Esta mensagem está indisponível. Ela pode ter sido removida ou você pode não ter acesso.",
+        "unpin": "Desafixar",
+        "unpin_error": "Não foi possível desafixar a mensagem. Tente novamente."
+    },
+    "release_announcement": {
+        "room_list_section_close": "Certo",
+        "room_list_section_description": "Agrupe suas conversas em seções para mantê-las organizadas e fáceis de encontrar.",
+        "room_list_section_title": "Conheça as seções"
+    },
+    "room": {
+        "context_menu": {
+            "title": "Opções da Sala"
+        },
+        "history_visibility_badge": {
+            "private": "Novos membros não veem o histórico",
+            "shared": "Novos membros veem o histórico",
+            "world_readable": "Qualquer pessoa pode ver o histórico"
+        },
+        "jump_read_marker": "Ir diretamente para a primeira das mensagens não lidas.",
+        "jump_to_bottom_button": "Ir para as mensagens recentes",
+        "jump_to_date": "Ir para a data",
+        "jump_to_date_beginning": "O início da sala",
+        "jump_to_date_prompt": "Escolha uma data para navegar",
+        "knock_sent": "Solicitação de adesão enviada",
+        "pinned_message_badge": "Mensagem fixada",
+        "status_bar": {
+            "contact_account_provider": "Contatar o provedor da conta",
+            "delete_all": "Excluir tudo",
+            "exceeded_resource_limit_description": "Entre em contato com o provedor da sua conta para continuar usando o serviço.",
+            "exceeded_resource_limit_title": "Sua mensagem não foi enviada porque este serviço excedeu um limite de recursos.",
+            "failed_to_create_room_title": "Não foi possível iniciar uma conversa com este usuário",
+            "homeserver_blocked_title": "Sua mensagem não foi enviada porque este serviço foi bloqueado pelo provedor da conta.",
+            "monthly_user_limit_reached_title": "Sua mensagem não foi enviada porque este serviço atingiu o limite mensal de usuários ativos.",
+            "requires_consent_agreement_title": "Você precisa ler e aceitar nossos termos e condições antes de enviar mensagens.",
+            "retry_all": "Tentar todas novamente",
+            "select_messages_to_retry": "Você pode selecionar todas as mensagens ou apenas algumas para reenviar ou excluir",
+            "server_connectivity_lost_description": "As mensagens enviadas serão armazenadas até que sua conexão seja restabelecida.",
+            "server_connectivity_lost_title": "A conexão com o servidor foi perdida.",
+            "some_messages_not_sent": "Algumas das suas mensagens não foram enviadas"
+        }
+    },
+    "status": {
+        "set_status": {
+            "away": "Ausente",
+            "be_right_back": "Volto logo",
+            "choose_emoji": "Escolher emoji",
+            "custom": "Personalizado…",
+            "focus_time": "Hora de se concentrar",
+            "in_a_meeting": "Em reunião",
+            "on_the_road": "Na estrada",
+            "set_status_prompt": "Qual é o seu status?"
+        }
+    },
+    "terms": {
+        "tac_button": "Revise os termos e condições"
+    },
+    "user_menu": {
+        "edit_profile": "Editar perfil",
+        "link_new_device": "Vincular novo dispositivo",
+        "open_feedback": "Fale conosco",
+        "open_home": "Início",
+        "open_security": "Visibilidade",
+        "open_settings": "Todas as configurações"
+    },
+    "voip": {
+        "element_call_mock": {
+            "config_label": "Configuração efetiva",
+            "configuration": "Configuração",
+            "host_bridge_facts": "supportsReactions: %(supportsReactions)s · allowJoinUnmutedViaIntent: %(allowJoinUnmutedViaIntent)s · close: %(close)s",
+            "in_call": "em chamada",
+            "in_lobby": "na sala de espera",
+            "initialized_with": "initializeElementCall: %(value)s",
+            "log_label": "Registro do HostBridge",
+            "mute_audio": "Silenciar áudio",
+            "mute_video": "Desativar vídeo",
+            "no_participants": "Não há ninguém nesta chamada",
+            "participants": "Participantes",
+            "status": "%(roomId)s · intenção %(intent)s · %(state)s · tema %(theme)s · idioma %(language)s",
+            "title": "Element Call (simulado)",
+            "unknown_room": "Sala desconhecida %(roomId)s",
+            "unmute_audio": "Ativar áudio",
+            "unmute_video": "Ativar vídeo"
+        }
+    },
+    "widget": {
+        "context_menu": {
+            "move_left": "Mover para a esquerda",
+            "move_right": "Mover para a direita",
+            "remove": "Remover para todos",
+            "revoke": "Revogar permissões",
+            "screenshot": "Tirar uma foto",
+            "start_audio_stream": "Iniciar transmissão de áudio"
+        }
     }
 }
