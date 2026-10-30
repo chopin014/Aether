@@ -277,14 +277,17 @@ describe("DesktopCallStageView", () => {
         expect(screen.queryByText("Voice Connected")).not.toBeInTheDocument();
     });
 
-    it("changes only stream audio from the focused stream's visible volume slider", () => {
+    it("offers a compact vertical stream slider on keyboard focus without changing microphone audio", () => {
         const vm = new TestCallStageViewModel({
             participants: [makeParticipant()],
             screenShares: [makeScreenShare()],
             layoutMode: "spotlight",
         });
         render(<DesktopCallStageView vm={vm} />);
+        expect(screen.queryByRole("slider", { name: /stream volume/i })).not.toBeInTheDocument();
+        screen.getByRole("button", { name: "Mute Bob's stream audio" }).focus();
         const slider = screen.getByRole("slider", { name: /stream volume/i });
+        expect(slider).toHaveAttribute("aria-orientation", "vertical");
         fireEvent.change(slider, { target: { value: "37" } });
         expect(vm.setScreenShareAudioVolume).toHaveBeenCalledWith(makeScreenShare().id, 37);
         expect(vm.setParticipantMicrophoneVolume).not.toHaveBeenCalled();
@@ -307,6 +310,33 @@ describe("DesktopCallStageView", () => {
             .element(screen.getByTestId("aether-call-stage"))
             .toHaveAttribute("data-presentation", "conversation");
         await expect.element(screen.getByTestId("aether-call-stage")).toHaveAttribute("data-audio-only", "true");
+    });
+
+    it("opens invitations from the bottom-left call control", () => {
+        const vm = new TestCallStageViewModel();
+        render(
+            <div
+                style={
+                    {
+                        "width": "1000px",
+                        "height": "600px",
+                        "--cpd-space-4x": "16px",
+                        "--cpd-space-3x": "12px",
+                        "--cpd-space-2x": "8px",
+                        "--cpd-space-10x": "40px",
+                    } as React.CSSProperties
+                }
+            >
+                <DesktopCallStageView vm={vm} />
+            </div>,
+        );
+
+        const invite = screen.getByRole("button", { name: "Invite" });
+        const microphone = screen.getByRole("button", { name: "Mute microphone" });
+        expect(invite.getBoundingClientRect().left).toBeLessThan(microphone.getBoundingClientRect().left);
+        expect(invite.getBoundingClientRect().bottom).toBeCloseTo(microphone.getBoundingClientRect().bottom, -1);
+        fireEvent.click(invite);
+        expect(vm.openInviteDialog).toHaveBeenCalledOnce();
     });
 
     it("renders lobby state with join button and triggers joinCall", () => {

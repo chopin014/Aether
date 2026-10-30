@@ -23,6 +23,8 @@ import {
     EndCallIcon,
     ErrorIcon,
     ExpandIcon,
+    GridIcon,
+    SpotlightViewIcon,
     HeadphonesOffSolidIcon,
     LockIcon,
     LockOffIcon,
@@ -49,10 +51,10 @@ import {
     ProfileDecoration,
     ProfileEffectLayer,
     ProfileName,
-    useProfileMotion,
 } from "../ProfileAppearance";
 import { useDominantColour } from "../DesktopProfileIdentity/DesktopProfileIdentity";
 import { useCallStageWindow } from "./useCallStageWindow";
+import { useCallTileMotion } from "./useCallTileMotion";
 import styles from "./DesktopCallStageView.module.css";
 
 /** Lifecycle phase displayed by the stage. */
@@ -379,24 +381,27 @@ function ParticipantSurface({
     tile,
     children,
     onHover,
+    animate,
 }: {
     tile: DesktopCallStageParticipantTile;
+    animate: boolean;
     children: (live: boolean) => ReactNode;
     onHover: (id: string | null) => void;
 }): JSX.Element {
-    const motion = useProfileMotion(false);
+    const surface = useRef<HTMLDivElement>(null);
+    const live = useCallTileMotion(surface, animate);
     const colour = useIdColorHash(tile.userId);
     const dominant = useDominantColour(tile.avatarUrl, !tile.appearance?.theme);
     const tileStyle = {
-        ...motion.bind.style,
+        "--profile-motion": live ? "running" : "paused",
         "--call-tile-colour": tile.appearance?.theme?.primary ?? dominant ?? `var(--cpd-color-bg-decorative-${colour})`,
         "--call-tile-accent": tile.appearance?.theme?.accent ?? dominant ?? `var(--cpd-color-bg-decorative-${colour})`,
     };
     return (
         <div
-            {...motion.bind}
+            ref={surface}
             className={styles.tile}
-            style={tileStyle}
+            style={tileStyle as React.CSSProperties}
             data-kind="participant"
             data-video={tile.videoEnabled ? "true" : undefined}
             data-participant-id={tile.userId}
@@ -405,7 +410,7 @@ function ParticipantSurface({
             onMouseEnter={() => onHover(tile.id)}
             onMouseLeave={() => onHover(null)}
         >
-            {children(motion.live)}
+            {children(live)}
         </div>
     );
 }
@@ -715,19 +720,35 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                             }
                             onClick={() => vm.toggleScreenShareAudioMuted(tile.id)}
                         >
-                            {tile.streamAudioMuted ? <VolumeOffIcon /> : <VolumeOnIcon />}
+                            {tile.streamAudioMuted || tile.streamAudioVolumePercent === 0 ? (
+                                <VolumeOffIcon />
+                            ) : (
+                                <VolumeOnIcon />
+                            )}
                         </button>
-                        <input
-                            type="range"
-                            min={0}
-                            max={100}
-                            step={1}
-                            className={styles.volumeSlider}
-                            value={tile.streamAudioMuted ? 0 : tile.streamAudioVolumePercent}
-                            aria-label={_t("desktop|call_stage|stream_volume_slider_aria", { name: tile.displayName })}
-                            onChange={(event) => vm.setScreenShareAudioVolume(tile.id, Number(event.target.value))}
-                        />
-                        <Text size="xs">{tile.streamAudioMuted ? 0 : tile.streamAudioVolumePercent}%</Text>
+                        <div className={styles.streamVolumePanel}>
+                            <Text size="xs" className={styles.streamVolumeValue}>
+                                {tile.streamAudioMuted ? 0 : tile.streamAudioVolumePercent}%
+                            </Text>
+                            <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                step={1}
+                                className={styles.streamVolumeSlider}
+                                style={
+                                    {
+                                        "--stream-volume": `${tile.streamAudioMuted ? 0 : tile.streamAudioVolumePercent}%`,
+                                    } as React.CSSProperties
+                                }
+                                value={tile.streamAudioMuted ? 0 : tile.streamAudioVolumePercent}
+                                aria-orientation="vertical"
+                                aria-label={_t("desktop|call_stage|stream_volume_slider_aria", {
+                                    name: tile.displayName,
+                                })}
+                                onChange={(event) => vm.setScreenShareAudioVolume(tile.id, Number(event.target.value))}
+                            />
+                        </div>
                     </div>
                 )}
                 <div className={styles.tileBottomBar}>
@@ -750,7 +771,12 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
     const renderParticipantTile = (tile: DesktopCallStageParticipantTile, isSpotlight: boolean): JSX.Element => {
         const isMenuOpen = snapshot.openTileMenuId === tile.id;
         return (
-            <ParticipantSurface key={tile.id} tile={tile} onHover={setHoveredTileId}>
+            <ParticipantSurface
+                key={tile.id}
+                tile={tile}
+                onHover={setHoveredTileId}
+                animate={!snapshot.miniMode || Boolean(popoutWindow)}
+            >
                 {(live) => (
                     <>
                         <button
@@ -975,19 +1001,6 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                         )}
                     </div>
                 </div>
-                <div className={styles.headerActions}>
-                    {(allScreenShares.length > 0 || effectiveSpotlightId !== null) && (
-                        <button
-                            type="button"
-                            className={styles.headerButton}
-                            onClick={() => vm.setLayoutMode(snapshot.layoutMode === "spotlight" ? "grid" : "spotlight")}
-                        >
-                            {snapshot.layoutMode === "spotlight"
-                                ? _t("desktop|call_stage|grid_view")
-                                : _t("desktop|call_stage|focus_view")}
-                        </button>
-                    )}
-                </div>
             </header>
 
             {[...allParticipants, ...allScreenShares].some((tile) => tile.unencryptedWarning) && (
@@ -1188,6 +1201,17 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
             {/* Bottom Control Bar */}
             {snapshot.phase !== "lobby" && snapshot.phase !== "ended" && (
                 <div className={styles.bottomBar}>
+                    <div className={styles.leftControls}>
+                        <button
+                            type="button"
+                            className={styles.inviteButton}
+                            aria-label={_t("action|invite")}
+                            title={_t("action|invite")}
+                            onClick={vm.openInviteDialog}
+                        >
+                            <UserAddSolidIcon />
+                        </button>
+                    </div>
                     <div className={styles.centerControls}>
                         {/* Microphone control + audio input/output device picker */}
                         <div className={styles.controlPillGroup}>
@@ -1606,6 +1630,27 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
 
                     {/* Bottom-right floating/fullscreen controls */}
                     <div className={styles.rightControls}>
+                        {(allScreenShares.length > 0 || effectiveSpotlightId !== null) && (
+                            <button
+                                type="button"
+                                className={styles.utilityButton}
+                                aria-label={
+                                    snapshot.layoutMode === "spotlight"
+                                        ? _t("desktop|call_stage|grid_view")
+                                        : _t("desktop|call_stage|focus_view")
+                                }
+                                title={
+                                    snapshot.layoutMode === "spotlight"
+                                        ? _t("desktop|call_stage|grid_view")
+                                        : _t("desktop|call_stage|focus_view")
+                                }
+                                onClick={() =>
+                                    vm.setLayoutMode(snapshot.layoutMode === "spotlight" ? "grid" : "spotlight")
+                                }
+                            >
+                                {snapshot.layoutMode === "spotlight" ? <GridIcon /> : <SpotlightViewIcon />}
+                            </button>
+                        )}
                         {canPopout && !popoutWindow && (
                             <button
                                 type="button"

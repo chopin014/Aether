@@ -33,11 +33,6 @@ Please see LICENSE in the repository root for full details.
     padding: var(--cpd-space-3x) var(--cpd-space-4x);
     flex: none;
     z-index: 2;
-    background: linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--cpd-color-bg-canvas-default) 72%, transparent) 0%,
-        transparent 100%
-    );
 }
 
 .headerIdentity {
@@ -252,7 +247,7 @@ Please see LICENSE in the repository root for full details.
     width: calc((100% - var(--cpd-space-3x)) / 2);
 }
 
-.filmstrip > .tile[data-focused="true"] {
+.filmstrip > .tile[data-focused="true"]::after {
     border-color: var(--cpd-color-border-focused);
 }
 
@@ -279,9 +274,9 @@ Please see LICENSE in the repository root for full details.
     width: 100%;
     max-height: 100%;
     aspect-ratio: 16 / 9;
-    border-radius: var(--cpd-space-3x);
+    border-radius: var(--cpd-space-2x);
     background: var(--cpd-color-bg-subtle-secondary);
-    border: 2px solid transparent;
+    border: 0;
     overflow: hidden;
     display: flex;
     align-items: center;
@@ -292,9 +287,18 @@ Please see LICENSE in the repository root for full details.
         transform 100ms ease-out;
 }
 
-.tile[data-speaking="true"] {
+.tile::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 2px solid transparent;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: 4;
+}
+
+.tile[data-speaking="true"]::after {
     border-color: var(--cpd-color-bg-success-rest);
-    box-shadow: 0 0 0 1px var(--cpd-color-border-success-subtle);
 }
 
 .tile[data-kind="participant"]:not([data-video="true"]) {
@@ -323,14 +327,8 @@ Please see LICENSE in the repository root for full details.
     position: absolute;
     right: var(--cpd-space-3x);
     bottom: var(--cpd-space-3x);
-    display: flex;
-    align-items: center;
-    gap: var(--cpd-space-2x);
-    padding: var(--cpd-space-1x) var(--cpd-space-2x);
-    max-width: 45%;
-    width: 220px;
-    border-radius: var(--cpd-space-2x);
-    background: var(--cpd-color-bg-canvas-default);
+    width: var(--cpd-space-10x);
+    border-radius: var(--cpd-space-5x);
     z-index: 3;
     opacity: 0;
     transition: opacity 120ms ease;
@@ -341,9 +339,88 @@ Please see LICENSE in the repository root for full details.
     opacity: 1;
 }
 
-.streamVolumeControl .volumeSlider {
-    min-width: 0;
-    flex: 1;
+.streamVolumeControl > button {
+    position: relative;
+    z-index: 1;
+    width: var(--cpd-space-10x);
+    height: var(--cpd-space-10x);
+    border-radius: var(--cpd-space-5x);
+    background: color-mix(in srgb, var(--cpd-color-bg-canvas-default) 85%, transparent);
+}
+
+.streamVolumePanel {
+    position: absolute;
+    bottom: 0;
+    inset-inline: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--cpd-space-3x);
+    padding: var(--cpd-space-3x) 0 calc(var(--cpd-space-10x) + var(--cpd-space-3x));
+    border-radius: var(--cpd-space-5x);
+    background: color-mix(in srgb, var(--cpd-color-bg-canvas-default) 92%, transparent);
+    box-shadow: 0 0 var(--cpd-space-6x) color-mix(in srgb, var(--cpd-color-purple-900) 15%, transparent);
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+
+.streamVolumeControl:hover > button,
+.streamVolumeControl:focus-within > button {
+    background: transparent;
+}
+
+.streamVolumeControl:hover .streamVolumePanel,
+.streamVolumeControl:focus-within .streamVolumePanel {
+    visibility: visible;
+    opacity: 1;
+}
+
+.streamVolumeValue {
+    font-variant-numeric: tabular-nums;
+    color: var(--cpd-color-text-primary);
+}
+
+.streamVolumeSlider {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    appearance: none;
+    width: var(--cpd-space-2x);
+    height: var(--cpd-space-28x);
+    min-height: var(--cpd-space-24x);
+    margin: 0;
+    border-radius: var(--cpd-space-4x);
+    background: linear-gradient(
+        to top,
+        var(--cpd-color-purple-900) 0%,
+        var(--cpd-color-purple-1000) var(--stream-volume),
+        color-mix(in srgb, var(--cpd-color-text-primary) 18%, transparent) var(--stream-volume)
+    );
+    cursor: pointer;
+}
+
+.streamVolumeSlider::-webkit-slider-thumb {
+    appearance: none;
+    width: var(--cpd-space-5x);
+    height: var(--cpd-space-5x);
+    border: 0;
+    border-radius: 50%;
+    background: var(--cpd-color-text-primary);
+    box-shadow: 0 0 var(--cpd-space-3x) var(--cpd-color-purple-900);
+}
+
+.streamVolumeSlider::-moz-range-thumb {
+    width: var(--cpd-space-5x);
+    height: var(--cpd-space-5x);
+    border: 0;
+    border-radius: 50%;
+    background: var(--cpd-color-text-primary);
+    box-shadow: 0 0 var(--cpd-space-3x) var(--cpd-color-purple-900);
+}
+
+.streamVolumeSlider:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: var(--cpd-space-2x);
 }
 
 .tile[data-kind="screen_share"] {
@@ -364,7 +441,7 @@ Please see LICENSE in the repository root for full details.
 }
 
 .tileClickSurface:focus-visible {
-    outline: 2px solid var(--cpd-color-border-focused);
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
     outline-offset: -2px;
 }
 
@@ -720,6 +797,36 @@ Please see LICENSE in the repository root for full details.
     height: 14px;
 }
 
+.leftControls {
+    position: absolute;
+    left: var(--cpd-space-4x);
+    bottom: var(--cpd-space-4x);
+}
+
+.inviteButton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--cpd-space-10x);
+    height: var(--cpd-space-10x);
+    padding: var(--cpd-space-2x);
+    border: 0;
+    border-radius: var(--cpd-space-2x);
+    background: transparent;
+    color: var(--cpd-color-icon-secondary);
+    cursor: pointer;
+}
+
+.inviteButton svg {
+    width: var(--cpd-space-6x);
+    height: var(--cpd-space-6x);
+}
+
+.inviteButton:hover {
+    background: var(--cpd-color-bg-action-secondary-hovered);
+    color: var(--cpd-color-icon-primary);
+}
+
 .rightControls {
     position: absolute;
     right: var(--cpd-space-4x);
@@ -899,7 +1006,8 @@ Please see LICENSE in the repository root for full details.
 
 .stage[data-mini="true"] .header,
 .stage[data-mini="true"] .stagePrompts,
-.stage[data-mini="true"] .rightControls {
+.stage[data-mini="true"] .rightControls,
+.stage[data-mini="true"] .leftControls {
     display: none;
 }
 
@@ -1051,6 +1159,10 @@ Please see LICENSE in the repository root for full details.
 .stage[data-presentation="conversation"][data-audio-only="true"] .statusIconBadge {
     background: var(--cpd-color-bg-canvas-default);
     box-shadow: 0 0 0 var(--cpd-border-width-2) var(--cpd-color-bg-canvas-default);
+}
+
+.stage[data-presentation="conversation"][data-audio-only="true"] .tile::after {
+    display: none;
 }
 
 .stage[data-presentation="conversation"][data-audio-only="true"] .tileTopBar {
