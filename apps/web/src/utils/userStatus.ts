@@ -139,6 +139,21 @@ export function setUserStatus(client: MatrixClient, userStatus: UserStatus): Pro
 }
 
 /**
+ * Removes a field from the user's profile. Deleting is the specified way to unset a field: not every server accepts a
+ * null value, and those that do keep the field in the profile with a null in it.
+ */
+async function deleteOwnProfileField(client: MatrixClient, key: string): Promise<void> {
+    await client.deleteExtendedProfileProperty(key);
+    // The SDK reads single fields through a cache that deleting does not touch, so it would keep returning the old value.
+    const userId = client.getSafeUserId();
+    const cached = await client.store.getUserProfile(userId);
+    if (cached && key in cached) {
+        const { [key]: _removed, ...rest } = cached;
+        await client.store.storeUserProfiles(new Map([[userId, rest]]));
+    }
+}
+
+/**
  * Clears all MSC4426 user status for the given user, including their m.status and m.call status,
  * if anything is set in those fields.
  *
@@ -148,7 +163,7 @@ export function setUserStatus(client: MatrixClient, userStatus: UserStatus): Pro
 export async function clearAllUserStatus(client: MatrixClient): Promise<void> {
     const rawUserStatus = await client.getExtendedProfileProperty(client.getSafeUserId(), "org.matrix.msc4426.status");
     if (rawUserStatus) {
-        await client.setExtendedProfileProperty("org.matrix.msc4426.status", null);
+        await deleteOwnProfileField(client, "org.matrix.msc4426.status");
     }
 
     const rawCallStatus = await client.getExtendedProfileProperty(client.getSafeUserId(), "org.matrix.msc4426.call");
@@ -165,12 +180,8 @@ export async function clearAllUserStatus(client: MatrixClient): Promise<void> {
  * @param onCall Whether the user is currently on a call.
  */
 export function setUserOnCall(client: MatrixClient, onCall: boolean): Promise<void> {
-    return client.setExtendedProfileProperty(
-        "org.matrix.msc4426.call",
-        onCall
-            ? {
-                  call_joined_ts: Date.now(),
-              }
-            : null,
-    );
+    if (!onCall) return deleteOwnProfileField(client, "org.matrix.msc4426.call");
+    return client.setExtendedProfileProperty("org.matrix.msc4426.call", {
+        call_joined_ts: Date.now(),
+    });
 }

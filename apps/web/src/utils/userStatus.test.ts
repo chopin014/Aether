@@ -117,7 +117,31 @@ describe("userStatus utils", () => {
 
             await clearAllUserStatus(client);
 
-            expect(client.setExtendedProfileProperty).toHaveBeenCalledWith("org.matrix.msc4426.status", null);
+            expect(client.deleteExtendedProfileProperty).toHaveBeenCalledWith("org.matrix.msc4426.status");
+            expect(client.setExtendedProfileProperty).not.toHaveBeenCalled();
+        });
+
+        it("drops the cleared status from the SDK's cache, which would otherwise keep serving it", async () => {
+            vi.mocked(client.getExtendedProfileProperty).mockResolvedValue({ emoji: "🍩", text: "Arbitrary Status" });
+            client.store.getUserProfile = vi.fn().mockResolvedValue({
+                "org.matrix.msc4426.status": { emoji: "🍩", text: "Arbitrary Status" },
+                "displayname": "Kept",
+            });
+            client.store.storeUserProfiles = vi.fn();
+
+            await clearAllUserStatus(client);
+
+            expect(client.store.storeUserProfiles).toHaveBeenCalledWith(
+                new Map([[client.getSafeUserId(), { displayname: "Kept" }]]),
+            );
+        });
+
+        it("does nothing when no status is set", async () => {
+            vi.mocked(client.getExtendedProfileProperty).mockResolvedValue(undefined);
+
+            await clearAllUserStatus(client);
+
+            expect(client.deleteExtendedProfileProperty).not.toHaveBeenCalled();
         });
 
         it("clears the call status", async () => {
@@ -125,7 +149,7 @@ describe("userStatus utils", () => {
 
             await clearAllUserStatus(client);
 
-            expect(client.setExtendedProfileProperty).toHaveBeenCalledWith("org.matrix.msc4426.call", null);
+            expect(client.deleteExtendedProfileProperty).toHaveBeenCalledWith("org.matrix.msc4426.call");
         });
     });
 
@@ -151,7 +175,7 @@ describe("userStatus utils", () => {
         it("clears the call status if onCall is false", async () => {
             await setUserOnCall(client, false);
 
-            expect(client.setExtendedProfileProperty).toHaveBeenCalledWith("org.matrix.msc4426.call", null);
+            expect(client.deleteExtendedProfileProperty).toHaveBeenCalledWith("org.matrix.msc4426.call");
         });
     });
 });
