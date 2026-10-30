@@ -222,6 +222,14 @@
             "history_note": "Previously received messages may remain in members’ history. This does not erase every copy of the channel.",
             "left_note": "You have already left this channel. Retry will only remove it from your history."
         },
+        "delete_server": {
+            "affected": "Channels and nested servers to delete: %(count)s",
+            "confirm_name": "Type %(name)s to confirm",
+            "delete": "Delete server",
+            "description": "Delete %(name)s and every channel and nested server inside it? Everyone will be removed, including from channels shared with other servers. You will leave last. This cannot be undone.",
+            "history_note": "Previously received messages may remain on other clients and homeservers. Deletion does not erase every copy.",
+            "room_list": "Channels and nested servers to delete"
+        },
         "keybinds": {
             "clear_action": "Clear %(action)s keybind",
             "ptt_hint": "Push to talk uses the same key and release delay as Voice & Video. In push to talk mode, an unassigned key keeps your microphone closed.",

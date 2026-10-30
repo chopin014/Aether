@@ -799,6 +799,16 @@
             "title": "Delete channel?",
             "unlinking": "Removing the channel from this server…"
         },
+        "delete_server": {
+            "blocked": "Cannot delete %(name)s. Check your connection and make sure you can remove every member and manage every affected channel and server. No members have been removed.",
+            "checking": "Checking every channel and server…",
+            "delete": "Delete server",
+            "interrupted": "Deletion stopped at %(name)s. Some rooms may already be closed or deleted. Retry to finish the remaining steps. You stay in the server until its channels are closed.",
+            "progress": "%(name)s: %(progress)s",
+            "reason": "Server deleted by an administrator.",
+            "settings_description": "Delete this server and every channel and nested server inside it, removing all members.",
+            "title": "Delete server?"
+        },
         "keybinds": {
             "browser_description": "In a browser, shortcuts work while Aether is focused. Letter keys without Ctrl, Alt or Meta do not trigger shortcuts while typing.",
             "conflict": "This key is already in use. Choose another combination.",
