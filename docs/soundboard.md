@@ -93,3 +93,15 @@ No homeserver changes are required. Matrix supplies storage and call membership;
 Discord-compatible soundboard. Other clients need to implement the soundboard protocol to hear sounds. Audio is
 not injected into the microphone or LiveKit stream, and playback is not sample-synchronized. Personal account
 libraries, persistent popularity rankings, and entrance sounds are not implemented.
+
+Voice activity uses an inset avatar ring in the channel list, call stage, and account dock. Microphone speech is green;
+active soundboard playback takes priority and uses blue, including sounds played while the microphone is muted.
+Previewing a sound does not publish avatar activity. The blue state starts when audio playback starts and clears on
+end, failure, stop, deafen, or disconnect; overlapping clips keep the sender active until their final clip stops.
+
+The ring follows the captured Discord renderer's avatar behavior (study asset `web.35f1b2f06b0104fe.js`, modules
+556525 and 778712): a two-pixel inset ring, a one-pixel background separator, a 50 ms shadow transition, and
+soundboard color precedence. The captured browser voice detector (module 113634) samples every 20 ms and combines
+a ten-frame speech history with ten silent frames, retaining activity for roughly 400 ms. Aether uses a 400 ms
+release window with its existing microphone detector; native Discord detection and volume-driven ring thickness
+are not established by this implementation. Muting or losing the microphone clears speech immediately.

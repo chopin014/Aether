@@ -661,7 +661,7 @@ index e597a18e59..7a35256c6e 100644
 +				for (const value of samples) energy += value * value;
 +				const now = performance.now();
 +				if (Math.sqrt(energy / samples.length) >= 0.015) lastVoice = now;
-+				report(now - lastVoice < 120);
++				report(now - lastVoice < 400);
 +			} catch {
 +				disconnect();
 +				report(fallback);

@@ -112,3 +112,28 @@ export const InVoiceCall: Story = { args: { voice: { ...disconnectedVoice, roomN
 export const SharingScreen: Story = {
     args: { voice: { ...disconnectedVoice, roomName: "Geral#1", videoEnabled: true, screenSharing: true } },
 };
+
+/** Local speech stays visible through the brief pauses between words. */
+export const Speaking: Story = {
+    args: {
+        voice: {
+            ...disconnectedVoice,
+            roomName: "Geral#1",
+            connection: { ...disconnectedVoice.connection, state: "connected", quality: "good" },
+            speaking: true,
+        },
+    },
+};
+
+/** Soundboard playback takes priority even while the microphone is active. */
+export const PlayingSoundboard: Story = {
+    args: {
+        voice: {
+            ...disconnectedVoice,
+            roomName: "Geral#1",
+            connection: { ...disconnectedVoice.connection, state: "connected", quality: "good" },
+            speaking: true,
+            soundboardPlaying: true,
+        },
+    },
+};

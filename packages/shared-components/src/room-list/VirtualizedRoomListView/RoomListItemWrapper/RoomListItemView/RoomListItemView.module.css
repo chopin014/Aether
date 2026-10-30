@@ -99,69 +99,41 @@
     }
 }
 
-/*
- * Activity ring around a voice participant's avatar while they speak. The ring is an outline and the
- * pulse an absolutely positioned pseudo-element, so neither changes the row's size or moves the name.
- */
+/* Match the inset voice ring: two pixels of color with a one-pixel background separator. */
 .participantAvatar {
-    --speaking-ring-width: var(--cpd-border-width-2);
-    --speaking-ring-gap: var(--cpd-border-width-1);
+    --activity-color: var(--cpd-color-border-success-primary);
 
     position: relative;
     display: inline-flex;
     flex: none;
     border-radius: 50%;
-    outline: var(--speaking-ring-width) solid transparent;
-    outline-offset: var(--speaking-ring-gap);
-    /* Fade the ring in and out so short pauses between words don't flicker */
-    transition: outline-color 150ms ease-out;
 
     &::after {
         content: "";
         position: absolute;
-        inset: calc(-1 * (var(--speaking-ring-width) + var(--speaking-ring-gap)));
-        border: var(--speaking-ring-width) solid var(--cpd-color-border-success-primary);
-        border-radius: 50%;
-        opacity: 0;
+        inset: 0;
+        border-radius: inherit;
         pointer-events: none;
+        transition: box-shadow 50ms ease-out;
     }
 }
 
-.speaking {
-    outline-color: var(--cpd-color-border-success-primary);
-
-    &::after {
-        animation: speakingPulse 1.4s ease-out infinite;
-    }
-}
-
-/* A soft wave that grows off the ring, kept small enough to stay within the 32px participant row */
-@keyframes speakingPulse {
-    0% {
-        opacity: 0.55;
-        transform: scale(1);
-    }
-
-    100% {
-        opacity: 0;
-        transform: scale(1.06);
-    }
+.speaking::after {
+    box-shadow:
+        inset 0 0 0 var(--cpd-border-width-2) var(--activity-color),
+        inset 0 0 0 calc(var(--cpd-border-width-2) + var(--cpd-border-width-1)) var(--cpd-color-bg-canvas-default);
 }
 
 @media (prefers-reduced-motion: reduce) {
-    /* Keep the steady ring as the speaking cue, without the repeating pulse */
-    .participantAvatar {
+    .participantAvatar::after {
         transition: none;
-    }
-
-    .speaking::after {
-        animation: none;
     }
 }
 
 @media (forced-colors: active) {
-    .speaking {
-        outline-color: Highlight;
+    .speaking::after {
+        outline: var(--cpd-border-width-2) solid Highlight;
+        outline-offset: calc(-1 * var(--cpd-border-width-2));
     }
 }
 
@@ -368,4 +340,8 @@
 }
 .activeThread:focus-visible {
     outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+}
+
+.soundboard {
+    --activity-color: var(--cpd-color-blue-900);
 }

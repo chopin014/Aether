@@ -135,6 +135,8 @@ export class DesktopVoiceControlsViewModel
         this.disposables.track(() => this.call?.off(CallEvent.DeviceMute, this.onDeviceMute));
         this.disposables.track(() => this.call?.off(CallEvent.ScreenShare, this.onScreenShare));
         this.disposables.track(() => this.call?.off(CallEvent.Participants, this.onParticipants));
+        this.disposables.track(() => this.call?.off(CallEvent.SpeakingUsers, this.refresh));
+        this.disposables.track(() => this.call?.off(CallEvent.SoundboardUsers, this.refresh));
         this.disposables.track(() => this.call?.off(CallEvent.ConnectionStats, this.refresh));
         this.onCallsChanged();
     }
@@ -201,6 +203,8 @@ export class DesktopVoiceControlsViewModel
                           : {}),
                   }
                 : {}),
+            speaking: call?.speakingUserIds.has(this.props.client.getSafeUserId()) ?? false,
+            soundboardPlaying: call?.soundboardUserIds?.has(this.props.client.getSafeUserId()) ?? false,
             microphoneMuted: call?.deviceMuteState
                 ? !call.deviceMuteState.audio_enabled
                 : SettingsStore.getValue("audioInputMuted"),
@@ -458,6 +462,8 @@ export class DesktopVoiceControlsViewModel
             this.call?.off(CallEvent.DeviceMute, this.onDeviceMute);
             this.call?.off(CallEvent.ScreenShare, this.onScreenShare);
             this.call?.off(CallEvent.Participants, this.onParticipants);
+            this.call?.off(CallEvent.SpeakingUsers, this.refresh);
+            this.call?.off(CallEvent.SoundboardUsers, this.refresh);
             this.call?.off(CallEvent.ConnectionStats, this.refresh);
             this.releaseSoundboard?.();
             this.releaseSoundboard = undefined;
@@ -470,6 +476,8 @@ export class DesktopVoiceControlsViewModel
             call?.on(CallEvent.DeviceMute, this.onDeviceMute);
             call?.on(CallEvent.ScreenShare, this.onScreenShare);
             call?.on(CallEvent.Participants, this.onParticipants);
+            call?.on(CallEvent.SpeakingUsers, this.refresh);
+            call?.on(CallEvent.SoundboardUsers, this.refresh);
             call?.on(CallEvent.ConnectionStats, this.refresh);
             if (call) {
                 void this.perform(async () => {

@@ -101,6 +101,26 @@ describe("SoundboardViewModel", () => {
     function receive(ev: MatrixEvent, live = true) {
         client.emit(RoomEvent.Timeline, ev, room, false, false, { liveEvent: live, timeline: room.getLiveTimeline() });
     }
+    it("attributes live playback to its sender and keeps previews private", async () => {
+        const ended = vi.fn();
+        const begin = vi.fn(() => ended);
+        call.beginSoundboardPlayback = begin;
+        vi.mocked(SoundboardAudio.prototype.play).mockImplementation(
+            async (_client, _source, _volume, _output, start) => {
+                start?.();
+            },
+        );
+        const builtin = vm.getSnapshot().libraries.find((library) => library.id === "builtin")!.sounds[0];
+        await vm.play(builtin, true);
+        expect(begin).not.toHaveBeenCalled();
+        await vm.play(builtin);
+        expect(begin).toHaveBeenLastCalledWith(client.getSafeUserId());
+        receive(event());
+        await Promise.resolve();
+        expect(begin).toHaveBeenLastCalledWith("@bob:example.org");
+        vm.dispose();
+    });
+
     it("loads joined parent libraries, ignores invalid entries and searches names", () => {
         expect(vm.getSnapshot().libraries.find((library) => library.id === space.roomId)?.sounds).toEqual([
             { id: "hello", libraryId: space.roomId, name: "Hello", emoji: "👋" },
@@ -365,6 +385,7 @@ describe("SoundboardViewModel", () => {
             sound.url,
             expect.any(Number),
             expect.any(String),
+            expect.any(Function),
         );
         vi.mocked(SoundboardAudio.prototype.play).mockClear();
         for (const [index, change] of [{ url: "https://example.org/arbitrary" }, { duration_ms: 10_001 }].entries()) {

@@ -109,6 +109,8 @@ export interface RoomListItemViewSnapshot {
         name: string;
         avatarUrl?: string;
         isSpeaking?: boolean;
+        /** Soundboard playback takes precedence over the green microphone ring. */
+        isSoundboardPlaying?: boolean;
         isMuted?: boolean;
         isDeafened?: boolean;
     }[];
@@ -355,10 +357,12 @@ export const RoomListItemView = memo(function RoomListItemView({
                         // region, so screen readers only hear it when the participant is focused.
                         aria-label={participantLabel(participant)}
                         data-speaking={participant.isSpeaking || undefined}
+                        data-soundboard={participant.isSoundboardPlaying || undefined}
                     >
                         <span
                             className={classNames(styles.participantAvatar, {
-                                [styles.speaking]: participant.isSpeaking,
+                                [styles.speaking]: participant.isSpeaking || participant.isSoundboardPlaying,
+                                [styles.soundboard]: participant.isSoundboardPlaying,
                             })}
                         >
                             <Avatar

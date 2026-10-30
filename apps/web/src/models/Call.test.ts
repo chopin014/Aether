@@ -1364,6 +1364,24 @@ describe("ElementCall with the React component embedding", () => {
             call.session.emit(MatrixRTCSessionEvent.MembershipsChanged, [], []);
         });
 
+        it("tracks overlapping soundboard clips independently and clears them on hangup", () => {
+            call.handleJoined();
+            const first = call.beginSoundboardPlayback(aliceId);
+            const second = call.beginSoundboardPlayback(aliceId);
+            const remote = call.beginSoundboardPlayback(bobId);
+            expect(call.soundboardUserIds).toEqual(new Set([aliceId, bobId]));
+            first();
+            first();
+            expect(call.soundboardUserIds).toEqual(new Set([aliceId, bobId]));
+            second();
+            expect(call.soundboardUserIds).toEqual(new Set([bobId]));
+            call.handleHangup();
+            expect(call.soundboardUserIds.size).toBe(0);
+            remote();
+            call.beginSoundboardPlayback(aliceId);
+            expect(call.soundboardUserIds.size).toBe(0);
+        });
+
         it("reports distinct local and remote speakers only while connected", () => {
             call.handleSpeakingUsers([aliceId]);
             expect(call.speakingUserIds.size).toBe(0);

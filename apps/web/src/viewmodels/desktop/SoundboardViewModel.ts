@@ -247,7 +247,7 @@ export class SoundboardViewModel extends BaseViewModel<SoundboardViewSnapshot, P
         return this.storedSound(sound)?.url;
     }
 
-    private hear = async (sound: SoundboardSound, sharedSound?: StoredSound): Promise<void> => {
+    private hear = async (sound: SoundboardSound, sharedSound?: StoredSound, sender?: string): Promise<void> => {
         if (
             this.isDisposed ||
             !this.props.call.connected ||
@@ -262,6 +262,7 @@ export class SoundboardViewModel extends BaseViewModel<SoundboardViewSnapshot, P
             source,
             ((this.snapshot.current.volume / 100) * SettingsStore.getValue("desktopSpeakerVolume")) / 100,
             MediaDeviceHandler.getAudioOutput(),
+            sender ? () => this.props.call.beginSoundboardPlayback(sender) : undefined,
         );
     };
 
@@ -275,8 +276,8 @@ export class SoundboardViewModel extends BaseViewModel<SoundboardViewSnapshot, P
         )
             return;
         this.snapshot.merge({ error: undefined });
-        const playback = this.hear(sound).catch((error) =>
-            this.reportError(error, _t("desktop|soundboard|playback_failed")),
+        const playback = this.hear(sound, undefined, preview ? undefined : this.props.client.getSafeUserId()).catch(
+            (error) => this.reportError(error, _t("desktop|soundboard|playback_failed")),
         );
         if (preview) {
             await playback;
@@ -441,6 +442,7 @@ export class SoundboardViewModel extends BaseViewModel<SoundboardViewSnapshot, P
         void this.hear(
             { id: content.sound_id, libraryId: content.library_id, name: "", emoji: "" },
             content.library_id === "builtin" ? undefined : sharedSound,
+            sender,
         ).catch((error) => logger.debug("Soundboard playback failed", error));
     }
 

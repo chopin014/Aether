@@ -232,6 +232,7 @@ describe("RoomListItemViewModel", () => {
             participants: new Map([[alice, new Set(["device1"])]]),
             callType: CallType.Voice,
             speakingUserIds: new Set<string>(),
+            soundboardUserIds: new Set<string>(),
             voiceStates: new Map<string, VoiceState>(),
         });
         vi.mocked(CallStore.instance.getCall).mockReturnValue(call as unknown as Call);
@@ -262,6 +263,7 @@ describe("RoomListItemViewModel", () => {
             participants: new Map([[alice, new Set(["device1", "device2"])]]),
             callType: CallType.Voice,
             speakingUserIds: new Set<string>(),
+            soundboardUserIds: new Set<string>(),
             voiceStates: new Map<string, VoiceState>(),
         });
         vi.mocked(CallStore.instance.getCall).mockReturnValue(call as unknown as Call);
@@ -273,6 +275,7 @@ describe("RoomListItemViewModel", () => {
                 name: "Alice",
                 avatarUrl: undefined,
                 isSpeaking: false,
+                isSoundboardPlaying: false,
                 isMuted: false,
                 isDeafened: false,
             },
@@ -286,6 +289,12 @@ describe("RoomListItemViewModel", () => {
         call.participants.set(bob, new Set(["device3"]));
         call.emit(CallEvent.Participants, call.participants);
         expect(viewModel.getSnapshot().callParticipants?.map((member) => member.name)).toEqual(["Alice", "Bob"]);
+        call.soundboardUserIds.add(alice.userId);
+        call.emit(CallEvent.SoundboardUsers);
+        expect(viewModel.getSnapshot().callParticipants?.[0].isSoundboardPlaying).toBe(true);
+        call.soundboardUserIds.clear();
+        call.emit(CallEvent.SoundboardUsers);
+        expect(viewModel.getSnapshot().callParticipants?.[0].isSoundboardPlaying).toBe(false);
         call.speakingUserIds = new Set([alice.userId, bob.userId]);
         call.emit(CallEvent.SpeakingUsers, call.speakingUserIds);
         expect(viewModel.getSnapshot().callParticipants?.map((member) => member.isSpeaking)).toEqual([true, true]);

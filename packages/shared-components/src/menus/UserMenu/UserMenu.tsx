@@ -133,9 +133,11 @@ export type UserMenuViewProps = {
     className?: string;
     /** Render the full identity inside the account-dock menu trigger. */
     presentation?: "rail" | "dock";
+    /** Activity ring around the account avatar in the voice dock. */
+    voiceActivity?: "speaking" | "soundboard";
 };
 
-export function UserMenuView({ vm, className, presentation = "rail" }: UserMenuViewProps): JSX.Element {
+export function UserMenuView({ vm, className, presentation = "rail", voiceActivity }: UserMenuViewProps): JSX.Element {
     const {
         userId,
         displayName,
@@ -157,7 +159,7 @@ export function UserMenuView({ vm, className, presentation = "rail" }: UserMenuV
             aria-label={_t("menus|user_menu|title")}
             type="button"
         >
-            <div className={styles.avatarWrapper}>
+            <div className={styles.avatarWrapper} data-voice-activity={voiceActivity}>
                 <Avatar
                     id={userId}
                     name={displayName}

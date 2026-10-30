@@ -256,7 +256,7 @@ describe("immediate microphone activity for the sidebar", () => {
         vi.unstubAllGlobals();
     });
 
-    it("detects local and remote speech within 40ms and releases within 120ms", () => {
+    it("detects local and remote speech within 40ms and bridges pauses and releases within 400ms", () => {
         const local = createMicrophone("@local:example.org");
         const remote = createMicrophone("@remote:example.org");
         const publisher = createPublisher([local.media, remote.media]);
@@ -268,12 +268,29 @@ describe("immediate microphone activity for the sidebar", () => {
         vi.advanceTimersByTime(1);
         expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([local.media.userId, remote.media.userId]);
         local.track.level = remote.track.level = 0;
-        vi.advanceTimersByTime(119);
+        vi.advanceTimersByTime(399);
         expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([local.media.userId, remote.media.userId]);
         vi.advanceTimersByTime(1);
         expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([]);
         expect(local.media.speaking$.value).toBe(false);
         expect(remote.media.speaking$.value).toBe(false);
+        publisher.dispose();
+    });
+
+    it("keeps the ring steady across syllables and restarts the silence window on speech", () => {
+        const local = createMicrophone("@local:example.org");
+        local.track.level = 0.03;
+        const publisher = createPublisher([local.media]);
+        const count = publisher.notifySpeakingUsers.mock.calls.length;
+        local.track.level = 0;
+        vi.advanceTimersByTime(320);
+        local.track.level = 0.03;
+        vi.advanceTimersByTime(40);
+        local.track.level = 0;
+        vi.advanceTimersByTime(399);
+        expect(publisher.notifySpeakingUsers).toHaveBeenCalledTimes(count);
+        vi.advanceTimersByTime(1);
+        expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([]);
         publisher.dispose();
     });
 

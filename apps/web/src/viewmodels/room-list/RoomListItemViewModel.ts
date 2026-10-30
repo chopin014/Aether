@@ -242,10 +242,11 @@ export class RoomListItemViewModel
     private static voiceActivityOf(
         call: Call | null | undefined,
         userId: string,
-    ): { isSpeaking: boolean; isMuted: boolean; isDeafened: boolean } {
+    ): { isSpeaking: boolean; isSoundboardPlaying: boolean; isMuted: boolean; isDeafened: boolean } {
         const voiceState = call?.voiceStates.get(userId);
         return {
             isSpeaking: call?.speakingUserIds.has(userId) ?? false,
+            isSoundboardPlaying: call?.soundboardUserIds?.has(userId) ?? false,
             isMuted: voiceState?.muted ?? false,
             isDeafened: voiceState?.deafened ?? false,
         };
@@ -274,6 +275,7 @@ export class RoomListItemViewModel
                 this.callDisposables.trackListener(call, CallEvent.Participants, this.onCallParticipantsChanged);
                 this.callDisposables.trackListener(call, CallEvent.CallTypeChanged, this.onCallTypeChanged);
                 this.callDisposables.trackListener(call, CallEvent.SpeakingUsers, this.onVoiceActivityChanged);
+                this.callDisposables.trackListener(call, CallEvent.SoundboardUsers, this.onVoiceActivityChanged);
                 this.callDisposables.trackListener(call, CallEvent.VoiceStates, this.onVoiceActivityChanged);
             }
         }
