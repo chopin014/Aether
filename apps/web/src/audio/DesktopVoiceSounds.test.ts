@@ -15,6 +15,7 @@ import {
     isDesktopVoiceSoundEnabled,
     playDesktopVoiceSound,
     setDesktopVoiceSoundEnabled,
+    stopDesktopVoiceSound,
 } from "./DesktopVoiceSounds";
 import SettingsStore from "../settings/SettingsStore";
 import { SettingLevel } from "../settings/SettingLevel";
@@ -23,6 +24,8 @@ import MediaDeviceHandler from "../MediaDeviceHandler";
 const play = vi.fn().mockResolvedValue(undefined);
 const setSinkId = vi.fn().mockResolvedValue(undefined);
 const createAudio = vi.fn();
+const pause = vi.fn();
+const audios: Array<{ onended?: () => void }> = [];
 
 /** What the device level holds for each setting; a missing key is a setting that was never written. */
 function storeDeviceValues(values: Record<string, unknown>): void {
@@ -37,14 +40,19 @@ describe("desktop voice feedback", () => {
             "Audio",
             class {
                 public play = play;
+                public pause = pause;
+                public onended?: () => void;
                 public setSinkId = setSinkId;
                 public constructor(url: string) {
                     createAudio(url);
+                    audios.push(this);
                 }
             },
         );
     });
     afterEach(() => {
+        stopDesktopVoiceSound();
+        audios.length = 0;
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
         vi.clearAllMocks();
@@ -68,9 +76,61 @@ describe("desktop voice feedback", () => {
         expect(createAudio).toHaveBeenCalledWith(expect.stringContaining("join.wav"));
     });
     it("has an asset for every cue", async () => {
-        for (const { id } of DESKTOP_VOICE_SOUNDS) await playDesktopVoiceSound(id);
+        for (const { id } of DESKTOP_VOICE_SOUNDS) await playDesktopVoiceSound(id, { preview: true });
         expect(createAudio).toHaveBeenCalledTimes(DESKTOP_VOICE_SOUNDS.length);
         expect(new Set(createAudio.mock.calls.map(([url]) => url)).size).toBe(DESKTOP_VOICE_SOUNDS.length);
+    });
+    it("coalesces duplicate events but allows the cue again after it ends", async () => {
+        await playDesktopVoiceSound("mute");
+        await playDesktopVoiceSound("mute");
+        expect(play).toHaveBeenCalledTimes(1);
+        audios[0].onended?.();
+        await playDesktopVoiceSound("mute");
+        expect(play).toHaveBeenCalledTimes(2);
+    });
+    it("interrupts old feedback when a new state arrives", async () => {
+        await playDesktopVoiceSound("mute");
+        await playDesktopVoiceSound("unmute");
+        expect(pause).toHaveBeenCalledOnce();
+        expect(play).toHaveBeenCalledTimes(2);
+    });
+    it("does not play an obsolete cue after device routing resolves", async () => {
+        const routing = Promise.withResolvers<void>();
+        setSinkId.mockReturnValueOnce(routing.promise);
+        const muted = playDesktopVoiceSound("mute");
+        await playDesktopVoiceSound("unmute");
+        routing.resolve();
+        await muted;
+        expect(play).toHaveBeenCalledTimes(1);
+    });
+    it("keeps participant activity from interrupting a control confirmation", async () => {
+        await playDesktopVoiceSound("deafen");
+        await playDesktopVoiceSound("userJoined");
+        expect(play).toHaveBeenCalledTimes(1);
+        expect(pause).not.toHaveBeenCalled();
+    });
+    it("drops a cue if selecting the output takes too long", async () => {
+        const routing = Promise.withResolvers<void>();
+        vi.spyOn(performance, "now").mockReturnValueOnce(0).mockReturnValue(1500);
+        setSinkId.mockReturnValueOnce(routing.promise);
+        const playing = playDesktopVoiceSound("mute");
+        routing.resolve();
+        await playing;
+        expect(play).not.toHaveBeenCalled();
+    });
+    it("falls back to the default output when the selected device disappears", async () => {
+        setSinkId.mockRejectedValueOnce(new Error("Device removed"));
+        await playDesktopVoiceSound("mute");
+        expect(play).toHaveBeenCalledOnce();
+    });
+    it("cancels feedback that is still selecting an output", async () => {
+        const routing = Promise.withResolvers<void>();
+        setSinkId.mockReturnValueOnce(routing.promise);
+        const playing = playDesktopVoiceSound("mute");
+        stopDesktopVoiceSound();
+        routing.resolve();
+        await playing;
+        expect(play).not.toHaveBeenCalled();
     });
     describe("migrating the single sounds switch", () => {
         it("keeps every cue on when the old switch was never changed", () => {

@@ -29,6 +29,8 @@ export function DesktopCallStage({ client, call, bridge }: DesktopCallStageProps
         vm.setBridge(bridge);
     }, [vm, bridge]);
 
+    useEffect(() => vm.startRingtone(), [vm]);
+
     return (
         <I18nContext.Provider value={window.mxModuleApi?.i18n ?? ModuleApi.instance.i18n}>
             <DesktopCallStageView vm={vm} />
