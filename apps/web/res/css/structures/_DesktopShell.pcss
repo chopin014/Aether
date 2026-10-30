@@ -558,11 +558,25 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         }
     }
 
+    /* The sidebar's rounded corner sits on the rail, so the rail's colour has to show behind it. */
+    .mx_LeftPanel_outerWrapper {
+        background: var(--mx-desktop-shell-frame);
+    }
+
     .mx_LeftPanel {
+        /* The top border takes one pixel, so the header's line still meets the room header's. */
+        --mx-desktop-shell-header-height: 48px;
+
         border-start-start-radius: var(--cpd-space-3x);
         border: 1px solid var(--cpd-color-border-interactive-secondary);
+        /* The resize separator next to the sidebar is its end border, so the two don't double up. */
         border-block-end: 0;
+        border-inline-end: 0;
         background: var(--mx-desktop-shell-frame);
+    }
+
+    .mx_Separator {
+        --cpd-color-bg-subtle-primary: var(--cpd-color-border-interactive-secondary);
     }
 
     .mx_RoomListPanel {

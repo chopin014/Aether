@@ -182,6 +182,29 @@ describe("Desktop channel list spacing", () => {
         expect(firstRow.getBoundingClientRect().height).toBe(rowHeight);
     });
 
+    it("should end the sidebar header on the room header's line, inside the sidebar's top border", () => {
+        const headerVm = new HeaderViewModel({ ...headerSnapshot, title: "Terra do boi gordo" });
+        flushSync(() =>
+            root.render(
+                <TooltipProvider>
+                    <I18nContext.Provider value={i18n}>
+                        <div style={{ display: "flex", alignItems: "flex-start" }}>
+                            <div className="mx_LeftPanel" style={{ flex: 1 }}>
+                                <RoomListHeaderView vm={headerVm} desktop />
+                            </div>
+                            <div className="mx_RoomHeader" data-testid="room-header" style={{ flex: 1 }} />
+                        </div>
+                    </I18nContext.Provider>
+                </TooltipProvider>,
+            ),
+        );
+
+        const sidebarHeader = getByTestId(container, "room-list-header").getBoundingClientRect();
+        const roomHeader = getByTestId(container, "room-header").getBoundingClientRect();
+        expect(sidebarHeader.top - roomHeader.top).toBe(1);
+        expect(sidebarHeader.bottom).toBe(roomHeader.bottom);
+    });
+
     it("should leave the web presentation flush below the header", async () => {
         renderList(false, 56, false);
         await expect.poll(() => queryByRole(container, "row", { name: /Text Channels/ })).toBeTruthy();

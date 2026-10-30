@@ -196,7 +196,8 @@ describe("Desktop server menu", () => {
         expect(bounds.left).toBeGreaterThanOrEqual(8);
         expect(bounds.right).toBeLessThanOrEqual(312);
         expect(bounds.top).toBeGreaterThanOrEqual(8);
-        expect(bounds.bottom).toBeLessThanOrEqual(232);
+        // The menu's position is rounded to whole pixels, but the height it may fill is not.
+        expect(Math.floor(bounds.bottom)).toBeLessThanOrEqual(232);
         const scroller = menu.querySelector<HTMLElement>("[role=none]")!;
         expect(scroller.scrollHeight).toBeGreaterThan(scroller.clientHeight);
         const settings = page.getByRole("menuitem", { name: "Configurações do espaço" });
