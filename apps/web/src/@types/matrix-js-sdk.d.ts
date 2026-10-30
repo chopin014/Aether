@@ -34,6 +34,7 @@ declare module "matrix-js-sdk/src/types" {
     }
 
     export interface StateEvents {
+        "io.aether.soundboard.sound": Partial<import("../audio/soundboard/Soundboard").StoredSound>;
         // Jitsi-backed video room state events
         [JitsiCallMemberEventType]: JitsiCallMemberContent;
 
@@ -53,6 +54,11 @@ declare module "matrix-js-sdk/src/types" {
     }
 
     export interface TimelineEvents {
+        "io.aether.soundboard.play": {
+            library_id: string;
+            sound_id: string;
+            sound?: import("../audio/soundboard/Soundboard").StoredSound;
+        };
         "io.element.performance_metric": {
             "io.element.performance_metrics": {
                 forEventId: string;

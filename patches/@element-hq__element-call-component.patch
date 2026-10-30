@@ -215,7 +215,7 @@ index 0000000000..9e4d0a04ee
 +    };
 +}
 diff --git a/dist/element-call.js b/dist/element-call.js
-index e597a18e59..89a52ff16f 100644
+index e597a18e59..7a35256c6e 100644
 --- a/dist/element-call.js
 +++ b/dist/element-call.js
 @@ -1,3 +1,4 @@
@@ -328,7 +328,16 @@ index e597a18e59..89a52ff16f 100644
  		};
  		this.livekitRoomFactory = o ?? s;
  	}
-@@ -43118,6 +43192,321 @@ function _3(e, t) {
+@@ -42699,7 +42773,7 @@ function W4({ devices: e, processorState: t, e2eeLivekitOptions: n, controlledAu
+ 			autoGainControl: b.getValue()
+ 		},
+ 		audioOutput: { deviceId: r ? void 0 : e.audioOutput.selected$.value?.id },
+-		e2ee: n
++        encryption: n
+ 	};
+ }
+ //#endregion
+@@ -43118,6 +43192,349 @@ function _3(e, t) {
  }
  //#endregion
  //#region src/state/media/UserMediaViewModel.ts
@@ -540,6 +549,34 @@ index e597a18e59..89a52ff16f 100644
 +    }
 +	for (const listener of [...aetherAudioListeners]) listener();
 +}
++// Aether: sound triggers travel with the call, without Matrix message rate limits or history replay.
++function aetherCreateSoundboardTransport(scope, local, media$) {
++    return {
++        send(payload) {
++            const room = local.connection$.value?.livekitRoom;
++            const participant = local.participant$.value;
++            if (!local.connected$.value || !participant?.publishData) throw new Error("Soundboard transport is not connected");
++            if (room?.isE2EEEnabled && !room.engine?.e2eeManager?.isDataChannelEncryptionEnabled)
++                throw new Error("Soundboard data encryption is unavailable");
++            return participant.publishData(payload, { reliable: true, topic: "io.aether.soundboard" });
++        },
++        subscribe(listener) {
++            const subscription = media$.pipe(wA((media) => Lk(media.filter((item) => !item.local).map((item) =>
++                item.microphoneParticipant$.pipe(wA((participant) => new C(() => {
++                    if (!participant) return;
++                    const receive = (payload, _kind, encryptionType) => {
++                        if (!(payload instanceof Uint8Array) || payload.byteLength > 8192) return;
++                        if (local.connection$.value?.livekitRoom?.isE2EEEnabled && encryptionType !== Pu.GCM) return;
++                        listener(payload, item.userId);
++                    };
++                    participant.on(J.DataReceived, receive);
++                    return () => participant.off(J.DataReceived, receive);
++                })))
++            ))), scope.bind()).subscribe();
++            return () => subscription.unsubscribe();
++        }
++    };
++}
 +function aetherObserveDeafened(participant) {
 +	return new C((observer) => {
 +		const report = () => observer.next(aetherAnnouncedDeafen.get(participant) ?? participant.attributes?.[aetherDeafenedAttribute] === "true");
@@ -650,7 +687,7 @@ index e597a18e59..89a52ff16f 100644
  function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType: i, ...a }) {
  	let { participant$: o } = a, s = e.behavior(o.pipe(wA((e) => (e && aL(e)) ?? Ck(void 0)))), c = new He(), l = new Rt(NaN), u = (e, t) => e.behavior(Lk([o, Et.value$]).pipe(wA(([e, n]) => e && n ? p3(e, t, i) : Ck(void 0))));
  	return {
-@@ -43127,6 +43516,7 @@ function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType:
+@@ -43127,6 +43544,7 @@ function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType:
  			videoSource: Z.Source.Camera
  		}),
  		type: "user",
@@ -658,7 +695,7 @@ index e597a18e59..89a52ff16f 100644
  		speaking$: e.behavior(o.pipe(wA((e) => e ? iL(e, J.IsSpeakingChanged).pipe(F((e) => e.isSpeaking)) : Ck(!1)))),
  		audioEnabled$: e.behavior(s.pipe(F((e) => e?.microphoneTrack?.isMuted === !1))),
  		videoEnabled$: e.behavior(s.pipe(F((e) => e?.cameraTrack?.isMuted === !1))),
-@@ -43153,7 +43543,7 @@ function y3(e, { mediaDevices: t, ...n }) {
+@@ -43153,7 +43571,7 @@ function y3(e, { mediaDevices: t, ...n }) {
  	return {
  		...r,
  		local: !0,
@@ -667,7 +704,7 @@ index e597a18e59..89a52ff16f 100644
  		alwaysShow$: se.value$,
  		setAlwaysShow: se.setValue,
  		switchCamera$: e.behavior(Wt === "desktop" ? Ck(null) : i.pipe(F((e) => {
-@@ -43209,7 +43599,7 @@ function x3(e, { pretendToBeDisconnected$: t, ...n }) {
+@@ -43209,7 +43627,7 @@ function x3(e, { pretendToBeDisconnected$: t, ...n }) {
  		...r,
  		...b3(e, {
  			pretendToBeDisconnected$: t,
@@ -676,7 +713,7 @@ index e597a18e59..89a52ff16f 100644
  		}),
  		local: !1,
  		speaking$: e.behavior(t.pipe(wA((e) => e ? Ck(!1) : r.speaking$))),
-@@ -43234,6 +43624,7 @@ function S3(e, t) {
+@@ -43234,6 +43652,7 @@ function S3(e, t) {
  function C3(e, t) {
  	return {
  		...S3(e, t),
@@ -684,7 +721,7 @@ index e597a18e59..89a52ff16f 100644
  		local: !0
  	};
  }
-@@ -43244,7 +43635,7 @@ function w3(e, { pretendToBeDisconnected$: t, ...n }) {
+@@ -43244,7 +43663,7 @@ function w3(e, { pretendToBeDisconnected$: t, ...n }) {
  		...S3(e, n),
  		...b3(e, {
  			pretendToBeDisconnected$: t,
@@ -693,7 +730,7 @@ index e597a18e59..89a52ff16f 100644
  		}),
  		local: !1,
  		videoEnabled$: e.behavior(t.pipe(F((e) => !e))),
-@@ -43611,7 +44002,105 @@ function k3(e, t, n, r, i, a, o, s, c) {
+@@ -43611,7 +44030,110 @@ function k3(e, t, n, r, i, a, o, s, c) {
  		let t = {};
  		return e instanceof hX ? { transportError: e } : e === C4.Waiting ? null : (e.matrix instanceof hX && (t.matrixError = e.matrix), e.media instanceof hX ? t.publishError = e.media : typeof e.media == "object" && e.media.connection instanceof hX && (t.connectionError = e.media.connection), t);
  	})), null);
@@ -742,6 +779,11 @@ index e597a18e59..89a52ff16f 100644
 +		vt?.();
 +		reply({});
 +	});
++	if (p.notifySoundboardTransport) {
++        const notify = (transport) => Promise.resolve(p.notifySoundboardTransport(transport)).catch((error) => l.warn("Could not bind the soundboard transport", error));
++        notify(aetherCreateSoundboardTransport(e, A, ue));
++        e.onEnd(() => notify(null));
++    }
 +	// Aether: deafening only silences the deafened device, so each device announces it to the call. A LiveKit
 +	// attribute needs the JWT service to let participants update their own metadata, which not every deployment
 +	// grants, so each device also sends it as a data message, repeated while deafened for people who join later.
@@ -799,7 +841,7 @@ index e597a18e59..89a52ff16f 100644
  		autoLeave$: ie,
  		ringingVm$: de,
  		ringingStatusLocation: h === Ut.AppBar ? "app_bar" : "tile",
-@@ -45955,7 +46444,7 @@ var k5 = (e) => {
+@@ -45955,7 +46477,7 @@ var k5 = (e) => {
  		n
  	], t[30] = u, t[31] = e.client, t[32] = e.e2eeSystem, t[33] = e.matrixRoom, t[34] = e.muteStates, t[35] = e.onLeft, t[36] = e.rtcSession, t[37] = d, t[38] = c, t[39] = n, t[40] = g) : g = t[40], z(h, g), n === null || i === null || o === null) return null;
  	let _;
@@ -808,7 +850,7 @@ index e597a18e59..89a52ff16f 100644
  		...e,
  		vm: n,
  		footerVm: i,
-@@ -45967,6 +46456,300 @@ var k5 = (e) => {
+@@ -45967,6 +46489,300 @@ var k5 = (e) => {
  		rtcSession: e.rtcSession,
  		children: _
  	}), t[46] = e.rtcSession, t[47] = _, t[48] = n, t[49] = v) : v = t[49], v;
@@ -1109,7 +1151,7 @@ index e597a18e59..89a52ff16f 100644
  }, A5 = ({ client: e, vm: t, footerVm: n, developerSettingsVm: r, matrixInfo: i, matrixRoom: a, muteStates: o, onShareClick: s }) => {
  	let c = V.getChild("[InCallView]"), { t: l } = Je(), u = pe(), { sendReaction: d, toggleRaisedHand: f } = rZ();
  	N2();
-@@ -47656,6 +48439,8 @@ var L5 = /* @__PURE__ */ c(((e, t) => {
+@@ -47656,6 +48472,8 @@ var L5 = /* @__PURE__ */ c(((e, t) => {
  	}) }), t[23] = n.localisedTitle, t[24] = a, t[25] = c, t[26] = u, t[27] = d, t[28] = f, t[29] = p) : p = t[29], p;
  }, v7 = (e) => {
  	let t = I(8), { recoveryActionHandler: n, onError: r, children: i } = e, a;
@@ -1118,7 +1160,7 @@ index e597a18e59..89a52ff16f 100644
  	t[0] === n ? a = t[1] : (a = (e) => {
  		let { error: t, resetError: r } = e, i = t instanceof hX ? t : new xX(t instanceof Error ? t : /* @__PURE__ */ Error());
  		return /* @__PURE__ */ H(_7, {
-@@ -47874,8 +48659,8 @@ var T7 = (e) => {
+@@ -47874,8 +48692,8 @@ var T7 = (e) => {
  		s
  	]);
  	let [ee, te] = B(!1), ne = st(), M = nn((e) => {
@@ -1129,7 +1171,7 @@ index e597a18e59..89a52ff16f 100644
  			case "allOthersLeft":
  				r = g.current?.playSound("left", 0);
  				break;
-@@ -47925,7 +48710,8 @@ var T7 = (e) => {
+@@ -47925,7 +48743,8 @@ var T7 = (e) => {
  		a
  	]);
  	let ie = F5(_), [ae, oe] = B(!1), se = nn(() => oe(!1), [oe]), ce = nn(() => oe(!0), [oe]), le = ie === Hn.Public ? ce : null;
@@ -1139,7 +1181,7 @@ index e597a18e59..89a52ff16f 100644
  	let ue = /* @__PURE__ */ H(g7, {
  		room: _,
  		open: ae,
-@@ -47940,9 +48726,26 @@ var T7 = (e) => {
+@@ -47940,9 +48759,26 @@ var T7 = (e) => {
  		participantCount: D,
  		onShareClick: le
  	})] }), fe;
@@ -1167,7 +1209,7 @@ index e597a18e59..89a52ff16f 100644
  		client: e,
  		matrixInfo: E,
  		rtcSession: a,
-@@ -47950,6 +48753,7 @@ var T7 = (e) => {
+@@ -47950,6 +48786,7 @@ var T7 = (e) => {
  		onLeft: M,
  		muteStates: c,
  		e2eeSystem: T,
@@ -1175,7 +1217,7 @@ index e597a18e59..89a52ff16f 100644
  		onShareClick: le
  	})] }) : ee && !m ? t || tt.instance.isEnabled() ? /* @__PURE__ */ H(sQ, {
  		endedCallId: a.room.roomId,
-@@ -47964,7 +48768,10 @@ var T7 = (e) => {
+@@ -47964,7 +48801,10 @@ var T7 = (e) => {
  			}));
  		},
  		onError: (e) => {
@@ -1187,7 +1229,7 @@ index e597a18e59..89a52ff16f 100644
  		},
  		children: fe
  	});
-@@ -48021,7 +48828,9 @@ function j7(e, t, n) {
+@@ -48021,7 +48861,9 @@ function j7(e, t, n) {
  		themeChange$: new FO(1),
  		join$: new He(),
  		hangUp$: new He(),
@@ -1198,7 +1240,7 @@ index e597a18e59..89a52ff16f 100644
  	}));
  	z(() => {
  		n !== void 0 && i.themeChange$.next({
-@@ -48045,6 +48854,24 @@ function j7(e, t, n) {
+@@ -48045,6 +48887,28 @@ function j7(e, t, n) {
  		notifyDeviceMute: async (e) => {
  			await r.current.notifyDeviceMute?.(e);
  		},
@@ -1209,6 +1251,10 @@ index e597a18e59..89a52ff16f 100644
 +			let e = r.current.notifyScreenShare;
 +			return e === void 0 ? void 0 : async (state) => await e(state);
 +		},
++        get notifySoundboardTransport() {
++            let e = r.current.notifySoundboardTransport;
++            return e === void 0 ? void 0 : async (transport) => await e(transport);
++        },
 +		get notifyConnectionStats() {
 +			let e = r.current.notifyConnectionStats;
 +			return e === void 0 ? void 0 : async (stats) => await e(stats);
@@ -1223,7 +1269,7 @@ index e597a18e59..89a52ff16f 100644
  		get close() {
  			let e = r.current.close;
  			return e === void 0 ? void 0 : async () => await e();
-@@ -48061,7 +48888,20 @@ function j7(e, t, n) {
+@@ -48061,7 +48925,20 @@ function j7(e, t, n) {
  	return on(t, () => ({
  		join: async (e) => await A7(i.join$, "join a call", e),
  		hangUp: async () => await A7(i.hangUp$, "hang up", {}),
@@ -1245,7 +1291,7 @@ index e597a18e59..89a52ff16f 100644
  	}), [i]), a;
  }
  //#endregion
-@@ -48173,7 +49013,7 @@ var I7 = (e) => {
+@@ -48173,7 +49050,7 @@ var I7 = (e) => {
  		children: /* @__PURE__ */ H(dt, {
  			value: m,
  			children: /* @__PURE__ */ H(oo, {
@@ -1268,7 +1314,7 @@ index 313605238c..a93d113490 100644
  export type { JoinCallData } from "../src/widget";
  export type { ConfigOptions } from "../src/config/ConfigOptions";
 diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
-index 0d9ec1bba7..ccb917eafc 100644
+index 0d9ec1bba7..e275b6c522 100644
 --- a/dist/types/component/host.d.ts
 +++ b/dist/types/component/host.d.ts
 @@ -9,9 +9,10 @@
@@ -1284,7 +1330,7 @@ index 0d9ec1bba7..ccb917eafc 100644
  /**
   * What Element Call tells the application hosting it as a component.
   * Everything is optional: a host implements what it wants to hear about.
-@@ -33,6 +34,14 @@ export interface ElementCallHostBridge {
+@@ -33,6 +34,16 @@ export interface ElementCallHostBridge {
      notifyHungUp?(): Promise<void>;
      /** Tells the host the user's current audio and video mute state. */
      notifyDeviceMute?(state: DeviceMuteState): Promise<void>;
@@ -1296,10 +1342,12 @@ index 0d9ec1bba7..ccb917eafc 100644
 +    notifyVoiceStates?(states: VoiceState[]): Promise<void>;
 +    /** Media transport health, cleared on reconnect and when the call ends. */
 +    notifyConnectionStats?(stats: ConnectionStats): Promise<void>;
++    /** Reliable, encrypted call data for soundboard playback. Null when the engine is disposed. */
++    notifySoundboardTransport?(transport: unknown): Promise<void>;
      /**
       * Asks the host to close Element Call: to unmount the component. Its
       * presence is what makes Element Call offer a close button on its error
-@@ -41,6 +50,8 @@ export interface ElementCallHostBridge {
+@@ -41,6 +52,8 @@ export interface ElementCallHostBridge {
       * the situation, or nothing.
       */
      close?(): Promise<void>;
@@ -1308,7 +1356,7 @@ index 0d9ec1bba7..ccb917eafc 100644
      /**
       * Whether Element Call may send and receive reactions in this room.
       * Defaults to true.
-@@ -74,6 +85,59 @@ export interface ElementCallHandle {
+@@ -74,6 +87,59 @@ export interface ElementCallHandle {
       * reports the state that results.
       */
      setDeviceMute(request: DeviceMuteRequest): Promise<DeviceMuteState>;
@@ -1369,7 +1417,7 @@ index 0d9ec1bba7..ccb917eafc 100644
  /**
   * The {@link HostBridge} the rest of Element Call sees, built from what a
 diff --git a/dist/types/src/HostBridge.d.ts b/dist/types/src/HostBridge.d.ts
-index b95e092b28..4e523ba0be 100644
+index b95e092b28..4c668bf803 100644
 --- a/dist/types/src/HostBridge.d.ts
 +++ b/dist/types/src/HostBridge.d.ts
 @@ -1,5 +1,22 @@
@@ -1411,7 +1459,7 @@ index b95e092b28..4e523ba0be 100644
  /**
   * Element Call's view of the application hosting it.
   *
-@@ -48,6 +74,14 @@ export interface HostBridge {
+@@ -48,6 +74,15 @@ export interface HostBridge {
      notifyHungUp(): Promise<void>;
      /** Tells the host the user's current audio and video mute state. */
      notifyDeviceMute(state: DeviceMuteState): Promise<void>;
@@ -1423,10 +1471,11 @@ index b95e092b28..4e523ba0be 100644
 +    readonly notifyVoiceStates?: (states: VoiceState[]) => Promise<void>;
 +    /** Media transport health for component hosts. Independent of Matrix membership. */
 +    readonly notifyConnectionStats?: (stats: ConnectionStats) => Promise<void>;
++    readonly notifySoundboardTransport?: (transport: unknown) => Promise<void>;
      /**
       * Asks the host to close Element Call, and stops communicating with it. No
       * further calls should be made on this bridge afterwards.
-@@ -67,6 +101,12 @@ export interface HostBridge {
+@@ -67,6 +102,12 @@ export interface HostBridge {
      hangUp$: Observable<HostRequest<Record<string, never>>>;
      /** The host wants to change, or read back, the device mute state. */
      deviceMute$: Observable<HostRequest<DeviceMuteRequest, DeviceMuteState>>;

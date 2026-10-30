@@ -5,7 +5,16 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import React, { type JSX, type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, {
+    type JSX,
+    type ReactNode,
+    type RefObject,
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { Text } from "@vector-im/compound-web";
 import {
@@ -34,6 +43,8 @@ import {
 
 import { useViewModel, type ViewModel } from "../../core/viewmodel";
 import { useI18n } from "../../core/i18n/i18nContext";
+import { SoundboardIcon, SoundboardView, type SoundboardViewModel } from "../SoundboardView";
+import { VoicePopover } from "../DesktopVoiceControlsView/VoicePopover";
 import styles from "./DesktopCallStageView.module.css";
 
 /** Lifecycle phase displayed by the stage. */
@@ -138,6 +149,8 @@ export interface DesktopCallStageScreenShareTile {
 
 /** Complete immutable presentation state consumed by the desktop call view. */
 export interface DesktopCallStageViewSnapshot {
+    /** Soundboard shared with the persistent voice dock. */
+    readonly soundboard?: SoundboardViewModel;
     /** Conversation calls share the main column with the timeline; channels use the full stage. */
     readonly presentation: "conversation" | "channel";
     readonly phase: DesktopCallStagePhase;
@@ -156,7 +169,7 @@ export interface DesktopCallStageViewSnapshot {
     readonly isFullscreen: boolean;
     readonly layoutMode: DesktopCallStageLayoutMode;
     readonly spotlightTileId: string | null;
-    readonly activeMenu: "mic" | "camera" | "screenshare" | "reactions" | null;
+    readonly activeMenu: "mic" | "camera" | "screenshare" | "reactions" | "soundboard" | null;
     readonly openTileMenuId: string | null;
     readonly audioInputDevices: readonly DesktopCallStageDeviceOption[];
     readonly audioOutputDevices: readonly DesktopCallStageDeviceOption[];
@@ -199,7 +212,7 @@ export interface DesktopCallStageViewActions {
     selectAudioInput(deviceId: string): void;
     selectAudioOutput(deviceId: string): void;
     selectVideoInput(deviceId: string): void;
-    setActiveMenu(menu: "mic" | "camera" | "screenshare" | "reactions" | null): void;
+    setActiveMenu(menu: "mic" | "camera" | "screenshare" | "reactions" | "soundboard" | null): void;
     setOpenTileMenuId(tileId: string | null): void;
     setSpotlightTileId(tileId: string | null): void;
     setLayoutMode(mode: DesktopCallStageLayoutMode): void;
@@ -362,6 +375,8 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
     const stageRef = useRef<HTMLDivElement | null>(null);
     const cameraMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
     const screenShareMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+    const soundboardTriggerRef = useRef<HTMLButtonElement>(null);
+    const closeSoundboard = useCallback(() => vm.setActiveMenu(null), [vm]);
     const reactionsMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
     const micMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
     const tileMenuTriggerRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
@@ -1433,6 +1448,35 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                                 >
                                     <ReactionSolidIcon />
                                 </button>
+                                {snapshot.soundboard && snapshot.connected && (
+                                    <>
+                                        <button
+                                            ref={soundboardTriggerRef}
+                                            type="button"
+                                            className={styles.controlButton}
+                                            aria-label={_t("desktop|soundboard|title")}
+                                            aria-haspopup="dialog"
+                                            aria-expanded={snapshot.activeMenu === "soundboard"}
+                                            onClick={() =>
+                                                vm.setActiveMenu(
+                                                    snapshot.activeMenu === "soundboard" ? null : "soundboard",
+                                                )
+                                            }
+                                        >
+                                            <SoundboardIcon aria-hidden="true" />
+                                        </button>
+                                        {snapshot.activeMenu === "soundboard" && (
+                                            <VoicePopover
+                                                contentOnly
+                                                anchor={soundboardTriggerRef}
+                                                title={_t("desktop|soundboard|title")}
+                                                onClose={closeSoundboard}
+                                            >
+                                                <SoundboardView vm={snapshot.soundboard} />
+                                            </VoicePopover>
+                                        )}
+                                    </>
+                                )}
                                 {snapshot.activeMenu === "reactions" && (
                                     <StagePopover
                                         anchor={reactionsMenuTriggerRef}

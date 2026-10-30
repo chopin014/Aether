@@ -59,6 +59,15 @@ body.mx_DesktopShell {
         background: transparent;
     }
 
+    /* The portalled sound picker owns its search field; exclude the legacy input padding and weight. */
+    [data-soundboard] label input[type="search"] {
+        padding: 0;
+        font: var(--cpd-font-body-md-regular);
+        margin: 0;
+        border: 0;
+        background: transparent;
+    }
+
     /* Keep the desktop frame visible around the captured settings modal. */
     .mx_Dialog_border:has(.mx_UserSettingsDialog, .mx_RoomSettingsDialog, .mx_SpaceSettingsDialog) {
         width: calc(100% - 80px);

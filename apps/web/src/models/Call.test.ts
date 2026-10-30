@@ -1198,6 +1198,23 @@ describe("ElementCall with the React component embedding", () => {
         vi.useRealTimers();
     });
 
+    it("clears the soundboard transport when closing and refuses registration after destruction", () => {
+        const transport = { send: vi.fn(), subscribe: vi.fn() };
+        const changed = vi.fn();
+        call.on(CallEvent.SoundboardTransport, changed);
+        call.handleSoundboardTransport(transport);
+        call.handleSoundboardTransport(transport);
+        expect(call.soundboardTransport).toBe(transport);
+        expect(changed).toHaveBeenCalledOnce();
+        call.close();
+        expect(call.soundboardTransport).toBeNull();
+        expect(changed).toHaveBeenCalledTimes(2);
+        call.destroy();
+        call.handleSoundboardTransport(transport);
+        expect(call.soundboardTransport).toBeNull();
+        expect(changed).toHaveBeenCalledTimes(2);
+    });
+
     it("cleans stale memberships only for this user's device while it is not in the call", async () => {
         enabledSettings.add("feature_desktop_shell");
         const session = client.matrixRTC.getRoomSession(room);

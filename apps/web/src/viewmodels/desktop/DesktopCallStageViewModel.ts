@@ -40,6 +40,8 @@ import { _t } from "../../languageHandler";
 import type { ElementCall } from "../../models/Call";
 import { resolveScreenShareQuality } from "../../audio/desktop/ScreenShareQuality";
 
+import { SoundboardViewModel } from "./SoundboardViewModel";
+
 /** The existing call engine and Matrix client shown by the desktop stage. */
 export interface DesktopCallStageViewModelProps {
     readonly client: MatrixClient;
@@ -199,6 +201,9 @@ export class DesktopCallStageViewModel
             callees: ringingCallees(props.client, props.call.roomId, state.ringing, state.participants),
             canShareSystemAudio: !window.electron,
         });
+        const soundboard = SoundboardViewModel.acquire({ client: props.client, call: props.call });
+        this.disposables.track(soundboard.release);
+        this.snapshot.merge({ soundboard: soundboard.vm });
         this.bridge = props.bridge;
         this.syncVolumeMaps(state.participants, state.screenShares);
 
@@ -479,7 +484,7 @@ export class DesktopCallStageViewModel
         this.snapshot.merge({ deviceError: null });
     };
 
-    public setActiveMenu = (menu: "mic" | "camera" | "screenshare" | "reactions" | null): void => {
+    public setActiveMenu = (menu: DesktopCallStageViewSnapshot["activeMenu"]): void => {
         if (menu !== null) void this.refreshDevices();
         this.snapshot.merge({ activeMenu: menu, openTileMenuId: null });
     };

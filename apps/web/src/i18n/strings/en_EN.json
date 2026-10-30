@@ -833,6 +833,16 @@
         "share_picker": {
             "title": "Share your screen"
         },
+        "soundboard": {
+            "aether_sounds": "Aether sounds",
+            "decode_failed": "Could not open this audio. Choose a playable audio file up to 20 MB and 10 minutes.",
+            "edit_failed": "Could not open this sound for editing. Check your connection and try again.",
+            "playback_failed": "Could not play this sound. Try another sound or check your audio output.",
+            "remove_failed": "Could not remove this sound. Check your library permissions and try again.",
+            "save_failed": "Could not save this sound. Check your connection and permissions. If the sound was changed or removed, cancel and reopen it.",
+            "send_failed": "Could not send this sound to the call. Check your connection and try again.",
+            "upload_failed": "Could not upload this sound. Check your connection and library permissions, then try again."
+        },
         "text_channels": "Text Channels",
         "threads": {
             "close": "Close thread",

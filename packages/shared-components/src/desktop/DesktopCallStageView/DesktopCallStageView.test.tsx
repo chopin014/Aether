@@ -9,7 +9,8 @@ import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@test-utils";
 
-import { BaseViewModel } from "../../core/viewmodel";
+import type { SoundboardViewSnapshot } from "../SoundboardView";
+import { BaseViewModel, MockViewModel } from "../../core/viewmodel";
 import {
     DesktopCallStageView,
     type DesktopCallStageParticipantTile,
@@ -514,4 +515,50 @@ describe("DesktopCallStageView", () => {
         unmount();
         expect(preview.detach).toHaveBeenCalledOnce();
     });
+});
+
+it("opens the soundboard directly from the in-call toolbar", () => {
+    const soundboard = Object.assign(
+        new MockViewModel<SoundboardViewSnapshot>({
+            query: "",
+            libraries: [],
+            suggested: [{ id: "quack", name: "Quack", emoji: "🦆", libraryId: "builtin" }],
+            volume: 80,
+            busy: false,
+            uploadLibraryId: "",
+            uploadName: "",
+            uploadEmoji: "🔊",
+        }),
+        {
+            open: vi.fn(),
+            setLibrary: vi.fn(),
+            setQuery: vi.fn(),
+            setVolume: vi.fn(),
+            play: vi.fn(),
+            setUploadLibrary: vi.fn(),
+            setUploadName: vi.fn(),
+            setUploadEmoji: vi.fn(),
+            upload: vi.fn(),
+            edit: vi.fn(),
+            setClipVolume: vi.fn(),
+            setClipRange: vi.fn(),
+            previewClip: vi.fn(),
+            stopClipPreview: vi.fn(),
+            cancelClip: vi.fn(),
+            saveClip: vi.fn(),
+            remove: vi.fn(),
+        },
+    );
+    const vm = new TestCallStageViewModel({ soundboard });
+    render(<DesktopCallStageView vm={vm} />);
+    fireEvent.click(screen.getByRole("button", { name: "Soundboard" }));
+    expect(vm.setActiveMenu).toHaveBeenCalledWith("soundboard");
+    expect(screen.getByRole("dialog", { name: "Soundboard" })).toBeVisible();
+    expect(screen.getByRole("searchbox")).toHaveFocus();
+    const soundButton = screen.getByRole("button", { name: "Quack" });
+    soundButton.focus();
+    act(() => vm.updateSnapshot({ roomName: "Renamed room" }));
+    expect(soundButton).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Quack" }));
+    expect(soundboard.play).toHaveBeenCalledOnce();
 });

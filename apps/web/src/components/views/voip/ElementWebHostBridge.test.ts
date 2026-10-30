@@ -31,6 +31,7 @@ describe("ElementWebHostBridge", () => {
         handleScreenShare: ReturnType<typeof vi.fn>;
         handleVoiceStates: ReturnType<typeof vi.fn>;
         handleConnectionStats: ReturnType<typeof vi.fn>;
+        handleSoundboardTransport: ReturnType<typeof vi.fn>;
     };
     let setWidgetPersistence: ReturnType<typeof vi.spyOn>;
     let bridge: ElementWebHostBridge;
@@ -47,6 +48,7 @@ describe("ElementWebHostBridge", () => {
             handleScreenShare: vi.fn(),
             handleVoiceStates: vi.fn(),
             handleConnectionStats: vi.fn(),
+            handleSoundboardTransport: vi.fn(),
         };
         setWidgetPersistence = vi
             .spyOn(ActiveWidgetStore.instance, "setWidgetPersistence")
@@ -56,6 +58,14 @@ describe("ElementWebHostBridge", () => {
 
     afterEach(() => {
         vi.restoreAllMocks();
+    });
+
+    it("binds and releases the real-time soundboard transport", async () => {
+        const transport = { send: vi.fn(), subscribe: vi.fn() };
+        await bridge.notifySoundboardTransport(transport);
+        expect(call.handleSoundboardTransport).toHaveBeenCalledWith(transport);
+        await bridge.notifySoundboardTransport(null);
+        expect(call.handleSoundboardTransport).toHaveBeenLastCalledWith(null);
     });
 
     it("forwards what Element Call tells the host to the call model", async () => {
