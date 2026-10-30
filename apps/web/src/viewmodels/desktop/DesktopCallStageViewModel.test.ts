@@ -182,7 +182,8 @@ describe("DesktopCallStageViewModel", () => {
             userId: "@alice:example.org",
             displayName: "Alice",
         } as AetherParticipantMediaItem;
-        mockCall.soundboardUserIds.add(participant.userId);
+        const soundboardUsers = mockCall.soundboardUserIds as Set<string>;
+        soundboardUsers.add(participant.userId);
         const vm = new DesktopCallStageViewModel({
             client: mockClient,
             call: mockCall,
@@ -193,7 +194,7 @@ describe("DesktopCallStageViewModel", () => {
         notify();
         expect(vm.getSnapshot().participants[0].appearance?.theme?.primary).toBe("#123456");
         expect(vm.getSnapshot().participants[0].soundboardPlaying).toBe(true);
-        mockCall.soundboardUserIds.clear();
+        soundboardUsers.clear();
         getValue.mockImplementation(() => false);
         notify();
         expect(vm.getSnapshot().participants[0].appearance).toBeUndefined();
