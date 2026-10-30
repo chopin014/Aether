@@ -35,6 +35,7 @@ import { _t } from "./languageHandler";
 import SettingsStore from "./settings/SettingsStore";
 import ThemeWatcher from "./settings/watchers/ThemeWatcher";
 import { FontWatcher } from "./settings/watchers/FontWatcher";
+import { paintColorTheme } from "./appearance/colorThemes";
 
 export const DEFAULT_THEME = "light";
 const HIGH_CONTRAST_THEMES: Record<string, string> = {
@@ -385,6 +386,9 @@ export async function setTheme(theme?: string): Promise<void> {
     }
 
     document.body.classList.add(compoundThemeClassName);
+
+    // clearCustomTheme removed the colours, and the base theme they depend on may have changed.
+    paintColorTheme(theme);
 
     return new Promise((resolve, reject) => {
         const switchTheme = function (): void {

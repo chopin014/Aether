@@ -1,0 +1,187 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.root {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-6x);
+}
+
+.heading {
+    margin: 0;
+    color: var(--cpd-color-text-primary);
+}
+
+.groupTitle {
+    margin-block-end: var(--cpd-space-2x);
+    color: var(--cpd-color-text-secondary);
+}
+
+.description {
+    margin-block: 0 var(--cpd-space-3x);
+    color: var(--cpd-color-text-secondary);
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(calc(var(--cpd-space-16x) * 2.25), 1fr));
+    gap: var(--cpd-space-3x);
+}
+
+.tile {
+    /* Keeps the hidden radio inside its tile, so focusing it doesn't scroll the page elsewhere. */
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-subtle-secondary);
+    cursor: pointer;
+
+    &:hover {
+        border-color: var(--cpd-color-border-interactive-hovered);
+    }
+
+    &[data-selected="true"] {
+        border-color: var(--cpd-color-bg-accent-rest);
+        box-shadow: 0 0 0 var(--cpd-border-width-1) var(--cpd-color-bg-accent-rest);
+    }
+
+    &:has(input:focus-visible) {
+        outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+        outline-offset: var(--cpd-border-width-2);
+    }
+}
+
+.visuallyHidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* The miniature's parts are in the theme's colours, not this page's, so they stay comparable. */
+.preview {
+    display: flex;
+    height: calc(var(--cpd-space-16x) + var(--cpd-space-2x));
+}
+
+.previewRail {
+    flex: none;
+    box-sizing: border-box;
+    width: var(--cpd-space-5x);
+    padding-block-start: var(--cpd-space-1-5x);
+    display: flex;
+    justify-content: center;
+}
+
+.previewDot {
+    width: var(--cpd-space-3x);
+    height: var(--cpd-space-3x);
+    border-radius: 50%;
+}
+
+.previewSidebar {
+    flex: none;
+    box-sizing: border-box;
+    width: 32%;
+    padding: var(--cpd-space-2x) var(--cpd-space-1-5x);
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-1-5x);
+}
+
+.previewChat {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: var(--cpd-space-2x);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.previewLine {
+    height: var(--cpd-space-1x);
+    border-radius: var(--cpd-space-0-5x);
+    opacity: 0.8;
+}
+
+.previewComposer {
+    height: var(--cpd-space-3x);
+    border-radius: var(--cpd-space-1x);
+}
+
+.name {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--cpd-space-1x);
+    min-height: var(--cpd-space-9x);
+    padding: var(--cpd-space-1x) var(--cpd-space-2x);
+    box-sizing: border-box;
+    font: var(--cpd-font-body-sm-medium);
+    color: var(--cpd-color-text-primary);
+}
+
+.check {
+    flex: none;
+    width: var(--cpd-space-4x);
+    height: var(--cpd-space-4x);
+    color: var(--cpd-color-icon-accent-primary);
+}
+
+.colors {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(calc(var(--cpd-space-16x) * 3), 1fr));
+    gap: var(--cpd-space-2x) var(--cpd-space-4x);
+}
+
+.color {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-3x);
+    min-height: var(--cpd-space-10x);
+    cursor: pointer;
+    font: var(--cpd-font-body-sm-medium);
+    color: var(--cpd-color-text-primary);
+}
+
+.colorInput {
+    flex: none;
+    width: var(--cpd-space-8x);
+    height: var(--cpd-space-8x);
+    padding: 0;
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-1-5x);
+    background: transparent;
+    cursor: pointer;
+
+    &::-webkit-color-swatch-wrapper {
+        padding: 0;
+    }
+
+    &::-webkit-color-swatch {
+        border: 0;
+        border-radius: var(--cpd-space-1x);
+    }
+}
+
+.colorLabel {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.colorValue {
+    font: var(--cpd-font-body-xs-regular);
+    color: var(--cpd-color-text-secondary);
+}

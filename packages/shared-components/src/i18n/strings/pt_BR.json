@@ -986,6 +986,31 @@
             "upload_clip": "Enviar som",
             "upload_help": "Ouça ou recorte o áudio para até 10 segundos. Todas as pessoas com acesso a esta biblioteca poderão usar seu som.",
             "volume": "Volume do painel de sons"
+        },
+        "color_theme": {
+            "aether_dark": "Escuro",
+            "aether_light": "Claro",
+            "custom": "Personalizado",
+            "customize": "Personalizar",
+            "customize_description": "Alterar uma cor muda para o seu tema personalizado, que fica salvo se você experimentar outro.",
+            "discord_2021_dark": "Escuro (2021)",
+            "discord_2023_dark": "Escuro (2023)",
+            "discord_2023_light": "Claro (2023)",
+            "discord_ash": "Cinza",
+            "discord_dark": "Escuro",
+            "discord_light": "Claro",
+            "discord_onyx": "Ônix",
+            "group_aether": "Aether",
+            "group_discord": "Discord",
+            "group_discord_legacy": "Discord (temas antigos)",
+            "role_accent": "Destaque",
+            "role_chat": "Chat",
+            "role_muted_text": "Texto secundário",
+            "role_rail": "Lista de servidores",
+            "role_raised": "Caixa de mensagem e menus",
+            "role_sidebar": "Lista de canais",
+            "role_text": "Texto",
+            "title": "Cores"
         }
     },
     "threads": {

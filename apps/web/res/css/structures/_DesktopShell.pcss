@@ -406,7 +406,7 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         --mx-desktop-rail-icon: 48px;
         --mx-desktop-rail-inset: 12px;
 
-        background: var(--mx-desktop-shell-frame);
+        background: var(--mx-desktop-rail-background, var(--mx-desktop-shell-frame));
         border-inline-end: none;
         padding-block-start: var(--cpd-space-2x);
         padding-block-end: var(--mx-desktop-dock-clearance);
@@ -490,7 +490,7 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
                 height: 28px;
                 padding: 10px;
                 border-radius: inherit;
-                background-color: var(--cpd-color-bg-subtle-primary);
+                background-color: var(--mx-desktop-rail-icon-background, var(--cpd-color-bg-subtle-primary));
                 transition: background-color 150ms ease-out;
             }
 
@@ -560,7 +560,7 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
 
     /* The sidebar's rounded corner sits on the rail, so the rail's colour has to show behind it. */
     .mx_LeftPanel_outerWrapper {
-        background: var(--mx-desktop-shell-frame);
+        background: var(--mx-desktop-rail-background, var(--mx-desktop-shell-frame));
     }
 
     .mx_LeftPanel {
