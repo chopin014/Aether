@@ -135,14 +135,15 @@ The acceptance target is the captured Discord desktop interface and its interact
 | Settings                        | Channel settings use grouped channel navigation and retain Matrix settings and security controls      | Captured settings content and detailed visual parity for remaining account and server pages |
 | Server/channel administration   | Existing Matrix settings remain available                                                             | Captured layouts and explicit mappings for Discord-specific roles and permissions           |
 | Threads, pins, search and media | Existing Aether actions and rendering retained                                                        | Captured panels, result layouts, menus and populated/error-state coverage                   |
-| Profiles and pickers            | Existing functional Matrix surfaces retained                                                          | Captured profile cards, editors, emoji/sticker layouts and interaction coverage             |
+| Profiles                        | Themed cards and full profile, editor, nameplates, decorations, effects, name styles, board and notes | Per-server profiles and live activity (see [Profile customisation](#profile-customisation)) |
+| Pickers                         | Existing functional Matrix surfaces retained                                                          | Emoji/sticker layouts and interaction coverage                                              |
 | Authentication and recovery     | Existing Aether flows retained                                                                        | Reference capture, visual implementation and real account validation                        |
 
 No surface is marked as having complete Discord parity. Completion requires side-by-side review at the captured viewport, keyboard/focus checks and real Matrix state transitions; passing functional tests alone does not establish visual equivalence.
 
 ## Remaining parity
 
-Full visual and interaction parity is unfinished. Profiles, threads, search results, media, detailed settings content, channel/server creation and administration, picker content and call-stage presentation still need the captured design applied and reviewed. Authentication, recovery, verification and error states need separate visual coverage. Matrix-specific permissions and privacy controls must retain their actual semantics; Discord roles, friends, forums and paid features are not interchangeable backend objects.
+Full visual and interaction parity is unfinished. Threads, search results, media, detailed settings content, channel/server creation and administration, picker content and call-stage presentation still need the captured design applied and reviewed. Authentication, recovery, verification and error states need separate visual coverage. Matrix-specific permissions and privacy controls must retain their actual semantics; Discord roles, friends, forums and paid features are not interchangeable backend objects.
 
 See the [release guide](aether-releases.md) for current packaging, updates, and platform validation.
 Visual parity remains a separate development task.
@@ -390,3 +391,66 @@ env -u ELECTRON_RUN_AS_NODE pnpm exec playwright test playwright/e2e/sharing/sou
 This checks the prompt and source delivery; it does not prove OS capture or audible audio quality. The call media
 suite uses a real two-member MatrixRTC/LiveKit session for transport validation. No surface is certified as complete
 Discord parity from unit tests alone.
+
+## Profile customisation
+
+People customise how they appear under **Settings → Profile**, with a live preview of the real card and member row.
+Nothing is stored until Save. The result shows on the profile popout, the full profile, member list rows and beside
+messages in the timeline.
+
+### Where it is stored
+
+Everything is in the public profile (MSC4133, Matrix 1.16), so it works on any homeserver offering custom profile
+fields and needs no Aether server. Fields another client already defined are reused, so that person's banner, bio and
+pronouns also show there:
+
+| What            | Field                                                                          | Read by               |
+| --------------- | ------------------------------------------------------------------------------ | --------------------- |
+| Banner          | `chat.commet.profile_banner`                                                   | Commet, Sable, Aether |
+| Bio             | `gay.fomx.biography` (MSC4440), `chat.commet.profile_bio`, `moe.sable.app.bio` | Commet, Sable, Aether |
+| Pronouns        | `io.fsky.nyx.pronouns` (MSC4247); `m.pronouns` is read too                     | gomuks, Sable, Aether |
+| Status          | `org.matrix.msc4426.status` (MSC4426)                                          | Element, Aether       |
+| Name colour     | `moe.sable.app.name_color`                                                     | Sable, Aether         |
+| Timezone        | `m.tz`, read for the local time                                                | Element, Aether       |
+| Everything else | `io.aether.profile`                                                            | Aether                |
+
+Three more things are not in the profile:
+
+- A **private note** about someone is account data (`io.aether.user_notes`). Only the viewer and their homeserver can
+  read it; it is not end-to-end encrypted, and the label says so.
+- A **server tag** is defined by a Space's administrators in its state (`io.aether.space.tag`). A profile only names the
+  Space, so nobody can invent a tag or claim one from a community they are not joined to. It follows that a tag only
+  shows to people who share that Space.
+- **Update hints** are encrypted to-device events (`io.aether.profile.updated`).
+
+### Safety
+
+A profile is written by whoever owns the account, so `src/profile/richProfile.ts` treats every value as hostile.
+Decorations, effects, nameplates, fonts and name effects are identifiers into a catalogue bundled with Aether: a profile
+can never supply markup, styles or scripts. Colours must be `#rrggbb`. Media must be `mxc://`, because an external URL
+would reveal the IP address of everyone who looks at the profile. Links must be plain http(s) and always show their real
+host beside their label. Bios are plain text; other clients' HTML is reduced to text and never rendered. Role and
+verification badges come from room state and cross-signing, never from the profile.
+
+Ignored people lose all styling. **Show other people's banners, themes, decorations and effects** under Settings →
+Profile turns it off for everyone on that device, and `prefers-reduced-motion` stops all animation.
+
+### How profiles reach other people
+
+`RichProfileStore` caches each person's profile (10 minutes, or 30 seconds when a card is opened on purpose), makes one
+request however many rows show them, runs at most four lookups at once, and remembers failures for 30 minutes so that a
+slow remote server is not hammered.
+
+Custom profile fields are not pushed to clients by most servers. MSC4429 does this through sync, and Aether subscribes
+where it is offered, but matrix.org did not offer it as of October 2026. On saving, Aether therefore also sends an update
+hint to the same people it announces presence to: people it shares a DM or a small room with. Everyone else sees the
+change when their cached copy expires.
+
+### Not implemented
+
+- **Per-server profiles.** `m.room.member` in a Space could hold them privately and deliver them live, but Synapse
+  rewrites membership events when the global profile changes, which would need re-applying the override afterwards.
+- **Live activity** (games, Spotify) needs an integration that reports it. Showing "in voice" from MatrixRTC is possible.
+- **Mutual friends** has no Matrix equivalent, so mutual rooms and servers take its place.
+- **Awarded badges** need something that can issue them with proof. Self-declared ones would be meaningless.
+- Animated avatars play on the cards. Member rows and the timeline use still thumbnails.
