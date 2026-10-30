@@ -142,3 +142,36 @@ test("creates a channel of either kind from any section", async ({ page, app, sp
     await page.mouse.move(0, 0);
     await page.locator(".mx_LeftPanel").screenshot({ path: `${CAPTURES}/list-after.png` });
 });
+
+for (const kind of ["text", "voice"] as const) {
+    test(`creates the first ${kind} channel inside its empty server`, async ({ page, app, user }) => {
+        await settle(page);
+        const spaceId = await app.client.createSpace({ name: "Empty server" });
+        await app.viewSpaceByName("Empty server");
+        await expect(roomList(page).getByText("No channels yet")).toBeVisible();
+        await expect(roomList(page).getByRole("button", { name: "Start chat" })).toHaveCount(0);
+        await roomList(page).getByRole("button", { name: "Create channel", exact: true }).click();
+        await expect(dialog(page)).toBeVisible();
+        await expect(dialog(page).getByText("in Empty server", { exact: true })).toBeVisible();
+        await dialog(page)
+            .getByRole("radio", { name: kind === "voice" ? "Voice" : "Text", exact: true })
+            .check();
+        await dialog(page).getByRole("textbox", { name: "Channel name" }).fill("first-channel");
+        await dialog(page).getByRole("button", { name: "Create channel", exact: true }).click();
+        await expect(channel(page, "first-channel")).toBeVisible({ timeout: 15_000 });
+        const roomId = await app.client.evaluate(
+            (client) => client.getRooms().find((room) => room.name === "first-channel")!.roomId,
+        );
+        const [child, parent] = await app.client.evaluate(
+            (client, { spaceId, roomId }) =>
+                Promise.all([
+                    client.getStateEvent(spaceId, "m.space.child", roomId),
+                    client.getStateEvent(roomId, "m.space.parent", spaceId),
+                ]),
+            { spaceId, roomId },
+        );
+        expect(child.via).toContain(user.homeServer);
+        expect(parent.via).toContain(user.homeServer);
+        await expect(page.getByTestId("aether-call-stage")).toHaveCount(0);
+    });
+}

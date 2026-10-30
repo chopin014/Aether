@@ -769,6 +769,10 @@
         "collapse_all_sections": "Collapse all sections",
         "collapse_filters": "Collapse filter list",
         "empty": {
+            "create_channel": "Create channel",
+            "no_channels": "No channels yet",
+            "no_channels_description": "Create a text or voice channel in this server.",
+            "no_channels_description_no_room_rights": "No channels are available yet.",
             "no_chats": "No chats yet",
             "no_chats_description": "Get started by messaging someone or by creating a room",
             "no_chats_description_no_room_rights": "Get started by messaging someone",

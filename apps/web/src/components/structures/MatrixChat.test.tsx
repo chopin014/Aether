@@ -81,6 +81,7 @@ import { SetupEncryptionStore } from "../../stores/SetupEncryptionStore.ts";
 import { ShareFormat } from "../../dispatcher/payloads/SharePayload.ts";
 import { clearStorage } from "../../Lifecycle";
 import UserSettingsDialog from "../../components/views/dialogs/UserSettingsDialog.tsx";
+import CreateRoomDialog from "../../components/views/dialogs/CreateRoomDialog";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
 import { type QrLoginCredentials } from "../../components/views/auth/LoginWithQR.tsx";
 import { storeAuthContext } from "../../utils/oauth/persistOAuthSettings.ts";
@@ -936,6 +937,26 @@ describe("<MatrixChat />", () => {
         describe("onAction()", () => {
             afterEach(() => {
                 vi.restoreAllMocks();
+            });
+
+            it.each([false, true])("preserves the CreateRoom server context: %s", async (inSpace) => {
+                await getComponentAndWaitForReady();
+                const parentSpace = inSpace ? new Room("!parent:server.org", mockClient, userId) : undefined;
+                const createDialog = vi.spyOn(Modal, "createDialog").mockReturnValue({
+                    finished: Promise.resolve([false]),
+                    close: vi.fn(),
+                } as ReturnType<typeof Modal.createDialog>);
+                await act(async () => {
+                    defaultDispatcher.dispatch({ action: Action.CreateRoom, parent_space: parentSpace });
+                });
+                await waitFor(() =>
+                    expect(createDialog).toHaveBeenCalledWith(CreateRoomDialog, {
+                        type: undefined,
+                        defaultPublic: false,
+                        defaultName: undefined,
+                        parentSpace,
+                    }),
+                );
             });
 
             it("ViewUserDeviceSettings should open user device settings", async () => {

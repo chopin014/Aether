@@ -17,6 +17,7 @@ import {
     MatrixEvent,
     MsgType,
     RestrictedAllowType,
+    type Room,
     type RoomType,
     SyncState,
     type SyncStateData,
@@ -800,7 +801,7 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
                 break;
             }
             case Action.CreateRoom:
-                void this.createRoom(payload.public, payload.defaultName, payload.type);
+                void this.createRoom(payload.public, payload.defaultName, payload.type, payload.parent_space);
 
                 // View the welcome or home page if we need something to look at
                 this.viewSomethingBehindModal();
@@ -1206,11 +1207,17 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
         });
     }
 
-    private async createRoom(defaultPublic = false, defaultName?: string, type?: RoomType): Promise<void> {
+    private async createRoom(
+        defaultPublic = false,
+        defaultName?: string,
+        type?: RoomType,
+        parentSpace?: Room,
+    ): Promise<void> {
         const modal = Modal.createDialog(CreateRoomDialog, {
             type,
             defaultPublic,
             defaultName,
+            parentSpace,
         });
 
         const [shouldCreate, opts] = await modal.finished;

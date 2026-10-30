@@ -25,6 +25,8 @@ const {
     DesktopChannels,
     Loading,
     Empty,
+    EmptyServer,
+    EmptyServerWithoutCreatePermission,
     EmptyWithoutCreatePermission,
     WithActiveFilter,
     SmallFlatList,
@@ -150,6 +152,21 @@ describe("<RoomListView />", () => {
         await user.click(screen.getByRole("button", { name: "Start chat" }));
 
         expect(Empty.args.createChatRoom).toHaveBeenCalled();
+    });
+
+    it("offers channel creation in an empty server", async () => {
+        renderWithMockContext(<EmptyServer />);
+        expect(screen.getByText("No channels yet")).toBeVisible();
+        expect(screen.queryByRole("button", { name: "Start chat" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "New room" })).not.toBeInTheDocument();
+        await userEvent.click(screen.getByRole("button", { name: "Create channel" }));
+        expect(EmptyServer.args.createRoom).toHaveBeenCalled();
+    });
+
+    it("explains an empty server without offering creation to members without permission", () => {
+        renderWithMockContext(<EmptyServerWithoutCreatePermission />);
+        expect(screen.getByText("No channels are available yet.")).toBeVisible();
+        expect(screen.queryByRole("button")).not.toBeInTheDocument();
     });
 
     it("should call onToggleFilter when Show all chats is clicked in unread empty state", async () => {

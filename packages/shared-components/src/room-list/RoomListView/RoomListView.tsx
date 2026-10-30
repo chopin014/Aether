@@ -38,6 +38,8 @@ export type RoomListViewSnapshot = {
     filterIds: FilterId[];
     /** Space channel navigation uses categories rather than primary filter chips. */
     hidePrimaryFilters?: boolean;
+    /** Whether this lists channels in a desktop server, with server-specific empty actions. */
+    isSpaceChannelList?: boolean;
     /** Currently active filter ID (if any) */
     activeFilterId?: FilterId;
     /** Room list state */
