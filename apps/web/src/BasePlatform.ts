@@ -325,7 +325,12 @@ export default abstract class BasePlatform {
         return null;
     }
 
-    public setLanguage(preferredLangs: string[]): void {}
+    /** Returns operating system language preferences when provided by the desktop host. */
+    public async getSystemLanguages(): Promise<string[] | undefined> {
+        return undefined;
+    }
+
+    public setLanguage(preferredLangs: string[]): void | Promise<void> {}
 
     public setSpellCheckEnabled(enabled: boolean): void {}
 

@@ -6,7 +6,7 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import { expect, describe, it, beforeEach, afterEach, vi } from "vitest";
-import { desktopCapturer, nativeImage, TouchBar } from "electron";
+import { app, desktopCapturer, nativeImage, TouchBar } from "electron";
 
 import { getConfig } from "./config.js";
 import { consumeDisplayMediaCallback } from "./displayMediaCallback.js";
@@ -29,7 +29,7 @@ const { ipcHandlers, mockStore, send, randomArray, getUpdaterState, getUpdaterFe
 }));
 
 vi.mock("electron", () => ({
-    app: { getVersion: vi.fn(() => "1.0.0") },
+    app: { getVersion: vi.fn(() => "1.0.0"), getPreferredSystemLanguages: vi.fn(() => ["pt-BR", "en-US"]) },
     desktopCapturer: { getSources: vi.fn() },
     ipcMain: {
         on: vi.fn((channel: string, cb: (...a: unknown[]) => unknown) => {
@@ -363,5 +363,14 @@ describe("native window theme IPC", () => {
         } else {
             expect(setTitleBarOverlay).not.toHaveBeenCalled();
         }
+    });
+});
+
+describe("system language IPC", () => {
+    it("should return operating system preferences to the renderer", async () => {
+        global.mainWindow = { webContents: { send } } as unknown as Electron.BrowserWindow;
+        await callIpc("getSystemLanguages");
+        expect(app.getPreferredSystemLanguages).toHaveBeenCalled();
+        expect(send).toHaveBeenCalledWith("ipcReply", { id: 1, reply: ["pt-BR", "en-US"] });
     });
 });

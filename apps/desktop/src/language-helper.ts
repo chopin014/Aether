@@ -6,7 +6,7 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import counterpart from "counterpart";
-import { type TranslationKey as TKey } from "matrix-web-i18n";
+import { getNormalizedLanguageKeys, type TranslationKey as TKey } from "matrix-web-i18n";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -63,14 +63,20 @@ export class AppLocalization {
     private static readonly STORE_KEY = "locale";
 
     private readonly localizedComponents?: Set<Component>;
-    private readonly store: Store;
 
-    public constructor({ components = [], store }: { components: Component[]; store: Store }) {
+    public constructor({
+        components = [],
+        store,
+        languages = [FALLBACK_LOCALE],
+    }: {
+        components: Component[];
+        store: Store;
+        languages?: string[];
+    }) {
         counterpart.registerTranslations(FALLBACK_LOCALE, this.fetchTranslationJson("en_EN"));
         counterpart.setFallbackLocale(FALLBACK_LOCALE);
         counterpart.setSeparator("|");
 
-        this.store = store;
         if (Array.isArray(components)) {
             this.localizedComponents = new Set(components);
         }
@@ -78,9 +84,9 @@ export class AppLocalization {
         if (store.has(AppLocalization.STORE_KEY)) {
             const locales = store.get(AppLocalization.STORE_KEY);
             this.setAppLocale(locales!);
+        } else {
+            this.setAppLocale(languages);
         }
-
-        this.resetLocalizedUI();
     }
 
     // Format language strings from normalized form to non-normalized form (e.g. en-gb to en_GB)
@@ -88,7 +94,7 @@ export class AppLocalization {
         if (locale === "en") {
             locale = "en_EN";
         }
-        const parts = locale.split("-");
+        const parts = locale.replaceAll("_", "-").split("-");
         if (parts.length > 1) {
             parts[1] = parts[1].toUpperCase();
         }
@@ -112,16 +118,15 @@ export class AppLocalization {
             locales = [locales];
         }
 
-        const chosenLocale = locales.find((locale) => {
+        const chosenLocale = locales.flatMap(getNormalizedLanguageKeys).find((locale) => {
             const translations = this.fetchTranslationJson(locale);
-            if (translations !== null) {
+            if (Object.keys(translations).length) {
                 counterpart.registerTranslations(locale, translations);
             }
-            return !!translations;
+            return Object.keys(translations).length > 0;
         });
 
-        counterpart.setLocale(chosenLocale!);
-        this.store.set(AppLocalization.STORE_KEY, locales);
+        counterpart.setLocale(chosenLocale ?? FALLBACK_LOCALE);
 
         this.resetLocalizedUI();
     }

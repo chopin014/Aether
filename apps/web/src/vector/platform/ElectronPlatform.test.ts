@@ -445,6 +445,18 @@ describe("ElectronPlatform", () => {
         });
     });
 
+    it("should retrieve system languages through the desktop bridge", async () => {
+        const platform = new ElectronPlatform();
+        mockElectron.send.mockClear();
+        const languages = platform.getSystemLanguages();
+        const [channel, { id, name }] = mockElectron.send.mock.calls[0];
+        expect(channel).toBe("ipcCall");
+        expect(name).toBe("getSystemLanguages");
+        const [, reply] = getElectronEventHandlerCall("ipcReply")!;
+        reply({}, { id, reply: ["pt-BR", "en-US"] });
+        await expect(languages).resolves.toEqual(["pt-BR", "en-US"]);
+    });
+
     describe("spellcheck", () => {
         it("indicates support for spellcheck settings", () => {
             const platform = new ElectronPlatform();

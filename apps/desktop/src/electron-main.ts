@@ -221,6 +221,7 @@ app.on("ready", async () => {
 
     // Set up i18n before loading storage as we need translations for dialogs
     global.appLocalization = new AppLocalization({
+        languages: app.getPreferredSystemLanguages(),
         components: [(): void => tray.initApplicationMenu(), (): void => Menu.setApplicationMenu(buildMenuTemplate())],
         store,
     });
