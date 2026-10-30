@@ -6,9 +6,10 @@ Please see LICENSE in the repository root for full details.
 */
 
 import React, { type JSX, useId } from "react";
-import { RoomIcon, VolumeOnIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
+import { VolumeOnIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { _t } from "../../core/i18n/i18n";
+import { TextChannelIcon } from "../TextChannelIcon";
 import styles from "./ChannelKindPicker.module.css";
 
 /** The kinds of channel a Space can hold: a text room, or a voice room that joins a call when opened. */
@@ -34,7 +35,7 @@ export function ChannelKindPicker({ value, onChange }: Readonly<ChannelKindPicke
     const kinds = [
         {
             kind: "text",
-            Icon: RoomIcon,
+            Icon: TextChannelIcon,
             label: _t("desktop|channel_kind|text"),
             description: _t("desktop|channel_kind|text_description"),
         },

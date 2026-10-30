@@ -19,12 +19,11 @@ import VerifiedIcon from "@vector-im/compound-design-tokens/assets/web/icons/ver
 import ErrorIcon from "@vector-im/compound-design-tokens/assets/web/icons/error-solid";
 import PublicIcon from "@vector-im/compound-design-tokens/assets/web/icons/public";
 import { EventType, HistoryVisibility, JoinRule, type Room } from "matrix-js-sdk/src/matrix";
-import { Flex, Box, StatusTextView } from "@element-hq/web-shared-components";
+import { Flex, Box, StatusTextView, TextChannelIcon } from "@element-hq/web-shared-components";
 import { CallType } from "matrix-js-sdk/src/webrtc/call";
 import {
     HistoryIcon,
     UserProfileSolidIcon,
-    RoomIcon,
     GroupIcon,
     VolumeOnIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
@@ -567,7 +566,7 @@ export default function RoomHeader({
                         {room.isCallRoom() || room.isElementVideoRoom() ? (
                             <VolumeOnIcon className="mx_DesktopShell_channelIcon" aria-hidden />
                         ) : (
-                            <RoomIcon className="mx_DesktopShell_channelIcon" aria-hidden />
+                            <TextChannelIcon className="mx_DesktopShell_channelIcon" aria-hidden />
                         )}
                         {hasChannelIcon && (
                             <RoomAvatar room={room} size="24px" className="mx_DesktopShell_channelImage" />

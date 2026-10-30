@@ -8,10 +8,11 @@
 import React, { type JSX, memo, type ReactNode } from "react";
 import { Text, Tooltip } from "@vector-im/compound-web";
 import classNames from "classnames";
-import { RoomIcon, VolumeOnIcon, VolumeOnSolidIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
+import { VolumeOnIcon, VolumeOnSolidIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { Flex } from "../../../../core/utils/Flex";
 import { useViewModel } from "../../../../core/viewmodel";
+import { TextChannelIcon } from "../../../../desktop/TextChannelIcon";
 import { NotificationDecoration } from "./NotificationDecoration";
 import { RoomListItemHoverMenu } from "./RoomListItemHoverMenu";
 import { type Room, type RoomListItemViewModel } from "./RoomListItemView";
@@ -66,7 +67,7 @@ export const RoomListItemContent = memo(function RoomListItemContent({
                     ) : item.channelKind === "voice" ? (
                         <VolumeOnIcon className={styles.channelIcon} data-testid="channel-kind-voice" aria-hidden />
                     ) : (
-                        <RoomIcon className={styles.channelIcon} data-testid="channel-kind-text" aria-hidden />
+                        <TextChannelIcon className={styles.channelIcon} data-testid="channel-kind-text" aria-hidden />
                     )}
                     {item.channelIconUrl && <img className={styles.channelImage} src={item.channelIconUrl} alt="" />}
                 </span>

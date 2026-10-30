@@ -17,8 +17,8 @@ import React, {
 } from "react";
 import { type Room, RoomType, JoinRule, Preset, Visibility } from "matrix-js-sdk/src/matrix";
 import { Form, SettingsToggleInput } from "@vector-im/compound-web";
-import { RoomIcon, VolumeOnIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
-import { type ChannelKind, ChannelKindPicker } from "@element-hq/web-shared-components";
+import { VolumeOnIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
+import { type ChannelKind, ChannelKindPicker, TextChannelIcon } from "@element-hq/web-shared-components";
 
 import SdkConfig from "../../../SdkConfig";
 import withValidation, { type IFieldState, type IValidationResult } from "../elements/Validation";
@@ -507,7 +507,7 @@ export default class CreateRoomDialog extends React.Component<IProps, IState> {
                                     this.state.channelKind === "voice" ? (
                                         <VolumeOnIcon className="mx_CreateRoomDialog_channelSymbol" aria-hidden />
                                     ) : (
-                                        <RoomIcon className="mx_CreateRoomDialog_channelSymbol" aria-hidden />
+                                        <TextChannelIcon className="mx_CreateRoomDialog_channelSymbol" aria-hidden />
                                     )
                                 ) : undefined
                             }

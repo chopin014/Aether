@@ -260,17 +260,19 @@
 }
 
 /* The channel's kind symbol, followed by its custom icon when it has one. */
+/* The kind symbol keeps clear of a custom icon after it, so the two read as separate marks. */
 .channelSymbols {
     display: flex;
     flex: none;
     align-items: center;
-    gap: var(--cpd-space-1-5x);
+    gap: var(--cpd-space-2x);
 }
 
+/* A touch larger than the name beside it, and dimmer, like Discord's channel symbols. */
 .channelIcon {
     flex: none;
-    width: var(--cpd-space-5x);
-    height: var(--cpd-space-5x);
+    width: calc(var(--cpd-space-5x) + var(--cpd-space-0-5x));
+    height: calc(var(--cpd-space-5x) + var(--cpd-space-0-5x));
     color: var(--cpd-color-icon-tertiary);
     transition: color 120ms ease-out;
 }
