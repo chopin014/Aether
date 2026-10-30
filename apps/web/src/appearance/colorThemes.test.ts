@@ -14,7 +14,9 @@ import {
     applyColorTheme,
     COLOR_THEME_PRESETS,
     getColorThemeBase,
+    contrast,
     getEditableColors,
+    type ColorThemePresetId,
     type ColorThemeSetting,
 } from "./colorThemes";
 import SettingsStore from "../settings/SettingsStore";
@@ -115,6 +117,27 @@ describe("colorThemes", () => {
         setting = { id: "custom", custom: { ...custom, accent: "#101040" } };
         applyColorTheme("dark");
         expect(variable("--ae-on-accent")).toBe("#ffffff");
+    });
+
+    it.each(Object.keys(COLOR_THEME_PRESETS) as ColorThemePresetId[])(
+        "should keep the accent readable on the chat colour, and text readable on the dock, in %s",
+        (id) => {
+            const { accentForeground, chat, dock, mutedText } = COLOR_THEME_PRESETS[id].palette;
+            expect(contrast(accentForeground, chat)).toBeGreaterThanOrEqual(3);
+            expect(contrast(mutedText, dock)).toBeGreaterThanOrEqual(4.5);
+        },
+    );
+
+    it("should only lighten a custom accent as far as it needs to", () => {
+        setting = { id: "custom", custom: { ...custom, accent: "#ffcc00" } };
+        applyColorTheme("dark");
+        expect(variable("--ae-accent-foreground")).toBe("#ffcc00");
+
+        setting = { id: "custom", custom: { ...custom, accent: "#0000ff" } };
+        applyColorTheme("dark");
+        const foreground = variable("--ae-accent-foreground");
+        expect(foreground).not.toBe("#0000ff");
+        expect(contrast(foreground, custom.chat)).toBeGreaterThanOrEqual(4.5);
     });
 
     it("should start editing from the current theme's colours", () => {

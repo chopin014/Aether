@@ -15,6 +15,10 @@ export type ColorThemeBase = "dark" | "light";
 /** Everything a theme paints. Colours left out keep their Compound value. */
 interface ColorThemePalette extends ColorThemeColors {
     railIcon: string;
+    /** The account dock. */
+    dock: string;
+    /** The accent where it is text or an icon rather than a fill, readable on the chat colour. */
+    accentForeground: string;
     border: string;
     hover: string;
     selected: string;
@@ -106,7 +110,8 @@ const AETHER_COLORS: Record<ColorThemeBase, ColorThemeColors> = {
  * Discord's themes, resolved from the tokens in its stylesheets: `.theme-dark` (Ash), `.theme-darker` (Dark),
  * `.theme-midnight` (Onyx) and `.theme-light`, and for the 2023 palette the `--primary-*` scale before the refresh.
  * The rail and sidebar are `--background-base-lowest`, the chat `--background-base-lower`, and raised surfaces
- * `--chat-background-default`, which paints the message composer.
+ * `--chat-background-default`, which paints the message composer. The dock is `--background-base-low`, and the
+ * accent as text is `--text-brand`.
  */
 export const COLOR_THEME_PRESETS: Record<ColorThemePresetId, ColorThemePreset> = {
     "discord-ash": {
@@ -118,6 +123,8 @@ export const COLOR_THEME_PRESETS: Record<ColorThemePresetId, ColorThemePreset> =
             chat: "#323339",
             raised: "#393a41",
             railIcon: "#323339",
+            dock: "#36373e",
+            accentForeground: "#94a8ff",
             border: DISCORD_TINT_12,
             selected: DISCORD_TINT_20,
             text: "#f3f3f4",
@@ -137,6 +144,8 @@ export const COLOR_THEME_PRESETS: Record<ColorThemePresetId, ColorThemePreset> =
             chat: "#1a1a1e",
             raised: "#222327",
             railIcon: "#1a1a1e",
+            dock: "#202024",
+            accentForeground: "#798df9",
             border: DISCORD_TINT_12,
             selected: DISCORD_TINT_20,
             text: "#efeff1",
@@ -156,6 +165,8 @@ export const COLOR_THEME_PRESETS: Record<ColorThemePresetId, ColorThemePreset> =
             chat: "#000000",
             raised: "#101013",
             railIcon: "#000000",
+            dock: "#000000",
+            accentForeground: "#6374f4",
             border: DISCORD_TINT_20,
             selected: DISCORD_TINT_24,
             text: "#d4d5d8",
@@ -178,6 +189,8 @@ export const COLOR_THEME_PRESETS: Record<ColorThemePresetId, ColorThemePreset> =
             chat: "#fbfbfb",
             raised: "#ffffff",
             railIcon: "#fbfbfb",
+            dock: "#fbfbfb",
+            accentForeground: "#525fe0",
             border: DISCORD_TINT_28,
             hover: DISCORD_TINT_12,
             selected: DISCORD_TINT_24,
@@ -200,6 +213,8 @@ export const COLOR_THEME_PRESETS: Record<ColorThemePresetId, ColorThemePreset> =
             chat: "#313338",
             raised: "#383a40",
             railIcon: "#313338",
+            dock: "#232428",
+            accentForeground: "#949cf7",
             border: "#4e50587a",
             hover: "#4e50584d",
             selected: "#4e505899",
@@ -208,7 +223,7 @@ export const COLOR_THEME_PRESETS: Record<ColorThemePresetId, ColorThemePreset> =
             channelIcon: "#80848e",
             positive: "#23a55a",
             positiveSolid: "#23a55a",
-            critical: "#f23f43",
+            critical: "#fa777b",
             criticalSolid: "#da373c",
             warning: "#f0b232",
         },
@@ -222,6 +237,8 @@ export const COLOR_THEME_PRESETS: Record<ColorThemePresetId, ColorThemePreset> =
             chat: "#ffffff",
             raised: "#ebedef",
             railIcon: "#ffffff",
+            dock: "#ebedef",
+            accentForeground: "#4752c4",
             border: "#6d6f783d",
             hover: "#6d6f7829",
             selected: "#6d6f783d",
@@ -244,15 +261,17 @@ export const COLOR_THEME_PRESETS: Record<ColorThemePresetId, ColorThemePreset> =
             chat: "#36393f",
             raised: "#40444b",
             railIcon: "#36393f",
+            dock: "#292b2f",
+            accentForeground: "#949cf7",
             border: "#4f545c7a",
             hover: "#4f545c29",
             selected: "#4f545c52",
             text: "#dcddde",
-            mutedText: "#96989d",
+            mutedText: "#a3a6aa",
             channelIcon: "#96989d",
             positive: "#3ba55d",
             positiveSolid: "#3ba55d",
-            critical: "#ed4245",
+            critical: "#fa777b",
             criticalSolid: "#ed4245",
             warning: "#faa81a",
         },
@@ -273,6 +292,32 @@ function readableOn(color: string): string {
     return (luminance(color) + 0.05) / 0.05 > 1.05 / (luminance(color) + 0.05) ? "#000000" : "#ffffff";
 }
 
+/** The contrast ratio between two `#rrggbb` colours, as defined by WCAG. */
+export function contrast(first: string, second: string): number {
+    const [lighter, darker] = [luminance(first), luminance(second)].sort((a, b) => b - a);
+    return (lighter + 0.05) / (darker + 0.05);
+}
+
+/** Mixes two `#rrggbb` colours, where an amount of 1 gives all of the second. */
+function mix(from: string, to: string, amount: number): string {
+    const channels = [1, 3, 5].map((start) => {
+        const [a, b] = [from, to].map((color) => parseInt(color.slice(start, start + 2), 16));
+        return Math.round(a + (b - a) * amount)
+            .toString(16)
+            .padStart(2, "0");
+    });
+    return `#${channels.join("")}`;
+}
+
+/** The accent, moved towards the text colour only as far as it takes to be readable on the chat colour. */
+function readableAccent({ accent, text, chat }: ColorThemeColors): string {
+    for (let amount = 0; amount < 1; amount += 0.1) {
+        const color = mix(accent, text, amount);
+        if (contrast(color, chat) >= 4.5) return color;
+    }
+    return text;
+}
+
 /** A custom theme is dark or light according to its chat background. */
 function customBase(colors: ColorThemeColors): ColorThemeBase {
     return readableOn(colors.chat) === "#ffffff" ? "dark" : "light";
@@ -284,6 +329,8 @@ function customPalette(colors: ColorThemeColors): ColorThemePalette {
     return {
         ...colors,
         railIcon: colors.raised,
+        dock: colors.raised,
+        accentForeground: readableAccent(colors),
         border: `color-mix(in srgb, ${colors.text} 14%, transparent)`,
         hover: `color-mix(in srgb, ${colors.text} 6%, transparent)`,
         selected: `color-mix(in srgb, ${colors.text} 12%, transparent)`,
@@ -321,6 +368,7 @@ function paletteVariables(palette: ColorThemePalette): Record<string, string | u
     return {
         "--mx-desktop-rail-background": palette.rail,
         "--mx-desktop-rail-icon-background": palette.railIcon,
+        "--mx-desktop-dock-background": palette.dock,
         "--mx-desktop-shell-frame": palette.sidebar,
         "--cpd-color-bg-subtle-secondary": palette.sidebar,
         "--cpd-color-bg-canvas-default": palette.chat,
@@ -332,6 +380,7 @@ function paletteVariables(palette: ColorThemePalette): Record<string, string | u
         "--ae-text-muted": palette.mutedText,
         "--cpd-color-icon-tertiary": palette.channelIcon,
         "--ae-accent": palette.accent,
+        "--ae-accent-foreground": palette.accentForeground,
         "--ae-focus": palette.accent,
         "--ae-accent-hovered": palette.accentHovered,
         "--ae-accent-pressed": palette.accentPressed,

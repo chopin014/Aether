@@ -334,9 +334,23 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
     --cpd-color-text-on-solid-primary: var(--ae-on-accent);
     --cpd-color-icon-on-solid-primary: var(--ae-on-accent);
     --cpd-color-icon-accent-tertiary: var(--ae-accent);
-    --cpd-color-text-action-accent: var(--ae-accent);
-    --cpd-color-icon-accent-primary: var(--ae-accent);
-    --cpd-color-text-link-external: var(--ae-accent);
+    --cpd-color-text-action-accent: var(--ae-accent-foreground, var(--ae-accent));
+    --cpd-color-icon-accent-primary: var(--ae-accent-foreground, var(--ae-accent));
+    --cpd-color-text-link-external: var(--ae-accent-foreground, var(--ae-accent));
+    /*
+     * Older styles use Compound's gray scale directly for icons and waveforms. It suits Compound's own near-black and
+     * white, and nearly disappears on any other surface, so these steps follow the theme's colours instead.
+     */
+    --cpd-color-gray-800: var(--ae-text-muted);
+    --cpd-color-gray-600: color-mix(in srgb, var(--ae-text-muted) 85%, var(--ae-surface-raised));
+}
+
+/*
+ * A tooltip has a neutral fill, where the text colour meant for accent fills may be unreadable. Compound only gives
+ * tooltips the role when they describe their button, not when they name it, so this matches its class.
+ */
+body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] {
+    --cpd-color-text-on-solid-primary: var(--cpd-color-bg-canvas-default);
 }
 
 .mx_MatrixChat_wrapper.mx_MatrixChat_desktopShell {
@@ -904,6 +918,15 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
         .mx_SendMessageComposer .mx_BasicMessageComposer {
             min-height: 54px;
             font-size: 15px;
+        }
+
+        /* The themed red and ring, which stay readable on any composer colour. */
+        .mx_VoiceRecordComposerTile_stop {
+            border-color: var(--cpd-color-gray-600);
+
+            svg {
+                color: var(--cpd-color-icon-critical-primary);
+            }
         }
 
         .mx_MessageComposer_actions {
