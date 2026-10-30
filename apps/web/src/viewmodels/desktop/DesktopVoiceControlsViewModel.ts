@@ -7,6 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import {
     BaseViewModel,
+    type DesktopVoiceDevice,
     type DesktopVoiceControlsViewSnapshot,
     type DesktopVoiceControlsViewModel as DesktopVoiceControlsViewModelInterface,
 } from "@element-hq/web-shared-components";
@@ -21,6 +22,8 @@ import defaultDispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 import { type ViewRoomPayload } from "../../dispatcher/payloads/ViewRoomPayload";
 import { _t, _td } from "../../languageHandler";
+import MediaDeviceHandler, { MediaDeviceHandlerEvent, MediaDeviceKindEnum } from "../../MediaDeviceHandler";
+import { UserTab } from "../../components/views/dialogs/UserTab";
 
 import { DesktopShortcutManager } from "../../audio/desktop/DesktopShortcutManager";
 import { MicrophoneTest, mediaTestError } from "../../audio/desktop/MicrophoneTest";
@@ -77,6 +80,12 @@ export class DesktopVoiceControlsViewModel
             noiseSuppression: false,
             noiseSuppressionStrength: 100,
             microphoneTest: { active: false, level: null, open: false },
+            audioInputs: [],
+            audioOutputs: [],
+            audioInputId: MediaDeviceHandler.getAudioInput(),
+            audioOutputId: MediaDeviceHandler.getAudioOutput(),
+            microphoneVolume: SettingsStore.getValue("desktopMicrophoneVolume"),
+            speakerVolume: SettingsStore.getValue("desktopSpeakerVolume"),
             connection: {
                 state: "disconnected",
                 quality: "unknown",
@@ -103,6 +112,21 @@ export class DesktopVoiceControlsViewModel
         ] as const) {
             const ref = SettingsStore.watchSetting(setting, null, this.onSettingsChanged);
             this.disposables.track(() => SettingsStore.unwatchSetting(ref));
+        }
+        for (const setting of ["webrtc_audioinput", "webrtc_audiooutput"] as const) {
+            const ref = SettingsStore.watchSetting(setting, null, this.refreshSelectedDevices);
+            this.disposables.track(() => SettingsStore.unwatchSetting(ref));
+        }
+        this.disposables.trackListener(
+            MediaDeviceHandler.instance,
+            MediaDeviceHandlerEvent.AudioOutputChanged,
+            this.refreshSelectedDevices,
+        );
+        if (navigator.mediaDevices?.addEventListener) {
+            navigator.mediaDevices.addEventListener("devicechange", this.onDeviceChange);
+            this.disposables.track(() =>
+                navigator.mediaDevices.removeEventListener("devicechange", this.onDeviceChange),
+            );
         }
         this.disposables.track(() => this.call?.off(CallEvent.DeviceMute, this.onDeviceMute));
         this.disposables.track(() => this.call?.off(CallEvent.ScreenShare, this.onScreenShare));
@@ -163,11 +187,20 @@ export class DesktopVoiceControlsViewModel
         const call = this.call?.locallyLeaving ? undefined : this.call;
         const processing = getMicrophoneGateConfig();
         this.snapshot.merge({
-            ...(this.call?.locallyLeaving ? { error: undefined, panel: null } : {}),
+            ...(this.call?.locallyLeaving
+                ? {
+                      error: undefined,
+                      ...(this.snapshot.current.panel === "noise" || this.snapshot.current.panel === "connection"
+                          ? { panel: null }
+                          : {}),
+                  }
+                : {}),
             microphoneMuted: call?.deviceMuteState
                 ? !call.deviceMuteState.audio_enabled
                 : SettingsStore.getValue("audioInputMuted"),
             deafened: SettingsStore.getValue("desktopDeafened"),
+            microphoneVolume: SettingsStore.getValue("desktopMicrophoneVolume"),
+            speakerVolume: SettingsStore.getValue("desktopSpeakerVolume"),
             videoEnabled: call?.deviceMuteState?.video_enabled ?? false,
             screenShareAvailable: call?.screenShare.available ?? false,
             screenSharing: call?.screenShare.sharing ?? false,
@@ -191,6 +224,75 @@ export class DesktopVoiceControlsViewModel
         if (this.isDisposed) return;
         this.snapshot.merge({ panel });
         if (panel !== "noise") void this.stopMicrophoneTest();
+        if (panel === "input" || panel === "output") void this.refreshDevices();
+    };
+
+    private readonly onDeviceChange = (): void => {
+        const { panel } = this.snapshot.current;
+        if (panel === "input" || panel === "output") void this.refreshDevices();
+    };
+
+    /** Lists the microphones and speakers the device menus offer, once one of them opens. */
+    private async refreshDevices(): Promise<void> {
+        const devices = await MediaDeviceHandler.getDevices();
+        if (this.isDisposed) return;
+        const list = (kind: MediaDeviceKindEnum): DesktopVoiceDevice[] => {
+            // Unlabelled devices mean media permission has not been granted yet; offer the system default alone.
+            const found: Partial<MediaDeviceInfo>[] = devices?.[kind].filter((device) => device.label) ?? [];
+            MediaDeviceHandler.getDefaultDevice(found);
+            return found.map((device) => ({ id: device.deviceId ?? "", label: device.label ?? "" }));
+        };
+        this.snapshot.merge({
+            audioInputs: list(MediaDeviceKindEnum.AudioInput),
+            audioOutputs: list(MediaDeviceKindEnum.AudioOutput),
+        });
+        this.refreshSelectedDevices();
+    }
+
+    /** Shows the stored choice, or the first device when the stored one is no longer connected. */
+    private readonly refreshSelectedDevices = (): void => {
+        if (this.isDisposed) return;
+        const selected = (stored: string, devices: readonly DesktopVoiceDevice[]): string =>
+            devices.length === 0 || devices.some((device) => device.id === stored) ? stored : devices[0].id;
+        const { audioInputs, audioOutputs } = this.snapshot.current;
+        this.snapshot.merge({
+            audioInputId: selected(MediaDeviceHandler.getAudioInput(), audioInputs),
+            audioOutputId: selected(MediaDeviceHandler.getAudioOutput(), audioOutputs),
+        });
+    };
+
+    private async chooseDevice(id: string, kind: MediaDeviceKindEnum): Promise<void> {
+        try {
+            await MediaDeviceHandler.instance.setDevice(id, kind);
+        } catch (error) {
+            logger.warn(`Could not switch to ${kind} ${id}`, error);
+            if (!this.isDisposed) this.snapshot.merge({ error: _t("desktop|voice|device_failed") });
+        }
+        this.refreshSelectedDevices();
+    }
+
+    public setAudioInput = (id: string): Promise<void> => this.chooseDevice(id, MediaDeviceKindEnum.AudioInput);
+    public setAudioOutput = (id: string): Promise<void> => this.chooseDevice(id, MediaDeviceKindEnum.AudioOutput);
+
+    private async setVolume(
+        setting: "desktopMicrophoneVolume" | "desktopSpeakerVolume",
+        percent: number,
+    ): Promise<void> {
+        if (!Number.isFinite(percent)) return;
+        await SettingsStore.setValue(
+            setting,
+            null,
+            SettingLevel.DEVICE,
+            Math.max(0, Math.min(100, Math.round(percent))),
+        );
+    }
+
+    public setMicrophoneVolume = (percent: number): Promise<void> => this.setVolume("desktopMicrophoneVolume", percent);
+    public setSpeakerVolume = (percent: number): Promise<void> => this.setVolume("desktopSpeakerVolume", percent);
+
+    public openVoiceSettings = (): void => {
+        this.setPanel(null);
+        defaultDispatcher.dispatch({ action: Action.ViewUserSettings, initialTabId: UserTab.Voice });
     };
 
     public setNoiseSuppression = async (enabled: boolean): Promise<void> => {
@@ -342,7 +444,9 @@ export class DesktopVoiceControlsViewModel
         );
         if (call !== this.call) {
             void this.stopMicrophoneTest();
-            this.snapshot.merge({ panel: null });
+            // The device menus belong to the account row and stay open; the call's own panels go with it.
+            const { panel } = this.snapshot.current;
+            if (panel === "noise" || panel === "connection") this.snapshot.merge({ panel: null });
             if (this.observedCalls) void playDesktopVoiceSound(call ? "join" : "leave");
             this.call?.off(CallEvent.DeviceMute, this.onDeviceMute);
             this.call?.off(CallEvent.ScreenShare, this.onScreenShare);

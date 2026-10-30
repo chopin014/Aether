@@ -9,11 +9,8 @@ import React, { type JSX, useCallback, useRef } from "react";
 import { IconButton, Text } from "@vector-im/compound-web";
 import {
     AudioIcon,
+    ChevronDownIcon,
     EndCallIcon,
-    HeadphonesSolidIcon,
-    HeadphonesOffSolidIcon,
-    MicOnIcon,
-    MicOffIcon,
     ShareScreenSolidIcon,
     VideoCallSolidIcon,
     VolumeOnIcon,
@@ -24,7 +21,13 @@ import { useI18n } from "../../core/i18n/i18nContext";
 import { VoicePopover } from "./VoicePopover";
 import { VoiceNoisePanel } from "./VoiceNoisePanel";
 import { VoiceConnectionPanel } from "./VoiceConnectionPanel";
+import { VoiceDevicePanel } from "./VoiceDevicePanel";
+import { AnimatedDeviceIcon } from "./AnimatedDeviceIcon";
+import { type VoiceVideoDevice } from "../DesktopVoiceVideoSettingsView/DeviceSelect";
 import styles from "./DesktopVoiceControlsView.module.css";
+
+/** A microphone or speaker the device menus offer. */
+export type DesktopVoiceDevice = VoiceVideoDevice;
 
 /** Device state and the connected Element Call, if any. */
 export interface DesktopVoiceControlsViewSnapshot {
@@ -37,13 +40,26 @@ export interface DesktopVoiceControlsViewSnapshot {
     /** Whether we are sharing our screen in the connected call. */
     screenSharing: boolean;
     busy: boolean;
-    /** The quick panel currently open above the call dock. */
-    panel: "noise" | "connection" | null;
+    /**
+     * The panel currently open: the call's noise suppression or connection details, or the microphone ("input")
+     * or speaker ("output") menu of the account row.
+     */
+    panel: "noise" | "connection" | "input" | "output" | null;
     /** Whether the call currently uses Aether's enhanced noise suppression. */
     noiseSuppression: boolean;
     noiseSuppressionStrength: number;
     microphoneTest: { active: boolean; level: number | null; open: boolean; error?: "denied" | "unavailable" };
     noiseSuppressionProblem?: "failed" | "overloaded";
+    /** Microphones to choose from; listed when the microphone menu opens. */
+    audioInputs: readonly DesktopVoiceDevice[];
+    /** Speakers to choose from; listed when the speaker menu opens. */
+    audioOutputs: readonly DesktopVoiceDevice[];
+    audioInputId: string;
+    audioOutputId: string;
+    /** Percent of the microphone's level that is sent. */
+    microphoneVolume: number;
+    /** Percent of the call's volume that is played. */
+    speakerVolume: number;
     /** Real media transport status; null measurements have not been supplied by the call. */
     connection: {
         state: "connecting" | "connected" | "reconnecting" | "disconnected";
@@ -64,10 +80,16 @@ export interface DesktopVoiceControlsViewActions {
     toggleScreenShare: () => Promise<void>;
     disconnect: () => Promise<void>;
     showCall: () => void;
-    setPanel: (panel: "noise" | "connection" | null) => void;
+    setPanel: (panel: DesktopVoiceControlsViewSnapshot["panel"]) => void;
     setNoiseSuppression: (enabled: boolean) => Promise<void>;
     setNoiseSuppressionStrength: (percent: number) => Promise<void>;
     toggleMicrophoneTest: () => Promise<void>;
+    setAudioInput: (id: string) => Promise<void>;
+    setAudioOutput: (id: string) => Promise<void>;
+    setMicrophoneVolume: (percent: number) => Promise<void>;
+    setSpeakerVolume: (percent: number) => Promise<void>;
+    /** Opens the full Voice & Video settings. */
+    openVoiceSettings: () => void;
 }
 /** Presentation contract for the persistent desktop voice controls. */
 export type DesktopVoiceControlsViewModel = ViewModel<
@@ -75,30 +97,73 @@ export type DesktopVoiceControlsViewModel = ViewModel<
     DesktopVoiceControlsViewActions
 >;
 
-/** Microphone and playback controls remain available when navigating away from a call. */
+/**
+ * Microphone and playback controls remain available when navigating away from a call. Each has a menu beside it
+ * for choosing the device and its volume, as in Discord.
+ */
 export function DesktopVoiceControlsView({ vm }: { vm: DesktopVoiceControlsViewModel }): JSX.Element {
-    const { microphoneMuted, deafened, busy } = useViewModel(vm);
+    const { microphoneMuted, deafened, busy, panel } = useViewModel(vm);
     const { translate: _t } = useI18n();
+    const inputMenu = useRef<HTMLButtonElement>(null);
+    const outputMenu = useRef<HTMLButtonElement>(null);
+    const closePanel = useCallback(() => vm.setPanel(null), [vm]);
+    const devicePanel = panel === "input" || panel === "output" ? panel : null;
     return (
         <div className={styles.buttons}>
-            <IconButton
-                tooltip={microphoneMuted ? _t("desktop|voice|unmute") : _t("desktop|voice|mute")}
-                aria-pressed={microphoneMuted}
-                disabled={busy}
-                onClick={() => void vm.toggleMicrophone()}
-                data-muted={microphoneMuted}
-            >
-                {microphoneMuted ? <MicOffIcon /> : <MicOnIcon />}
-            </IconButton>
-            <IconButton
-                tooltip={deafened ? _t("desktop|voice|undeafen") : _t("desktop|voice|deafen")}
-                aria-pressed={deafened}
-                disabled={busy}
-                onClick={() => void vm.toggleDeafened()}
-                data-muted={deafened}
-            >
-                {deafened ? <HeadphonesOffSolidIcon /> : <HeadphonesSolidIcon />}
-            </IconButton>
+            <div className={styles.deviceControl} data-muted={microphoneMuted}>
+                <IconButton
+                    className={styles.toggle}
+                    tooltip={microphoneMuted ? _t("desktop|voice|unmute") : _t("desktop|voice|mute")}
+                    aria-pressed={microphoneMuted}
+                    disabled={busy}
+                    onClick={() => void vm.toggleMicrophone()}
+                    data-muted={microphoneMuted}
+                >
+                    <AnimatedDeviceIcon device="microphone" off={microphoneMuted} />
+                </IconButton>
+                <IconButton
+                    ref={inputMenu}
+                    className={styles.menuToggle}
+                    tooltip={_t("desktop|voice|input_options")}
+                    aria-haspopup="dialog"
+                    aria-expanded={panel === "input"}
+                    onClick={() => vm.setPanel(panel === "input" ? null : "input")}
+                >
+                    <ChevronDownIcon />
+                </IconButton>
+            </div>
+            <div className={styles.deviceControl} data-muted={deafened}>
+                <IconButton
+                    className={styles.toggle}
+                    tooltip={deafened ? _t("desktop|voice|undeafen") : _t("desktop|voice|deafen")}
+                    aria-pressed={deafened}
+                    disabled={busy}
+                    onClick={() => void vm.toggleDeafened()}
+                    data-muted={deafened}
+                >
+                    <AnimatedDeviceIcon device="headphones" off={deafened} />
+                </IconButton>
+                <IconButton
+                    ref={outputMenu}
+                    className={styles.menuToggle}
+                    tooltip={_t("desktop|voice|output_options")}
+                    aria-haspopup="dialog"
+                    aria-expanded={panel === "output"}
+                    onClick={() => vm.setPanel(panel === "output" ? null : "output")}
+                >
+                    <ChevronDownIcon />
+                </IconButton>
+            </div>
+            {devicePanel && (
+                <VoicePopover
+                    anchor={devicePanel === "input" ? inputMenu : outputMenu}
+                    title={_t(devicePanel === "input" ? "desktop|voice|input_options" : "desktop|voice|output_options")}
+                    onClose={closePanel}
+                    compact
+                >
+                    <VoiceDevicePanel vm={vm} kind={devicePanel} />
+                </VoicePopover>
+            )}
         </div>
     );
 }
@@ -224,7 +289,7 @@ export function DesktopVoiceConnectionView({ vm }: { vm: DesktopVoiceControlsVie
                     </div>
                 </>
             )}
-            {roomName && panel && (
+            {roomName && (panel === "noise" || panel === "connection") && (
                 <VoicePopover
                     anchor={panel === "noise" ? noiseButton : connectionButton}
                     title={_t(

@@ -464,6 +464,9 @@
             "deafen": "Deafen",
             "disconnect": "Disconnect",
             "disconnected": "Disconnected",
+            "input_device": "Input device",
+            "input_options": "Input options",
+            "input_volume": "Input volume",
             "last_ping": "Last ping",
             "loss_value": "%(value)s%(unit)s",
             "microphone_test": "Microphone test",
@@ -474,6 +477,9 @@
             "noise_suppression_title": "Advanced noise suppression",
             "occupied_for": "People have been here for %(duration)s",
             "outbound_loss": "Sent packet loss",
+            "output_device": "Output device",
+            "output_options": "Output options",
+            "output_volume": "Output volume",
             "participant_deafened": "%(name)s (deafened)",
             "participant_muted": "%(name)s (muted)",
             "participant_muted_and_deafened": "%(name)s (muted and deafened)",
@@ -485,7 +491,8 @@
             "start_screen_share": "Share your screen",
             "stop_screen_share": "Stop sharing your screen",
             "undeafen": "Undeafen",
-            "unmute": "Unmute"
+            "unmute": "Unmute",
+            "voice_settings": "Voice settings"
         },
         "voice_video": {
             "advanced_voice": "Show advanced voice settings",

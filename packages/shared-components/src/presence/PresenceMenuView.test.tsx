@@ -82,6 +82,12 @@ function voiceModel() {
             noiseSuppression: true,
             noiseSuppressionStrength: 100,
             microphoneTest: { active: false, level: null, open: false },
+            audioInputs: [],
+            audioOutputs: [],
+            audioInputId: "",
+            audioOutputId: "",
+            microphoneVolume: 100,
+            speakerVolume: 100,
             connection: {
                 state: "disconnected",
                 quality: "unknown",
@@ -102,6 +108,11 @@ function voiceModel() {
             setNoiseSuppression: vi.fn(),
             setNoiseSuppressionStrength: vi.fn(),
             toggleMicrophoneTest: vi.fn(),
+            setAudioInput: vi.fn(),
+            setAudioOutput: vi.fn(),
+            setMicrophoneVolume: vi.fn(),
+            setSpeakerVolume: vi.fn(),
+            openVoiceSettings: vi.fn(),
         },
     );
 }

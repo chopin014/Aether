@@ -11,7 +11,6 @@ Please see LICENSE in the repository root for full details.
     align-items: center;
     gap: var(--cpd-space-1x);
 }
-.buttons > button,
 .connectionRow > button:not(.callIdentity) {
     width: var(--cpd-space-8x);
     height: var(--cpd-space-8x);
@@ -19,18 +18,244 @@ Please see LICENSE in the repository root for full details.
     border-radius: var(--cpd-space-2x);
 }
 /* Compound wraps each icon in its own coloured element; let the states below colour the icon instead. */
-.buttons > button > *,
+.deviceControl > button > *,
 .connectionRow > button:not(.callIdentity) > *,
 .mediaRow > button > * {
     color: inherit;
 }
-.buttons > button[data-muted="true"] {
-    color: var(--cpd-color-icon-critical-primary);
-    background: color-mix(in srgb, var(--cpd-color-icon-critical-primary) 12%, transparent);
+
+/*
+ * A device toggle and the menu beside it, lit together on hover like Discord's. Muting turns both red: the toggle
+ * because the device is off, the menu because it belongs to it.
+ */
+.deviceControl {
+    --device-control-height: calc(var(--cpd-space-8x) + var(--cpd-space-0-5x));
+
+    display: flex;
+    align-items: stretch;
+    border-radius: var(--cpd-space-2x);
+    color: var(--cpd-color-icon-secondary);
+    transition:
+        background-color 160ms ease-out,
+        color 160ms ease-out;
+
+    &:hover {
+        background: var(--cpd-color-bg-action-tertiary-hovered);
+    }
+
+    &[data-muted="true"] {
+        color: var(--cpd-color-icon-critical-primary);
+        background: color-mix(in srgb, var(--cpd-color-icon-critical-primary) 14%, transparent);
+    }
+
+    &[data-muted="true"]:hover {
+        background: color-mix(in srgb, var(--cpd-color-icon-critical-primary) 24%, transparent);
+    }
+
+    > button {
+        height: var(--device-control-height);
+        color: inherit;
+        background: transparent;
+    }
+
+    /* Compound sizes its icon wrapper for a square button; fit it to these and centre the icon in it. */
+    > button > * {
+        display: grid;
+        place-items: center;
+        inline-size: 100%;
+        block-size: 100%;
+    }
+
+    > button:hover:not(:disabled) {
+        color: var(--cpd-color-icon-primary);
+        background: transparent;
+    }
+
+    &[data-muted="true"] > button:hover:not(:disabled) {
+        color: var(--cpd-color-icon-critical-primary);
+    }
 }
-.buttons > button[data-muted="true"]:hover {
-    background: color-mix(in srgb, var(--cpd-color-icon-critical-primary) 24%, transparent);
+
+.deviceControl > .toggle {
+    position: relative;
+    width: var(--device-control-height);
+    padding: 0;
+    border-radius: var(--cpd-space-2x) 0 0 var(--cpd-space-2x);
+    overflow: visible;
 }
+
+.deviceControl > .menuToggle {
+    width: var(--cpd-space-4x);
+    padding: 0;
+    border-radius: 0 var(--cpd-space-2x) var(--cpd-space-2x) 0;
+    color: var(--cpd-color-icon-tertiary);
+
+    svg {
+        width: var(--cpd-space-4x);
+        height: var(--cpd-space-4x);
+        transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    &[aria-expanded="true"] {
+        color: var(--cpd-color-icon-primary);
+    }
+
+    &[aria-expanded="true"] svg {
+        transform: rotate(180deg);
+    }
+}
+
+.deviceControl[data-muted="true"] > .menuToggle {
+    color: color-mix(in srgb, var(--cpd-color-icon-critical-primary) 70%, transparent);
+}
+
+/*
+ * The icon, its slash and the ring muting sends out are all drawn here so they can move together. Compound colours
+ * the children of its icon wrapper, so the control's own colour is taken explicitly.
+ */
+.deviceControl .deviceIcon,
+.deviceControl .deviceIcon * {
+    color: inherit;
+}
+
+.deviceIcon {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: calc(var(--cpd-space-5x) + var(--cpd-space-0-5x));
+    height: calc(var(--cpd-space-5x) + var(--cpd-space-0-5x));
+
+    > svg {
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+    }
+}
+
+.slash,
+.slashGap {
+    fill: none;
+    stroke-linecap: round;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+}
+
+.slash {
+    stroke: currentColor;
+    stroke-width: 2;
+}
+
+/* The gap the slash cuts out of the icon, wider than the slash so a thin line of background shows either side. */
+.slashGap {
+    stroke: black;
+    stroke-width: 5;
+}
+
+.deviceIcon[data-off="true"] :is(.slash, .slashGap) {
+    stroke-dashoffset: 0;
+}
+
+.deviceRipple {
+    position: absolute;
+    inset: calc(-1 * var(--cpd-space-1x));
+    border-radius: 50%;
+    border: var(--cpd-border-width-2) solid currentColor;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* The slash draws in from its top and leaves past its bottom, rather than retracing its way out. */
+.deviceIcon[data-animate][data-off="true"] {
+    animation: device-mute 420ms cubic-bezier(0.36, 0.07, 0.19, 0.97);
+
+    :is(.slash, .slashGap) {
+        animation: slash-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    }
+
+    .deviceRipple {
+        animation: device-ripple 520ms ease-out;
+    }
+}
+
+.deviceIcon[data-animate][data-off="false"] {
+    animation: device-unmute 380ms cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    :is(.slash, .slashGap) {
+        animation: slash-out 220ms ease-in both;
+    }
+}
+
+@keyframes slash-in {
+    from {
+        stroke-dashoffset: 1;
+    }
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+@keyframes slash-out {
+    from {
+        stroke-dashoffset: 0;
+    }
+    to {
+        stroke-dashoffset: -1;
+    }
+}
+
+@keyframes device-mute {
+    0% {
+        transform: rotate(0) scale(1);
+    }
+    20% {
+        transform: rotate(-14deg) scale(0.88);
+    }
+    45% {
+        transform: rotate(10deg) scale(1.04);
+    }
+    70% {
+        transform: rotate(-5deg) scale(1);
+    }
+    100% {
+        transform: rotate(0) scale(1);
+    }
+}
+
+@keyframes device-unmute {
+    0% {
+        transform: scale(1);
+    }
+    35% {
+        transform: scale(0.78);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+@keyframes device-ripple {
+    from {
+        opacity: 0.55;
+        transform: scale(0.6);
+    }
+    to {
+        opacity: 0;
+        transform: scale(1.5);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .deviceControl,
+    .deviceControl > .menuToggle svg {
+        transition: none;
+    }
+
+    .deviceIcon[data-animate],
+    .deviceIcon[data-animate] :is(.slash, .slashGap, .deviceRipple) {
+        animation: none;
+    }
+}
+
 .connection {
     display: flex;
     flex-direction: column;
@@ -176,6 +401,27 @@ Please see LICENSE in the repository root for full details.
     border-radius: var(--cpd-space-3x);
     box-shadow: 0 var(--cpd-space-2x) var(--cpd-space-6x)
         color-mix(in srgb, var(--cpd-color-text-primary) 18%, transparent);
+}
+.compactPopover {
+    width: min(300px, calc(100vw - var(--cpd-space-6x)));
+}
+.devicePanel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-4x);
+
+    > button {
+        align-self: flex-start;
+    }
+}
+.volumeField {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-2x);
+}
+.volumeLabel {
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-sm-semibold);
 }
 .popover:focus-visible,
 .signalButton:focus-visible {
