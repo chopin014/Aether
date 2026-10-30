@@ -4182,6 +4182,7 @@
         "on_hold": "%(name)s on hold",
         "open_slot_failed_title": "Couldn't enable calls for this room",
         "output_devices": "Output devices",
+        "resize_call": "Resize call area",
         "screenshare_monitor": "Share entire screen",
         "screenshare_title": "Share content",
         "screenshare_window": "Application window",

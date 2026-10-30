@@ -19,6 +19,7 @@ import React, {
     useEffect,
 } from "react";
 import classNames from "classnames";
+import { Resizable } from "re-resizable";
 import {
     type IRecommendedVersion,
     NotificationCountType,
@@ -69,6 +70,7 @@ import RightPanel from "./RightPanel";
 import RoomScrollStateStore, { type ScrollState } from "../../stores/RoomScrollStateStore";
 import WidgetEchoStore from "../../stores/WidgetEchoStore";
 import SettingsStore from "../../settings/SettingsStore";
+import UIStore from "../../stores/UIStore";
 import { Layout } from "../../settings/enums/Layout";
 import AccessibleButton, { type ButtonEvent } from "../views/elements/AccessibleButton";
 import { TimelineRenderingType, MainSplitContentType } from "../../contexts/RoomContext";
@@ -262,6 +264,7 @@ export interface IRoomState {
     canSendMessages: boolean;
     tombstone?: MatrixEvent;
     resizing: boolean;
+    conversationCallHeight?: number;
     layout: Layout;
     lowBandwidth: boolean;
     alwaysShowTimestamps: boolean;
@@ -444,6 +447,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     private inviter?: string;
 
     private roomView = createRef<HTMLDivElement>();
+    private conversationCallStage = createRef<Resizable>();
     private searchResultsPanel = createRef<ScrollPanel>();
     private messagePanel: TimelinePanel | null = null;
     private roomViewBody = createRef<HTMLDivElement>();
@@ -522,6 +526,26 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
 
     private onIsResizing = (resizing: boolean): void => {
         this.setState({ resizing });
+    };
+
+    private onConversationCallResizeKeyDown = (event: React.KeyboardEvent): void => {
+        const element = this.conversationCallStage.current?.resizable;
+        if (!element) return;
+        const minimum = 248;
+        const maximum = Math.max(minimum, (element.parentElement?.clientHeight || UIStore.instance.windowHeight) * 0.8);
+        const current = this.state.conversationCallHeight ?? (element.getBoundingClientRect().height || minimum);
+        const heights: Record<string, number> = {
+            ArrowUp: current - 24,
+            ArrowDown: current + 24,
+            Home: minimum,
+            End: maximum,
+        };
+        const next = heights[event.key];
+        if (next === undefined) return;
+        event.preventDefault();
+        this.setState({ conversationCallHeight: Math.max(minimum, Math.min(next, maximum)) }, () => {
+            this.context.resizeNotifier.notifyTimelineHeightChanged();
+        });
     };
 
     private onWidgetStoreUpdate = (): void => {
@@ -2752,7 +2776,53 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 mainSplitBody = (
                     <>
                         {conversationCall ? (
-                            <div className="mx_RoomView_conversationCallStage">{callView}</div>
+                            <Resizable
+                                ref={this.conversationCallStage}
+                                className="mx_RoomView_conversationCallStage"
+                                size={{
+                                    width: "100%",
+                                    height: this.state.conversationCallHeight ?? "40vh",
+                                }}
+                                minHeight={248}
+                                maxHeight="80%"
+                                enable={{
+                                    top: false,
+                                    right: false,
+                                    bottom: true,
+                                    left: false,
+                                    topRight: false,
+                                    bottomRight: false,
+                                    bottomLeft: false,
+                                    topLeft: false,
+                                }}
+                                handleClasses={{ bottom: "mx_RoomView_callResizeHandle" }}
+                                handleStyles={{ bottom: { height: "8px", bottom: 0 } }}
+                                handleComponent={{
+                                    bottom: (
+                                        <div
+                                            role="separator"
+                                            tabIndex={0}
+                                            aria-label={_t("voip|resize_call")}
+                                            aria-orientation="horizontal"
+                                            aria-valuemin={248}
+                                            aria-valuenow={Math.round(
+                                                this.state.conversationCallHeight ??
+                                                    Math.max(248, UIStore.instance.windowHeight * 0.4),
+                                            )}
+                                            onKeyDown={this.onConversationCallResizeKeyDown}
+                                            onDoubleClick={() => this.setState({ conversationCallHeight: undefined })}
+                                        />
+                                    ),
+                                }}
+                                onResizeStart={() => this.context.resizeNotifier.startResizing()}
+                                onResize={() => this.context.resizeNotifier.notifyTimelineHeightChanged()}
+                                onResizeStop={(_event, _direction, element) => {
+                                    this.setState({ conversationCallHeight: element.getBoundingClientRect().height });
+                                    this.context.resizeNotifier.stopResizing();
+                                }}
+                            >
+                                {callView}
+                            </Resizable>
                         ) : (
                             callView
                         )}

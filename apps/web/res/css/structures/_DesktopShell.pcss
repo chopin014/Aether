@@ -1230,20 +1230,32 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
 
 /* Conversations keep their live timeline and composer below the persistent call surface. */
 body.mx_DesktopShell .mx_RoomView_conversationCallStage {
-    flex: 0 0 clamp(240px, 32vh, 360px);
+    flex: 0 0 auto;
     min-height: 0;
-    overflow: hidden;
+    padding-bottom: 8px;
+    box-sizing: border-box;
+}
+
+body.mx_DesktopShell .mx_RoomView_callResizeHandle {
+    background: var(--cpd-color-bg-canvas-default);
+
+    > [role="separator"] {
+        width: 100%;
+        height: 100%;
+        cursor: row-resize;
+        touch-action: none;
+        outline-offset: -2px;
+    }
+
+    &:hover,
+    &:focus-within {
+        box-shadow: inset 0 -2px 0 var(--cpd-color-border-focused);
+    }
 }
 
 body.mx_DesktopShell .mx_RoomView_conversationCallStage .mx_CallView {
     width: 100%;
     height: 100%;
-}
-
-/* The retained call is portalled into the body; video needs more height than an avatar row. */
-body.mx_DesktopShell:has([data-presentation="conversation"]:not([data-audio-only="true"]):not([data-mini="true"]))
-    .mx_RoomView_conversationCallStage {
-    flex-basis: clamp(320px, 46vh, 520px);
 }
 
 body.mx_DesktopShell.cpd-theme-dark,
