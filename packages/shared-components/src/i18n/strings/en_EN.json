@@ -216,6 +216,12 @@
             "unavailable": "Idle",
             "unblock": "Unblock"
         },
+        "delete_channel": {
+            "delete": "Delete channel",
+            "description": "This will remove everyone from %(name)s, including members from other servers, and remove the channel from this server. You will leave last. This cannot be undone.",
+            "history_note": "Previously received messages may remain in members’ history. This does not erase every copy of the channel.",
+            "left_note": "You have already left this channel. Retry will only remove it from your history."
+        },
         "keybinds": {
             "clear_action": "Clear %(action)s keybind",
             "ptt_hint": "Push to talk uses the same key and release delay as Voice & Video. In push to talk mode, an unassigned key keeps your microphone closed.",

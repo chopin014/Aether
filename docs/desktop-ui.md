@@ -70,6 +70,12 @@ Voice-room creation uses `RoomType.UnstableCall`. With `element_call.use_exclusi
 
 Element Call needs a homeserver with a supported MatrixRTC transport and its associated calling services. The desktop client does not supply those server components.
 
+Channel menus offer **Delete channel** when the user can change joining rules, remove every other member and
+invitation, and remove the channel from the selected Space. Deletion closes joining and invitations, removes the
+other members, unlinks the channel, then leaves and forgets it. A failed step offers Retry; the administrator stays
+joined until member removal and unlinking succeed. This works for text and voice channels using standard Matrix
+APIs. Previously received history can remain on other clients and homeservers; it does not purge every copy.
+
 ## Real-backend checks and local review
 
 Run a renderer server on port 8080, with `config.json` available, before the tests. The usual `pnpm start` works; an existing production build can be served with `pnpm exec serve -p 8080 -L ./webapp` from `apps/web`.

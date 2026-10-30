@@ -23,6 +23,7 @@ const actions: ChannelMenuViewActions = {
     onEditTopic: fn(),
     onOpenSecuritySettings: fn(),
     onCreateChannel: fn(),
+    onDelete: fn(),
     onLeave: fn(),
     onFiles: fn(),
     onPolls: fn(),
@@ -59,6 +60,7 @@ const meta = {
         roomNotifState: RoomNotifState.MentionsOnly,
         canEditChannel: true,
         canCreateChannel: true,
+        canDeleteChannel: true,
     },
 } satisfies Meta<typeof MenuStory>;
 export default meta;
@@ -67,6 +69,12 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {};
 export const Favourite: Story = { args: { isFavourite: true } };
 export const Member: Story = {
-    args: { canEditTopic: false, canEditChannel: false, canCreateChannel: false, canInvite: false },
+    args: {
+        canEditTopic: false,
+        canEditChannel: false,
+        canCreateChannel: false,
+        canDeleteChannel: false,
+        canInvite: false,
+    },
 };
 export const Voice: Story = { args: { kind: "voice", hasMessages: false } };

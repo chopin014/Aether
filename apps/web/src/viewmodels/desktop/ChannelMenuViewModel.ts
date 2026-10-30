@@ -13,6 +13,7 @@ import {
     type RoomListItemViewSnapshot,
     type ViewModel,
 } from "@element-hq/web-shared-components";
+import { logger } from "matrix-js-sdk/src/logger";
 import { EventType, RoomEvent, RoomStateEvent, type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
 
 import defaultDispatcher from "../../dispatcher/dispatcher";
@@ -30,6 +31,8 @@ import { SDKContextClass } from "../../contexts/SDKContextClass";
 import { RoomPermalinkCreator } from "../../utils/permalinks/Permalinks";
 import { isVideoRoom } from "../../utils/video-rooms";
 import { getTopic } from "../../hooks/room/useTopic";
+import { DeleteChannelDialog } from "../../components/views/dialogs/DeleteChannelDialog";
+import { canDeleteChannel } from "../../utils/room/canDeleteChannel";
 import { hasCreateRoomRights } from "../room-list/utils";
 
 /** The part of a room list item's view model that the channel menu reuses for its Matrix actions. */
@@ -70,6 +73,17 @@ export class ChannelMenuViewModel
         this.disposables.track(props.item.subscribe(this.refresh));
         this.disposables.trackListener(props.room, RoomEvent.Name, this.refresh);
         this.disposables.trackListener(props.room.currentState, RoomStateEvent.Events, this.refresh);
+        this.disposables.trackListener(props.room.currentState, RoomStateEvent.Members, this.refresh);
+        const space = (props.spaceStore ?? SDKContextClass.instance.spaceStore).activeSpaceRoom;
+        if (space) this.disposables.trackListener(space.currentState, RoomStateEvent.Events, this.refresh);
+        if (!props.room.membersLoaded()) {
+            void props.room
+                .loadMembersIfNeeded()
+                .then(this.refresh)
+                .catch((error) => {
+                    logger.warn("Unable to check channel deletion permissions", error);
+                });
+        }
     }
 
     private static compute({
@@ -99,6 +113,7 @@ export class ChannelMenuViewModel
             roomNotifState: source.roomNotifState,
             canEditChannel: room.currentState.maySendStateEvent(EventType.RoomName, userId),
             canCreateChannel: inActiveSpace && hasCreateRoomRights(client, activeSpace),
+            canDeleteChannel: room.membersLoaded() && canDeleteChannel(room, activeSpace, userId),
         };
     }
 
@@ -114,6 +129,18 @@ export class ChannelMenuViewModel
         this.props.item.onSetRoomNotifState(state);
     public onEditChannel = (): void => this.props.item.onEditChannel?.();
     public onLeave = (): void => this.props.item.onLeaveRoom();
+
+    public onDelete = (): void => {
+        const space = (this.props.spaceStore ?? SDKContextClass.instance.spaceStore).activeSpaceRoom;
+        if (!space || !canDeleteChannel(this.props.room, space, this.props.client.getSafeUserId())) return;
+        Modal.createDialog(
+            DeleteChannelDialog,
+            { room: this.props.room, space, client: this.props.client },
+            undefined,
+            false,
+            true,
+        );
+    };
 
     public onEditTopic = (): void => this.openSettings(RoomSettingsTab.General);
     public onOpenSecuritySettings = (): void => this.openSettings(RoomSettingsTab.Security);

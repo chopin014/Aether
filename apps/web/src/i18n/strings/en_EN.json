@@ -787,6 +787,18 @@
             "offline": "desktop|contacts|offline",
             "online": "desktop|contacts|online"
         },
+        "delete_channel": {
+            "checking": "Checking permissions…",
+            "closing": "Closing the channel to new members…",
+            "error": "Deletion stopped. Some changes may already have been applied. Check your connection and permissions, then retry to finish.",
+            "forget_error": "The channel is closed and you have left, but it could not be removed from your history. Retry to finish.",
+            "forgetting": "Removing the channel from your history…",
+            "leaving": "Leaving the channel…",
+            "reason": "Channel deleted by an administrator.",
+            "removing": "Removing members and invitations…",
+            "title": "Delete channel?",
+            "unlinking": "Removing the channel from this server…"
+        },
         "keybinds": {
             "browser_description": "In a browser, shortcuts work while Aether is focused. Letter keys without Ctrl, Alt or Meta do not trigger shortcuts while typing.",
             "conflict": "This key is already in use. Choose another combination.",

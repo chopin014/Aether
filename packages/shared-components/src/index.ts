@@ -140,3 +140,5 @@ export * from "./desktop/TopicDialogView";
 export * from "./desktop/DesktopSearchBoxView";
 export * from "./desktop/DesktopSearchResultsView";
 export * from "./desktop/DesktopKeybindsView";
+
+export * from "./desktop/DeleteChannelView";

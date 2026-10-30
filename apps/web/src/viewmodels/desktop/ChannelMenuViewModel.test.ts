@@ -22,6 +22,7 @@ import { PollHistoryDialog } from "../../components/views/dialogs/PollHistoryDia
 import RightPanelStore from "../../stores/right-panel/RightPanelStore";
 import { RightPanelPhases } from "../../stores/right-panel/RightPanelStorePhases";
 import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
+import { DeleteChannelDialog } from "../../components/views/dialogs/DeleteChannelDialog";
 
 vi.mock("../../Modal");
 
@@ -148,6 +149,69 @@ describe("ChannelMenuViewModel", () => {
 
             spaceStore.isRoomInSpace.mockReturnValueOnce(false);
             expect(create().getSnapshot().canCreateChannel).toBe(false);
+        });
+
+        it("offers deletion only for a linked channel the administrator can close", () => {
+            vi.spyOn(room, "membersLoaded").mockReturnValue(true);
+            const parent = new Room("!parent:example.org", client, USER_ID);
+            for (const target of [room, parent]) {
+                target.currentState.setStateEvents([
+                    new MatrixEvent({
+                        type: EventType.RoomCreate,
+                        room_id: target.roomId,
+                        sender: USER_ID,
+                        state_key: "",
+                        content: { creator: USER_ID, room_version: "11" },
+                    }),
+                    new MatrixEvent({
+                        type: EventType.RoomMember,
+                        room_id: target.roomId,
+                        sender: USER_ID,
+                        state_key: USER_ID,
+                        content: { membership: "join" },
+                    }),
+                    new MatrixEvent({
+                        type: EventType.RoomPowerLevels,
+                        room_id: target.roomId,
+                        state_key: "",
+                        content: { users: { [USER_ID]: 100 } },
+                    }),
+                ]);
+            }
+            parent.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.SpaceChild,
+                    room_id: parent.roomId,
+                    state_key: ROOM_ID,
+                    content: { via: ["example.org"] },
+                }),
+            ]);
+            spaceStore.activeSpaceRoom = parent;
+            const vm = create();
+            expect(vm.getSnapshot().canDeleteChannel).toBe(true);
+            vm.onDelete();
+            expect(Modal.createDialog).toHaveBeenCalledWith(
+                DeleteChannelDialog,
+                { room, space: parent, client },
+                undefined,
+                false,
+                true,
+            );
+
+            // Removing the server link refreshes both the menu and the action's permission guard.
+            vi.mocked(Modal.createDialog).mockClear();
+            parent.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.SpaceChild,
+                    room_id: parent.roomId,
+                    state_key: ROOM_ID,
+                    content: {},
+                }),
+            ]);
+            expect(vm.getSnapshot().canDeleteChannel).toBe(false);
+            vm.onDelete();
+            expect(Modal.createDialog).not.toHaveBeenCalled();
+            vm.dispose();
         });
     });
 

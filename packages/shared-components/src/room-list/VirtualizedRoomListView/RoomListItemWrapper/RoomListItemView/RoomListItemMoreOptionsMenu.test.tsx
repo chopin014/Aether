@@ -348,6 +348,7 @@ describe("<RoomListItemMoreOptionsMenu />", () => {
             roomNotifState: RoomNotifState.AllMessages,
             canEditChannel: true,
             canCreateChannel: false,
+            canDeleteChannel: false,
         });
         const getChannelMenu = vi.fn(() => channelMenu as unknown as ChannelMenuViewModel);
         const TestComponent = (): JSX.Element => {
