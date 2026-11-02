@@ -10,6 +10,7 @@ import React, { type ChangeEvent, type ChangeEventHandler, type JSX, type ReactN
 import {
     type IAnnotatedPushRule,
     type IPusher,
+    type IPushRules,
     type PushRuleAction,
     PushRuleKind,
     RuleId,
@@ -275,6 +276,15 @@ export default class Notifications extends React.PureComponent<EmptyObject, ISta
     }
 
     private async refreshFromServer(): Promise<void> {
+        // The rules arrived with sync, so show them straight away; pushers and email addresses fill in as they load.
+        const knownRules = MatrixClientPeg.safeGet().pushRules;
+        if (knownRules && this.state.phase === Phase.Loading) {
+            try {
+                this.setState({ ...this.rulesState(structuredClone(knownRules)), phase: Phase.Ready } as IState);
+            } catch (e) {
+                logger.warn("Could not show the known notification rules; waiting for the server", e);
+            }
+        }
         try {
             const newState = (
                 await Promise.all([this.refreshRules(), this.refreshPushers(), this.refreshThreepids()])
@@ -312,7 +322,11 @@ export default class Notifications extends React.PureComponent<EmptyObject, ISta
     }
 
     private async refreshRules(): Promise<Partial<IState>> {
-        const ruleSets = await MatrixClientPeg.safeGet().getPushRules();
+        return this.rulesState(await MatrixClientPeg.safeGet().getPushRules());
+    }
+
+    /** Work out what to show from a set of push rules. Annotates the rules it is given. */
+    private rulesState(ruleSets: IPushRules): Partial<IState> {
         const categories: Record<string, RuleClass> = {
             [RuleId.Master]: RuleClass.Master,
 

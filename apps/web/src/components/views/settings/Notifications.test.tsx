@@ -35,7 +35,6 @@ import {
     render,
     screen,
     waitFor,
-    waitForElementToBeRemoved,
     within,
 } from "test-utils-rtl";
 import userEvent from "@testing-library/user-event";
@@ -291,7 +290,10 @@ describe("<Notifications />", () => {
     // get component, wait for async data and force a render
     const getComponentAndWait = async () => {
         const component = getComponent();
-        await waitForElementToBeRemoved(() => component.queryAllByRole("progressbar"));
+        // Rules already known from sync show at once, so wait for the server's answers rather than for a spinner.
+        await waitFor(() => expect(mockClient.getThreePids).toHaveBeenCalled());
+        await flushPromises();
+        await waitFor(() => expect(component.queryAllByRole("progressbar")).toHaveLength(0));
         return component;
     };
 
@@ -348,9 +350,17 @@ describe("<Notifications />", () => {
         await clearAllModals();
     });
 
-    it("renders spinner while loading", async () => {
+    it("renders spinner while loading rules that sync has not delivered yet", async () => {
+        mockClient.pushRules = undefined;
         getComponent();
         expect(screen.getByTestId("spinner")).toBeInTheDocument();
+    });
+
+    it("shows the rules from sync straight away, before the server answers", async () => {
+        mockClient.getPushRules.mockReturnValue(new Promise(() => {}));
+        getComponent();
+        expect(screen.queryByTestId("spinner")).not.toBeInTheDocument();
+        expect(screen.getByLabelText("Enable notifications for this account")).toBeInTheDocument();
     });
 
     it("renders error message when fetching push rules fails", async () => {
@@ -377,6 +387,7 @@ describe("<Notifications />", () => {
                     override: [{ ...masterRule, enabled: true }],
                 },
             } as unknown as IPushRules;
+            mockClient.pushRules = disableNotificationsPushRules;
             mockClient.getPushRules.mockClear().mockResolvedValue(disableNotificationsPushRules);
             const { container } = await getComponentAndWait();
 
