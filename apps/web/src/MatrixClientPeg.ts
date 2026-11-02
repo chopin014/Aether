@@ -57,12 +57,6 @@ export interface MatrixClientPegAssignOpts {
      * Options for X.509 signing.
      */
     x509?: X509ClientInitOpts;
-
-    /**
-     * Work that must finish before the first sync is processed, but that can run alongside opening the stores and
-     * starting crypto (for example, opening the message search index).
-     */
-    beforeSync?: Promise<unknown>;
 }
 
 /**
@@ -375,7 +369,6 @@ class MatrixClientPegClass implements IMatrixClientPeg {
      */
     public async start(assignOpts?: MatrixClientPegAssignOpts): Promise<void> {
         const opts = await this.assign(assignOpts);
-        await assignOpts?.beforeSync;
 
         logger.log(`MatrixClientPeg: really starting MatrixClient`);
         markStartup("sync_starting");

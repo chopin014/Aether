@@ -24,6 +24,7 @@ import {
     MatrixEvent,
     type Room,
     ClientEvent,
+    RoomEvent,
     SyncState,
 } from "matrix-js-sdk/src/matrix";
 import { emitPromise, getMockClientWithEventEmitter, mockClientMethodsRooms, mockPlatformPeg } from "test-utils";
@@ -161,6 +162,84 @@ describe("EventIndex", () => {
             token: "token2",
             direction: Direction.Forward,
         });
+    });
+});
+
+describe("EventIndex opened after startup", () => {
+    function setUp() {
+        const mockIndexingManager = {
+            loadCheckpoints: vi.fn().mockResolvedValue([]),
+            isEventIndexEmpty: vi.fn().mockResolvedValue(false),
+            addEventToIndex: vi.fn().mockResolvedValue(undefined),
+            commitLiveEvents: vi.fn().mockResolvedValue(undefined),
+            addCrawlerCheckpoint: vi.fn(),
+            removeCrawlerCheckpoint: vi.fn(),
+        } as any as Mocked<BaseEventIndexManager>;
+        mockPlatformPeg({ getEventIndexingManager: () => mockIndexingManager });
+        const room = { roomId: "!room:id" } as any as Room;
+        const client = getMockClientWithEventEmitter({
+            ...mockClientMethodsRooms([room]),
+            isRoomEncrypted: () => true,
+            decryptEventIfNeeded: vi.fn().mockResolvedValue(undefined),
+        });
+        const event = new MatrixEvent({
+            type: "m.room.message",
+            room_id: "!room:id",
+            event_id: "$live",
+            sender: "@alice:id",
+            content: { msgtype: "m.text", body: "hello" },
+        });
+        const deliverLiveEvent = (): void => {
+            client.emit(RoomEvent.Timeline, event, room, false, false, { liveEvent: true } as any);
+        };
+        return { mockIndexingManager, client, deliverLiveEvent };
+    }
+
+    it("indexes live events that arrived while it was still closed, once it opens", async () => {
+        const { mockIndexingManager, deliverLiveEvent } = setUp();
+        const indexer = new EventIndex();
+        indexer.listenBeforeOpening();
+
+        deliverLiveEvent();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(mockIndexingManager.addEventToIndex).not.toHaveBeenCalled();
+
+        await indexer.init();
+        await vi.waitFor(() =>
+            expect(mockIndexingManager.addEventToIndex).toHaveBeenCalledWith(
+                expect.objectContaining({ event_id: "$live" }),
+                expect.anything(),
+            ),
+        );
+        indexer.stopCrawler();
+    });
+
+    it("catches up on syncs once, rather than once per sync that happened while closed", async () => {
+        const { mockIndexingManager, client } = setUp();
+        const indexer = new EventIndex();
+        indexer.listenBeforeOpening();
+
+        client.emit(ClientEvent.Sync, SyncState.Syncing, null, {});
+        client.emit(ClientEvent.Sync, SyncState.Syncing, SyncState.Syncing, {});
+        client.emit(ClientEvent.Sync, SyncState.Syncing, SyncState.Syncing, {});
+
+        await indexer.init();
+        await vi.waitFor(() => expect(mockIndexingManager.commitLiveEvents).toHaveBeenCalled());
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(mockIndexingManager.commitLiveEvents).toHaveBeenCalledTimes(1);
+        indexer.stopCrawler();
+    });
+
+    it("drops what it was holding when it will not open", async () => {
+        const { mockIndexingManager, client, deliverLiveEvent } = setUp();
+        const indexer = new EventIndex();
+        indexer.listenBeforeOpening();
+        deliverLiveEvent();
+
+        indexer.abandon();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(mockIndexingManager.addEventToIndex).not.toHaveBeenCalled();
+        expect(client.listenerCount(RoomEvent.Timeline)).toBe(0);
     });
 });
 

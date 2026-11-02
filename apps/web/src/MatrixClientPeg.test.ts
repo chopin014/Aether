@@ -152,20 +152,6 @@ describe("MatrixClientPeg", () => {
             expect(testPeg.safeGet().startClient).toHaveBeenCalled();
         });
 
-        it("should wait for work that has to finish before the first sync", async () => {
-            vi.spyOn(testPeg.safeGet(), "initRustCrypto").mockResolvedValue(undefined);
-            let finish!: () => void;
-            const beforeSync = new Promise<void>((resolve) => (finish = resolve));
-            const starting = testPeg.start({ beforeSync });
-            await vi.waitFor(() => expect(testPeg.safeGet().initRustCrypto).toHaveBeenCalled());
-            for (let i = 0; i < 20; i++) await Promise.resolve();
-            expect(testPeg.safeGet().startClient).not.toHaveBeenCalled();
-
-            finish();
-            await starting;
-            expect(testPeg.safeGet().startClient).toHaveBeenCalled();
-        });
-
         it("should initialise the rust crypto library for an existing login", async () => {
             const mockInitRustCrypto = vi.spyOn(testPeg.safeGet(), "initRustCrypto").mockResolvedValue(undefined);
 

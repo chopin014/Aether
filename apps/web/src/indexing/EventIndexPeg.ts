@@ -41,6 +41,32 @@ export class EventIndexPeg {
      * EventIndex was successfully initialized, false otherwise.
      */
     public async init(): Promise<boolean> {
+        if (!(await this.canIndex())) return false;
+        return this.initEventIndex();
+    }
+
+    /**
+     * Initialize the event index without holding up startup. It starts hearing live events straight away, so none
+     * are missed, but the index itself is only opened once `openWhen` settles. Opening it takes a while, and on
+     * desktop it keeps the host process busy meanwhile, which would otherwise delay everything else loading.
+     *
+     * @param openWhen - Settles when the app is ready for the index to be opened, such as once the chats are shown.
+     * @returns A promise that resolves to true if an EventIndex was successfully initialized, false otherwise.
+     */
+    public async initInBackground(openWhen: Promise<unknown>): Promise<boolean> {
+        if (!PlatformPeg.get()?.getEventIndexingManager()) return this.init();
+        const index = new EventIndex();
+        index.listenBeforeOpening();
+        if (!(await this.canIndex())) {
+            index.abandon();
+            return false;
+        }
+        await openWhen;
+        return this.initEventIndex(index);
+    }
+
+    /** Whether this platform can index events and the person wants it to. */
+    private async canIndex(): Promise<boolean> {
         const indexManager = PlatformPeg.get()?.getEventIndexingManager();
         if (!indexManager) {
             logger.log("EventIndex: Platform doesn't support event indexing, not initializing.");
@@ -59,21 +85,21 @@ export class EventIndexPeg {
             logger.log("EventIndex: Event indexing is disabled, not initializing");
             return false;
         }
-
-        return this.initEventIndex();
+        return true;
     }
 
     /**
      * Initialize the event index.
      *
+     * @param index - The index to open, if one is already listening for live events.
      * @returns {boolean} True if the event index was successfully initialized,
      * false otherwise.
      */
-    public async initEventIndex(): Promise<boolean> {
-        const index = new EventIndex();
+    public async initEventIndex(index = new EventIndex()): Promise<boolean> {
         const indexManager = PlatformPeg.get()?.getEventIndexingManager();
         const client = MatrixClientPeg.get();
         if (!indexManager || !client) {
+            index.abandon();
             throw new Error("Unable to init event index");
         }
 
@@ -112,6 +138,7 @@ export class EventIndexPeg {
         } catch (e) {
             logger.log("EventIndex: Error initializing the event index", e);
             this.error = e;
+            index.abandon();
             return false;
         }
 

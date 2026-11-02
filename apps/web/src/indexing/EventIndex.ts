@@ -86,6 +86,13 @@ export default class EventIndex extends EventEmitter {
 
     private readonly logger;
 
+    /** Settles once the index is open (true) or will not open (false). Live events wait for it rather than drop. */
+    private readonly opened = Promise.withResolvers<boolean>();
+    private isOpen = false;
+    private listening = false;
+    /** Syncs that happen before the index opens only need catching up once. */
+    private syncWaitingForOpen = false;
+
     public constructor() {
         super();
 
@@ -107,6 +114,22 @@ export default class EventIndex extends EventEmitter {
         this.logger.debug("Loaded checkpoints", JSON.stringify(this.crawlerCheckpoints));
 
         this.registerListeners();
+        this.isOpen = true;
+        this.opened.resolve(true);
+    }
+
+    /**
+     * Start listening before the index is open, so that opening it can wait until the app is on screen. Events that
+     * arrive meanwhile are held and indexed, in order, once {@link init} has finished.
+     */
+    public listenBeforeOpening(): void {
+        this.registerListeners();
+    }
+
+    /** Give up on opening the index, releasing anything held for it. */
+    public abandon(): void {
+        this.removeListeners();
+        this.opened.resolve(false);
     }
 
     /**
@@ -121,6 +144,8 @@ export default class EventIndex extends EventEmitter {
      * Register event listeners that are necessary for the event index to work.
      */
     public registerListeners(): void {
+        if (this.listening) return;
+        this.listening = true;
         const client = MatrixClientPeg.safeGet();
 
         client.on(ClientEvent.Sync, this.onSync);
@@ -134,6 +159,7 @@ export default class EventIndex extends EventEmitter {
      */
     public removeListeners(): void {
         const client = MatrixClientPeg.get();
+        this.listening = false;
         if (client === null) return;
 
         client.removeListener(ClientEvent.Sync, this.onSync);
@@ -211,6 +237,13 @@ export default class EventIndex extends EventEmitter {
         if (state != SyncState.Syncing) return;
 
         const onSyncInner = async (): Promise<void> => {
+            if (!this.isOpen) {
+                if (this.syncWaitingForOpen) return;
+                this.syncWaitingForOpen = true;
+                const opened = await this.opened.promise;
+                this.syncWaitingForOpen = false;
+                if (!opened) return;
+            }
             const indexManager = PlatformPeg.get()?.getEventIndexingManager();
             if (!indexManager) return;
 
@@ -249,6 +282,7 @@ export default class EventIndex extends EventEmitter {
         data: IRoomTimelineData,
     ): Promise<void> => {
         if (!room) return; // notification timeline, we'll get this event again with a room specific timeline
+        if (!(await this.opened.promise)) return;
 
         const client = MatrixClientPeg.safeGet();
 
@@ -270,6 +304,7 @@ export default class EventIndex extends EventEmitter {
     };
 
     private onRoomStateEvent = async (ev: MatrixEvent, state: RoomState): Promise<void> => {
+        if (!(await this.opened.promise)) return;
         if (!MatrixClientPeg.safeGet().isRoomEncrypted(state.roomId)) return;
 
         if (ev.getType() === EventType.RoomEncryption && !(await this.isRoomIndexed(state.roomId))) {
@@ -304,6 +339,7 @@ export default class EventIndex extends EventEmitter {
      */
     private onTimelineReset = async (room: Room | undefined): Promise<void> => {
         if (!room) return;
+        if (!(await this.opened.promise)) return;
         if (!MatrixClientPeg.safeGet().isRoomEncrypted(room.roomId)) return;
 
         this.logger.debug("Adding a checkpoint because of a limited timeline", room.roomId);

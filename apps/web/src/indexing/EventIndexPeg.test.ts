@@ -200,4 +200,64 @@ describe("EventIndexPeg", () => {
             );
         });
     });
+
+    describe("initInBackground", () => {
+        function mockIndex(): Record<string, Mock> {
+            const index = {
+                listenBeforeOpening: vi.fn(),
+                abandon: vi.fn(),
+                setForceAddInitialCheckpoints: vi.fn(),
+                init: vi.fn().mockResolvedValue(undefined),
+            };
+            (EventIndex as unknown as Mock).mockImplementation(function () {
+                return index;
+            });
+            return index;
+        }
+
+        it("listens straight away but opens the index only when told to", async () => {
+            const mockIndexingManager = {
+                supportsEventIndexing: vi.fn().mockResolvedValue(true),
+                initEventIndex: vi.fn().mockResolvedValue(undefined),
+                getUserVersion: vi.fn().mockResolvedValue(1),
+                isEventIndexEmpty: vi.fn().mockResolvedValue(false),
+            } as any as Mocked<BaseEventIndexManager>;
+            mockPlatformPeg({ getEventIndexingManager: () => mockIndexingManager });
+            vi.spyOn(MatrixClientPeg, "get").mockReturnValue({
+                getUserId: () => "@user:example.org",
+                getDeviceId: () => "DEVICE123",
+            } as any);
+            vi.spyOn(SettingsStore, "getValueAt").mockImplementation((_level, settingName): any =>
+                settingName === "enableEventIndexing" ? true : undefined,
+            );
+
+            const index = mockIndex();
+            const open = Promise.withResolvers<void>();
+            const peg = new EventIndexPeg();
+            const done = peg.initInBackground(open.promise);
+            expect(index.listenBeforeOpening).toHaveBeenCalled();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(mockIndexingManager.initEventIndex).not.toHaveBeenCalled();
+
+            open.resolve();
+            await expect(done).resolves.toBe(true);
+            expect(mockIndexingManager.initEventIndex).toHaveBeenCalled();
+            expect(peg.get()).toBe(index);
+        });
+
+        it("stops listening when indexing is turned off", async () => {
+            const mockIndexingManager = {
+                supportsEventIndexing: vi.fn().mockResolvedValue(true),
+                initEventIndex: vi.fn(),
+            } as any as Mocked<BaseEventIndexManager>;
+            mockPlatformPeg({ getEventIndexingManager: () => mockIndexingManager });
+            vi.spyOn(SettingsStore, "getValueAt").mockReturnValue(false);
+
+            const index = mockIndex();
+            const peg = new EventIndexPeg();
+            await expect(peg.initInBackground(Promise.resolve())).resolves.toBe(false);
+            expect(index.abandon).toHaveBeenCalled();
+            expect(mockIndexingManager.initEventIndex).not.toHaveBeenCalled();
+        });
+    });
 });

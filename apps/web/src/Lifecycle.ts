@@ -10,7 +10,14 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import { type ReactNode } from "react";
-import { type MatrixClient, createClient, SSOAction, decodeBase64 } from "matrix-js-sdk/src/matrix";
+import {
+    type MatrixClient,
+    ClientEvent,
+    SyncState,
+    createClient,
+    SSOAction,
+    decodeBase64,
+} from "matrix-js-sdk/src/matrix";
 import { type AESEncryptedSecretStoragePayload } from "matrix-js-sdk/src/types";
 import { logger } from "matrix-js-sdk/src/logger";
 
@@ -1120,11 +1127,13 @@ async function startMatrixClient(
     Mjolnir.sharedInstance().start();
 
     if (startSyncing) {
-        // The client might want to populate some views with events from the
-        // index (e.g. the FilePanel), therefore initialize the event index
-        // before the client syncs. Opening it runs alongside the store and crypto startup.
-        const eventIndexReady = EventIndexPeg.init().catch((e) => logger.error("Could not open the event index", e));
-        await MatrixClientPeg.start({ ...clientPegOpts, beforeSync: eventIndexReady });
+        // The search index hears live events from the moment the client starts, but is only opened once the chats
+        // are on screen: opening it takes a while and, on desktop, keeps the host process (which also serves the app's
+        // own files) busy, which used to hold up the whole of startup.
+        void EventIndexPeg.initInBackground(whenStartupSettles(client)).catch((e) =>
+            logger.error("Could not open the event index", e),
+        );
+        await MatrixClientPeg.start(clientPegOpts);
     } else {
         logger.warn("Caller requested only auxiliary services be started");
         await MatrixClientPeg.assign(clientPegOpts);
@@ -1153,6 +1162,29 @@ async function startMatrixClient(
     if (isSoftLogout()) {
         softLogout();
     }
+}
+
+/**
+ * Resolves once the first sync has been shown and the app has had a moment with nothing urgent to do, which is when
+ * slow background work, like opening the search index, can start without being noticed.
+ */
+function whenStartupSettles(client: MatrixClient): Promise<void> {
+    const synced = new Promise<void>((resolve) => {
+        if (client.isInitialSyncComplete()) return resolve();
+        const onSync = (state: SyncState): void => {
+            if (state !== SyncState.Prepared && state !== SyncState.Syncing) return;
+            client.off(ClientEvent.Sync, onSync);
+            resolve();
+        };
+        client.on(ClientEvent.Sync, onSync);
+    });
+    return synced.then(
+        () =>
+            new Promise<void>((resolve) => {
+                if (typeof requestIdleCallback === "function") requestIdleCallback(() => resolve(), { timeout: 5000 });
+                else setTimeout(resolve, 1000);
+            }),
+    );
 }
 
 /*
