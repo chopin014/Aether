@@ -26,6 +26,7 @@ import {
     type EncryptedFile,
     type MediaEventContent,
     type MediaEventInfo,
+    type RoomMessageEventContent,
 } from "matrix-js-sdk/src/types";
 import encrypt from "matrix-encrypt-attachment";
 import extractPngChunks from "png-chunks-extract";
@@ -408,6 +409,25 @@ export async function uploadFile(
     }
 }
 
+/**
+ * Text sent with an upload as its caption. Following the Matrix spec, the media event then carries the file name in
+ * `filename` and the caption in `body`, with an optional formatted version.
+ */
+export interface MediaCaption {
+    "body": string;
+    "format"?: string;
+    "formatted_body"?: string;
+    "m.mentions"?: RoomMessageEventContent["m.mentions"];
+}
+
+/** Options for {@link ContentMessages.sendContentListToRoom}. */
+export interface SendContentListOptions {
+    /** Send without asking about each file, because the person already reviewed them, as in the attachment tray. */
+    skipConfirmation?: boolean;
+    /** Text to send as the caption of the first file. */
+    caption?: MediaCaption;
+}
+
 export default class ContentMessages {
     private inprogress: RoomUpload[] = [];
     private mediaConfig: IMediaConfig | null = null;
@@ -442,6 +462,7 @@ export default class ContentMessages {
      * @param replyToEvent - The event being replied to, if any.
      * @param matrixClient - The Matrix client to use for sending the files.
      * @param context - The context in which the files are being sent.
+     * @param options - Whether to skip the confirmation dialog, and a caption for the first file.
      * @returns A promise that resolves when the files have been sent.
      */
     public async sendContentListToRoom(
@@ -451,6 +472,7 @@ export default class ContentMessages {
         replyToEvent: MatrixEvent | undefined,
         matrixClient: MatrixClient,
         context = TimelineRenderingType.Room,
+        options: SendContentListOptions = {},
     ): Promise<void> {
         if (matrixClient.isGuest()) {
             dis.dispatch({ action: "require_registration" });
@@ -490,7 +512,7 @@ export default class ContentMessages {
             if (!shouldContinue) return;
         }
 
-        let uploadAll = false;
+        let uploadAll = !!options.skipConfirmation;
         // Promise to complete before sending next file into room, used for synchronisation of file-sending
         // to match the order the files were specified in
         let promBefore: Promise<any> = Promise.resolve();
@@ -523,6 +545,8 @@ export default class ContentMessages {
                         matrixClient,
                         replyToEvent ?? undefined,
                         loopPromiseBefore,
+                        // The caption goes with the first file, so it reads first wherever the files are shown.
+                        i === 0 ? options.caption : undefined,
                     ),
                 matrixClient,
             );
@@ -591,9 +615,15 @@ export default class ContentMessages {
         matrixClient: MatrixClient,
         replyToEvent: MatrixEvent | undefined,
         promBefore?: Promise<any>,
+        caption?: MediaCaption,
     ): Promise<void> {
         const fileName = file.name || _t("common|attachment");
-        const content: Omit<MediaEventContent, "info"> & { info: Partial<MediaEventInfo> } = {
+        const content: Omit<MediaEventContent, "info"> & {
+            info: Partial<MediaEventInfo>;
+            filename?: string;
+            format?: string;
+            formatted_body?: string;
+        } = {
             body: fileName,
             info: {
                 size: file.size,
@@ -601,8 +631,22 @@ export default class ContentMessages {
             msgtype: MsgType.File, // set more specifically later
         };
 
-        // Attach mentions, which really only applies if there's a replyToEvent.
-        attachMentions(matrixClient.getSafeUserId(), content, null, replyToEvent);
+        if (caption?.body.trim()) {
+            content.filename = fileName;
+            content.body = caption.body;
+            if (caption.format && caption.formatted_body) {
+                content.format = caption.format;
+                content.formatted_body = caption.formatted_body;
+            }
+        }
+
+        if (caption?.["m.mentions"]) {
+            // The caption's mentions already include whoever is being replied to.
+            content["m.mentions"] = caption["m.mentions"];
+        } else {
+            // Attach mentions, which really only applies if there's a replyToEvent.
+            attachMentions(matrixClient.getSafeUserId(), content, null, replyToEvent);
+        }
         attachRelation(content, relation);
         if (replyToEvent) {
             addReplyToMessageContent(content, replyToEvent);

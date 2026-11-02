@@ -50,6 +50,13 @@
         "threads": "Threads"
     },
     "composer": {
+        "attachments": {
+            "label": {
+                "one": "%(count)s file to send",
+                "other": "%(count)s files to send"
+            },
+            "remove": "Remove %(name)s"
+        },
         "url_preview": {
             "clear_all": "Clear all",
             "collapse": "Collapse URL previews",

@@ -19,7 +19,7 @@ import {
 import { Tooltip } from "@vector-im/compound-web";
 import { logger } from "matrix-js-sdk/src/logger";
 import { LockOffIcon, SendSolidIcon, PlusIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
-import { useCreateAutoDisposedViewModel, UploadButton } from "@element-hq/web-shared-components";
+import { AttachmentTrayView, useCreateAutoDisposedViewModel, UploadButton } from "@element-hq/web-shared-components";
 
 import { _t } from "../../../languageHandler";
 import { MatrixClientPeg } from "../../../MatrixClientPeg";
@@ -71,6 +71,12 @@ import { ModuleApi } from "../../../modules/Api";
 function DesktopAttachmentButton(): JSX.Element {
     const vm = useRoomUploadViewModel();
     return <UploadButton vm={vm} className="mx_DesktopShell_attachment" icon={<PlusIcon />} />;
+}
+
+/** The files waiting to go with the next message, kept by the same room upload model. */
+function DesktopAttachmentTray(): JSX.Element {
+    const vm = useRoomUploadViewModel();
+    return <AttachmentTrayView vm={vm} />;
 }
 
 // The prefix used when persisting editor drafts to localstorage.
@@ -711,6 +717,7 @@ export class MessageComposer extends React.Component<IProps, IState> {
                         replyToEvent={this.props.replyToEvent}
                         permalinkCreator={this.props.permalinkCreator}
                     />
+                    {canSendMessages && SettingsStore.getValue("feature_desktop_shell") && <DesktopAttachmentTray />}
                     <div className="mx_MessageComposer_row">
                         {leftIcon}
                         {canSendMessages && SettingsStore.getValue("feature_desktop_shell") && (

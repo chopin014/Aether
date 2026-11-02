@@ -65,7 +65,8 @@ import { type IDiff } from "../../../editor/diff";
 import { getBlobSafeMimeType } from "../../../utils/blobs";
 import { EMOJI_REGEX } from "../../../HtmlUtils";
 import { attachMentions, attachRelation, attachUrlPreviews } from "../../../utils/messages";
-import { type RoomUploadViewModel, useRoomUploadViewModel } from "../../../viewmodels/room/RoomUploadViewModel";
+import { RoomUploadViewModel, useRoomUploadViewModel } from "../../../viewmodels/room/RoomUploadViewModel";
+import { type MediaCaption } from "../../../ContentMessages";
 import { type MessageComposerUrlPreviewViewModel } from "../../../viewmodels/composer/MessageComposerUrlPreviewViewModel";
 import { linksIn } from "../../../utils/UrlUtils";
 import { type MessageComposerUrlPreviewSnapshot } from "@element-hq/web-shared-components";
@@ -352,6 +353,8 @@ export class SendMessageComposer extends React.Component<ISendMessageComposerPro
     public async sendMessage({ urlPreviewSnapshot }: ISendMessageActionProps): Promise<void> {
         const model = this.model;
 
+        if (this.sendWithAttachments()) return;
+
         if (model.isEmpty) {
             return;
         }
@@ -517,6 +520,43 @@ export class SendMessageComposer extends React.Component<ISendMessageComposerPro
         } else {
             clearComposerAndPushHistory();
         }
+    }
+
+    /**
+     * Sends the files waiting in the attachment tray, with the composer's text as their caption, as one message.
+     * Slash commands are left to run as usual, keeping the files for the next message.
+     *
+     * @returns whether the files were sent
+     */
+    private sendWithAttachments(): boolean {
+        const threadId =
+            this.props.relation?.rel_type === THREAD_RELATION_TYPE.name ? this.props.relation.event_id : null;
+        const uploads = RoomUploadViewModel.forComposer(this.props.room.roomId, threadId);
+        if (!uploads?.hasPendingAttachments) return false;
+        if (!this.model.isEmpty && !containsEmote(this.model) && isSlashCommand(this.model)) return false;
+
+        let caption: MediaCaption | undefined;
+        if (!this.model.isEmpty) {
+            const content = createMessageContent(
+                this.props.mxClient.getSafeUserId(),
+                this.model,
+                this.props.replyToEvent,
+                this.props.relation,
+            );
+            caption = {
+                "body": content.body,
+                "format": content.format,
+                "formatted_body": content.formatted_body,
+                "m.mentions": content["m.mentions"],
+            };
+            this.sendHistoryManager.save(this.model, this.props.replyToEvent);
+            this.model.reset([]);
+            this.editorRef.current?.clearUndoHistory();
+            this.clearStoredEditorState();
+        }
+        this.editorRef.current?.focus();
+        void uploads.sendPendingAttachments(caption);
+        return true;
     }
 
     public componentWillUnmount(): void {

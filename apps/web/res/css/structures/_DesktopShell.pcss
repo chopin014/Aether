@@ -783,6 +783,17 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
         line-height: 22px;
     }
 
+    /* Text sent with files reads first, above them, as a message that carries attachments. */
+    .mx_EventTile_captioned {
+        display: flex;
+        flex-direction: column;
+        gap: var(--cpd-space-1x);
+
+        > :last-child {
+            order: -1;
+        }
+    }
+
     /*
      * Mentions read as accent text on a soft accent wash, filling with the accent on hover, as in Discord. The text
      * colour is the readable accent pulled towards the body text, so it stays legible on the wash in every theme.
