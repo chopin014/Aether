@@ -70,9 +70,7 @@ export function DesktopOngoingCallRow({
                 </span>
                 {detail && <span className={styles.detail}>{detail}</span>}
             </div>
-            {!isJoined && (
-                <JoinButton className={styles.join} size="sm" disabled={!isJoinable} callType={callType} join={join} />
-            )}
+            {!isJoined && <JoinButton className={styles.join} disabled={!isJoinable} callType={callType} join={join} />}
         </Flex>
     );
 }
