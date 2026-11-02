@@ -777,6 +777,58 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
     }
 
     /*
+     * Mentions read as accent text on a soft accent wash, filling with the accent on hover, as in Discord. The text
+     * colour is the readable accent pulled towards the body text, so it stays legible on the wash in every theme.
+     */
+    .mx_Pill.mx_Pill_desktopMention,
+    .mx_BasicMessageComposer .mx_BasicMessageComposer_input span:is(.mx_UserPill, .mx_RoomPill, .mx_SpacePill) {
+        --mx-desktop-mention-text: color-mix(
+            in srgb,
+            var(--cpd-color-text-action-accent) 75%,
+            var(--cpd-color-text-primary)
+        );
+        --mx-desktop-mention-background: color-mix(in srgb, var(--cpd-color-bg-accent-rest) 28%, transparent);
+
+        display: inline;
+        padding: 0 2px;
+        border-radius: 3px;
+        line-height: inherit;
+        vertical-align: baseline;
+        font-weight: var(--cpd-font-weight-medium);
+        color: var(--mx-desktop-mention-text) !important; /* To override .markdown-body */
+        background-color: var(--mx-desktop-mention-background) !important; /* To override .markdown-body */
+        transition:
+            background-color 80ms ease-out,
+            color 80ms ease-out;
+    }
+
+    a.mx_Pill.mx_Pill_desktopMention:is(:hover, :focus-visible) {
+        color: var(--cpd-color-text-on-solid-primary) !important; /* To override .markdown-body */
+        background-color: var(--cpd-color-bg-accent-rest) !important; /* To override .markdown-body */
+    }
+
+    /* @room and keywords aren't links, so they keep the wash on hover. */
+    .mx_Pill.mx_Pill_desktopMention.mx_AtRoomPill:hover {
+        color: var(--mx-desktop-mention-text) !important; /* To override .markdown-body */
+        background-color: var(--mx-desktop-mention-background) !important; /* To override .markdown-body */
+    }
+
+    /* In the composer the avatar slot carries the mention's sigil instead. */
+    .mx_BasicMessageComposer .mx_BasicMessageComposer_input span.mx_UserPill::before {
+        all: unset;
+        content: "@";
+    }
+
+    .mx_BasicMessageComposer .mx_BasicMessageComposer_input span:is(.mx_RoomPill, .mx_SpacePill)::before {
+        all: unset;
+        content: "#";
+    }
+
+    .mx_BasicMessageComposer .mx_BasicMessageComposer_input span:is(.mx_UserPill, .mx_RoomPill, .mx_SpacePill):hover {
+        background-color: var(--mx-desktop-mention-background) !important; /* To override the base composer rule */
+    }
+
+    /*
      * Attachments in the timeline become Aether media cards: a soft accent wash, a rounded tile for the
      * file icon and an accent play button and progress. Composer previews keep Element's style.
      */
