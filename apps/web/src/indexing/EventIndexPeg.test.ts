@@ -315,6 +315,68 @@ describe("EventIndexPeg", () => {
             expect(index.abandon).toHaveBeenCalled();
         });
 
+        function setUpOpening(manager: Record<string, unknown>): Mocked<BaseEventIndexManager> {
+            const mockIndexingManager = {
+                supportsEventIndexing: vi.fn().mockResolvedValue(true),
+                initEventIndex: vi.fn().mockResolvedValue(undefined),
+                getUserVersion: vi.fn().mockResolvedValue(1),
+                isEventIndexEmpty: vi.fn().mockResolvedValue(false),
+                ...manager,
+            } as any as Mocked<BaseEventIndexManager>;
+            mockPlatformPeg({ getEventIndexingManager: () => mockIndexingManager });
+            vi.spyOn(MatrixClientPeg, "get").mockReturnValue({
+                getUserId: () => "@user:example.org",
+                getDeviceId: () => "DEVICE",
+            } as any);
+            vi.spyOn(SettingsStore, "getValueAt").mockImplementation((_level, settingName): any =>
+                settingName === "enableEventIndexing" ? true : undefined,
+            );
+            return mockIndexingManager;
+        }
+
+        it("migrates an old index in the background without waiting on itself", async () => {
+            mockIndex();
+            const manager = setUpOpening({
+                getUserVersion: vi.fn().mockResolvedValue(0),
+                closeEventIndex: vi.fn().mockResolvedValue(undefined),
+                deleteEventIndex: vi.fn().mockResolvedValue(undefined),
+                setUserVersion: vi.fn().mockResolvedValue(undefined),
+            });
+            const peg = new EventIndexPeg();
+            await expect(peg.initInBackground(Promise.resolve())).resolves.toBe(true);
+            expect(manager.deleteEventIndex).toHaveBeenCalled();
+            expect(manager.initEventIndex).toHaveBeenCalledTimes(2);
+        });
+
+        it("opens one index when asked directly while the background one is still waiting", async () => {
+            const index = mockIndex();
+            const manager = setUpOpening({});
+            const peg = new EventIndexPeg();
+            const background = peg.initInBackground(new Promise(() => {}));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            await expect(peg.initEventIndex()).resolves.toBe(true);
+            expect(index.abandon).toHaveBeenCalled();
+            expect(manager.initEventIndex).toHaveBeenCalledTimes(1);
+            void background;
+        });
+
+        it("closes an index that was being opened directly when logging out", async () => {
+            const index = mockIndex();
+            index.close = vi.fn().mockResolvedValue(undefined);
+            const opening = Promise.withResolvers<void>();
+            setUpOpening({ initEventIndex: vi.fn(() => opening.promise) });
+            const peg = new EventIndexPeg();
+            const opened = peg.initEventIndex();
+            const unsetting = peg.unset();
+            opening.resolve();
+            await unsetting;
+
+            await expect(opened).resolves.toBe(false);
+            expect(index.close).toHaveBeenCalled();
+            expect(peg.get()).toBeNull();
+        });
+
         it("stops listening when indexing is turned off", async () => {
             const mockIndexingManager = {
                 supportsEventIndexing: vi.fn().mockResolvedValue(true),

@@ -704,6 +704,12 @@ export default class EventIndex extends EventEmitter {
                 };
             }
 
+            // Decrypting the page can take a while; the index may have been closed or the crawl stopped meanwhile.
+            if (cancelled || this.state === "closed") {
+                this.crawlerCheckpoints.push(checkpoint);
+                break;
+            }
+
             try {
                 for (let i = 0; i < redactionEvents.length; i++) {
                     const ev = redactionEvents[i];

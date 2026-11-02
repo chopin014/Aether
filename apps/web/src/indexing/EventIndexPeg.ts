@@ -33,7 +33,9 @@ export class EventIndexPeg {
 
     private _supportIsInstalled = false;
     /** An index started by {@link initInBackground} that has not finished opening yet. */
-    private pending?: { index: EventIndex; cancelled: boolean; opening: boolean; done?: Promise<unknown> };
+    private pending?: { index: EventIndex; cancelled: boolean; opening: boolean };
+    /** The index being opened right now, however that was started. */
+    private opening?: { cancelled: boolean; result: Promise<boolean> };
 
     /**
      * Initialize the EventIndexPeg and if event indexing is enabled initialize
@@ -61,9 +63,7 @@ export class EventIndexPeg {
         index.listenBeforeOpening();
         const pending: NonNullable<EventIndexPeg["pending"]> = { index, cancelled: false, opening: false };
         this.pending = pending;
-        const done = this.openInBackground(pending, openWhen);
-        pending.done = done.catch(() => {});
-        return done;
+        return this.openInBackground(pending, openWhen);
     }
 
     private async openInBackground(
@@ -130,7 +130,30 @@ export class EventIndexPeg {
      * @returns {boolean} True if the event index was successfully initialized,
      * false otherwise.
      */
-    public async initEventIndex(index = new EventIndex()): Promise<boolean> {
+    public initEventIndex(index?: EventIndex): Promise<boolean> {
+        if (!index) {
+            // Asked for directly, e.g. after turning indexing on: reuse an attempt already under way rather than open a
+            // second index, and take over from one that is still waiting for startup to settle.
+            if (this.opening) return this.opening.result;
+            const waiting = this.pending;
+            if (waiting && !waiting.opening) {
+                waiting.cancelled = true;
+                waiting.index.abandon();
+                this.pending = undefined;
+            }
+        }
+        const attempt: { cancelled: boolean; result: Promise<boolean> } = {
+            cancelled: false,
+            result: Promise.resolve(false),
+        };
+        attempt.result = this.openIndex(index ?? new EventIndex(), attempt).finally(() => {
+            if (this.opening === attempt) this.opening = undefined;
+        });
+        this.opening = attempt;
+        return attempt.result;
+    }
+
+    private async openIndex(index: EventIndex, attempt: { cancelled: boolean }): Promise<boolean> {
         const indexManager = PlatformPeg.get()?.getEventIndexingManager();
         const client = MatrixClientPeg.get();
         if (!indexManager || !client) {
@@ -161,8 +184,10 @@ export class EventIndexPeg {
                 logger.log("EventIndex: Index is empty, will force add initial checkpoints");
                 index.setForceAddInitialCheckpoints(true);
             } else if (userVersion === 0 && !eventIndexIsEmpty) {
+                // Not deleteEventIndex(): that waits for opening to finish, and this is part of opening.
                 await indexManager.closeEventIndex();
-                await this.deleteEventIndex();
+                logger.log("EventIndex: Deleting event index.");
+                await indexManager.deleteEventIndex();
 
                 await indexManager.initEventIndex(userId, deviceId, tokenizerMode);
                 await indexManager.setUserVersion(INDEX_VERSION);
@@ -177,6 +202,11 @@ export class EventIndexPeg {
             return false;
         }
 
+        if (attempt.cancelled) {
+            // Signed out, or the index was deleted, while it was opening.
+            await index.close();
+            return false;
+        }
         this.index = index;
 
         return true;
@@ -237,10 +267,14 @@ export class EventIndexPeg {
         if (pending) {
             pending.cancelled = true;
             this.pending = undefined;
-            // Once the database is being opened, wait for that attempt to finish and clean up after itself, so it
-            // cannot close or write to whatever replaces it.
-            if (pending.opening) await pending.done;
-            else pending.index.abandon();
+            if (!pending.opening) pending.index.abandon();
+        }
+        // Once the database is being opened, wait for that attempt to finish and clean up after itself, so it cannot
+        // close or write to whatever replaces it.
+        const opening = this.opening;
+        if (opening) {
+            opening.cancelled = true;
+            await opening.result.catch(() => {});
         }
         if (this.index === null) return;
         await this.index.close();
