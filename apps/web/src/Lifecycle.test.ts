@@ -23,6 +23,7 @@ import {
 
 import StorageEvictedDialog from "./components/views/dialogs/StorageEvictedDialog";
 import * as Lifecycle from "./Lifecycle";
+import * as DesktopVoiceSounds from "./audio/DesktopVoiceSounds";
 import { MatrixClientPeg } from "./MatrixClientPeg";
 import Modal from "./Modal";
 import * as StorageAccess from "./utils/StorageAccess";
@@ -937,9 +938,12 @@ describe("Lifecycle", () => {
 
     describe("logout()", () => {
         it("should call logout on the client", async () => {
+            const stopVoiceSound = vi.spyOn(DesktopVoiceSounds, "stopDesktopVoiceSound");
             await logout();
 
             await flushPromises();
+
+            expect(stopVoiceSound).toHaveBeenCalled();
 
             expect(mockClient.logout).toHaveBeenCalledWith(true);
         });

@@ -78,6 +78,7 @@ import { clearUploadedMediaCache } from "./utils/UploadedMediaCache";
 import { CallStatusListener } from "./CallStatusListener.ts";
 import { CallStore } from "./stores/CallStore.ts";
 import { ModuleApi } from "./modules/Api.ts";
+import { stopDesktopVoiceSound } from "./audio/DesktopVoiceSounds";
 import { markStartup } from "./performance/StartupTimings";
 
 const HOMESERVER_URL_KEY = "mx_hs_url";
@@ -1295,6 +1296,7 @@ export async function clearStorage(opts?: { deleteEverything?: boolean }): Promi
  * on MatrixClientPeg after stopping.
  */
 export function stopMatrixClient(unsetClient = true): void {
+    stopDesktopVoiceSound();
     SDKContextClass.instance.legacyCallHandler.stop();
     SDKContextClass.instance.notifier.stop();
     UserActivity.sharedInstance().stop();
