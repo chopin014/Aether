@@ -111,6 +111,69 @@ describe("DesktopProfileEditorViewModel", () => {
             expect(client.setDisplayName).toHaveBeenCalledWith("Typed");
         });
 
+        it("keeps a nameplate image chosen while the fresh profile was on its way", async () => {
+            const read = deferred<Record<string, unknown>>();
+            const client = makeClient({}, { getExtendedProfile: vi.fn(() => read.promise) });
+            RichProfileStore.forClient(client).set(ME, {
+                [RICH_PROFILE_FIELD]: { nameplate: { mxc: "mxc://example.org/old-plate" } },
+            });
+
+            const vm = new DesktopProfileEditorViewModel({ client });
+            vm.chooseNameplateImage(new File(["x"], "plate.png", { type: "image/png" }));
+            read.resolve({});
+            await vi.waitFor(() => expect(client.getExtendedProfile).toHaveBeenCalled());
+            await Promise.resolve();
+            expect(vm.getSnapshot().draft.hasNameplateImage).toBe(true);
+
+            await vm.save();
+            expect(client.uploadContent).toHaveBeenCalled();
+            expect(client.setExtendedProfileProperty).toHaveBeenCalledWith(
+                RICH_PROFILE_FIELD,
+                expect.objectContaining({ nameplate: { mxc: "mxc://example.org/uploaded" } }),
+            );
+        });
+
+        it("merges an edited link with links added on another device", async () => {
+            const read = deferred<Record<string, unknown>>();
+            const client = makeClient({}, { getExtendedProfile: vi.fn(() => read.promise) });
+            const a = { label: "A", url: "https://a.example.org/" };
+            const b = { label: "B", url: "https://b.example.org/" };
+            RichProfileStore.forClient(client).set(ME, { [RICH_PROFILE_FIELD]: { links: [a] } });
+
+            const vm = new DesktopProfileEditorViewModel({ client });
+            vm.updateLink(vm.getSnapshot().draft.links[0].id, { label: "A, renamed" });
+            read.resolve({ [RICH_PROFILE_FIELD]: { links: [a, b] } });
+
+            await vi.waitFor(() => expect(vm.getSnapshot().draft.links).toHaveLength(2));
+            expect(vm.getSnapshot().draft.links.map(({ label, url }) => ({ label, url }))).toEqual([
+                { label: "A, renamed", url: a.url },
+                b,
+            ]);
+        });
+
+        it("leaves the name alone when the fresh read shows the server now manages it", async () => {
+            const read = deferred<Record<string, unknown>>();
+            const client = makeClient(
+                {},
+                {
+                    getExtendedProfile: vi.fn(() => read.promise),
+                    getCapabilities: vi
+                        .fn()
+                        .mockResolvedValue({ "m.profile_fields": { enabled: true, disallowed: ["displayname"] } }),
+                },
+            );
+            RichProfileStore.forClient(client).set(ME, { displayname: "Old" });
+
+            const vm = new DesktopProfileEditorViewModel({ client });
+            vm.update({ displayName: "Typed", bio: "New bio" });
+            read.resolve({ displayname: "Old" });
+            await vm.save();
+
+            expect(client.setDisplayName).not.toHaveBeenCalled();
+            expect(client.setExtendedProfileProperty).toHaveBeenCalled();
+            expect(vm.getSnapshot().error).toBeUndefined();
+        });
+
         it("stays usable when the fresh read fails, and reads again before saving", async () => {
             const getExtendedProfile = vi
                 .fn()

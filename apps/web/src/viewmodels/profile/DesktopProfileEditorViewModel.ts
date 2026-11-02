@@ -237,22 +237,37 @@ export class DesktopProfileEditorViewModel
         for (const key of DRAFT_SCALAR_KEYS) {
             if (same(current[key], before.draft[key])) (merged as unknown as Record<string, unknown>)[key] = after[key];
         }
-        const linkValues = (links: DesktopProfileEditorDraft["links"]): unknown =>
-            links.map(({ label, url }) => ({ label, url }));
-        if (same(linkValues(current.links), linkValues(before.draft.links))) merged.links = after.links;
+        // The nameplate's preset, image mode, image and pending upload only make sense together.
+        const nameplateTouched =
+            !!this.pendingNameplate ||
+            this.nameplateMxc !== before.nameplateMxc ||
+            current.nameplate !== before.draft.nameplate ||
+            current.hasNameplateImage !== before.draft.hasNameplateImage;
+        if (!nameplateTouched) {
+            merged.nameplate = after.nameplate;
+            merged.hasNameplateImage = after.hasNameplateImage;
+            this.nameplateMxc = nameplateMxcOf(this.baseline);
+        }
+        merged.links = mergeEdits(
+            before.draft.links,
+            current.links,
+            after.links,
+            (link) => link.url,
+            (a, b) => a.label === b.label && a.url === b.url,
+        );
         if (!this.pendingAvatar && this.avatarMxc === before.avatarMxc) this.avatarMxc = this.baselineAvatarMxc;
         if (!this.pendingBanner && this.bannerMxc === before.bannerMxc) {
             this.bannerMxc = this.baseline.bannerMxc;
             this.bannerAnimated = this.baseline.bannerAnimated;
         }
-        if (!this.pendingNameplate && this.nameplateMxc === before.nameplateMxc) {
-            this.nameplateMxc = nameplateMxcOf(this.baseline);
-        }
-        const boardValues = (items: { title: string; caption?: string; mxc?: string }[]): unknown =>
-            items.map(({ title, caption, mxc }) => ({ title, caption: caption || undefined, mxc }));
-        if (!this.board.some((item) => item.pending) && same(boardValues(this.board), boardValues(before.board))) {
-            this.board = this.boardFromBaseline();
-        }
+        // Board tiles are told apart by their image; a tile still being uploaded is always one of ours.
+        this.board = mergeEdits(
+            before.board.map((item) => ({ id: "", title: item.title, caption: item.caption ?? "", mxc: item.mxc })),
+            this.board,
+            this.boardFromBaseline(),
+            (item) => item.mxc ?? item.id,
+            (a, b) => a.title === b.title && a.caption === b.caption && !a.pending && !b.pending,
+        );
         this.publish(merged, {});
     }
 
@@ -653,12 +668,20 @@ export class DesktopProfileEditorViewModel
                 return;
             }
             if (this.isDisposed || this.snapshot.current.state !== "ready") return;
+            // The fresh read may have found that the server now manages the name or avatar, after editing started
+            // with what the client last knew. Leave those alone rather than have the whole save rejected.
+            const { canSetDisplayName, canSetAvatar } = this.snapshot.current;
+            if (!canSetAvatar) {
+                if (this.pendingAvatar) URL.revokeObjectURL(this.pendingAvatar.previewUrl);
+                this.pendingAvatar = undefined;
+                this.avatarMxc = this.baselineAvatarMxc;
+            }
             await this.uploadPending();
             const draft = this.snapshot.current.draft;
             const animatedAvatar: { mxc?: string } = { mxc: this.baseline.animatedAvatarMxc };
-            await this.saveAvatar(animatedAvatar);
+            if (canSetAvatar) await this.saveAvatar(animatedAvatar);
             const displayName = draft.displayName.trim();
-            if (displayName !== this.baselineName.trim() && displayName) {
+            if (canSetDisplayName && displayName !== this.baselineName.trim() && displayName) {
                 await this.withRateLimit(() => client.setDisplayName(displayName));
                 this.baselineName = displayName;
                 this.raw = { ...this.raw, displayname: displayName };
@@ -718,12 +741,45 @@ const DRAFT_SCALAR_KEYS = [
     "theme",
     "decoration",
     "effect",
-    "nameplate",
-    "hasNameplateImage",
     "nameStyle",
     "boardTitle",
     "tagSpaceId",
 ] as const satisfies readonly (keyof DesktopProfileEditorDraft)[];
+
+/**
+ * Combine a list edited here with the server's newer copy, item by item: the server's list, with what was removed,
+ * changed or added here applied on top. An item changed here but removed elsewhere is kept, since the edit is newer.
+ *
+ * @param before - The list as it was when editing started.
+ * @param current - The list as edited here.
+ * @param after - The list as the server has it now.
+ * @param key - What identifies an item across the three.
+ * @param equal - Whether two versions of an item are the same.
+ */
+function mergeEdits<T>(
+    before: T[],
+    current: T[],
+    after: T[],
+    key: (item: T) => string,
+    equal: (a: T, b: T) => boolean,
+): T[] {
+    const beforeByKey = new Map(before.map((item) => [key(item), item]));
+    const currentByKey = new Map(current.map((item) => [key(item), item]));
+    const afterKeys = new Set(after.map(key));
+    const merged: T[] = [];
+    for (const item of after) {
+        const original = beforeByKey.get(key(item));
+        const edited = currentByKey.get(key(item));
+        if (original && !edited) continue;
+        merged.push(edited && (!original || !equal(original, edited)) ? edited : item);
+    }
+    for (const item of current) {
+        if (afterKeys.has(key(item))) continue;
+        const original = beforeByKey.get(key(item));
+        if (!original || !equal(original, item)) merged.push(item);
+    }
+    return merged;
+}
 
 function nameplateMxcOf(profile: RichProfile): string | undefined {
     return profile.nameplate && "mxc" in profile.nameplate ? profile.nameplate.mxc : undefined;
