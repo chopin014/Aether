@@ -1120,9 +1120,9 @@ async function startMatrixClient(
     if (startSyncing) {
         // The client might want to populate some views with events from the
         // index (e.g. the FilePanel), therefore initialize the event index
-        // before the client.
-        await EventIndexPeg.init();
-        await MatrixClientPeg.start(clientPegOpts);
+        // before the client syncs. Opening it runs alongside the store and crypto startup.
+        const eventIndexReady = EventIndexPeg.init().catch((e) => logger.error("Could not open the event index", e));
+        await MatrixClientPeg.start({ ...clientPegOpts, beforeSync: eventIndexReady });
     } else {
         logger.warn("Caller requested only auxiliary services be started");
         await MatrixClientPeg.assign(clientPegOpts);

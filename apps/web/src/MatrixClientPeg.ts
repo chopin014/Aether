@@ -56,6 +56,12 @@ export interface MatrixClientPegAssignOpts {
      * Options for X.509 signing.
      */
     x509?: X509ClientInitOpts;
+
+    /**
+     * Work that must finish before the first sync is processed, but that can run alongside opening the stores and
+     * starting crypto (for example, opening the message search index).
+     */
+    beforeSync?: Promise<unknown>;
 }
 
 /**
@@ -244,30 +250,13 @@ class MatrixClientPegClass implements IMatrixClientPeg {
             throw new Error("createClient must be called first");
         }
 
-        for (const dbType of ["indexeddb", "memory"]) {
-            try {
-                const promise = this.matrixClient.store.startup();
-                logger.log("MatrixClientPeg: waiting for MatrixClient store to initialise");
-                await promise;
-                break;
-            } catch (err) {
-                if (dbType === "indexeddb") {
-                    logger.error("Error starting matrixclient store - falling back to memory store", err);
-                    this.matrixClient.store = new MemoryStore({
-                        localStorage: localStorage,
-                    });
-                } else {
-                    logger.error("Failed to start memory store!", err);
-                    throw err;
-                }
-            }
-        }
-        this.matrixClient.store.on?.("closed", this.onUnexpectedStoreClose);
-
-        // try to initialise e2e on the new client
-        if (!SettingsStore.getValue("lowBandwidth")) {
-            await this.initClientCrypto(assignOpts);
-        }
+        // Opening the sync store and starting crypto are independent, and each can take hundreds of milliseconds on a
+        // big account, so they run side by side.
+        const storeReady = this.startStore(this.matrixClient);
+        const cryptoReady = SettingsStore.getValue("lowBandwidth") ? undefined : this.initClientCrypto(assignOpts);
+        const [store, crypto] = await Promise.allSettled([storeReady, cryptoReady]);
+        if (store.status === "rejected") throw store.reason;
+        if (crypto.status === "rejected") throw crypto.reason;
 
         const opts = utils.deepCopy(this.opts);
         // the react sdk doesn't work without this, so don't allow
@@ -310,6 +299,29 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         return opts;
     }
 
+    /** Open the client's sync store, falling back to memory if IndexedDB is unusable. */
+    private async startStore(client: MatrixClient): Promise<void> {
+        for (const dbType of ["indexeddb", "memory"]) {
+            try {
+                const promise = client.store.startup();
+                logger.log("MatrixClientPeg: waiting for MatrixClient store to initialise");
+                await promise;
+                break;
+            } catch (err) {
+                if (dbType === "indexeddb") {
+                    logger.error("Error starting matrixclient store - falling back to memory store", err);
+                    client.store = new MemoryStore({
+                        localStorage: localStorage,
+                    });
+                } else {
+                    logger.error("Failed to start memory store!", err);
+                    throw err;
+                }
+            }
+        }
+        client.store.on?.("closed", this.onUnexpectedStoreClose);
+    }
+
     /**
      * Attempt to initialize the crypto layer on a newly-created MatrixClient.
      */
@@ -345,16 +357,14 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         // key cached, and we don't have to try to rehydrate a device. If this
         // is a new login, we will start dehydration after Secret Storage is
         // unlocked.
-        try {
-            await initialiseDehydrationIfEnabled(this.matrixClient, { onlyIfKeyCached: true, rehydrate: false });
-        } catch (e) {
+        // It asks the server whether dehydration is supported, so it runs in the background rather than holding up
+        // the first sync by a round trip.
+        initialiseDehydrationIfEnabled(this.matrixClient, { onlyIfKeyCached: true, rehydrate: false }).catch((e) => {
             // We may get an error dehydrating, such as if cross-signing and
             // SSSS are not set up yet.  Just log the error and continue.
             // If SSSS gets set up later, we will re-try dehydration.
-            console.log("Error starting device dehydration", e);
-        }
-
-        return;
+            logger.log("Error starting device dehydration", e);
+        });
     }
 
     /**
@@ -362,6 +372,7 @@ class MatrixClientPegClass implements IMatrixClientPeg {
      */
     public async start(assignOpts?: MatrixClientPegAssignOpts): Promise<void> {
         const opts = await this.assign(assignOpts);
+        await assignOpts?.beforeSync;
 
         logger.log(`MatrixClientPeg: really starting MatrixClient`);
         await this.matrixClient!.startClient(opts);

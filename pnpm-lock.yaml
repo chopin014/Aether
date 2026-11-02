@@ -549,6 +549,9 @@ importers:
       '@matrix-org/emojibase-bindings':
         specifier: 'catalog:'
         version: 1.5.0
+      '@matrix-org/matrix-sdk-crypto-wasm':
+        specifier: 18.9.0
+        version: 18.9.0
       '@sentry/browser':
         specifier: ^11.0.0
         version: 11.5.0

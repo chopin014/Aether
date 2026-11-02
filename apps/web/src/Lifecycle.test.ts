@@ -306,7 +306,7 @@ describe("Lifecycle", () => {
                         undefined,
                     );
 
-                    expect(MatrixClientPeg.start).toHaveBeenCalledWith({});
+                    expect(MatrixClientPeg.start).toHaveBeenCalledWith({ beforeSync: expect.any(Promise) });
                 });
 
                 it("should remove fresh login flag from session storage", async () => {
@@ -440,7 +440,10 @@ describe("Lifecycle", () => {
                         undefined,
                     );
 
-                    expect(MatrixClientPeg.start).toHaveBeenCalledWith({ rustCryptoStoreKey: expect.any(Uint8Array) });
+                    expect(MatrixClientPeg.start).toHaveBeenCalledWith({
+                        rustCryptoStoreKey: expect.any(Uint8Array),
+                        beforeSync: expect.any(Promise),
+                    });
                 });
 
                 describe("with a refresh token", () => {
@@ -531,7 +534,10 @@ describe("Lifecycle", () => {
                         undefined,
                     );
 
-                    expect(MatrixClientPeg.start).toHaveBeenCalledWith({ rustCryptoStorePassword: pickleKey });
+                    expect(MatrixClientPeg.start).toHaveBeenCalledWith({
+                        rustCryptoStorePassword: pickleKey,
+                        beforeSync: expect.any(Promise),
+                    });
                 });
             });
 

@@ -126,6 +126,46 @@ describe("MatrixClientPeg", () => {
             expect(mockStartDehydration).toHaveBeenCalledWith({ onlyIfKeyCached: true, rehydrate: false });
         });
 
+        it("should start crypto while the sync store is still opening", async () => {
+            const client = testPeg.safeGet();
+            let openStore!: () => void;
+            client.store.startup = vi.fn(() => new Promise<void>((resolve) => (openStore = resolve)));
+            const mockInitRustCrypto = vi.spyOn(client, "initRustCrypto").mockResolvedValue(undefined);
+
+            const starting = testPeg.start();
+            await vi.waitFor(() => expect(mockInitRustCrypto).toHaveBeenCalled());
+            expect(client.startClient).not.toHaveBeenCalled();
+
+            openStore();
+            await starting;
+            expect(client.startClient).toHaveBeenCalled();
+        });
+
+        it("should not wait for the server to answer about dehydration before syncing", async () => {
+            vi.spyOn(testPeg.safeGet(), "initRustCrypto").mockResolvedValue(undefined);
+            vi.spyOn(testPeg.safeGet(), "getCrypto").mockReturnValue({
+                isDehydrationSupported: vi.fn().mockReturnValue(new Promise(() => {})),
+                setDeviceIsolationMode: vi.fn(),
+            } as any);
+
+            await testPeg.start();
+            expect(testPeg.safeGet().startClient).toHaveBeenCalled();
+        });
+
+        it("should wait for work that has to finish before the first sync", async () => {
+            vi.spyOn(testPeg.safeGet(), "initRustCrypto").mockResolvedValue(undefined);
+            let finish!: () => void;
+            const beforeSync = new Promise<void>((resolve) => (finish = resolve));
+            const starting = testPeg.start({ beforeSync });
+            await vi.waitFor(() => expect(testPeg.safeGet().initRustCrypto).toHaveBeenCalled());
+            for (let i = 0; i < 20; i++) await Promise.resolve();
+            expect(testPeg.safeGet().startClient).not.toHaveBeenCalled();
+
+            finish();
+            await starting;
+            expect(testPeg.safeGet().startClient).toHaveBeenCalled();
+        });
+
         it("should initialise the rust crypto library for an existing login", async () => {
             const mockInitRustCrypto = vi.spyOn(testPeg.safeGet(), "initRustCrypto").mockResolvedValue(undefined);
 
