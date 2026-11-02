@@ -10,7 +10,9 @@ import React from "react";
 import { useViewModel, type ViewModel } from "../../../../../../core/viewmodel";
 import { TileContainer } from "../components/TileContainer/TileContainer";
 import { CallIcon } from "../components/CallIcon/CallIcon";
-import { CallDirection, type CallType } from "../../common";
+import { CallDirection, CallType } from "../../common";
+import { useEventPresentation } from "../../../../EventPresentation";
+import { DesktopOngoingCallRow } from "../components/DesktopOngoingCallRow/DesktopOngoingCallRow";
 import { Flex } from "../../../../../../core/utils/Flex";
 import commonStyles from "../common.module.css";
 import { JoinButton } from "../components/JoinButton/JoinButton";
@@ -36,6 +38,29 @@ interface Props {
 export function DmOngoingCallTileView(props: Props): React.ReactNode {
     const snapshot = useViewModel(props.vm);
     const { callType, callDirection, isJoinable, isJoined, durationViewModel } = snapshot;
+    const { messageStyle } = useEventPresentation();
+    const { translate: _t } = useI18n();
+
+    if (messageStyle === "desktop") {
+        const bold = (name: React.ReactNode): React.ReactNode => <strong>{name}</strong>;
+        return (
+            <DesktopOngoingCallRow
+                callType={callType}
+                title={_t(
+                    callType === CallType.Video
+                        ? "timeline|call_tile|tombstone|video_started"
+                        : "timeline|call_tile|tombstone|voice_started",
+                    { name: snapshot.startedByDisplayName },
+                    { b: bold },
+                )}
+                durationViewModel={durationViewModel}
+                isJoined={isJoined}
+                isJoinable={isJoinable}
+                join={(ev) => props.vm.join(ev)}
+            />
+        );
+    }
+
     let content: React.ReactNode;
     if (snapshot.callHasOtherParticipants) {
         content = <CallJoinedContent snapshot={snapshot} />;

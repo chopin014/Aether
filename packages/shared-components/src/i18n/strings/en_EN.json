@@ -1059,7 +1059,8 @@
             "ongoing": {
                 "common": {
                     "call_started_by": "%(startedByDisplayName)s started a call",
-                    "join_button": "Join"
+                    "join_button": "Join",
+                    "ongoing": "Ongoing"
                 },
                 "dm": {
                     "call_started": "Call started",
@@ -1070,6 +1071,7 @@
                         "one": "%(count)s joined",
                         "other": "%(count)s joined"
                     },
+                    "started_group_call": "<b>%(name)s</b> started a group call.",
                     "title": "Group call in progress"
                 }
             },

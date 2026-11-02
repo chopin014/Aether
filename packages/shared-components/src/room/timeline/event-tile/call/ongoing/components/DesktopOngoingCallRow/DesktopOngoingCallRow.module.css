@@ -1,0 +1,107 @@
+/*
+ * Copyright 2026 Gabriel
+ *
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE in the repository root for full details.
+ */
+
+/* Shares its geometry with the finished-call rows (tombstone/common.module.css), so the two line up. */
+.row {
+    min-height: var(--cpd-space-6x);
+    width: 100%;
+    padding-block: var(--cpd-space-1x);
+    box-sizing: border-box;
+}
+
+.iconFrame {
+    position: relative;
+    display: flex;
+    flex-shrink: 0;
+    align-self: flex-start;
+    margin-block-start: var(--cpd-space-0-5x);
+}
+
+/* A soft ring that keeps breathing while the call is live. */
+.iconFrame::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    background: var(--cpd-color-icon-success-primary);
+    opacity: 0;
+    animation: ongoingCallPulse 2s ease-out infinite;
+}
+
+.icon {
+    position: relative;
+    z-index: 1;
+    color: var(--cpd-color-icon-success-primary);
+}
+
+.text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: var(--cpd-space-2x);
+    font: var(--cpd-font-body-md-regular);
+    color: var(--cpd-color-text-secondary);
+    overflow-wrap: anywhere;
+}
+
+.title strong {
+    font-weight: var(--cpd-font-weight-semibold);
+    color: var(--cpd-color-text-primary);
+}
+
+.live {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cpd-space-1-5x);
+    font: var(--cpd-font-body-xs-semibold);
+    color: var(--cpd-color-text-success-primary);
+    white-space: nowrap;
+}
+
+.liveDot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentcolor;
+}
+
+.duration {
+    font: var(--cpd-font-body-xs-regular);
+    font-variant-numeric: tabular-nums;
+    color: var(--cpd-color-text-secondary);
+}
+
+.detail {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cpd-space-1-5x);
+    font: var(--cpd-font-body-xs-regular);
+}
+
+.join {
+    flex-shrink: 0;
+}
+
+@keyframes ongoingCallPulse {
+    0% {
+        opacity: 0.35;
+        transform: scale(0.6);
+    }
+
+    100% {
+        opacity: 0;
+        transform: scale(1.4);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .iconFrame::after {
+        animation: none;
+    }
+}

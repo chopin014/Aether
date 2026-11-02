@@ -20,6 +20,8 @@ import { MemberAvatarView } from "../../../../../../core/MemberAvatar/MemberAvat
 import { FacePileView } from "../../../../../../core/FacePile/FacePileView";
 import type { CommonOngoingCallTileViewAction, CommonOngoingCallTileViewSnapshot } from "../common";
 import { useI18n } from "../../../../../../core/i18n/i18nContext";
+import { useEventPresentation } from "../../../../EventPresentation";
+import { DesktopOngoingCallRow } from "../components/DesktopOngoingCallRow/DesktopOngoingCallRow";
 
 export interface RoomOngoingCallTileViewSnapshot extends CommonOngoingCallTileViewSnapshot {
     /**
@@ -46,6 +48,33 @@ export function RoomOngoingCallTileView(props: Props): React.ReactNode {
     const snapshot = useViewModel(props.vm);
     const { isJoinable, isJoined, isCallIgnored, callHasOtherParticipants, durationViewModel } = snapshot;
     const { translate: _t } = useI18n();
+    const { messageStyle } = useEventPresentation();
+
+    if (messageStyle === "desktop") {
+        return (
+            <DesktopOngoingCallRow
+                callType={CallType.Video}
+                title={_t(
+                    "timeline|call_tile|ongoing|room|started_group_call",
+                    { name: snapshot.startedByDisplayName },
+                    { b: (name) => <strong>{name}</strong> },
+                )}
+                detail={
+                    callHasOtherParticipants ? (
+                        <>
+                            <FacePileView classNames={commonStyles.facepile} vm={snapshot.facePileViewModel} />
+                            {_t("timeline|call_tile|ongoing|room|join_count", { count: snapshot.totalParticipants })}
+                        </>
+                    ) : undefined
+                }
+                durationViewModel={durationViewModel}
+                isJoined={isJoined}
+                isJoinable={isJoinable}
+                join={(event) => props.vm.join(event)}
+            />
+        );
+    }
+
     return (
         <TileContainer>
             <Flex align="center" gap="var(--cpd-space-3x)" className={commonStyles.content}>
