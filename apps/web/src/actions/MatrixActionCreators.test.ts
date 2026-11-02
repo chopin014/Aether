@@ -46,6 +46,14 @@ describe("MatrixActionCreators", () => {
         expect(dispatched()).toEqual(["MatrixActions.Room.timeline"]);
     });
 
+    it("keeps dispatching per-room updates through errors and reconnects after the first sync", () => {
+        client.emit(ClientEvent.Sync, SyncState.Prepared, null, {});
+        // A failed sync makes the client report its initial sync as incomplete again.
+        synced = false;
+        client.emit(RoomEvent.Timeline, event, room, false, false, live);
+        expect(dispatched()).toContain("MatrixActions.Room.timeline");
+    });
+
     it("always dispatches sync state changes", () => {
         client.emit(ClientEvent.Sync, SyncState.Prepared, null, {});
         expect(dispatched()).toEqual(["MatrixActions.sync"]);
