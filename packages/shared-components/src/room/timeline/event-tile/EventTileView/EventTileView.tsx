@@ -37,7 +37,7 @@ export function EventTileView({
     onPermalinkContextMenu,
 }: Readonly<EventTileViewProps>): JSX.Element {
     const Root = root.as ?? "li";
-    const { layout, density, messageStyle } = useEventPresentation();
+    const { layout, density, messageStyle, groupSpacing } = useEventPresentation();
     const isRenderableSlot = (content: React.ReactNode): boolean =>
         content !== null && content !== undefined && typeof content !== "boolean";
 
@@ -88,6 +88,12 @@ export function EventTileView({
         [styles.lineImage]: lineState?.image,
     });
 
+    // The chosen gap between message groups, read by the desktop message geometry in the stylesheet.
+    const rootStyle =
+        messageStyle === "desktop" && groupSpacing !== undefined
+            ? ({ "--desktop-message-group-spacing": `${groupSpacing}px` } as React.CSSProperties)
+            : undefined;
+
     const renderRoot = (
         children: React.ReactNode,
         rootClickHandler: React.MouseEventHandler<HTMLElement> | undefined,
@@ -95,6 +101,7 @@ export function EventTileView({
     ): JSX.Element => (
         <Root
             ref={refs?.root}
+            style={rootStyle}
             className={classNames(styles.root, classNameOverrides?.root, {
                 [styles.stateOwnEvent]: root.state.isOwnEvent,
                 [styles.hasReceiptSlot]: hasReceiptSlot,

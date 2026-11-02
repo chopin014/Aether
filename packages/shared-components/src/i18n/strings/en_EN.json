@@ -254,6 +254,15 @@
             "recording": "Press a key · Esc to cancel",
             "title": "Keybinds"
         },
+        "message_display": {
+            "compact": "Compact",
+            "compact_description": "Time, name and message share one line, so more of the conversation fits.",
+            "cozy": "Cozy",
+            "cozy_description": "Each group of messages starts with the sender's avatar and name.",
+            "group_spacing": "Space between message groups",
+            "group_spacing_value": "%(size)spx",
+            "title": "Message display"
+        },
         "profile": {
             "board": "Board",
             "copy_link": "Copy link",

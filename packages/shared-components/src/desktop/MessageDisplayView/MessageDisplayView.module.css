@@ -1,0 +1,210 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.root {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-6x);
+}
+
+.heading {
+    margin: 0;
+    color: var(--cpd-color-text-primary);
+}
+
+.groupTitle {
+    margin-block-end: var(--cpd-space-2x);
+    color: var(--cpd-color-text-secondary);
+}
+
+.displays {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(calc(var(--cpd-space-16x) * 3.5), 1fr));
+    gap: var(--cpd-space-3x);
+}
+
+.tile {
+    /* Keeps the hidden radio inside its tile, so focusing it doesn't scroll the page elsewhere. */
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-subtle-secondary);
+    cursor: pointer;
+
+    &:hover {
+        border-color: var(--cpd-color-border-interactive-hovered);
+    }
+
+    &[data-selected="true"] {
+        border-color: var(--cpd-color-bg-accent-rest);
+        box-shadow: 0 0 0 var(--cpd-border-width-1) var(--cpd-color-bg-accent-rest);
+    }
+
+    &:has(input:focus-visible) {
+        outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+        outline-offset: var(--cpd-border-width-2);
+    }
+}
+
+.visuallyHidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* The miniature sits on the chat colour, with text as muted bars, so both layouts compare at a glance. */
+.preview {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: var(--cpd-space-2x);
+    height: calc(var(--cpd-space-16x) + var(--cpd-space-4x));
+    padding: var(--cpd-space-3x);
+    box-sizing: border-box;
+    background: var(--cpd-color-bg-canvas-default);
+}
+
+.cozyGroup {
+    display: flex;
+    gap: var(--cpd-space-2x);
+}
+
+.avatar {
+    flex: none;
+    width: var(--cpd-space-6x);
+    height: var(--cpd-space-6x);
+    border-radius: 50%;
+    background: var(--cpd-color-bg-accent-rest);
+    opacity: 0.85;
+}
+
+.lines {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: var(--cpd-space-1x);
+    min-width: 0;
+}
+
+.compactRow {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-1-5x);
+}
+
+.name,
+.line,
+.time {
+    height: var(--cpd-space-1-5x);
+    border-radius: var(--cpd-space-0-5x);
+}
+
+.name {
+    flex: none;
+    width: 28%;
+    background: var(--cpd-color-text-action-accent);
+}
+
+.line {
+    flex: 1;
+    background: var(--cpd-color-text-secondary);
+    opacity: 0.55;
+
+    &[data-short="true"] {
+        flex: none;
+        width: 55%;
+    }
+}
+
+.compactRow .line[data-short="true"] {
+    width: 30%;
+}
+
+.time {
+    flex: none;
+    width: 10%;
+    background: var(--cpd-color-text-secondary);
+    opacity: 0.35;
+}
+
+.label {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--cpd-space-2x);
+    padding: var(--cpd-space-2x) var(--cpd-space-3x) var(--cpd-space-3x);
+}
+
+.labelText {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-0-5x);
+    min-width: 0;
+}
+
+.labelName {
+    font: var(--cpd-font-body-md-semibold);
+    color: var(--cpd-color-text-primary);
+}
+
+.labelDescription {
+    font: var(--cpd-font-body-sm-regular);
+    color: var(--cpd-color-text-secondary);
+}
+
+.check {
+    flex: none;
+    width: var(--cpd-space-5x);
+    height: var(--cpd-space-5x);
+    color: var(--cpd-color-icon-accent-primary);
+}
+
+/* A segmented row of spacings. */
+.spacings {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: var(--cpd-space-1x);
+    padding: var(--cpd-space-1x);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-subtle-secondary);
+}
+
+.spacing {
+    position: relative;
+    min-width: calc(var(--cpd-space-12x) + var(--cpd-space-1x));
+    padding: var(--cpd-space-1-5x) var(--cpd-space-3x);
+    box-sizing: border-box;
+    border-radius: var(--cpd-space-1-5x);
+    font: var(--cpd-font-body-sm-medium);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    color: var(--cpd-color-text-secondary);
+    cursor: pointer;
+
+    &:hover {
+        color: var(--cpd-color-text-primary);
+        background: var(--cpd-color-bg-action-tertiary-hovered);
+    }
+
+    &[data-selected="true"] {
+        color: var(--cpd-color-text-on-solid-primary);
+        background: var(--cpd-color-bg-accent-rest);
+    }
+
+    &:has(input:focus-visible) {
+        outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+        outline-offset: var(--cpd-border-width-1);
+    }
+}

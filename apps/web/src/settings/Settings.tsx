@@ -287,6 +287,7 @@ export interface Settings {
     "theme": IBaseSetting<string>;
     "custom_themes": IBaseSetting<CustomTheme[]>;
     "desktopColorTheme": IBaseSetting<ColorThemeSetting>;
+    "desktopMessageGroupSpacing": IBaseSetting<number>;
     "use_system_theme": IBaseSetting<boolean>;
     "useBundledEmojiFont": IBaseSetting<boolean>;
     "useSystemFont": IBaseSetting<boolean>;
@@ -1020,6 +1021,11 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
         default: { id: "aether" },
     },
+    /** The space above each new group of messages in the desktop shell's timeline, in pixels. */
+    "desktopMessageGroupSpacing": {
+        supportedLevels: LEVELS_ACCOUNT_SETTINGS,
+        default: 16,
+    },
     "use_system_theme": {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
         default: true,
@@ -1372,6 +1378,9 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
     "layout": {
         supportedLevels: LEVELS_ACCOUNT_SETTINGS,
         default: Layout.Group,
+        // The desktop shell draws its own message layout on top of the group layout, and offers cozy and compact
+        // instead of Element's layouts.
+        controller: new IncompatibleController("feature_desktop_shell", Layout.Group, true),
     },
     "Images.size": {
         supportedLevels: LEVELS_ACCOUNT_SETTINGS,

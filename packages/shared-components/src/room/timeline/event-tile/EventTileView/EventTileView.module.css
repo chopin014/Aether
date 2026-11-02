@@ -1984,6 +1984,62 @@
     }
 }
 
+/*
+ * Compact channel messages: the time, the name and the text share one line, without avatars. The time and name float
+ * at the start of the line, so the first line of text follows them and later lines wrap under the name, where the
+ * line's own padding starts.
+ */
+.root.layoutGroup.densityCompact:has(> .desktopMessage) {
+    /* The time's column, plus the gap before the name. */
+    --event-tile-group-gutter: var(--cpd-space-16x);
+
+    margin-block-start: calc(var(--desktop-message-group-spacing, var(--cpd-space-4x)) / 2);
+    padding-block-start: 0;
+
+    .slotAvatar {
+        display: none;
+    }
+
+    .desktopMetadata {
+        float: inline-start;
+        position: relative;
+        z-index: 1;
+        min-height: 0;
+        height: var(--desktop-message-line-height);
+        margin: var(--event-tile-group-line-spacing-block-start) var(--cpd-space-1-5x) 0 0;
+    }
+
+    .desktopMetadata .slotTimestamp {
+        order: -1;
+        justify-content: center;
+        width: var(--cpd-space-14x);
+
+        > * {
+            font-size: var(--cpd-font-size-body-xs);
+        }
+    }
+
+    .desktopMetadata .slotSender > * {
+        font: var(--cpd-font-body-md-semibold);
+    }
+
+    /* The reply preview and media start on their own line, under the name. */
+    .line > .slotReplyChain > *,
+    .lineMedia > .slotBody {
+        clear: inline-start;
+    }
+
+    &.stateContinuation {
+        margin-block-start: 0;
+
+        .desktopMetadata {
+            float: none;
+            position: absolute;
+            margin: 0;
+        }
+    }
+}
+
 /* Call history uses the avatar gutter for its icon and keeps the message actions
    and hover surface on the full event line. */
 .root.layoutGroup:has([data-call-history]) {

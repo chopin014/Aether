@@ -46,11 +46,15 @@ export function EventPresentationContextProvider({
     // Compact density is still owned by app/web; this exposes it as shared event presentation.
     const configuredUseCompactLayout = useSettingValue("useCompactLayout");
     const desktopShell = useSettingValue("feature_desktop_shell");
+    const groupSpacing = useSettingValue("desktopMessageGroupSpacing");
     const eventLayout = EVENT_LAYOUT_BY_APP_LAYOUT[layout];
     const density = getEventDensity(layout, useCompactLayoutOverride ?? configuredUseCompactLayout);
     const value = useMemo<EventPresentation>(
-        () => ({ layout: eventLayout, density, messageStyle: desktopShell ? "desktop" : undefined }),
-        [eventLayout, density, desktopShell],
+        () =>
+            desktopShell
+                ? { layout: eventLayout, density, messageStyle: "desktop", groupSpacing }
+                : { layout: eventLayout, density },
+        [eventLayout, density, desktopShell, groupSpacing],
     );
 
     return <EventPresentationProvider value={value}>{children}</EventPresentationProvider>;
