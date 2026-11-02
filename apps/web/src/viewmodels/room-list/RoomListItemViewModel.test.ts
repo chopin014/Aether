@@ -46,6 +46,9 @@ import RightPanelStore from "../../stores/right-panel/RightPanelStore";
 import { RightPanelPhases } from "../../stores/right-panel/RightPanelStorePhases";
 import { UPDATE_EVENT } from "../../stores/AsyncStore";
 import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
+import { prepareCallSoon } from "../../components/views/voip/prepareElementCall";
+
+vi.mock("../../components/views/voip/prepareElementCall", () => ({ prepareCallSoon: vi.fn() }));
 
 vi.mock("./utils", () => ({
     hasAccessToOptionsMenu: vi.fn().mockReturnValue(true),
@@ -374,6 +377,21 @@ describe("RoomListItemViewModel", () => {
             vi.mocked(DMRoomMap.shared().getUserIdForRoomId).mockReturnValue(isDm ? "@bob:server" : undefined);
             viewModel = new RoomListItemViewModel({ room, client: matrixClient });
             expect(viewModel.getSnapshot().channelKind).toBe(kind);
+        });
+
+        it.each([
+            [true, 1],
+            [false, 0],
+        ])("gets a call ready when someone points at a voice channel (voice: %s)", (isCall, preparations) => {
+            const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+            vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
+                setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+            );
+            vi.spyOn(room, "isCallRoom").mockReturnValue(isCall);
+            vi.mocked(prepareCallSoon).mockClear();
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            viewModel.onIntentToOpen();
+            expect(prepareCallSoon).toHaveBeenCalledTimes(preparations);
         });
 
         it("should initialize with room data", async () => {

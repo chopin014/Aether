@@ -248,6 +248,14 @@ describe("<RoomListItemView />", () => {
         expect(Default.args.onOpenRoom).toHaveBeenCalled();
     });
 
+    it("tells the view model when someone points at or focuses the room", async () => {
+        const user = userEvent.setup();
+        render(<Default />);
+
+        await user.hover(screen.getByRole("option"));
+        expect(Default.args.onIntentToOpen).toHaveBeenCalled();
+    });
+
     it("should have aria-selected true when selected", () => {
         render(<Selected />);
         expect(screen.getByRole("option")).toHaveAttribute("aria-selected", "true");

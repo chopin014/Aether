@@ -62,6 +62,7 @@ import { type ShowThreadPayload } from "../../dispatcher/payloads/ShowThreadPayl
 import { threadLabel } from "../threads/threadLabel";
 import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
 import { ChannelMenuViewModel } from "../desktop/ChannelMenuViewModel";
+import { prepareCallSoon } from "../../components/views/voip/prepareElementCall";
 
 /**
  * View section type without `isSelected` field
@@ -593,6 +594,11 @@ export class RoomListItemViewModel
             canChangeSection,
         };
     }
+
+    /** Someone pointing at a voice channel is likely to join it, so make sure the call is ready to go. */
+    public onIntentToOpen = (): void => {
+        if (this.snapshot.current.channelKind === "voice") prepareCallSoon();
+    };
 
     public onOpenRoom = (): void => {
         dispatcher.dispatch<ViewRoomPayload>({
