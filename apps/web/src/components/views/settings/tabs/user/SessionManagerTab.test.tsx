@@ -290,6 +290,17 @@ describe("<SessionManagerTab />", () => {
         expect(getByTestId(`device-tile-${alicesMobileDevice.device_id}`)).toBeTruthy();
     });
 
+    it("still shows the current sessions when only the pushers fail to load", async () => {
+        vi.spyOn(logger, "warn").mockImplementation(() => {});
+        mockClient.getDevices.mockResolvedValue({ devices: [alicesDevice, alicesMobileDevice] });
+        mockClient.getPushers.mockRejectedValue(new Error("pushers down"));
+        const { container, getByTestId } = render(getComponent());
+        await flushPromises();
+
+        expect(container.getElementsByClassName("mx_Spinner").length).toBeFalsy();
+        expect(getByTestId(`device-tile-${alicesMobileDevice.device_id}`)).toBeTruthy();
+    });
+
     it("asks for sessions, pushers and encryption devices at the same time", async () => {
         mockClient.getDevices.mockReturnValue(new Promise(() => {}));
         render(getComponent());

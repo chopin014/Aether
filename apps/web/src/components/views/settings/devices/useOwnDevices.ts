@@ -120,7 +120,7 @@ export const useOwnDevices = (): DevicesState => {
         try {
             // These are independent, so the list waits for the slowest of them rather than for all of them in turn.
             const ownUserId = matrixClient.getUserId()!;
-            const [devices, { pushers }, userDevices] = await Promise.all([
+            const [devicesResult, pushersResult, userDevicesResult] = await Promise.allSettled([
                 fetchExtendedDeviceInformation(matrixClient),
                 matrixClient.getPushers(),
                 matrixClient
@@ -128,6 +128,17 @@ export const useOwnDevices = (): DevicesState => {
                     ?.getUserDeviceInfo([ownUserId])
                     .then((info) => info.get(ownUserId)),
             ]);
+            // The sessions themselves decide what is shown. If only the pushers or encryption details fail, the
+            // sessions are still current (a signed-out one must disappear), and the rest keeps what was known.
+            if (devicesResult.status === "rejected") throw devicesResult.reason;
+            const devices = devicesResult.value;
+            const previous = knownDevices.get(matrixClient);
+            let pushers = previous?.pushers ?? [];
+            if (pushersResult.status === "fulfilled") pushers = pushersResult.value.pushers;
+            else logger.warn("Could not refresh the pushers of your sessions", pushersResult.reason);
+            if (userDevicesResult.status === "rejected") {
+                logger.warn("Could not refresh the encryption details of your sessions", userDevicesResult.reason);
+            }
             setDevices(devices);
             setPushers(pushers);
 
@@ -142,6 +153,7 @@ export const useOwnDevices = (): DevicesState => {
             setLocalNotificationSettings(notificationSettings);
 
             const dehydratedDeviceIds: string[] = [];
+            const userDevices = userDevicesResult.status === "fulfilled" ? userDevicesResult.value : undefined;
             for (const device of userDevices?.values() ?? []) {
                 if (device.dehydrated) {
                     dehydratedDeviceIds.push(device.deviceId);
@@ -152,7 +164,12 @@ export const useOwnDevices = (): DevicesState => {
             // indicate that the user is using a dehydrated device).  If the user has
             // more than one, that is anomalous, and we show all the devices so that
             // nothing is hidden.
-            const dehydratedDeviceId = dehydratedDeviceIds.length == 1 ? dehydratedDeviceIds[0] : undefined;
+            const dehydratedDeviceId =
+                userDevicesResult.status === "rejected"
+                    ? previous?.dehydratedDeviceId
+                    : dehydratedDeviceIds.length == 1
+                      ? dehydratedDeviceIds[0]
+                      : undefined;
             setDehydratedDeviceId(dehydratedDeviceId);
             knownDevices.set(matrixClient, {
                 devices,
