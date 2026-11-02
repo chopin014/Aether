@@ -42,6 +42,15 @@ describe("MatrixActionCreators", () => {
 
     it("dispatches per-room updates once the initial sync is complete", () => {
         synced = true;
+        client.emit(ClientEvent.Sync, SyncState.Prepared, null, {});
+        client.emit(RoomEvent.Timeline, event, room, false, false, live);
+        expect(dispatched()).toEqual(["MatrixActions.sync", "MatrixActions.Room.timeline"]);
+    });
+
+    it("dispatches per-room updates straight away for a client that has already synced", () => {
+        MatrixActionCreators.stop();
+        synced = true;
+        MatrixActionCreators.start(client as any);
         client.emit(RoomEvent.Timeline, event, room, false, false, live);
         expect(dispatched()).toEqual(["MatrixActions.Room.timeline"]);
     });
