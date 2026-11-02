@@ -38,11 +38,18 @@ body.mx_DesktopShell {
     --mx-desktop-search-button-padding: 0 8px;
     --mx-desktop-search-button-size: 32px;
     --mx-desktop-search-background: var(--cpd-color-bg-subtle-primary);
-    /* Direct messages carry a profile avatar; channels a 24px symbol. Both keep 2px between rows. */
+    /*
+     * Direct messages carry a profile avatar; channels a 24px symbol on a 32px row. Each row has 1px above and below,
+     * so neighbouring rows sit 2px apart and a list reads as one block.
+     */
     --mx-desktop-room-content-height: 42px;
-    --mx-desktop-channel-content-height: 34px;
-    --mx-desktop-channel-row-gap: 2px;
-    --mx-desktop-category-padding: 14px;
+    --mx-desktop-channel-content-height: 32px;
+    --mx-desktop-channel-row-gap: 1px;
+    /*
+     * A category keeps clear of the list above it and sits close to its own channels, so each heading reads as
+     * belonging to what follows it rather than floating between two lists.
+     */
+    --mx-desktop-category-padding: 16px 0 2px;
     --mx-desktop-category-inner-padding: 2px 8px 2px 4px;
     --mx-desktop-room-margin: 8px;
     --mx-desktop-room-radius: 6px;
