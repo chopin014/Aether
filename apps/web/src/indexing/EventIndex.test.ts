@@ -310,6 +310,23 @@ describe("EventIndex opened after startup", () => {
         expect((mockIndexingManager as any).closeEventIndex).toHaveBeenCalled();
     });
 
+    it("does not write an event whose decryption finishes after the index closed", async () => {
+        const { mockIndexingManager, client, deliverLiveEvent } = setUp();
+        (mockIndexingManager as any).closeEventIndex = vi.fn();
+        let decrypted!: () => void;
+        vi.mocked(client.decryptEventIfNeeded).mockReturnValue(new Promise<void>((resolve) => (decrypted = resolve)));
+        const indexer = new EventIndex();
+        await indexer.init();
+        deliverLiveEvent();
+        await vi.waitFor(() => expect(client.decryptEventIfNeeded).toHaveBeenCalled());
+
+        const closing = indexer.close();
+        decrypted();
+        await closing;
+        expect(mockIndexingManager.addEventToIndex).not.toHaveBeenCalled();
+        expect((mockIndexingManager as any).closeEventIndex).toHaveBeenCalled();
+    });
+
     it("drops what it was holding when it will not open", async () => {
         const { mockIndexingManager, client, deliverLiveEvent } = setUp();
         const indexer = new EventIndex();

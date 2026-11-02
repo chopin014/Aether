@@ -33,7 +33,7 @@ export class EventIndexPeg {
 
     private _supportIsInstalled = false;
     /** An index started by {@link initInBackground} that has not finished opening yet. */
-    private pending?: { index: EventIndex; cancelled: boolean };
+    private pending?: { index: EventIndex; cancelled: boolean; opening: boolean; done?: Promise<unknown> };
 
     /**
      * Initialize the EventIndexPeg and if event indexing is enabled initialize
@@ -55,13 +55,23 @@ export class EventIndexPeg {
      * @param openWhen - Settles when the app is ready for the index to be opened, such as once the chats are shown.
      * @returns A promise that resolves to true if an EventIndex was successfully initialized, false otherwise.
      */
-    public async initInBackground(openWhen: Promise<unknown>): Promise<boolean> {
+    public initInBackground(openWhen: Promise<unknown>): Promise<boolean> {
         if (!PlatformPeg.get()?.getEventIndexingManager()) return this.init();
-        const client = MatrixClientPeg.get();
         const index = new EventIndex();
         index.listenBeforeOpening();
-        const pending = { index, cancelled: false };
+        const pending: NonNullable<EventIndexPeg["pending"]> = { index, cancelled: false, opening: false };
         this.pending = pending;
+        const done = this.openInBackground(pending, openWhen);
+        pending.done = done.catch(() => {});
+        return done;
+    }
+
+    private async openInBackground(
+        pending: NonNullable<EventIndexPeg["pending"]>,
+        openWhen: Promise<unknown>,
+    ): Promise<boolean> {
+        const { index } = pending;
+        const client = MatrixClientPeg.get();
         // Logging out, or deleting the index, while this waits must not open it afterwards for the wrong account.
         const stillWanted = (): boolean => !pending.cancelled && MatrixClientPeg.get() === client;
         try {
@@ -74,6 +84,7 @@ export class EventIndexPeg {
                 index.abandon();
                 return false;
             }
+            pending.opening = true;
             const opened = await this.initEventIndex(index);
             if (opened && !stillWanted()) {
                 await index.close();
@@ -81,6 +92,9 @@ export class EventIndexPeg {
                 return false;
             }
             return opened;
+        } catch (e) {
+            index.abandon();
+            throw e;
         } finally {
             if (this.pending === pending) this.pending = undefined;
         }
@@ -219,10 +233,14 @@ export class EventIndexPeg {
      * closed.
      */
     public async unset(): Promise<void> {
-        if (this.pending) {
-            this.pending.cancelled = true;
-            this.pending.index.abandon();
+        const pending = this.pending;
+        if (pending) {
+            pending.cancelled = true;
             this.pending = undefined;
+            // Once the database is being opened, wait for that attempt to finish and clean up after itself, so it
+            // cannot close or write to whatever replaces it.
+            if (pending.opening) await pending.done;
+            else pending.index.abandon();
         }
         if (this.index === null) return;
         await this.index.close();

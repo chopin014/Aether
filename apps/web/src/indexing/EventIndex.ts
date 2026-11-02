@@ -90,6 +90,8 @@ export default class EventIndex extends EventEmitter {
     private state: "waiting" | "open" | "closed" = "waiting";
     /** Held work being run after opening; newer work queues behind it so events stay in order. */
     private draining?: Promise<void>;
+    /** Index work currently running, which closing the index waits for. */
+    private readonly running = new Set<Promise<void>>();
     private listening = false;
     /**
      * Index work that arrived before the index was open. It runs one item at a time once the index opens: run all at
@@ -128,16 +130,23 @@ export default class EventIndex extends EventEmitter {
     /** Run index work now if the index is open, or keep it, in order, for when it opens. */
     private whenOpen(work: () => Promise<void>): Promise<void> {
         if (this.state === "closed" || !this.listening) return Promise.resolve();
-        if (this.state === "open" && !this.draining) return work();
+        if (this.state === "open" && !this.draining) return this.track(work());
         this.held.push(work);
         return Promise.resolve();
+    }
+
+    private track(work: Promise<void>): Promise<void> {
+        this.running.add(work);
+        const forget = (): void => void this.running.delete(work);
+        work.then(forget, forget);
+        return work;
     }
 
     private runHeldWork(): void {
         this.draining = (async (): Promise<void> => {
             for (let work = this.held.shift(); work && this.state === "open"; work = this.held.shift()) {
                 try {
-                    await work();
+                    await this.track(work());
                 } catch (e) {
                     this.logger.warn("Could not index an event that arrived while the index was opening", e);
                 }
@@ -325,6 +334,7 @@ export default class EventIndex extends EventEmitter {
 
         return this.whenOpen(async () => {
             await client.decryptEventIfNeeded(ev);
+            if (this.state === "closed") return;
             await this.addLiveEventToIndex(ev);
         });
     };
@@ -784,8 +794,9 @@ export default class EventIndex extends EventEmitter {
         this.held = [];
         this.removeListeners();
         this.stopCrawler();
-        // Let held work that is already running finish before its database goes away.
+        // Let index work that is already running finish before its database goes away.
         await this.draining;
+        await Promise.allSettled(this.running);
         await indexManager?.closeEventIndex();
     }
 

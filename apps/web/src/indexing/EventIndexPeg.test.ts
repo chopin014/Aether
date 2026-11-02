@@ -270,6 +270,51 @@ describe("EventIndexPeg", () => {
             expect(peg.get()).toBeNull();
         });
 
+        it("waits for an index that is already opening to finish, and closes it, when logging out", async () => {
+            const index = mockIndex();
+            index.close = vi.fn().mockResolvedValue(undefined);
+            const opening = Promise.withResolvers<void>();
+            const mockIndexingManager = {
+                supportsEventIndexing: vi.fn().mockResolvedValue(true),
+                initEventIndex: vi.fn(() => opening.promise),
+                getUserVersion: vi.fn().mockResolvedValue(1),
+                isEventIndexEmpty: vi.fn().mockResolvedValue(false),
+            } as any as Mocked<BaseEventIndexManager>;
+            mockPlatformPeg({ getEventIndexingManager: () => mockIndexingManager });
+            vi.spyOn(MatrixClientPeg, "get").mockReturnValue({
+                getUserId: () => "@user:example.org",
+                getDeviceId: () => "DEVICE",
+            } as any);
+            vi.spyOn(SettingsStore, "getValueAt").mockImplementation((_level, settingName): any =>
+                settingName === "enableEventIndexing" ? true : undefined,
+            );
+
+            const peg = new EventIndexPeg();
+            const done = peg.initInBackground(Promise.resolve());
+            await vi.waitFor(() => expect(mockIndexingManager.initEventIndex).toHaveBeenCalled());
+            let unsetFinished = false;
+            const unsetting = peg.unset().then(() => (unsetFinished = true));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(unsetFinished).toBe(false);
+
+            opening.resolve();
+            await unsetting;
+            await expect(done).resolves.toBe(false);
+            expect(index.close).toHaveBeenCalled();
+            expect(peg.get()).toBeNull();
+        });
+
+        it("stops listening when checking for support fails", async () => {
+            const index = mockIndex();
+            mockPlatformPeg({
+                getEventIndexingManager: () =>
+                    ({ supportsEventIndexing: vi.fn().mockRejectedValue(new Error("no seshat")) }) as any,
+            });
+            const peg = new EventIndexPeg();
+            await expect(peg.initInBackground(Promise.resolve())).rejects.toThrow("no seshat");
+            expect(index.abandon).toHaveBeenCalled();
+        });
+
         it("stops listening when indexing is turned off", async () => {
             const mockIndexingManager = {
                 supportsEventIndexing: vi.fn().mockResolvedValue(true),
