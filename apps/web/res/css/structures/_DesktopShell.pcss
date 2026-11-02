@@ -960,6 +960,8 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
         }
 
         .mx_DesktopShell_attachment {
+            /* First in the row, ahead of the encryption icon that precedes it in the markup. */
+            order: -1;
             width: 32px;
             height: 32px;
             padding: 4px;
@@ -967,10 +969,19 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
             margin-inline-end: 12px;
         }
 
+        /*
+         * The room's encryption state sits in the row, between the attachment button and the text, centred on the
+         * row instead of floating over the button's corner.
+         */
         .mx_MessageComposer_e2eIconWrapper {
-            inset-inline-start: 40px;
-            inset-block-start: 4px;
-            z-index: 1;
+            position: static;
+            flex: none;
+            display: flex;
+            align-items: center;
+            align-self: center;
+            width: 16px;
+            height: 16px;
+            margin: 0 8px 0 -4px;
         }
 
         .mx_MessageComposer_input textarea {
