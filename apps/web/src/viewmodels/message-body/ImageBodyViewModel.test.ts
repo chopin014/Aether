@@ -702,6 +702,21 @@ describe("ImageBodyViewModel", () => {
             await again;
         });
 
+        it("does not remember an image whose inspection finishes after signing out", async () => {
+            const images = stubImageElement();
+            const first = downloadImageForTest(gif("mxc://server/signed-out-gif"));
+            await flushPromises();
+            defaultDispatcher.dispatch({ action: Action.OnLoggedOut }, true);
+            images.last().onload();
+            await first;
+
+            const again = downloadImageForTest(gif("mxc://server/signed-out-gif"));
+            await flushPromises();
+            expect(images.created()).toBe(2);
+            images.last().onload();
+            await again;
+        });
+
         it("remembers that an image turned out not to be animated", async () => {
             mockedBlobIsAnimated.mockResolvedValue(false);
             const images = stubImageElement();

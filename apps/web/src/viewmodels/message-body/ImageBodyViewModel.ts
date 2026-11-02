@@ -101,9 +101,12 @@ interface InternalState {
  */
 const animatedVerdicts = new LruCache<string, boolean>(500);
 const animatedStills = new LruCache<string, Blob>(30);
+/** Bumped on logout, so an image still being inspected then cannot put its result back afterwards. */
+let inspectedImagesSession = 0;
 // Stills of encrypted images are decrypted content, so nothing is kept once the account signs out.
 defaultDispatcher.register((payload) => {
     if (payload.action !== Action.OnLoggedOut) return;
+    inspectedImagesSession++;
     animatedVerdicts.clear();
     animatedStills.clear();
 });
@@ -114,7 +117,10 @@ defaultDispatcher.register((payload) => {
  */
 function inspectedImageKey(content: ImageContent): string | undefined {
     const account = MatrixClientPeg.get()?.getUserId() ?? "";
-    if (content.file) return `${account}|encrypted|${content.file.url}|${content.file.hashes?.sha256 ?? ""}`;
+    if (content.file) {
+        const { url, hashes, key, iv } = content.file;
+        return `${account}|encrypted|${url}|${hashes?.sha256 ?? ""}|${key?.k ?? ""}|${iv ?? ""}`;
+    }
     return content.url ? `${account}|plain|${content.url}` : undefined;
 }
 
@@ -405,6 +411,9 @@ export class ImageBodyViewModel
         let generatedThumbnailUrl: string | null = null;
         let isAnimated = content.info?.["org.matrix.msc4230.is_animated"];
         const mediaKey = inspectedImageKey(content);
+        const session = inspectedImagesSession;
+        // Only remember what was learned if the same account is still signed in when inspecting finishes.
+        const remember = (): boolean => !!mediaKey && session === inspectedImagesSession;
         if (isAnimated === undefined) {
             isAnimated =
                 (mediaKey ? animatedVerdicts.get(mediaKey) : undefined) ?? mayBeAnimated(content.info?.mimetype);
@@ -458,12 +467,12 @@ export class ImageBodyViewModel
                         );
                         generatedThumbnailUrl = URL.createObjectURL(thumbnail.thumbnail);
                         thumbUrl = generatedThumbnailUrl;
-                        if (mediaKey) {
-                            animatedVerdicts.set(mediaKey, true);
-                            animatedStills.set(mediaKey, thumbnail.thumbnail);
+                        if (remember()) {
+                            animatedVerdicts.set(mediaKey!, true);
+                            animatedStills.set(mediaKey!, thumbnail.thumbnail);
                         }
-                    } else if (mediaKey) {
-                        animatedVerdicts.set(mediaKey, false);
+                    } else if (remember()) {
+                        animatedVerdicts.set(mediaKey!, false);
                     }
                 } catch (error) {
                     logger.warn("Unable to generate thumbnail for animated image: ", error);
