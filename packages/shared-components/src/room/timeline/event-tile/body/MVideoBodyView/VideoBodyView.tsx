@@ -19,6 +19,7 @@ import { InlineSpinner } from "@vector-im/compound-web";
 
 import { type ViewModel, useViewModel } from "../../../../../core/viewmodel";
 import styles from "./VideoBodyView.module.css";
+import { VideoPlayer } from "./VideoPlayer";
 
 /**
  * Render states for the shared video body view.
@@ -210,21 +211,36 @@ export function VideoBodyView({
         <span className={rootClassName}>
             <div className={resolvedContainerClassName} style={containerStyle} data-video-body-mask-target="">
                 {/* Captions will be supplied from app-side data once the VM wiring is in place. */}
-                <video
-                    className={styles.video}
-                    ref={videoRef}
-                    src={src}
-                    aria-label={videoLabel}
-                    title={videoTitle}
-                    controls={controls}
-                    controlsList="nodownload"
-                    crossOrigin="anonymous"
-                    preload={preload}
-                    muted={muted}
-                    autoPlay={autoPlay}
-                    poster={poster}
-                    onPlay={vm.onPlay}
-                />
+                {controls ? (
+                    <VideoPlayer
+                        videoClassName={styles.video}
+                        videoRef={videoRef}
+                        src={src}
+                        label={videoLabel}
+                        title={videoTitle}
+                        preload={preload}
+                        muted={muted}
+                        autoPlay={autoPlay}
+                        poster={poster}
+                        onPlay={vm.onPlay}
+                    />
+                ) : (
+                    <video
+                        className={styles.video}
+                        ref={videoRef}
+                        src={src}
+                        aria-label={videoLabel}
+                        title={videoTitle}
+                        controls={controls}
+                        controlsList="nodownload"
+                        crossOrigin="anonymous"
+                        preload={preload}
+                        muted={muted}
+                        autoPlay={autoPlay}
+                        poster={poster}
+                        onPlay={vm.onPlay}
+                    />
+                )}
             </div>
             {children}
         </span>

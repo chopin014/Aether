@@ -1138,6 +1138,16 @@
             "view_file": "View file",
             "view_image": "View image",
             "view_video": "View video"
+        },
+        "video_player": {
+            "exit_full_screen": "Exit full screen",
+            "full_screen": "Full screen",
+            "mute": "Mute",
+            "pause": "Pause",
+            "play": "Play",
+            "seek": "Seek",
+            "unmute": "Unmute",
+            "volume": "Volume"
         }
     },
     "user_menu": {

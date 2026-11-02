@@ -1,0 +1,297 @@
+/*
+ * Copyright 2026 Gabriel
+ *
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE in the repository root for full details.
+ */
+
+/*
+ * The controls always sit on the picture, which is dark at its edges once the gradient is under them, so they use
+ * fixed light colours rather than the theme's.
+ */
+.player {
+    --video-control-color: #ffffff;
+    --video-control-muted: rgb(255 255 255 / 72%);
+    --video-track: rgb(255 255 255 / 24%);
+    --video-track-loaded: rgb(255 255 255 / 42%);
+    --video-accent: var(--cpd-color-bg-accent-rest);
+
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000000;
+    color: var(--video-control-color);
+    border-radius: inherit;
+    isolation: isolate;
+}
+
+.video {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    cursor: pointer;
+}
+
+.fullScreen {
+    border-radius: 0;
+}
+
+/* The large play button over the poster and while paused. */
+.bigPlay {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: rgb(0 0 0 / 55%);
+    color: var(--video-control-color);
+    cursor: pointer;
+    transform: translate(-50%, -50%);
+    backdrop-filter: blur(6px);
+    transition:
+        transform 120ms ease-out,
+        background-color 120ms ease-out;
+
+    svg {
+        width: 28px;
+        height: 28px;
+        /* The triangle's weight sits left of its box, so it is nudged to look centred. */
+        margin-inline-start: 3px;
+    }
+
+    &:hover,
+    &:focus-visible {
+        background: var(--video-accent);
+        transform: translate(-50%, -50%) scale(1.06);
+    }
+
+    &:focus-visible {
+        outline: 2px solid var(--video-control-color);
+        outline-offset: 2px;
+    }
+}
+
+/* The length of a video that hasn't started, as on a thumbnail. */
+.durationBadge {
+    position: absolute;
+    inset-inline-start: var(--cpd-space-2x);
+    inset-block-end: var(--cpd-space-2x);
+    z-index: 1;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgb(0 0 0 / 65%);
+    font: var(--cpd-font-body-xs-semibold);
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+}
+
+/* The control bar fades in while the pointer is over a playing video, and stays while paused or focused. */
+.controls {
+    position: absolute;
+    inset: auto 0 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-1x);
+    padding: var(--cpd-space-6x) var(--cpd-space-3x) var(--cpd-space-2x);
+    background: linear-gradient(to top, rgb(0 0 0 / 72%), rgb(0 0 0 / 0%));
+    opacity: 0;
+    transition: opacity 160ms ease-out;
+}
+
+/* Until the pointer or focus arrives, the poster and the play button speak for themselves. */
+.player:is(:hover, :focus-within) .controls {
+    opacity: 1;
+}
+
+.player.idle:not(:focus-within) .controls {
+    opacity: 0;
+}
+
+.player.idle:not(:focus-within) .video {
+    cursor: none;
+}
+
+.bar {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-1x);
+    min-width: 0;
+}
+
+.control {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--video-control-color);
+    cursor: pointer;
+
+    svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    &:hover {
+        background: rgb(255 255 255 / 14%);
+    }
+
+    &:focus-visible {
+        outline: 2px solid var(--video-control-color);
+        outline-offset: -2px;
+    }
+}
+
+.time {
+    flex: 1;
+    min-width: 0;
+    padding-inline: var(--cpd-space-1x);
+    overflow: hidden;
+    color: var(--video-control-muted);
+    font: var(--cpd-font-body-xs-semibold);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.time > :first-child {
+    color: var(--video-control-color);
+}
+
+.fullScreenButton {
+    margin-inline-start: auto;
+}
+
+/* The volume slider opens beside its button. */
+.volume {
+    display: flex;
+    flex: none;
+    align-items: center;
+}
+
+/* Shared track for the seek and volume sliders: played or set in the accent, loaded in a lighter tint. */
+.seek,
+.volumeSlider {
+    appearance: none;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+
+    &::-webkit-slider-runnable-track {
+        height: 4px;
+        border-radius: 2px;
+    }
+
+    &::-webkit-slider-thumb {
+        appearance: none;
+        width: 12px;
+        height: 12px;
+        margin-block-start: -4px;
+        border-radius: 50%;
+        background: var(--video-control-color);
+        box-shadow: 0 0 0 1px rgb(0 0 0 / 20%);
+        transform: scale(0);
+        transition: transform 100ms ease-out;
+    }
+
+    &:is(:hover, :focus-visible)::-webkit-slider-thumb {
+        transform: scale(1);
+    }
+
+    &::-moz-range-track {
+        height: 4px;
+        border-radius: 2px;
+        background: var(--video-track);
+    }
+
+    &::-moz-range-progress {
+        height: 4px;
+        border-radius: 2px;
+        background: var(--video-accent);
+    }
+
+    &::-moz-range-thumb {
+        width: 12px;
+        height: 12px;
+        border: 0;
+        border-radius: 50%;
+        background: var(--video-control-color);
+    }
+
+    &:focus-visible {
+        outline: 2px solid var(--video-control-color);
+        outline-offset: 2px;
+        border-radius: 2px;
+    }
+
+    &:disabled {
+        cursor: default;
+    }
+}
+
+.seek {
+    width: 100%;
+    height: 12px;
+
+    &::-webkit-slider-runnable-track {
+        background:
+            linear-gradient(var(--video-accent), var(--video-accent)) 0 / var(--video-progress) 100% no-repeat,
+            linear-gradient(var(--video-track-loaded), var(--video-track-loaded)) 0 / var(--video-buffered) 100%
+                no-repeat,
+            var(--video-track);
+        transition: height 100ms ease-out;
+    }
+
+    &:hover::-webkit-slider-runnable-track {
+        height: 6px;
+    }
+
+    &:hover::-webkit-slider-thumb {
+        margin-block-start: -3px;
+    }
+}
+
+.volumeSlider {
+    width: 0;
+    height: 12px;
+    opacity: 0;
+    transition:
+        width 140ms ease-out,
+        opacity 140ms ease-out,
+        margin 140ms ease-out;
+
+    &::-webkit-slider-runnable-track {
+        background:
+            linear-gradient(var(--video-control-color), var(--video-control-color)) 0 / var(--video-volume) 100%
+                no-repeat,
+            var(--video-track);
+    }
+}
+
+.volume:is(:hover, :focus-within) .volumeSlider {
+    width: 72px;
+    margin-inline: var(--cpd-space-1x) var(--cpd-space-2x);
+    opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .bigPlay,
+    .controls,
+    .volumeSlider,
+    .seek::-webkit-slider-runnable-track,
+    .seek::-webkit-slider-thumb,
+    .volumeSlider::-webkit-slider-thumb {
+        transition: none;
+    }
+}
