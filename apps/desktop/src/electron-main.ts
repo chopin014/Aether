@@ -109,6 +109,9 @@ protocol.registerSchemesAsPrivileged([
             standard: true,
             secure: true,
             supportFetchAPI: true,
+            // Without this V8 cannot keep compiled code for the app between launches, so every start compiles
+            // megabytes of JavaScript again before anything is drawn.
+            codeCache: true,
         },
     },
 ]);
@@ -256,6 +259,9 @@ app.on("ready", async () => {
             //sandbox: true, // We enable sandboxing from app.enableSandbox() above
             contextIsolation: true,
             webgl: true,
+            // The app's scripts only change with an update, so cache their compiled code from the first launch
+            // instead of waiting for V8 to see them run several times.
+            v8CacheOptions: "bypassHeatCheck",
         },
     });
     updater.desktopUpdater.attachRenderer(global.mainWindow.webContents);
