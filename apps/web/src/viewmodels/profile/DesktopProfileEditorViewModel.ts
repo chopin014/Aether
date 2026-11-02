@@ -261,7 +261,7 @@ export class DesktopProfileEditorViewModel
             this.bannerAnimated = this.baseline.bannerAnimated;
         }
         // Board tiles are told apart by their image; a tile still being uploaded is always one of ours.
-        this.board = mergeEdits(
+        this.board = mergeEdits<EditorBoardItem>(
             before.board.map((item) => ({ id: "", title: item.title, caption: item.caption ?? "", mxc: item.mxc })),
             this.board,
             this.boardFromBaseline(),
