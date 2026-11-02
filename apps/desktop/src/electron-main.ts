@@ -11,7 +11,6 @@ Please see LICENSE files in the repository root for full details.
 // Squirrel on windows starts the app with various flags as hooks to tell us when we've been installed/uninstalled etc.
 import "./squirrelhooks.js";
 import { app, BrowserWindow, Menu, dialog, type Input, type Event, session, protocol, desktopCapturer } from "electron";
-import * as Sentry from "@sentry/electron/main";
 import path from "node:path";
 import windowStateKeeper from "electron-window-state";
 import { URL, fileURLToPath } from "node:url";
@@ -61,6 +60,8 @@ async function configureSentry(): Promise<void> {
     const { dsn, environment } = config.sentry || {};
     if (dsn) {
         console.log(`Enabling Sentry with dsn=${dsn} environment=${environment}`);
+        // Loading Sentry takes around 400ms, so it is only loaded when crash reporting is configured.
+        const Sentry = await import("@sentry/electron/main");
         Sentry.init({
             dsn,
             environment,
