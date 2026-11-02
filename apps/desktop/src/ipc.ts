@@ -8,6 +8,7 @@ Please see LICENSE files in the repository root for full details.
 import { app, desktopCapturer, ipcMain, powerSaveBlocker, TouchBar, nativeImage } from "electron";
 
 import IpcMainEvent = Electron.IpcMainEvent;
+import { selectDesktopAudio } from "./desktop-audio.js";
 import { randomArray } from "./utils.js";
 import { consumeDisplayMediaCallback } from "./displayMediaCallback.js";
 import Store, { clearData } from "./store.js";
@@ -185,10 +186,16 @@ ipcMain.on("ipcCall", async function (_ev: IpcMainEvent, payload) {
                 ret = [];
             }
             break;
-        case "callDisplayMediaCallback":
-            consumeDisplayMediaCallback()?.(args[0] ? { video: args[0] } : null);
+        case "callDisplayMediaCallback": {
+            if (_ev.sender !== global.mainWindow.webContents || _ev.senderFrame !== _ev.sender.mainFrame) return;
+            const callback = consumeDisplayMediaCallback();
+            if (callback) {
+                selectDesktopAudio(args[0]?.id ?? "", args[1] === true);
+                callback(args[0] ? { video: args[0] } : null);
+            }
             ret = null;
             break;
+        }
 
         case "clearStorage":
             await clearData(global.mainWindow.webContents.session);

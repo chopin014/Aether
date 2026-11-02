@@ -15,7 +15,7 @@ import {
     type DesktopProfileEditorViewSnapshot,
     type DesktopProfileIdentitySnapshot,
 } from "@element-hq/web-shared-components";
-import { MatrixError, type MatrixClient } from "matrix-js-sdk/src/matrix";
+import { MatrixError, type Capabilities, type MatrixClient } from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
 
 import { _t, getCurrentLanguage } from "../../languageHandler";
@@ -104,6 +104,8 @@ export class DesktopProfileEditorViewModel
     private board: EditorBoardItem[] = [];
     private nextId = 0;
     private canWrite: FieldPermission = () => true;
+    /** Resolves once the baseline matches the server, or with false if it could not be read. */
+    private fresh: Promise<boolean>;
 
     public constructor(props: DesktopProfileEditorViewModelProps) {
         const userId = props.client.getSafeUserId();
@@ -136,69 +138,152 @@ export class DesktopProfileEditorViewModel
         });
         this.store = RichProfileStore.forClient(props.client);
         this.disposables.track(() => this.revokePreviews());
-        void this.load();
+        // Show the last known profile at once; the fresh read below replaces anything not edited meanwhile.
+        const cached = this.store.getRaw(userId);
+        if (cached) this.showCached(cached);
+        this.fresh = this.load();
     }
 
-    private load = async (): Promise<void> => {
+    /** Read the server's rules from what the client already knows, without waiting for a request. */
+    private applyCapabilities(capabilities: Capabilities): boolean {
+        const capability = capabilities["m.profile_fields"] ?? capabilities["uk.tcpip.msc4133.profile_fields"];
+        this.canWrite = fieldPermission(capability);
+        if (!this.canWrite(RICH_PROFILE_FIELD)) {
+            if (!this.isDisposed) this.snapshot.merge({ state: "read_only" });
+            return false;
+        }
+        this.snapshot.merge({
+            canSetDisplayName: this.canWrite("displayname") && capabilities["m.set_displayname"]?.enabled !== false,
+            canSetAvatar: this.canWrite("avatar_url") && capabilities["m.set_avatar_url"]?.enabled !== false,
+        });
+        return true;
+    }
+
+    private showCached(raw: Record<string, unknown>): void {
+        if (!this.applyCapabilities(this.props.client.getCachedCapabilities() ?? {})) return;
+        this.setBaseline(raw);
+        this.adoptBaseline();
+        this.snapshot.merge({ state: "ready", tagOptions: spaceTagOptions(this.props.client) });
+    }
+
+    private setBaseline(raw: Record<string, unknown>): void {
+        this.raw = raw;
+        this.baseline = parseRichProfile(raw);
+        this.baselineName = typeof raw.displayname === "string" ? raw.displayname : "";
+        this.baselineAvatarMxc = typeof raw.avatar_url === "string" ? raw.avatar_url : undefined;
+    }
+
+    private load = async (): Promise<boolean> => {
         const { client } = this.props;
         const userId = client.getSafeUserId();
+        const showingCache = this.snapshot.current.state === "ready";
         try {
             if (!(await client.doesServerSupportExtendedProfiles())) {
                 if (!this.isDisposed) this.snapshot.merge({ state: "unsupported" });
-                return;
+                return false;
             }
-            const capabilities = (await client.getCapabilities()) ?? {};
-            const capability = capabilities["m.profile_fields"] ?? capabilities["uk.tcpip.msc4133.profile_fields"];
-            this.canWrite = fieldPermission(capability);
-            if (!this.canWrite(RICH_PROFILE_FIELD)) {
-                if (!this.isDisposed) this.snapshot.merge({ state: "read_only" });
-                return;
-            }
+            if (!this.applyCapabilities((await client.getCapabilities()) ?? {})) return false;
             // Fresh rather than cached: saving against stale values could overwrite a change from another device.
-            this.raw = await client.getExtendedProfile(userId);
-            if (this.isDisposed) return;
-            const canSetDisplayName =
-                this.canWrite("displayname") && capabilities["m.set_displayname"]?.enabled !== false;
-            const canSetAvatar = this.canWrite("avatar_url") && capabilities["m.set_avatar_url"]?.enabled !== false;
-            this.store.set(userId, this.raw);
-            this.baseline = parseRichProfile(this.raw);
-            this.baselineName = typeof this.raw.displayname === "string" ? this.raw.displayname : "";
-            this.baselineAvatarMxc = typeof this.raw.avatar_url === "string" ? this.raw.avatar_url : undefined;
-            this.adoptBaseline();
-            this.snapshot.merge({
-                state: "ready",
-                canSetDisplayName,
-                canSetAvatar,
-                tagOptions: spaceTagOptions(client),
-            });
+            const raw = await client.getExtendedProfile(userId);
+            if (this.isDisposed) return false;
+            this.store.set(userId, raw);
+            if (showingCache) {
+                this.mergeFresh(raw);
+            } else {
+                this.setBaseline(raw);
+                this.adoptBaseline();
+            }
+            this.snapshot.merge({ state: "ready", tagOptions: spaceTagOptions(client) });
+            return true;
         } catch (error) {
             if (error instanceof MatrixError && error.errcode === "M_NOT_FOUND") {
-                this.adoptBaseline();
+                if (showingCache) this.mergeFresh({});
+                else this.adoptBaseline();
                 if (!this.isDisposed) {
                     this.snapshot.merge({ state: "ready", canSetDisplayName: true, canSetAvatar: true });
                 }
-                return;
+                return true;
             }
             logger.warn("Could not load the profile to edit", error);
-            if (!this.isDisposed) this.snapshot.merge({ state: "unsupported" });
+            // A cached draft stays usable; saving reads the profile again first.
+            if (!this.isDisposed && !showingCache) this.snapshot.merge({ state: "unsupported" });
+            return false;
         }
     };
 
-    /** Make the draft match what is stored, discarding anything unsaved. */
-    private adoptBaseline(): void {
-        const profile = this.baseline;
-        this.revokePreviews();
-        this.avatarMxc = this.baselineAvatarMxc;
-        this.bannerMxc = profile.bannerMxc;
-        this.bannerAnimated = profile.bannerAnimated;
-        this.nameplateMxc = profile.nameplate && "mxc" in profile.nameplate ? profile.nameplate.mxc : undefined;
-        this.board = profile.board.map((item) => ({
+    /**
+     * Take in the profile just read from the server while a cached copy is on screen. Anything the person has not
+     * touched follows the server; anything they changed keeps their edit.
+     */
+    private mergeFresh(raw: Record<string, unknown>): void {
+        const { draft: current } = this.snapshot.current;
+        if (!this.isDirty(current)) {
+            this.setBaseline(raw);
+            this.adoptBaseline();
+            return;
+        }
+        const before = {
+            draft: this.baselineDraft(),
+            avatarMxc: this.baselineAvatarMxc,
+            bannerMxc: this.baseline.bannerMxc,
+            bannerAnimated: this.baseline.bannerAnimated,
+            nameplateMxc: nameplateMxcOf(this.baseline),
+            board: this.baseline.board,
+        };
+        this.setBaseline(raw);
+        const after = this.baselineDraft();
+        const merged: DesktopProfileEditorDraft = { ...current };
+        const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+        for (const key of DRAFT_SCALAR_KEYS) {
+            if (same(current[key], before.draft[key])) (merged as unknown as Record<string, unknown>)[key] = after[key];
+        }
+        // The nameplate's preset, image mode, image and pending upload only make sense together.
+        const nameplateTouched =
+            !!this.pendingNameplate ||
+            this.nameplateMxc !== before.nameplateMxc ||
+            current.nameplate !== before.draft.nameplate ||
+            current.hasNameplateImage !== before.draft.hasNameplateImage;
+        if (!nameplateTouched) {
+            merged.nameplate = after.nameplate;
+            merged.hasNameplateImage = after.hasNameplateImage;
+            this.nameplateMxc = nameplateMxcOf(this.baseline);
+        }
+        merged.links = mergeEdits(
+            before.draft.links,
+            current.links,
+            after.links,
+            (link) => link.url,
+            (a, b) => a.label === b.label && a.url === b.url,
+        );
+        if (!this.pendingAvatar && this.avatarMxc === before.avatarMxc) this.avatarMxc = this.baselineAvatarMxc;
+        if (!this.pendingBanner && this.bannerMxc === before.bannerMxc) {
+            this.bannerMxc = this.baseline.bannerMxc;
+            this.bannerAnimated = this.baseline.bannerAnimated;
+        }
+        // Board tiles are told apart by their image; a tile still being uploaded is always one of ours.
+        this.board = mergeEdits<EditorBoardItem>(
+            before.board.map((item) => ({ id: "", title: item.title, caption: item.caption ?? "", mxc: item.mxc })),
+            this.board,
+            this.boardFromBaseline(),
+            (item) => item.mxc ?? item.id,
+            (a, b) => a.title === b.title && a.caption === b.caption && !a.pending && !b.pending,
+        );
+        this.publish(merged, {});
+    }
+
+    private boardFromBaseline(): EditorBoardItem[] {
+        return this.baseline.board.map((item) => ({
             id: this.newId(),
             title: item.title,
             caption: item.caption ?? "",
             mxc: item.mxc,
         }));
-        const draft: DesktopProfileEditorDraft = {
+    }
+
+    /** The draft that matches what is stored. */
+    private baselineDraft(): DesktopProfileEditorDraft {
+        const profile = this.baseline;
+        return {
             displayName: this.baselineName,
             pronouns: profile.pronouns ?? "",
             bio: profile.bio ?? "",
@@ -208,7 +293,7 @@ export class DesktopProfileEditorViewModel
             decoration: profile.decoration,
             effect: profile.effect,
             nameplate: profile.nameplate && "preset" in profile.nameplate ? profile.nameplate.preset : undefined,
-            hasNameplateImage: !!this.nameplateMxc,
+            hasNameplateImage: !!nameplateMxcOf(profile),
             nameStyle: nameStyleFromRichProfile(profile) ?? { font: "default", effect: "none" },
             links: profile.links.map((link) => ({
                 id: this.newId(),
@@ -220,7 +305,18 @@ export class DesktopProfileEditorViewModel
             board: [],
             tagSpaceId: profile.tagSpaceId,
         };
-        this.publish(draft, { error: undefined });
+    }
+
+    /** Make the draft match what is stored, discarding anything unsaved. */
+    private adoptBaseline(): void {
+        const profile = this.baseline;
+        this.revokePreviews();
+        this.avatarMxc = this.baselineAvatarMxc;
+        this.bannerMxc = profile.bannerMxc;
+        this.bannerAnimated = profile.bannerAnimated;
+        this.nameplateMxc = nameplateMxcOf(profile);
+        this.board = this.boardFromBaseline();
+        this.publish(this.baselineDraft(), { error: undefined });
     }
 
     private newId(): string {
@@ -554,20 +650,38 @@ export class DesktopProfileEditorViewModel
 
     public save = async (): Promise<void> => {
         const { client } = this.props;
-        const { draft, saving, tooLarge } = this.snapshot.current;
+        const { saving, tooLarge } = this.snapshot.current;
         if (saving || tooLarge) return;
-        if (draft.links.some((link) => link.invalid)) {
+        if (this.snapshot.current.draft.links.some((link) => link.invalid)) {
             this.snapshot.merge({ error: _t("desktop|profile_editor|error_link") });
             return;
         }
         this.snapshot.merge({ saving: true, error: undefined, saved: false });
         const userId = client.getSafeUserId();
         try {
+            // Never write over the server from a cached copy: wait for (or retry) the fresh read first.
+            if (!(await this.fresh)) this.fresh = this.load();
+            if (!(await this.fresh)) {
+                if (!this.isDisposed) {
+                    this.snapshot.merge({ saving: false, error: _t("desktop|profile_editor|error_generic") });
+                }
+                return;
+            }
+            if (this.isDisposed || this.snapshot.current.state !== "ready") return;
+            // The fresh read may have found that the server now manages the name or avatar, after editing started
+            // with what the client last knew. Leave those alone rather than have the whole save rejected.
+            const { canSetDisplayName, canSetAvatar } = this.snapshot.current;
+            if (!canSetAvatar) {
+                if (this.pendingAvatar) URL.revokeObjectURL(this.pendingAvatar.previewUrl);
+                this.pendingAvatar = undefined;
+                this.avatarMxc = this.baselineAvatarMxc;
+            }
             await this.uploadPending();
+            const draft = this.snapshot.current.draft;
             const animatedAvatar: { mxc?: string } = { mxc: this.baseline.animatedAvatarMxc };
-            await this.saveAvatar(animatedAvatar);
+            if (canSetAvatar) await this.saveAvatar(animatedAvatar);
             const displayName = draft.displayName.trim();
-            if (displayName !== this.baselineName.trim() && displayName) {
+            if (canSetDisplayName && displayName !== this.baselineName.trim() && displayName) {
                 await this.withRateLimit(() => client.setDisplayName(displayName));
                 this.baselineName = displayName;
                 this.raw = { ...this.raw, displayname: displayName };
@@ -615,6 +729,60 @@ export class DesktopProfileEditorViewModel
             this.snapshot.merge({ saving: false, error: saveErrorMessage(error) });
         }
     };
+}
+
+/** Draft fields that are plain values, refreshed one by one when a newer profile arrives. */
+const DRAFT_SCALAR_KEYS = [
+    "displayName",
+    "pronouns",
+    "bio",
+    "statusEmoji",
+    "statusText",
+    "theme",
+    "decoration",
+    "effect",
+    "nameStyle",
+    "boardTitle",
+    "tagSpaceId",
+] as const satisfies readonly (keyof DesktopProfileEditorDraft)[];
+
+/**
+ * Combine a list edited here with the server's newer copy, item by item: the server's list, with what was removed,
+ * changed or added here applied on top. An item changed here but removed elsewhere is kept, since the edit is newer.
+ *
+ * @param before - The list as it was when editing started.
+ * @param current - The list as edited here.
+ * @param after - The list as the server has it now.
+ * @param key - What identifies an item across the three.
+ * @param equal - Whether two versions of an item are the same.
+ */
+function mergeEdits<T>(
+    before: T[],
+    current: T[],
+    after: T[],
+    key: (item: T) => string,
+    equal: (a: T, b: T) => boolean,
+): T[] {
+    const beforeByKey = new Map(before.map((item) => [key(item), item]));
+    const currentByKey = new Map(current.map((item) => [key(item), item]));
+    const afterKeys = new Set(after.map(key));
+    const merged: T[] = [];
+    for (const item of after) {
+        const original = beforeByKey.get(key(item));
+        const edited = currentByKey.get(key(item));
+        if (original && !edited) continue;
+        merged.push(edited && (!original || !equal(original, edited)) ? edited : item);
+    }
+    for (const item of current) {
+        if (afterKeys.has(key(item))) continue;
+        const original = beforeByKey.get(key(item));
+        if (!original || !equal(original, item)) merged.push(item);
+    }
+    return merged;
+}
+
+function nameplateMxcOf(profile: RichProfile): string | undefined {
+    return profile.nameplate && "mxc" in profile.nameplate ? profile.nameplate.mxc : undefined;
 }
 
 function saveErrorMessage(error: unknown): string {

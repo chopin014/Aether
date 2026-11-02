@@ -1553,12 +1553,23 @@ describe("ElementCall with the React component embedding", () => {
         ]);
     });
 
+    const mediaConnected = (): void =>
+        call.handleConnectionStats({
+            state: "connected",
+            quality: "good",
+            rttMs: 20,
+            averageRttMs: 20,
+            outboundPacketLossPercent: 0,
+            history: [20],
+        });
+
     it("plays join and leave once from stage lifecycle callbacks without a mounted dock", () => {
         enabledSettings.add("feature_desktop_shell");
         vi.mocked(playDesktopVoiceSound).mockClear();
         try {
             call.handleJoined();
             call.handleJoined();
+            mediaConnected();
             expect(playDesktopVoiceSound).toHaveBeenCalledExactlyOnceWith("join");
             call.setLocalLeavePending(true);
             expect(playDesktopVoiceSound).toHaveBeenCalledTimes(1);
@@ -1566,7 +1577,53 @@ describe("ElementCall with the React component embedding", () => {
             call.handleClose();
             expect(vi.mocked(playDesktopVoiceSound).mock.calls).toEqual([["join"], ["leave"]]);
             call.handleJoined();
+            mediaConnected();
             expect(vi.mocked(playDesktopVoiceSound).mock.calls).toEqual([["join"], ["leave"], ["join"]]);
+        } finally {
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
+    it("waits for media to connect before the join cue, and does not replay it on reconnects", () => {
+        enabledSettings.add("feature_desktop_shell");
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        try {
+            call.handleJoined();
+            expect(playDesktopVoiceSound).not.toHaveBeenCalled();
+            mediaConnected();
+            expect(playDesktopVoiceSound).toHaveBeenCalledExactlyOnceWith("join");
+            call.handleConnectionStats({ ...call.connectionStats, state: "reconnecting" });
+            mediaConnected();
+            expect(playDesktopVoiceSound).toHaveBeenCalledTimes(1);
+        } finally {
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
+    it("plays no join cue when media connects while the join is being abandoned", () => {
+        enabledSettings.add("feature_desktop_shell");
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        try {
+            call.handleJoined();
+            call.setLocalLeavePending(true);
+            mediaConnected();
+            call.handleHangup();
+            call.handleClose();
+            expect(playDesktopVoiceSound).not.toHaveBeenCalled();
+        } finally {
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
+    it("plays no cues for a join abandoned before media connected", () => {
+        enabledSettings.add("feature_desktop_shell");
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        try {
+            call.handleJoined();
+            call.handleHangup();
+            call.handleClose();
+            mediaConnected();
+            expect(playDesktopVoiceSound).not.toHaveBeenCalled();
         } finally {
             enabledSettings.delete("feature_desktop_shell");
         }
@@ -1591,6 +1648,7 @@ describe("ElementCall with the React component embedding", () => {
             vi.spyOn(DesktopVoicePipeline.instance, "attach").mockReturnValue(() => {});
             call.setComponentHandle({ hangUp: vi.fn(async () => call.handleHangup()) } as unknown as ElementCallHandle);
             call.handleJoined();
+            mediaConnected();
             await call.disconnect();
             call.handleHangup();
             call.handleClose();

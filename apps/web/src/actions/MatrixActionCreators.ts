@@ -16,6 +16,7 @@ import {
     type IRoomTimelineData,
     type RoomState,
     RoomStateEvent,
+    SyncState,
 } from "matrix-js-sdk/src/matrix";
 
 import dis from "../dispatcher/dispatcher";
@@ -319,13 +320,18 @@ let matrixClientListenersStop: Listener[] = [];
  * @param {function} actionCreator a function that should return an action to dispatch
  *                                 when given the MatrixClient as an argument as well as
  *                                 arguments emitted in the MatrixClient event.
+ * @param ready For per-room updates, whether to dispatch yet: the stores that use them start from the client's state
+ *              after the initial sync, while that sync (or replaying it from the cache at startup) emits thousands of
+ *              them that would only queue work for nobody.
  */
 function addMatrixClientListener(
     matrixClient: MatrixClient,
     eventName: Parameters<MatrixClient["emit"]>[0],
     actionCreator: ActionCreator,
+    ready?: () => boolean,
 ): void {
     const listener: Listener = (...args) => {
+        if (ready && !ready()) return;
         const payload = actionCreator(matrixClient, ...args);
         if (payload) {
             // Consumers shouldn't have to worry about calling js-sdk methods mid-dispatch, so make this dispatch async
@@ -349,16 +355,26 @@ export default {
      * @param {MatrixClient} matrixClient the MatrixClient to listen to events from
      */
     start(matrixClient: MatrixClient) {
+        // Once the first sync has been processed this stays true, including through errors and reconnects, when the
+        // client reports its initial sync as incomplete again but its updates must still reach the stores.
+        let initialSyncDone = matrixClient.isInitialSyncComplete();
+        const onSync = (state: SyncState): void => {
+            if (state === SyncState.Prepared || state === SyncState.Syncing) initialSyncDone = true;
+        };
+        matrixClient.on(ClientEvent.Sync, onSync);
+        matrixClientListenersStop.push(() => matrixClient.removeListener(ClientEvent.Sync, onSync));
+        const afterInitialSync = (): boolean => initialSyncDone;
+
         addMatrixClientListener(matrixClient, ClientEvent.Sync, createSyncAction);
         addMatrixClientListener(matrixClient, ClientEvent.AccountData, createAccountDataAction);
-        addMatrixClientListener(matrixClient, RoomEvent.AccountData, createRoomAccountDataAction);
+        addMatrixClientListener(matrixClient, RoomEvent.AccountData, createRoomAccountDataAction, afterInitialSync);
         addMatrixClientListener(matrixClient, ClientEvent.Room, createRoomAction);
-        addMatrixClientListener(matrixClient, RoomEvent.Tags, createRoomTagsAction);
-        addMatrixClientListener(matrixClient, RoomEvent.Receipt, createRoomReceiptAction);
-        addMatrixClientListener(matrixClient, RoomEvent.Timeline, createRoomTimelineAction);
+        addMatrixClientListener(matrixClient, RoomEvent.Tags, createRoomTagsAction, afterInitialSync);
+        addMatrixClientListener(matrixClient, RoomEvent.Receipt, createRoomReceiptAction, afterInitialSync);
+        addMatrixClientListener(matrixClient, RoomEvent.Timeline, createRoomTimelineAction, afterInitialSync);
         addMatrixClientListener(matrixClient, RoomEvent.MyMembership, createSelfMembershipAction);
-        addMatrixClientListener(matrixClient, MatrixEventEvent.Decrypted, createEventDecryptedAction);
-        addMatrixClientListener(matrixClient, RoomStateEvent.Events, createRoomStateEventsAction);
+        addMatrixClientListener(matrixClient, MatrixEventEvent.Decrypted, createEventDecryptedAction, afterInitialSync);
+        addMatrixClientListener(matrixClient, RoomStateEvent.Events, createRoomStateEventsAction, afterInitialSync);
     },
 
     /**

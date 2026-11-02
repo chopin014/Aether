@@ -17,6 +17,7 @@ import { shouldPolyfill as shouldPolyFillIntlSegmenter } from "@formatjs/intl-se
 import { parseAppUrl } from "./url_utils";
 import "./modernizr.cjs";
 import { polyfillTouchEvent } from "../@types/polyfill";
+import { markStartup } from "../performance/StartupTimings";
 
 import "../../res/css/_index.pcss";
 // Require common CSS here; this will make webpack process it into bundle.css.
@@ -106,7 +107,25 @@ const supportedBrowser = checkBrowserFeatures();
 // We start loading stuff but don't block on it until as late as possible to allow
 // the browser to use as much parallelism as it can.
 // Load parallelism is based on research in https://github.com/element-hq/element-web/issues/12253
+/**
+ * Someone with a saved session will need the encryption library before their chats can load. It is a large
+ * WebAssembly module, so start downloading and compiling it now, alongside the rest of the app, instead of after
+ * the session has been restored. The library only does this once, so the later initialisation reuses the work.
+ */
+function preloadCryptoForSavedSession(): void {
+    try {
+        if (!window.localStorage?.getItem("mx_user_id")) return;
+    } catch {
+        return;
+    }
+    import("@matrix-org/matrix-sdk-crypto-wasm")
+        .then((crypto) => crypto.initAsync())
+        .catch((e) => logger.warn("Could not preload the encryption library", e));
+}
+
 async function start(): Promise<void> {
+    markStartup("boot");
+    preloadCryptoForSavedSession();
     if (shouldPolyFillIntlSegmenter()) {
         await import(/* webpackChunkName: "intl-segmenter-polyfill" */ "@formatjs/intl-segmenter/polyfill-force.js");
     }

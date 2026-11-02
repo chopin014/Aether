@@ -25,6 +25,9 @@ jobs:
               with:
                   node-version-file: apps/desktop/.node-version
                   install: false
+            - name: Install native screen audio build dependencies
+              if: runner.os == 'Linux'
+              run: sudo apt-get update && sudo apt-get install -y libpipewire-0.3-dev libpulse-dev
             - run: pnpm install --frozen-lockfile
             - run: pnpm lint
     desktop-and-audio-tests:
@@ -38,6 +41,9 @@ jobs:
               with:
                   node-version-file: apps/desktop/.node-version
                   install: false
+            - name: Install native screen audio build dependencies
+              if: runner.os == 'Linux'
+              run: sudo apt-get update && sudo apt-get install -y libpipewire-0.3-dev libpulse-dev
             - run: pnpm install --frozen-lockfile
             - run: pnpm exec playwright install --with-deps chromium
             - run: pnpm exec nx run-many -t test:unit:prepare -p
@@ -90,6 +96,9 @@ jobs:
               with:
                   node-version-file: apps/desktop/.node-version
                   install: false
+            - name: Install native screen audio build dependencies
+              if: runner.os == 'Linux'
+              run: sudo apt-get update && sudo apt-get install -y libpipewire-0.3-dev libpulse-dev
             - run: pnpm install --frozen-lockfile
             - run: pnpm exec playwright install --with-deps chromium
             - run: pnpm exec nx run element-web:build

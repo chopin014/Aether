@@ -10,7 +10,14 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import { type ReactNode } from "react";
-import { type MatrixClient, createClient, SSOAction, decodeBase64 } from "matrix-js-sdk/src/matrix";
+import {
+    type MatrixClient,
+    ClientEvent,
+    SyncState,
+    createClient,
+    SSOAction,
+    decodeBase64,
+} from "matrix-js-sdk/src/matrix";
 import { type AESEncryptedSecretStoragePayload } from "matrix-js-sdk/src/types";
 import { logger } from "matrix-js-sdk/src/logger";
 
@@ -71,6 +78,8 @@ import { clearUploadedMediaCache } from "./utils/UploadedMediaCache";
 import { CallStatusListener } from "./CallStatusListener.ts";
 import { CallStore } from "./stores/CallStore.ts";
 import { ModuleApi } from "./modules/Api.ts";
+import { stopDesktopVoiceSound } from "./audio/DesktopVoiceSounds";
+import { markStartup } from "./performance/StartupTimings";
 
 const HOMESERVER_URL_KEY = "mx_hs_url";
 const ID_SERVER_URL_KEY = "mx_is_url";
@@ -1092,6 +1101,7 @@ async function startMatrixClient(
     clientPegOpts: MatrixClientPegAssignOpts,
 ): Promise<void> {
     logger.log(`Lifecycle: Starting MatrixClient`);
+    markStartup("client_starting");
 
     // dispatch this before starting the matrix client: it's used
     // to add listeners for the 'sync' event so otherwise we'd have
@@ -1118,10 +1128,12 @@ async function startMatrixClient(
     Mjolnir.sharedInstance().start();
 
     if (startSyncing) {
-        // The client might want to populate some views with events from the
-        // index (e.g. the FilePanel), therefore initialize the event index
-        // before the client.
-        await EventIndexPeg.init();
+        // The search index hears live events from the moment the client starts, but is only opened once the chats
+        // are on screen: opening it takes a while and, on desktop, keeps the host process (which also serves the app's
+        // own files) busy, which used to hold up the whole of startup.
+        void EventIndexPeg.initInBackground(whenStartupSettles(client)).catch((e) =>
+            logger.error("Could not open the event index", e),
+        );
         await MatrixClientPeg.start(clientPegOpts);
     } else {
         logger.warn("Caller requested only auxiliary services be started");
@@ -1151,6 +1163,29 @@ async function startMatrixClient(
     if (isSoftLogout()) {
         softLogout();
     }
+}
+
+/**
+ * Resolves once the first sync has been shown and the app has had a moment with nothing urgent to do, which is when
+ * slow background work, like opening the search index, can start without being noticed.
+ */
+function whenStartupSettles(client: MatrixClient): Promise<void> {
+    const synced = new Promise<void>((resolve) => {
+        if (client.isInitialSyncComplete()) return resolve();
+        const onSync = (state: SyncState): void => {
+            if (state !== SyncState.Prepared && state !== SyncState.Syncing) return;
+            client.off(ClientEvent.Sync, onSync);
+            resolve();
+        };
+        client.on(ClientEvent.Sync, onSync);
+    });
+    return synced.then(
+        () =>
+            new Promise<void>((resolve) => {
+                if (typeof requestIdleCallback === "function") requestIdleCallback(() => resolve(), { timeout: 5000 });
+                else setTimeout(resolve, 1000);
+            }),
+    );
 }
 
 /*
@@ -1261,6 +1296,7 @@ export async function clearStorage(opts?: { deleteEverything?: boolean }): Promi
  * on MatrixClientPeg after stopping.
  */
 export function stopMatrixClient(unsetClient = true): void {
+    stopDesktopVoiceSound();
     SDKContextClass.instance.legacyCallHandler.stop();
     SDKContextClass.instance.notifier.stop();
     UserActivity.sharedInstance().stop();

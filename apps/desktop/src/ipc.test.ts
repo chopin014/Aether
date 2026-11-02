@@ -71,7 +71,8 @@ await import("./ipc.js");
 const ARGS = ["@alice:example.org", "DEVICEID"];
 
 async function callIpc(name: string, id = 1, args: unknown[] = ARGS): Promise<void> {
-    await ipcHandlers["ipcCall"]({}, { id, name, args });
+    const sender = global.mainWindow?.webContents;
+    await ipcHandlers["ipcCall"]({ sender, senderFrame: sender?.mainFrame }, { id, name, args });
 }
 
 describe("ipc pickle key handling", () => {

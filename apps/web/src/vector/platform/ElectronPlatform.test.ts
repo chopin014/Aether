@@ -213,7 +213,7 @@ describe("ElectronPlatform", () => {
         expect(event).toBeTruthy();
         expect(Modal.createDialog).toHaveBeenCalledWith(DesktopCapturerSourcePicker);
         // @ts-ignore mock
-        expect(plat.ipc.call).toHaveBeenCalledWith("callDisplayMediaCallback", "source");
+        expect(plat.ipc.call).toHaveBeenCalledWith("callDisplayMediaCallback", "source", expect.any(Boolean));
     });
 
     it("should abort display capture when the source picker is cancelled", async () => {
@@ -228,7 +228,7 @@ describe("ElectronPlatform", () => {
         const [, handler] = getElectronEventHandlerCall("openDesktopCapturerSourcePicker")!;
         await handler();
 
-        expect(call).toHaveBeenCalledWith("callDisplayMediaCallback", null);
+        expect(call).toHaveBeenCalledWith("callDisplayMediaCallback", null, false);
     });
 
     it("should show a toast when showToast is fired", async () => {

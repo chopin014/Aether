@@ -38,6 +38,8 @@ import {
 } from "test-utils";
 
 import LoggedInView from "./LoggedInView";
+import { prepareElementCall } from "../views/voip/prepareElementCall";
+
 import { SDKContext } from "../../contexts/SDKContext";
 import { StandardActions } from "../../notifications/StandardActions";
 import ResizeNotifier from "../../utils/ResizeNotifier";
@@ -50,6 +52,8 @@ import { SETTINGS } from "../../settings/Settings";
 import ToastStore from "../../stores/ToastStore";
 import { ModuleApi } from "../../modules/Api";
 
+vi.mock("../views/voip/prepareElementCall", () => ({ prepareElementCall: vi.fn(() => vi.fn()) }));
+
 describe("<LoggedInView />", () => {
     const userId = "@alice:domain.org";
     const mockClient = getMockClientWithEventEmitter({
@@ -57,6 +61,7 @@ describe("<LoggedInView />", () => {
         ...mockClientMethodsServer(),
         ...mockClientMethodsRooms([]),
         getAccountData: vi.fn(),
+        getSessionId: vi.fn().mockReturnValue("test-session"),
         getIgnoredUsers: vi.fn().mockReturnValue([]),
         getSyncState: vi.fn().mockReturnValue(null),
         getSyncStateData: vi.fn().mockReturnValue(null),
@@ -114,6 +119,26 @@ describe("<LoggedInView />", () => {
             SETTINGS["feature_desktop_shell"].controller = originalController;
         });
 
+        it("prepares real desktop calls and cancels preparation on unmount", async () => {
+            await SettingsStore.setValue("feature_desktop_shell", null, SettingLevel.DEVICE, true);
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            const spy = vi.spyOn(SettingsStore, "getValue").mockImplementation((...args) => {
+                if (args[0] === "feature_element_call_react") return true as never;
+                if (args[0] === "Developer.elementCallMockComponent") return false as never;
+                return getValue(...args) as never;
+            });
+            try {
+                const cancel = vi.fn();
+                vi.mocked(prepareElementCall).mockReturnValueOnce(cancel);
+                const { unmount } = getComponent();
+                expect(prepareElementCall).toHaveBeenCalledOnce();
+                unmount();
+                expect(cancel).toHaveBeenCalledOnce();
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
         it("scopes the desktop theme to a logged-in view and removes it on unmount", async () => {
             await SettingsStore.setValue("feature_desktop_shell", null, SettingLevel.DEVICE, true);
             const { container, unmount } = getComponent();
@@ -128,6 +153,7 @@ describe("<LoggedInView />", () => {
         it("preserves the original layout when the feature is disabled", () => {
             const { container } = getComponent();
             expect(document.body).not.toHaveClass("mx_DesktopShell");
+            expect(prepareElementCall).not.toHaveBeenCalled();
             expect(container.querySelector(".mx_MatrixChat_wrapper")).not.toHaveClass("mx_MatrixChat_desktopShell");
         });
     });

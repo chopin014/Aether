@@ -99,6 +99,7 @@ import Login from "./auth/Login";
 import ErrorBoundary from "../views/elements/ErrorBoundary";
 import VerificationRequestToast from "../views/toasts/VerificationRequestToast";
 import PerformanceMonitor, { PerformanceEntryNames } from "../../performance";
+import { markStartup } from "../../performance/StartupTimings";
 import UIStore, { UI_EVENTS } from "../../stores/UIStore";
 import SoftLogout from "./auth/SoftLogout";
 import { initSentry } from "../../sentry";
@@ -1677,6 +1678,7 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
             if (state !== SyncState.Prepared) {
                 return;
             }
+            markStartup("chats_from_cache");
 
             // Re-apply theme now that account data (including custom_themes) is loaded, otherwise we might end up with the wrong theme applied if the user has custom themes enabled
             void setTheme();

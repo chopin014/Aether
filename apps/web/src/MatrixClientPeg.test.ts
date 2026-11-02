@@ -126,6 +126,32 @@ describe("MatrixClientPeg", () => {
             expect(mockStartDehydration).toHaveBeenCalledWith({ onlyIfKeyCached: true, rehydrate: false });
         });
 
+        it("should start crypto while the sync store is still opening", async () => {
+            const client = testPeg.safeGet();
+            let openStore!: () => void;
+            client.store.startup = vi.fn(() => new Promise<void>((resolve) => (openStore = resolve)));
+            const mockInitRustCrypto = vi.spyOn(client, "initRustCrypto").mockResolvedValue(undefined);
+
+            const starting = testPeg.start();
+            await vi.waitFor(() => expect(mockInitRustCrypto).toHaveBeenCalled());
+            expect(client.startClient).not.toHaveBeenCalled();
+
+            openStore();
+            await starting;
+            expect(client.startClient).toHaveBeenCalled();
+        });
+
+        it("should not wait for the server to answer about dehydration before syncing", async () => {
+            vi.spyOn(testPeg.safeGet(), "initRustCrypto").mockResolvedValue(undefined);
+            vi.spyOn(testPeg.safeGet(), "getCrypto").mockReturnValue({
+                isDehydrationSupported: vi.fn().mockReturnValue(new Promise(() => {})),
+                setDeviceIsolationMode: vi.fn(),
+            } as any);
+
+            await testPeg.start();
+            expect(testPeg.safeGet().startClient).toHaveBeenCalled();
+        });
+
         it("should initialise the rust crypto library for an existing login", async () => {
             const mockInitRustCrypto = vi.spyOn(testPeg.safeGet(), "initRustCrypto").mockResolvedValue(undefined);
 

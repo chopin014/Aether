@@ -9,7 +9,7 @@ let compiled: Promise<WebAssembly.Module> | undefined;
 
 /**
  * Fetches and compiles the noise suppression once, for every microphone worklet to instantiate. The file is
- * large, so it is only fetched the first time a call or microphone test wants it. A failure is retried next time.
+ * large, so it is fetched only when microphone preparation, a call or a microphone test needs it. Failures retry.
  */
 export function loadDenoiserModule(): Promise<WebAssembly.Module> {
     compiled ??= (async (): Promise<WebAssembly.Module> => {

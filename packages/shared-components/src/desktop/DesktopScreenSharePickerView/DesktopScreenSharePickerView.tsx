@@ -29,6 +29,7 @@ export interface DesktopScreenSharePickerViewSnapshot {
     selectedSource: DesktopScreenShareSource | null;
     loading: boolean;
     error: string | null;
+    canShareSystemAudio: boolean;
     quality: DesktopCallStageQualityState;
     limits: DesktopCallStagePolicyLimits;
 }
@@ -232,9 +233,20 @@ export function DesktopScreenSharePickerView({ vm }: { vm: DesktopScreenSharePic
                             fps: state.limits.maxFrameRate ?? "—",
                         })}
                     </Text>
-                    <Text as="p" size="sm" className={styles.description}>
-                        {_t("desktop|share_picker|audio_unavailable")}
-                    </Text>
+                    {state.canShareSystemAudio ? (
+                        <label>
+                            <input
+                                type="checkbox"
+                                checked={state.quality.includeSystemAudio}
+                                onChange={(event) => vm.setQuality({ includeSystemAudio: event.target.checked })}
+                            />
+                            {_t("desktop|call_stage|share_system_audio")}
+                        </label>
+                    ) : (
+                        <Text as="p" size="sm" className={styles.description}>
+                            {_t("desktop|share_picker|audio_unavailable")}
+                        </Text>
+                    )}
                 </div>
             )}
             {state.error && (

@@ -5,7 +5,7 @@
  * Please see LICENSE files in the repository root for full details.
  */
 
-import React, { useCallback, type JSX, type ReactNode, useContext } from "react";
+import React, { useCallback, type JSX, type ReactNode, useContext, useEffect } from "react";
 import {
     RoomListView as SharedRoomListView,
     useCreateAutoDisposedViewModel,
@@ -21,6 +21,7 @@ import { KeyBindingAction } from "../../../../accessibility/KeyboardShortcuts";
 import { Landmark, LandmarkNavigation } from "../../../../accessibility/LandmarkNavigation";
 import { RoomListViewModel } from "../../../../viewmodels/room-list/RoomListViewModel";
 import { SDKContext } from "../../../../contexts/SDKContext.ts";
+import { markStartup } from "../../../../performance/StartupTimings";
 
 /**
  * RoomListView component using shared components with proper MVVM pattern.
@@ -37,6 +38,18 @@ export function RoomListView(): JSX.Element {
                 spaceStore: sdkContext.spaceStore,
             }),
     );
+
+    // Record when people first see their chats, so slow startups can be measured on real accounts.
+    useEffect(() => {
+        const markWhenShown = (): void => {
+            if (vm.getSnapshot().isLoadingRooms) return;
+            requestAnimationFrame(() => markStartup("chats_shown"));
+            unsubscribe();
+        };
+        const unsubscribe = vm.subscribe(markWhenShown);
+        markWhenShown();
+        return unsubscribe;
+    }, [vm]);
 
     // Render avatar for each room - memoized to prevent re-renders
     const renderAvatar = useCallback((room: SharedRoom): ReactNode => {

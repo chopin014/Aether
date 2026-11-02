@@ -277,6 +277,38 @@ describe("<SessionManagerTab />", () => {
         expect(container.getElementsByClassName("mx_Spinner").length).toBeTruthy();
     });
 
+    it("shows the sessions from last time straight away while they refresh", async () => {
+        mockClient.getDevices.mockResolvedValue({ devices: [alicesDevice, alicesMobileDevice] });
+        const first = render(getComponent());
+        await flushPromises();
+        expect(first.getByTestId(`device-tile-${alicesMobileDevice.device_id}`)).toBeTruthy();
+        first.unmount();
+
+        mockClient.getDevices.mockReturnValue(new Promise(() => {}));
+        const { container, getByTestId } = render(getComponent());
+        expect(container.getElementsByClassName("mx_Spinner").length).toBeFalsy();
+        expect(getByTestId(`device-tile-${alicesMobileDevice.device_id}`)).toBeTruthy();
+    });
+
+    it("still shows the current sessions when only the pushers fail to load", async () => {
+        vi.spyOn(logger, "warn").mockImplementation(() => {});
+        mockClient.getDevices.mockResolvedValue({ devices: [alicesDevice, alicesMobileDevice] });
+        mockClient.getPushers.mockRejectedValue(new Error("pushers down"));
+        const { container, getByTestId } = render(getComponent());
+        await flushPromises();
+
+        expect(container.getElementsByClassName("mx_Spinner").length).toBeFalsy();
+        expect(getByTestId(`device-tile-${alicesMobileDevice.device_id}`)).toBeTruthy();
+    });
+
+    it("asks for sessions, pushers and encryption devices at the same time", async () => {
+        mockClient.getDevices.mockReturnValue(new Promise(() => {}));
+        render(getComponent());
+        await flushPromises();
+        expect(mockClient.getPushers).toHaveBeenCalled();
+        expect(mockCrypto.getUserDeviceInfo).toHaveBeenCalled();
+    });
+
     it("removes spinner when device fetch fails", async () => {
         // eat the expected error log
         vi.spyOn(logger, "error").mockImplementation(() => {});

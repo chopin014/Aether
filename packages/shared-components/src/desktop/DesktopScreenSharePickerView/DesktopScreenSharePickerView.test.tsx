@@ -24,6 +24,7 @@ function model(overrides: Partial<DesktopScreenSharePickerViewSnapshot> = {}) {
             selectedSource: null,
             loading: false,
             error: null,
+            canShareSystemAudio: false,
             quality: { resolutionHeight: 540, frameRate: 12, maxBitrate: null, includeSystemAudio: false },
             limits: { maxResolutionHeight: 540, maxFrameRate: 12, maxBitrate: 750_000 },
             ...overrides,
@@ -42,6 +43,16 @@ function model(overrides: Partial<DesktopScreenSharePickerViewSnapshot> = {}) {
 }
 
 describe("DesktopScreenSharePickerView", () => {
+    it("offers an audio opt-in on supported desktops", () => {
+        const vm = model({ step: "quality", canShareSystemAudio: true });
+        render(<DesktopScreenSharePickerView vm={vm} />);
+        const checkbox = screen.getByRole("checkbox", { name: "Share System Audio" });
+        expect(checkbox).not.toBeChecked();
+        fireEvent.click(checkbox);
+        expect(vm.setQuality).toHaveBeenCalledWith({ includeSystemAudio: true });
+        expect(screen.queryByText("Screen audio is unavailable for this capture method.")).not.toBeInTheDocument();
+    });
+
     it("routes source selection and prevents progressing without a selected source", () => {
         const vm = model();
         render(<DesktopScreenSharePickerView vm={vm} />);

@@ -13,6 +13,7 @@ import { type MicrophoneGateWorkletOptions, type MicrophoneProcessorState } from
 import { loadMicrophoneGateWorklet } from "./microphoneGateWorkletFactory";
 import { DENOISER_SAMPLE_RATE } from "./denoiser/Denoiser";
 import { type DenoiserStatus } from "./denoiser/DenoiserStatus";
+import { PreparedMicrophoneGraph } from "./PreparedMicrophoneGraph";
 import { loadDenoiserModule } from "./denoiser/loadDenoiserModule";
 
 /** What LiveKit gives a track processor when it starts or restarts. */
@@ -51,6 +52,43 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
     private shortcutMuted = false;
     private generation = 0;
     private readonly children = new Set<MicrophoneProcessor>();
+    private prepared?: { graph: PreparedMicrophoneGraph; ready: Promise<void>; denoiser: boolean };
+    private preparationTimer?: ReturnType<typeof setTimeout>;
+    private preparationEnabled = false;
+    private preparingGraph?: PreparedMicrophoneGraph;
+    private takePrepared?: () => MicrophoneProcessor["prepared"];
+
+    /** Prepare one disconnected graph; it expires instead of retaining an idle audio engine indefinitely. */
+    public prepare(): void {
+        this.preparationEnabled = true;
+        if (this.prepared || this.children.size) return;
+        const graph = new PreparedMicrophoneGraph();
+        const prepared = { graph, ready: graph.initialize(this.state), denoiser: this.wantsDenoiser(this.config) };
+        this.prepared = prepared;
+        void prepared.ready.catch(() => {
+            if (this.prepared === prepared) this.discardPrepared();
+        });
+        this.preparationTimer = setTimeout(() => this.discardPrepared(), 60000);
+    }
+
+    /** Stop preparing and release an unused graph when leaving the account. */
+    public clearPrepared(): void {
+        this.preparationEnabled = false;
+        this.discardPrepared();
+    }
+
+    private discardPrepared(): void {
+        clearTimeout(this.preparationTimer);
+        this.prepared?.graph.close();
+        this.prepared = undefined;
+    }
+
+    private claimPrepared = (): MicrophoneProcessor["prepared"] => {
+        const prepared = this.prepared;
+        this.prepared = undefined;
+        clearTimeout(this.preparationTimer);
+        return prepared;
+    };
 
     public constructor(
         private config: MicrophoneGateConfig,
@@ -59,7 +97,11 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
 
     /** Give a newly captured microphone an independent processor with the current settings and hold state. */
     public createProcessor = (): MicrophoneProcessor => {
-        const child = new MicrophoneProcessor(this.config, () => this.children.delete(child));
+        const child = new MicrophoneProcessor(this.config, () => {
+            this.children.delete(child);
+            if (this.preparationEnabled) this.prepare();
+        });
+        child.takePrepared = this.claimPrepared;
         child.onDenoiserStatus = (status): void => this.onDenoiserStatus?.(status);
         child.setPushToTalkActive(this.pushToTalkActive);
         child.setShortcutMuted(this.shortcutMuted);
@@ -69,11 +111,13 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
 
     public setConfig(config: MicrophoneGateConfig): void {
         const wantsDenoiser = !this.wantsDenoiser(this.config) && this.wantsDenoiser(config);
+        if (this.prepared && this.prepared.denoiser !== this.wantsDenoiser(config)) this.discardPrepared();
         this.config = config;
         this.sendState();
         // A graph started without noise suppression receives it once it is compiled.
         if (wantsDenoiser && this.processor) void this.sendDenoiser(this.generation);
         for (const child of this.children) child.setConfig(config);
+        if (this.preparationEnabled) this.prepare();
     }
 
     public setPushToTalkActive(active: boolean): void {
@@ -124,11 +168,34 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
     public async init({ track }: ProcessorOptions): Promise<void> {
         const generation = ++this.generation;
         this.closeGraph();
-        const context = new AudioContext({ sampleRate: DENOISER_SAMPLE_RATE, latencyHint: "interactive" });
+        let prepared = this.takePrepared?.() ?? this.claimPrepared();
+        if (prepared && prepared.denoiser !== this.wantsDenoiser(this.config)) {
+            prepared.graph.close();
+            prepared = undefined;
+        }
+        if (prepared) {
+            this.preparingGraph = prepared.graph;
+            await prepared.ready.catch(() => {});
+            this.preparingGraph = undefined;
+            // Noise suppression may have been switched while the graph was still being prepared. The graph then
+            // has the wrong model (or none), and setConfig could not fix it because the node was not ours yet.
+            const stillMatches = prepared.denoiser === this.wantsDenoiser(this.config);
+            if (!stillMatches) prepared.graph.close();
+            if (!stillMatches || !prepared.graph.processor || prepared.graph.context.state === "closed") {
+                prepared = undefined;
+            }
+        }
+        if (generation !== this.generation) {
+            prepared?.graph.close();
+            throw new Error("Microphone processing was cancelled");
+        }
+        const context =
+            prepared?.graph.context ??
+            new AudioContext({ sampleRate: DENOISER_SAMPLE_RATE, latencyHint: "interactive" });
         this.context = context;
         const [denoiserModule] = await Promise.all([
-            this.wantsDenoiser(this.config) ? this.compileDenoiser() : undefined,
-            loadMicrophoneGateWorklet(context),
+            this.wantsDenoiser(this.config) && !prepared ? this.compileDenoiser() : undefined,
+            prepared ? undefined : loadMicrophoneGateWorklet(context),
         ]).catch((error) => {
             if (generation === this.generation) this.closeGraph();
             throw error;
@@ -136,20 +203,28 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
         if (generation !== this.generation) throw new Error("Microphone processing was cancelled");
         try {
             const processorOptions: MicrophoneGateWorkletOptions = { ...this.state, denoiserModule };
-            this.processor = new AudioWorkletNode(context, "aether-microphone-gate", {
-                numberOfInputs: 1,
-                numberOfOutputs: 1,
-                outputChannelCount: [1],
-                channelCount: 1,
-                channelCountMode: "explicit",
-                processorOptions,
-            });
-            type Report = { level: number; open: boolean; threshold: number | null } | { denoiser: DenoiserStatus };
+            this.processor =
+                prepared?.graph.processor ??
+                new AudioWorkletNode(context, "aether-microphone-gate", {
+                    numberOfInputs: 1,
+                    numberOfOutputs: 1,
+                    outputChannelCount: [1],
+                    channelCount: 1,
+                    channelCountMode: "explicit",
+                    processorOptions,
+                });
+            type Report =
+                | { level: number; open: boolean; threshold: number | null }
+                | { denoiser: DenoiserStatus }
+                | { ready: true };
             this.processor.port.onmessage = (event: MessageEvent<Report>): void => {
                 if (generation !== this.generation) return;
                 if ("denoiser" in event.data) this.reportDenoiser(event.data.denoiser);
-                else this.onLevel?.(event.data.level, event.data.open, event.data.threshold);
+                else if ("level" in event.data) this.onLevel?.(event.data.level, event.data.open, event.data.threshold);
             };
+            // A prepared node has never seen capture. Apply current mute/PTT settings before connecting its source.
+            this.sendState();
+            if (prepared?.graph.denoiserStatus) this.reportDenoiser(prepared.graph.denoiserStatus);
             this.source = context.createMediaStreamSource(new MediaStream([track]));
             this.destination = context.createMediaStreamDestination();
             this.processedTrack = this.destination.stream.getAudioTracks()[0];
@@ -199,6 +274,8 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
 
     public async destroy(): Promise<void> {
         ++this.generation;
+        this.clearPrepared();
+        this.preparingGraph?.close();
         this.closeGraph();
         for (const child of this.children) await child.destroy();
         this.children.clear();

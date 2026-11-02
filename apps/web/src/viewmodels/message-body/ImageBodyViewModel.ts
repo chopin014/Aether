@@ -33,6 +33,9 @@ import { DecryptError, DownloadError } from "../../utils/DecryptFile";
 import { BLURHASH_FIELD, createThumbnail } from "../../utils/image-media";
 import { isMimeTypeAllowed } from "../../utils/blobs";
 import ImageView from "../../components/views/elements/ImageView";
+import { LruCache } from "../../utils/LruCache";
+import defaultDispatcher from "../../dispatcher/dispatcher";
+import { Action } from "../../dispatcher/actions";
 
 export interface ImageBodyViewModelProps {
     /**
@@ -89,6 +92,36 @@ interface InternalState {
     placeholder: ImageBodyViewPlaceholder;
     imageSize: ImageSize;
     generatedThumbnailUrl: string | null;
+}
+
+/**
+ * What we learned by downloading an image that may be animated, kept by media so that revisiting a room does not
+ * download and decode every such image again: whether it is animated, and (for fewer of them, as these are full-size
+ * images) the still frame shown until it is played.
+ */
+const animatedVerdicts = new LruCache<string, boolean>(500);
+const animatedStills = new LruCache<string, Blob>(30);
+/** Bumped on logout, so an image still being inspected then cannot put its result back afterwards. */
+let inspectedImagesSession = 0;
+// Stills of encrypted images are decrypted content, so nothing is kept once the account signs out.
+defaultDispatcher.register((payload) => {
+    if (payload.action !== Action.OnLoggedOut) return;
+    inspectedImagesSession++;
+    animatedVerdicts.clear();
+    animatedStills.clear();
+});
+
+/**
+ * What identifies an image for these caches: the account viewing it, and its media including, for encrypted media,
+ * the hash of what was encrypted, so one account or event can never be shown another's decrypted content.
+ */
+function inspectedImageKey(content: ImageContent): string | undefined {
+    const account = MatrixClientPeg.get()?.getUserId() ?? "";
+    if (content.file) {
+        const { url, hashes, key, iv } = content.file;
+        return `${account}|encrypted|${url}|${hashes?.sha256 ?? ""}|${key?.k ?? ""}|${iv ?? ""}`;
+    }
+    return content.url ? `${account}|plain|${content.url}` : undefined;
 }
 
 /**
@@ -340,6 +373,12 @@ export class ImageBodyViewModel
             return;
         }
 
+        // Whose session this download belongs to is decided now, before anything is awaited: a logout meanwhile must
+        // not let the next account read or fill this account's remembered images.
+        const mediaKey = inspectedImageKey(this.props.mxEvent.getContent<ImageContent>());
+        const session = inspectedImagesSession;
+        const remember = (): boolean => !!mediaKey && session === inspectedImagesSession;
+
         let thumbUrl: string | null;
         let contentUrl: string | null;
 
@@ -378,11 +417,17 @@ export class ImageBodyViewModel
         let generatedThumbnailUrl: string | null = null;
         let isAnimated = content.info?.["org.matrix.msc4230.is_animated"];
         if (isAnimated === undefined) {
-            isAnimated = mayBeAnimated(content.info?.mimetype);
+            isAnimated =
+                (remember() ? animatedVerdicts.get(mediaKey!) : undefined) ?? mayBeAnimated(content.info?.mimetype);
         }
 
         const autoplayGifs = SettingsStore.getValue("autoplayGifs");
-        if (isAnimated && !autoplayGifs) {
+        const still = isAnimated && !autoplayGifs && remember() ? animatedStills.get(mediaKey!) : undefined;
+        if (still) {
+            // Seen before: reuse the still frame instead of downloading and decoding the whole image again.
+            generatedThumbnailUrl = URL.createObjectURL(still);
+            thumbUrl = generatedThumbnailUrl;
+        } else if (isAnimated && !autoplayGifs) {
             if (!thumbUrl || !content.info?.thumbnail_info || mayBeAnimated(content.info.thumbnail_info.mimetype)) {
                 const image = document.createElement("img");
                 const loadPromise = new Promise<void>((resolve, reject) => {
@@ -424,6 +469,12 @@ export class ImageBodyViewModel
                         );
                         generatedThumbnailUrl = URL.createObjectURL(thumbnail.thumbnail);
                         thumbUrl = generatedThumbnailUrl;
+                        if (remember()) {
+                            animatedVerdicts.set(mediaKey!, true);
+                            animatedStills.set(mediaKey!, thumbnail.thumbnail);
+                        }
+                    } else if (remember()) {
+                        animatedVerdicts.set(mediaKey!, false);
                     }
                 } catch (error) {
                     logger.warn("Unable to generate thumbnail for animated image: ", error);

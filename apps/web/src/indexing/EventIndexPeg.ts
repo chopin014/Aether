@@ -32,6 +32,10 @@ export class EventIndexPeg {
     public error: unknown;
 
     private _supportIsInstalled = false;
+    /** An index started by {@link initInBackground} that has not finished opening yet. */
+    private pending?: { index: EventIndex; cancelled: boolean; opening: boolean };
+    /** The index being opened right now, however that was started. */
+    private opening?: { cancelled: boolean; result: Promise<boolean> };
 
     /**
      * Initialize the EventIndexPeg and if event indexing is enabled initialize
@@ -41,6 +45,66 @@ export class EventIndexPeg {
      * EventIndex was successfully initialized, false otherwise.
      */
     public async init(): Promise<boolean> {
+        if (!(await this.canIndex())) return false;
+        return this.initEventIndex();
+    }
+
+    /**
+     * Initialize the event index without holding up startup. It starts hearing live events straight away, so none
+     * are missed, but the index itself is only opened once `openWhen` settles. Opening it takes a while, and on
+     * desktop it keeps the host process busy meanwhile, which would otherwise delay everything else loading.
+     *
+     * @param openWhen - Settles when the app is ready for the index to be opened, such as once the chats are shown.
+     * @returns A promise that resolves to true if an EventIndex was successfully initialized, false otherwise.
+     */
+    public initInBackground(openWhen: Promise<unknown>): Promise<boolean> {
+        if (!PlatformPeg.get()?.getEventIndexingManager()) return this.init();
+        const index = new EventIndex();
+        index.listenBeforeOpening();
+        const pending: NonNullable<EventIndexPeg["pending"]> = { index, cancelled: false, opening: false };
+        this.pending = pending;
+        return this.openInBackground(pending, openWhen);
+    }
+
+    private async openInBackground(
+        pending: NonNullable<EventIndexPeg["pending"]>,
+        openWhen: Promise<unknown>,
+    ): Promise<boolean> {
+        const { index } = pending;
+        const client = MatrixClientPeg.get();
+        // Logging out, or deleting the index, while this waits must not open it afterwards for the wrong account.
+        const stillWanted = (): boolean => !pending.cancelled && MatrixClientPeg.get() === client;
+        try {
+            if (!(await this.canIndex()) || !stillWanted()) {
+                index.abandon();
+                return false;
+            }
+            await openWhen;
+            if (!stillWanted()) {
+                index.abandon();
+                return false;
+            }
+            pending.opening = true;
+            const opened = await this.initEventIndex(index);
+            if (opened && !stillWanted()) {
+                // Only close what this attempt published: if it gave way to a direct opening, that index is not ours.
+                if (this.index === index) {
+                    await index.close();
+                    this.index = null;
+                }
+                return false;
+            }
+            return opened;
+        } catch (e) {
+            index.abandon();
+            throw e;
+        } finally {
+            if (this.pending === pending) this.pending = undefined;
+        }
+    }
+
+    /** Whether this platform can index events and the person wants it to. */
+    private async canIndex(): Promise<boolean> {
         const indexManager = PlatformPeg.get()?.getEventIndexingManager();
         if (!indexManager) {
             logger.log("EventIndex: Platform doesn't support event indexing, not initializing.");
@@ -59,21 +123,49 @@ export class EventIndexPeg {
             logger.log("EventIndex: Event indexing is disabled, not initializing");
             return false;
         }
-
-        return this.initEventIndex();
+        return true;
     }
 
     /**
      * Initialize the event index.
      *
+     * @param index - The index to open, if one is already listening for live events.
      * @returns {boolean} True if the event index was successfully initialized,
      * false otherwise.
      */
-    public async initEventIndex(): Promise<boolean> {
-        const index = new EventIndex();
+    public initEventIndex(index?: EventIndex): Promise<boolean> {
+        if (index && this.opening) {
+            // A direct opening got there first; the background one gives way to it.
+            index.abandon();
+            return this.opening.result;
+        }
+        if (!index) {
+            // Asked for directly, e.g. after turning indexing on: reuse an attempt already under way rather than open a
+            // second index, and take over from one that is still waiting for startup to settle.
+            if (this.opening) return this.opening.result;
+            const waiting = this.pending;
+            if (waiting && !waiting.opening) {
+                waiting.cancelled = true;
+                waiting.index.abandon();
+                this.pending = undefined;
+            }
+        }
+        const attempt: { cancelled: boolean; result: Promise<boolean> } = {
+            cancelled: false,
+            result: Promise.resolve(false),
+        };
+        attempt.result = this.openIndex(index ?? new EventIndex(), attempt).finally(() => {
+            if (this.opening === attempt) this.opening = undefined;
+        });
+        this.opening = attempt;
+        return attempt.result;
+    }
+
+    private async openIndex(index: EventIndex, attempt: { cancelled: boolean }): Promise<boolean> {
         const indexManager = PlatformPeg.get()?.getEventIndexingManager();
         const client = MatrixClientPeg.get();
         if (!indexManager || !client) {
+            index.abandon();
             throw new Error("Unable to init event index");
         }
 
@@ -100,8 +192,10 @@ export class EventIndexPeg {
                 logger.log("EventIndex: Index is empty, will force add initial checkpoints");
                 index.setForceAddInitialCheckpoints(true);
             } else if (userVersion === 0 && !eventIndexIsEmpty) {
+                // Not deleteEventIndex(): that waits for opening to finish, and this is part of opening.
                 await indexManager.closeEventIndex();
-                await this.deleteEventIndex();
+                logger.log("EventIndex: Deleting event index.");
+                await indexManager.deleteEventIndex();
 
                 await indexManager.initEventIndex(userId, deviceId, tokenizerMode);
                 await indexManager.setUserVersion(INDEX_VERSION);
@@ -112,9 +206,15 @@ export class EventIndexPeg {
         } catch (e) {
             logger.log("EventIndex: Error initializing the event index", e);
             this.error = e;
+            index.abandon();
             return false;
         }
 
+        if (attempt.cancelled) {
+            // Signed out, or the index was deleted, while it was opening.
+            await index.close();
+            return false;
+        }
         this.index = index;
 
         return true;
@@ -171,6 +271,19 @@ export class EventIndexPeg {
      * closed.
      */
     public async unset(): Promise<void> {
+        const pending = this.pending;
+        if (pending) {
+            pending.cancelled = true;
+            this.pending = undefined;
+            if (!pending.opening) pending.index.abandon();
+        }
+        // Once the database is being opened, wait for that attempt to finish and clean up after itself, so it cannot
+        // close or write to whatever replaces it.
+        const opening = this.opening;
+        if (opening) {
+            opening.cancelled = true;
+            await opening.result.catch(() => {});
+        }
         if (this.index === null) return;
         await this.index.close();
         this.index = null;

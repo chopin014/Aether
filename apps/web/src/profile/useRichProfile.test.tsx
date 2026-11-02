@@ -27,6 +27,7 @@ function makeClient(ignored = false): MatrixClient {
     return Object.assign(new TypedEventEmitter<string, any>(), {
         doesServerSupportExtendedProfiles: vi.fn().mockResolvedValue(true),
         getExtendedProfile: vi.fn().mockResolvedValue({ [RICH_PROFILE_FIELD]: { decoration: "halo" } }),
+        getUserId: () => "@me:example.org",
         isUserIgnored: () => ignored,
         getRoom: () => null,
     }) as unknown as MatrixClient;

@@ -22,6 +22,7 @@ const snapshot: DesktopScreenSharePickerViewSnapshot = {
     selectedSource: null,
     loading: false,
     error: null,
+    canShareSystemAudio: false,
     quality: { resolutionHeight: 1080, frameRate: 30, maxBitrate: null, includeSystemAudio: false },
     limits: { maxResolutionHeight: 1080, maxFrameRate: 30, maxBitrate: 5_000_000 },
 };

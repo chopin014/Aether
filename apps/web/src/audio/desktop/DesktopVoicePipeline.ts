@@ -89,7 +89,7 @@ export function getBrowserNoiseSuppression(): boolean {
 export class DesktopVoicePipeline {
     private static current?: DesktopVoicePipeline;
 
-    /** The shared pipeline. Created on first use, because it keeps listening to settings once calls are shown. */
+    /** The shared pipeline. Created when calls or idle preparation first need it. */
     public static get instance(): DesktopVoicePipeline {
         return (DesktopVoicePipeline.current ??= new DesktopVoicePipeline());
     }
@@ -106,6 +106,26 @@ export class DesktopVoicePipeline {
         maxBitrate: null,
         includeSystemAudio: false,
     };
+
+    private preparationWatchers: string[] = [];
+
+    /** Prepare code and a fresh suspended graph without opening the microphone. */
+    public prepare = (): void => {
+        if (!this.preparationWatchers.length) {
+            this.preparationWatchers = WATCHED_SETTINGS.map((name) =>
+                SettingsStore.watchSetting(name, null, this.prepare),
+            );
+        }
+        this.processor.setConfig(getMicrophoneGateConfig());
+        this.processor.prepare();
+    };
+
+    /** Release preparation when the logged-in shell is removed. */
+    public cancelPreparation(): void {
+        for (const watcher of this.preparationWatchers) SettingsStore.unwatchSetting(watcher);
+        this.preparationWatchers = [];
+        this.processor.clearPrepared();
+    }
 
     /** The microphone processor, for the settings' microphone test to compare against. */
     public get microphoneProcessor(): MicrophoneProcessor {
