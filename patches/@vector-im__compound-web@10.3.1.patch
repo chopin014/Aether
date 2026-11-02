@@ -1,0 +1,85 @@
+diff --git a/dist/components/Tooltip/useTooltip.cjs b/dist/components/Tooltip/useTooltip.cjs
+index 34d7cec33dc4014e4d5213ef116a6faae9fb2587..c98a9f63486ddef8485f059044a20ba1cacd2e60 100644
+--- a/dist/components/Tooltip/useTooltip.cjs
++++ b/dist/components/Tooltip/useTooltip.cjs
+@@ -12,11 +12,33 @@ function useTooltip({ open: controlledOpen, disabled = false, onOpenChange, plac
+ 		onOpenChange?.(open, event, reason);
+ 		if (controlledOpen === void 0) setUncontrolledOpen(open);
+ 	};
++	// Aether: closed tooltips stay mounted (a label tooltip names its trigger), so position tracking only runs
++	// while one is open. Tracking every closed tooltip made each render, room switch and scroll slower.
++	const openRef = react.useRef(open);
++	openRef.current = open;
++	const trackingRef = react.useRef(void 0);
++	const whileElementsMounted = react.useCallback((reference, floating, update) => {
++		const tracking = trackingRef.current = { reference, floating, update, stop: void 0 };
++		if (openRef.current) tracking.stop = _floating_ui_react.autoUpdate(reference, floating, update);
++		return () => {
++			tracking.stop?.();
++			if (trackingRef.current === tracking) trackingRef.current = void 0;
++		};
++	}, []);
++	react.useLayoutEffect(() => {
++		const tracking = trackingRef.current;
++		if (!tracking) return;
++		if (open && !tracking.stop) tracking.stop = _floating_ui_react.autoUpdate(tracking.reference, tracking.floating, tracking.update);
++		else if (!open && tracking.stop) {
++			tracking.stop();
++			tracking.stop = void 0;
++		}
++	}, [open]);
+ 	const data = (0, _floating_ui_react.useFloating)({
+ 		placement,
+ 		open,
+ 		onOpenChange: setOpen,
+-		whileElementsMounted: _floating_ui_react.autoUpdate,
++		whileElementsMounted,
+ 		middleware: [
+ 			(0, _floating_ui_react.offset)(6),
+ 			(0, _floating_ui_react.flip)({
+diff --git a/dist/components/Tooltip/useTooltip.js b/dist/components/Tooltip/useTooltip.js
+index 24e0703515f15f0c209823248388ddc8e966e0f1..6c3cd0f1965361e715ed721349fe964167d6bbf8 100644
+--- a/dist/components/Tooltip/useTooltip.js
++++ b/dist/components/Tooltip/useTooltip.js
+@@ -1,5 +1,5 @@
+ import { hoverDelay } from "./TooltipProvider.js";
+-import { useEffect, useId, useMemo, useRef, useState } from "react";
++import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+ import { arrow, autoUpdate, flip, hide, offset, shift, useDelayGroup, useDismiss, useFloating, useFocus, useHover, useInteractions, useRole } from "@floating-ui/react";
+ //#region src/components/Tooltip/useTooltip.ts
+ function useTooltip({ open: controlledOpen, disabled = false, onOpenChange, placement = "bottom", isTriggerInteractive, caption, "aria-atomic": ariaAtomic, "aria-live": ariaLive, boundary, maxWidth = "580px", maxLines = 2, ...props }) {
+@@ -12,11 +12,33 @@ function useTooltip({ open: controlledOpen, disabled = false, onOpenChange, plac
+ 		onOpenChange?.(open, event, reason);
+ 		if (controlledOpen === void 0) setUncontrolledOpen(open);
+ 	};
++	// Aether: closed tooltips stay mounted (a label tooltip names its trigger), so position tracking only runs
++	// while one is open. Tracking every closed tooltip made each render, room switch and scroll slower.
++	const openRef = useRef(open);
++	openRef.current = open;
++	const trackingRef = useRef(void 0);
++	const whileElementsMounted = useCallback((reference, floating, update) => {
++		const tracking = trackingRef.current = { reference, floating, update, stop: void 0 };
++		if (openRef.current) tracking.stop = autoUpdate(reference, floating, update);
++		return () => {
++			tracking.stop?.();
++			if (trackingRef.current === tracking) trackingRef.current = void 0;
++		};
++	}, []);
++	useLayoutEffect(() => {
++		const tracking = trackingRef.current;
++		if (!tracking) return;
++		if (open && !tracking.stop) tracking.stop = autoUpdate(tracking.reference, tracking.floating, tracking.update);
++		else if (!open && tracking.stop) {
++			tracking.stop();
++			tracking.stop = void 0;
++		}
++	}, [open]);
+ 	const data = useFloating({
+ 		placement,
+ 		open,
+ 		onOpenChange: setOpen,
+-		whileElementsMounted: autoUpdate,
++		whileElementsMounted,
+ 		middleware: [
+ 			offset(6),
+ 			flip({
