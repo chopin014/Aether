@@ -9,7 +9,7 @@ Please see LICENSE in the repository root for full details.
 
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render } from "@testing-library/react";
+import { render } from "test-utils-rtl";
 import { Tooltip, TooltipProvider } from "@vector-im/compound-web";
 
 /**
