@@ -275,7 +275,11 @@ export default class Notifications extends React.PureComponent<EmptyObject, ISta
         }
     }
 
+    /** Counts refreshes, so that an older one finishing late cannot undo what a newer one showed. */
+    private refreshes = 0;
+
     private async refreshFromServer(): Promise<void> {
+        const refresh = ++this.refreshes;
         // The rules arrived with sync, so show them straight away; pushers and email addresses fill in as they load.
         const knownRules = MatrixClientPeg.safeGet().pushRules;
         if (knownRules && this.state.phase === Phase.Loading) {
@@ -289,6 +293,7 @@ export default class Notifications extends React.PureComponent<EmptyObject, ISta
             const newState = (
                 await Promise.all([this.refreshRules(), this.refreshPushers(), this.refreshThreepids()])
             ).reduce((p, c) => Object.assign(c, p), {});
+            if (refresh !== this.refreshes) return;
 
             this.setState<
                 keyof Pick<
@@ -301,7 +306,7 @@ export default class Notifications extends React.PureComponent<EmptyObject, ISta
             });
         } catch (e) {
             logger.error("Error setting up notifications for settings: ", e);
-            this.setState({ phase: Phase.Error });
+            if (refresh === this.refreshes) this.setState({ phase: Phase.Error });
         }
     }
 

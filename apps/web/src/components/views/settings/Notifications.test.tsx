@@ -28,15 +28,7 @@ import {
     MatrixError,
 } from "matrix-js-sdk/src/matrix";
 import { secureRandomString } from "matrix-js-sdk/src/randomstring";
-import {
-    act,
-    fireEvent,
-    getByTestId,
-    render,
-    screen,
-    waitFor,
-    within,
-} from "test-utils-rtl";
+import { act, fireEvent, getByTestId, render, screen, waitFor, within } from "test-utils-rtl";
 import userEvent from "@testing-library/user-event";
 import { PushProcessor } from "matrix-js-sdk/src/pushprocessor";
 import { clearAllModals, getMockClientWithEventEmitter, mkMessage, mockClientMethodsUser } from "test-utils";
@@ -360,6 +352,22 @@ describe("<Notifications />", () => {
         mockClient.getPushRules.mockReturnValue(new Promise(() => {}));
         getComponent();
         expect(screen.queryByTestId("spinner")).not.toBeInTheDocument();
+        expect(screen.getByLabelText("Enable notifications for this account")).toBeInTheDocument();
+    });
+
+    it("does not let an older refresh that fails late replace a newer one", async () => {
+        const firstRead = Promise.withResolvers<IPushRules>();
+        mockClient.getPushRules.mockReturnValueOnce(firstRead.promise).mockResolvedValue(pushRules);
+        mockClient.setPushRuleEnabled.mockResolvedValue({});
+        getComponent();
+
+        fireEvent.click(screen.getByLabelText("Enable notifications for this account"));
+        await waitFor(() => expect(mockClient.getPushRules).toHaveBeenCalledTimes(2));
+        await flushPromises();
+        firstRead.reject(new Error("too late"));
+        await flushPromises();
+
+        expect(screen.queryByTestId("error-message")).not.toBeInTheDocument();
         expect(screen.getByLabelText("Enable notifications for this account")).toBeInTheDocument();
     });
 
