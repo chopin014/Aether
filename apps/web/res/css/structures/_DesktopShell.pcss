@@ -814,9 +814,23 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
     }
 
     .mx_EventTile :is(.mx_MAudioBody, .mx_MVoiceMessageBody) .mx_MediaBody {
-        /* The seek bar paints with these Compound greys; scoped here they take the accent. */
-        --cpd-color-gray-600: var(--cpd-color-border-interactive-secondary);
-        --cpd-color-gray-800: var(--cpd-color-bg-accent-rest);
+        /*
+         * The seek bar and the unplayed waveform paint with these Compound greys. The border colour they used to
+         * take is a faint tint in most themes, so the waveform all but vanished; the muted text colour stays
+         * readable on every surface. Played bars take the accent colour meant for text, which keeps its contrast
+         * where the accent fill would not.
+         */
+        --cpd-color-gray-600: color-mix(in srgb, var(--cpd-color-text-secondary) 55%, transparent);
+        --cpd-color-gray-800: var(--cpd-color-text-action-accent);
+
+        border: 1px solid var(--cpd-color-border-interactive-secondary);
+        color: var(--cpd-color-text-primary);
+
+        .mx_Clock {
+            color: var(--cpd-color-text-secondary);
+            font: var(--cpd-font-body-sm-medium);
+            font-variant-numeric: tabular-nums;
+        }
 
         button[aria-label] {
             /* Compound's icon button colours its icon from these. */
@@ -846,8 +860,12 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
             }
         }
 
-        .mx_Waveform_bar_100pct {
-            background-color: var(--cpd-color-bg-accent-rest);
+        .mx_Waveform .mx_Waveform_bar {
+            background-color: var(--cpd-color-gray-600);
+
+            &.mx_Waveform_bar_100pct {
+                background-color: var(--cpd-color-gray-800);
+            }
         }
     }
 
