@@ -256,6 +256,60 @@ describe("EventIndex opened after startup", () => {
         indexer.stopCrawler();
     });
 
+    it("keeps the gap of every timeline reset that happened while it was opening", async () => {
+        const { mockIndexingManager, client } = setUp();
+        let token = "old";
+        const room = {
+            roomId: "!room:id",
+            getLiveTimeline: () => {
+                const atReset = token;
+                return { getPaginationToken: () => atReset };
+            },
+        } as any as Room;
+        vi.mocked(client.getRoom).mockReturnValue(room);
+        const indexer = new EventIndex();
+        indexer.listenBeforeOpening();
+
+        client.emit(RoomEvent.TimelineReset, room, {} as any, true);
+        token = "new";
+        client.emit(RoomEvent.TimelineReset, room, {} as any, true);
+
+        await indexer.init();
+        await vi.waitFor(() => expect(mockIndexingManager.addCrawlerCheckpoint).toHaveBeenCalledTimes(2));
+        expect(vi.mocked(mockIndexingManager.addCrawlerCheckpoint).mock.calls.map(([c]) => c.token)).toEqual([
+            "old",
+            "new",
+        ]);
+        indexer.stopCrawler();
+    });
+
+    it("stops held work when closed, and keeps newer events behind held ones", async () => {
+        const { mockIndexingManager, deliverLiveEvent } = setUp();
+        const order: string[] = [];
+        let releaseFirst!: () => void;
+        mockIndexingManager.addEventToIndex.mockImplementationOnce(async (e: any) => {
+            order.push("held");
+            await new Promise<void>((resolve) => (releaseFirst = resolve));
+        });
+        mockIndexingManager.addEventToIndex.mockImplementation(async () => void order.push("later"));
+        (mockIndexingManager as any).closeEventIndex = vi.fn();
+        const indexer = new EventIndex();
+        indexer.listenBeforeOpening();
+        deliverLiveEvent();
+        deliverLiveEvent();
+
+        await indexer.init();
+        await vi.waitFor(() => expect(order).toEqual(["held"]));
+        deliverLiveEvent();
+        const closing = indexer.close();
+        releaseFirst();
+        await closing;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(order).toEqual(["held"]);
+        expect((mockIndexingManager as any).closeEventIndex).toHaveBeenCalled();
+    });
+
     it("drops what it was holding when it will not open", async () => {
         const { mockIndexingManager, client, deliverLiveEvent } = setUp();
         const indexer = new EventIndex();

@@ -32,6 +32,8 @@ export class EventIndexPeg {
     public error: unknown;
 
     private _supportIsInstalled = false;
+    /** An index started by {@link initInBackground} that has not finished opening yet. */
+    private pending?: { index: EventIndex; cancelled: boolean };
 
     /**
      * Initialize the EventIndexPeg and if event indexing is enabled initialize
@@ -55,14 +57,33 @@ export class EventIndexPeg {
      */
     public async initInBackground(openWhen: Promise<unknown>): Promise<boolean> {
         if (!PlatformPeg.get()?.getEventIndexingManager()) return this.init();
+        const client = MatrixClientPeg.get();
         const index = new EventIndex();
         index.listenBeforeOpening();
-        if (!(await this.canIndex())) {
-            index.abandon();
-            return false;
+        const pending = { index, cancelled: false };
+        this.pending = pending;
+        // Logging out, or deleting the index, while this waits must not open it afterwards for the wrong account.
+        const stillWanted = (): boolean => !pending.cancelled && MatrixClientPeg.get() === client;
+        try {
+            if (!(await this.canIndex()) || !stillWanted()) {
+                index.abandon();
+                return false;
+            }
+            await openWhen;
+            if (!stillWanted()) {
+                index.abandon();
+                return false;
+            }
+            const opened = await this.initEventIndex(index);
+            if (opened && !stillWanted()) {
+                await index.close();
+                if (this.index === index) this.index = null;
+                return false;
+            }
+            return opened;
+        } finally {
+            if (this.pending === pending) this.pending = undefined;
         }
-        await openWhen;
-        return this.initEventIndex(index);
     }
 
     /** Whether this platform can index events and the person wants it to. */
@@ -198,6 +219,11 @@ export class EventIndexPeg {
      * closed.
      */
     public async unset(): Promise<void> {
+        if (this.pending) {
+            this.pending.cancelled = true;
+            this.pending.index.abandon();
+            this.pending = undefined;
+        }
         if (this.index === null) return;
         await this.index.close();
         this.index = null;

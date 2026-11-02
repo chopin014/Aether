@@ -86,8 +86,10 @@ export default class EventIndex extends EventEmitter {
 
     private readonly logger;
 
-    /** Whether {@link init} has finished, so index work can run as it arrives. */
-    private isOpen = false;
+    /** Index work waits until {@link init} has finished, and stops for good once the index is closed. */
+    private state: "waiting" | "open" | "closed" = "waiting";
+    /** Held work being run after opening; newer work queues behind it so events stay in order. */
+    private draining?: Promise<void>;
     private listening = false;
     /**
      * Index work that arrived before the index was open. It runs one item at a time once the index opens: run all at
@@ -117,26 +119,31 @@ export default class EventIndex extends EventEmitter {
         this.crawlerCheckpoints = await indexManager.loadCheckpoints();
         this.logger.debug("Loaded checkpoints", JSON.stringify(this.crawlerCheckpoints));
 
+        if (this.state === "closed") return;
         this.registerListeners();
-        this.isOpen = true;
-        void this.runHeldWork();
+        this.state = "open";
+        if (this.held.length) this.runHeldWork();
     }
 
     /** Run index work now if the index is open, or keep it, in order, for when it opens. */
     private whenOpen(work: () => Promise<void>): Promise<void> {
-        if (this.isOpen) return work();
-        if (this.listening) this.held.push(work);
+        if (this.state === "closed" || !this.listening) return Promise.resolve();
+        if (this.state === "open" && !this.draining) return work();
+        this.held.push(work);
         return Promise.resolve();
     }
 
-    private async runHeldWork(): Promise<void> {
-        for (let work = this.held.shift(); work; work = this.held.shift()) {
-            try {
-                await work();
-            } catch (e) {
-                this.logger.warn("Could not index an event that arrived while the index was opening", e);
+    private runHeldWork(): void {
+        this.draining = (async (): Promise<void> => {
+            for (let work = this.held.shift(); work && this.state === "open"; work = this.held.shift()) {
+                try {
+                    await work();
+                } catch (e) {
+                    this.logger.warn("Could not index an event that arrived while the index was opening", e);
+                }
             }
-        }
+            this.draining = undefined;
+        })();
     }
 
     /**
@@ -149,6 +156,7 @@ export default class EventIndex extends EventEmitter {
 
     /** Give up on opening the index, releasing anything held for it. */
     public abandon(): void {
+        this.state = "closed";
         this.removeListeners();
         this.held = [];
     }
@@ -275,7 +283,7 @@ export default class EventIndex extends EventEmitter {
             await indexManager.commitLiveEvents();
         };
 
-        if (!this.isOpen) {
+        if (this.state !== "open") {
             if (this.syncHeld) return;
             this.syncHeld = true;
         }
@@ -325,10 +333,11 @@ export default class EventIndex extends EventEmitter {
         if (ev.getType() !== EventType.RoomEncryption) return;
         if (!MatrixClientPeg.safeGet().isRoomEncrypted(state.roomId)) return;
 
+        const timeline = MatrixClientPeg.safeGet().getRoom(state.roomId)?.getLiveTimeline();
         return this.whenOpen(async () => {
             if (await this.isRoomIndexed(state.roomId)) return;
             this.logger.debug("Adding a checkpoint for a newly encrypted room", state.roomId);
-            await this.addRoomCheckpoint(state.roomId, true);
+            await this.addRoomCheckpoint(state.roomId, true, timeline);
         });
     };
 
@@ -360,9 +369,11 @@ export default class EventIndex extends EventEmitter {
         if (!room) return;
         if (!MatrixClientPeg.safeGet().isRoomEncrypted(room.roomId)) return;
 
+        // Taken now: if the index is still opening, later resets would otherwise replace this gap in history.
+        const timeline = room.getLiveTimeline();
         return this.whenOpen(async () => {
             this.logger.debug("Adding a checkpoint because of a limited timeline", room.roomId);
-            await this.addRoomCheckpoint(room.roomId, false);
+            await this.addRoomCheckpoint(room.roomId, false, timeline);
         });
     };
 
@@ -465,7 +476,7 @@ export default class EventIndex extends EventEmitter {
         }
     }
 
-    private async addRoomCheckpoint(roomId: string, fullCrawl = false): Promise<void> {
+    private async addRoomCheckpoint(roomId: string, fullCrawl = false, liveTimeline?: EventTimeline): Promise<void> {
         const indexManager = PlatformPeg.get()?.getEventIndexingManager();
         if (!indexManager) return;
         const client = MatrixClientPeg.safeGet();
@@ -473,7 +484,7 @@ export default class EventIndex extends EventEmitter {
 
         if (!room) return;
 
-        const timeline = room.getLiveTimeline();
+        const timeline = liveTimeline ?? room.getLiveTimeline();
         const token = timeline.getPaginationToken(Direction.Backward);
 
         if (!token) {
@@ -769,8 +780,12 @@ export default class EventIndex extends EventEmitter {
      */
     public async close(): Promise<void> {
         const indexManager = PlatformPeg.get()?.getEventIndexingManager();
+        this.state = "closed";
+        this.held = [];
         this.removeListeners();
         this.stopCrawler();
+        // Let held work that is already running finish before its database goes away.
+        await this.draining;
         await indexManager?.closeEventIndex();
     }
 

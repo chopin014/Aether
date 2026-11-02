@@ -245,6 +245,31 @@ describe("EventIndexPeg", () => {
             expect(peg.get()).toBe(index);
         });
 
+        it("does not open the index after logging out while it was waiting", async () => {
+            const index = mockIndex();
+            const mockIndexingManager = {
+                supportsEventIndexing: vi.fn().mockResolvedValue(true),
+                initEventIndex: vi.fn().mockResolvedValue(undefined),
+            } as any as Mocked<BaseEventIndexManager>;
+            mockPlatformPeg({ getEventIndexingManager: () => mockIndexingManager });
+            vi.spyOn(MatrixClientPeg, "get").mockReturnValue({ getUserId: () => "@user:example.org" } as any);
+            vi.spyOn(SettingsStore, "getValueAt").mockImplementation((_level, settingName): any =>
+                settingName === "enableEventIndexing" ? true : undefined,
+            );
+
+            const open = Promise.withResolvers<void>();
+            const peg = new EventIndexPeg();
+            const done = peg.initInBackground(open.promise);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            await peg.unset();
+            open.resolve();
+
+            await expect(done).resolves.toBe(false);
+            expect(index.abandon).toHaveBeenCalled();
+            expect(mockIndexingManager.initEventIndex).not.toHaveBeenCalled();
+            expect(peg.get()).toBeNull();
+        });
+
         it("stops listening when indexing is turned off", async () => {
             const mockIndexingManager = {
                 supportsEventIndexing: vi.fn().mockResolvedValue(true),
