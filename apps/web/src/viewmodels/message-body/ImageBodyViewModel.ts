@@ -33,6 +33,7 @@ import { DecryptError, DownloadError } from "../../utils/DecryptFile";
 import { BLURHASH_FIELD, createThumbnail } from "../../utils/image-media";
 import { isMimeTypeAllowed } from "../../utils/blobs";
 import ImageView from "../../components/views/elements/ImageView";
+import { LruCache } from "../../utils/LruCache";
 
 export interface ImageBodyViewModelProps {
     /**
@@ -90,6 +91,14 @@ interface InternalState {
     imageSize: ImageSize;
     generatedThumbnailUrl: string | null;
 }
+
+/**
+ * What we learned by downloading an image that may be animated, kept by media so that revisiting a room does not
+ * download and decode every such image again: whether it is animated, and (for fewer of them, as these are full-size
+ * images) the still frame shown until it is played.
+ */
+const animatedVerdicts = new LruCache<string, boolean>(500);
+const animatedStills = new LruCache<string, Blob>(30);
 
 /**
  * View model for the image message body, encapsulating media loading, sizing,
@@ -377,12 +386,19 @@ export class ImageBodyViewModel
         const content = this.props.mxEvent.getContent<ImageContent>();
         let generatedThumbnailUrl: string | null = null;
         let isAnimated = content.info?.["org.matrix.msc4230.is_animated"];
+        const mediaKey = content.file?.url ?? content.url;
         if (isAnimated === undefined) {
-            isAnimated = mayBeAnimated(content.info?.mimetype);
+            isAnimated =
+                (mediaKey ? animatedVerdicts.get(mediaKey) : undefined) ?? mayBeAnimated(content.info?.mimetype);
         }
 
         const autoplayGifs = SettingsStore.getValue("autoplayGifs");
-        if (isAnimated && !autoplayGifs) {
+        const still = isAnimated && !autoplayGifs && mediaKey ? animatedStills.get(mediaKey) : undefined;
+        if (still) {
+            // Seen before: reuse the still frame instead of downloading and decoding the whole image again.
+            generatedThumbnailUrl = URL.createObjectURL(still);
+            thumbUrl = generatedThumbnailUrl;
+        } else if (isAnimated && !autoplayGifs) {
             if (!thumbUrl || !content.info?.thumbnail_info || mayBeAnimated(content.info.thumbnail_info.mimetype)) {
                 const image = document.createElement("img");
                 const loadPromise = new Promise<void>((resolve, reject) => {
@@ -424,6 +440,12 @@ export class ImageBodyViewModel
                         );
                         generatedThumbnailUrl = URL.createObjectURL(thumbnail.thumbnail);
                         thumbUrl = generatedThumbnailUrl;
+                        if (mediaKey) {
+                            animatedVerdicts.set(mediaKey, true);
+                            animatedStills.set(mediaKey, thumbnail.thumbnail);
+                        }
+                    } else if (mediaKey) {
+                        animatedVerdicts.set(mediaKey, false);
                     }
                 } catch (error) {
                     logger.warn("Unable to generate thumbnail for animated image: ", error);
