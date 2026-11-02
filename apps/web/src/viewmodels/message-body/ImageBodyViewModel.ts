@@ -373,6 +373,12 @@ export class ImageBodyViewModel
             return;
         }
 
+        // Whose session this download belongs to is decided now, before anything is awaited: a logout meanwhile must
+        // not let the next account read or fill this account's remembered images.
+        const mediaKey = inspectedImageKey(this.props.mxEvent.getContent<ImageContent>());
+        const session = inspectedImagesSession;
+        const remember = (): boolean => !!mediaKey && session === inspectedImagesSession;
+
         let thumbUrl: string | null;
         let contentUrl: string | null;
 
@@ -410,17 +416,13 @@ export class ImageBodyViewModel
         const content = this.props.mxEvent.getContent<ImageContent>();
         let generatedThumbnailUrl: string | null = null;
         let isAnimated = content.info?.["org.matrix.msc4230.is_animated"];
-        const mediaKey = inspectedImageKey(content);
-        const session = inspectedImagesSession;
-        // Only remember what was learned if the same account is still signed in when inspecting finishes.
-        const remember = (): boolean => !!mediaKey && session === inspectedImagesSession;
         if (isAnimated === undefined) {
             isAnimated =
-                (mediaKey ? animatedVerdicts.get(mediaKey) : undefined) ?? mayBeAnimated(content.info?.mimetype);
+                (remember() ? animatedVerdicts.get(mediaKey!) : undefined) ?? mayBeAnimated(content.info?.mimetype);
         }
 
         const autoplayGifs = SettingsStore.getValue("autoplayGifs");
-        const still = isAnimated && !autoplayGifs && mediaKey ? animatedStills.get(mediaKey) : undefined;
+        const still = isAnimated && !autoplayGifs && remember() ? animatedStills.get(mediaKey!) : undefined;
         if (still) {
             // Seen before: reuse the still frame instead of downloading and decoding the whole image again.
             generatedThumbnailUrl = URL.createObjectURL(still);

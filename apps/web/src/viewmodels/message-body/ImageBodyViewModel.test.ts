@@ -717,6 +717,44 @@ describe("ImageBodyViewModel", () => {
             await again;
         });
 
+        it("does not let the next account use a still learned while signing out", async () => {
+            const images = stubImageElement();
+            const first = downloadImageForTest(gif("mxc://server/handover-gif"));
+            await flushPromises();
+            images.last().onload();
+            await first;
+
+            // A download that started for the previous account, finishing after another has signed in.
+            let release!: () => void;
+            const slowUrl = new Promise<string>((resolve) => (release = () => resolve("https://server/full.gif")));
+            const stale = createVm({
+                mxEvent: createEvent({
+                    content: { file: { url: "mxc://server/handover-gif" }, info: { mimetype: "image/gif" } },
+                }),
+                mediaEventHelper: createMediaEventHelper({
+                    encrypted: true,
+                    sourceUrl: slowUrl,
+                    thumbnailUrl: null,
+                    sourceBlob: new Blob(["gif"], { type: "image/gif" }),
+                }),
+                mediaVisible: true,
+            });
+            const staleDownload = downloadImageForTest(stale);
+            defaultDispatcher.dispatch({ action: Action.OnLoggedOut }, true);
+            release();
+            await flushPromises();
+            expect(images.created()).toBe(2);
+            images.last().onload();
+            await staleDownload;
+
+            // The new account then opens the same image: it must decode it itself, not reuse the stale result.
+            const fresh = downloadImageForTest(gif("mxc://server/handover-gif"));
+            await flushPromises();
+            expect(images.created()).toBe(3);
+            images.last().onload();
+            await fresh;
+        });
+
         it("remembers that an image turned out not to be animated", async () => {
             mockedBlobIsAnimated.mockResolvedValue(false);
             const images = stubImageElement();
