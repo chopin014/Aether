@@ -189,7 +189,7 @@ describe("Notifier", () => {
         });
 
         // @ts-ignore
-        notifier.backgroundAudio.audioContext = mockAudioContext;
+        notifier.backgroundAudio.context = mockAudioContext;
         context._client = mockClient;
     });
 
