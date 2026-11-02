@@ -16,6 +16,7 @@ import { useSettingValue } from "../../../hooks/useSettings";
 import { getCurrentLanguage } from "../../../languageHandler";
 import { useTheme } from "../../../hooks/useTheme";
 import Spinner from "../elements/Spinner";
+import { loadElementCallComponent } from "./ElementCallLoader";
 import { ElementWebHostBridge } from "./ElementWebHostBridge";
 import { DesktopCallStage } from "./DesktopCallStage";
 import { useTypedEventEmitterState } from "../../../hooks/useEventEmitter";
@@ -41,16 +42,9 @@ const loadElementCall = async (
 /**
  * The real component: `@element-hq/element-call-component`, a large ES module (LiveKit, EC's UI) plus
  * its stylesheet (imported into the `element-call` cascade layer by `ElementCallComponent.css`).
- * Code-split so it is only fetched when a call is rendered on the React path.
+ * Code-split for the React path; the desktop shell can preload it while idle.
  */
-const RealElementCall = lazy(() =>
-    loadElementCall(
-        Promise.all([
-            import(/* webpackChunkName: "element-call-component" */ "@element-hq/element-call-component"),
-            import(/* webpackChunkName: "element-call-component" */ "./ElementCallComponent.css"),
-        ]).then(([m]) => m),
-    ),
-);
+const RealElementCall = lazy(loadElementCallComponent);
 
 /**
  * The mock, for Playwright (no LiveKit in Element Web's test backend) and offline development. Only
