@@ -63,6 +63,7 @@ describe("ElementCallMock", () => {
             setAlwaysOnScreen: vi.fn(async () => {}),
             contentLoaded: vi.fn(async () => {}),
             notifyJoined: vi.fn(async () => {}),
+            notifyConnectionStats: vi.fn(async () => {}),
             notifyHungUp: vi.fn(async () => {}),
             notifyDeviceMute: vi.fn(async () => {}),
             notifyScreenShare: vi.fn(async () => {}),
@@ -137,6 +138,8 @@ describe("ElementCallMock", () => {
 
         await user.click(screen.getByRole("button", { name: "notifyJoined" }));
         expect(bridge.notifyJoined).toHaveBeenCalled();
+        // With no real media, joining also reports the connection as ready, so the host plays its join cue
+        expect(bridge.notifyConnectionStats).toHaveBeenCalledWith(expect.objectContaining({ state: "connected" }));
         expect(screen.getByText(/in call/)).toBeInTheDocument();
         // Joining publishes an RTC membership for this device, as the real component would
         expect(client.sendStateEvent).toHaveBeenCalledWith(

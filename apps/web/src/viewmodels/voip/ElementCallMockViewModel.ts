@@ -294,6 +294,15 @@ export class ElementCallMockViewModel
         this.snapshot.merge({ joined: true });
         await this.props.hostBridge.notifyJoined?.();
         this.append("→ notifyJoined");
+        // There is no real media to wait for, so report it connected straight away, as the real call does once it is.
+        await this.props.hostBridge.notifyConnectionStats?.({
+            state: "connected",
+            quality: "good",
+            rttMs: null,
+            averageRttMs: null,
+            outboundPacketLossPercent: null,
+            history: [],
+        });
         await this.notifyScreenShare();
     }
 

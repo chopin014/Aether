@@ -1600,6 +1600,21 @@ describe("ElementCall with the React component embedding", () => {
         }
     });
 
+    it("plays no join cue when media connects while the join is being abandoned", () => {
+        enabledSettings.add("feature_desktop_shell");
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        try {
+            call.handleJoined();
+            call.setLocalLeavePending(true);
+            mediaConnected();
+            call.handleHangup();
+            call.handleClose();
+            expect(playDesktopVoiceSound).not.toHaveBeenCalled();
+        } finally {
+            enabledSettings.delete("feature_desktop_shell");
+        }
+    });
+
     it("plays no cues for a join abandoned before media connected", () => {
         enabledSettings.add("feature_desktop_shell");
         vi.mocked(playDesktopVoiceSound).mockClear();

@@ -821,7 +821,9 @@ export class ElementCall extends Call {
         }
         this._connectionStats = { ...stats, history: [...stats.history] };
         this.emit(CallEvent.ConnectionStats, this._connectionStats);
-        if (this.joinCuePending && stats.state === "connected") {
+        // A join being abandoned is still acknowledged by the media layer; that is no moment for a join sound.
+        const leaving = this.localLeavePending || this.connectionState !== ConnectionState.Connected;
+        if (this.joinCuePending && stats.state === "connected" && !leaving) {
             this.joinCuePending = false;
             void playDesktopVoiceSound("join");
         }
