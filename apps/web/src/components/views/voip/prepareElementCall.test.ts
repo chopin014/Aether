@@ -14,6 +14,7 @@ import { loadElementCallComponent } from "./ElementCallLoader";
 import { DesktopVoicePipeline } from "../../../audio/desktop/DesktopVoicePipeline";
 
 vi.mock("./ElementCallLoader", () => ({ loadElementCallComponent: vi.fn() }));
+vi.mock("../../../audio/DesktopVoiceSounds", () => ({ preloadDesktopVoiceSounds: vi.fn() }));
 vi.mock("../../../audio/desktop/DesktopVoicePipeline", () => ({
     DesktopVoicePipeline: { instance: { prepare: vi.fn(), cancelPreparation: vi.fn() } },
 }));

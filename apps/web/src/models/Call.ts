@@ -796,6 +796,8 @@ export class ElementCall extends Call {
     }
     private stopFollowingVoiceSettings?: () => void;
     private _connectionStats = emptyCallConnectionStats("disconnected");
+    /** The join cue is held until media is really connected, so the sound matches when people can hear each other. */
+    private joinCuePending = false;
 
     /** Real media transport health, separately from joining the Matrix call. */
     public get connectionStats(): CallConnectionStats {
@@ -819,6 +821,10 @@ export class ElementCall extends Call {
         }
         this._connectionStats = { ...stats, history: [...stats.history] };
         this.emit(CallEvent.ConnectionStats, this._connectionStats);
+        if (this.joinCuePending && stats.state === "connected") {
+            this.joinCuePending = false;
+            void playDesktopVoiceSound("join");
+        }
     }
 
     /**
@@ -1422,14 +1428,23 @@ export class ElementCall extends Call {
         const wasConnected = this.connected;
         super.setConnected();
         // The call owns these cues so joining from the stage works even without a mounted account dock.
-        if (!wasConnected && SettingsStore.getValue("feature_desktop_shell")) void playDesktopVoiceSound("join");
+        if (wasConnected || !SettingsStore.getValue("feature_desktop_shell")) return;
+        // Joining is acknowledged before media flows. The embedded call reports when it does, and the cue waits for
+        // that; the widget path has no such report, so it plays straight away.
+        if (ElementCall.usesReactComponent && this._connectionStats.state !== "connected") this.joinCuePending = true;
+        else void playDesktopVoiceSound("join");
     }
 
     protected override setDisconnected(): void {
         const wasConnected = this.connected;
+        // Leaving before media ever connected played no join cue, so it gets no leave cue either.
+        const heardJoin = !this.joinCuePending;
+        this.joinCuePending = false;
         this.handleConnectionStats(emptyCallConnectionStats("disconnected"));
         super.setDisconnected();
-        if (wasConnected && SettingsStore.getValue("feature_desktop_shell")) void playDesktopVoiceSound("leave");
+        if (wasConnected && heardJoin && SettingsStore.getValue("feature_desktop_shell")) {
+            void playDesktopVoiceSound("leave");
+        }
     }
 
     /** The user has hung up (`HostBridge.notifyHungUp` / `im.vector.hangup`). */

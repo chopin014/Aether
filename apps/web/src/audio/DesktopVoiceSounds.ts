@@ -83,6 +83,24 @@ export async function setDesktopVoiceSoundEnabled(
 
 let activeCue: { sound: DesktopVoiceSound; audio: HTMLAudioElement } | undefined;
 
+/** Loaded cues, kept so that playing one later does not wait for its file to be read and decoded. */
+const preloaded = new Map<DesktopVoiceSound, HTMLAudioElement>();
+
+/** Load the cues a call is about to need, so the join sound starts the moment the call connects. */
+export function preloadDesktopVoiceSounds(cues: DesktopVoiceSound[] = ["join", "leave", "mute", "unmute"]): void {
+    for (const sound of cues) {
+        if (preloaded.has(sound)) continue;
+        try {
+            const audio = new Audio(sounds[sound]);
+            audio.preload = "auto";
+            audio.load();
+            preloaded.set(sound, audio);
+        } catch (error) {
+            logger.debug("Could not preload desktop voice cue", error);
+        }
+    }
+}
+
 /** Stops current and pending feedback, for example when the account is disposed. */
 export function stopDesktopVoiceSound(): void {
     const previous = activeCue;

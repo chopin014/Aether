@@ -14,6 +14,7 @@ import {
     getDesktopVoiceSoundToggles,
     isDesktopVoiceSoundEnabled,
     playDesktopVoiceSound,
+    preloadDesktopVoiceSounds,
     setDesktopVoiceSoundEnabled,
     stopDesktopVoiceSound,
 } from "./DesktopVoiceSounds";
@@ -43,6 +44,8 @@ describe("desktop voice feedback", () => {
                 public pause = pause;
                 public onended?: () => void;
                 public setSinkId = setSinkId;
+                public preload = "";
+                public load = vi.fn();
                 public constructor(url: string) {
                     createAudio(url);
                     audios.push(this);
@@ -56,6 +59,14 @@ describe("desktop voice feedback", () => {
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
         vi.clearAllMocks();
+    });
+    it("loads call cues ahead of time, once each, without playing them", () => {
+        preloadDesktopVoiceSounds(["userJoined"]);
+        preloadDesktopVoiceSounds(["userJoined"]);
+        expect(createAudio).toHaveBeenCalledOnce();
+        expect(createAudio).toHaveBeenCalledWith(expect.stringContaining("user-joined.wav"));
+        expect(audios[0]).toMatchObject({ preload: "auto" });
+        expect(play).not.toHaveBeenCalled();
     });
     it("routes the cue to the selected output before playing", async () => {
         await playDesktopVoiceSound("mute");

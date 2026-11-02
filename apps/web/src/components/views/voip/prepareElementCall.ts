@@ -9,6 +9,7 @@ import { logger } from "matrix-js-sdk/src/logger";
 
 import { loadElementCallComponent } from "./ElementCallLoader";
 import { DesktopVoicePipeline } from "../../../audio/desktop/DesktopVoicePipeline";
+import { preloadDesktopVoiceSounds } from "../../../audio/DesktopVoiceSounds";
 
 /** Prepares again while preparation is active, for example when someone points at a voice channel. */
 let prepareAgain: (() => void) | undefined;
@@ -31,6 +32,7 @@ export function prepareElementCall(): () => void {
         void loadElementCallComponent().catch((error: unknown) =>
             logger.debug("Could not prepare Element Call", error),
         );
+        preloadDesktopVoiceSounds();
         try {
             pipeline = DesktopVoicePipeline.instance;
             pipeline.prepare();
