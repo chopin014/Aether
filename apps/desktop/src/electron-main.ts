@@ -80,7 +80,8 @@ const exitShortcuts: Array<(input: Input, platform: string) => boolean> = [
         platform === "darwin" && input.meta && !input.control && input.key.toUpperCase() === "Q",
 ];
 
-void configureSentry();
+// Crash reporting must be ready before the first window exists, so the ready handler waits for this.
+const sentryConfigured = configureSentry().catch((e) => console.error("Could not configure Sentry", e));
 
 // handle uncaught errors otherwise it displays
 // stack traces in popup dialogs, which is terrible (which
@@ -235,6 +236,8 @@ app.on("ready", async () => {
         defaultWidth: 1024,
         defaultHeight: 768,
     });
+
+    await sentryConfigured;
 
     console.debug("Opening main window");
     const preloadScript = path.normalize(`${__dirname}/preload.cjs`);
