@@ -319,13 +319,18 @@ let matrixClientListenersStop: Listener[] = [];
  * @param {function} actionCreator a function that should return an action to dispatch
  *                                 when given the MatrixClient as an argument as well as
  *                                 arguments emitted in the MatrixClient event.
+ * @param afterInitialSync Only dispatch once the initial sync is complete. For per-room updates: the stores that use
+ *                         them start from the client's state after that sync, while the sync itself (or replaying it
+ *                         from the cache at startup) emits thousands of them that would only queue work for nobody.
  */
 function addMatrixClientListener(
     matrixClient: MatrixClient,
     eventName: Parameters<MatrixClient["emit"]>[0],
     actionCreator: ActionCreator,
+    afterInitialSync = false,
 ): void {
     const listener: Listener = (...args) => {
+        if (afterInitialSync && !matrixClient.isInitialSyncComplete()) return;
         const payload = actionCreator(matrixClient, ...args);
         if (payload) {
             // Consumers shouldn't have to worry about calling js-sdk methods mid-dispatch, so make this dispatch async
@@ -351,14 +356,14 @@ export default {
     start(matrixClient: MatrixClient) {
         addMatrixClientListener(matrixClient, ClientEvent.Sync, createSyncAction);
         addMatrixClientListener(matrixClient, ClientEvent.AccountData, createAccountDataAction);
-        addMatrixClientListener(matrixClient, RoomEvent.AccountData, createRoomAccountDataAction);
+        addMatrixClientListener(matrixClient, RoomEvent.AccountData, createRoomAccountDataAction, true);
         addMatrixClientListener(matrixClient, ClientEvent.Room, createRoomAction);
-        addMatrixClientListener(matrixClient, RoomEvent.Tags, createRoomTagsAction);
-        addMatrixClientListener(matrixClient, RoomEvent.Receipt, createRoomReceiptAction);
-        addMatrixClientListener(matrixClient, RoomEvent.Timeline, createRoomTimelineAction);
+        addMatrixClientListener(matrixClient, RoomEvent.Tags, createRoomTagsAction, true);
+        addMatrixClientListener(matrixClient, RoomEvent.Receipt, createRoomReceiptAction, true);
+        addMatrixClientListener(matrixClient, RoomEvent.Timeline, createRoomTimelineAction, true);
         addMatrixClientListener(matrixClient, RoomEvent.MyMembership, createSelfMembershipAction);
-        addMatrixClientListener(matrixClient, MatrixEventEvent.Decrypted, createEventDecryptedAction);
-        addMatrixClientListener(matrixClient, RoomStateEvent.Events, createRoomStateEventsAction);
+        addMatrixClientListener(matrixClient, MatrixEventEvent.Decrypted, createEventDecryptedAction, true);
+        addMatrixClientListener(matrixClient, RoomStateEvent.Events, createRoomStateEventsAction, true);
     },
 
     /**
