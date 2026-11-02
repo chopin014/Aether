@@ -68,6 +68,17 @@ describe("desktop voice feedback", () => {
         expect(audios[0]).toMatchObject({ preload: "auto" });
         expect(play).not.toHaveBeenCalled();
     });
+    it("plays a preloaded cue without loading it again, then loads a fresh one next time", async () => {
+        preloadDesktopVoiceSounds(["cameraOn"]);
+        await playDesktopVoiceSound("cameraOn");
+        expect(createAudio).toHaveBeenCalledOnce();
+        expect(setSinkId).toHaveBeenCalledWith("headset");
+        expect(play).toHaveBeenCalledOnce();
+
+        audios[0].onended?.();
+        await playDesktopVoiceSound("cameraOn");
+        expect(createAudio).toHaveBeenCalledTimes(2);
+    });
     it("routes the cue to the selected output before playing", async () => {
         await playDesktopVoiceSound("mute");
         expect(createAudio).toHaveBeenCalledWith(expect.stringContaining("mute.wav"));
