@@ -372,18 +372,18 @@ app.on("ready", async () => {
                     .getSources({ types: ["screen", "window"] })
                     .then((sources) => {
                         // oxlint-disable-next-line promise/no-callback-in-promise
-                        callback({ video: sources[0] });
+                        callback(sources[0] ? { video: sources[0] } : null);
                     })
                     .catch((err) => {
                         // If the user cancels the dialog an error occurs "Failed to get sources"
                         console.error("Wayland: failed to get user-selected source:", err);
                         // oxlint-disable-next-line promise/no-callback-in-promise
-                        callback({ video: { id: "", name: "" } }); // The promise does not return if no dummy is passed here as source
+                        callback(null);
                     });
             } else {
+                setDisplayMediaCallback(callback);
                 global.mainWindow?.webContents.send("openDesktopCapturerSourcePicker");
             }
-            setDisplayMediaCallback(callback);
         },
         { useSystemPicker: true },
     ); // Use Mac OS 15+ native picker

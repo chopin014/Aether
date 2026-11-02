@@ -186,7 +186,7 @@ ipcMain.on("ipcCall", async function (_ev: IpcMainEvent, payload) {
             }
             break;
         case "callDisplayMediaCallback":
-            consumeDisplayMediaCallback()?.({ video: args[0] });
+            consumeDisplayMediaCallback()?.(args[0] ? { video: args[0] } : null);
             ret = null;
             break;
 

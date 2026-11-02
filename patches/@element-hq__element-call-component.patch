@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000000..9e4d0a04ee
 --- /dev/null
 +++ b/dist/aether-screen-share.js
-@@ -0,0 +1,210 @@
+@@ -0,0 +1,219 @@
 +/*
 +Copyright 2026 Gabriel
 +
@@ -142,19 +142,28 @@ index 0000000000..9e4d0a04ee
 +            const captureQuality = desired;
 +            let tracks = [];
 +            try {
-+                tracks = await participant.createScreenTracks({
-+                    audio: captureQuality.includeSystemAudio
-+                        ? { autoGainControl: false, noiseSuppression: false, voiceIsolation: false }
-+                        : false,
-+                    resolution: {
-+                        width: Math.round((captureQuality.resolutionHeight * 16) / 9),
-+                        height: captureQuality.resolutionHeight,
-+                        frameRate: captureQuality.frameRate,
-+                    },
-+                    selfBrowserSurface: "include",
-+                    surfaceSwitching: "include",
-+                    systemAudio: captureQuality.includeSystemAudio ? "include" : "exclude",
-+                });
++                try {
++                    tracks = await participant.createScreenTracks({
++                        audio: captureQuality.includeSystemAudio
++                            ? { autoGainControl: false, noiseSuppression: false, voiceIsolation: false }
++                            : false,
++                        resolution: {
++                            width: Math.round((captureQuality.resolutionHeight * 16) / 9),
++                            height: captureQuality.resolutionHeight,
++                            frameRate: captureQuality.frameRate,
++                        },
++                        selfBrowserSurface: "include",
++                        surfaceSwitching: "include",
++                        systemAudio: captureQuality.includeSystemAudio ? "include" : "exclude",
++                    });
++                } catch (error) {
++                    // Browsers deny dismissed pickers; Electron explicitly aborts a cancelled request.
++                    if (error?.name === "NotAllowedError" || error?.name === "AbortError") {
++                        requested = false;
++                        return;
++                    }
++                    throw error;
++                }
 +                for (const track of tracks) owned.add(track);
 +                if (disposed || !requested || ticket !== generation) {
 +                    for (const track of tracks) {

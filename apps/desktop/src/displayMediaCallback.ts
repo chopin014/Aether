@@ -7,7 +7,7 @@ Please see LICENSE files in the repository root for full details.
 
 import type { Streams } from "electron";
 
-type DisplayMediaCallback = (streams: Streams) => void;
+type DisplayMediaCallback = (streams: Streams | null) => void;
 
 let displayMediaCallback: DisplayMediaCallback | null = null;
 

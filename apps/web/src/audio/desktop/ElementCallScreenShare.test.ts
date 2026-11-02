@@ -20,6 +20,7 @@ type Quality = { resolutionHeight: number; frameRate: number; maxBitrate: number
 type Controller = {
     setEnabled(enabled: boolean, quality?: Partial<Quality>): Promise<void>;
     update(quality: Partial<Quality>): Promise<void>;
+    readonly requested: boolean;
     dispose(): Promise<void>;
 };
 const helpers = runInNewContext(
@@ -84,6 +85,43 @@ describe("Element Call screen capture publication boundary", () => {
             maxBitrate: 2_000_000,
             includeSystemAudio: false,
         });
+    });
+
+    it.each(["NotAllowedError", "AbortError"])(
+        "should treat capture %s as cancellation and allow retry",
+        async (name) => {
+            const { controller, participant, commit } = fixture();
+            participant.createScreenTracks.mockRejectedValueOnce(new DOMException("Capture cancelled", name));
+
+            await expect(controller.setEnabled(true)).resolves.toBeUndefined();
+
+            expect(controller.requested).toBe(false);
+            expect(participant.publishTrack).not.toHaveBeenCalled();
+            expect(commit).not.toHaveBeenCalled();
+            await controller.setEnabled(true);
+            expect(participant.publishTrack).toHaveBeenCalledTimes(2);
+            expect(controller.requested).toBe(true);
+        },
+    );
+
+    it("should still report capture source failures", async () => {
+        const { controller, participant, commit } = fixture();
+        participant.createScreenTracks.mockRejectedValueOnce(
+            new DOMException("Could not start video source", "NotReadableError"),
+        );
+
+        await expect(controller.setEnabled(true)).rejects.toThrow("Could not start video source");
+        expect(controller.requested).toBe(false);
+        expect(participant.publishTrack).not.toHaveBeenCalled();
+        expect(commit).not.toHaveBeenCalled();
+    });
+
+    it("should still report abort errors after capture succeeds", async () => {
+        const { controller, participant, track } = fixture();
+        participant.publishTrack.mockRejectedValueOnce(new DOMException("Publication aborted", "AbortError"));
+
+        await expect(controller.setEnabled(true)).rejects.toThrow("Publication aborted");
+        expect(track.stop).toHaveBeenCalled();
     });
 
     it("bounds all encodings of a backup codec too", async () => {

@@ -216,6 +216,21 @@ describe("ElectronPlatform", () => {
         expect(plat.ipc.call).toHaveBeenCalledWith("callDisplayMediaCallback", "source");
     });
 
+    it("should abort display capture when the source picker is cancelled", async () => {
+        const plat = new ElectronPlatform();
+        // Only the dialog completion is needed by this handler.
+        vi.mocked(Modal.createDialog).mockReturnValue({ finished: Promise.resolve([]) } as ReturnType<
+            typeof Modal.createDialog
+        >);
+        // @ts-expect-error Mock the private IPC bridge to observe picker cancellation.
+        const call = vi.spyOn(plat.ipc, "call").mockResolvedValue(null);
+
+        const [, handler] = getElectronEventHandlerCall("openDesktopCapturerSourcePicker")!;
+        await handler();
+
+        expect(call).toHaveBeenCalledWith("callDisplayMediaCallback", null);
+    });
+
     it("should show a toast when showToast is fired", async () => {
         new ElectronPlatform();
         dispatcher.dispatch(
