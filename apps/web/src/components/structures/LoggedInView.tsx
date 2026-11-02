@@ -7,6 +7,7 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import { DesktopAccountDockContainer } from "../views/menus/UserMenuContainer";
+import { prepareElementCall } from "../views/voip/prepareElementCall";
 import { DesktopProfileHost } from "../views/desktop/DesktopProfileHost";
 
 import React, { type ClipboardEvent } from "react";
@@ -129,6 +130,7 @@ class LoggedInView extends React.Component<IProps, IState> {
     protected timezoneProfileUpdateRef?: string[];
 
     private resizerViewModel?: ResizerViewModel;
+    private cancelCallPreparation?: () => void;
     private readonly desktopShellEnabled = SettingsStore.getValue("feature_desktop_shell");
 
     public static contextType = SDKContext;
@@ -154,7 +156,15 @@ class LoggedInView extends React.Component<IProps, IState> {
     }
 
     public componentDidMount(): void {
-        if (this.desktopShellEnabled) document.body.classList.add("mx_DesktopShell");
+        if (this.desktopShellEnabled) {
+            document.body.classList.add("mx_DesktopShell");
+            if (
+                SettingsStore.getValue("feature_element_call_react") &&
+                !SettingsStore.getValue("Developer.elementCallMockComponent")
+            ) {
+                this.cancelCallPreparation = prepareElementCall();
+            }
+        }
         document.addEventListener("keydown", this.onNativeKeyDown, false);
         this.context.legacyCallHandler.addListener(LegacyCallHandlerEvent.CallState, this.onCallState);
 
@@ -233,6 +243,7 @@ class LoggedInView extends React.Component<IProps, IState> {
     };
 
     public componentWillUnmount(): void {
+        this.cancelCallPreparation?.();
         if (this.desktopShellEnabled) document.body.classList.remove("mx_DesktopShell");
         document.removeEventListener("keydown", this.onNativeKeyDown, false);
         this.context.legacyCallHandler.removeListener(LegacyCallHandlerEvent.CallState, this.onCallState);

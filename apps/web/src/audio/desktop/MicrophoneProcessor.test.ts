@@ -23,6 +23,7 @@ interface FakeContext {
     outputTrack: { stop: ReturnType<typeof vi.fn>; enabled: boolean };
     close: ReturnType<typeof vi.fn>;
     resume: ReturnType<typeof vi.fn>;
+    suspend: ReturnType<typeof vi.fn>;
 }
 
 /** Stands in for LiveKit's shared context, which the processor must leave alone. */
@@ -54,8 +55,15 @@ describe("MicrophoneProcessor", () => {
                 public state: AudioContextState = "running";
                 public source = { connect: vi.fn(), disconnect: vi.fn() };
                 public outputTrack = { stop: vi.fn(), enabled: true };
-                public close = vi.fn().mockResolvedValue(undefined);
-                public resume = vi.fn().mockResolvedValue(undefined);
+                public close = vi.fn(async () => {
+                    this.state = "closed";
+                });
+                public suspend = vi.fn(async () => {
+                    this.state = "suspended";
+                });
+                public resume = vi.fn(async () => {
+                    this.state = "running";
+                });
                 public createMediaStreamSource = vi.fn().mockReturnValue(this.source);
                 public createMediaStreamDestination = vi
                     .fn()
@@ -87,7 +95,10 @@ describe("MicrophoneProcessor", () => {
             },
         );
     });
-    afterEach(() => vi.unstubAllGlobals());
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        vi.useRealTimers();
+    });
 
     it("loads the audio-thread module before connecting capture, with the current hold state", async () => {
         const processor = new MicrophoneProcessor({ ...config, pushToTalk: true });
@@ -224,5 +235,134 @@ describe("MicrophoneProcessor", () => {
         expect(nodes[0].port.onmessage).toBeNull();
         expect(nodes[0].port.close).toHaveBeenCalled();
         await expect(root.destroy()).resolves.toBeUndefined();
+    });
+    const ready = async (count = 1): Promise<void> => {
+        await vi.waitFor(() => {
+            expect(nodes).toHaveLength(count);
+            expect(nodes.at(-1)?.port.onmessage).toBeTypeOf("function");
+        });
+        (nodes.at(-1)!.port.onmessage as (event: unknown) => void)({ data: { ready: true } });
+        await Promise.resolve();
+        await Promise.resolve();
+    };
+
+    it("prepares without capturing and gives only one connection the suspended graph", async () => {
+        const root = new MicrophoneProcessor(config);
+        root.prepare();
+        await ready();
+        expect(contexts[0].suspend).toHaveBeenCalledOnce();
+        expect(contexts[0].source.connect).not.toHaveBeenCalled();
+        expect(nodes[0].options.processorOptions.shortcutMuted).toBe(true);
+        root.setShortcutMuted(true);
+        const a = root.createProcessor();
+        await init(a);
+        expect(contexts).toHaveLength(1);
+        expect(contexts[0].resume).toHaveBeenCalledOnce();
+        expect(nodes[0].port.postMessage).toHaveBeenCalledWith(expect.objectContaining({ shortcutMuted: true }));
+        expect(nodes[0].port.postMessage.mock.invocationCallOrder[0]).toBeLessThan(
+            contexts[0].source.connect.mock.invocationCallOrder[0],
+        );
+        await init(root.createProcessor());
+        expect(contexts).toHaveLength(2);
+        root.clearPrepared();
+        await root.destroy();
+    });
+
+    it("discards an incompatible prepared model and prepares the new settings", async () => {
+        const root = new MicrophoneProcessor(config);
+        root.prepare();
+        await ready();
+        root.setConfig({ ...config, noiseSuppression: 80 });
+        expect(contexts[0].close).toHaveBeenCalledOnce();
+        await ready(2);
+        const child = root.createProcessor();
+        await init(child);
+        expect(nodes[1].options.processorOptions.denoiserModule).toBe(denoiserModule);
+        root.clearPrepared();
+        await root.destroy();
+    });
+
+    it.each([
+        ["turned on", config, { ...config, noiseSuppression: 80 }, denoiserModule],
+        ["turned off", { ...config, noiseSuppression: 80 }, config, undefined],
+    ])(
+        "builds a fresh graph when noise suppression is %s while a claimed graph is still preparing",
+        async (_, before, after, expectedModule) => {
+            const root = new MicrophoneProcessor(before);
+            root.prepare();
+            await vi.waitFor(() => expect(nodes).toHaveLength(1));
+            const child = root.createProcessor();
+            const pending = init(child);
+            root.setConfig(after);
+            (nodes[0].port.onmessage as (event: unknown) => void)({ data: { ready: true } });
+            await pending;
+
+            expect(contexts[0].close).toHaveBeenCalled();
+            expect(nodes).toHaveLength(2);
+            expect(nodes[1].options.processorOptions.denoiserModule).toBe(expectedModule);
+            expect(contexts[1].source.connect).toHaveBeenCalledWith(nodes[1]);
+            root.clearPrepared();
+            await root.destroy();
+        },
+    );
+
+    it("cancels preparation during model loading and during the worklet handshake", async () => {
+        const root = new MicrophoneProcessor(config);
+        root.prepare();
+        await vi.waitFor(() => expect(nodes).toHaveLength(1));
+        const child = root.createProcessor();
+        const pending = init(child);
+        root.clearPrepared();
+        await child.destroy();
+        await expect(pending).rejects.toThrow("cancelled");
+        expect(contexts[0].close).toHaveBeenCalledOnce();
+        expect(contexts[0].source.connect).not.toHaveBeenCalled();
+    });
+
+    it("expires unused graphs and replenishes only after the last connection leaves", async () => {
+        vi.useFakeTimers();
+        const root = new MicrophoneProcessor(config);
+        root.prepare();
+        await vi.advanceTimersByTimeAsync(0);
+        (nodes[0].port.onmessage as (event: unknown) => void)({ data: { ready: true } });
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(60000);
+        expect(contexts[0].close).toHaveBeenCalledOnce();
+        root.prepare();
+        await vi.advanceTimersByTimeAsync(0);
+        (nodes[1].port.onmessage as (event: unknown) => void)({ data: { ready: true } });
+        await vi.advanceTimersByTimeAsync(0);
+        const child = root.createProcessor();
+        await init(child);
+        await child.destroy();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(contexts).toHaveLength(3);
+        root.clearPrepared();
+        await root.destroy();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(contexts).toHaveLength(3);
+    });
+    it("rebuilds a graph that crashes while prepared instead of publishing a silent track", async () => {
+        const root = new MicrophoneProcessor(config);
+        root.prepare();
+        await ready();
+        nodes[0].onprocessorerror!();
+        await init(root.createProcessor());
+        expect(contexts[0].close).toHaveBeenCalledOnce();
+        expect(contexts[1].source.connect).toHaveBeenCalledWith(nodes[1]);
+        root.clearPrepared();
+        await root.destroy();
+    });
+
+    it("times out a stalled preparation and still joins with a fresh graph", async () => {
+        vi.useFakeTimers();
+        const root = new MicrophoneProcessor(config);
+        root.prepare();
+        await vi.advanceTimersByTimeAsync(10001);
+        expect(contexts[0].close).toHaveBeenCalledOnce();
+        await init(root.createProcessor());
+        expect(contexts[1].source.connect).toHaveBeenCalledWith(nodes[1]);
+        root.clearPrepared();
+        await root.destroy();
     });
 });

@@ -84,14 +84,14 @@ describe("MicrophoneGateWorklet", () => {
         const input = new Float32Array(128).fill(0.5);
         const output = new Float32Array(128);
         for (let i = 0; i < 18; i++) processor.process([[input]], [[output]]);
-        expect(processor.port.postMessage).not.toHaveBeenCalled();
+        expect(processor.port.postMessage).toHaveBeenCalledExactlyOnceWith({ ready: true });
         processor.process([[input]], [[output]]);
         expect(processor.port.postMessage).toHaveBeenCalledWith({
             level: expect.closeTo(-6.02, 1),
             open: true,
             threshold: null,
         });
-        expect(processor.port.postMessage).toHaveBeenCalledTimes(1);
+        expect(processor.port.postMessage).toHaveBeenCalledTimes(2);
     });
 });
 

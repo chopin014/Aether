@@ -1,0 +1,79 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+// @vitest-environment happy-dom
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { prepareCallSoon, prepareElementCall } from "./prepareElementCall";
+import { loadElementCallComponent } from "./ElementCallLoader";
+import { DesktopVoicePipeline } from "../../../audio/desktop/DesktopVoicePipeline";
+
+vi.mock("./ElementCallLoader", () => ({ loadElementCallComponent: vi.fn() }));
+vi.mock("../../../audio/desktop/DesktopVoicePipeline", () => ({
+    DesktopVoicePipeline: { instance: { prepare: vi.fn(), cancelPreparation: vi.fn() } },
+}));
+
+describe("prepareElementCall", () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.clearAllMocks();
+        vi.mocked(loadElementCallComponent).mockResolvedValue({} as never);
+        vi.stubGlobal("requestIdleCallback", undefined);
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
+
+    it("defers preparation, then releases the unused processor on logout", async () => {
+        const cancel = prepareElementCall();
+        expect(loadElementCallComponent).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(loadElementCallComponent).toHaveBeenCalledOnce();
+        expect(DesktopVoicePipeline.instance.prepare).toHaveBeenCalledOnce();
+        cancel();
+        expect(DesktopVoicePipeline.instance.cancelPreparation).toHaveBeenCalledOnce();
+    });
+
+    it("cancels idle work without creating a microphone pipeline", async () => {
+        const idle = vi.fn().mockReturnValue(7);
+        const cancelIdle = vi.fn();
+        vi.stubGlobal("requestIdleCallback", idle);
+        vi.stubGlobal("cancelIdleCallback", cancelIdle);
+        const cancel = prepareElementCall();
+        cancel();
+        idle.mock.calls[0][0]();
+        expect(cancelIdle).toHaveBeenCalledWith(7);
+        expect(loadElementCallComponent).not.toHaveBeenCalled();
+        expect(DesktopVoicePipeline.instance.prepare).not.toHaveBeenCalled();
+        expect(DesktopVoicePipeline.instance.cancelPreparation).not.toHaveBeenCalled();
+    });
+
+    it("allows the foreground call to retry a failed background download", async () => {
+        vi.mocked(loadElementCallComponent).mockRejectedValue(new Error("offline"));
+        const cancel = prepareElementCall();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(DesktopVoicePipeline.instance.prepare).toHaveBeenCalledOnce();
+        cancel();
+    });
+
+    it("prepares again when the person comes back or is about to join, but not after logout", async () => {
+        const cancel = prepareElementCall();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(DesktopVoicePipeline.instance.prepare).toHaveBeenCalledTimes(1);
+
+        window.dispatchEvent(new Event("focus"));
+        prepareCallSoon();
+        expect(DesktopVoicePipeline.instance.prepare).toHaveBeenCalledTimes(3);
+
+        cancel();
+        window.dispatchEvent(new Event("focus"));
+        prepareCallSoon();
+        expect(DesktopVoicePipeline.instance.prepare).toHaveBeenCalledTimes(3);
+    });
+});

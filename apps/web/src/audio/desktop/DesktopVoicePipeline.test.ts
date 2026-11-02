@@ -150,6 +150,20 @@ describe("DesktopVoicePipeline", () => {
         vi.restoreAllMocks();
     });
 
+    it("prepares the selected mode without capture and follows idle setting changes until logout", () => {
+        const prepare = vi.spyOn(pipeline.microphoneProcessor, "prepare").mockImplementation(() => {});
+        const clear = vi.spyOn(pipeline.microphoneProcessor, "clearPrepared").mockImplementation(() => {});
+        const config = vi.spyOn(pipeline.microphoneProcessor, "setConfig");
+        pipeline.prepare();
+        expect(prepare).toHaveBeenCalledOnce();
+        change("desktopNoiseSuppression", "enhanced");
+        expect(config).toHaveBeenLastCalledWith(expect.objectContaining({ noiseSuppression: 100 }));
+        expect(prepare).toHaveBeenCalledTimes(2);
+        pipeline.cancelPreparation();
+        expect(clear).toHaveBeenCalledOnce();
+        expect(watchers.size).toBe(0);
+    });
+
     it("caps partial sharing preferences and forwards the validated values to attached engines", () => {
         SdkConfig.put({
             element_call: {
