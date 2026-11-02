@@ -25,6 +25,7 @@ import {
     type Room,
     ClientEvent,
     RoomEvent,
+    RoomStateEvent,
     SyncState,
 } from "matrix-js-sdk/src/matrix";
 import { emitPromise, getMockClientWithEventEmitter, mockClientMethodsRooms, mockPlatformPeg } from "test-utils";
@@ -227,6 +228,31 @@ describe("EventIndex opened after startup", () => {
         await vi.waitFor(() => expect(mockIndexingManager.commitLiveEvents).toHaveBeenCalled());
         await new Promise((resolve) => setTimeout(resolve, 0));
         expect(mockIndexingManager.commitLiveEvents).toHaveBeenCalledTimes(1);
+        indexer.stopCrawler();
+    });
+
+    it("checks held rooms one at a time, so opening does not flood the index's database", async () => {
+        const { mockIndexingManager, client } = setUp();
+        let running = 0;
+        let mostAtOnce = 0;
+        (mockIndexingManager as any).isRoomIndexed = vi.fn(async () => {
+            running++;
+            mostAtOnce = Math.max(mostAtOnce, running);
+            await new Promise((resolve) => setTimeout(resolve, 1));
+            running--;
+            return true;
+        });
+        const indexer = new EventIndex();
+        indexer.listenBeforeOpening();
+        const encryption = (roomId: string): MatrixEvent =>
+            new MatrixEvent({ type: "m.room.encryption", state_key: "", room_id: roomId, content: {} });
+        for (let i = 0; i < 20; i++) {
+            client.emit(RoomStateEvent.Events, encryption(`!r${i}:id`), { roomId: `!r${i}:id` } as any, null);
+        }
+
+        await indexer.init();
+        await vi.waitFor(() => expect((mockIndexingManager as any).isRoomIndexed).toHaveBeenCalledTimes(20));
+        expect(mostAtOnce).toBe(1);
         indexer.stopCrawler();
     });
 

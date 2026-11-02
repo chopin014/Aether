@@ -86,12 +86,16 @@ export default class EventIndex extends EventEmitter {
 
     private readonly logger;
 
-    /** Settles once the index is open (true) or will not open (false). Live events wait for it rather than drop. */
-    private readonly opened = Promise.withResolvers<boolean>();
+    /** Whether {@link init} has finished, so index work can run as it arrives. */
     private isOpen = false;
     private listening = false;
+    /**
+     * Index work that arrived before the index was open. It runs one item at a time once the index opens: run all at
+     * once, a startup's worth of it would exhaust the index's database connections.
+     */
+    private held: (() => Promise<void>)[] = [];
     /** Syncs that happen before the index opens only need catching up once. */
-    private syncWaitingForOpen = false;
+    private syncHeld = false;
 
     public constructor() {
         super();
@@ -115,7 +119,24 @@ export default class EventIndex extends EventEmitter {
 
         this.registerListeners();
         this.isOpen = true;
-        this.opened.resolve(true);
+        void this.runHeldWork();
+    }
+
+    /** Run index work now if the index is open, or keep it, in order, for when it opens. */
+    private whenOpen(work: () => Promise<void>): Promise<void> {
+        if (this.isOpen) return work();
+        if (this.listening) this.held.push(work);
+        return Promise.resolve();
+    }
+
+    private async runHeldWork(): Promise<void> {
+        for (let work = this.held.shift(); work; work = this.held.shift()) {
+            try {
+                await work();
+            } catch (e) {
+                this.logger.warn("Could not index an event that arrived while the index was opening", e);
+            }
+        }
     }
 
     /**
@@ -129,7 +150,7 @@ export default class EventIndex extends EventEmitter {
     /** Give up on opening the index, releasing anything held for it. */
     public abandon(): void {
         this.removeListeners();
-        this.opened.resolve(false);
+        this.held = [];
     }
 
     /**
@@ -237,13 +258,6 @@ export default class EventIndex extends EventEmitter {
         if (state != SyncState.Syncing) return;
 
         const onSyncInner = async (): Promise<void> => {
-            if (!this.isOpen) {
-                if (this.syncWaitingForOpen) return;
-                this.syncWaitingForOpen = true;
-                const opened = await this.opened.promise;
-                this.syncWaitingForOpen = false;
-                if (!opened) return;
-            }
             const indexManager = PlatformPeg.get()?.getEventIndexingManager();
             if (!indexManager) return;
 
@@ -261,7 +275,11 @@ export default class EventIndex extends EventEmitter {
             await indexManager.commitLiveEvents();
         };
 
-        onSyncInner().catch((e) => {
+        if (!this.isOpen) {
+            if (this.syncHeld) return;
+            this.syncHeld = true;
+        }
+        this.whenOpen(onSyncInner).catch((e) => {
             logErrorAndShowErrorDialog("Event indexer threw an unexpected error", e);
         });
     };
@@ -282,7 +300,6 @@ export default class EventIndex extends EventEmitter {
         data: IRoomTimelineData,
     ): Promise<void> => {
         if (!room) return; // notification timeline, we'll get this event again with a room specific timeline
-        if (!(await this.opened.promise)) return;
 
         const client = MatrixClientPeg.safeGet();
 
@@ -290,7 +307,7 @@ export default class EventIndex extends EventEmitter {
         if (!client.isRoomEncrypted(ev.getRoomId()!)) return;
 
         if (ev.isRedaction()) {
-            return this.redactEvent(ev);
+            return this.whenOpen(() => this.redactEvent(ev));
         }
 
         // If it isn't a live event or if it's redacted there's nothing to do.
@@ -298,19 +315,21 @@ export default class EventIndex extends EventEmitter {
             return;
         }
 
-        await client.decryptEventIfNeeded(ev);
-
-        await this.addLiveEventToIndex(ev);
+        return this.whenOpen(async () => {
+            await client.decryptEventIfNeeded(ev);
+            await this.addLiveEventToIndex(ev);
+        });
     };
 
     private onRoomStateEvent = async (ev: MatrixEvent, state: RoomState): Promise<void> => {
-        if (!(await this.opened.promise)) return;
+        if (ev.getType() !== EventType.RoomEncryption) return;
         if (!MatrixClientPeg.safeGet().isRoomEncrypted(state.roomId)) return;
 
-        if (ev.getType() === EventType.RoomEncryption && !(await this.isRoomIndexed(state.roomId))) {
+        return this.whenOpen(async () => {
+            if (await this.isRoomIndexed(state.roomId)) return;
             this.logger.debug("Adding a checkpoint for a newly encrypted room", state.roomId);
             await this.addRoomCheckpoint(state.roomId, true);
-        }
+        });
     };
 
     /*
@@ -339,12 +358,12 @@ export default class EventIndex extends EventEmitter {
      */
     private onTimelineReset = async (room: Room | undefined): Promise<void> => {
         if (!room) return;
-        if (!(await this.opened.promise)) return;
         if (!MatrixClientPeg.safeGet().isRoomEncrypted(room.roomId)) return;
 
-        this.logger.debug("Adding a checkpoint because of a limited timeline", room.roomId);
-
-        await this.addRoomCheckpoint(room.roomId, false);
+        return this.whenOpen(async () => {
+            this.logger.debug("Adding a checkpoint because of a limited timeline", room.roomId);
+            await this.addRoomCheckpoint(room.roomId, false);
+        });
     };
 
     /**
