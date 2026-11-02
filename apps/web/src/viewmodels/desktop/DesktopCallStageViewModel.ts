@@ -216,7 +216,7 @@ export class DesktopCallStageViewModel
             ),
             ringing: state.ringing,
             callees: ringingCallees(props.client, props.call.roomId, state.ringing, state.participants),
-            canShareSystemAudio: !window.electron,
+            canShareSystemAudio: !window.electron || !!window.electron.desktopAudio,
         });
         const soundboard = SoundboardViewModel.acquire({ client: props.client, call: props.call });
         this.disposables.track(soundboard.release);

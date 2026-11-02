@@ -57,6 +57,7 @@
         "@sentry/electron": "^7.0.0",
         "auto-launch": "^5.0.5",
         "counterpart": "^0.18.6",
+        "electron-native-screenshare": "1.2.0",
         "electron-store": "^11.0.0",
         "electron-updater": "6.8.10",
         "electron-window-state": "^5.0.3",

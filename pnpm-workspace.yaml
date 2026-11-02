@@ -108,6 +108,7 @@ allowBuilds:
     pkcs11js: false
     # Node-API prebuilds are packaged/rebuilt by electron-builder install-app-deps.
     uiohook-napi: false
+    electron-native-screenshare: false
 
 patchedDependencies:
     # Report microphone activity to the sidebar without changing capture or the call UI.
@@ -136,6 +137,7 @@ patchedDependencies:
     matrix-js-sdk@44.0.0: patches/matrix-js-sdk@44.0.0.patch
     # Closed label tooltips stay mounted: only track their position, and draw their arrow, while open
     "@vector-im/compound-web@10.3.1": patches/@vector-im__compound-web@10.3.1.patch
+    electron-native-screenshare@1.2.0: patches/electron-native-screenshare@1.2.0.patch
 
 peerDependencyRules:
     allowedVersions:

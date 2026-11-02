@@ -10,6 +10,8 @@ Please see LICENSE files in the repository root for full details.
 
 // Squirrel on windows starts the app with various flags as hooks to tell us when we've been installed/uninstalled etc.
 import "./squirrelhooks.js";
+import { setupDesktopAudio, selectPortalDesktopAudio } from "./desktop-audio.js";
+
 import { app, BrowserWindow, Menu, dialog, type Input, type Event, session, protocol, desktopCapturer } from "electron";
 import path from "node:path";
 import windowStateKeeper from "electron-window-state";
@@ -373,6 +375,8 @@ app.on("ready", async () => {
     // renderer stays a permanent blank window the user can only escape by killing the whole app.
     rendererRecovery = setupRendererRecovery(global.mainWindow);
 
+    setupDesktopAudio(global.mainWindow.webContents);
+
     session.defaultSession.setDisplayMediaRequestHandler(
         (_, callback) => {
             if (process.env.XDG_SESSION_TYPE === "wayland") {
@@ -381,6 +385,7 @@ app.on("ready", async () => {
                 desktopCapturer
                     .getSources({ types: ["screen", "window"] })
                     .then((sources) => {
+                        selectPortalDesktopAudio(sources[0]?.id ?? "");
                         // oxlint-disable-next-line promise/no-callback-in-promise
                         callback({ video: sources[0] });
                     })
@@ -391,9 +396,9 @@ app.on("ready", async () => {
                         callback({ video: { id: "", name: "" } }); // The promise does not return if no dummy is passed here as source
                     });
             } else {
+                setDisplayMediaCallback(callback);
                 global.mainWindow?.webContents.send("openDesktopCapturerSourcePicker");
             }
-            setDisplayMediaCallback(callback);
         },
         { useSystemPicker: true },
     ); // Use Mac OS 15+ native picker

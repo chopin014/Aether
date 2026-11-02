@@ -38,7 +38,13 @@ export class DesktopScreenSharePickerViewModel
             selectedSource: null,
             loading: true,
             error: null,
-            quality: { ...DesktopVoicePipeline.instance.getScreenShareQuality(), includeSystemAudio: false },
+            canShareSystemAudio: !!window.electron?.desktopAudio,
+            quality: {
+                ...DesktopVoicePipeline.instance.getScreenShareQuality(),
+                includeSystemAudio:
+                    !!window.electron?.desktopAudio &&
+                    DesktopVoicePipeline.instance.getScreenShareQuality().includeSystemAudio,
+            },
             limits: getScreenSharePolicyLimits(),
         });
         this.disposables.track(() => clearTimeout(this.timer));
@@ -97,7 +103,9 @@ export class DesktopScreenSharePickerViewModel
         const quality = resolveScreenShareQuality({
             ...this.snapshot.current.quality,
             ...patch,
-            includeSystemAudio: false,
+            includeSystemAudio:
+                this.snapshot.current.canShareSystemAudio &&
+                (patch.includeSystemAudio ?? this.snapshot.current.quality.includeSystemAudio),
         });
         this.snapshot.merge({ quality });
     };

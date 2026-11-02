@@ -17,6 +17,10 @@ ENV DEBUG_COLORS=true
 ENV FORCE_COLOR=true
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
+# Headers used by the native screen audio backend (runtime libraries are loaded dynamically).
+RUN apt-get update && apt-get install -y --no-install-recommends libpipewire-0.3-dev libpulse-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /project/apps/desktop
 
 ARG TARGETOS

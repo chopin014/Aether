@@ -275,11 +275,12 @@ packageExtensionsChecksum: sha256-kCJccFy7l6HmjcpzmxV958fHndI9zZq246f1ttgkURI=
 
 patchedDependencies:
   '@arcmantle/vite-plugin-import-css-sheet': 8019aa9feca17db6bab3483612b4150c911d70b58fddc52bf2d7258a1484a747
-  '@element-hq/element-call-component@0.0.0': d2795968e40e13dbc32fe928919b8c5f29d4e6ed55d1dfea0a66093f60653fe0
+  '@element-hq/element-call-component@0.0.0': ce73691eb6f15ae00514663d3f5a2eef48f022fb721eea99d8937c6c3be0fb5e
   '@tanstack/virtual-core@3': e4a0d401e27388e874fdaee2af4e710c7c9deeb53a4e021b768f6fe78b87b985
   '@types/auto-launch': b60dc9846a11a1684ce52c55493f29ea398d3dc44b88f66ab44e9843d6c01538
   '@vector-im/compound-web@10.3.1': 85f613d5b1d072b25f3a61adfb7c94399edc7e56c07ac93fe3bc290fd436d5e6
   '@vector-im/matrix-wysiwyg': 7bdf6150f2905bc2f055a6bcaa7b9d78fa7ffde82e800bcc454ac7b0096bd65e
+  electron-native-screenshare@1.2.0: 1e79f1eb245b5bbb0f10832ac2cd970af545c3672b928b772b3b1d65ab6b9cb1
   knip: 9ee905cce2466e391db69dfcea905b0fe2502afd935d1dc6a6ac94ffe2855c28
   linkify-html: 1761c1eabe25d9fae83f74f27a20b3d24515840a4a8747bb04828df46bcfdea2
   matrix-js-sdk@44.0.0: 2f1f4a9fab5dce54dd133bb230778ca4175a54ab4196468f58e0af44e86a1a71
@@ -395,6 +396,9 @@ importers:
       counterpart:
         specifier: ^0.18.6
         version: 0.18.6
+      electron-native-screenshare:
+        specifier: 1.2.0
+        version: 1.2.0(patch_hash=1e79f1eb245b5bbb0f10832ac2cd970af545c3672b928b772b3b1d65ab6b9cb1)
       electron-store:
         specifier: ^11.0.0
         version: 11.0.2
@@ -507,7 +511,7 @@ importers:
         version: 7.29.10
       '@element-hq/element-call-component':
         specifier: github:element-hq/element-call#6438c18b73773904557baa0b359f3ebed1be76e2&path:/component
-        version: https://codeload.github.com/element-hq/element-call/tar.gz/6438c18b73773904557baa0b359f3ebed1be76e2#path:/component(patch_hash=d2795968e40e13dbc32fe928919b8c5f29d4e6ed55d1dfea0a66093f60653fe0)(@vector-im/compound-design-tokens@11.2.0)(@vector-im/compound-web@10.3.1)(matrix-js-sdk@matrix-js-sdk@https://codeload.github.com/matrix-org/matrix-js-sdk/tar.gz/61b08bd037a3b987f267e2e8ac47002c75d59d85)(react-dom@19.3.0)(react@19.3.0)
+        version: https://codeload.github.com/element-hq/element-call/tar.gz/6438c18b73773904557baa0b359f3ebed1be76e2#path:/component(patch_hash=ce73691eb6f15ae00514663d3f5a2eef48f022fb721eea99d8937c6c3be0fb5e)(@vector-im/compound-design-tokens@11.2.0)(@vector-im/compound-web@10.3.1)(matrix-js-sdk@matrix-js-sdk@https://codeload.github.com/matrix-org/matrix-js-sdk/tar.gz/61b08bd037a3b987f267e2e8ac47002c75d59d85)(react-dom@19.3.0)(react@19.3.0)
       '@element-hq/element-web-module-api':
         specifier: workspace:*
         version: link:../../packages/module-api
@@ -8399,6 +8403,11 @@ packages:
   electron-devtools-installer@4.0.0:
     resolution: {integrity: sha512-9Tntu/jtfSn0n6N/ZI6IdvRqXpDyLQiDuuIbsBI+dL+1Ef7C8J2JwByw58P3TJiNeuqyV3ZkphpNWuZK5iSY2w==}
 
+  electron-native-screenshare@1.2.0:
+    resolution: {integrity: sha512-O7m+/AeE0UWFq8Z18THGSrPHRIxYiYtjdMKtVhGcNRE/sUN6Fj9EgXDOmmJnORCh303NWaNgmAnNz+JbeLa48Q==}
+    engines: {node: '>=18.0.0'}
+    os: [win32, linux, darwin]
+
   electron-publish@26.16.0:
     resolution: {integrity: sha512-Vt3KzQIiw9BImvNOYtndg9Mjki+tl4+1sQiC/+G5j8khWaENOJFWodiB+sUl6yyHwtd37avehskdtPw7f8y/+Q==}
 
@@ -10280,6 +10289,9 @@ packages:
   node-abi@4.38.0:
     resolution: {integrity: sha512-suSdznUPfabdaeLiNERA0LHod14RhcEn8wMPUZEQ6bKvajUCZ+aizY4pIvlLU+gImeLKp2bFDHhOc9yonISsXw==}
     engines: {node: '>=22.12.0'}
+
+  node-addon-api@7.1.1:
+    resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
 
   node-api-version@0.2.1:
     resolution: {integrity: sha512-2xP/IGGMmmSQpI1+O/k72jF/ykvZ89JeuKX3TLJAYPDVLUalrshrLHkeVcCCZqG/eEa635cr8IBYzgnDvM2O8Q==}
@@ -15156,7 +15168,7 @@ snapshots:
       - supports-color
     optional: true
 
-  '@element-hq/element-call-component@https://codeload.github.com/element-hq/element-call/tar.gz/6438c18b73773904557baa0b359f3ebed1be76e2#path:/component(patch_hash=d2795968e40e13dbc32fe928919b8c5f29d4e6ed55d1dfea0a66093f60653fe0)(@vector-im/compound-design-tokens@11.2.0)(@vector-im/compound-web@10.3.1)(matrix-js-sdk@matrix-js-sdk@https://codeload.github.com/matrix-org/matrix-js-sdk/tar.gz/61b08bd037a3b987f267e2e8ac47002c75d59d85)(react-dom@19.3.0)(react@19.3.0)':
+  '@element-hq/element-call-component@https://codeload.github.com/element-hq/element-call/tar.gz/6438c18b73773904557baa0b359f3ebed1be76e2#path:/component(patch_hash=ce73691eb6f15ae00514663d3f5a2eef48f022fb721eea99d8937c6c3be0fb5e)(@vector-im/compound-design-tokens@11.2.0)(@vector-im/compound-web@10.3.1)(matrix-js-sdk@matrix-js-sdk@https://codeload.github.com/matrix-org/matrix-js-sdk/tar.gz/61b08bd037a3b987f267e2e8ac47002c75d59d85)(react-dom@19.3.0)(react@19.3.0)':
     dependencies:
       '@vector-im/compound-design-tokens': 11.2.0(@types/react@19.3.0)(react@19.3.0)
       '@vector-im/compound-web': 10.3.1(patch_hash=85f613d5b1d072b25f3a61adfb7c94399edc7e56c07ac93fe3bc290fd436d5e6)(@fontsource/inconsolata@5.3.0)(@fontsource/inter@5.3.0)(@types/react-dom@19.3.0)(@types/react@19.3.0)(@vector-im/compound-design-tokens@11.2.0)(react-dom@19.3.0)(react@19.3.0)
@@ -20618,6 +20630,10 @@ snapshots:
     dependencies:
       unzip-crx-3: 0.2.0
 
+  electron-native-screenshare@1.2.0(patch_hash=1e79f1eb245b5bbb0f10832ac2cd970af545c3672b928b772b3b1d65ab6b9cb1):
+    dependencies:
+      node-addon-api: 7.1.1
+
   electron-publish@26.16.0(supports-color@10.2.2):
     dependencies:
       '@types/fs-extra': 9.0.13
@@ -22600,6 +22616,8 @@ snapshots:
   node-abi@4.38.0:
     dependencies:
       semver: 7.7.4
+
+  node-addon-api@7.1.1: {}
 
   node-api-version@0.2.1:
     dependencies:
