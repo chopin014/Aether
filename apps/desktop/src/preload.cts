@@ -10,7 +10,7 @@ Please see LICENSE files in the repository root for full details.
 
 import { ipcRenderer, contextBridge, type IpcRendererEvent } from "electron";
 import type { ConfigOptions } from "./config.js" with { "resolution-mode": "import" };
-import type { X509Api } from "shared-types" with { "resolution-mode": "import" };
+import type { DesktopAudioApi, DesktopAudioPacket, X509Api } from "shared-types" with { "resolution-mode": "import" };
 
 import type { ShortcutConfiguration, ShortcutEvent, ShortcutResult } from "./global-shortcuts/types.js" with {
     "resolution-mode": "import",
@@ -84,6 +84,20 @@ contextBridge.exposeInMainWorld("electron", {
     async getSettingValue(settingName: string): Promise<any> {
         return ipcRenderer.invoke("getSettingValue", settingName);
     },
+
+    desktopAudio:
+        process.platform === "win32" || process.platform === "linux"
+            ? ({
+                  prepare: (audio: boolean) => ipcRenderer.invoke("aether:desktop-audio-prepare", audio),
+                  start: (sessionId: string) => ipcRenderer.invoke("aether:desktop-audio-start", sessionId),
+                  stop: (sessionId: string) => ipcRenderer.invoke("aether:desktop-audio-stop", sessionId),
+                  onData: (listener: (packet: DesktopAudioPacket) => void) => {
+                      const handler = (_event: IpcRendererEvent, packet: DesktopAudioPacket): void => listener(packet);
+                      ipcRenderer.on("aether:desktop-audio-data", handler);
+                      return () => ipcRenderer.removeListener("aether:desktop-audio-data", handler);
+                  },
+              } satisfies DesktopAudioApi)
+            : undefined,
 
     globalShortcuts: {
         configure: (configuration: ShortcutConfiguration): Promise<ShortcutResult> =>

@@ -21,6 +21,9 @@ import { logger } from "matrix-js-sdk/src/logger";
 import { CallStore } from "../../stores/CallStore";
 import { uniqueId } from "lodash";
 
+import { installDesktopAudioCapture } from "../../audio/desktop/DesktopAudioCapture";
+import { DesktopVoicePipeline } from "../../audio/desktop/DesktopVoicePipeline";
+
 import BasePlatform, { UpdateCheckStatus, type UpdateStatus } from "../../BasePlatform";
 import type BaseEventIndexManager from "../../indexing/BaseEventIndexManager";
 import dis from "../../dispatcher/dispatcher";
@@ -187,11 +190,17 @@ export default class ElectronPlatform extends BasePlatform {
             });
         });
 
+        if (this.electron.desktopAudio) installDesktopAudioCapture(this.electron.desktopAudio);
+
         this.electron.on("openDesktopCapturerSourcePicker", async () => {
             const { finished } = Modal.createDialog(DesktopCapturerSourcePicker);
             const [source] = await finished;
             // getDisplayMedia promise does not return if no dummy is passed here as source
-            await this.ipc.call("callDisplayMediaCallback", source ?? { id: "", name: "", thumbnailURL: "" });
+            await this.ipc.call(
+                "callDisplayMediaCallback",
+                source ?? { id: "", name: "", thumbnailURL: "" },
+                !!source && DesktopVoicePipeline.instance.getScreenShareQuality().includeSystemAudio,
+            );
         });
 
         this.electron.on("showToast", async (ev, { title, description, priority = 40 }) => {

@@ -1,0 +1,20 @@
+diff --git a/src/linux/pulseaudio_capture.cpp b/src/linux/pulseaudio_capture.cpp
+index 87699bdf5c2d00d1185fba2fe05bb7f584d51d4a..5cb6e3a852359a1c873ea7bbc71e6d36e6ed06bd 100644
+--- a/src/linux/pulseaudio_capture.cpp
++++ b/src/linux/pulseaudio_capture.cpp
+@@ -546,11 +546,13 @@ void PulseAudioCapture::Start(DataCallback callback) {
+ 
+         if (pImpl->loopbackModuleId != PA_INVALID_INDEX && pImpl->context) {
+             pa_operation* ud = my_pa_context_unload_module(pImpl->context, pImpl->loopbackModuleId, nullptr, nullptr);
+-            if (ud) my_pa_operation_unref(ud);
++            // Complete the unload before disconnecting, otherwise the virtual devices leak.
++            run_pulse_operations_sync(pImpl, ud);
+         }
+         if (pImpl->nullSinkModuleId != PA_INVALID_INDEX && pImpl->context) {
+             pa_operation* ud = my_pa_context_unload_module(pImpl->context, pImpl->nullSinkModuleId, nullptr, nullptr);
+-            if (ud) my_pa_operation_unref(ud);
++            // Complete the unload before disconnecting, otherwise the virtual devices leak.
++            run_pulse_operations_sync(pImpl, ud);
+         }
+ 
+         if (pImpl->context) {

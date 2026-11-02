@@ -18,6 +18,28 @@ describe("DesktopScreenSharePickerViewModel", () => {
     afterEach(() => {
         vi.useRealTimers();
         vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+    });
+
+    it.each(["window", "screen"])("preserves confirmed audio for %s sharing on supported desktops", async (kind) => {
+        vi.stubGlobal("electron", { desktopAudio: {} });
+        const selected = { ...source, id: `${kind}:123:0` };
+        const onFinished = vi.fn();
+        const save = vi.spyOn(DesktopVoicePipeline.instance, "setScreenShareQuality");
+        const vm = new DesktopScreenSharePickerViewModel({
+            getSources: vi.fn().mockResolvedValue([selected]),
+            onFinished,
+        });
+        await vm.refresh();
+        vm.selectTab(kind as "window" | "screen");
+        vm.selectSource(selected.id);
+        vm.setQuality({ includeSystemAudio: true });
+        vm.next();
+        vm.confirm();
+        await vm.refresh();
+        expect(save).toHaveBeenCalledWith(expect.objectContaining({ includeSystemAudio: true }));
+        expect(onFinished).toHaveBeenCalledWith(selected);
+        vm.dispose();
     });
 
     it("serializes refreshes and ignores a confirmation finishing after the dialog closes", async () => {

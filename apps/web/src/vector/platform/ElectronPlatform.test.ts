@@ -213,7 +213,7 @@ describe("ElectronPlatform", () => {
         expect(event).toBeTruthy();
         expect(Modal.createDialog).toHaveBeenCalledWith(DesktopCapturerSourcePicker);
         // @ts-ignore mock
-        expect(plat.ipc.call).toHaveBeenCalledWith("callDisplayMediaCallback", "source");
+        expect(plat.ipc.call).toHaveBeenCalledWith("callDisplayMediaCallback", "source", expect.any(Boolean));
     });
 
     it("should show a toast when showToast is fired", async () => {

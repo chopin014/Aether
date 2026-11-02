@@ -38,7 +38,7 @@ function fixture() {
         setParameters: vi.fn().mockResolvedValue(undefined),
     };
     const track = { source: "screen", mediaStreamTrack, sender, stop: vi.fn() };
-    const audio = { source: "audio", stop: vi.fn() };
+    const audio = { source: "audio", stop: vi.fn(), mute: vi.fn(), unmute: vi.fn() };
     const publications = new Map<string, { track: unknown }>();
     const participant = {
         getTrackPublication: (source: string) => publications.get(source),
@@ -84,6 +84,15 @@ describe("Element Call screen capture publication boundary", () => {
             maxBitrate: 2_000_000,
             includeSystemAudio: false,
         });
+    });
+
+    it("mutes and restores screen audio when its preference changes during sharing", async () => {
+        const { controller, audio } = fixture();
+        await controller.setEnabled(true, { includeSystemAudio: true });
+        await controller.update({ includeSystemAudio: false });
+        expect(audio.mute).toHaveBeenCalledOnce();
+        await controller.update({ includeSystemAudio: true });
+        expect(audio.unmute).toHaveBeenCalledOnce();
     });
 
     it("bounds all encodings of a backup codec too", async () => {

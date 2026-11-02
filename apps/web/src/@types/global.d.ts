@@ -120,6 +120,7 @@ declare global {
     }
 
     interface Electron {
+        desktopAudio?: import("shared-types").DesktopAudioApi;
         globalShortcuts?: GlobalShortcutApi;
         // Legacy
         on(channel: ElectronChannel, listener: (event: Event, ...args: any[]) => void): void;

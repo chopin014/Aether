@@ -89,6 +89,9 @@ jobs:
               with:
                   node-version-file: apps/desktop/.node-version
                   install: false
+            - name: Install native screen audio build dependencies
+              if: runner.os == 'Linux'
+              run: sudo apt-get update && sudo apt-get install -y libpipewire-0.3-dev libpulse-dev
             - run: pnpm install --frozen-lockfile
             - name: Typecheck desktop sources, tests, and scripts
               run: pnpm --dir apps/desktop run lint:types
@@ -105,6 +108,9 @@ jobs:
               with:
                   node-version-file: apps/desktop/.node-version
                   install: false
+            - name: Install native screen audio build dependencies
+              if: runner.os == 'Linux'
+              run: sudo apt-get update && sudo apt-get install -y libpipewire-0.3-dev libpulse-dev
             - run: pnpm install --frozen-lockfile
             - run: pnpm exec nx run element-web:build
             - name: Bundle the Aether renderer
@@ -142,6 +148,9 @@ jobs:
               with:
                   node-version-file: apps/desktop/.node-version
                   install: false
+            - name: Install native screen audio build dependencies
+              if: runner.os == 'Linux'
+              run: sudo apt-get update && sudo apt-get install -y libpipewire-0.3-dev libpulse-dev
             - run: pnpm install --frozen-lockfile --filter element-desktop
             - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
               with:
@@ -203,6 +212,9 @@ jobs:
               with:
                   node-version-file: apps/desktop/.node-version
                   install: false
+            - name: Install native screen audio build dependencies
+              if: runner.os == 'Linux'
+              run: sudo apt-get update && sudo apt-get install -y libpipewire-0.3-dev libpulse-dev
             - run: pnpm install --frozen-lockfile --filter element-desktop
             - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
               with:

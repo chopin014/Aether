@@ -115,7 +115,7 @@ for (const theme of ["dark", "light"] as const) {
             );
             await expect(picker.getByRole("button", { name: "30 FPS", exact: true })).toBeDisabled();
             await expect(picker.getByRole("button", { name: "1.5 Mbps", exact: true })).toBeDisabled();
-            await expect(picker.getByText("Screen audio is unavailable for this capture method.")).toBeVisible();
+            await expect(picker.getByRole("checkbox", { name: "Share System Audio" })).toBeVisible();
             await capture(`share-quality-${theme}.png`);
             await page.keyboard.press("Escape");
             await expect(picker).not.toBeVisible();

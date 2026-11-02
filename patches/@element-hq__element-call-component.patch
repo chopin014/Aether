@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000000..9e4d0a04ee
 --- /dev/null
 +++ b/dist/aether-screen-share.js
-@@ -0,0 +1,210 @@
+@@ -0,0 +1,214 @@
 +/*
 +Copyright 2026 Gabriel
 +
@@ -114,6 +114,10 @@ index 0000000000..9e4d0a04ee
 +            const track = participant.getTrackPublication(sources.video)?.track;
 +            if (track) {
 +                try {
++                    const audio = participant.getTrackPublication(sources.audio)?.track;
++                    if (audio && next.includeSystemAudio !== current.includeSystemAudio) {
++                        await audio[next.includeSystemAudio ? "unmute" : "mute"]();
++                    }
 +                    await aetherConstrainScreenTrack(track, next);
 +                    await aetherConstrainScreenSenders(track, next);
 +                } catch (error) {
