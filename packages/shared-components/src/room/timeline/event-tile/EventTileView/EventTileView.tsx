@@ -240,9 +240,10 @@ export function EventTileView({
         return renderRoot(
             <div className={styles.desktopMessage}>
                 {renderSlot("avatar")}
-                <div className={styles.desktopMetadata}>{renderSlots("sender", "timestamp")}</div>
+                {/* The encryption icon follows the time, so it never sits in the avatar's column or before the text. */}
+                <div className={styles.desktopMetadata}>{renderSlots("sender", "timestamp", "padlock")}</div>
                 <div id={root.id} data-testid="event-tile-line" className={lineClassName} onContextMenu={onContextMenu}>
-                    {renderSlots("contextMenu", "padlock", "replyChain", "body", "actionBar")}
+                    {renderSlots("contextMenu", "replyChain", "body", "actionBar")}
                 </div>
                 {renderSlots("footer", "threadInfo", "receipt")}
             </div>,

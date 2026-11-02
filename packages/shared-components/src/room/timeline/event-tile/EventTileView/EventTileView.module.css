@@ -1835,15 +1835,22 @@
     --desktop-message-font-size: 0.9375rem;
     --desktop-message-line-height: 1.375rem;
 
-    /* Space between one person's messages and the next person's, so groups read apart. */
-    padding-block-start: var(--cpd-space-5x);
+    /* The mention highlight, read from the theme's warning colour. */
+    --desktop-message-mention-color: var(--cpd-color-icon-warning-primary, var(--cpd-color-yellow-900));
+
+    /*
+     * Space between one person's messages and the next person's, so groups read apart. It is a margin so the hover
+     * surface starts at the group's first line rather than in the gap above it.
+     */
+    margin-block-start: var(--desktop-message-group-spacing, var(--cpd-space-4x));
+    padding-block-start: var(--cpd-space-0-5x);
     font: var(--cpd-font-body-lg-regular);
     font-size: var(--desktop-message-font-size);
     line-height: var(--desktop-message-line-height);
 
     .slotAvatar {
         inset-inline-start: var(--cpd-space-4x);
-        inset-block-start: var(--cpd-space-5x);
+        inset-block-start: var(--cpd-space-1x);
         width: var(--cpd-space-10x);
         height: var(--cpd-space-10x);
 
@@ -1887,31 +1894,92 @@
         }
     }
 
+    /*
+     * The encryption icon sits after the time. Routine notes, such as a message whose key came from backup, only
+     * show while the message is hovered or focused; warnings always show.
+     */
+    .desktopMetadata .slotPadlock {
+        position: static;
+        display: flex;
+        align-items: center;
+        flex: none;
+        height: auto;
+        margin: 0;
+    }
+
+    .desktopMetadata .slotPadlock:not(:has([data-e2e-icon="warning"])) {
+        opacity: 0;
+        transition: opacity 120ms ease-out;
+    }
+
+    &:is(:hover, :focus-within) .desktopMetadata .slotPadlock {
+        opacity: 1;
+    }
+
+    /* The whole message is the surface: the line inside it never paints a second, offset one. */
     .line {
         border-radius: 0;
         min-height: var(--cpd-space-6x);
     }
 
-    &:hover {
+    &:is(:hover, :focus-within, .stateHighlighted, .stateSelected, .stateEditing, .stateActionBarFocused) .line {
+        background-color: transparent;
+        box-shadow: none;
+    }
+
+    &:is(:hover, :focus-within) {
         background: var(--event-tile-state-hover-background);
     }
 
+    &:is(.stateSelected, .stateEditing, .stateActionBarFocused) {
+        background: var(--event-tile-state-selected-background);
+    }
+
+    &:is(.stateSelected, .stateEditing) {
+        box-shadow: inset 2px 0 0 var(--event-tile-state-marker-color);
+    }
+
+    /* A message that mentions you: a warm wash with a bar at its edge, like Discord's. */
+    &.stateHighlighted {
+        background: color-mix(in srgb, var(--desktop-message-mention-color) 8%, var(--cpd-color-bg-canvas-default));
+        box-shadow: inset 2px 0 0 var(--desktop-message-mention-color);
+
+        &:is(:hover, :focus-within) {
+            background: color-mix(
+                in srgb,
+                var(--desktop-message-mention-color) 12%,
+                var(--cpd-color-bg-canvas-default)
+            );
+        }
+    }
+
     &.stateContinuation {
+        margin-block-start: 0;
         padding-block-start: 0;
 
+        /* The gutter beside the first line keeps the time, shown on hover, and the encryption icon. */
         .desktopMetadata {
             position: absolute;
             inset-inline-start: 0;
-            inset-block-start: 0;
+            inset-block-start: var(--event-tile-group-line-spacing-block-start);
             margin: 0;
             width: var(--cpd-space-14x);
+            min-height: 0;
+            height: var(--desktop-message-line-height);
             justify-content: center;
-            opacity: 0;
+            gap: var(--cpd-space-1x);
         }
 
-        &:hover .desktopMetadata,
-        &:focus-within .desktopMetadata {
-            opacity: 1;
+        .desktopMetadata .slotTimestamp {
+            visibility: hidden;
+
+            > * {
+                font-size: var(--cpd-font-size-body-xs);
+            }
+        }
+
+        &:is(:hover, :focus-within) .desktopMetadata .slotTimestamp {
+            visibility: visible;
         }
     }
 }
