@@ -1,3 +1,45 @@
+diff --git a/dist/components/Tooltip/Tooltip.cjs b/dist/components/Tooltip/Tooltip.cjs
+index a282d34afb4172398f9433cb257bfb0748b52c44..fd54fa8e46549f816fdb7875cd9091127ba025f8 100644
+--- a/dist/components/Tooltip/Tooltip.cjs
++++ b/dist/components/Tooltip/Tooltip.cjs
+@@ -64,13 +64,14 @@ function TooltipContent({ children }) {
+ 		...rest.tooltipProps,
+ 		...rest.getFloatingProps(),
+ 		className: (0, classnames.default)(require_Tooltip_module.default.tooltip, { [require_Tooltip_module.default.invisible]: purpose === "label" && !open || escaped }),
+-		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_floating_ui_react.FloatingArrow, {
++		// Aether: a closed label tooltip stays mounted, and an arrow reads computed styles as it mounts.
++		children: [open ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_floating_ui_react.FloatingArrow, {
+ 			ref: arrowRef,
+ 			context: floatingContext,
+ 			width: 10,
+ 			height: 6,
+ 			className: require_Tooltip_module.default.arrow
+-		}), children]
++		}) : null, children]
+ 	}) });
+ }
+ /**
+diff --git a/dist/components/Tooltip/Tooltip.js b/dist/components/Tooltip/Tooltip.js
+index fcbf7f4c98383e319f32c8d5e3c91c540bd9e63e..e0febf44c19b350f69a03eb0d679861a370f1905 100644
+--- a/dist/components/Tooltip/Tooltip.js
++++ b/dist/components/Tooltip/Tooltip.js
+@@ -61,13 +61,14 @@ function TooltipContent({ children }) {
+ 		...rest.tooltipProps,
+ 		...rest.getFloatingProps(),
+ 		className: classNames(Tooltip_module_default.tooltip, { [Tooltip_module_default.invisible]: purpose === "label" && !open || escaped }),
+-		children: [/* @__PURE__ */ jsx(FloatingArrow, {
++		// Aether: a closed label tooltip stays mounted, and an arrow reads computed styles as it mounts.
++		children: [open ? /* @__PURE__ */ jsx(FloatingArrow, {
+ 			ref: arrowRef,
+ 			context: floatingContext,
+ 			width: 10,
+ 			height: 6,
+ 			className: Tooltip_module_default.arrow
+-		}), children]
++		}) : null, children]
+ 	}) });
+ }
+ /**
 diff --git a/dist/components/Tooltip/useTooltip.cjs b/dist/components/Tooltip/useTooltip.cjs
 index 34d7cec33dc4014e4d5213ef116a6faae9fb2587..c98a9f63486ddef8485f059044a20ba1cacd2e60 100644
 --- a/dist/components/Tooltip/useTooltip.cjs
