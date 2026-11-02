@@ -191,7 +191,7 @@ ipcMain.on("ipcCall", async function (_ev: IpcMainEvent, payload) {
             const callback = consumeDisplayMediaCallback();
             if (callback) {
                 selectDesktopAudio(args[0]?.id ?? "", args[1] === true);
-                callback({ video: args[0] });
+                callback(args[0] ? { video: args[0] } : null);
             }
             ret = null;
             break;

@@ -333,6 +333,16 @@ describe("ipcCall: callDisplayMediaCallback", () => {
         expect(send).toHaveBeenCalledWith("ipcReply", { id: 13, reply: null });
     });
 
+    it("denies capture when the source picker is cancelled", async () => {
+        const callback = vi.fn();
+        vi.mocked(consumeDisplayMediaCallback).mockReturnValue(callback);
+
+        await callIpc("callDisplayMediaCallback", 15, [null]);
+
+        expect(callback).toHaveBeenCalledExactlyOnceWith(null);
+        expect(send).toHaveBeenCalledWith("ipcReply", { id: 15, reply: null });
+    });
+
     it("is a safe no-op when a stale or duplicate IPC finds no pending callback", async () => {
         vi.mocked(consumeDisplayMediaCallback).mockReturnValue(null);
 

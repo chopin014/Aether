@@ -195,10 +195,10 @@ export default class ElectronPlatform extends BasePlatform {
         this.electron.on("openDesktopCapturerSourcePicker", async () => {
             const { finished } = Modal.createDialog(DesktopCapturerSourcePicker);
             const [source] = await finished;
-            // getDisplayMedia promise does not return if no dummy is passed here as source
+            // Deny cancelled requests explicitly so Electron aborts capture without opening an invalid source.
             await this.ipc.call(
                 "callDisplayMediaCallback",
-                source ?? { id: "", name: "", thumbnailURL: "" },
+                source ?? null,
                 !!source && DesktopVoicePipeline.instance.getScreenShareQuality().includeSystemAudio,
             );
         });
