@@ -21,6 +21,8 @@ import { type MediaEventHelper } from "../../utils/MediaEventHelper";
 import { ImageBodyViewModel } from "./ImageBodyViewModel";
 import Modal from "../../Modal";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
+import defaultDispatcher from "../../dispatcher/dispatcher";
+import { Action } from "../../dispatcher/actions";
 import { blobIsAnimated } from "../../utils/Image";
 import { BLURHASH_FIELD, createThumbnail } from "../../utils/image-media";
 
@@ -498,7 +500,7 @@ describe("ImageBodyViewModel", () => {
     });
 
     it("clears image errors after reconnecting", () => {
-        const client = { on: vi.fn(), off: vi.fn() };
+        const client = { on: vi.fn(), off: vi.fn(), getUserId: () => "@me:server" };
         vi.spyOn(MatrixClientPeg, "safeGet").mockReturnValue(client as any);
         vi.spyOn(MatrixClientPeg, "get").mockReturnValue(client as any);
         const vm = createVm({ mediaVisible: true });
@@ -683,6 +685,21 @@ describe("ImageBodyViewModel", () => {
             expect(images.created()).toBe(1);
             expect(mockedCreateThumbnail).toHaveBeenCalledTimes(1);
             expect(again.getSnapshot()).toMatchObject({ state: ImageBodyViewState.READY, gifLabel: "GIF" });
+        });
+
+        it("never shows one account's decrypted still to another, or after signing out", async () => {
+            const images = stubImageElement();
+            const first = downloadImageForTest(gif("mxc://server/shared-gif"));
+            await flushPromises();
+            images.last().onload();
+            await first;
+
+            defaultDispatcher.dispatch({ action: Action.OnLoggedOut }, true);
+            const again = downloadImageForTest(gif("mxc://server/shared-gif"));
+            await flushPromises();
+            expect(images.created()).toBe(2);
+            images.last().onload();
+            await again;
         });
 
         it("remembers that an image turned out not to be animated", async () => {
@@ -1021,7 +1038,7 @@ describe("ImageBodyViewModel", () => {
     });
 
     it("resets state and reloads when the event changes while visible", async () => {
-        const client = { off: vi.fn() };
+        const client = { off: vi.fn(), getUserId: () => "@me:server" };
         vi.spyOn(MatrixClientPeg, "get").mockReturnValue(client as any);
         const vm = createVm({ mediaVisible: true });
         vm.loadInitialMediaIfVisible();
@@ -1053,7 +1070,7 @@ describe("ImageBodyViewModel", () => {
 
     it("cleans up watchers, reconnect listeners and generated thumbnails on dispose", async () => {
         let createdImage: any;
-        const client = { off: vi.fn() };
+        const client = { off: vi.fn(), getUserId: () => "@me:server" };
         vi.spyOn(MatrixClientPeg, "get").mockReturnValue(client as any);
         const originalCreateElement = document.createElement.bind(document);
         vi.spyOn(document, "createElement").mockImplementation(((tagName: string) => {

@@ -34,6 +34,8 @@ import { BLURHASH_FIELD, createThumbnail } from "../../utils/image-media";
 import { isMimeTypeAllowed } from "../../utils/blobs";
 import ImageView from "../../components/views/elements/ImageView";
 import { LruCache } from "../../utils/LruCache";
+import defaultDispatcher from "../../dispatcher/dispatcher";
+import { Action } from "../../dispatcher/actions";
 
 export interface ImageBodyViewModelProps {
     /**
@@ -99,6 +101,22 @@ interface InternalState {
  */
 const animatedVerdicts = new LruCache<string, boolean>(500);
 const animatedStills = new LruCache<string, Blob>(30);
+// Stills of encrypted images are decrypted content, so nothing is kept once the account signs out.
+defaultDispatcher.register((payload) => {
+    if (payload.action !== Action.OnLoggedOut) return;
+    animatedVerdicts.clear();
+    animatedStills.clear();
+});
+
+/**
+ * What identifies an image for these caches: the account viewing it, and its media including, for encrypted media,
+ * the hash of what was encrypted, so one account or event can never be shown another's decrypted content.
+ */
+function inspectedImageKey(content: ImageContent): string | undefined {
+    const account = MatrixClientPeg.get()?.getUserId() ?? "";
+    if (content.file) return `${account}|encrypted|${content.file.url}|${content.file.hashes?.sha256 ?? ""}`;
+    return content.url ? `${account}|plain|${content.url}` : undefined;
+}
 
 /**
  * View model for the image message body, encapsulating media loading, sizing,
@@ -386,7 +404,7 @@ export class ImageBodyViewModel
         const content = this.props.mxEvent.getContent<ImageContent>();
         let generatedThumbnailUrl: string | null = null;
         let isAnimated = content.info?.["org.matrix.msc4230.is_animated"];
-        const mediaKey = content.file?.url ?? content.url;
+        const mediaKey = inspectedImageKey(content);
         if (isAnimated === undefined) {
             isAnimated =
                 (mediaKey ? animatedVerdicts.get(mediaKey) : undefined) ?? mayBeAnimated(content.info?.mimetype);
