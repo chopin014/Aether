@@ -32,7 +32,6 @@ import {
     type TimelineWindow,
 } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
-import { sleep } from "matrix-js-sdk/src/utils";
 import { logger } from "matrix-js-sdk/src/logger";
 
 import PlatformPeg from "../PlatformPeg";
@@ -534,6 +533,7 @@ export default class EventIndex extends EventEmitter {
      */
     private async crawlerFunc(): Promise<void> {
         let cancelled = false;
+        let wake: (() => void) | undefined;
 
         const client = MatrixClientPeg.safeGet();
         const indexManager = PlatformPeg.get()?.getEventIndexingManager();
@@ -542,8 +542,12 @@ export default class EventIndex extends EventEmitter {
         this.crawler = {
             cancel: () => {
                 cancelled = true;
+                wake?.();
             },
         };
+        // Everything the crawler waits for can take a while: requests, decryption and each write. Once the crawl is
+        // stopped or the index closed (and perhaps reopened for someone else), nothing more may be written.
+        const stopped = (): boolean => cancelled || this.state === "closed";
 
         let idle = false;
 
@@ -563,7 +567,15 @@ export default class EventIndex extends EventEmitter {
                 this.emitNewCheckpoint();
             }
 
-            await sleep(sleepTime);
+            // Stopping the crawler wakes it, so it does not hold on for the rest of its sleep.
+            await new Promise<void>((resolve) => {
+                const timer = setTimeout(resolve, sleepTime);
+                wake = (): void => {
+                    clearTimeout(timer);
+                    resolve();
+                };
+            });
+            wake = undefined;
 
             if (cancelled) {
                 break;
@@ -600,6 +612,7 @@ export default class EventIndex extends EventEmitter {
                 );
             } catch (e) {
                 if (e instanceof HTTPError && e.httpStatus === 403) {
+                    if (stopped()) break;
                     this.logger.debug(
                         "Removing checkpoint as we don't have ",
                         "permissions to fetch messages from this room.",
@@ -622,7 +635,7 @@ export default class EventIndex extends EventEmitter {
                 continue;
             }
 
-            if (cancelled) {
+            if (stopped()) {
                 this.crawlerCheckpoints.push(checkpoint);
                 break;
             }
@@ -705,9 +718,6 @@ export default class EventIndex extends EventEmitter {
             }
 
             // Decrypting the page can take a while; the index may have been closed or the crawl stopped meanwhile.
-            // Decrypting the page, and each write, can take a while: the index may have been closed or the crawl
-            // stopped meanwhile, and nothing more may be written then.
-            const stopped = (): boolean => cancelled || this.state === "closed";
             if (stopped()) {
                 this.crawlerCheckpoints.push(checkpoint);
                 break;
@@ -730,6 +740,10 @@ export default class EventIndex extends EventEmitter {
                 }
 
                 const eventsAlreadyAdded = await indexManager.addHistoricEvents(events, newCheckpoint, checkpoint);
+                if (stopped()) {
+                    if (newCheckpoint) this.crawlerCheckpoints.push(newCheckpoint);
+                    break;
+                }
 
                 // We didn't get a valid new checkpoint from the server, nothing
                 // to do here anymore.
