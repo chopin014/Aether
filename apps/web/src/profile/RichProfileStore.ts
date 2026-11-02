@@ -26,6 +26,26 @@ const FAILED_MS = 30 * 60 * 1000;
 const MAX_CONCURRENT = 4;
 /** One person's client cannot make us refetch their profile more often than this. */
 const HINT_INTERVAL_MS = 30 * 1000;
+/** Our own profile is kept between restarts, so the account dock and profile editor can show it before any request. */
+const OWN_PROFILE_KEY = "aether_own_rich_profile";
+
+function readOwnProfile(userId: string): Record<string, unknown> | undefined {
+    try {
+        const stored = JSON.parse(window.localStorage.getItem(OWN_PROFILE_KEY) ?? "null");
+        if (stored?.userId === userId && stored.raw && typeof stored.raw === "object") return stored.raw;
+    } catch {
+        // Unreadable storage only costs us the head start.
+    }
+    return undefined;
+}
+
+function writeOwnProfile(userId: string, raw: Record<string, unknown>): void {
+    try {
+        window.localStorage.setItem(OWN_PROFILE_KEY, JSON.stringify({ userId, raw }));
+    } catch {
+        // Full or blocked storage only costs us the head start.
+    }
+}
 
 interface Entry {
     raw: Record<string, unknown>;
@@ -65,6 +85,12 @@ export class RichProfileStore {
     ) {
         client.on(ClientEvent.UserProfileUpdate, this.onSyncUpdate);
         client.on(ClientEvent.ReceivedToDeviceMessage, this.onToDevice);
+        const ownId = client.getUserId();
+        const ownRaw = ownId ? readOwnProfile(ownId) : undefined;
+        // Stored copies count as stale, so the first request for them still goes to the server.
+        if (ownId && ownRaw) {
+            this.entries.set(ownId, { raw: ownRaw, profile: parseRichProfile(ownRaw), fetchedAt: 0, failed: false });
+        }
     }
 
     /** The profile known so far, without asking the server. */
@@ -107,12 +133,16 @@ export class RichProfileStore {
     /** Record a profile we have just written ourselves, without waiting for it to be read back. */
     public set(userId: string, raw: Record<string, unknown>): void {
         this.entries.set(userId, { raw, profile: parseRichProfile(raw), fetchedAt: this.now(), failed: false });
+        if (userId === this.client.getUserId()) writeOwnProfile(userId, raw);
         this.notify(userId);
     }
 
     /** Forget what we hold and fetch again if anyone is showing this person. */
     public invalidate(userId: string): void {
-        this.entries.delete(userId);
+        const entry = this.entries.get(userId);
+        // Our own profile keeps showing while it is re-read, since it is on screen almost all the time.
+        if (entry && userId === this.client.getUserId() && !entry.failed) entry.fetchedAt = 0;
+        else this.entries.delete(userId);
         if (this.listeners.has(userId)) void this.fetch(userId);
     }
 
@@ -177,12 +207,20 @@ export class RichProfileStore {
                 logger.warn(`Could not load the profile of ${userId}`, error);
             }
         }
+        const own = userId === this.client.getUserId();
+        const previous = this.entries.get(userId);
+        if (failed && own && previous && !previous.failed) {
+            // Keep showing what we last knew of ourselves; only the next request should try again.
+            this.entries.set(userId, { ...previous, fetchedAt: 0 });
+            return;
+        }
         this.entries.set(userId, {
             raw,
             profile: failed ? EMPTY_RICH_PROFILE : parseRichProfile(raw),
             fetchedAt: this.now(),
             failed,
         });
+        if (own && !failed) writeOwnProfile(userId, raw);
         this.notify(userId);
     }
 
