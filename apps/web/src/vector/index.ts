@@ -17,6 +17,7 @@ import { shouldPolyfill as shouldPolyFillIntlSegmenter } from "@formatjs/intl-se
 import { parseAppUrl } from "./url_utils";
 import "./modernizr.cjs";
 import { polyfillTouchEvent } from "../@types/polyfill";
+import { markStartup } from "../performance/StartupTimings";
 
 import "../../res/css/_index.pcss";
 // Require common CSS here; this will make webpack process it into bundle.css.
@@ -123,6 +124,7 @@ function preloadCryptoForSavedSession(): void {
 }
 
 async function start(): Promise<void> {
+    markStartup("boot");
     preloadCryptoForSavedSession();
     if (shouldPolyFillIntlSegmenter()) {
         await import(/* webpackChunkName: "intl-segmenter-polyfill" */ "@formatjs/intl-segmenter/polyfill-force.js");

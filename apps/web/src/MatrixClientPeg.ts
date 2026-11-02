@@ -31,6 +31,7 @@ import SdkConfig from "./SdkConfig";
 import { setDeviceIsolationMode } from "./settings/controllers/DeviceIsolationModeController.ts";
 import { initialiseDehydrationIfEnabled } from "./utils/device/dehydration";
 import { LegacyCryptoStoreError } from "./utils/LegacyCryptoStoreError.ts";
+import { markStartup } from "./performance/StartupTimings";
 
 export interface MatrixClientPegAssignOpts {
     /**
@@ -252,8 +253,10 @@ class MatrixClientPegClass implements IMatrixClientPeg {
 
         // Opening the sync store and starting crypto are independent, and each can take hundreds of milliseconds on a
         // big account, so they run side by side.
-        const storeReady = this.startStore(this.matrixClient);
-        const cryptoReady = SettingsStore.getValue("lowBandwidth") ? undefined : this.initClientCrypto(assignOpts);
+        const storeReady = this.startStore(this.matrixClient).then(() => markStartup("store_ready"));
+        const cryptoReady = SettingsStore.getValue("lowBandwidth")
+            ? undefined
+            : this.initClientCrypto(assignOpts).then(() => markStartup("crypto_ready"));
         const [store, crypto] = await Promise.allSettled([storeReady, cryptoReady]);
         if (store.status === "rejected") throw store.reason;
         if (crypto.status === "rejected") throw crypto.reason;
@@ -375,6 +378,7 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         await assignOpts?.beforeSync;
 
         logger.log(`MatrixClientPeg: really starting MatrixClient`);
+        markStartup("sync_starting");
         await this.matrixClient!.startClient(opts);
         // Apply persisted intent as soon as the SDK creates its sync API.
         if (

@@ -71,6 +71,7 @@ import { clearUploadedMediaCache } from "./utils/UploadedMediaCache";
 import { CallStatusListener } from "./CallStatusListener.ts";
 import { CallStore } from "./stores/CallStore.ts";
 import { ModuleApi } from "./modules/Api.ts";
+import { markStartup } from "./performance/StartupTimings";
 
 const HOMESERVER_URL_KEY = "mx_hs_url";
 const ID_SERVER_URL_KEY = "mx_is_url";
@@ -1092,6 +1093,7 @@ async function startMatrixClient(
     clientPegOpts: MatrixClientPegAssignOpts,
 ): Promise<void> {
     logger.log(`Lifecycle: Starting MatrixClient`);
+    markStartup("client_starting");
 
     // dispatch this before starting the matrix client: it's used
     // to add listeners for the 'sync' event so otherwise we'd have

@@ -28,6 +28,7 @@ import WebPlatform from "./platform/WebPlatform";
 import { initRageshake, initRageshakeStore } from "./rageshakesetup";
 import { ModuleApi } from "../modules/Api.ts";
 import { type URLParams } from "./url_utils.ts";
+import { markStartup } from "../performance/StartupTimings";
 
 export const rageshakePromise = initRageshake();
 
@@ -140,6 +141,7 @@ export async function loadApp(urlParams: URLParams): Promise<void> {
     function setWindowMatrixChat(matrixChat: MatrixChat): void {
         window.matrixChat = matrixChat;
     }
+    markStartup("app_loaded");
     const app = await module.loadApp(urlParams, setWindowMatrixChat);
     getRoot().render(app);
 }
