@@ -361,6 +361,26 @@ describe("EventIndexPeg", () => {
             void background;
         });
 
+        it("lets a background opening give way to a direct one already under way", async () => {
+            const index = mockIndex();
+            index.close = vi.fn().mockResolvedValue(undefined);
+            const opening = Promise.withResolvers<void>();
+            const manager = setUpOpening({ initEventIndex: vi.fn(() => opening.promise) });
+            const peg = new EventIndexPeg();
+            const direct = peg.initEventIndex();
+            const background = peg.initInBackground(Promise.resolve());
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            const unsetting = peg.unset();
+            opening.resolve();
+            await unsetting;
+            await Promise.all([direct, background]);
+
+            expect(manager.initEventIndex).toHaveBeenCalledTimes(1);
+            expect(index.close).toHaveBeenCalledTimes(1);
+            expect(peg.get()).toBeNull();
+        });
+
         it("closes an index that was being opened directly when logging out", async () => {
             const index = mockIndex();
             index.close = vi.fn().mockResolvedValue(undefined);

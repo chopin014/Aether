@@ -92,6 +92,57 @@ describe("EventIndex", () => {
         expect(mockClient.createMessagesRequest).toHaveBeenCalledWith("!room2:id", "token2", 100, "f");
     });
 
+    it("stops the crawler writing once the index has closed, even mid-page", async () => {
+        let releaseDelete!: () => void;
+        const mockIndexingManager = {
+            loadCheckpoints: vi
+                .fn()
+                .mockResolvedValue([
+                    { roomId: "!room1:id", token: "token1", direction: Direction.Backward } as ICrawlerCheckpoint,
+                ]),
+            removeCrawlerCheckpoint: vi.fn(),
+            isEventIndexEmpty: vi.fn().mockResolvedValue(false),
+            deleteEvent: vi.fn(() => new Promise<void>((resolve) => (releaseDelete = resolve))),
+            addHistoricEvents: vi.fn().mockResolvedValue(false),
+            closeEventIndex: vi.fn().mockResolvedValue(undefined),
+        } as any as Mocked<BaseEventIndexManager>;
+        mockPlatformPeg({ getEventIndexingManager: () => mockIndexingManager });
+        const room1 = { roomId: "!room1:id" } as any as Room;
+        const mockClient = getMockClientWithEventEmitter({
+            getEventMapper: () => (obj: Partial<IEvent>) => new MatrixEvent(obj),
+            createMessagesRequest: vi.fn(),
+            ...mockClientMethodsRooms([room1]),
+        });
+        vi.spyOn(SettingsStore, "getValueAt").mockImplementation((_level, settingName): any =>
+            settingName === "crawlerSleepTime" ? 0 : undefined,
+        );
+
+        const indexer = new EventIndex();
+        await indexer.init();
+        indexer.startCrawler();
+        const page = mockCreateMessagesRequest(mockClient);
+        await page.called;
+        page.resolve({
+            chunk: [
+                { type: "m.room.redaction", redacts: "$old", room_id: "!room1:id", event_id: "$r", sender: "@a:id" },
+                {
+                    type: "m.room.message",
+                    room_id: "!room1:id",
+                    event_id: "$m",
+                    sender: "@a:id",
+                    content: { msgtype: "m.text", body: "private history" },
+                },
+            ],
+            end: "token2",
+        });
+        await vi.waitFor(() => expect(mockIndexingManager.deleteEvent).toHaveBeenCalled());
+
+        await indexer.close();
+        releaseDelete();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(mockIndexingManager.addHistoricEvents).not.toHaveBeenCalled();
+    });
+
     it("adds checkpoints for the encrypted rooms after the first sync", async () => {
         const mockIndexingManager = {
             loadCheckpoints: vi.fn().mockResolvedValue([]),

@@ -87,8 +87,11 @@ export class EventIndexPeg {
             pending.opening = true;
             const opened = await this.initEventIndex(index);
             if (opened && !stillWanted()) {
-                await index.close();
-                if (this.index === index) this.index = null;
+                // Only close what this attempt published: if it gave way to a direct opening, that index is not ours.
+                if (this.index === index) {
+                    await index.close();
+                    this.index = null;
+                }
                 return false;
             }
             return opened;
@@ -131,6 +134,11 @@ export class EventIndexPeg {
      * false otherwise.
      */
     public initEventIndex(index?: EventIndex): Promise<boolean> {
+        if (index && this.opening) {
+            // A direct opening got there first; the background one gives way to it.
+            index.abandon();
+            return this.opening.result;
+        }
         if (!index) {
             // Asked for directly, e.g. after turning indexing on: reuse an attempt already under way rather than open a
             // second index, and take over from one that is still waiting for startup to settle.

@@ -705,13 +705,16 @@ export default class EventIndex extends EventEmitter {
             }
 
             // Decrypting the page can take a while; the index may have been closed or the crawl stopped meanwhile.
-            if (cancelled || this.state === "closed") {
+            // Decrypting the page, and each write, can take a while: the index may have been closed or the crawl
+            // stopped meanwhile, and nothing more may be written then.
+            const stopped = (): boolean => cancelled || this.state === "closed";
+            if (stopped()) {
                 this.crawlerCheckpoints.push(checkpoint);
                 break;
             }
 
             try {
-                for (let i = 0; i < redactionEvents.length; i++) {
+                for (let i = 0; i < redactionEvents.length && !stopped(); i++) {
                     const ev = redactionEvents[i];
                     const eventId = ev.getAssociatedId();
 
@@ -720,6 +723,10 @@ export default class EventIndex extends EventEmitter {
                     } else {
                         this.logger.warn("Redaction event doesn't contain a valid associated event id", ev);
                     }
+                }
+                if (stopped()) {
+                    this.crawlerCheckpoints.push(checkpoint);
+                    break;
                 }
 
                 const eventsAlreadyAdded = await indexManager.addHistoricEvents(events, newCheckpoint, checkpoint);
