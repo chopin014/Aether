@@ -39,6 +39,7 @@ class MicrophoneGateWorklet extends AudioWorkletProcessor {
             else if ("denoiserModule" in event.data) this.startDenoiser(event.data.denoiserModule);
             else this.applyState(event.data);
         };
+        this.port.postMessage({ ready: true });
     }
 
     private applyState(state: MicrophoneProcessorState): void {

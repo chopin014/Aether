@@ -10,6 +10,7 @@ import React, { type ChangeEvent, type ChangeEventHandler, type JSX, type ReactN
 import {
     type IAnnotatedPushRule,
     type IPusher,
+    type IPushRules,
     type PushRuleAction,
     PushRuleKind,
     RuleId,
@@ -274,11 +275,25 @@ export default class Notifications extends React.PureComponent<EmptyObject, ISta
         }
     }
 
+    /** Counts refreshes, so that an older one finishing late cannot undo what a newer one showed. */
+    private refreshes = 0;
+
     private async refreshFromServer(): Promise<void> {
+        const refresh = ++this.refreshes;
+        // The rules arrived with sync, so show them straight away; pushers and email addresses fill in as they load.
+        const knownRules = MatrixClientPeg.safeGet().pushRules;
+        if (knownRules && this.state.phase === Phase.Loading) {
+            try {
+                this.setState({ ...this.rulesState(structuredClone(knownRules)), phase: Phase.Ready } as IState);
+            } catch (e) {
+                logger.warn("Could not show the known notification rules; waiting for the server", e);
+            }
+        }
         try {
             const newState = (
                 await Promise.all([this.refreshRules(), this.refreshPushers(), this.refreshThreepids()])
             ).reduce((p, c) => Object.assign(c, p), {});
+            if (refresh !== this.refreshes) return;
 
             this.setState<
                 keyof Pick<
@@ -291,7 +306,7 @@ export default class Notifications extends React.PureComponent<EmptyObject, ISta
             });
         } catch (e) {
             logger.error("Error setting up notifications for settings: ", e);
-            this.setState({ phase: Phase.Error });
+            if (refresh === this.refreshes) this.setState({ phase: Phase.Error });
         }
     }
 
@@ -312,7 +327,11 @@ export default class Notifications extends React.PureComponent<EmptyObject, ISta
     }
 
     private async refreshRules(): Promise<Partial<IState>> {
-        const ruleSets = await MatrixClientPeg.safeGet().getPushRules();
+        return this.rulesState(await MatrixClientPeg.safeGet().getPushRules());
+    }
+
+    /** Work out what to show from a set of push rules. Annotates the rules it is given. */
+    private rulesState(ruleSets: IPushRules): Partial<IState> {
         const categories: Record<string, RuleClass> = {
             [RuleId.Master]: RuleClass.Master,
 

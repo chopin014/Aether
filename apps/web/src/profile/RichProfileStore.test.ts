@@ -52,6 +52,49 @@ describe("RichProfileStore", () => {
         now = 1_000_000;
     });
 
+    describe("our own profile", () => {
+        beforeEach(() => {
+            const items = new Map<string, string>();
+            vi.stubGlobal("window", {
+                localStorage: {
+                    getItem: (key: string) => items.get(key) ?? null,
+                    setItem: (key: string, value: string) => items.set(key, value),
+                },
+            });
+            return () => vi.unstubAllGlobals();
+        });
+
+        it("is remembered across restarts, but still read again on first request", async () => {
+            const first = new RichProfileStore(makeClient(), clock);
+            first.set(ME, { [RICH_PROFILE_FIELD]: { decoration: "orbit" } });
+
+            const client = makeClient();
+            const store = new RichProfileStore(client, clock);
+            expect(store.get(ME)?.decoration).toBe("orbit");
+            await store.request(ME);
+            expect(client.getExtendedProfile).toHaveBeenCalledTimes(1);
+            expect(store.get(ME)?.decoration).toBe("halo");
+        });
+
+        it("is not offered to someone else signing in on this device", () => {
+            new RichProfileStore(makeClient(), clock).set(ME, { [RICH_PROFILE_FIELD]: { decoration: "orbit" } });
+            const store = new RichProfileStore(makeClient({ getUserId: () => ROBIN }), clock);
+            expect(store.get(ME)).toBeUndefined();
+        });
+
+        it("keeps showing when a refresh fails or sync reports a change", async () => {
+            const getExtendedProfile = vi.fn().mockRejectedValue(new MatrixError({ errcode: "M_UNKNOWN" }));
+            const client = makeClient({ getExtendedProfile });
+            const store = new RichProfileStore(client, clock);
+            store.set(ME, { [RICH_PROFILE_FIELD]: { decoration: "orbit" } });
+
+            client.emit(ClientEvent.UserProfileUpdate, ME, {});
+            expect(store.get(ME)?.decoration).toBe("orbit");
+            await store.request(ME);
+            expect(store.get(ME)?.decoration).toBe("orbit");
+        });
+    });
+
     it("makes one request however many rows ask at once", async () => {
         const client = makeClient();
         const store = new RichProfileStore(client, clock);

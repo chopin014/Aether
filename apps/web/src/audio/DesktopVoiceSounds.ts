@@ -83,11 +83,34 @@ export async function setDesktopVoiceSoundEnabled(
 
 let activeCue: { sound: DesktopVoiceSound; audio: HTMLAudioElement } | undefined;
 
-/** Stops current and pending feedback, for example when the account is disposed. */
-export function stopDesktopVoiceSound(): void {
+/** Loaded cues, kept so that playing one later does not wait for its file to be read and decoded. */
+const preloaded = new Map<DesktopVoiceSound, HTMLAudioElement>();
+
+/** Load the cues a call is about to need, so the join sound starts the moment the call connects. */
+export function preloadDesktopVoiceSounds(cues: DesktopVoiceSound[] = ["join", "leave", "mute", "unmute"]): void {
+    for (const sound of cues) {
+        if (preloaded.has(sound)) continue;
+        try {
+            const audio = new Audio(sounds[sound]);
+            audio.preload = "auto";
+            audio.load();
+            preloaded.set(sound, audio);
+        } catch (error) {
+            logger.debug("Could not preload desktop voice cue", error);
+        }
+    }
+}
+
+function interruptCue(): void {
     const previous = activeCue;
     activeCue = undefined;
     previous?.audio.pause();
+}
+
+/** Stops current and pending feedback, and drops preloaded cues, for example when the account is disposed. */
+export function stopDesktopVoiceSound(): void {
+    interruptCue();
+    preloaded.clear();
 }
 
 /**
@@ -100,10 +123,12 @@ export async function playDesktopVoiceSound(sound: DesktopVoiceSound, { preview 
     // Conversation activity must not cut off feedback for the user’s own controls.
     const ambient = (id: DesktopVoiceSound): boolean => id === "userJoined" || id === "userLeft";
     if (!preview && ambient(sound) && activeCue && !ambient(activeCue.sound)) return;
-    stopDesktopVoiceSound();
+    interruptCue();
     const started = performance.now();
     try {
-        const audio = new Audio(sounds[sound]);
+        // A preloaded cue is used once, so it is already read and decoded; preparation loads another.
+        const audio = preloaded.get(sound) ?? new Audio(sounds[sound]);
+        preloaded.delete(sound);
         const cue = { sound, audio };
         activeCue = cue;
         audio.volume = 0.5;

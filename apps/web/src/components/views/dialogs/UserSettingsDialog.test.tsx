@@ -75,12 +75,14 @@ describe("<UserSettingsDialog />", () => {
             ...mockClientMethodsCrypto(),
             ...mockClientMethodsRooms(),
             getIgnoredUsers: vi.fn().mockResolvedValue([]),
-            getPushers: vi.fn().mockResolvedValue([]),
+            getPushers: vi.fn().mockResolvedValue({ pushers: [] }),
+            getDevices: vi.fn().mockResolvedValue({ devices: [] }),
             getProfileInfo: vi.fn().mockResolvedValue({}),
-            getMediaConfig: vi.fn(),
+            getMediaConfig: vi.fn().mockResolvedValue({}),
             getAuthMetadata: vi.fn().mockResolvedValue(makeDelegatedAuthMetadata()),
             getSyncState: vi.fn().mockReturnValue("SYNCING"),
         });
+        vi.mocked(mockClient.getCrypto()!.getUserDeviceInfo).mockResolvedValue(new Map());
         sdkContext = new TestSDKContext();
         sdkContext._client = mockClient;
         mockSettingsStore.getValue.mockReturnValue(false);

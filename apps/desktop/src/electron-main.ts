@@ -11,7 +11,6 @@ Please see LICENSE files in the repository root for full details.
 // Squirrel on windows starts the app with various flags as hooks to tell us when we've been installed/uninstalled etc.
 import "./squirrelhooks.js";
 import { app, BrowserWindow, Menu, dialog, type Input, type Event, session, protocol, desktopCapturer } from "electron";
-import * as Sentry from "@sentry/electron/main";
 import path from "node:path";
 import windowStateKeeper from "electron-window-state";
 import { URL, fileURLToPath } from "node:url";
@@ -61,6 +60,8 @@ async function configureSentry(): Promise<void> {
     const { dsn, environment } = config.sentry || {};
     if (dsn) {
         console.log(`Enabling Sentry with dsn=${dsn} environment=${environment}`);
+        // Loading Sentry takes around 400ms, so it is only loaded when crash reporting is configured.
+        const Sentry = await import("@sentry/electron/main");
         Sentry.init({
             dsn,
             environment,
@@ -79,7 +80,8 @@ const exitShortcuts: Array<(input: Input, platform: string) => boolean> = [
         platform === "darwin" && input.meta && !input.control && input.key.toUpperCase() === "Q",
 ];
 
-void configureSentry();
+// Crash reporting must be ready before the first window exists, so the ready handler waits for this.
+const sentryConfigured = configureSentry().catch((e) => console.error("Could not configure Sentry", e));
 
 // handle uncaught errors otherwise it displays
 // stack traces in popup dialogs, which is terrible (which
@@ -109,6 +111,9 @@ protocol.registerSchemesAsPrivileged([
             standard: true,
             secure: true,
             supportFetchAPI: true,
+            // Without this V8 cannot keep compiled code for the app between launches, so every start compiles
+            // megabytes of JavaScript again before anything is drawn.
+            codeCache: true,
         },
     },
 ]);
@@ -232,6 +237,8 @@ app.on("ready", async () => {
         defaultHeight: 768,
     });
 
+    await sentryConfigured;
+
     console.debug("Opening main window");
     const preloadScript = path.normalize(`${__dirname}/preload.cjs`);
     global.mainWindow = new BrowserWindow({
@@ -256,6 +263,9 @@ app.on("ready", async () => {
             //sandbox: true, // We enable sandboxing from app.enableSandbox() above
             contextIsolation: true,
             webgl: true,
+            // The app's scripts only change with an update, so cache their compiled code from the first launch
+            // instead of waiting for V8 to see them run several times.
+            v8CacheOptions: "bypassHeatCheck",
         },
     });
     updater.desktopUpdater.attachRenderer(global.mainWindow.webContents);

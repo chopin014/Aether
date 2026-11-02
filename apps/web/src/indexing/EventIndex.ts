@@ -32,7 +32,6 @@ import {
     type TimelineWindow,
 } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
-import { sleep } from "matrix-js-sdk/src/utils";
 import { logger } from "matrix-js-sdk/src/logger";
 
 import PlatformPeg from "../PlatformPeg";
@@ -86,6 +85,21 @@ export default class EventIndex extends EventEmitter {
 
     private readonly logger;
 
+    /** Index work waits until {@link init} has finished, and stops for good once the index is closed. */
+    private state: "waiting" | "open" | "closed" = "waiting";
+    /** Held work being run after opening; newer work queues behind it so events stay in order. */
+    private draining?: Promise<void>;
+    /** Index work currently running, which closing the index waits for. */
+    private readonly running = new Set<Promise<void>>();
+    private listening = false;
+    /**
+     * Index work that arrived before the index was open. It runs one item at a time once the index opens: run all at
+     * once, a startup's worth of it would exhaust the index's database connections.
+     */
+    private held: (() => Promise<void>)[] = [];
+    /** Syncs that happen before the index opens only need catching up once. */
+    private syncHeld = false;
+
     public constructor() {
         super();
 
@@ -106,7 +120,53 @@ export default class EventIndex extends EventEmitter {
         this.crawlerCheckpoints = await indexManager.loadCheckpoints();
         this.logger.debug("Loaded checkpoints", JSON.stringify(this.crawlerCheckpoints));
 
+        if (this.state === "closed") return;
         this.registerListeners();
+        this.state = "open";
+        if (this.held.length) this.runHeldWork();
+    }
+
+    /** Run index work now if the index is open, or keep it, in order, for when it opens. */
+    private whenOpen(work: () => Promise<void>): Promise<void> {
+        if (this.state === "closed" || !this.listening) return Promise.resolve();
+        if (this.state === "open" && !this.draining) return this.track(work());
+        this.held.push(work);
+        return Promise.resolve();
+    }
+
+    private track(work: Promise<void>): Promise<void> {
+        this.running.add(work);
+        const forget = (): void => void this.running.delete(work);
+        work.then(forget, forget);
+        return work;
+    }
+
+    private runHeldWork(): void {
+        this.draining = (async (): Promise<void> => {
+            for (let work = this.held.shift(); work && this.state === "open"; work = this.held.shift()) {
+                try {
+                    await this.track(work());
+                } catch (e) {
+                    this.logger.warn("Could not index an event that arrived while the index was opening", e);
+                }
+            }
+            this.draining = undefined;
+        })();
+    }
+
+    /**
+     * Start listening before the index is open, so that opening it can wait until the app is on screen. Events that
+     * arrive meanwhile are held and indexed, in order, once {@link init} has finished.
+     */
+    public listenBeforeOpening(): void {
+        this.registerListeners();
+    }
+
+    /** Give up on opening the index, releasing anything held for it. */
+    public abandon(): void {
+        this.state = "closed";
+        this.removeListeners();
+        this.held = [];
     }
 
     /**
@@ -121,6 +181,8 @@ export default class EventIndex extends EventEmitter {
      * Register event listeners that are necessary for the event index to work.
      */
     public registerListeners(): void {
+        if (this.listening) return;
+        this.listening = true;
         const client = MatrixClientPeg.safeGet();
 
         client.on(ClientEvent.Sync, this.onSync);
@@ -134,6 +196,7 @@ export default class EventIndex extends EventEmitter {
      */
     public removeListeners(): void {
         const client = MatrixClientPeg.get();
+        this.listening = false;
         if (client === null) return;
 
         client.removeListener(ClientEvent.Sync, this.onSync);
@@ -228,7 +291,11 @@ export default class EventIndex extends EventEmitter {
             await indexManager.commitLiveEvents();
         };
 
-        onSyncInner().catch((e) => {
+        if (this.state !== "open") {
+            if (this.syncHeld) return;
+            this.syncHeld = true;
+        }
+        this.whenOpen(onSyncInner).catch((e) => {
             logErrorAndShowErrorDialog("Event indexer threw an unexpected error", e);
         });
     };
@@ -256,7 +323,7 @@ export default class EventIndex extends EventEmitter {
         if (!client.isRoomEncrypted(ev.getRoomId()!)) return;
 
         if (ev.isRedaction()) {
-            return this.redactEvent(ev);
+            return this.whenOpen(() => this.redactEvent(ev));
         }
 
         // If it isn't a live event or if it's redacted there's nothing to do.
@@ -264,18 +331,23 @@ export default class EventIndex extends EventEmitter {
             return;
         }
 
-        await client.decryptEventIfNeeded(ev);
-
-        await this.addLiveEventToIndex(ev);
+        return this.whenOpen(async () => {
+            await client.decryptEventIfNeeded(ev);
+            if (this.state === "closed") return;
+            await this.addLiveEventToIndex(ev);
+        });
     };
 
     private onRoomStateEvent = async (ev: MatrixEvent, state: RoomState): Promise<void> => {
+        if (ev.getType() !== EventType.RoomEncryption) return;
         if (!MatrixClientPeg.safeGet().isRoomEncrypted(state.roomId)) return;
 
-        if (ev.getType() === EventType.RoomEncryption && !(await this.isRoomIndexed(state.roomId))) {
+        const timeline = MatrixClientPeg.safeGet().getRoom(state.roomId)?.getLiveTimeline();
+        return this.whenOpen(async () => {
+            if (await this.isRoomIndexed(state.roomId)) return;
             this.logger.debug("Adding a checkpoint for a newly encrypted room", state.roomId);
-            await this.addRoomCheckpoint(state.roomId, true);
-        }
+            await this.addRoomCheckpoint(state.roomId, true, timeline);
+        });
     };
 
     /*
@@ -306,9 +378,12 @@ export default class EventIndex extends EventEmitter {
         if (!room) return;
         if (!MatrixClientPeg.safeGet().isRoomEncrypted(room.roomId)) return;
 
-        this.logger.debug("Adding a checkpoint because of a limited timeline", room.roomId);
-
-        await this.addRoomCheckpoint(room.roomId, false);
+        // Taken now: if the index is still opening, later resets would otherwise replace this gap in history.
+        const timeline = room.getLiveTimeline();
+        return this.whenOpen(async () => {
+            this.logger.debug("Adding a checkpoint because of a limited timeline", room.roomId);
+            await this.addRoomCheckpoint(room.roomId, false, timeline);
+        });
     };
 
     /**
@@ -410,7 +485,7 @@ export default class EventIndex extends EventEmitter {
         }
     }
 
-    private async addRoomCheckpoint(roomId: string, fullCrawl = false): Promise<void> {
+    private async addRoomCheckpoint(roomId: string, fullCrawl = false, liveTimeline?: EventTimeline): Promise<void> {
         const indexManager = PlatformPeg.get()?.getEventIndexingManager();
         if (!indexManager) return;
         const client = MatrixClientPeg.safeGet();
@@ -418,7 +493,7 @@ export default class EventIndex extends EventEmitter {
 
         if (!room) return;
 
-        const timeline = room.getLiveTimeline();
+        const timeline = liveTimeline ?? room.getLiveTimeline();
         const token = timeline.getPaginationToken(Direction.Backward);
 
         if (!token) {
@@ -458,6 +533,7 @@ export default class EventIndex extends EventEmitter {
      */
     private async crawlerFunc(): Promise<void> {
         let cancelled = false;
+        let wake: (() => void) | undefined;
 
         const client = MatrixClientPeg.safeGet();
         const indexManager = PlatformPeg.get()?.getEventIndexingManager();
@@ -466,8 +542,12 @@ export default class EventIndex extends EventEmitter {
         this.crawler = {
             cancel: () => {
                 cancelled = true;
+                wake?.();
             },
         };
+        // Everything the crawler waits for can take a while: requests, decryption and each write. Once the crawl is
+        // stopped or the index closed (and perhaps reopened for someone else), nothing more may be written.
+        const stopped = (): boolean => cancelled || this.state === "closed";
 
         let idle = false;
 
@@ -487,7 +567,15 @@ export default class EventIndex extends EventEmitter {
                 this.emitNewCheckpoint();
             }
 
-            await sleep(sleepTime);
+            // Stopping the crawler wakes it, so it does not hold on for the rest of its sleep.
+            await new Promise<void>((resolve) => {
+                const timer = setTimeout(resolve, sleepTime);
+                wake = (): void => {
+                    clearTimeout(timer);
+                    resolve();
+                };
+            });
+            wake = undefined;
 
             if (cancelled) {
                 break;
@@ -524,6 +612,7 @@ export default class EventIndex extends EventEmitter {
                 );
             } catch (e) {
                 if (e instanceof HTTPError && e.httpStatus === 403) {
+                    if (stopped()) break;
                     this.logger.debug(
                         "Removing checkpoint as we don't have ",
                         "permissions to fetch messages from this room.",
@@ -546,7 +635,7 @@ export default class EventIndex extends EventEmitter {
                 continue;
             }
 
-            if (cancelled) {
+            if (stopped()) {
                 this.crawlerCheckpoints.push(checkpoint);
                 break;
             }
@@ -628,8 +717,14 @@ export default class EventIndex extends EventEmitter {
                 };
             }
 
+            // Decrypting the page can take a while; the index may have been closed or the crawl stopped meanwhile.
+            if (stopped()) {
+                this.crawlerCheckpoints.push(checkpoint);
+                break;
+            }
+
             try {
-                for (let i = 0; i < redactionEvents.length; i++) {
+                for (let i = 0; i < redactionEvents.length && !stopped(); i++) {
                     const ev = redactionEvents[i];
                     const eventId = ev.getAssociatedId();
 
@@ -639,8 +734,16 @@ export default class EventIndex extends EventEmitter {
                         this.logger.warn("Redaction event doesn't contain a valid associated event id", ev);
                     }
                 }
+                if (stopped()) {
+                    this.crawlerCheckpoints.push(checkpoint);
+                    break;
+                }
 
                 const eventsAlreadyAdded = await indexManager.addHistoricEvents(events, newCheckpoint, checkpoint);
+                if (stopped()) {
+                    if (newCheckpoint) this.crawlerCheckpoints.push(newCheckpoint);
+                    break;
+                }
 
                 // We didn't get a valid new checkpoint from the server, nothing
                 // to do here anymore.
@@ -714,8 +817,13 @@ export default class EventIndex extends EventEmitter {
      */
     public async close(): Promise<void> {
         const indexManager = PlatformPeg.get()?.getEventIndexingManager();
+        this.state = "closed";
+        this.held = [];
         this.removeListeners();
         this.stopCrawler();
+        // Let index work that is already running finish before its database goes away.
+        await this.draining;
+        await Promise.allSettled(this.running);
         await indexManager?.closeEventIndex();
     }
 

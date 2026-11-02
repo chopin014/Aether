@@ -275,9 +275,10 @@ packageExtensionsChecksum: sha256-kCJccFy7l6HmjcpzmxV958fHndI9zZq246f1ttgkURI=
 
 patchedDependencies:
   '@arcmantle/vite-plugin-import-css-sheet': 8019aa9feca17db6bab3483612b4150c911d70b58fddc52bf2d7258a1484a747
-  '@element-hq/element-call-component@0.0.0': d1115f377d725952fcb07e93a4c0a797ba4cb7e783ccf68e183081c05793066a
+  '@element-hq/element-call-component@0.0.0': d2795968e40e13dbc32fe928919b8c5f29d4e6ed55d1dfea0a66093f60653fe0
   '@tanstack/virtual-core@3': e4a0d401e27388e874fdaee2af4e710c7c9deeb53a4e021b768f6fe78b87b985
   '@types/auto-launch': b60dc9846a11a1684ce52c55493f29ea398d3dc44b88f66ab44e9843d6c01538
+  '@vector-im/compound-web@10.3.1': 85f613d5b1d072b25f3a61adfb7c94399edc7e56c07ac93fe3bc290fd436d5e6
   '@vector-im/matrix-wysiwyg': 7bdf6150f2905bc2f055a6bcaa7b9d78fa7ffde82e800bcc454ac7b0096bd65e
   knip: 9ee905cce2466e391db69dfcea905b0fe2502afd935d1dc6a6ac94ffe2855c28
   linkify-html: 1761c1eabe25d9fae83f74f27a20b3d24515840a4a8747bb04828df46bcfdea2
@@ -506,7 +507,7 @@ importers:
         version: 7.29.10
       '@element-hq/element-call-component':
         specifier: github:element-hq/element-call#6438c18b73773904557baa0b359f3ebed1be76e2&path:/component
-        version: https://codeload.github.com/element-hq/element-call/tar.gz/6438c18b73773904557baa0b359f3ebed1be76e2#path:/component(patch_hash=d1115f377d725952fcb07e93a4c0a797ba4cb7e783ccf68e183081c05793066a)(@vector-im/compound-design-tokens@11.2.0)(@vector-im/compound-web@10.3.1)(matrix-js-sdk@matrix-js-sdk@https://codeload.github.com/matrix-org/matrix-js-sdk/tar.gz/61b08bd037a3b987f267e2e8ac47002c75d59d85)(react-dom@19.3.0)(react@19.3.0)
+        version: https://codeload.github.com/element-hq/element-call/tar.gz/6438c18b73773904557baa0b359f3ebed1be76e2#path:/component(patch_hash=d2795968e40e13dbc32fe928919b8c5f29d4e6ed55d1dfea0a66093f60653fe0)(@vector-im/compound-design-tokens@11.2.0)(@vector-im/compound-web@10.3.1)(matrix-js-sdk@matrix-js-sdk@https://codeload.github.com/matrix-org/matrix-js-sdk/tar.gz/61b08bd037a3b987f267e2e8ac47002c75d59d85)(react-dom@19.3.0)(react@19.3.0)
       '@element-hq/element-web-module-api':
         specifier: workspace:*
         version: link:../../packages/module-api
@@ -549,6 +550,9 @@ importers:
       '@matrix-org/emojibase-bindings':
         specifier: 'catalog:'
         version: 1.5.0
+      '@matrix-org/matrix-sdk-crypto-wasm':
+        specifier: 18.9.0
+        version: 18.9.0
       '@sentry/browser':
         specifier: ^11.0.0
         version: 11.5.0
@@ -560,7 +564,7 @@ importers:
         version: 11.2.0(@types/react@19.3.0)(react@19.3.0)
       '@vector-im/compound-web':
         specifier: 'catalog:'
-        version: 10.3.1(@fontsource/inconsolata@5.3.0)(@fontsource/inter@5.3.0)(@types/react-dom@19.3.0)(@types/react@19.3.0)(@vector-im/compound-design-tokens@11.2.0)(react-dom@19.3.0)(react@19.3.0)
+        version: 10.3.1(patch_hash=85f613d5b1d072b25f3a61adfb7c94399edc7e56c07ac93fe3bc290fd436d5e6)(@fontsource/inconsolata@5.3.0)(@fontsource/inter@5.3.0)(@types/react-dom@19.3.0)(@types/react@19.3.0)(@vector-im/compound-design-tokens@11.2.0)(react-dom@19.3.0)(react@19.3.0)
       '@vector-im/matrix-wysiwyg':
         specifier: 2.40.0
         version: 2.40.0(patch_hash=7bdf6150f2905bc2f055a6bcaa7b9d78fa7ffde82e800bcc454ac7b0096bd65e)(react@19.3.0)
@@ -1056,7 +1060,7 @@ importers:
         version: 11.2.0(@types/react@19.3.0)(react@19.3.0)
       '@vector-im/compound-web':
         specifier: ^10.0.0
-        version: 10.3.1(@fontsource/inconsolata@5.3.0)(@fontsource/inter@5.3.0)(@types/react-dom@19.3.0)(@types/react@19.3.0)(@vector-im/compound-design-tokens@11.2.0)(react-dom@19.3.0)(react@19.3.0)
+        version: 10.3.1(patch_hash=85f613d5b1d072b25f3a61adfb7c94399edc7e56c07ac93fe3bc290fd436d5e6)(@fontsource/inconsolata@5.3.0)(@fontsource/inter@5.3.0)(@types/react-dom@19.3.0)(@types/react@19.3.0)(@vector-im/compound-design-tokens@11.2.0)(react-dom@19.3.0)(react@19.3.0)
       motion:
         specifier: ^14.0.0
         version: 14.0.0(react-dom@19.3.0)(react@19.3.0)
@@ -1135,7 +1139,7 @@ importers:
         version: 11.2.0(@types/react@19.3.0)(react@19.3.0)
       '@vector-im/compound-web':
         specifier: ^10.0.0
-        version: 10.3.1(@fontsource/inconsolata@5.3.0)(@fontsource/inter@5.3.0)(@types/react-dom@19.3.0)(@types/react@19.3.0)(@vector-im/compound-design-tokens@11.2.0)(react-dom@19.3.0)(react@19.3.0)
+        version: 10.3.1(patch_hash=85f613d5b1d072b25f3a61adfb7c94399edc7e56c07ac93fe3bc290fd436d5e6)(@fontsource/inconsolata@5.3.0)(@fontsource/inter@5.3.0)(@types/react-dom@19.3.0)(@types/react@19.3.0)(@vector-im/compound-design-tokens@11.2.0)(react-dom@19.3.0)(react@19.3.0)
       styled-components:
         specifier: ^6.1.18
         version: 6.5.3(react-dom@19.3.0)(react@19.3.0)
@@ -1203,7 +1207,7 @@ importers:
         version: 11.2.0(@types/react@19.3.0)(react@19.3.0)
       '@vector-im/compound-web':
         specifier: ^10.0.0
-        version: 10.3.1(@fontsource/inconsolata@5.3.0)(@fontsource/inter@5.3.0)(@types/react-dom@19.3.0)(@types/react@19.3.0)(@vector-im/compound-design-tokens@11.2.0)(react-dom@19.3.0)(react@19.3.0)
+        version: 10.3.1(patch_hash=85f613d5b1d072b25f3a61adfb7c94399edc7e56c07ac93fe3bc290fd436d5e6)(@fontsource/inconsolata@5.3.0)(@fontsource/inter@5.3.0)(@types/react-dom@19.3.0)(@types/react@19.3.0)(@vector-im/compound-design-tokens@11.2.0)(react-dom@19.3.0)(react@19.3.0)
       matrix-widget-api:
         specifier: ^1.20.0
         version: 1.20.0
@@ -1534,7 +1538,7 @@ importers:
         version: typescript@7.0.2
       '@vector-im/compound-web':
         specifier: 'catalog:'
-        version: 10.3.1(@fontsource/inconsolata@5.3.0)(@fontsource/inter@5.3.0)(@types/react-dom@19.3.0)(@types/react@19.3.0)(@vector-im/compound-design-tokens@11.2.0)(react-dom@19.3.0)(react@19.3.0)
+        version: 10.3.1(patch_hash=85f613d5b1d072b25f3a61adfb7c94399edc7e56c07ac93fe3bc290fd436d5e6)(@fontsource/inconsolata@5.3.0)(@fontsource/inter@5.3.0)(@types/react-dom@19.3.0)(@types/react@19.3.0)(@vector-im/compound-design-tokens@11.2.0)(react-dom@19.3.0)(react@19.3.0)
       '@vitejs/plugin-react':
         specifier: 'catalog:'
         version: 6.1.2(vite@8.3.4)
@@ -15152,10 +15156,10 @@ snapshots:
       - supports-color
     optional: true
 
-  '@element-hq/element-call-component@https://codeload.github.com/element-hq/element-call/tar.gz/6438c18b73773904557baa0b359f3ebed1be76e2#path:/component(patch_hash=d1115f377d725952fcb07e93a4c0a797ba4cb7e783ccf68e183081c05793066a)(@vector-im/compound-design-tokens@11.2.0)(@vector-im/compound-web@10.3.1)(matrix-js-sdk@matrix-js-sdk@https://codeload.github.com/matrix-org/matrix-js-sdk/tar.gz/61b08bd037a3b987f267e2e8ac47002c75d59d85)(react-dom@19.3.0)(react@19.3.0)':
+  '@element-hq/element-call-component@https://codeload.github.com/element-hq/element-call/tar.gz/6438c18b73773904557baa0b359f3ebed1be76e2#path:/component(patch_hash=d2795968e40e13dbc32fe928919b8c5f29d4e6ed55d1dfea0a66093f60653fe0)(@vector-im/compound-design-tokens@11.2.0)(@vector-im/compound-web@10.3.1)(matrix-js-sdk@matrix-js-sdk@https://codeload.github.com/matrix-org/matrix-js-sdk/tar.gz/61b08bd037a3b987f267e2e8ac47002c75d59d85)(react-dom@19.3.0)(react@19.3.0)':
     dependencies:
       '@vector-im/compound-design-tokens': 11.2.0(@types/react@19.3.0)(react@19.3.0)
-      '@vector-im/compound-web': 10.3.1(@fontsource/inconsolata@5.3.0)(@fontsource/inter@5.3.0)(@types/react-dom@19.3.0)(@types/react@19.3.0)(@vector-im/compound-design-tokens@11.2.0)(react-dom@19.3.0)(react@19.3.0)
+      '@vector-im/compound-web': 10.3.1(patch_hash=85f613d5b1d072b25f3a61adfb7c94399edc7e56c07ac93fe3bc290fd436d5e6)(@fontsource/inconsolata@5.3.0)(@fontsource/inter@5.3.0)(@types/react-dom@19.3.0)(@types/react@19.3.0)(@vector-im/compound-design-tokens@11.2.0)(react-dom@19.3.0)(react@19.3.0)
       matrix-js-sdk: https://codeload.github.com/matrix-org/matrix-js-sdk/tar.gz/61b08bd037a3b987f267e2e8ac47002c75d59d85(patch_hash=2f1f4a9fab5dce54dd133bb230778ca4175a54ab4196468f58e0af44e86a1a71)
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
@@ -18423,7 +18427,7 @@ snapshots:
       '@types/react': 19.3.0
       react: 19.3.0
 
-  '@vector-im/compound-web@10.3.1(@fontsource/inconsolata@5.3.0)(@fontsource/inter@5.3.0)(@types/react-dom@19.3.0)(@types/react@19.3.0)(@vector-im/compound-design-tokens@11.2.0)(react-dom@19.3.0)(react@19.3.0)':
+  '@vector-im/compound-web@10.3.1(patch_hash=85f613d5b1d072b25f3a61adfb7c94399edc7e56c07ac93fe3bc290fd436d5e6)(@fontsource/inconsolata@5.3.0)(@fontsource/inter@5.3.0)(@types/react-dom@19.3.0)(@types/react@19.3.0)(@vector-im/compound-design-tokens@11.2.0)(react-dom@19.3.0)(react@19.3.0)':
     dependencies:
       '@floating-ui/react': 0.27.20(react-dom@19.3.0)(react@19.3.0)
       '@floating-ui/react-dom': 2.1.9(react-dom@19.3.0)(react@19.3.0)

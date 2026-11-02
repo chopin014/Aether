@@ -21,6 +21,8 @@ import { type MediaEventHelper } from "../../utils/MediaEventHelper";
 import { ImageBodyViewModel } from "./ImageBodyViewModel";
 import Modal from "../../Modal";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
+import defaultDispatcher from "../../dispatcher/dispatcher";
+import { Action } from "../../dispatcher/actions";
 import { blobIsAnimated } from "../../utils/Image";
 import { BLURHASH_FIELD, createThumbnail } from "../../utils/image-media";
 
@@ -235,7 +237,7 @@ describe("ImageBodyViewModel", () => {
             mxEvent: createEvent({
                 content: {
                     url: undefined,
-                    file: { url: "mxc://server/encrypted-image" },
+                    file: { url: "mxc://server/encrypted-image-1" },
                 },
             }),
         });
@@ -245,9 +247,9 @@ describe("ImageBodyViewModel", () => {
         expect(mockedMediaFromContent).not.toHaveBeenCalled();
         expect(vm.getSnapshot()).toMatchObject({
             state: ImageBodyViewState.READY,
-            src: "mxc://server/encrypted-image",
-            thumbnailSrc: "mxc://server/encrypted-image",
-            linkUrl: "mxc://server/encrypted-image",
+            src: "mxc://server/encrypted-image-1",
+            thumbnailSrc: "mxc://server/encrypted-image-1",
+            linkUrl: "mxc://server/encrypted-image-1",
             linkTarget: "_blank",
             placeholder: ImageBodyViewPlaceholder.NONE,
         });
@@ -308,7 +310,7 @@ describe("ImageBodyViewModel", () => {
         const vm = createVm({
             mxEvent: createEvent({
                 content: {
-                    file: { url: "mxc://server/encrypted-image" },
+                    file: { url: "mxc://server/encrypted-image-5" },
                     info: {
                         mimetype: "image/jpeg",
                         w: 320,
@@ -374,7 +376,7 @@ describe("ImageBodyViewModel", () => {
         const vm = createVm({
             mxEvent: createEvent({
                 content: {
-                    file: { url: "mxc://server/encrypted-image" },
+                    file: { url: "mxc://server/encrypted-image-6" },
                     info: {
                         mimetype: "image/jpeg",
                         w: 320,
@@ -408,7 +410,7 @@ describe("ImageBodyViewModel", () => {
         const vm = createVm({
             mxEvent: createEvent({
                 content: {
-                    file: { url: "mxc://server/encrypted-image" },
+                    file: { url: "mxc://server/encrypted-image-7" },
                     info: {
                         "w": 320,
                         "h": 240,
@@ -442,7 +444,7 @@ describe("ImageBodyViewModel", () => {
         const vm = createVm({
             mxEvent: createEvent({
                 content: {
-                    file: { url: "mxc://server/encrypted-image" },
+                    file: { url: "mxc://server/encrypted-image-8" },
                 },
             }),
             mediaEventHelper: createMediaEventHelper({
@@ -465,7 +467,7 @@ describe("ImageBodyViewModel", () => {
         const vm = createVm({
             mxEvent: createEvent({
                 content: {
-                    file: { url: "mxc://server/encrypted-image" },
+                    file: { url: "mxc://server/encrypted-image-9" },
                 },
             }),
             mediaEventHelper: createMediaEventHelper({
@@ -498,7 +500,7 @@ describe("ImageBodyViewModel", () => {
     });
 
     it("clears image errors after reconnecting", () => {
-        const client = { on: vi.fn(), off: vi.fn() };
+        const client = { on: vi.fn(), off: vi.fn(), getUserId: () => "@me:server" };
         vi.spyOn(MatrixClientPeg, "safeGet").mockReturnValue(client as any);
         vi.spyOn(MatrixClientPeg, "get").mockReturnValue(client as any);
         const vm = createVm({ mediaVisible: true });
@@ -614,7 +616,7 @@ describe("ImageBodyViewModel", () => {
         const vm = createVm({
             mxEvent: createEvent({
                 content: {
-                    file: { url: "mxc://server/encrypted-image" },
+                    file: { url: "mxc://server/encrypted-image-10" },
                     info: {
                         "mimetype": "image/gif",
                         "thumbnail_info": { mimetype: "image/gif" },
@@ -645,6 +647,129 @@ describe("ImageBodyViewModel", () => {
         });
     });
 
+    describe("revisiting an image that may be animated", () => {
+        function stubImageElement(): { created: () => number; last: () => any } {
+            let count = 0;
+            let createdImage: any;
+            const originalCreateElement = document.createElement.bind(document);
+            vi.spyOn(document, "createElement").mockImplementation(((tagName: string) => {
+                if (tagName !== "img") return originalCreateElement(tagName);
+                count++;
+                createdImage = { width: 320, height: 240, crossOrigin: "", src: "", onload: undefined };
+                return createdImage as HTMLImageElement;
+            }) as typeof document.createElement);
+            return { created: () => count, last: () => createdImage };
+        }
+        const gif = (url: string): ReturnType<typeof createVm> =>
+            createVm({
+                mxEvent: createEvent({ content: { file: { url }, info: { mimetype: "image/gif" } } }),
+                mediaEventHelper: createMediaEventHelper({
+                    encrypted: true,
+                    sourceUrl: "https://server/full.gif",
+                    thumbnailUrl: null,
+                    sourceBlob: new Blob(["gif"], { type: "image/gif" }),
+                }),
+                mediaVisible: true,
+            });
+
+        it("reuses the still frame instead of downloading the image again", async () => {
+            const images = stubImageElement();
+            const first = downloadImageForTest(gif("mxc://server/revisited-gif"));
+            await flushPromises();
+            images.last().onload();
+            await first;
+            expect(images.created()).toBe(1);
+
+            const again = gif("mxc://server/revisited-gif");
+            await downloadImageForTest(again);
+            expect(images.created()).toBe(1);
+            expect(mockedCreateThumbnail).toHaveBeenCalledTimes(1);
+            expect(again.getSnapshot()).toMatchObject({ state: ImageBodyViewState.READY, gifLabel: "GIF" });
+        });
+
+        it("never shows one account's decrypted still to another, or after signing out", async () => {
+            const images = stubImageElement();
+            const first = downloadImageForTest(gif("mxc://server/shared-gif"));
+            await flushPromises();
+            images.last().onload();
+            await first;
+
+            defaultDispatcher.dispatch({ action: Action.OnLoggedOut }, true);
+            const again = downloadImageForTest(gif("mxc://server/shared-gif"));
+            await flushPromises();
+            expect(images.created()).toBe(2);
+            images.last().onload();
+            await again;
+        });
+
+        it("does not remember an image whose inspection finishes after signing out", async () => {
+            const images = stubImageElement();
+            const first = downloadImageForTest(gif("mxc://server/signed-out-gif"));
+            await flushPromises();
+            defaultDispatcher.dispatch({ action: Action.OnLoggedOut }, true);
+            images.last().onload();
+            await first;
+
+            const again = downloadImageForTest(gif("mxc://server/signed-out-gif"));
+            await flushPromises();
+            expect(images.created()).toBe(2);
+            images.last().onload();
+            await again;
+        });
+
+        it("does not let the next account use a still learned while signing out", async () => {
+            const images = stubImageElement();
+            const first = downloadImageForTest(gif("mxc://server/handover-gif"));
+            await flushPromises();
+            images.last().onload();
+            await first;
+
+            // A download that started for the previous account, finishing after another has signed in.
+            let release!: () => void;
+            const slowUrl = new Promise<string>((resolve) => (release = () => resolve("https://server/full.gif")));
+            const stale = createVm({
+                mxEvent: createEvent({
+                    content: { file: { url: "mxc://server/handover-gif" }, info: { mimetype: "image/gif" } },
+                }),
+                mediaEventHelper: createMediaEventHelper({
+                    encrypted: true,
+                    sourceUrl: slowUrl,
+                    thumbnailUrl: null,
+                    sourceBlob: new Blob(["gif"], { type: "image/gif" }),
+                }),
+                mediaVisible: true,
+            });
+            const staleDownload = downloadImageForTest(stale);
+            defaultDispatcher.dispatch({ action: Action.OnLoggedOut }, true);
+            release();
+            await flushPromises();
+            expect(images.created()).toBe(2);
+            images.last().onload();
+            await staleDownload;
+
+            // The new account then opens the same image: it must decode it itself, not reuse the stale result.
+            const fresh = downloadImageForTest(gif("mxc://server/handover-gif"));
+            await flushPromises();
+            expect(images.created()).toBe(3);
+            images.last().onload();
+            await fresh;
+        });
+
+        it("remembers that an image turned out not to be animated", async () => {
+            mockedBlobIsAnimated.mockResolvedValue(false);
+            const images = stubImageElement();
+            const first = downloadImageForTest(gif("mxc://server/static-after-all"));
+            await flushPromises();
+            images.last().onload();
+            await first;
+
+            const again = gif("mxc://server/static-after-all");
+            await downloadImageForTest(again);
+            expect(images.created()).toBe(1);
+            expect(again.getSnapshot()).toMatchObject({ state: ImageBodyViewState.READY, gifLabel: undefined });
+        });
+    });
+
     it("treats decoded static images as non-animated", async () => {
         mockedBlobIsAnimated.mockResolvedValue(false);
         let createdImage: any;
@@ -666,7 +791,7 @@ describe("ImageBodyViewModel", () => {
         const vm = createVm({
             mxEvent: createEvent({
                 content: {
-                    file: { url: "mxc://server/encrypted-image" },
+                    file: { url: "mxc://server/encrypted-image-11" },
                     info: {
                         mimetype: "image/gif",
                     },
@@ -714,7 +839,7 @@ describe("ImageBodyViewModel", () => {
         const vm = createVm({
             mxEvent: createEvent({
                 content: {
-                    file: { url: "mxc://server/encrypted-image" },
+                    file: { url: "mxc://server/encrypted-image-12" },
                     info: {
                         mimetype: "image/gif",
                     },
@@ -760,7 +885,7 @@ describe("ImageBodyViewModel", () => {
         const vm = createVm({
             mxEvent: createEvent({
                 content: {
-                    file: { url: "mxc://server/encrypted-image" },
+                    file: { url: "mxc://server/encrypted-image-13" },
                     info: {
                         mimetype: "image/gif",
                     },
@@ -806,7 +931,7 @@ describe("ImageBodyViewModel", () => {
         const vm = createVm({
             mxEvent: createEvent({
                 content: {
-                    file: { url: "mxc://server/encrypted-image" },
+                    file: { url: "mxc://server/encrypted-image-14" },
                     info: {
                         mimetype: "image/gif",
                     },
@@ -877,7 +1002,7 @@ describe("ImageBodyViewModel", () => {
             mxEvent: createEvent({
                 body: "",
                 content: {
-                    file: { url: "mxc://server/encrypted-image" },
+                    file: { url: "mxc://server/encrypted-image-15" },
                     info: {
                         mimetype: "image/svg+xml",
                     },
@@ -966,7 +1091,7 @@ describe("ImageBodyViewModel", () => {
     });
 
     it("resets state and reloads when the event changes while visible", async () => {
-        const client = { off: vi.fn() };
+        const client = { off: vi.fn(), getUserId: () => "@me:server" };
         vi.spyOn(MatrixClientPeg, "get").mockReturnValue(client as any);
         const vm = createVm({ mediaVisible: true });
         vm.loadInitialMediaIfVisible();
@@ -998,7 +1123,7 @@ describe("ImageBodyViewModel", () => {
 
     it("cleans up watchers, reconnect listeners and generated thumbnails on dispose", async () => {
         let createdImage: any;
-        const client = { off: vi.fn() };
+        const client = { off: vi.fn(), getUserId: () => "@me:server" };
         vi.spyOn(MatrixClientPeg, "get").mockReturnValue(client as any);
         const originalCreateElement = document.createElement.bind(document);
         vi.spyOn(document, "createElement").mockImplementation(((tagName: string) => {
@@ -1018,7 +1143,7 @@ describe("ImageBodyViewModel", () => {
         const vm = createVm({
             mxEvent: createEvent({
                 content: {
-                    file: { url: "mxc://server/encrypted-image" },
+                    file: { url: "mxc://server/encrypted-image-16" },
                     info: {
                         mimetype: "image/gif",
                     },

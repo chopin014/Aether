@@ -16,7 +16,11 @@ const formatMap = {
 };
 
 export class BackgroundAudio {
-    private audioContext = createAudioContext();
+    private context?: AudioContext;
+    /** Created on the first sound, since an audio context costs tens of milliseconds and most sessions start silent. */
+    private get audioContext(): AudioContext {
+        return (this.context ??= createAudioContext());
+    }
     private sounds: Record<string, AudioBuffer> = {};
     /** How many sounds started here are still going. */
     private playing = 0;

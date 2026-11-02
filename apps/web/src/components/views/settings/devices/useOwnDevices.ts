@@ -78,6 +78,15 @@ export type DevicesState = {
     error?: OwnDevicesError;
     supportsMSC3881?: boolean | undefined;
 };
+/** What the sessions list last showed for each client, so reopening it is instant while it refreshes. */
+interface KnownDevices {
+    devices: DevicesState["devices"];
+    pushers: DevicesState["pushers"];
+    localNotificationSettings: DevicesState["localNotificationSettings"];
+    dehydratedDeviceId: DevicesState["dehydratedDeviceId"];
+}
+const knownDevices = new WeakMap<MatrixClient, KnownDevices>();
+
 export const useOwnDevices = (): DevicesState => {
     const sdkContext = useContext(SDKContext);
     const matrixClient = sdkContext.client!;
@@ -85,13 +94,17 @@ export const useOwnDevices = (): DevicesState => {
     const currentDeviceId = matrixClient.getDeviceId()!;
     const userId = matrixClient.getSafeUserId();
 
-    const [devices, setDevices] = useState<DevicesState["devices"]>({});
-    const [dehydratedDeviceId, setDehydratedDeviceId] = useState<DevicesState["dehydratedDeviceId"]>(undefined);
-    const [pushers, setPushers] = useState<DevicesState["pushers"]>([]);
+    const known = knownDevices.get(matrixClient);
+    const [devices, setDevices] = useState<DevicesState["devices"]>(known?.devices ?? {});
+    const [dehydratedDeviceId, setDehydratedDeviceId] = useState<DevicesState["dehydratedDeviceId"]>(
+        known?.dehydratedDeviceId,
+    );
+    const [pushers, setPushers] = useState<DevicesState["pushers"]>(known?.pushers ?? []);
     const [localNotificationSettings, setLocalNotificationSettings] = useState<
         DevicesState["localNotificationSettings"]
-    >(new Map<string, LocalNotificationSettings>());
-    const [isLoadingDeviceList, setIsLoadingDeviceList] = useState(true);
+    >(known?.localNotificationSettings ?? new Map<string, LocalNotificationSettings>());
+    // What was shown last time stays on screen while it refreshes, instead of a spinner.
+    const [isLoadingDeviceList, setIsLoadingDeviceList] = useState(!known);
     const [supportsMSC3881, setSupportsMSC3881] = useState(true); // optimisticly saying yes!
 
     const [error, setError] = useState<OwnDevicesError>();
@@ -103,12 +116,30 @@ export const useOwnDevices = (): DevicesState => {
     }, [matrixClient]);
 
     const refreshDevices = useCallback(async (): Promise<void> => {
-        setIsLoadingDeviceList(true);
+        if (!knownDevices.has(matrixClient)) setIsLoadingDeviceList(true);
         try {
-            const devices = await fetchExtendedDeviceInformation(matrixClient);
+            // These are independent, so the list waits for the slowest of them rather than for all of them in turn.
+            const ownUserId = matrixClient.getUserId()!;
+            const [devicesResult, pushersResult, userDevicesResult] = await Promise.allSettled([
+                fetchExtendedDeviceInformation(matrixClient),
+                matrixClient.getPushers(),
+                matrixClient
+                    .getCrypto()
+                    ?.getUserDeviceInfo([ownUserId])
+                    .then((info) => info.get(ownUserId)),
+            ]);
+            // The sessions themselves decide what is shown. If only the pushers or encryption details fail, the
+            // sessions are still current (a signed-out one must disappear), and the rest keeps what was known.
+            if (devicesResult.status === "rejected") throw devicesResult.reason;
+            const devices = devicesResult.value;
+            const previous = knownDevices.get(matrixClient);
+            let pushers = previous?.pushers ?? [];
+            if (pushersResult.status === "fulfilled") pushers = pushersResult.value.pushers;
+            else logger.warn("Could not refresh the pushers of your sessions", pushersResult.reason);
+            if (userDevicesResult.status === "rejected") {
+                logger.warn("Could not refresh the encryption details of your sessions", userDevicesResult.reason);
+            }
             setDevices(devices);
-
-            const { pushers } = await matrixClient.getPushers();
             setPushers(pushers);
 
             const notificationSettings = new Map<string, LocalNotificationSettings>();
@@ -121,9 +152,8 @@ export const useOwnDevices = (): DevicesState => {
             });
             setLocalNotificationSettings(notificationSettings);
 
-            const ownUserId = matrixClient.getUserId()!;
-            const userDevices = (await matrixClient.getCrypto()?.getUserDeviceInfo([ownUserId]))?.get(ownUserId);
             const dehydratedDeviceIds: string[] = [];
+            const userDevices = userDevicesResult.status === "fulfilled" ? userDevicesResult.value : undefined;
             for (const device of userDevices?.values() ?? []) {
                 if (device.dehydrated) {
                     dehydratedDeviceIds.push(device.deviceId);
@@ -134,7 +164,19 @@ export const useOwnDevices = (): DevicesState => {
             // indicate that the user is using a dehydrated device).  If the user has
             // more than one, that is anomalous, and we show all the devices so that
             // nothing is hidden.
-            setDehydratedDeviceId(dehydratedDeviceIds.length == 1 ? dehydratedDeviceIds[0] : undefined);
+            const dehydratedDeviceId =
+                userDevicesResult.status === "rejected"
+                    ? previous?.dehydratedDeviceId
+                    : dehydratedDeviceIds.length == 1
+                      ? dehydratedDeviceIds[0]
+                      : undefined;
+            setDehydratedDeviceId(dehydratedDeviceId);
+            knownDevices.set(matrixClient, {
+                devices,
+                pushers,
+                localNotificationSettings: notificationSettings,
+                dehydratedDeviceId,
+            });
 
             setIsLoadingDeviceList(false);
         } catch (error) {

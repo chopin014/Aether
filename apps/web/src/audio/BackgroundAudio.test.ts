@@ -48,6 +48,16 @@ describe("BackgroundAudio", () => {
         fetchMock.get("*", 200);
     });
 
+    it("creates no audio context until something is played, then reuses one", async () => {
+        vi.mocked(createAudioContext).mockClear();
+        const audio = new BackgroundAudio();
+        expect(createAudioContext).not.toHaveBeenCalled();
+
+        await audio.play("sound.mp3");
+        await audio.play("sound.mp3");
+        expect(createAudioContext).toHaveBeenCalledOnce();
+    });
+
     it("suspends the context once the sound has finished", async () => {
         const audio = new BackgroundAudio();
 

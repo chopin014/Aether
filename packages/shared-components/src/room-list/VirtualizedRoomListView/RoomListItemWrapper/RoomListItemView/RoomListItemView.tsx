@@ -155,6 +155,11 @@ export interface RoomListItemViewActions {
     getChannelMenu?: () => ChannelMenuViewModel;
     /** Called when the room should be opened */
     onOpenRoom: () => void;
+    /**
+     * Called when the person points at or focuses the room, a hint that they may open it soon, so that slow work
+     * (like getting a voice channel's call ready) can start early.
+     */
+    onIntentToOpen?: () => void;
     /** Called when the room should be marked as read */
     onMarkAsRead: () => void;
     /** Called when the room should be marked as unread */
@@ -268,6 +273,7 @@ export const RoomListItemView = memo(function RoomListItemView({
 
     const onItemFocus = (e: React.FocusEvent<HTMLButtonElement>): void => {
         onFocus(item.id, e);
+        vm.onIntentToOpen?.();
         // Only when focus enters the row from outside via the keyboard.
         if (!e.currentTarget.contains(e.relatedTarget) && e.currentTarget.matches(":focus-visible")) {
             setKeyboardActive(true);
@@ -306,6 +312,7 @@ export const RoomListItemView = memo(function RoomListItemView({
                 type="button"
                 aria-label={a11yLabel}
                 onClick={vm.onOpenRoom}
+                onPointerEnter={vm.onIntentToOpen}
                 onFocus={onItemFocus}
                 onBlur={onItemBlur}
                 tabIndex={isFocused ? 0 : -1}
