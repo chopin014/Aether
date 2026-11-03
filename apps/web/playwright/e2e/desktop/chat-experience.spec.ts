@@ -436,3 +436,103 @@ test("heads older messages with their day as well as their time", async ({ page,
 
     await capture(page.locator(".mx_RoomView_body"), testInfo, "timeline-dated.png");
 });
+
+test("opens dialogs as one rounded surface, without the glass rim", async ({ page, app, bot }, testInfo) => {
+    const roomId = await app.client.createRoom({ name: "dialogs", invite: [bot.credentials!.userId] });
+    await bot.joinRoom(roomId);
+    await bot.sendMessage(roomId, "hello");
+    await app.viewRoomById(roomId);
+
+    const frameStyle = () =>
+        page
+            .locator(".mx_Dialog_border")
+            .last()
+            .evaluate((frame) => {
+                const style = getComputedStyle(frame);
+                return { outline: style.outlineStyle, padding: style.paddingTop };
+            });
+
+    await app.settings.openUserSettings("Keyboard");
+    expect(await frameStyle()).toEqual({ outline: "none", padding: "0px" });
+    await capture(page.locator("body"), testInfo, "dialog-settings.png");
+    await app.settings.closeDialog();
+
+    await page.locator(".mx_EventTile", { hasText: "hello" }).getByTestId("event-tile-slot-avatar").click();
+    await page
+        .getByRole("dialog", { name: "Profile", exact: true })
+        .getByRole("button", { name: /View full profile of/ })
+        .click();
+    await expect(page.locator(".mx_DesktopFullProfileDialog")).toBeVisible();
+    expect(await frameStyle()).toEqual({ outline: "none", padding: "0px" });
+    await capture(page.locator("body"), testInfo, "dialog-profile.png");
+});
+
+test("lists everyone for a lone @ and mentions without a trailing colon", async ({ page, app, bot }, testInfo) => {
+    const roomId = await app.client.createRoom({ name: "mentions", invite: [bot.credentials!.userId] });
+    await bot.joinRoom(roomId);
+    await app.viewRoomById(roomId);
+    await expect(page.locator(".mx_EventTile", { hasText: "joined the room" }).first()).toBeVisible();
+
+    const field = app.getComposerField();
+    await field.pressSequentially("@");
+    const suggestions = page.locator(".mx_Autocomplete");
+    await expect(suggestions.getByText(/bot_/).first()).toBeVisible();
+    await capture(app.getComposer().locator(".."), testInfo, "mention-suggestions.png");
+
+    // Tab takes the first suggestion into the composer as a pill, followed by a space only.
+    await page.keyboard.press("Tab");
+    await expect(field).not.toContainText(":");
+    await expect(field.locator(".mx_UserPill")).toHaveCount(1);
+});
+
+test("plays an encrypted video on the first press", async ({ page, app }, testInfo) => {
+    const roomId = await app.client.createRoom({
+        name: "secret video",
+        initial_state: [{ type: "m.room.encryption", state_key: "", content: { algorithm: "m.megolm.v1.aes-sha2" } }],
+    });
+    await app.viewRoomById(roomId);
+
+    const chooser = page.waitForEvent("filechooser");
+    await app.getComposer().getByRole("button", { name: "Attachment", exact: true }).click();
+    await (await chooser).setFiles([getSampleFilePath("5secvid.webm")]);
+    await app.getComposerField().click();
+    await page.keyboard.press("Enter");
+
+    const player = page.getByTestId("video-player");
+    await expect(player).toBeVisible();
+    await player.getByRole("button", { name: "Play" }).first().click();
+
+    // One press: it decrypts, then plays without another click.
+    await expect
+        .poll(
+            () => player.locator("video").evaluate((video: HTMLVideoElement) => !video.paused && video.currentTime > 0),
+            {
+                timeout: 15_000,
+            },
+        )
+        .toBe(true);
+    await capture(player, testInfo, "video-encrypted-playing.png");
+});
+
+test("shows pictures without their file name and size", async ({ page, app }, testInfo) => {
+    const roomId = await app.client.createRoom({ name: "pictures" });
+    await app.viewRoomById(roomId);
+    const picture = await readFile(getSampleFilePath("riot.png"));
+    const { content_uri: url } = await app.client.uploadContent(picture, { name: "riot.png", type: "image/png" });
+    await app.client.sendMessage(roomId, {
+        msgtype: "m.image",
+        body: "riot.png",
+        url,
+        info: { mimetype: "image/png", size: picture.length, w: 512, h: 512 },
+    });
+
+    const image = page.locator(".mx_ImageBody_image").last();
+    await image.hover();
+    await expect(page.getByText(/riot\.png \(/)).toHaveCount(0);
+
+    await image.click();
+    const viewer = page.locator(".mx_ImageView");
+    await expect(viewer).toBeVisible();
+    await expect(viewer.locator(".mx_ImageView_title")).toHaveCount(0);
+    await capture(page.locator("body"), testInfo, "image-viewer.png");
+});
