@@ -21,7 +21,8 @@ test.use({
     lockLeftPanelWidth: false,
     config: {
         default_theme: "dark",
-        features: { feature_desktop_shell: true },
+        features: { feature_desktop_shell: true, feature_video_rooms: true, feature_element_call_video_rooms: true },
+        element_call: { use_exclusively: true },
     },
 });
 
@@ -169,31 +170,71 @@ test("keeps the composer's encryption icon in line with its controls", async ({ 
     await capture(composer, testInfo, "composer.png");
 });
 
-test("lists a server's channels with an even rhythm", async ({ page, app, user }, testInfo) => {
-    const server = user.userId.split(":").slice(1).join(":");
-    const spaceId = await app.client.createSpace({ name: "Terra do boi gordo" });
-    for (const name of ["geral", "memes", "jogos"]) {
-        const roomId = await app.client.createRoom({ name });
-        await app.client.sendStateEvent(spaceId, "m.space.child", { via: [server] }, roomId);
-    }
+test("lists a server's channels with an even rhythm and a flat server rail", async ({ page, app, user }, testInfo) => {
+    const via = { via: [user.homeServer] };
+    const { content_uri: icon } = await app.client.uploadContent(await readFile(getSampleFilePath("element.png")), {
+        name: "icon.png",
+        type: "image/png",
+    });
+    const avatar = [{ type: "m.room.avatar", state_key: "", content: { url: icon } }];
+    const voice = { type: "org.matrix.msc3417.call" };
+    const rooms = await Promise.all([
+        app.client.createRoom({ name: "geral", initial_state: avatar }),
+        app.client.createRoom({ name: "jogos" }),
+        app.client.createRoom({ name: "Geral#1", creation_content: voice, initial_state: avatar }),
+        app.client.createRoom({ name: "Geral#2", creation_content: voice }),
+    ]);
+    // A server inside the server: the rail must not offer to expand it.
+    const subspace = await app.client.createSpace({ name: "Nested server" });
+    await app.client.createSpace({
+        name: "Terra do boi gordo",
+        initial_state: [...rooms, subspace].map((roomId) => ({
+            type: "m.space.child",
+            state_key: roomId,
+            content: via,
+        })),
+    });
 
     const rail = page.getByRole("navigation", { name: "Servers", exact: true });
     await rail.getByRole("button", { name: "Terra do boi gordo", exact: true }).click();
-    // A server's channels sit in a tree grid of categories.
     const list = page.getByRole("treegrid", { name: "Room list" });
-    await expect(list.getByRole("row", { name: "Open room jogos" })).toBeVisible();
+    await expect(list.getByRole("row", { name: /Open room Geral#2/ })).toBeVisible();
+    await expect(rail.getByRole("button", { name: "Expand", exact: true })).toHaveCount(0);
+
     // Clear the rail's tooltip before the picture.
     await page.mouse.move(640, 360);
-    await capture(page.locator(".mx_LeftPanel"), testInfo, "channel-list.png");
+    await capture(page.locator("body"), testInfo, "channel-list.png");
 
-    // The channel names sit at an even pitch.
+    // The channel names sit at an even pitch, and the kind symbol is larger than a channel's own image.
     const centres = await Promise.all(
-        ["jogos", "memes", "geral"].map(async (name) => {
+        ["geral", "jogos"].map(async (name) => {
             const box = (await list.getByText(name, { exact: true }).boundingBox())!;
             return box.y + box.height / 2;
         }),
     );
-    expect(Math.round(centres[1] - centres[0])).toBe(Math.round(centres[2] - centres[1]));
+    const pitch = Math.abs(centres[1] - centres[0]);
+    expect(pitch).toBeGreaterThan(30);
+    expect(pitch).toBeLessThan(38);
+    const row = list.getByRole("row", { name: /Open room geral/ });
+    const [symbol, image] = await Promise.all([
+        row.getByTestId("channel-kind-text").boundingBox(),
+        row.locator("img").first().boundingBox(),
+    ]);
+    expect(symbol!.height).toBeGreaterThan(image!.height);
+});
+
+test("keeps the channel list open when its edge is dragged to the rail", async ({ page }) => {
+    const panel = page.locator(".mx_LeftPanel_panel").first();
+    const separator = page.getByRole("separator").first();
+    const edge = (await separator.boundingBox())!;
+    await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(10, edge.y + edge.height / 2, { steps: 12 });
+    await page.mouse.up();
+
+    // It stops at its narrowest width instead of collapsing into Element's room-less sidebar.
+    await expect.poll(async () => (await panel.boundingBox())!.width).toBeGreaterThanOrEqual(199);
+    await expect(page.getByRole("navigation", { name: "Room list" })).toBeVisible();
 });
 
 test("sends several files with text from the composer's attachment tray", async ({ page, app }, testInfo) => {
@@ -266,10 +307,10 @@ test("offers cozy and compact messages instead of Element's layouts", async ({ p
         tile.getByTestId("event-tile-slot-timestamp").boundingBox(),
         tile.getByTestId("event-tile-slot-sender").boundingBox(),
     ]);
-    // Time, then name, then text, on one line.
+    // Time, then name, then text, on one line. The name is set a size smaller than the text, on the same baseline.
     expect(time!.x).toBeLessThan(name!.x);
     expect(name!.x + name!.width).toBeLessThanOrEqual(textRect.x + 1);
-    expect(Math.abs(name!.y + name!.height / 2 - (textRect.y + textRect.height / 2))).toBeLessThanOrEqual(3);
+    expect(Math.abs(name!.y + name!.height / 2 - (textRect.y + textRect.height / 2))).toBeLessThanOrEqual(5);
 
     // A wrapped message returns under the name, not under its own first line.
     const wrapped = timeline.locator("[data-event-id]").filter({ hasText: "a message long enough" });
@@ -320,4 +361,57 @@ test("shows a changed identity as a strip across the top of the composer", async
     expect(action!.y + action!.height).toBeLessThanOrEqual(strip!.y + strip!.height);
 
     await capture(composer, testInfo, "composer-identity-warning.png");
+});
+
+test("lays out pictures sent together as one gallery", async ({ page, app, bot }, testInfo) => {
+    const roomId = await app.client.createRoom({ name: "gallery", invite: [bot.credentials!.userId] });
+    await bot.joinRoom(roomId);
+    await app.viewRoomById(roomId);
+
+    const picture = await readFile(getSampleFilePath("riot.png"));
+    const { content_uri: url } = await bot.uploadContent(picture, { name: "riot.png", type: "image/png" });
+    const send = (body: string) =>
+        bot.sendMessage(roomId, {
+            msgtype: "m.image",
+            body,
+            url,
+            info: { mimetype: "image/png", size: picture.length, w: 512, h: 512 },
+        });
+    await send("first.png");
+    await send("second.png");
+    await send("third.png");
+
+    const gallery = page.locator(".mx_DesktopGallery");
+    await expect(gallery.locator(".mx_ImageBody_image")).toHaveCount(2);
+    await expect(gallery.locator(".mx_DesktopGallery_list")).toHaveAttribute("data-columns", "2");
+
+    // The two later pictures share a row under the first.
+    const [left, right] = await gallery
+        .locator(".mx_ImageBody_container")
+        .evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().toJSON()));
+    expect(Math.abs(left.y - right.y)).toBeLessThanOrEqual(1);
+    expect(right.x).toBeGreaterThan(left.x + left.width - 1);
+
+    await capture(page.locator(".mx_RoomView_body"), testInfo, "timeline-gallery.png");
+});
+
+test("heads older messages with their day as well as their time", async ({ page, app, bot }, testInfo) => {
+    const roomId = await app.client.createRoom({ name: "history", invite: [bot.credentials!.userId] });
+    await bot.joinRoom(roomId);
+    await bot.sendMessage(roomId, "sent a few days ago");
+    const other = await app.client.createRoom({ name: "elsewhere" });
+
+    // Three days pass; opening the room again draws the message with its day.
+    await page.clock.install({ time: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000) });
+    await app.viewRoomById(other);
+    await app.viewRoomById(roomId);
+
+    const tile = page.locator("[data-event-id]").filter({ hasText: "sent a few days ago" });
+    const time = tile.getByTestId("event-tile-slot-timestamp");
+    await expect(time).toHaveText(/\d{1,2}\/\d{1,2}\/\d{2,4}/);
+    // Room changes keep the short time in their narrow column.
+    const change = page.locator("[data-event-id]").filter({ hasText: "joined the room" }).last();
+    await expect(change.getByTestId("event-tile-slot-timestamp")).not.toHaveText(/\//);
+
+    await capture(page.locator(".mx_RoomView_body"), testInfo, "timeline-dated.png");
 });
