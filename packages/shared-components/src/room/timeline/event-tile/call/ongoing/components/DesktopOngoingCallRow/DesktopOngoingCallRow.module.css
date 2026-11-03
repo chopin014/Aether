@@ -13,12 +13,12 @@
     box-sizing: border-box;
 }
 
+/* Centred on the row like the text and button beside it, which the join button makes taller than one line. */
 .iconFrame {
     position: relative;
     display: flex;
     flex-shrink: 0;
-    align-self: flex-start;
-    margin-block-start: var(--cpd-space-0-5x);
+    align-self: center;
 }
 
 /* A soft ring that keeps breathing while the call is live. */
@@ -84,8 +84,19 @@
     font: var(--cpd-font-body-xs-regular);
 }
 
+/* A compact button, so a live call row stays close to the height of the history rows around it. */
 .join {
     flex-shrink: 0;
+    min-block-size: 0;
+    padding-block: var(--cpd-space-1x);
+    padding-inline: var(--cpd-space-2-5x, 10px) var(--cpd-space-3x);
+    gap: var(--cpd-space-1-5x);
+    font: var(--cpd-font-body-sm-semibold);
+
+    svg {
+        width: var(--cpd-space-4x);
+        height: var(--cpd-space-4x);
+    }
 }
 
 @keyframes ongoingCallPulse {
