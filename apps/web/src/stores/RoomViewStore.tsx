@@ -30,6 +30,7 @@ import { MatrixClientPeg } from "../MatrixClientPeg";
 import Modal from "../Modal";
 import { _t, UserFriendlyError } from "../languageHandler";
 import { getCachedRoomIdForAlias, storeRoomAliasInCache } from "../RoomAliasCache";
+import { prefetchAliasSummary, takeAliasLookup } from "../performance/AliasRoomSummary";
 import { Action } from "../dispatcher/actions";
 import { retry } from "../utils/promise";
 import { TimelineRenderingType } from "../contexts/RoomContext";
@@ -559,8 +560,16 @@ export class RoomViewStore extends EventEmitter {
                     wasContextSwitch: payload.context_switch,
                     viewingCall: payload.view_call ?? false,
                 });
+                const client = MatrixClientPeg.safeGet();
+                // Startup may already be resolving this alias. Otherwise fetch the preview's summary, which
+                // accepts the alias too, alongside the directory lookup.
+                let lookup = takeAliasLookup(client, payload.room_alias);
+                if (!lookup) {
+                    prefetchAliasSummary(client, payload.room_alias, payload.via_servers);
+                    lookup = client.getRoomIdForAlias(payload.room_alias);
+                }
                 try {
-                    const result = await MatrixClientPeg.safeGet().getRoomIdForAlias(payload.room_alias);
+                    const result = await lookup;
                     storeRoomAliasInCache(payload.room_alias, result.room_id, result.servers);
                     roomId = result.room_id;
                     viaServers = result.servers;
@@ -609,8 +618,9 @@ export class RoomViewStore extends EventEmitter {
         const { roomAlias, viaServers = [] } = this.state;
         // fall back to the payload's roomId explicitly since it is always the room we were asked to join
         const roomId = this.state.roomId ?? payload.roomId;
-        // prefer the room alias if we have one as it allows joining over federation even with no viaServers
-        const address = roomAlias || roomId;
+        // A resolved room ID with known servers joins directly. An alias makes the homeserver resolve it again,
+        // which can mean a slow federated directory query; it is only needed to find a room without servers.
+        const address = roomId && viaServers.length ? roomId : roomAlias || roomId;
 
         if (!address) {
             logger.error("Cannot join room: no room ID or alias to join", payload);

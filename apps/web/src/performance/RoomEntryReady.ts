@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import { type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
+import { ClientEvent, type MatrixClient, type Room, SyncState } from "matrix-js-sdk/src/matrix";
 
 interface RoomEntry {
     room: Room | null;
@@ -79,4 +79,34 @@ export function deferRoomEntryWork(client: MatrixClient, roomId: string | undefi
             entry.deadline = undefined;
         }
     };
+}
+
+const ACCOUNT_SYNC_DEADLINE_MS = 15_000;
+
+/**
+ * Hold optional background work until the account's first sync has been processed, so heavy module loading stays
+ * out of startup and first joins. Runs anyway after a deadline, since a failing sync should not disable the work.
+ */
+export function deferUntilAccountSync(client: MatrixClient, work: () => void): () => void {
+    if (client.isInitialSyncComplete()) {
+        work();
+        return () => {};
+    }
+    let done = false;
+    const run = (): void => {
+        if (done) return;
+        cancel();
+        work();
+    };
+    const onSync = (state: SyncState): void => {
+        if (state === SyncState.Prepared || state === SyncState.Syncing) run();
+    };
+    const deadline = setTimeout(run, ACCOUNT_SYNC_DEADLINE_MS);
+    const cancel = (): void => {
+        done = true;
+        clearTimeout(deadline);
+        client.off(ClientEvent.Sync, onSync);
+    };
+    client.on(ClientEvent.Sync, onSync);
+    return cancel;
 }

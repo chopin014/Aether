@@ -46,6 +46,7 @@ import { CallStore } from "./CallStore";
 import { MatrixClientPeg } from "../MatrixClientPeg";
 import MediaDeviceHandler, { MediaDeviceKindEnum } from "../MediaDeviceHandler";
 import { storeRoomAliasInCache } from "../RoomAliasCache.ts";
+import { prefetchAliasPreview } from "../performance/AliasRoomSummary";
 import { type Call, ConnectionState } from "../models/Call.ts";
 import ActiveWidgetStore from "./ActiveWidgetStore";
 import { ModuleApi } from "../modules/Api";
@@ -127,6 +128,7 @@ describe("RoomViewStore", function () {
         joinRoom: vi.fn(),
         getRoom: vi.fn(),
         getRoomIdForAlias: vi.fn(),
+        getRoomSummary: vi.fn().mockResolvedValue(undefined),
         getRooms,
         isGuest: vi.fn(),
         getUserId: vi.fn().mockReturnValue(userId),
@@ -223,9 +225,21 @@ describe("RoomViewStore", function () {
         expect(roomViewStore.isJoining()).toBe(true);
     });
 
-    it("can be used to view a room by alias with auto_join", async () => {
+    it("joins a resolved room by ID when servers are known instead of resolving its alias again", async () => {
         const alias = "#alias12345:server";
         storeRoomAliasInCache(alias, roomId, ["server1"]);
+        dis.dispatch({ action: Action.ViewRoom, room_alias: alias, auto_join: true }, true);
+        await untilDispatch(Action.JoinRoomReady, dis);
+        expect(mockClient.joinRoom).toHaveBeenCalledWith(roomId, {
+            acceptSharedHistory: true,
+            viaServers: ["server1"],
+        });
+        expect(roomViewStore.isJoining()).toBe(true);
+    });
+
+    it("can be used to view a room by alias with auto_join", async () => {
+        const alias = "#alias12345:server";
+        storeRoomAliasInCache(alias, roomId, []);
         dis.dispatch({ action: Action.ViewRoom, room_alias: alias, auto_join: true }, true);
         await expect(untilDispatch(Action.ViewRoom, dis)).resolves.toEqual(
             expect.objectContaining({
@@ -235,7 +249,8 @@ describe("RoomViewStore", function () {
             }),
         );
         await untilDispatch(Action.JoinRoomReady, dis);
-        expect(mockClient.joinRoom).toHaveBeenCalledWith(alias, { acceptSharedHistory: true, viaServers: ["server1"] });
+        // Without servers, only the alias can locate the room over federation.
+        expect(mockClient.joinRoom).toHaveBeenCalledWith(alias, { acceptSharedHistory: true, viaServers: [] });
         expect(roomViewStore.isJoining()).toBe(true);
     });
 
@@ -299,6 +314,27 @@ describe("RoomViewStore", function () {
         expect(payload.room_id).toBeNull();
         expect(payload.room_alias).toEqual(alias);
         expect(roomViewStore.getRoomAlias()).toEqual(alias);
+    });
+
+    it("requests the summary by alias alongside an uncached alias lookup", async () => {
+        alias = "#prefetched-summary:example.org";
+        mockClient.getRoomIdForAlias.mockResolvedValue({ room_id: roomId, servers: ["example.org"] });
+        dis.dispatch({ action: Action.ViewRoom, room_alias: alias, via_servers: ["via.example.org"] });
+        await untilDispatch((p) => p.action === Action.ViewRoom && p.room_id === roomId, dis);
+        expect(mockClient.getRoomSummary).toHaveBeenCalledWith(alias, ["via.example.org"]);
+    });
+
+    it("reuses an alias lookup that startup already began", async () => {
+        alias = "#opened-at-startup:example.org";
+        mockClient.getRoomIdForAlias.mockResolvedValue({ room_id: roomId, servers: ["example.org"] });
+        prefetchAliasPreview(mockClient, alias);
+        mockClient.getRoomIdForAlias.mockClear();
+        mockClient.getRoomSummary.mockClear();
+        dis.dispatch({ action: Action.ViewRoom, room_alias: alias });
+        await untilDispatch((p) => p.action === Action.ViewRoom && p.room_id === roomId, dis);
+        expect(mockClient.getRoomIdForAlias).not.toHaveBeenCalled();
+        expect(mockClient.getRoomSummary).not.toHaveBeenCalled();
+        expect(roomViewStore.getRoomId()).toBe(roomId);
     });
 
     it("emits JoinRoomError if joining the room fails", async () => {

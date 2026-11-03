@@ -44,6 +44,69 @@ diff --git a/src/client.ts b/src/client.ts
      /**
       * True to put `archived=true</code> on the <code>/initialSync` request. Default: false.
       */
+diff --git a/src/models/room.ts b/src/models/room.ts
+--- a/src/models/room.ts
++++ b/src/models/room.ts
+@@ -3117,6 +3117,23 @@
+         // List of extra events to check for being parents of any relations encountered
+         const neighbouringEvents = [...events];
+ 
++        // Relations whose parent is not in this batch need it fetched before they can be classified. Start those
++        // fetches together rather than one per loop iteration: a busy room can otherwise hold sync processing for
++        // seconds of sequential round trips. Events are still classified and added in their original order.
++        const parentFetches = new Map<string, Promise<Partial<IEvent>>>();
++        if (!fromCache) {
++            for (const event of events) {
++                const parentId = event.relationEventId;
++                if (!parentId || parentFetches.has(parentId) || !event.isRelation()) continue;
++                const { shouldLiveInRoom, shouldLiveInThread } = this.eventShouldLiveIn(event, events, threadRoots);
++                if (shouldLiveInRoom || shouldLiveInThread) continue;
++                const fetch = fetchRelationParent(this.client, this.roomId, parentId);
++                // Awaited below when the event is reached; avoid an unhandled rejection meanwhile.
++                fetch.catch(() => {});
++                parentFetches.set(parentId, fetch);
++            }
++        }
++
+         for (const event of events) {
+             // TODO: We should have a filter to say "only add state event types X Y Z to the timeline".
+             this.processLiveEvent(event);
+@@ -3141,7 +3158,8 @@
+             if (!fromCache && !shouldLiveInThread && !shouldLiveInRoom && event.isRelation()) {
+                 try {
+                     const parentEvent = new MatrixEvent(
+-                        await this.client.fetchRoomEvent(this.roomId, event.relationEventId!),
++                        await (parentFetches.get(event.relationEventId!) ??
++                            fetchRelationParent(this.client, this.roomId, event.relationEventId!)),
+                     );
+                     neighbouringEvents.push(parentEvent);
+                     if (parentEvent.threadRootId) {
+@@ -4085,3 +4103,25 @@
+         }
+     }
+ }
++
++// Missing relation parents are fetched ahead of ingestion, so bound how many run at once across all rooms of a
++// client. Waiters are served in order, so the earliest events of each batch get their parents first.
++const RELATION_PARENT_FETCH_LIMIT = 6;
++const relationParentFetches = new WeakMap<MatrixClient, { active: number; waiting: Array<() => void> }>();
++
++function fetchRelationParent(client: MatrixClient, roomId: string, eventId: string): Promise<Partial<IEvent>> {
++    let slots = relationParentFetches.get(client);
++    if (!slots) relationParentFetches.set(client, (slots = { active: 0, waiting: [] }));
++    const run = async (): Promise<Partial<IEvent>> => {
++        slots.active++;
++        try {
++            return await client.fetchRoomEvent(roomId, eventId);
++        } finally {
++            slots.active--;
++            slots.waiting.shift()?.();
++        }
++    };
++    if (slots.active < RELATION_PARENT_FETCH_LIMIT) return run();
++    return new Promise<void>((resolve) => slots.waiting.push(resolve)).then(run);
++}
++
 diff --git a/src/sync.ts b/src/sync.ts
 --- a/src/sync.ts
 +++ b/src/sync.ts

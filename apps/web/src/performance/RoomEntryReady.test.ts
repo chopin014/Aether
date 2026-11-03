@@ -6,9 +6,9 @@ Please see LICENSE in the repository root for full details.
 */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
+import { ClientEvent, type MatrixClient, type Room, SyncState, TypedEventEmitter } from "matrix-js-sdk/src/matrix";
 
-import { deferRoomEntryWork, notifyRoomEntryReady } from "./RoomEntryReady";
+import { deferRoomEntryWork, deferUntilAccountSync, notifyRoomEntryReady } from "./RoomEntryReady";
 
 const roomId = "!room:example.org";
 
@@ -159,5 +159,49 @@ describe("RoomEntryReady", () => {
         replace();
         vi.runAllTimers();
         expect(work).not.toHaveBeenCalled();
+    });
+});
+
+describe("deferUntilAccountSync", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    function syncingClient(complete: boolean): MatrixClient {
+        // An emitter stands in for the client's sync notifications.
+        const emitter = new TypedEventEmitter<ClientEvent.Sync, { [ClientEvent.Sync]: (state: SyncState) => void }>();
+        return Object.assign(emitter, { isInitialSyncComplete: () => complete }) as unknown as MatrixClient;
+    }
+
+    it("runs immediately once the account has synced", () => {
+        const work = vi.fn();
+        deferUntilAccountSync(syncingClient(true), work);
+        expect(work).toHaveBeenCalledOnce();
+    });
+
+    it("waits for the first prepared sync and runs once", () => {
+        const client = syncingClient(false);
+        const work = vi.fn();
+        deferUntilAccountSync(client, work);
+        client.emit(ClientEvent.Sync, SyncState.Error, null);
+        expect(work).not.toHaveBeenCalled();
+        client.emit(ClientEvent.Sync, SyncState.Prepared, null);
+        client.emit(ClientEvent.Sync, SyncState.Syncing, null);
+        vi.advanceTimersByTime(20_000);
+        expect(work).toHaveBeenCalledOnce();
+        expect(client.listenerCount(ClientEvent.Sync)).toBe(0);
+    });
+
+    it("falls back after a deadline and can be cancelled", () => {
+        const client = syncingClient(false);
+        const late = vi.fn();
+        deferUntilAccountSync(client, late);
+        vi.advanceTimersByTime(15_000);
+        expect(late).toHaveBeenCalledOnce();
+        const cancelled = vi.fn();
+        deferUntilAccountSync(client, cancelled)();
+        client.emit(ClientEvent.Sync, SyncState.Prepared, null);
+        vi.advanceTimersByTime(15_000);
+        expect(cancelled).not.toHaveBeenCalled();
+        expect(client.listenerCount(ClientEvent.Sync)).toBe(0);
     });
 });
