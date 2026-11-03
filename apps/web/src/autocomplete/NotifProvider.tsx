@@ -10,6 +10,7 @@ import { type Room } from "matrix-js-sdk/src/matrix";
 
 import AutocompleteProvider from "./AutocompleteProvider";
 import { _t } from "../languageHandler";
+import SettingsStore from "../settings/SettingsStore";
 import { MatrixClientPeg } from "../MatrixClientPeg";
 import { PillCompletion } from "./Components";
 import { type ICompletion, type ISelectionRange } from "./Autocompleter";
@@ -37,9 +38,11 @@ export default class NotifProvider extends AutocompleteProvider {
         if (!this.room.currentState.mayTriggerNotifOfType("room", client.getSafeUserId())) return [];
 
         const { command, range } = this.getCurrentCommand(query, selection, force);
+        // The desktop shell offers @room alongside everyone else as soon as "@" is typed.
+        const minLength = SettingsStore.getValue("feature_desktop_shell") ? 1 : 2;
         if (
             command?.[0] &&
-            command[0].length > 1 &&
+            command[0].length >= minLength &&
             ["@room", "@channel", "@everyone", "@here"].some((c) => c.startsWith(command[0]))
         ) {
             return [
