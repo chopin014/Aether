@@ -218,6 +218,8 @@ export class ImageBodyViewModel
     }
 
     private static shouldShowBanner(timelineRenderingType: TimelineRenderingType): boolean {
+        // The desktop shell shows a picture on its own; its file name and size belong to the download, not the view.
+        if (SettingsStore.getValue("feature_desktop_shell")) return false;
         return ![TimelineRenderingType.ThreadsList, TimelineRenderingType.File].includes(timelineRenderingType);
     }
 

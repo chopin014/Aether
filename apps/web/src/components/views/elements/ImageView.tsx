@@ -521,7 +521,8 @@ export default class ImageView extends React.Component<IProps, IState> {
         }
 
         let title: JSX.Element | undefined;
-        if (this.props.mxEvent?.getContent()) {
+        // The desktop shell's viewer shows who sent the picture and when, without its file name and size.
+        if (this.props.mxEvent?.getContent() && !SettingsStore.getValue("feature_desktop_shell")) {
             title = (
                 <div className="mx_ImageView_title">
                     {presentableTextForFile(this.props.mxEvent?.getContent(), _t("common|image"), true)}
