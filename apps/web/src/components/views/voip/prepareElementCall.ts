@@ -23,8 +23,11 @@ export function prepareCallSoon(): void {
     prepareAgain?.();
 }
 
-/** Prepare a desktop call during idle time, with cancellation on logout and no microphone capture. */
-export function prepareElementCall(): () => void {
+/**
+ * Prepare a desktop call during idle time, with cancellation on logout and no microphone capture.
+ * An optional scheduler holds automatic preparation until the first conversation paints; explicit intent stays immediate.
+ */
+export function prepareElementCall(schedule?: (start: () => void) => () => void): () => void {
     let disposed = false;
     let pipeline: DesktopVoicePipeline | undefined;
     const prepare = (): void => {
@@ -40,9 +43,15 @@ export function prepareElementCall(): () => void {
             logger.debug("Could not prepare the microphone processor", error);
         }
     };
-    const idle =
-        typeof requestIdleCallback === "function" ? requestIdleCallback(prepare, { timeout: 3000 }) : undefined;
-    const timer = idle === undefined ? setTimeout(prepare, 1000) : undefined;
+    let idle: number | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const startIdle = (): void => {
+        if (disposed) return;
+        idle = typeof requestIdleCallback === "function" ? requestIdleCallback(prepare, { timeout: 3000 }) : undefined;
+        timer = idle === undefined ? setTimeout(prepare, 1000) : undefined;
+    };
+    const cancelScheduled = schedule?.(startIdle);
+    if (!schedule) startIdle();
 
     // Coming back to the app is a good moment to replace a prepared microphone that expired meanwhile.
     const onReturn = (): void => {
@@ -54,6 +63,7 @@ export function prepareElementCall(): () => void {
 
     return () => {
         disposed = true;
+        cancelScheduled?.();
         if (idle !== undefined) cancelIdleCallback(idle);
         clearTimeout(timer);
         window.removeEventListener("focus", onReturn);

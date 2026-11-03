@@ -8,6 +8,7 @@ Please see LICENSE files in the repository root for full details.
 
 import { DesktopAccountDockContainer } from "../views/menus/UserMenuContainer";
 import { prepareElementCall } from "../views/voip/prepareElementCall";
+import { deferRoomEntryWork } from "../../performance/RoomEntryReady";
 import { DesktopProfileHost } from "../views/desktop/DesktopProfileHost";
 
 import React, { type ClipboardEvent } from "react";
@@ -131,6 +132,8 @@ class LoggedInView extends React.Component<IProps, IState> {
 
     private resizerViewModel?: ResizerViewModel;
     private cancelCallPreparation?: () => void;
+    private cancelCallEntryWait?: () => void;
+    private pendingCallIdle?: () => void;
     private readonly desktopShellEnabled = SettingsStore.getValue("feature_desktop_shell");
 
     public static contextType = SDKContext;
@@ -162,7 +165,11 @@ class LoggedInView extends React.Component<IProps, IState> {
                 SettingsStore.getValue("feature_element_call_react") &&
                 !SettingsStore.getValue("Developer.elementCallMockComponent")
             ) {
-                this.cancelCallPreparation = prepareElementCall();
+                this.cancelCallPreparation = prepareElementCall((start) => {
+                    this.pendingCallIdle = start;
+                    this.scheduleCallIdle();
+                    return () => this.cancelCallEntryWait?.();
+                });
             }
         }
         document.addEventListener("keydown", this.onNativeKeyDown, false);
@@ -242,7 +249,22 @@ class LoggedInView extends React.Component<IProps, IState> {
         }
     };
 
+    private scheduleCallIdle(): void {
+        this.cancelCallEntryWait?.();
+        const destination = this.props.currentRoomId || this.context.roomViewStore.getRoomId() || undefined;
+        this.cancelCallEntryWait = deferRoomEntryWork(this._matrixClient, destination, () => {
+            const start = this.pendingCallIdle;
+            this.pendingCallIdle = undefined;
+            start?.();
+        });
+    }
+
+    public componentDidUpdate(previousProps: IProps): void {
+        if (this.pendingCallIdle && previousProps.currentRoomId !== this.props.currentRoomId) this.scheduleCallIdle();
+    }
+
     public componentWillUnmount(): void {
+        this.pendingCallIdle = undefined;
         this.cancelCallPreparation?.();
         if (this.desktopShellEnabled) document.body.classList.remove("mx_DesktopShell");
         document.removeEventListener("keydown", this.onNativeKeyDown, false);
