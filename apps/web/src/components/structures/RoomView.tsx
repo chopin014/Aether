@@ -102,6 +102,7 @@ import { objectHasDiff } from "../../utils/objects";
 import SpaceRoomView from "./SpaceRoomView";
 import SpaceHierarchy, { showRoom } from "./SpaceHierarchy";
 import { getPreparedHierarchySummary, prepareSpaceHierarchy } from "../../performance/PreparedSpaceHierarchy";
+import { takeAliasSummary } from "../../performance/AliasRoomSummary";
 import { type IOpts } from "../../createRoom";
 import EditorStateTransfer from "../../utils/EditorStateTransfer";
 import ErrorDialog from "../views/dialogs/ErrorDialog";
@@ -959,10 +960,15 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         }
 
         logger.info(`Attempting to get the room summary of ${roomId}`);
-        const summaryRequest = client.getRoomSummary(roomId, this.roomViewStore.getViaServers()).catch((err) => {
-            logger.warn(`Failed to get the room summary of ${roomId}`, err);
-            return undefined;
-        });
+        const fetchSummary = (): Promise<RoomSummary | undefined> =>
+            client.getRoomSummary(roomId, this.roomViewStore.getViaServers()).catch((err) => {
+                logger.warn(`Failed to get the room summary of ${roomId}`, err);
+                return undefined;
+            });
+        // An alias navigation already requested the summary alongside resolving the alias.
+        const alias = this.roomViewStore.getRoomAlias();
+        const prefetched = alias ? takeAliasSummary(client, alias, roomId) : undefined;
+        const summaryRequest = prefetched ? prefetched.then((summary) => summary ?? fetchSummary()) : fetchSummary();
         if (seeded) await this.showRoomSummary(client, roomId, seeded, false);
 
         const roomSummary = await summaryRequest;

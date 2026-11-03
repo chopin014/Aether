@@ -62,6 +62,7 @@ import PlatformPeg from "../../PlatformPeg";
 import EventIndexPeg from "../../indexing/EventIndexPeg";
 import MediaDeviceHandler from "../../MediaDeviceHandler";
 import * as Lifecycle from "../../Lifecycle";
+import * as aliasPreviews from "../../performance/AliasRoomSummary";
 import Views from "../../Views";
 import { LegacyCryptoStoreError } from "../../utils/LegacyCryptoStoreError.ts";
 import { SSO_HOMESERVER_URL_KEY, SSO_ID_SERVER_URL_KEY } from "../../BasePlatform";
@@ -903,6 +904,21 @@ describe("<MatrixChat />", () => {
                 chat["firstSyncPromise"].resolve();
                 await starting;
                 expect(chat["onShowPostLoginScreen"]).toHaveBeenCalledOnce();
+            });
+
+            it.each([
+                { screen: "room/#unjoined:server.org", alias: "#unjoined:server.org" },
+                { screen: "room/#with/slash:server.org/$event", alias: "#with/slash:server.org" },
+                { screen: "room/!id:server.org", alias: undefined },
+                { screen: "home", alias: undefined },
+            ])("starts resolving the opened alias before the client starts: $screen", ({ screen, alias }) => {
+                const prefetch = vi.spyOn(aliasPreviews, "prefetchAliasPreview").mockImplementation(() => {});
+                vi.spyOn(MatrixClientPeg, "get").mockReturnValue(mockClient);
+                const chat = new MatrixChat({ ...defaultProps, initialScreenAfterLogin: { screen, params: {} } });
+                vi.spyOn(chat, "setState").mockImplementation(() => {});
+                chat["onAction"]({ action: Action.WillStartClient });
+                if (alias) expect(prefetch).toHaveBeenCalledExactlyOnceWith(mockClient, alias);
+                else expect(prefetch).not.toHaveBeenCalled();
             });
 
             it("keeps explicit previews behind required verification", async () => {

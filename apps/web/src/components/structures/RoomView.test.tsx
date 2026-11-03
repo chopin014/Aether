@@ -1367,11 +1367,35 @@ describe("RoomView", () => {
             await flushPromises();
             const instance = await getRoomViewInstance();
             expect(cli.getRoomIdForAlias).toHaveBeenCalledWith(alias);
-            expect(cli.getRoomSummary).toHaveBeenCalledWith(room.roomId, ["example.org"]);
+            // The summary was requested by alias alongside the lookup, so no second request is made by ID.
+            expect(cli.getRoomSummary).toHaveBeenCalledExactlyOnceWith(alias, undefined);
             expect(screen.getByRole("button", { name: "Join the discussion" })).toBeInTheDocument();
             expect(cli.peekInRoom).not.toHaveBeenCalled();
             expect(instance.state.matrixClientIsReady).toBe(false);
             expect(cli.isInitialSyncComplete()).toBe(false);
+        });
+
+        it("fetches the summary by ID when the alias summary describes another room", async () => {
+            cli.clientRunning = true;
+            const alias = `#moved-${room.roomId.slice(1)}`;
+            cli.getRoomIdForAlias.mockResolvedValue({ room_id: room.roomId, servers: ["example.org"] });
+            cli.getRoomSummary.mockImplementation(async (address) => ({
+                room_id: address === alias ? "!previous:example.org" : room.roomId,
+                membership: KnownMembership.Leave,
+                world_readable: false,
+                guest_can_join: false,
+                num_joined_members: 10,
+            }));
+            await stores.roomViewStore.viewRoom({
+                action: Action.ViewRoom,
+                room_alias: alias,
+                metricsTrigger: undefined,
+            });
+            await flushPromises();
+            const instance = await getRoomViewInstance();
+            await act(flushPromises);
+            expect(cli.getRoomSummary).toHaveBeenNthCalledWith(2, room.roomId, ["example.org"]);
+            expect(instance.state.roomSummary?.room_id).toBe(room.roomId);
         });
 
         it("keeps a joined summary loading until its joined room becomes ready", async () => {

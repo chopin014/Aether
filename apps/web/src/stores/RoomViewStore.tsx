@@ -30,6 +30,7 @@ import { MatrixClientPeg } from "../MatrixClientPeg";
 import Modal from "../Modal";
 import { _t, UserFriendlyError } from "../languageHandler";
 import { getCachedRoomIdForAlias, storeRoomAliasInCache } from "../RoomAliasCache";
+import { prefetchAliasSummary, takeAliasLookup } from "../performance/AliasRoomSummary";
 import { Action } from "../dispatcher/actions";
 import { retry } from "../utils/promise";
 import { TimelineRenderingType } from "../contexts/RoomContext";
@@ -559,8 +560,16 @@ export class RoomViewStore extends EventEmitter {
                     wasContextSwitch: payload.context_switch,
                     viewingCall: payload.view_call ?? false,
                 });
+                const client = MatrixClientPeg.safeGet();
+                // Startup may already be resolving this alias. Otherwise fetch the preview's summary, which
+                // accepts the alias too, alongside the directory lookup.
+                let lookup = takeAliasLookup(client, payload.room_alias);
+                if (!lookup) {
+                    prefetchAliasSummary(client, payload.room_alias, payload.via_servers);
+                    lookup = client.getRoomIdForAlias(payload.room_alias);
+                }
                 try {
-                    const result = await MatrixClientPeg.safeGet().getRoomIdForAlias(payload.room_alias);
+                    const result = await lookup;
                     storeRoomAliasInCache(payload.room_alias, result.room_id, result.servers);
                     roomId = result.room_id;
                     viaServers = result.servers;
