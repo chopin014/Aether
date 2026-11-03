@@ -8,6 +8,7 @@ Please see LICENSE files in the repository root for full details.
 import { expect, describe, it, beforeEach, vi } from "vitest";
 import { fs as memfs, vol } from "memfs";
 import { app } from "electron";
+import path from "node:path";
 
 import { type Args, getArgs, getArgsForProtocolRegistration } from "./args.js";
 import type ProtocolHandler from "./protocol.js";
@@ -268,7 +269,7 @@ describe("getArgs", () => {
 
             const args = run();
             expect(args).toEqual({
-                userDataPath: "/Users/name/Library/Application Support/Riot",
+                userDataPath: path.join("/Users/name/Library/Application Support", "Riot"),
                 devtools: false,
                 update: true,
                 hidden: false,

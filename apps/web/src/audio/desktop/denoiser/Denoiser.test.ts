@@ -110,9 +110,10 @@ describe("Denoiser", { timeout: 30000 }, () => {
         // The output trails the input by the model's look-ahead and one frame of buffering.
         // The synthetic voice loses a little level, as speech under suppression does; noise would add, not remove.
         const delay = 0.04 * RATE;
-        expect(levelDb(output.subarray(delay))).toBeGreaterThan(levelDb(speech) - 5);
+        const speechLevel = levelDb(speech);
+        expect(levelDb(output.subarray(delay))).toBeGreaterThan(speechLevel - 5);
         const duringSpeech = detected.filter(
-            (_, block) => levelDb(speech.subarray(block * 128, block * 128 + 128)) > levelDb(speech) - 6,
+            (_, block) => levelDb(speech.subarray(block * 128, block * 128 + 128)) > speechLevel - 6,
         );
         expect(duringSpeech.filter(Boolean).length / duringSpeech.length).toBeGreaterThan(0.9);
     });
