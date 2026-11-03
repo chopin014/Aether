@@ -27,6 +27,7 @@ import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDial
 import RightPanelStore from "../../stores/right-panel/RightPanelStore";
 import { RightPanelPhases } from "../../stores/right-panel/RightPanelStorePhases";
 import type SpaceStore from "../../stores/spaces/SpaceStore";
+import type { MemberListStore } from "../../stores/MemberListStore";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
 import { RoomPermalinkCreator } from "../../utils/permalinks/Permalinks";
 import { isVideoRoom } from "../../utils/video-rooms";
@@ -57,6 +58,8 @@ interface Props {
     item: ChannelMenuItemSource;
     /** Where the "Create text channel" entry looks for the active Space. */
     spaceStore?: Pick<SpaceStore, "activeSpaceRoom" | "isRoomInSpace">;
+    /** Shares membership hydration with the room's other roster consumers. */
+    memberListStore?: Pick<MemberListStore, "ensureMembersLoaded">;
 }
 
 /**
@@ -77,9 +80,17 @@ export class ChannelMenuViewModel
         const space = (props.spaceStore ?? SDKContextClass.instance.spaceStore).activeSpaceRoom;
         if (space) this.disposables.trackListener(space.currentState, RoomStateEvent.Events, this.refresh);
         if (!props.room.membersLoaded()) {
-            void props.room
-                .loadMembersIfNeeded()
-                .then(this.refresh)
+            // Native encrypted subscriptions do not mark the SDK's full-membership readiness.
+            // Share its hydration with crypto so deletion never relies on an incomplete bootstrap roster.
+            const membersReady = props.client.isRoomEncrypted(props.room.roomId)
+                ? props.room.loadMembersIfNeeded()
+                : (props.memberListStore ?? SDKContextClass.instance.memberListStore).ensureMembersLoaded(
+                      props.room.roomId,
+                  );
+            void membersReady
+                .then(() => {
+                    if (!this.isDisposed) this.refresh();
+                })
                 .catch((error) => {
                     logger.warn("Unable to check channel deletion permissions", error);
                 });

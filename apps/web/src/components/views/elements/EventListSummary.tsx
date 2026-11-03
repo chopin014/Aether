@@ -764,6 +764,7 @@ export default class EventListSummary extends React.Component<Props, State> {
     public render(): React.ReactNode {
         return (
             <GenericEventListSummary
+                as={this.props.as}
                 data-testid={this.props["data-testid"]}
                 events={this.props.events}
                 threshold={this.props.threshold}

@@ -366,6 +366,30 @@ describe("RoomView", () => {
         expect(asFragment()).toMatchSnapshot();
     });
 
+    it("shares native sliding-sync roster hydration with the member list instead of importing cached members", async () => {
+        await mountRoomView();
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+            name === "feature_simplified_sliding_sync" ? true : getValue(name, ...args),
+        );
+        cli.hasLazyLoadMembersEnabled.mockReturnValue(true);
+        vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+        const cachedHydration = vi.spyOn(room, "loadMembersIfNeeded");
+        const response = Promise.withResolvers<Awaited<ReturnType<MatrixClient["members"]>>>();
+        cli.members = vi.fn().mockReturnValue(response.promise);
+        act(() => {
+            cli.emit(RoomEvent.MyMembership, room, KnownMembership.Join, KnownMembership.Leave);
+        });
+        const memberList = stores.memberListStore.loadMemberList(room.roomId);
+        await waitFor(() => expect(cli.members).toHaveBeenCalledTimes(1));
+        await act(async () => {
+            response.resolve({ chunk: [] });
+            await memberList;
+        });
+        expect(cachedHydration).not.toHaveBeenCalled();
+        expect(cli.members).toHaveBeenCalledTimes(1);
+    });
+
     describe("desktop pinned messages", () => {
         let desktopShell: boolean;
         let pinnedEvent: MatrixEvent;

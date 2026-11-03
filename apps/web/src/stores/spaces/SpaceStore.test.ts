@@ -990,8 +990,9 @@ describe("SpaceStore", () => {
         // set up space with LL where loadMembersIfNeeded emits membership events which trip switchSpaceIfNeeded
         expect(space.loadMembersIfNeeded).not.toHaveBeenCalled();
 
+        vi.mocked(client.hasLazyLoadMembersEnabled).mockReturnValue(true);
         store.setActiveSpace(space1, true);
-        vi.runOnlyPendingTimers();
+        await vi.runOnlyPendingTimersAsync();
         expect(space.loadMembersIfNeeded).toHaveBeenCalled();
         vi.runAllTimers();
 

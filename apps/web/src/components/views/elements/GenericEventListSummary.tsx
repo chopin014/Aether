@@ -18,6 +18,8 @@ import AccessibleButton from "./AccessibleButton";
 import { Layout } from "../../../settings/enums/Layout";
 
 interface IProps {
+    /** The virtualized timeline supplies its own list item around the summary. */
+    "as"?: "li" | "div";
     // An array of member events to summarise
     "events": MatrixEvent[];
     // The minimum number of events needed to trigger summarisation
@@ -38,6 +40,7 @@ interface IProps {
 }
 
 const GenericEventListSummary: React.FC<IProps> = ({
+    "as": Element = "li",
     events,
     children,
     threshold = 3,
@@ -62,14 +65,14 @@ const GenericEventListSummary: React.FC<IProps> = ({
     // If we are only given few events then just pass them through
     if (events.length < threshold) {
         return (
-            <li
+            <Element
                 className="mx_GenericEventListSummary"
                 data-scroll-tokens={eventIds}
                 data-expanded={true}
                 data-layout={layout}
             >
                 <ol className="mx_GenericEventListSummary_unstyledList">{children}</ol>
-            </li>
+            </Element>
         );
     }
 
@@ -112,7 +115,7 @@ const GenericEventListSummary: React.FC<IProps> = ({
     }
 
     return (
-        <li
+        <Element
             className="mx_GenericEventListSummary"
             data-scroll-tokens={eventIds}
             data-expanded={expanded + ""}
@@ -128,7 +131,7 @@ const GenericEventListSummary: React.FC<IProps> = ({
                 {expanded ? _t("action|collapse") : _t("action|expand")}
             </AccessibleButton>
             {body}
-        </li>
+        </Element>
     );
 };
 

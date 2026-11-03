@@ -44,7 +44,7 @@ function memberRows(items: DesktopMemberListItem[]) {
 
 function setup(inSpace = false, enabled = true, loadSpace: () => Promise<boolean> = async () => false) {
     const client = stubClient();
-    vi.mocked(client.hasLazyLoadMembersEnabled).mockReturnValue(false);
+    vi.mocked(client.hasLazyLoadMembersEnabled).mockReturnValue(true);
     const context = new TestSDKContext();
     context._client = client;
     const room = new Room("!channel:example.org", client, client.getSafeUserId());

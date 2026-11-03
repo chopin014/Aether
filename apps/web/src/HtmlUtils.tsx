@@ -243,6 +243,8 @@ export function formatEmojis(message: string | undefined, isHtmlMessage?: boolea
     const emojiToSpan = isHtmlMessage ? emojiToHtmlSpan : emojiToJsxSpan;
     const result: (JSX.Element | string)[] = [];
     if (!message) return result;
+    // Most timeline text has no emoji; avoid segmenting every character of those messages.
+    if (!EMOJI_REGEX.test(message)) return [message];
 
     let text = "";
     let key = 0;

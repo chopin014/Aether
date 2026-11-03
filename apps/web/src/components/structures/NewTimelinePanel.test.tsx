@@ -8,11 +8,11 @@ Please see LICENSE files in the repository root for full details.
 // @vitest-environment happy-dom
 
 import React from "react";
-import { render, screen } from "test-utils-rtl";
+import { fireEvent, render, screen } from "test-utils-rtl";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { type MatrixClient, type MatrixEvent, PendingEventOrdering, Room } from "matrix-js-sdk/src/matrix";
+import { type MatrixClient, type MatrixEvent, PendingEventOrdering, Room, RoomMember } from "matrix-js-sdk/src/matrix";
 import type { TimelineItem } from "@element-hq/web-shared-components";
-import { createTestClient, mkMessage, TestSDKContext } from "test-utils";
+import { createTestClient, mkMembership, mkMessage, TestSDKContext } from "test-utils";
 
 import { NewTimelinePanel } from "./NewTimelinePanel";
 import { Layout } from "../../settings/enums/Layout";
@@ -152,6 +152,30 @@ describe("<NewTimelinePanel />", () => {
 
         expect(screen.getByTestId("event-row")).toBeInTheDocument();
         expect(tileProps.current[0].mxEvent).toBe(event);
+    });
+
+    it("shows a compact membership group and mounts its individual tiles only when expanded", () => {
+        const events = Array.from({ length: 3 }, (_, index) => {
+            const user = `@member${index}:example.org`;
+            return mkMembership({
+                room: ROOM_ID,
+                user,
+                skey: user,
+                mship: "join",
+                event: true,
+                target: new RoomMember(ROOM_ID, user),
+            });
+        });
+        withItems([{ key: events[0].getId()!, kind: "event-group", events }]);
+        const { container } = renderPanel();
+        expect(container.querySelector(".mx_GenericEventListSummary")?.tagName).toBe("DIV");
+        expect(screen.queryAllByTestId("event-row")).toHaveLength(0);
+        fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+        expect(screen.getAllByTestId("event-row")).toHaveLength(3);
+        expect(tileProps.current.map((props) => props.mxEvent)).toEqual(events);
+        expect(container.querySelectorAll("ol > li")).toHaveLength(3);
+        fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
+        expect(screen.queryAllByTestId("event-row")).toHaveLength(0);
     });
 
     it("draws a row whose event the room no longer has", () => {

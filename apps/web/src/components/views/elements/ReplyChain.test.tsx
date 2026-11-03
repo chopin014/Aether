@@ -8,7 +8,7 @@ Please see LICENSE files in the repository root for full details.
 // @vitest-environment happy-dom
 
 import React from "react";
-import { render, screen, waitFor } from "test-utils-rtl";
+import { act, render, screen, waitFor } from "test-utils-rtl";
 import { describe, it, expect, vi } from "vitest";
 import { type MatrixClient, type MatrixEvent } from "matrix-js-sdk/src/matrix";
 import { mkEvent, stubClient, withClientContextRenderOptions } from "test-utils";
@@ -175,6 +175,73 @@ describe("ReplyChain", () => {
                 id: "$quoted",
                 content: { body: "Quoted", msgtype: "m.text" },
             });
+
+        it("batches quote geometry before expansion updates without measuring synchronously on mount", async () => {
+            const cli = stubClient();
+            const { room_id: roomId } = await cli.createRoom({});
+            const target = mkQuoted(cli, roomId);
+            const { parentEv } = await setUp(target);
+            const order: string[] = [];
+            const frames: FrameRequestCallback[] = [];
+            const frame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+                frames.push(callback);
+                return frames.length;
+            });
+            const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(() => {
+                order.push("read");
+                return 100;
+            });
+            const setQuoteExpanded = vi.fn(() => order.push("write"));
+            try {
+                const view = render(
+                    <>
+                        <ReplyChain parentEv={parentEv} setQuoteExpanded={setQuoteExpanded} compactPreview />
+                        <ReplyChain parentEv={parentEv} setQuoteExpanded={setQuoteExpanded} compactPreview />
+                    </>,
+                    withClientContextRenderOptions(cli),
+                );
+                expect(order).toEqual([]);
+                expect(setQuoteExpanded).not.toHaveBeenCalled();
+                act(() => {
+                    for (const callback of frames.splice(0)) callback(performance.now());
+                });
+                expect(setQuoteExpanded).toHaveBeenCalledTimes(2);
+                expect(order).toEqual(["read", "read", "write", "write"]);
+                view.unmount();
+            } finally {
+                height.mockRestore();
+                frame.mockRestore();
+            }
+        });
+
+        it("cancels pending quote measurements on unmount", async () => {
+            const cli = stubClient();
+            const { room_id: roomId } = await cli.createRoom({});
+            const { parentEv } = await setUp(mkQuoted(cli, roomId));
+            let flush: FrameRequestCallback | undefined;
+            const frame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+                flush = callback;
+                return 101;
+            });
+            const cancel = vi.spyOn(window, "cancelAnimationFrame");
+            const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(100);
+            const setQuoteExpanded = vi.fn();
+            try {
+                const { unmount } = render(
+                    <ReplyChain parentEv={parentEv} setQuoteExpanded={setQuoteExpanded} compactPreview />,
+                    withClientContextRenderOptions(cli),
+                );
+                unmount();
+                expect(cancel).toHaveBeenCalledWith(101);
+                act(() => flush?.(performance.now()));
+                expect(height).not.toHaveBeenCalled();
+                expect(setQuoteExpanded).not.toHaveBeenCalled();
+            } finally {
+                height.mockRestore();
+                cancel.mockRestore();
+                frame.mockRestore();
+            }
+        });
 
         it("shows the quoted message immediately when the room already has it", async () => {
             const cli = stubClient();

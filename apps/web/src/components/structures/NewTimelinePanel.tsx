@@ -27,6 +27,7 @@ import { _t } from "../../languageHandler";
 import type { RoomPermalinkCreator } from "../../utils/permalinks/Permalinks";
 import type EditorStateTransfer from "../../utils/EditorStateTransfer";
 import { DateSeparatorWrapper } from "./DateSeparatorWrapper";
+import EventListSummary from "../views/elements/EventListSummary";
 import type { IReadReceiptPosition } from "../views/rooms/ReadReceiptMarker";
 
 interface NewTimelinePanelProps {
@@ -104,6 +105,27 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNo
         // history either, so until there is a design for one, neither do we.
         case "gap":
             return null;
+        case "event-group": {
+            const events = item.events as MatrixEvent[];
+            return (
+                <EventListSummary key={item.key} as="div" events={events} layout={ctx.effectiveLayout}>
+                    {events.map((event) => (
+                        <li key={event.getId()}>
+                            {renderTimelineItem(
+                                {
+                                    kind: "event",
+                                    key: event.getId()!,
+                                    event,
+                                    continuation: false,
+                                    lastInSection: true,
+                                },
+                                ctx,
+                            )}
+                        </li>
+                    ))}
+                </EventListSummary>
+            );
+        }
         case "event": {
             const mxEvent = item.event as MatrixEvent;
 

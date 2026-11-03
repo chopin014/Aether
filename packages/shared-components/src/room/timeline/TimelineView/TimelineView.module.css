@@ -21,6 +21,18 @@
     overflow-anchor: none;
 }
 
+/* Keep the virtualizer's measured list height intact. Auto margin absorbs unused space
+   without adding fake rows or changing its scroll coordinates once the list overflows. */
+.bottomAligned {
+    display: flex;
+    flex-direction: column;
+}
+
+.bottomAligned .list {
+    margin-top: auto;
+    flex-shrink: 0;
+}
+
 /* Applied during the first load. The list is laid out and scrolled into position, but kept
    hidden (a spinner shows instead) so the user does not watch it shuffle into place. */
 .hidden {

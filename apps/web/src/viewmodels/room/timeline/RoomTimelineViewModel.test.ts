@@ -162,6 +162,163 @@ describe("RoomTimelineViewModel", () => {
         });
     });
 
+    describe("membership summaries", () => {
+        const makeMember = (id: string, ts = 1_700_000_000_000): MatrixEvent =>
+            new MatrixEvent({
+                event_id: id,
+                room_id: ROOM_ID,
+                type: EventType.RoomMember,
+                sender: OTHER_USER_ID,
+                state_key: `@${id.slice(1)}:example.org`,
+                origin_server_ts: ts,
+                content: { membership: KnownMembership.Join },
+                unsigned: { prev_content: { membership: KnownMembership.Leave } },
+            });
+        const memberships = (count: number, prefix = "m", ts?: number): MatrixEvent[] =>
+            Array.from({ length: count }, (_, i) => makeMember(`$${prefix}${i}`, ts));
+        const groups = (vm: RoomTimelineViewModel) =>
+            vm.getSnapshot().items.filter((item) => item.kind === "event-group");
+
+        beforeEach(() => {
+            // The generic settings API returns different value types for each key.
+            vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
+                if (key === "showJoinLeaves" || key === "sendReadReceipts") return true;
+                if (key === "showHiddenEventsInTimeline") return false;
+                return undefined;
+            });
+        });
+
+        it("compacts consecutive included members while retaining messages and small runs", async () => {
+            seedTimeline([
+                makeMessage("$before"),
+                ...memberships(5),
+                makeMessage("$after"),
+                ...memberships(2, "small"),
+            ]);
+            const vm = await createStartedViewModel();
+            expect(groups(vm)).toHaveLength(1);
+            expect(groups(vm)[0].events).toHaveLength(5);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$before", "$after", "$small0", "$small1"]);
+        });
+
+        it("keeps membership display preferences in force", async () => {
+            vi.mocked(SettingsStore).getValue.mockReturnValue(false);
+            seedTimeline([makeMessage("$message"), ...memberships(5)]);
+            const vm = await createStartedViewModel();
+            expect(groups(vm)).toHaveLength(0);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$message"]);
+        });
+
+        it("does not combine runs across a date boundary", async () => {
+            seedTimeline([...memberships(3, "first"), ...memberships(3, "second", 1_700_000_000_000 + 86_400_000)]);
+            const vm = await createStartedViewModel();
+            expect(groups(vm).map((group) => group.events.length)).toEqual([3, 3]);
+        });
+
+        it("keeps a permalink member and its highlight individually addressable", async () => {
+            seedTimeline(memberships(7));
+            const vm = await createStartedViewModel("$m3");
+            expect(eventKeys(vm.getSnapshot().items)).toContain("$m3");
+            expect(groups(vm).map((group) => group.events.length)).toEqual([3, 3]);
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$m3", align: "center" });
+            expect(vm.getSnapshot().highlightedEventId).toBe("$m3");
+        });
+
+        it("keeps the frozen read marker immediately after its own member event", async () => {
+            seedTimeline(memberships(7));
+            room.addAccountData([
+                new MatrixEvent({
+                    type: EventType.FullyRead,
+                    room_id: ROOM_ID,
+                    content: { event_id: "$m3" },
+                }),
+            ]);
+            const vm = await createStartedViewModel();
+            const items = vm.getSnapshot().items;
+            expect(items[indexOfKey(items, "$m3") + 1].kind).toBe("read-marker");
+            expect(groups(vm).map((group) => group.events.length)).toEqual([3, 3]);
+        });
+
+        it("keeps a restored member individually addressable", async () => {
+            seedTimeline(memberships(7));
+            localStorage.setItem(`timeline_scroll_${ROOM_ID}`, "$m3");
+            const vm = await createStartedViewModel();
+            expect(eventKeys(vm.getSnapshot().items)).toContain("$m3");
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$m3", align: "end" });
+        });
+
+        it("preserves the summary key when a live member extends it", async () => {
+            seedTimeline(memberships(3));
+            const vm = await createStartedViewModel();
+            const key = groups(vm)[0].key;
+            const event = makeMember("$new");
+            room.getUnfilteredTimelineSet().addLiveEvent(event, { addToState: false });
+            await vi.waitFor(() => expect(groups(vm)[0].events).toHaveLength(4));
+            expect(groups(vm)[0].key).toBe(key);
+        });
+
+        it("preserves the summary key and pagination progress when older members extend it", async () => {
+            seedTimeline(memberships(4));
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockImplementation(async (timeline) => {
+                room.getUnfilteredTimelineSet().addEventsToTimeline(
+                    memberships(3, "older").reverse(),
+                    true,
+                    false,
+                    timeline,
+                    "more-older",
+                );
+                return true;
+            });
+            const vm = await createStartedViewModel();
+            const key = groups(vm)[0].key;
+            vm.onAnchorReached();
+            vm.onStartReached();
+            await vi.waitFor(() => expect(groups(vm)[0].events).toHaveLength(7));
+            expect(groups(vm)[0].key).toBe(key);
+            expect(fetchPage).toHaveBeenCalledTimes(1);
+        });
+
+        it("receipts and saves the real last event represented by a visible summary", async () => {
+            seedTimeline([makeMessage("$message"), ...memberships(4)]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const groupIndex = vm.getSnapshot().items.findIndex((item) => item.kind === "event-group");
+            vm.onVisibleRangeChanged(groupIndex, groupIndex);
+            await vi.waitFor(() => expect(client.sendReadReceipt).toHaveBeenCalled(), { timeout: 2000 });
+            expect(vi.mocked(client.sendReadReceipt).mock.calls[0][0]?.getId()).toBe("$m3");
+            vm.dispose();
+            expect(localStorage.getItem(`timeline_scroll_${ROOM_ID}`)).toBe("$m3");
+        });
+
+        it("keeps summary identity when the SDK trims its original first event", async () => {
+            seedTimeline(memberships(4));
+            const vm = await createStartedViewModel();
+            const key = groups(vm)[0].key;
+            // Exercise the SDK's normal window trim without creating hundreds of filler events.
+            (
+                vm as unknown as { timelineWindow: { unpaginate: (count: number, start: boolean) => void } }
+            ).timelineWindow.unpaginate(1, true);
+            room.getUnfilteredTimelineSet().addLiveEvent(makeMember("$new"), { addToState: false });
+            await vi.waitFor(() => expect(groups(vm)[0].events).toHaveLength(4));
+            expect((groups(vm)[0].events[0] as MatrixEvent).getId()).toBe("$m1");
+            expect(groups(vm)[0].key).toBe(key);
+        });
+
+        it("retains receipts associated with a grouped event for expanded child rendering", async () => {
+            seedTimeline([makeMessage("$message"), ...memberships(4)]);
+            const vm = await createStartedViewModel();
+            room.addReceipt(
+                new MatrixEvent({
+                    type: EventType.Receipt,
+                    content: { $m1: { [ReceiptType.Read]: { [OTHER_USER_ID]: { ts: 1000 } } } },
+                }),
+            );
+            expect(vm.getSnapshot().readReceiptsByEvent.get("$m1")?.[0].userId).toBe(OTHER_USER_ID);
+            expect(vm.getSnapshot().readReceiptsByEvent.get("$message") ?? []).toHaveLength(0);
+        });
+    });
+
     describe("initial load", () => {
         it("publishes the room's messages as event items", async () => {
             seedTimeline([makeMessage("$a"), makeMessage("$b"), makeMessage("$c")]);
@@ -177,6 +334,159 @@ describe("RoomTimelineViewModel", () => {
             const vm = await createStartedViewModel();
 
             expect(vm.getSnapshot().atLiveEnd).toBe(true);
+        });
+
+        it("publishes cached live messages before fetching older history", async () => {
+            seedTimeline([makeMessage("$cached")]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            let finishPage!: (more: boolean) => void;
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockReturnValue(
+                new Promise<boolean>((resolve) => {
+                    finishPage = resolve;
+                }),
+            );
+
+            const vm = await createStartedViewModel();
+
+            expect(fetchPage).not.toHaveBeenCalled();
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$cached"]);
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$cached", align: "end" });
+            expect(vm.getSnapshot().alignToBottom).toBe(true);
+            vm.onAnchorReached();
+            vm.onStartReached();
+            await vi.waitFor(() => expect(fetchPage).toHaveBeenCalledTimes(1));
+            expect(eventKeys(vm.getSnapshot().items)).toContain("$cached");
+            finishPage(false);
+        });
+
+        it("publishes the first visible live page without waiting to fill forty messages", async () => {
+            seedTimeline([
+                new MatrixEvent({
+                    event_id: "$hidden",
+                    room_id: ROOM_ID,
+                    type: EventType.Reaction,
+                    content: {},
+                }),
+            ]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockImplementation(async (timeline) => {
+                room.getUnfilteredTimelineSet().addEventsToTimeline(
+                    [makeMessage("$visible")],
+                    true,
+                    false,
+                    timeline,
+                    "more-older",
+                );
+                return true;
+            });
+
+            const vm = await createStartedViewModel();
+
+            expect(fetchPage).toHaveBeenCalledTimes(1);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$visible"]);
+            expect(vm.getSnapshot().alignToBottom).toBe(true);
+        });
+
+        it("continues backward after hidden initial pages instead of leaving the live timeline blank", async () => {
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            let page = 0;
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockImplementation(async (timeline) => {
+                page++;
+                const event =
+                    page < 3
+                        ? new MatrixEvent({
+                              event_id: `$hidden${page}`,
+                              room_id: ROOM_ID,
+                              type: EventType.Reaction,
+                              content: {},
+                          })
+                        : makeMessage("$visible");
+                room.getUnfilteredTimelineSet().addEventsToTimeline([event], true, false, timeline, `older${page}`);
+                return true;
+            });
+            const vm = new RoomTimelineViewModel({ client, room });
+            vms.push(vm);
+            vm.start();
+
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$visible"]));
+            expect(fetchPage).toHaveBeenCalledTimes(3);
+        });
+
+        it("continues through empty server pages with valid tokens to find the first visible message", async () => {
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            let page = 0;
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockImplementation(async (timeline) => {
+                page++;
+                if (page <= 3) {
+                    timeline.setPaginationToken(`older${page}`, Direction.Backward);
+                } else {
+                    room.getUnfilteredTimelineSet().addEventsToTimeline(
+                        [makeMessage("$visible")],
+                        true,
+                        false,
+                        timeline,
+                        `older${page}`,
+                    );
+                }
+                return true;
+            });
+            const vm = new RoomTimelineViewModel({ client, room });
+            vms.push(vm);
+            vm.start();
+
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$visible"]));
+            expect(fetchPage).toHaveBeenCalledTimes(4);
+        });
+
+        it("bounds empty server pages on both sides of a permalink and preserves its anchor", async () => {
+            seedTimeline([makeMessage("$target")]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            room.getLiveTimeline().setPaginationToken("newer", Direction.Forward);
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockResolvedValue(true);
+
+            const vm = await createStartedViewModel("$target");
+
+            expect(fetchPage.mock.calls.map(([, options]) => options?.backwards)).toEqual([true, true, false, false]);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$target"]);
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$target", align: "center" });
+            expect(vm.getSnapshot().highlightedEventId).toBe("$target");
+        });
+
+        it("fills a restored position before publishing without bottom alignment", async () => {
+            seedTimeline([makeMessage("$saved")]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            localStorage.setItem(`timeline_scroll_${ROOM_ID}`, "$saved");
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockResolvedValue(true);
+
+            const vm = await createStartedViewModel();
+
+            expect(fetchPage).toHaveBeenCalledTimes(2);
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$saved", align: "end" });
+            expect(vm.getSnapshot().alignToBottom).toBe(false);
+        });
+
+        it("stops filling when disposed while a server page is pending", async () => {
+            seedTimeline([makeMessage("$cached")]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            let finishPage!: (more: boolean) => void;
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockReturnValue(
+                new Promise<boolean>((resolve) => {
+                    finishPage = resolve;
+                }),
+            );
+            const vm = new RoomTimelineViewModel({ client, room, initialEventId: "$cached" });
+            vms.push(vm);
+            vm.start();
+            await vi.waitFor(() => expect(fetchPage).toHaveBeenCalledTimes(1));
+
+            vm.dispose();
+            finishPage(true);
+            await Promise.resolve();
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(fetchPage).toHaveBeenCalledTimes(1);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual([]);
         });
 
         it("highlights and anchors the permalink event it was opened on", async () => {
@@ -281,7 +591,9 @@ describe("RoomTimelineViewModel", () => {
 
             vm.onStartReached();
 
-            await vi.waitFor(() => expect(paginate).toHaveBeenCalledWith(Direction.Backward, expect.any(Number)));
+            await vi.waitFor(() =>
+                expect(paginate).toHaveBeenCalledWith(Direction.Backward, expect.any(Number), true, 1),
+            );
         });
 
         it("does not ask for older messages once the start of the room is loaded", async () => {
@@ -341,7 +653,9 @@ describe("RoomTimelineViewModel", () => {
 
             vm.onEndReached();
 
-            await vi.waitFor(() => expect(paginate).toHaveBeenCalledWith(Direction.Forward, expect.any(Number)));
+            await vi.waitFor(() =>
+                expect(paginate).toHaveBeenCalledWith(Direction.Forward, expect.any(Number), true, 1),
+            );
         });
 
         it("does not ask for newer messages once the latest is loaded", async () => {
@@ -377,7 +691,9 @@ describe("RoomTimelineViewModel", () => {
             vm.onStartReached(); // lands while the first fetch is still running
             release(); // first fetch settles, having found nothing new
 
-            await vi.waitFor(() => expect(paginate).toHaveBeenCalledTimes(2));
+            // Empty pages retain a continuation token: each chain exhausts its bounded
+            // eleven attempts, and the queued edge report runs one more bounded chain.
+            await vi.waitFor(() => expect(paginate).toHaveBeenCalledTimes(22));
         });
 
         it("clears the spinner when fetching fails", async () => {

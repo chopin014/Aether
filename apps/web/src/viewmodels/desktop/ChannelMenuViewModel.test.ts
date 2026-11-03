@@ -10,7 +10,8 @@ Please see LICENSE in the repository root for full details.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventType, MatrixEvent, Room, type MatrixClient } from "matrix-js-sdk/src/matrix";
 import { BaseViewModel, RoomNotifState, type RoomListItemViewSnapshot } from "@element-hq/web-shared-components";
-import { stubClient } from "test-utils";
+import { stubClient, TestSDKContext } from "test-utils";
+import { logger } from "matrix-js-sdk/src/logger";
 
 import { ChannelMenuViewModel, type ChannelMenuItemSource } from "./ChannelMenuViewModel";
 import defaultDispatcher from "../../dispatcher/dispatcher";
@@ -23,6 +24,8 @@ import RightPanelStore from "../../stores/right-panel/RightPanelStore";
 import { RightPanelPhases } from "../../stores/right-panel/RightPanelStorePhases";
 import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
 import { DeleteChannelDialog } from "../../components/views/dialogs/DeleteChannelDialog";
+import { MemberListStore } from "../../stores/MemberListStore";
+import SettingsStore from "../../settings/SettingsStore";
 
 vi.mock("../../Modal");
 
@@ -61,18 +64,20 @@ const makeItem = (snapshot: Partial<RoomListItemViewSnapshot> = {}): FakeItem =>
 describe("ChannelMenuViewModel", () => {
     let client: MatrixClient;
     let room: Room;
+    let memberListStore: Pick<MemberListStore, "ensureMembersLoaded">;
     const space = new Room("!space:example.org", {} as MatrixClient, USER_ID);
     const spaceStore = { activeSpaceRoom: null as Room | null, isRoomInSpace: vi.fn(() => true) };
 
     const state = (type: string, content: object): MatrixEvent =>
         new MatrixEvent({ type, state_key: "", room_id: ROOM_ID, sender: USER_ID, content });
-    const create = (item = makeItem()) => new ChannelMenuViewModel({ room, client, item, spaceStore });
+    const create = (item = makeItem()) => new ChannelMenuViewModel({ room, client, item, spaceStore, memberListStore });
 
     beforeEach(() => {
         client = stubClient();
         vi.spyOn(client, "getSafeUserId").mockReturnValue(USER_ID);
         vi.spyOn(client, "isRoomEncrypted").mockReturnValue(false);
         room = new Room(ROOM_ID, client, USER_ID);
+        memberListStore = { ensureMembersLoaded: vi.fn().mockResolvedValue(undefined) };
         spaceStore.activeSpaceRoom = null;
     });
     afterEach(() => vi.restoreAllMocks());
@@ -211,6 +216,139 @@ describe("ChannelMenuViewModel", () => {
             expect(vm.getSnapshot().canDeleteChannel).toBe(false);
             vm.onDelete();
             expect(Modal.createDialog).not.toHaveBeenCalled();
+            vm.dispose();
+        });
+    });
+
+    describe("member hydration", () => {
+        const memberEvent = (target: Room, userId: string) => ({
+            type: EventType.RoomMember,
+            room_id: target.roomId,
+            event_id: `$member-${userId}`,
+            sender: userId,
+            state_key: userId,
+            origin_server_ts: 1,
+            content: { membership: "join", displayname: userId },
+        });
+
+        beforeEach(() => {
+            const context = new TestSDKContext();
+            context._client = client;
+            client.members = vi.fn();
+            memberListStore = new MemberListStore(context);
+            room = new Room(ROOM_ID, client, USER_ID, { lazyLoadMembers: true });
+            vi.mocked(client.getRoom).mockImplementation((roomId) => (roomId === ROOM_ID ? room : null));
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) => {
+                if (name === "feature_simplified_sliding_sync") return true;
+                return getValue(name, ...args);
+            });
+            const parent = new Room("!parent:example.org", client, USER_ID);
+            for (const target of [room, parent]) {
+                target.currentState.setStateEvents([
+                    new MatrixEvent({
+                        type: EventType.RoomCreate,
+                        room_id: target.roomId,
+                        state_key: "",
+                        sender: USER_ID,
+                        content: { creator: USER_ID, room_version: "11" },
+                    }),
+                    new MatrixEvent(memberEvent(target, USER_ID)),
+                    new MatrixEvent({
+                        type: EventType.RoomPowerLevels,
+                        room_id: target.roomId,
+                        state_key: "",
+                        content: { users: { [USER_ID]: 100 } },
+                    }),
+                ]);
+            }
+            parent.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.SpaceChild,
+                    room_id: parent.roomId,
+                    state_key: ROOM_ID,
+                    content: { via: ["example.org"] },
+                }),
+            ]);
+            spaceStore.activeSpaceRoom = parent;
+        });
+
+        it("shares one native member request with the roster and refreshes completed deletion permissions", async () => {
+            const response = Promise.withResolvers<Awaited<ReturnType<MatrixClient["members"]>>>();
+            vi.mocked(client.members).mockReturnValue(response.promise);
+            const sdkLoad = vi.spyOn(room, "loadMembersIfNeeded");
+            const vm = create();
+            const roster = (memberListStore as MemberListStore).loadMemberList(ROOM_ID);
+            expect(vm.getSnapshot().canDeleteChannel).toBe(false);
+            await vi.waitFor(() => expect(client.members).toHaveBeenCalledOnce());
+            response.resolve({ chunk: [memberEvent(room, "@bob:example.org")] });
+            const members = await roster;
+            await vi.waitFor(() => expect(vm.getSnapshot().canDeleteChannel).toBe(true));
+            expect(members.joined.map((member) => member.userId)).toContain("@bob:example.org");
+            expect(sdkLoad).not.toHaveBeenCalled();
+            expect(client.members).toHaveBeenCalledOnce();
+            vm.dispose();
+        });
+
+        it("preserves SDK hydration and deletion readiness for native encrypted channels", async () => {
+            vi.mocked(client.isRoomEncrypted).mockReturnValue(true);
+            room.currentState.setStateEvents([state(EventType.RoomEncryption, { algorithm: "m.megolm.v1.aes-sha2" })]);
+            const response = Promise.withResolvers<Awaited<ReturnType<MatrixClient["members"]>>>();
+            vi.mocked(client.members).mockReturnValue(response.promise);
+            client.store.getSyncToken = vi.fn().mockReturnValue(null);
+            client.store.getOutOfBandMembers = vi.fn().mockResolvedValue(null);
+            client.store.setOutOfBandMembers = vi.fn().mockResolvedValue(undefined);
+            const shared = vi.spyOn(memberListStore, "ensureMembersLoaded");
+            const sdkLoad = vi.spyOn(room, "loadMembersIfNeeded");
+            const vm = create();
+            expect(vm.getSnapshot().canDeleteChannel).toBe(false);
+            const cryptoHydration = room.loadMembersIfNeeded();
+            await vi.waitFor(() => expect(client.members).toHaveBeenCalledOnce());
+            response.resolve({ chunk: [memberEvent(room, "@bob:example.org")] });
+            await cryptoHydration;
+            await vi.waitFor(() => expect(vm.getSnapshot().canDeleteChannel).toBe(true));
+            expect(shared).not.toHaveBeenCalled();
+            expect(sdkLoad).toHaveBeenCalledTimes(2);
+            expect(client.members).toHaveBeenCalledOnce();
+            vm.dispose();
+        });
+
+        it("handles failed shared hydration and leaves a later roster attempt able to retry", async () => {
+            const error = new Error("Offline");
+            vi.mocked(client.members).mockRejectedValueOnce(error).mockResolvedValueOnce({ chunk: [] });
+            const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+            const vm = create();
+            await vi.waitFor(() =>
+                expect(warn).toHaveBeenCalledWith("Unable to check channel deletion permissions", error),
+            );
+            expect(vm.getSnapshot().canDeleteChannel).toBe(false);
+            await memberListStore.ensureMembersLoaded(ROOM_ID);
+            expect(client.members).toHaveBeenCalledTimes(2);
+            vm.dispose();
+        });
+
+        it("does not refresh a disposed menu when shared hydration completes", async () => {
+            const response = Promise.withResolvers<Awaited<ReturnType<MatrixClient["members"]>>>();
+            vi.mocked(client.members).mockReturnValue(response.promise);
+            const vm = create();
+            const listener = vi.fn();
+            vm.subscribe(listener);
+            await vi.waitFor(() => expect(client.members).toHaveBeenCalledOnce());
+            const hydration = memberListStore.ensureMembersLoaded(ROOM_ID);
+            vm.dispose();
+            response.resolve({ chunk: [] });
+            await hydration;
+            expect(listener).not.toHaveBeenCalled();
+            expect(vm.getSnapshot().canDeleteChannel).toBe(false);
+        });
+
+        it("does not hydrate an already complete room", async () => {
+            vi.mocked(client.members).mockResolvedValue({ chunk: [] });
+            await memberListStore.ensureMembersLoaded(ROOM_ID);
+            expect(room.membersLoaded()).toBe(true);
+            const ensure = vi.spyOn(memberListStore, "ensureMembersLoaded");
+            const vm = create();
+            expect(ensure).not.toHaveBeenCalled();
             vm.dispose();
         });
     });
