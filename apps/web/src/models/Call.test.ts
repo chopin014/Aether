@@ -17,15 +17,18 @@ import {
     MatrixEvent,
     type IMyDevice,
     type RoomMember,
+    createClient,
 } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { Widget } from "matrix-widget-api";
 import {
-    type CallMembership,
+    CallMembership,
     MatrixRTCSessionManagerEvents,
     MatrixRTCSession,
     MatrixRTCSessionEvent,
 } from "matrix-js-sdk/src/matrixrtc";
+// oxlint-disable-next-line no-restricted-imports -- Exercise membership renewal with the real SDK scheduler.
+import { MembershipManager } from "matrix-js-sdk/src/matrixrtc/MembershipManager";
 import { CallType } from "matrix-js-sdk/src/webrtc/call";
 import { describe, it, expect, vi, beforeEach, afterEach, type Mocked, type MockInstance } from "vitest";
 import { waitFor } from "test-utils-rtl";
@@ -1905,6 +1908,82 @@ describe("ElementCall with the React component embedding", () => {
 
     describe("getConfigOptions", () => {
         afterEach(() => SdkConfig.reset());
+
+        it("sets a five-minute expiry without overriding delayed leave timings", () => {
+            expect(ElementCall.getConfigOptions().matrix_rtc_session).toEqual({
+                membership_event_expiry_ms: 300_000,
+            });
+        });
+
+        it.each([0, 24])("expires abandoned memberships within five minutes after %i renewals", async (renewals) => {
+            vi.useFakeTimers();
+            const userId = client.getUserId()!;
+            const rtcClient = createClient({
+                baseUrl: "https://example.org",
+                userId,
+                deviceId: "alices_device",
+            });
+            // matrix.org does not support delayed events, so expiry is the only crash cleanup available.
+            vi.spyOn(rtcClient, "doesServerSupportUnstableFeature").mockResolvedValue(false);
+            let membership: CallMembership | undefined;
+            const sendStateEvent = vi
+                .spyOn(rtcClient, "sendStateEvent")
+                .mockImplementation(async (_, type, content) => {
+                    const eventId = `$membership-${Date.now()}`;
+                    if (Object.keys(content).length > 0) {
+                        membership = await CallMembership.parseFromEvent(
+                            new MatrixEvent({
+                                event_id: eventId,
+                                type,
+                                sender: userId,
+                                origin_server_ts: Date.now(),
+                                content,
+                            }),
+                        );
+                        await manager.onRTCSessionMemberUpdate([membership]);
+                    }
+                    return { event_id: eventId };
+                });
+            const manager = new MembershipManager(
+                {
+                    membershipEventExpiryMs:
+                        ElementCall.getConfigOptions().matrix_rtc_session!.membership_event_expiry_ms,
+                },
+                room,
+                rtcClient,
+                { application: "m.call", id: "ROOM" },
+            );
+            const onError = vi.fn();
+            manager.join([], onError);
+            try {
+                await vi.advanceTimersByTimeAsync(0);
+                expect(membership).toBeDefined();
+                for (let i = 0; i < renewals; i++) {
+                    await vi.advanceTimersByTimeAsync(300_000);
+                    expect(membership!.isExpired()).toBe(false);
+                }
+                expect(sendStateEvent).toHaveBeenCalledTimes(renewals + 1);
+                expect(membership!.getAbsoluteExpiry()! - Date.now()).toBeLessThanOrEqual(300_000);
+
+                // Advance the observer's clock without running a crashed client's renewal timers.
+                vi.setSystemTime(Date.now() + 299_999);
+                expect(membership!.isExpired()).toBe(false);
+                vi.setSystemTime(Date.now() + 1);
+                expect(membership!.isExpired()).toBe(true);
+                expect(sendStateEvent).toHaveBeenCalledTimes(renewals + 1);
+                expect(onError).not.toHaveBeenCalled();
+            } finally {
+                const leaving = manager.leave();
+                await vi.advanceTimersByTimeAsync(0);
+                await leaving;
+            }
+            expect(sendStateEvent).toHaveBeenLastCalledWith(
+                room.roomId,
+                EventType.GroupCallMemberPrefix,
+                {},
+                expect.any(String),
+            );
+        });
 
         it("forwards deployment screen-share limits to the embedded call engine", () => {
             SdkConfig.put({

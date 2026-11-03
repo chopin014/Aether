@@ -981,7 +981,10 @@ export class ElementCall extends Call {
      *   LiveKit transport is passed along as its configured `livekit_service_url`.
      */
     public static getConfigOptions(transports: Transport[] = []): ConfigOptions {
-        const options: ConfigOptions = {};
+        const options: ConfigOptions = {
+            // Bound stale memberships after a crash on homeservers without delayed events.
+            matrix_rtc_session: { membership_event_expiry_ms: 5 * 60_000 },
+        };
         const mediaQuality = SdkConfig.get("element_call")?.media_quality;
         if (mediaQuality) {
             const limits = getScreenSharePolicyLimits();
