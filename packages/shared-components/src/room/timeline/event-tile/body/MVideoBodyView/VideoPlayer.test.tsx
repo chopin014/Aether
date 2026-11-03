@@ -37,7 +37,7 @@ describe("VideoPlayer", () => {
             this.dispatchEvent(new Event("play"));
             return Promise.resolve();
         });
-        render(<VideoPlayer label="Clip" />);
+        render(<VideoPlayer label="Clip" src="https://example.org/clip.mp4" />);
 
         fireEvent.click(screen.getAllByRole("button", { name: "Play" })[0]);
 
@@ -73,5 +73,33 @@ describe("VideoPlayer", () => {
         fireEvent.keyDown(screen.getByRole("button", { name: "Mute" }), { key: " " });
 
         expect(play).not.toHaveBeenCalled();
+    });
+
+    it("fetches an encrypted video on the first press and plays it as soon as it arrives", () => {
+        const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+        const onPlayRequest = vi.fn();
+        const { rerender } = render(<VideoPlayer label="Clip" src="data:video/mp4," onPlayRequest={onPlayRequest} />);
+
+        fireEvent.click(screen.getAllByRole("button", { name: "Play" })[0]);
+
+        // Asked for once, with a spinner while it decrypts, and no attempt to play the empty placeholder.
+        expect(onPlayRequest).toHaveBeenCalledTimes(1);
+        expect(screen.getByRole("status", { name: "Loading…" })).toBeInTheDocument();
+        expect(play).not.toHaveBeenCalled();
+
+        rerender(<VideoPlayer label="Clip" src="blob:decrypted" onPlayRequest={onPlayRequest} />);
+        expect(play).toHaveBeenCalledTimes(1);
+
+        fireEvent(getVideo(), new Event("playing"));
+        expect(screen.queryByRole("status")).toBeNull();
+    });
+
+    it("starts a video with a real source straight away", () => {
+        const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+        render(<VideoPlayer label="Clip" src="https://example.org/clip.mp4" />);
+
+        fireEvent.click(screen.getAllByRole("button", { name: "Play" })[0]);
+
+        expect(play).toHaveBeenCalledTimes(1);
     });
 });

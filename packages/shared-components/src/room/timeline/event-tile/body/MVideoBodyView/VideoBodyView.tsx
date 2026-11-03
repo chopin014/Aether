@@ -101,6 +101,11 @@ export interface VideoBodyViewActions {
      * Invoked when the video starts playing.
      */
     onPlay?: ReactEventHandler<HTMLVideoElement>;
+    /**
+     * Invoked when the person asks the video to play, before it can: an encrypted video is only fetched and
+     * decrypted then, and the player starts it once its source arrives.
+     */
+    requestPlayback?: () => void;
 }
 
 export type VideoBodyViewModel = ViewModel<VideoBodyViewSnapshot, VideoBodyViewActions>;
@@ -223,6 +228,7 @@ export function VideoBodyView({
                         autoPlay={autoPlay}
                         poster={poster}
                         onPlay={vm.onPlay}
+                        onPlayRequest={vm.requestPlayback}
                     />
                 ) : (
                     <video
