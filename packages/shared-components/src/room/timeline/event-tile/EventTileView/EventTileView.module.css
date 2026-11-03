@@ -1837,20 +1837,26 @@
 
     /* The mention highlight, read from the theme's warning colour. */
     --desktop-message-mention-color: var(--cpd-color-icon-warning-primary, var(--cpd-color-yellow-900));
+    /*
+     * Every message, first or not, keeps this much room above and below its text: one line of text is one line
+     * height plus twice this, and the hover and mention surfaces wrap the text that closely.
+     */
+    --desktop-message-padding: var(--cpd-space-0-5x);
 
     /*
      * Space between one person's messages and the next person's, so groups read apart. It is a margin so the hover
      * surface starts at the group's first line rather than in the gap above it.
      */
     margin-block-start: var(--desktop-message-group-spacing, var(--cpd-space-4x));
-    padding-block-start: var(--cpd-space-0-5x);
+    padding-block: var(--desktop-message-padding);
     font: var(--cpd-font-body-lg-regular);
     font-size: var(--desktop-message-font-size);
     line-height: var(--desktop-message-line-height);
 
     .slotAvatar {
         inset-inline-start: var(--cpd-space-4x);
-        inset-block-start: var(--cpd-space-1x);
+        /* Level with the top of the name. */
+        inset-block-start: var(--desktop-message-padding);
         width: var(--cpd-space-10x);
         height: var(--cpd-space-10x);
 
@@ -1861,12 +1867,13 @@
         }
     }
 
+    /* One text line tall, with the name and the smaller time sharing a baseline. */
     .desktopMetadata {
         display: flex;
-        align-items: center;
+        align-items: baseline;
         gap: var(--cpd-space-2x);
         margin-inline: var(--event-tile-group-gutter) var(--cpd-space-4x);
-        min-height: var(--cpd-space-6x);
+        height: var(--desktop-message-line-height);
     }
 
     .desktopMetadata .slotSender {
@@ -1902,6 +1909,7 @@
         position: static;
         display: flex;
         align-items: center;
+        align-self: center;
         flex: none;
         height: auto;
         margin: 0;
@@ -1919,7 +1927,8 @@
     /* The whole message is the surface: the line inside it never paints a second, offset one. */
     .line {
         border-radius: 0;
-        min-height: var(--cpd-space-6x);
+        min-height: 0;
+        padding-block: 0;
     }
 
     &:is(:hover, :focus-within, .stateHighlighted, .stateSelected, .stateEditing, .stateActionBarFocused) .line {
@@ -1955,13 +1964,14 @@
 
     &.stateContinuation {
         margin-block-start: 0;
-        padding-block-start: 0;
+        padding-block: var(--desktop-message-padding);
 
         /* The gutter beside the first line keeps the time, shown on hover, and the encryption icon. */
         .desktopMetadata {
             position: absolute;
             inset-inline-start: 0;
-            inset-block-start: var(--event-tile-group-line-spacing-block-start);
+            inset-block-start: var(--desktop-message-padding);
+            align-items: center;
             margin: 0;
             width: var(--cpd-space-14x);
             min-height: 0;
@@ -1994,7 +2004,6 @@
     --event-tile-group-gutter: var(--cpd-space-16x);
 
     margin-block-start: calc(var(--desktop-message-group-spacing, var(--cpd-space-4x)) / 2);
-    padding-block-start: 0;
 
     .slotAvatar {
         display: none;
