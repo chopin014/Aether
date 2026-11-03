@@ -114,6 +114,61 @@ describe("<TimelineView />", () => {
         expect(screen.getByTestId("row-evt-4")).toBeInTheDocument();
     });
 
+    it.each(["end", "center", "start"] as const)(
+        "starts near a delayed %s anchor and settles using measured variable row heights",
+        async (align) => {
+            const { vm, actions, update } = makeFakeVm();
+            const rendered: number[] = [];
+            actions.onAnchorReached.mockImplementation(() => update({ pendingAnchor: null }));
+            render(
+                <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                    <TimelineView
+                        vm={vm}
+                        renderItem={(item) => {
+                            const index = Number(item.key.slice("evt-".length));
+                            rendered.push(index);
+                            return (
+                                <div data-testid={`row-${item.key}`} style={{ height: ROW_HEIGHT + (index % 5) * 7 }}>
+                                    {item.key}
+                                </div>
+                            );
+                        }}
+                    />
+                </div>,
+            );
+            expect(rendered).toEqual([]);
+            const index = align === "end" ? 49 : 35;
+            update({
+                items: eventItems(50),
+                pendingAnchor: { targetKey: `evt-${index}`, align },
+                atLiveEnd: align === "end",
+            });
+            // The first mounted range is near the requested message, with normal overscan.
+            expect(rendered[0]).toBeGreaterThan(0);
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalledTimes(1), { timeout: 5000 });
+            const scroller = screen.getByTestId("timeline-scroller");
+            const row = screen.getByTestId(`row-evt-${index}`);
+            await waitFor(() => {
+                const viewport = scroller.getBoundingClientRect();
+                const target = row.getBoundingClientRect();
+                const actual =
+                    align === "start"
+                        ? target.top
+                        : align === "center"
+                          ? (target.top + target.bottom) / 2
+                          : target.bottom;
+                const expected =
+                    align === "start"
+                        ? viewport.top
+                        : align === "center"
+                          ? (viewport.top + viewport.bottom) / 2
+                          : viewport.bottom;
+                expect(actual).toBeCloseTo(expected, 0);
+            });
+            expect(scroller).toHaveStyle({ visibility: "visible" });
+        },
+    );
+
     it("stays hidden behind the cover then reveals after the anchor settles", async () => {
         // A list taller than the viewport so there is a real scroll offset to settle on.
         const { vm, actions } = makeFakeVm({ items: eventItems(30) });
@@ -126,6 +181,76 @@ describe("<TimelineView />", () => {
 
         await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalledTimes(1), { timeout: 5000 });
         await waitFor(() => expect(scroller).toHaveStyle({ visibility: "visible" }));
+    });
+
+    it("reveals measured tall rows without synchronous row height reads", async () => {
+        const { vm, actions, update } = makeFakeVm();
+        const heightReads = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get");
+        let initialGeometry: { top: number; bottom: number }[] = [];
+        let initialTargetCenter = 0;
+        let initialViewportCenter = 0;
+        try {
+            actions.onAnchorReached.mockImplementation(() => {
+                const scroller = screen.getByTestId("timeline-scroller");
+                initialGeometry = Array.from(scroller.querySelectorAll("[data-index]"), (element) => {
+                    const { top, bottom } = element.getBoundingClientRect();
+                    return { top, bottom };
+                });
+                const target = screen.getByTestId("row-evt-35").getBoundingClientRect();
+                const viewport = scroller.getBoundingClientRect();
+                initialTargetCenter = (target.top + target.bottom) / 2;
+                initialViewportCenter = (viewport.top + viewport.bottom) / 2;
+                update({ pendingAnchor: null });
+            });
+            render(
+                <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                    <TimelineView
+                        vm={vm}
+                        renderItem={(item) => (
+                            <div
+                                data-testid={`row-${item.key}`}
+                                style={{ height: 170 + (Number(item.key.slice("evt-".length)) % 3) * 110 }}
+                            >
+                                {item.key}
+                            </div>
+                        )}
+                    />
+                </div>,
+            );
+            update({ items: eventItems(50), pendingAnchor: { targetKey: "evt-35", align: "center" } });
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalledTimes(1), { timeout: 5000 });
+
+            expect(initialGeometry.length).toBeGreaterThan(1);
+            for (let index = 1; index < initialGeometry.length; index++) {
+                expect(initialGeometry[index].top).toBeCloseTo(initialGeometry[index - 1].bottom, 0);
+            }
+            expect(initialTargetCenter).toBeCloseTo(initialViewportCenter, 0);
+            expect(
+                heightReads.mock.contexts.filter(
+                    (element) => element instanceof HTMLElement && element.classList.contains("mx_TimelineView_tile"),
+                ),
+            ).toEqual([]);
+        } finally {
+            heightReads.mockRestore();
+        }
+    });
+
+    it("uses synchronous measurements when ResizeObserver is unavailable", async () => {
+        vi.stubGlobal("ResizeObserver", undefined);
+        try {
+            const { vm, actions } = makeFakeVm({ items: eventItems(30) });
+            renderTimeline(vm);
+
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalledTimes(1), { timeout: 5000 });
+            const scroller = screen.getByTestId("timeline-scroller");
+            expect(scroller).toHaveStyle({ visibility: "visible" });
+            expect(screen.getByTestId("row-evt-29").getBoundingClientRect().bottom).toBeCloseTo(
+                scroller.getBoundingClientRect().bottom,
+                0,
+            );
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 
     it("reports the visible range and at-bottom state once live", async () => {
@@ -194,6 +319,41 @@ describe("<TimelineView />", () => {
                 expect(bottom()).toBeCloseTo(viewportBottom, 0);
             }
         }
+    });
+
+    it("remeasures a cached row when it mounts again with a different height", async () => {
+        const { vm, actions } = makeFakeVm({ items: eventItems(70) });
+        let latestHeight = ROW_HEIGHT;
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView
+                    vm={vm}
+                    renderItem={(item) => (
+                        <div
+                            data-testid={`row-${item.key}`}
+                            style={{ height: item.key === "evt-69" ? latestHeight : ROW_HEIGHT }}
+                        >
+                            {item.key}
+                        </div>
+                    )}
+                />
+            </div>,
+        );
+        const scroller = screen.getByTestId("timeline-scroller");
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+        // Let the initial programmatic scroll retire before the reader scrolls away.
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        scroller.scrollTop = 0;
+        await waitFor(() => expect(screen.queryByTestId("row-evt-69")).not.toBeInTheDocument());
+
+        latestHeight = 390;
+        scroller.scrollTop = scroller.scrollHeight;
+
+        await waitFor(() => {
+            const latest = screen.getByTestId("row-evt-69").getBoundingClientRect();
+            expect(latest.height).toBe(latestHeight);
+            expect(latest.bottom).toBeCloseTo(scroller.getBoundingClientRect().bottom, 0);
+        });
     });
 
     it("keeps short anchored lists at the top", async () => {

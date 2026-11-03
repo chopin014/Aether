@@ -7,7 +7,7 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, type JSX } from "react";
 import classNames from "classnames";
-import { useVirtualizer, type VirtualItem, type Virtualizer } from "@tanstack/react-virtual";
+import { measureElement, useVirtualizer, type VirtualItem, type Virtualizer } from "@tanstack/react-virtual";
 import { InlineSpinner } from "@vector-im/compound-web";
 
 import { useViewModel } from "../../../core/viewmodel/useViewModel";
@@ -124,6 +124,29 @@ export function TimelineView({ vm, renderItem }: TimelineViewProps): JSX.Element
     // happens once per room, as the panel is recreated when the room changes.
     const [revealed, setRevealed] = useState(false);
     const revealedRef = useRef(false);
+    const measuredElementsRef = useRef(new WeakSet<Element>());
+    const receivedResizeEntryRef = useRef(false);
+
+    // Reading every new row's offsetHeight during its ref callback forces layout between
+    // TanStack's positioning writes. Let ResizeObserver measure the rows together instead.
+    const measureRow = useCallback(
+        (
+            element: Element,
+            entry: ResizeObserverEntry | undefined,
+            instance: Virtualizer<HTMLDivElement, Element>,
+        ): number => {
+            // Keep normal synchronous sizing after reveal: new history must preserve the
+            // reader's anchor in the same frame, rather than moving it on the next resize.
+            if (entry || revealedRef.current || !element.ownerDocument.defaultView?.ResizeObserver) {
+                if (entry) receivedResizeEntryRef.current = true;
+                measuredElementsRef.current.add(element);
+                return measureElement(element, entry, instance);
+            }
+            const index = instance.indexFromElement(element);
+            return instance.itemSizeCache.get(instance.options.getItemKey(index)) ?? ESTIMATED_ITEM_HEIGHT;
+        },
+        [],
+    );
 
     // Gives each row a stable identity (its event id). TanStack uses these to recognise the
     // same row from one update to the next, which is what makes the scroll anchoring
@@ -224,11 +247,34 @@ export function TimelineView({ vm, renderItem }: TimelineViewProps): JSX.Element
 
     const virtualizer = useVirtualizer({
         count: items.length,
+        // Keep the initial offset unset until messages arrive, then render near the destination
+        // instead of measuring the top of the list before scrolling to its initial anchor.
+        enabled: items.length > 0,
+        initialOffset: () => {
+            // A nonempty first snapshot can render before the viewport mounts. In that case,
+            // leave placement to the existing measured scroll instead of guessing its height.
+            if (!scrollerRef.current) return 0;
+            const list = itemsRef.current;
+            const anchor = snapshotRef.current.pendingAnchor;
+            const targetIndex = anchor ? list.findIndex((item) => item.key === anchor.targetKey) : -1;
+            const index = targetIndex >= 0 ? targetIndex : list.length - 1;
+            const height = scrollerRef.current?.clientHeight ?? 0;
+            const align = anchor?.align ?? "end";
+            const start = index * ESTIMATED_ITEM_HEIGHT;
+            const offset =
+                align === "start"
+                    ? start
+                    : align === "center"
+                      ? start + (ESTIMATED_ITEM_HEIGHT - height) / 2
+                      : start + ESTIMATED_ITEM_HEIGHT - height;
+            return Math.max(0, Math.min(offset, list.length * ESTIMATED_ITEM_HEIGHT - height));
+        },
         getScrollElement: () => scrollerRef.current,
         // Only consulted for rows that have not been measured yet. TanStack measures each
         // row as it renders and remembers the result by key, reusing it as rows are added,
         // trimmed or reloaded, so we do not need a size cache of our own.
         estimateSize: () => ESTIMATED_ITEM_HEIGHT,
+        measureElement: measureRow,
         getItemKey,
         overscan: OVERSCAN,
         // Keep whatever the user is looking at visually still when rows are added or
@@ -252,6 +298,12 @@ export function TimelineView({ vm, renderItem }: TimelineViewProps): JSX.Element
         // Called on every TanStack update; we use it to report what is on screen upwards.
         onChange: reportVisibleState,
     });
+
+    // An accurate initial estimate may need no scroll event after placement. Report the
+    // first visible range once revealed and the view model has acknowledged its anchor.
+    useEffect(() => {
+        if (revealed) reportVisibleState(virtualizer);
+    }, [revealed, snapshot.pendingAnchor, reportVisibleState, virtualizer]);
 
     // Works out how far down the list we would have to scroll, in pixels, to bring the row
     // with `targetKey` into view — `align` saying whether it should end up at the top,
@@ -298,17 +350,35 @@ export function TimelineView({ vm, renderItem }: TimelineViewProps): JSX.Element
         // Let TanStack carry out this scroll: it keeps correcting the target as rows are
         // measured and their real heights become known. We must not set the scroll position
         // ourselves as well — two things moving the viewport at once end up fighting.
-        if (idx >= 0) virtualizer.scrollToIndex(idx, { align, behavior: "auto" });
         // Now watch each frame until that row actually reaches the position it was heading
         // for, and reveal the timeline once it has. requestAnimationFrame passes the frame's
         // timestamp, so we can measure how long we have been waiting in real time and give up
         let startedAt: number | undefined;
+        let startedPlacement = false;
         const tick = (now: number): void => {
             startedAt ??= now;
+            // An estimated scroll offset can land before ResizeObserver runs. Keep the
+            // cover until the mounted range has real measurements, including any rows
+            // mounted as scrolling corrects the estimates. Retain the timeout fallback
+            // when no observer entries arrive at all.
+            const measured = virtualizer.getVirtualItems().every((item) => {
+                const element = virtualizer.elementsCache.get(item.key);
+                return element !== undefined && measuredElementsRef.current.has(element);
+            });
+            const timedOut = now - startedAt >= REVEAL_TIMEOUT_MS;
+            const canPlace = measured || (timedOut && !receivedResizeEntryRef.current);
+            // Measure the first range before scrolling can unmount it. Otherwise those
+            // discarded estimates would move the reader when they scroll back to it later.
+            if (!startedPlacement && canPlace) {
+                startedPlacement = true;
+                if (idx >= 0) virtualizer.scrollToIndex(idx, { align, behavior: "auto" });
+                coldRafRef.current = requestAnimationFrame(tick);
+                return;
+            }
             const info = virtualizer.getOffsetForIndex(idx, align);
             const offset = virtualizer.scrollOffset ?? 0;
-            const landed = info !== undefined && Math.abs(info[0] - offset) <= 1.5;
-            if (landed || now - startedAt >= REVEAL_TIMEOUT_MS) {
+            const landed = startedPlacement && info !== undefined && Math.abs(info[0] - offset) <= 1.5;
+            if ((measured && (landed || timedOut)) || (timedOut && !receivedResizeEntryRef.current)) {
                 phaseRef.current = "live";
                 if (!revealedRef.current) {
                     revealedRef.current = true;
