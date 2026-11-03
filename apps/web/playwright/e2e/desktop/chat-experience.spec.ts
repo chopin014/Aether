@@ -399,6 +399,13 @@ test("heads older messages with their day as well as their time", async ({ page,
     const roomId = await app.client.createRoom({ name: "history", invite: [bot.credentials!.userId] });
     await bot.joinRoom(roomId);
     await bot.sendMessage(roomId, "sent a few days ago");
+    // A file card right under a header, where a time that left its row would be covered.
+    await app.client.sendMessage(roomId, {
+        msgtype: "m.file",
+        body: "Hytale.Build.torrent",
+        url: "mxc://localhost/unused",
+        info: { size: 67000 },
+    });
     const other = await app.client.createRoom({ name: "elsewhere" });
 
     // Three days pass; opening the room again draws the message with its day.
@@ -408,7 +415,21 @@ test("heads older messages with their day as well as their time", async ({ page,
 
     const tile = page.locator("[data-event-id]").filter({ hasText: "sent a few days ago" });
     const time = tile.getByTestId("event-tile-slot-timestamp");
-    await expect(time).toHaveText(/\d{1,2}\/\d{1,2}\/\d{2,4}/);
+    // The whole date, with the full year.
+    await expect(time).toHaveText(/\d{2}\/\d{2}\/\d{4}, /);
+
+    // In every header the time stays inside the name's row, on the name's line.
+    const fileTile = page.locator("[data-event-id]").filter({ hasText: "Hytale.Build.torrent" });
+    for (const header of [tile, fileTile]) {
+        const [row, name, stamp] = await Promise.all([
+            header.getByTestId("event-tile-slot-sender").locator("..").boundingBox(),
+            header.getByTestId("event-tile-slot-sender").boundingBox(),
+            header.getByTestId("event-tile-slot-timestamp").boundingBox(),
+        ]);
+        expect(stamp!.y).toBeGreaterThanOrEqual(row!.y - 0.5);
+        expect(stamp!.y + stamp!.height).toBeLessThanOrEqual(row!.y + row!.height + 0.5);
+        expect(Math.abs(stamp!.y + stamp!.height / 2 - (name!.y + name!.height / 2))).toBeLessThanOrEqual(2);
+    }
     // Room changes keep the short time in their narrow column.
     const change = page.locator("[data-event-id]").filter({ hasText: "joined the room" }).last();
     await expect(change.getByTestId("event-tile-slot-timestamp")).not.toHaveText(/\//);
