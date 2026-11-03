@@ -16,7 +16,17 @@ import {
     RoomEvent,
 } from "matrix-js-sdk/src/matrix";
 import { render } from "test-utils-rtl";
-import { vi, describe, it, expect, beforeEach, afterEach, afterAll, type MockedObject } from "vitest";
+import {
+    vi,
+    describe,
+    it,
+    expect,
+    beforeEach,
+    afterEach,
+    afterAll,
+    type MockedObject,
+    type MockInstance,
+} from "vitest";
 import { getRoomContext, mkEvent, mkStubRoom, stubClient } from "test-utils";
 
 import { RoomUploadContextProvider, RoomUploadViewModel } from "./RoomUploadViewModel";
@@ -343,7 +353,7 @@ describe("RoomUploadViewModel attachment tray", () => {
     let room: MockedObject<Room>;
     let dis: MockedObject<MatrixDispatcher>;
     let vm: RoomUploadViewModel;
-    let sendList: ReturnType<typeof vi.spyOn<ContentMessages, "sendContentListToRoom">>;
+    let sendList: MockInstance<ContentMessages["sendContentListToRoom"]>;
 
     beforeEach(() => {
         vi.clearAllMocks();

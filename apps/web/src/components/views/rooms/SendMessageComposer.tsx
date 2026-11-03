@@ -24,6 +24,7 @@ import {
 } from "matrix-js-sdk/src/matrix";
 import { type DebouncedFunc, throttle } from "lodash";
 import { logger } from "matrix-js-sdk/src/logger";
+import { type RoomMessageTextEventContent } from "matrix-js-sdk/src/types";
 import { type Composer as ComposerEvent } from "@matrix-org/analytics-events/types/typescript/Composer";
 
 import { type RoomMessageEventContent } from "../../../../@types/url-preview";
@@ -537,12 +538,13 @@ export class SendMessageComposer extends React.Component<ISendMessageComposerPro
 
         let caption: MediaCaption | undefined;
         if (!this.model.isEmpty) {
+            // The composer only builds text and emote messages, which are the ones that carry formatting.
             const content = createMessageContent(
                 this.props.mxClient.getSafeUserId(),
                 this.model,
                 this.props.replyToEvent,
                 this.props.relation,
-            );
+            ) as RoomMessageTextEventContent;
             caption = {
                 "body": content.body,
                 "format": content.format,

@@ -27,6 +27,7 @@ import {
     type MediaEventContent,
     type MediaEventInfo,
     type RoomMessageEventContent,
+    type RoomMessageTextEventContent,
 } from "matrix-js-sdk/src/types";
 import encrypt from "matrix-encrypt-attachment";
 import extractPngChunks from "png-chunks-extract";
@@ -415,7 +416,7 @@ export async function uploadFile(
  */
 export interface MediaCaption {
     "body": string;
-    "format"?: string;
+    "format"?: RoomMessageTextEventContent["format"];
     "formatted_body"?: string;
     "m.mentions"?: RoomMessageEventContent["m.mentions"];
 }
@@ -619,10 +620,11 @@ export default class ContentMessages {
     ): Promise<void> {
         const fileName = file.name || _t("common|attachment");
         const content: Omit<MediaEventContent, "info"> & {
-            info: Partial<MediaEventInfo>;
-            filename?: string;
-            format?: string;
-            formatted_body?: string;
+            "info": Partial<MediaEventInfo>;
+            "filename"?: string;
+            "format"?: MediaCaption["format"];
+            "formatted_body"?: string;
+            "m.mentions"?: MediaCaption["m.mentions"];
         } = {
             body: fileName,
             info: {
