@@ -223,9 +223,21 @@ describe("RoomViewStore", function () {
         expect(roomViewStore.isJoining()).toBe(true);
     });
 
-    it("can be used to view a room by alias with auto_join", async () => {
+    it("joins a resolved room by ID when servers are known instead of resolving its alias again", async () => {
         const alias = "#alias12345:server";
         storeRoomAliasInCache(alias, roomId, ["server1"]);
+        dis.dispatch({ action: Action.ViewRoom, room_alias: alias, auto_join: true }, true);
+        await untilDispatch(Action.JoinRoomReady, dis);
+        expect(mockClient.joinRoom).toHaveBeenCalledWith(roomId, {
+            acceptSharedHistory: true,
+            viaServers: ["server1"],
+        });
+        expect(roomViewStore.isJoining()).toBe(true);
+    });
+
+    it("can be used to view a room by alias with auto_join", async () => {
+        const alias = "#alias12345:server";
+        storeRoomAliasInCache(alias, roomId, []);
         dis.dispatch({ action: Action.ViewRoom, room_alias: alias, auto_join: true }, true);
         await expect(untilDispatch(Action.ViewRoom, dis)).resolves.toEqual(
             expect.objectContaining({
@@ -235,7 +247,8 @@ describe("RoomViewStore", function () {
             }),
         );
         await untilDispatch(Action.JoinRoomReady, dis);
-        expect(mockClient.joinRoom).toHaveBeenCalledWith(alias, { acceptSharedHistory: true, viaServers: ["server1"] });
+        // Without servers, only the alias can locate the room over federation.
+        expect(mockClient.joinRoom).toHaveBeenCalledWith(alias, { acceptSharedHistory: true, viaServers: [] });
         expect(roomViewStore.isJoining()).toBe(true);
     });
 

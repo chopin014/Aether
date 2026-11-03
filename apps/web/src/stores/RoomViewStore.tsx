@@ -609,8 +609,9 @@ export class RoomViewStore extends EventEmitter {
         const { roomAlias, viaServers = [] } = this.state;
         // fall back to the payload's roomId explicitly since it is always the room we were asked to join
         const roomId = this.state.roomId ?? payload.roomId;
-        // prefer the room alias if we have one as it allows joining over federation even with no viaServers
-        const address = roomAlias || roomId;
+        // A resolved room ID with known servers joins directly. An alias makes the homeserver resolve it again,
+        // which can mean a slow federated directory query; it is only needed to find a room without servers.
+        const address = roomId && viaServers.length ? roomId : roomAlias || roomId;
 
         if (!address) {
             logger.error("Cannot join room: no room ID or alias to join", payload);
