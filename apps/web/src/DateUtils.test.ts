@@ -326,8 +326,15 @@ describe("formatMessageSentTime", () => {
         );
     });
 
-    it("shows the short date with the time for anything older", () => {
-        const date = new Date("2026-04-28T16:13:00Z");
-        expect(formatMessageSentTime(date, false, "en-GB", now)).toMatch(/^28\/04\/2026, \d{2}:13$/);
+    it("shows the whole date with the time for anything older, in the locale's order", () => {
+        const date = new Date("2026-04-08T16:13:00Z");
+        const time = formatTime(date, false, "en-GB");
+        expect(formatMessageSentTime(date, false, "pt-BR", now)).toBe(
+            `08/04/2026, ${formatTime(date, false, "pt-BR")}`,
+        );
+        expect(formatMessageSentTime(date, false, "en-GB", now)).toBe(`08/04/2026, ${time}`);
+        expect(formatMessageSentTime(date, false, "en-US", now)).toBe(
+            `04/08/2026, ${formatTime(date, false, "en-US")}`,
+        );
     });
 });
