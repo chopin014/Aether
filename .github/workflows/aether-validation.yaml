@@ -84,6 +84,58 @@ jobs:
                   if test -f src/audio/NoiseSuppressionProcessor.test.browser.ts; then
                       pnpm exec vitest run --project browser src/audio
                   fi
+    screenshare-audio-e2e:
+        name: Native screenshare audio and encrypted calls
+        runs-on: ubuntu-24.04
+        timeout-minutes: 45
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+            - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+              with:
+                  node-version-file: apps/desktop/.node-version
+                  install: false
+            - name: Install native capture and virtual audio dependencies
+              run: >-
+                  sudo apt-get update && sudo apt-get install -y
+                  libpipewire-0.3-dev libpulse-dev pulseaudio xvfb xauth
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm exec playwright install --with-deps chromium
+            - run: pnpm exec nx run element-web:build
+            - run: pnpm exec nx run-many -t build:playwright -p
+            - name: Build the desktop host with the current renderer
+              run: |
+                  pnpm --dir apps/desktop exec tsc
+                  pnpm --dir apps/desktop exec node scripts/copy-res.ts
+                  cp apps/desktop/config.desktop.json apps/web/webapp/config.json
+                  mkdir -p apps/desktop/webapp
+                  cp -a apps/web/webapp/. apps/desktop/webapp/
+                  pnpm --dir apps/desktop run asar-webapp
+            - name: Exercise native capture through the picker, preload, and remote WebRTC decoding
+              env:
+                  XDG_SESSION_TYPE: x11
+              run: |
+                  pulseaudio --start --exit-idle-time=-1
+                  pactl load-module module-null-sink sink_name=aether_test
+                  pactl set-default-sink aether_test
+                  xvfb-run -a pnpm --dir apps/desktop exec playwright test \
+                      playwright/e2e/sharing/native-audio.spec.ts \
+                      playwright/e2e/sharing/renderer-audio.spec.ts --reporter=line
+            - name: Exercise encrypted MatrixRTC calls and stream playback controls
+              working-directory: apps/web
+              run: >-
+                  pnpm exec playwright test playwright/e2e/desktop/element-call-voice.spec.ts
+                  --project=Chrome --reporter=line
+            - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+              if: always()
+              with:
+                  name: screenshare-audio-journey
+                  path: |
+                      apps/desktop/playwright/test-results
+                      apps/web/playwright/test-results
+                  if-no-files-found: ignore
+                  retention-days: 7
     updates-e2e:
         name: Desktop updates user journey
         runs-on: ubuntu-24.04
