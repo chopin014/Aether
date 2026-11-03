@@ -8,9 +8,10 @@
 import { composeStories } from "@storybook/react-vite";
 import { describe, expect, it } from "vitest";
 import React from "react";
-import { render } from "@test-utils";
+import { render, screen } from "@test-utils";
 
 import * as Stories from "./RoomOngoingCallTileView.stories";
+import { EventPresentationProvider } from "../../../../EventPresentation";
 
 const { RoomCallIgnored, RoomCallJoined, RoomCallWithoutOtherParticipants } = composeStories(Stories);
 
@@ -30,5 +31,16 @@ describe("RoomOngoingCallTileView", () => {
             const { container } = render(<RoomCallWithoutOtherParticipants />);
             expect(container).toMatchSnapshot();
         });
+    });
+
+    it("renders a call history row in the desktop message style", () => {
+        const { container } = render(
+            <EventPresentationProvider value={{ layout: "group", density: "default", messageStyle: "desktop" }}>
+                <RoomCallWithoutOtherParticipants />
+            </EventPresentationProvider>,
+        );
+        expect(container.querySelector("[data-call-history]")).not.toBeNull();
+        expect(screen.getByText("Ongoing")).toBeInTheDocument();
+        expect(container.querySelector("strong")).toHaveTextContent("Bob");
     });
 });

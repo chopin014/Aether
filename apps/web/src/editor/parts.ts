@@ -681,7 +681,11 @@ export class PartCreator {
         userId: string,
     ): [UserPillPart, PlainPart] {
         const pill = this.userPill(displayName, userId);
-        if (!SettingsStore.getValue("MessageComposerInput.insertTrailingColon")) {
+        // The desktop shell never adds ": " after a mention, wherever it starts.
+        if (
+            !SettingsStore.getValue("MessageComposerInput.insertTrailingColon") ||
+            SettingsStore.getValue("feature_desktop_shell")
+        ) {
             insertTrailingCharacter = false;
         }
         const postfix = this.plain(insertTrailingCharacter ? ": " : " ");

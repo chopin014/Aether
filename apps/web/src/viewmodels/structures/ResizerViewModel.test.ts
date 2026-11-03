@@ -46,6 +46,24 @@ describe("LeftPanelResizerViewModel", () => {
             });
         });
 
+        it("never starts collapsed in the desktop shell, which always shows its channel list", async () => {
+            await SettingsStore.setValue("RoomList.isPanelCollapsed", null, SettingLevel.DEVICE, true);
+            await SettingsStore.setValue("RoomList.panelSize", null, SettingLevel.DEVICE, 34);
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            const spy = vi
+                .spyOn(SettingsStore, "getValue")
+                .mockImplementation(((name: string, ...rest: unknown[]) =>
+                    name === "feature_desktop_shell"
+                        ? true
+                        : (getValue as (...args: unknown[]) => unknown)(
+                              name,
+                              ...rest,
+                          )) as typeof SettingsStore.getValue);
+            const vm = new ResizerViewModel(CallStore.instance);
+            expect(vm.getSnapshot()).toStrictEqual({ isCollapsed: false, initialSize: 34 });
+            spy.mockRestore();
+        });
+
         it("should have correct initial state when panel was neither resized nor collapsed", () => {
             const vm = new ResizerViewModel(CallStore.instance);
             expect(vm.getSnapshot()).toStrictEqual({

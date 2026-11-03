@@ -7,7 +7,11 @@
 
 import {
     _t,
+    type AttachmentTrayViewActions,
+    type AttachmentTrayViewSnapshot,
     BaseViewModel,
+    type PendingAttachment,
+    type PendingAttachmentKind,
     type UploadButtonViewActions,
     type UploadButtonViewSnapshot,
     useCreateAutoDisposedViewModel,
@@ -34,7 +38,8 @@ import {
 import type { ComposerApiFileUploadOption } from "@element-hq/element-web-module-api";
 import { useScopedRoomContext } from "../../contexts/ScopedRoomContext";
 import { useMatrixClientContext } from "../../contexts/MatrixClientContext";
-import ContentMessages from "../../ContentMessages";
+import ContentMessages, { type MediaCaption } from "../../ContentMessages";
+import SettingsStore from "../../settings/SettingsStore";
 import { TimelineRenderingType } from "../../contexts/RoomContext";
 import { chromeFileInputFix } from "../../utils/BrowserWorkarounds";
 import type { MatrixDispatcher } from "../../dispatcher/dispatcher";
@@ -51,15 +56,38 @@ import type { AttachmentCancel } from "@matrix-org/analytics-events/types/typesc
 
 const logger = rootLogger.getChild("RoomUploadViewModel");
 
-interface RoomUploadViewSnapshot extends UploadButtonViewSnapshot {
+interface RoomUploadViewSnapshot extends UploadButtonViewSnapshot, AttachmentTrayViewSnapshot {
     mayDragAndDropFile: boolean;
+}
+
+/** The composer each room or thread's upload model serves, so the composer can find the files waiting to go. */
+function composerKey(roomId: string, threadRelation: IEventRelation | undefined): string {
+    return `${roomId}|${threadRelation?.event_id ?? ""}`;
+}
+
+function kindOf(file: File): PendingAttachmentKind {
+    const [major] = file.type.split("/");
+    return major === "image" || major === "video" || major === "audio" ? major : "file";
 }
 
 export class RoomUploadViewModel
     extends BaseViewModel<RoomUploadViewSnapshot, Record<string, never>>
-    implements UploadButtonViewActions
+    implements UploadButtonViewActions, AttachmentTrayViewActions
 {
+    private static readonly byComposer = new Map<string, RoomUploadViewModel>();
+
+    /**
+     * The upload model for a room's composer, or a thread's when given the thread's root event ID.
+     */
+    public static forComposer(roomId: string, threadRootId?: string | null): RoomUploadViewModel | undefined {
+        return RoomUploadViewModel.byComposer.get(`${roomId}|${threadRootId ?? ""}`);
+    }
+
     private readonly uploadSelectFns = new Map<string, ComposerApiFileUploadOption["onSelected"]>();
+    /** Files waiting in the attachment tray, by their tray ID. */
+    private readonly pendingFiles = new Map<string, File>();
+    private nextPendingId = 0;
+    private composerKey: string;
     public constructor(
         private readonly room: Room,
         private readonly client: MatrixClient,
@@ -75,8 +103,17 @@ export class RoomUploadViewModel
             {
                 options: [],
                 mayDragAndDropFile: false,
+                attachments: [],
             },
         );
+        this.composerKey = composerKey(room.roomId, threadRelation);
+        RoomUploadViewModel.byComposer.set(this.composerKey, this);
+        this.disposables.track(() => {
+            if (RoomUploadViewModel.byComposer.get(this.composerKey) === this) {
+                RoomUploadViewModel.byComposer.delete(this.composerKey);
+            }
+            this.revokePreviews(this.snapshot.current.attachments);
+        });
         // Initial check.
         this.updateOptions();
         // Configure upload functions
@@ -99,7 +136,7 @@ export class RoomUploadViewModel
 
     private updateOptions(): void {
         const maySendMessage = this.room.maySendMessage();
-        this.snapshot.set({
+        this.snapshot.merge({
             mayDragAndDropFile: maySendMessage,
             options: maySendMessage
                 ? [
@@ -129,6 +166,84 @@ export class RoomUploadViewModel
 
     public setThreadRelation = (threadRelation?: IEventRelation): void => {
         this.threadRelation = threadRelation;
+        const key = composerKey(this.room.roomId, threadRelation);
+        if (key === this.composerKey) return;
+        if (RoomUploadViewModel.byComposer.get(this.composerKey) === this) {
+            RoomUploadViewModel.byComposer.delete(this.composerKey);
+        }
+        this.composerKey = key;
+        RoomUploadViewModel.byComposer.set(key, this);
+    };
+
+    /**
+     * Whether files chosen, dropped or pasted wait in the composer's tray to go with the next message, rather than
+     * being confirmed one by one and sent at once.
+     */
+    private get usesAttachmentTray(): boolean {
+        return SettingsStore.getValue("feature_desktop_shell");
+    }
+
+    /** Whether the tray holds files to send with the next message. */
+    public get hasPendingAttachments(): boolean {
+        return this.pendingFiles.size > 0;
+    }
+
+    private addPendingFiles(files: File[]): void {
+        const added: PendingAttachment[] = files.map((file) => {
+            const id = `attachment-${this.nextPendingId++}`;
+            this.pendingFiles.set(id, file);
+            const kind = kindOf(file);
+            return {
+                id,
+                name: file.name || _t("common|attachment"),
+                size: file.size,
+                kind,
+                previewUrl: kind === "image" || kind === "video" ? URL.createObjectURL(file) : undefined,
+            };
+        });
+        this.snapshot.merge({ attachments: [...this.snapshot.current.attachments, ...added] });
+        this.dispatcher.dispatch({ action: Action.FocusSendMessageComposer, context: this.timelineRenderingType });
+    }
+
+    private revokePreviews(attachments: PendingAttachment[]): void {
+        for (const attachment of attachments) {
+            if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+        }
+    }
+
+    /** Takes a file out of the tray. */
+    public removeAttachment = (id: string): void => {
+        const attachment = this.snapshot.current.attachments.find((item) => item.id === id);
+        if (!attachment) return;
+        this.pendingFiles.delete(id);
+        this.revokePreviews([attachment]);
+        this.snapshot.merge({ attachments: this.snapshot.current.attachments.filter((item) => item.id !== id) });
+    };
+
+    /**
+     * Sends the files in the tray, in order, with the caption on the first, and empties the tray.
+     * @param caption - text written alongside the files, if any
+     */
+    public sendPendingAttachments = async (caption?: MediaCaption): Promise<void> => {
+        const attachments = this.snapshot.current.attachments;
+        const files = attachments.map((attachment) => this.pendingFiles.get(attachment.id)!).filter(Boolean);
+        this.pendingFiles.clear();
+        this.snapshot.merge({ attachments: [] });
+        try {
+            await ContentMessages.sharedInstance().sendContentListToRoom(
+                files,
+                this.room.roomId,
+                this.threadRelation,
+                this.replyToEvent,
+                this.client,
+                this.timelineRenderingType,
+                { skipConfirmation: true, caption },
+            );
+        } catch (ex) {
+            logger.warn("Failed to send the attachment tray", ex);
+        } finally {
+            this.revokePreviews(attachments);
+        }
     };
 
     public initiateViaInputFiles = async (files: FileList | File[] | null): Promise<void> => {
@@ -138,6 +253,10 @@ export class RoomUploadViewModel
         const { roomId } = this.room;
         logger.info("initiateViaInputFiles for", roomId);
         if (!files?.length) return;
+        if (this.usesAttachmentTray) {
+            this.addPendingFiles(Array.from(files));
+            return;
+        }
         try {
             await ContentMessages.sharedInstance().sendContentListToRoom(
                 Array.from(files),
@@ -159,6 +278,10 @@ export class RoomUploadViewModel
         const { roomId } = this.room;
         logger.info("initiateViaDataTransfer for", roomId);
         if (!dataTransfer.files?.length) return;
+        if (this.usesAttachmentTray) {
+            this.addPendingFiles(Array.from(dataTransfer.files));
+            return;
+        }
 
         try {
             await ContentMessages.sharedInstance().sendContentListToRoom(

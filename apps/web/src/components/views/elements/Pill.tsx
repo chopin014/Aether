@@ -18,7 +18,26 @@ import { useUserStatus } from "../../../hooks/useUserStatus";
 import RoomAvatar from "../avatars/RoomAvatar";
 import MemberAvatar from "../avatars/MemberAvatar";
 import { _t } from "../../../languageHandler";
+import { useSettingValue } from "../../../hooks/useSettings";
 import { PillType } from "./PillType";
+
+/**
+ * Mentions in the desktop shell read as text, the way Discord shows them: `@name` for a person and `#name` for a
+ * room, without an avatar. Links to messages and keywords keep their usual form.
+ */
+function getDesktopMentionText(type: PillType | "space", text: string): string | null {
+    switch (type) {
+        case PillType.UserMention:
+            return text.startsWith("@") ? text : `@${text}`;
+        case PillType.RoomMention:
+        case "space":
+            return text.startsWith("#") || text.startsWith("!") ? text : `#${text}`;
+        case PillType.AtRoomMention:
+            return text;
+        default:
+            return null;
+    }
+}
 
 const linkIcon = <LinkIcon className="mx_Pill_LinkIcon mx_BaseAvatar" />;
 
@@ -90,12 +109,16 @@ export const Pill: React.FC<PillProps> = ({
     const text = customPillText ?? linkText;
     // Only user pills show a status
     const userStatus = useUserStatus(type === PillType.UserMention && resourceId !== null ? resourceId : undefined);
+    const desktopShell = useSettingValue("feature_desktop_shell");
 
     if (!type || !text) {
         return null;
     }
 
+    const desktopMentionText = desktopShell ? getDesktopMentionText(type, text) : null;
+
     const classes = classNames("mx_Pill", {
+        mx_Pill_desktopMention: desktopMentionText !== null,
         mx_AtRoomPill: type === PillType.AtRoomMention,
         mx_RoomPill: type === PillType.RoomMention,
         mx_SpacePill: type === "space" || targetRoom?.isSpaceRoom(),
@@ -143,6 +166,11 @@ export const Pill: React.FC<PillProps> = ({
             break;
         default:
             return null;
+    }
+
+    if (desktopMentionText !== null) {
+        avatar = null;
+        pillText = desktopMentionText;
     }
 
     const pillContent = (

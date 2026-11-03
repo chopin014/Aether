@@ -34,6 +34,7 @@ import { SDKContext } from "../../../contexts/SDKContext";
 import { SDKContextClass } from "../../../contexts/SDKContextClass";
 import { MatrixClientPeg } from "../../../MatrixClientPeg.ts";
 import { useUserStatus } from "../../../hooks/useUserStatus.ts";
+import SettingsStore from "../../../settings/SettingsStore";
 
 vi.mock("../../../hooks/useUserStatus.ts", () => ({
     useUserStatus: vi.fn(),
@@ -228,6 +229,41 @@ describe("<Pill>", () => {
 
                 expect(pillParentClickHandler).not.toHaveBeenCalled();
             });
+        });
+    });
+
+    describe("in the desktop shell", () => {
+        beforeEach(() => {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation(((name: string, ...rest: unknown[]) =>
+                name === "feature_desktop_shell"
+                    ? true
+                    : (getValue as (...args: unknown[]) => unknown)(name, ...rest)) as typeof SettingsStore.getValue);
+        });
+
+        afterEach(() => {
+            vi.mocked(SettingsStore.getValue).mockRestore();
+        });
+
+        it("shows a person as @name without an avatar", () => {
+            renderPill({ room: room1, url: permalinkPrefix + user1Id });
+            const pill = renderResult.container.querySelector(".mx_Pill")!;
+            expect(pill).toHaveClass("mx_Pill_desktopMention");
+            expect(pill).toHaveTextContent("@User 1");
+            expect(pill.querySelector(".mx_BaseAvatar")).toBeNull();
+        });
+
+        it("shows a room as #name without an avatar", () => {
+            renderPill({ url: permalinkPrefix + room1Id });
+            const pill = renderResult.container.querySelector(".mx_Pill")!;
+            expect(pill).toHaveTextContent("#Room 1");
+            expect(pill.querySelector(".mx_BaseAvatar")).toBeNull();
+        });
+
+        it("keeps links to messages as they are", () => {
+            renderPill({ url: `${permalinkPrefix}${room1Id}/${room1Message.getId()}` });
+            const pill = renderResult.container.querySelector(".mx_Pill")!;
+            expect(pill).not.toHaveClass("mx_Pill_desktopMention");
         });
     });
 

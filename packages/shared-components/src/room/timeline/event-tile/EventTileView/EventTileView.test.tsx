@@ -837,4 +837,17 @@ describe("desktop channel messages", () => {
         expect(screen.getByTestId("event-tile-line")).toContainElement(screen.getByTestId("event-tile-slot-actionBar"));
         expect(screen.getByTestId("event-tile-slot-avatar")).toBeVisible();
     });
+
+    it("puts the encryption icon after the time, outside the message line", () => {
+        render(
+            <EventPresentationProvider value={{ layout: "group", density: "default", messageStyle: "desktop" }}>
+                <EventTileView {...createProps({ slots: createStylingContractSlots() })} />
+            </EventPresentationProvider>,
+        );
+        const metadata = screen.getByTestId("event-tile-slot-sender").parentElement!;
+        const padlock = screen.getByTestId("event-tile-slot-padlock");
+        expect(metadata).toContainElement(padlock);
+        expect(screen.getByTestId("event-tile-slot-timestamp").nextElementSibling).toBe(padlock);
+        expect(screen.getByTestId("event-tile-line")).not.toContainElement(padlock);
+    });
 });

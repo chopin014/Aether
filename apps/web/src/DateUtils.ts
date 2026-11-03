@@ -158,6 +158,47 @@ export function formatTime(date: Date, showTwelveHour = false, locale?: string):
     }).format(date);
 }
 
+/** The calendar day a date falls on in the user's time zone, as `YYYY-MM-DD`, for comparing days. */
+function calendarDay(date: Date): string {
+    return new Intl.DateTimeFormat("en-CA", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        timeZone: getUserTimezone(),
+    }).format(date);
+}
+
+/**
+ * Formats when a message was sent, for the head of a group of messages: the time for today, "Yesterday at" the time,
+ * and the short date with the time for anything older, so a message read later still says when it was sent.
+ * Will use the browser's default time zone.
+ * @example "16:13", "Yesterday at 16:13" or "28/04/2026, 16:13" in the pt-BR locale ("04/28/2026, 16:13" in en-US)
+ * @param date - date object to format
+ * @param showTwelveHour - whether to use 12-hour rather than 24-hour time. Defaults to `false` (24 hour mode).
+ * @param locale - the locale string to use, in BCP 47 format, defaulting to user's selected application locale
+ * @param now - the current time, for tests
+ */
+export function formatMessageSentTime(
+    date: Date,
+    showTwelveHour = false,
+    locale?: string,
+    now: Date = new Date(),
+): string {
+    const _locale = locale ?? getUserLanguage();
+    const time = formatTime(date, showTwelveHour, _locale);
+    const day = calendarDay(date);
+    if (day === calendarDay(now)) return time;
+    if (day === calendarDay(new Date(now.getTime() - DAY_MS))) return _t("time|yesterday_at", { time });
+    // A whole, unambiguous date: two-digit day and month and the full year, in the locale's order.
+    const fullDate = new Intl.DateTimeFormat(_locale, {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        timeZone: getUserTimezone(),
+    }).format(date);
+    return `${fullDate}, ${time}`;
+}
+
 export function formatTimeLeft(inSeconds: number): string {
     const hours = Math.floor(inSeconds / (60 * 60)).toFixed(0);
     const minutes = Math.floor((inSeconds % (60 * 60)) / 60).toFixed(0);

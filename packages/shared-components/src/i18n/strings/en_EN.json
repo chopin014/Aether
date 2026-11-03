@@ -50,6 +50,13 @@
         "threads": "Threads"
     },
     "composer": {
+        "attachments": {
+            "label": {
+                "one": "%(count)s file to send",
+                "other": "%(count)s files to send"
+            },
+            "remove": "Remove %(name)s"
+        },
         "url_preview": {
             "clear_all": "Clear all",
             "collapse": "Collapse URL previews",
@@ -253,6 +260,15 @@
             "record": "Record keybind",
             "recording": "Press a key · Esc to cancel",
             "title": "Keybinds"
+        },
+        "message_display": {
+            "compact": "Compact",
+            "compact_description": "Time, name and message share one line, so more of the conversation fits.",
+            "cozy": "Cozy",
+            "cozy_description": "Each group of messages starts with the sender's avatar and name.",
+            "group_spacing": "Space between message groups",
+            "group_spacing_value": "%(size)spx",
+            "title": "Message display"
         },
         "profile": {
             "board": "Board",
@@ -1059,7 +1075,8 @@
             "ongoing": {
                 "common": {
                     "call_started_by": "%(startedByDisplayName)s started a call",
-                    "join_button": "Join"
+                    "join_button": "Join",
+                    "ongoing": "Ongoing"
                 },
                 "dm": {
                     "call_started": "Call started",
@@ -1070,6 +1087,7 @@
                         "one": "%(count)s joined",
                         "other": "%(count)s joined"
                     },
+                    "started_group_call": "<b>%(name)s</b> started a group call.",
                     "title": "Group call in progress"
                 }
             },
@@ -1136,6 +1154,16 @@
             "view_file": "View file",
             "view_image": "View image",
             "view_video": "View video"
+        },
+        "video_player": {
+            "exit_full_screen": "Exit full screen",
+            "full_screen": "Full screen",
+            "mute": "Mute",
+            "pause": "Pause",
+            "play": "Play",
+            "seek": "Seek",
+            "unmute": "Unmute",
+            "volume": "Volume"
         }
     },
     "user_menu": {

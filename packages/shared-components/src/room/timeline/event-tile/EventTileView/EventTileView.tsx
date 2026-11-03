@@ -37,7 +37,7 @@ export function EventTileView({
     onPermalinkContextMenu,
 }: Readonly<EventTileViewProps>): JSX.Element {
     const Root = root.as ?? "li";
-    const { layout, density, messageStyle } = useEventPresentation();
+    const { layout, density, messageStyle, groupSpacing } = useEventPresentation();
     const isRenderableSlot = (content: React.ReactNode): boolean =>
         content !== null && content !== undefined && typeof content !== "boolean";
 
@@ -88,6 +88,12 @@ export function EventTileView({
         [styles.lineImage]: lineState?.image,
     });
 
+    // The chosen gap between message groups, read by the desktop message geometry in the stylesheet.
+    const rootStyle =
+        messageStyle === "desktop" && groupSpacing !== undefined
+            ? ({ "--desktop-message-group-spacing": `${groupSpacing}px` } as React.CSSProperties)
+            : undefined;
+
     const renderRoot = (
         children: React.ReactNode,
         rootClickHandler: React.MouseEventHandler<HTMLElement> | undefined,
@@ -95,6 +101,7 @@ export function EventTileView({
     ): JSX.Element => (
         <Root
             ref={refs?.root}
+            style={rootStyle}
             className={classNames(styles.root, classNameOverrides?.root, {
                 [styles.stateOwnEvent]: root.state.isOwnEvent,
                 [styles.hasReceiptSlot]: hasReceiptSlot,
@@ -240,9 +247,10 @@ export function EventTileView({
         return renderRoot(
             <div className={styles.desktopMessage}>
                 {renderSlot("avatar")}
-                <div className={styles.desktopMetadata}>{renderSlots("sender", "timestamp")}</div>
+                {/* The encryption icon follows the time, so it never sits in the avatar's column or before the text. */}
+                <div className={styles.desktopMetadata}>{renderSlots("sender", "timestamp", "padlock")}</div>
                 <div id={root.id} data-testid="event-tile-line" className={lineClassName} onContextMenu={onContextMenu}>
-                    {renderSlots("contextMenu", "padlock", "replyChain", "body", "actionBar")}
+                    {renderSlots("contextMenu", "replyChain", "body", "actionBar")}
                 </div>
                 {renderSlots("footer", "threadInfo", "receipt")}
             </div>,

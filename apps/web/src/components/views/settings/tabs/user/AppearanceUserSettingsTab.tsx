@@ -19,6 +19,7 @@ import AccessibleButton from "../../../elements/AccessibleButton";
 import { SettingLevel } from "../../../../../settings/SettingLevel";
 import { UIFeature } from "../../../../../settings/UIFeature";
 import { LayoutSwitcher } from "../../LayoutSwitcher";
+import { MessageDisplaySettings } from "./MessageDisplaySettings";
 import FontScalingPanel from "../../FontScalingPanel";
 import { ThemeChoicePanel } from "../../ThemeChoicePanel";
 import ImageSizePanel from "../../ImageSizePanel";
@@ -104,12 +105,14 @@ export default class AppearanceUserSettingsTab extends React.Component<EmptyObje
     }
 
     public render(): React.ReactNode {
+        const desktopShell = SettingsStore.getValue("feature_desktop_shell");
         return (
             <SettingsTab data-testid="mx_AppearanceUserSettingsTab">
                 <SettingsSection>
                     <ThemeChoicePanel />
-                    {SettingsStore.getValue("feature_desktop_shell") && <ColorThemeSettings />}
-                    <LayoutSwitcher />
+                    {desktopShell && <ColorThemeSettings />}
+                    {/* The desktop shell has one message layout of its own, offered as cozy or compact. */}
+                    {desktopShell ? <MessageDisplaySettings /> : <LayoutSwitcher />}
                     <FontScalingPanel />
                     {this.renderAdvancedSection()}
                     <ImageSizePanel />

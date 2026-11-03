@@ -17,6 +17,7 @@ export * from "./core/FacePile/FacePileView.tsx";
 export * from "./core/roving";
 export * from "./room/composer/Banner";
 export * from "./room/composer/UploadButton";
+export * from "./room/composer/AttachmentTrayView";
 export * from "./room/composer/MessageComposerUrlPreview/index.ts";
 export * from "./crypto/SasEmoji";
 export * from "./crypto/LegacyCryptoUnsupportedView";
@@ -124,6 +125,7 @@ export * from "./desktop/DesktopCallStageView";
 export * from "./desktop/DesktopScreenSharePickerView";
 export * from "./desktop/DesktopRoomSettingsView";
 export * from "./desktop/ColorThemeView";
+export * from "./desktop/MessageDisplayView";
 export * from "./desktop/DesktopUpdatesView";
 
 export * from "./presence/PresenceGlyph";

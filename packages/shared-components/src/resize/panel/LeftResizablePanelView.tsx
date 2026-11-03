@@ -34,6 +34,11 @@ export interface LeftResizablePanelViewActions {
 type Props = {
     vm: ViewModel<ResizerViewSnapshot, LeftResizablePanelViewActions>;
     className?: string;
+    /**
+     * Whether dragging the separator past the minimum size collapses the panel away. Defaults to true; a layout that
+     * always keeps its room list, such as the desktop shell, turns it off.
+     */
+    collapsible?: boolean;
 } & Pick<PanelProps, "minSize" | "maxSize" | "defaultSize">;
 
 /**
@@ -44,6 +49,7 @@ export function LeftResizablePanelView({
     vm,
     className,
     children,
+    collapsible = true,
     ...props
 }: PropsWithChildren<Props>): React.ReactNode {
     const { initialSize, isCollapsed } = useViewModel(vm);
@@ -57,10 +63,10 @@ export function LeftResizablePanelView({
 
     return (
         <Panel
-            inert={isCollapsed}
+            inert={collapsible && isCollapsed}
             id={LEFT_PANEL_ID}
             className={className}
-            collapsible
+            collapsible={collapsible}
             minSize={props.minSize}
             maxSize={props.maxSize}
             defaultSize={defaultSize}

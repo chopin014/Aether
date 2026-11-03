@@ -3356,7 +3356,8 @@
         "short_hours_minutes_seconds": "%(hours)sh %(minutes)s m %(seconds)s s",
         "short_minutes": "%(value)sm",
         "short_minutes_seconds": "%(minutes)sm %(seconds)s s",
-        "short_seconds": "%(value)ss"
+        "short_seconds": "%(value)ss",
+        "yesterday_at": "Ontem às %(time)s"
     },
     "timeline": {
         "context_menu": {

@@ -724,6 +724,8 @@ class LoggedInView extends React.Component<IProps, IState> {
                         <LeftResizablePanelView
                             vm={resizerViewModel}
                             className="mx_LeftPanel_panel"
+                            // The desktop shell always shows its channel list, beside the server rail.
+                            collapsible={!this.desktopShellEnabled}
                             minSize="200px"
                             maxSize="370px"
                             defaultSize={this.desktopShellEnabled ? "310px" : "370px"}

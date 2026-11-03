@@ -8,9 +8,10 @@
 import { composeStories } from "@storybook/react-vite";
 import { describe, expect, it } from "vitest";
 import React from "react";
-import { render } from "@test-utils";
+import { render, screen } from "@test-utils";
 
 import * as Stories from "./DmOngoingCallTileView.stories";
+import { EventPresentationProvider } from "../../../../EventPresentation";
 
 const {
     IncomingVideoCall,
@@ -51,6 +52,27 @@ describe("DmOngoingCallTileView", () => {
         it("VideoCallInProgress", () => {
             const { container } = render(<VideoCallInProgress />);
             expect(container).toMatchSnapshot();
+        });
+    });
+
+    describe("in the desktop message style", () => {
+        const renderDesktop = (story: React.ReactElement): ReturnType<typeof render> =>
+            render(
+                <EventPresentationProvider value={{ layout: "group", density: "default", messageStyle: "desktop" }}>
+                    {story}
+                </EventPresentationProvider>,
+            );
+
+        it("renders a call history row with a live marker instead of a boxed tile", () => {
+            const { container } = renderDesktop(<IncomingVoiceCall />);
+            expect(container.querySelector("[data-call-history]")).not.toBeNull();
+            expect(screen.getByText("Ongoing")).toBeInTheDocument();
+            expect(screen.getByRole("button", { name: "Join" })).toBeInTheDocument();
+        });
+
+        it("hides the join button once we are in the call", () => {
+            renderDesktop(<VoiceCallInProgress isJoined={true} />);
+            expect(screen.queryByRole("button", { name: "Join" })).toBeNull();
         });
     });
 });
