@@ -8,7 +8,7 @@ Please see LICENSE files in the repository root for full details.
 
 import { DesktopAccountDockContainer } from "../views/menus/UserMenuContainer";
 import { prepareElementCall } from "../views/voip/prepareElementCall";
-import { deferRoomEntryWork } from "../../performance/RoomEntryReady";
+import { deferRoomEntryWork, deferUntilAccountSync } from "../../performance/RoomEntryReady";
 import { DesktopProfileHost } from "../views/desktop/DesktopProfileHost";
 
 import React, { type ClipboardEvent } from "react";
@@ -133,6 +133,7 @@ class LoggedInView extends React.Component<IProps, IState> {
     private resizerViewModel?: ResizerViewModel;
     private cancelCallPreparation?: () => void;
     private cancelCallEntryWait?: () => void;
+    private cancelCallSyncWait?: () => void;
     private pendingCallIdle?: () => void;
     private readonly desktopShellEnabled = SettingsStore.getValue("feature_desktop_shell");
 
@@ -168,7 +169,10 @@ class LoggedInView extends React.Component<IProps, IState> {
                 this.cancelCallPreparation = prepareElementCall((start) => {
                     this.pendingCallIdle = start;
                     this.scheduleCallIdle();
-                    return () => this.cancelCallEntryWait?.();
+                    return () => {
+                        this.cancelCallEntryWait?.();
+                        this.cancelCallSyncWait?.();
+                    };
                 });
             }
         }
@@ -251,11 +255,17 @@ class LoggedInView extends React.Component<IProps, IState> {
 
     private scheduleCallIdle(): void {
         this.cancelCallEntryWait?.();
+        this.cancelCallSyncWait?.();
         const destination = this.props.currentRoomId || this.context.roomViewStore.getRoomId() || undefined;
+        // The room-entry callback can run synchronously, so each wait keeps its own cancellation handle.
         this.cancelCallEntryWait = deferRoomEntryWork(this._matrixClient, destination, () => {
-            const start = this.pendingCallIdle;
-            this.pendingCallIdle = undefined;
-            start?.();
+            // A Space preview has no conversation to paint, so also keep the large call module out of account
+            // startup and first joins. Explicit call intent still prepares immediately.
+            this.cancelCallSyncWait = deferUntilAccountSync(this._matrixClient, () => {
+                const start = this.pendingCallIdle;
+                this.pendingCallIdle = undefined;
+                start?.();
+            });
         });
     }
 
