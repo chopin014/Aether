@@ -78,6 +78,32 @@ body.mx_DesktopShell {
         background: transparent;
     }
 
+    /*
+     * Dialogs drop Compound's glass frame. Its translucent band and outline kept their own corners: a square rim
+     * around the rounded profile card, which draws its own surface, and light wedges in the corners of dialogs whose
+     * inner rounding differed. A dialog is one surface here, its corners following the frame's.
+     */
+    .mx_Dialog_wrapper:not(.mx_Dialog_lightbox, .mx_Dialog_spinner) .mx_Dialog_border {
+        padding: 0;
+        outline: none;
+        background: none;
+        backdrop-filter: none;
+        border-radius: 12px;
+
+        > .mx_Dialog {
+            border-radius: inherit;
+        }
+    }
+
+    /* Without the glass, a dialog keeps a hairline edge and lifts off the page with a soft shadow. */
+    .mx_Dialog_wrapper:not(.mx_Dialog_lightbox, .mx_Dialog_spinner, .mx_Dialog_desktopProfile)
+        .mx_Dialog_border
+        > .mx_Dialog {
+        box-shadow:
+            0 0 0 1px var(--cpd-color-border-interactive-secondary),
+            0 16px 40px rgb(0 0 0 / 40%);
+    }
+
     /* Keep the desktop frame visible around the captured settings modal. */
     .mx_Dialog_border:has(.mx_UserSettingsDialog, .mx_RoomSettingsDialog, .mx_SpaceSettingsDialog) {
         width: calc(100% - 80px);
