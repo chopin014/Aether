@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import React, { useCallback, useEffect, useRef, type JSX, type ReactNode } from "react";
+import React, { useCallback, useEffect, useRef, useState, type JSX, type ReactNode } from "react";
 import {
     TimelineView,
     useCreateAutoDisposedViewModel,
@@ -16,7 +16,15 @@ import {
 import { InlineSpinner } from "@vector-im/compound-web";
 import classNames from "classnames";
 
-import type { EventType, MatrixClient, MatrixEvent, RelationType, Relations, Room } from "matrix-js-sdk/src/matrix";
+import {
+    EventType,
+    type MatrixClient,
+    type MatrixEvent,
+    type RelationType,
+    type Relations,
+    type Room,
+} from "matrix-js-sdk/src/matrix";
+import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
 import { RoomTimelineViewModel } from "../../viewmodels/room/timeline/RoomTimelineViewModel";
 import { useMatrixClientContext } from "../../contexts/MatrixClientContext";
 import { LegacyEventTileAdapter } from "../views/rooms/LegacyEventTileAdapter";
@@ -178,6 +186,23 @@ export function NewTimelinePanel({
     showReadReceipts = true,
 }: Readonly<NewTimelinePanelProps>): JSX.Element {
     const client: MatrixClient = useMatrixClientContext();
+    const [entryPainted, setEntryPainted] = useState(false);
+    const onItemsPainted = useCallback(
+        (items: TimelineItem[]): void => {
+            if (hidden) return;
+            if (
+                items.some((item) => {
+                    if (item.kind !== "event") return false;
+                    const event = item.event as MatrixEvent;
+                    return event.getType() === EventType.RoomMessage && !event.isRedacted();
+                })
+            ) {
+                notifyRoomEntryReady(client, room.roomId);
+                setEntryPainted(true);
+            }
+        },
+        [client, room, hidden],
+    );
 
     // Read here rather than passed in, so changing either setting redraws the tiles.
     const isTwelveHour = useSettingValue("showTwelveHourTimestamps");
@@ -275,7 +300,7 @@ export function NewTimelinePanel({
                 mx_NewTimelinePanel_hidden: hidden,
             })}
         >
-            <TimelineView vm={vm} renderItem={renderItem} />
+            <TimelineView vm={vm} renderItem={renderItem} onItemsPainted={entryPainted ? undefined : onItemsPainted} />
         </div>
     );
 }

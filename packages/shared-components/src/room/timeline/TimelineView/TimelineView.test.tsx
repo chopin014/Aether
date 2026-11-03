@@ -106,6 +106,42 @@ function renderTimeline(vm: TimelineViewModel): RenderResult {
 }
 
 describe("<TimelineView />", () => {
+    it("reports painted viewport rows after reveal without including overscan rows", async () => {
+        const { vm } = makeFakeVm({ items: eventItems(30) });
+        const painted = vi.fn();
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView vm={vm} renderItem={renderItem} onItemsPainted={painted} />
+            </div>,
+        );
+        expect(painted).not.toHaveBeenCalled();
+        await waitFor(() => expect(painted).toHaveBeenCalled());
+        const items: TimelineItem[] = painted.mock.calls.at(-1)![0];
+        expect(items.length).toBeGreaterThan(0);
+        expect(items.length).toBeLessThan(30);
+        const scroller = screen.getByTestId("timeline-scroller");
+        expect(scroller).toHaveStyle({ visibility: "visible" });
+        const viewport = scroller.getBoundingClientRect();
+        for (const item of items) {
+            const row = screen.getByTestId(`row-${item.key}`).getBoundingClientRect();
+            expect(row.bottom).toBeGreaterThan(viewport.top);
+            expect(row.top).toBeLessThan(viewport.bottom);
+        }
+    });
+
+    it("does not report painted rows after unmounting before placement", async () => {
+        const { vm } = makeFakeVm();
+        const painted = vi.fn();
+        const { unmount } = render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView vm={vm} renderItem={renderItem} onItemsPainted={painted} />
+            </div>,
+        );
+        unmount();
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        expect(painted).not.toHaveBeenCalled();
+    });
+
     it("reveals a short bottom-aligned list without waiting for the placement timeout", async () => {
         const { vm, actions, update } = makeFakeVm();
         render(

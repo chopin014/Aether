@@ -23,6 +23,7 @@ import { UPDATE_SELECTED_SPACE } from "../../stores/spaces";
 import SettingsStore from "../../settings/SettingsStore";
 import { type MemberListViewState } from "../../components/viewmodels/memberlist/MemberListViewModel";
 import { groupDesktopMembers, type DesktopMemberListItem } from "./desktopMemberGroups";
+import { deferRoomEntryWork } from "../../performance/RoomEntryReady";
 
 /**
  * Derive desktop rows from the existing channel member view model and the selected server's Space roles.
@@ -77,16 +78,19 @@ export function useDesktopMemberListViewModel(
         if (!roleSpace) return;
         let disposed = false;
         // Space membership can be lazy-loaded independently of the open channel's member list.
-        void sdkContext.memberListStore.ensureMembersLoaded(roleSpace.roomId).then(
-            () => {
-                if (!disposed) refresh();
-            },
-            (error: unknown) => logger.warn("Unable to load Space roles for the member list", error),
-        );
+        const cancel = deferRoomEntryWork(cli, roomId, () => {
+            void sdkContext.memberListStore.ensureMembersLoaded(roleSpace.roomId).then(
+                () => {
+                    if (!disposed) refresh();
+                },
+                (error: unknown) => logger.warn("Unable to load Space roles for the member list", error),
+            );
+        });
         return () => {
             disposed = true;
+            cancel();
         };
-    }, [roleSpace, sdkContext]);
+    }, [roleSpace, sdkContext, cli, roomId]);
 
     return enabled
         ? groupDesktopMembers(vm.members, vm.isPresenceEnabled, roleSpace, SettingsStore.getValue("language"))

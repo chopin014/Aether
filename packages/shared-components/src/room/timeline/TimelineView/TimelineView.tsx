@@ -98,7 +98,7 @@ const REVEAL_TIMEOUT_MS = 1000;
  */
 type Phase = "init" | "placing" | "live";
 
-export function TimelineView({ vm, renderItem }: TimelineViewProps): JSX.Element {
+export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewProps): JSX.Element {
     const snapshot = useViewModel(vm);
 
     // The effects and callbacks below run outside React's render — from scroll events and
@@ -126,6 +126,24 @@ export function TimelineView({ vm, renderItem }: TimelineViewProps): JSX.Element
     const revealedRef = useRef(false);
     const measuredElementsRef = useRef(new WeakSet<Element>());
     const receivedResizeEntryRef = useRef(false);
+
+    useEffect(() => {
+        if (!revealed || !onItemsPainted) return;
+        let frame = requestAnimationFrame(() => {
+            frame = requestAnimationFrame(() => {
+                const scroller = scrollerRef.current;
+                if (!scroller) return;
+                const top = scroller.scrollTop;
+                const bottom = top + scroller.clientHeight;
+                const painted = virtualizer.getVirtualItems().flatMap((row) => {
+                    const item = itemsRef.current[row.index];
+                    return row.end > top && row.start < bottom && item ? [item] : [];
+                });
+                onItemsPainted(painted);
+            });
+        });
+        return () => cancelAnimationFrame(frame);
+    });
 
     // Reading every new row's offsetHeight during its ref callback forces layout between
     // TanStack's positioning writes. Let ResizeObserver measure the rows together instead.

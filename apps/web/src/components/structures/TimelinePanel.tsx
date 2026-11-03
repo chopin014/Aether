@@ -59,6 +59,7 @@ import { type ViewRoomPayload } from "../../dispatcher/payloads/ViewRoomPayload"
 import { getKeyBindingsManager } from "../../KeyBindingsManager";
 import { KeyBindingAction } from "../../accessibility/KeyboardShortcuts";
 import { haveRendererForEvent } from "../../events/EventTileFactory";
+import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
 
 // These pagination sizes are higher than they may possibly need be
 // once https://github.com/matrix-org/matrix-spec-proposals/pull/3874 lands
@@ -246,6 +247,8 @@ class TimelinePanel extends React.Component<IProps, IState> {
     private dispatcherRef?: string;
     private timelineWindow?: TimelineWindow;
     private unmounted = false;
+    private initialReadyFrame?: number;
+    private entryPainted = false;
     private readReceiptActivityTimer: Timer | null = null;
     private readMarkerActivityTimer: Timer | null = null;
 
@@ -360,6 +363,7 @@ class TimelinePanel extends React.Component<IProps, IState> {
     }
 
     public componentWillUnmount(): void {
+        if (this.initialReadyFrame !== undefined) cancelAnimationFrame(this.initialReadyFrame);
         // set a boolean to say we've been unmounted, which any pending
         // promises can use to throw away their results.
         //
@@ -1603,6 +1607,30 @@ class TimelinePanel extends React.Component<IProps, IState> {
         const state = this.getEvents();
         this.buildLegacyCallEventGroupers(state.events);
         this.setState(state);
+        if (this.entryPainted) return;
+        if (this.initialReadyFrame !== undefined) cancelAnimationFrame(this.initialReadyFrame);
+        this.initialReadyFrame = requestAnimationFrame(() => {
+            this.initialReadyFrame = requestAnimationFrame(() => {
+                this.initialReadyFrame = undefined;
+                const room = this.props.timelineSet.room;
+                if (!room || this.unmounted || this.props.hidden || this.state.timelineLoading) return;
+                const viewport = this.messagePanelDiv?.getBoundingClientRect();
+                if (!viewport || !this.messagePanel.current) return;
+                if (
+                    this.state.events.some((event) => {
+                        if (event.getType() !== EventType.RoomMessage || event.isRedacted()) return false;
+                        const id = event.getId();
+                        const rect = id
+                            ? this.messagePanel.current?.getNodeForEventId(id)?.getBoundingClientRect()
+                            : undefined;
+                        return rect && rect.bottom > viewport.top && rect.top < viewport.bottom;
+                    })
+                ) {
+                    this.entryPainted = true;
+                    notifyRoomEntryReady(MatrixClientPeg.safeGet(), room.roomId);
+                }
+            });
+        });
     }
 
     // Force refresh the timeline before threads support pending events
