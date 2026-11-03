@@ -96,6 +96,26 @@ describe("prepareElementCall", () => {
         expect(cancelWait).toHaveBeenCalledOnce();
     });
 
+    it("ignores focus and visibility changes until the scheduler releases automatic preparation", async () => {
+        let release: (() => void) | undefined;
+        const cancel = prepareElementCall((start) => {
+            release = start;
+            return vi.fn();
+        });
+        // Startup focus changes must not load the call engine before the first conversation paints.
+        window.dispatchEvent(new Event("focus"));
+        document.dispatchEvent(new Event("visibilitychange"));
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(loadElementCallComponent).not.toHaveBeenCalled();
+        expect(DesktopVoicePipeline.instance.prepare).not.toHaveBeenCalled();
+        release?.();
+        window.dispatchEvent(new Event("focus"));
+        expect(DesktopVoicePipeline.instance.prepare).toHaveBeenCalledOnce();
+        cancel();
+        window.dispatchEvent(new Event("focus"));
+        expect(DesktopVoicePipeline.instance.prepare).toHaveBeenCalledOnce();
+    });
+
     it("ignores a late paint callback after logout", async () => {
         let release: (() => void) | undefined;
         const cancelWait = vi.fn();
