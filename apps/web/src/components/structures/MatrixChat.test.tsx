@@ -167,6 +167,7 @@ describe("<MatrixChat />", () => {
         getSyncState: vi.fn(),
         getSsoLoginUrl: vi.fn(),
         getSyncStateData: vi.fn().mockReturnValue(null),
+        getPushRules: vi.fn().mockResolvedValue({ global: {} }),
         getThirdpartyProtocols: vi.fn().mockResolvedValue({}),
         getClientWellKnown: vi.fn().mockReturnValue({}),
         _unstable_getRTCTransports: vi.fn().mockResolvedValue([]),

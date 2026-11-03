@@ -10,7 +10,7 @@ Please see LICENSE files in the repository root for full details.
 
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { logger } from "matrix-js-sdk/src/logger";
-import { type MatrixClient } from "matrix-js-sdk/src/matrix";
+import { ClientEvent, MatrixError, type IPushRules, type MatrixClient } from "matrix-js-sdk/src/matrix";
 import fetchMock from "@fetch-mock/vitest";
 import { advanceDateAndTime, stubClient, createTestClient } from "test-utils";
 
@@ -22,6 +22,18 @@ import * as StorageManager from "./utils/StorageManager";
 import { SlidingSyncManager } from "./SlidingSyncManager";
 import { LegacyCryptoStoreError } from "./utils/LegacyCryptoStoreError.ts";
 import SettingsStore from "./settings/SettingsStore";
+// These internal startup gates verify the SDK patch; neither class is exported by matrix.ts.
+// oxlint-disable-next-line no-restricted-imports
+import { SyncApi } from "matrix-js-sdk/src/sync";
+// oxlint-disable-next-line no-restricted-imports
+import { SlidingSyncSdk } from "matrix-js-sdk/src/sliding-sync-sdk";
+import {
+    ExtensionState,
+    SlidingSync,
+    SlidingSyncEvent,
+    SlidingSyncState,
+    type MSC3575SlidingSyncResponse,
+} from "matrix-js-sdk/src/sliding-sync";
 
 vi.useFakeTimers();
 
@@ -177,6 +189,64 @@ describe("MatrixClientPeg", () => {
             expect(client.startClient).toHaveBeenCalled();
         });
 
+        it("fetches push rules while the local store opens and passes the fresh result to sync", async () => {
+            const client = testPeg.safeGet();
+            const store = Promise.withResolvers<void>();
+            client.store.startup = vi.fn().mockReturnValue(store.promise);
+            const rules = { global: {} };
+            const getPushRules = vi.spyOn(client, "getPushRules").mockResolvedValue(rules);
+            const starting = testPeg.start();
+            expect(getPushRules).toHaveBeenCalledOnce();
+            expect(client.startClient).not.toHaveBeenCalled();
+            store.resolve();
+            await starting;
+            expect(client.startClient).toHaveBeenCalledWith(expect.objectContaining({ initialPushRules: rules }));
+        });
+
+        it("passes pending push rules to native sync after the store and crypto are ready", async () => {
+            const client = testPeg.safeGet();
+            const store = Promise.withResolvers<void>();
+            const crypto = Promise.withResolvers<void>();
+            const rules = Promise.withResolvers<IPushRules>();
+            client.store.startup = vi.fn().mockReturnValue(store.promise);
+            vi.spyOn(client, "initRustCrypto").mockReturnValue(crypto.promise);
+            vi.spyOn(client, "getPushRules").mockReturnValue(rules.promise);
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) => {
+                if (name === "feature_simplified_sliding_sync") return true;
+                return getValue(name, ...args);
+            });
+            vi.spyOn(SlidingSyncManager.instance, "setup").mockResolvedValue(undefined);
+
+            const starting = testPeg.start();
+            store.resolve();
+            await vi.waitFor(() => expect(client.initRustCrypto).toHaveBeenCalled());
+            expect(client.startClient).not.toHaveBeenCalled();
+            crypto.resolve();
+            await starting;
+
+            const opts = vi.mocked(client.startClient).mock.calls[0][0]!;
+            expect(opts.initialPushRules).toBeUndefined();
+            expect(opts.initialPushRulesPromise).toBeInstanceOf(Promise);
+            rules.resolve({ global: {} });
+            await expect(opts.initialPushRulesPromise).resolves.toEqual({ global: {} });
+        });
+
+        it("leaves failed push-rule prefetches to the SDK retry path", async () => {
+            vi.spyOn(testPeg.safeGet(), "getPushRules").mockRejectedValueOnce(new Error("Offline"));
+            await testPeg.start();
+            expect(testPeg.safeGet().startClient).toHaveBeenCalledWith(
+                expect.objectContaining({ initialPushRules: undefined }),
+            );
+        });
+
+        it("does not fetch push rules for a guest", async () => {
+            vi.spyOn(testPeg.safeGet(), "isGuest").mockReturnValue(true);
+            const getPushRules = vi.spyOn(testPeg.safeGet(), "getPushRules");
+            await testPeg.start();
+            expect(getPushRules).not.toHaveBeenCalled();
+        });
+
         it("handles a failed versions prefetch without aborting local startup", async () => {
             const error = new Error("Offline");
             vi.spyOn(testPeg.safeGet(), "getVersions").mockRejectedValueOnce(error);
@@ -291,6 +361,220 @@ describe("MatrixClientPeg", () => {
 
                 expect(await requestedUrls()).not.toContainEqual(expect.stringContaining("/.well-known/matrix/"));
             });
+        });
+    });
+
+    describe("native SDK transport before push rules", () => {
+        const roomId = "!large:example.com";
+        const rules: IPushRules = { global: {} };
+        const response: MSC3575SlidingSyncResponse = {
+            pos: "first",
+            lists: {},
+            rooms: {
+                [roomId]: {
+                    name: "Large room",
+                    initial: true,
+                    required_state: [],
+                    timeline: [
+                        {
+                            event_id: "$message",
+                            sender: "@member:example.com",
+                            origin_server_ts: 1,
+                            type: "m.room.message",
+                            content: { msgtype: "m.text", body: "Ready" },
+                        },
+                    ],
+                },
+            },
+            extensions: {
+                probe: {},
+                e2ee: { device_one_time_keys_count: { signed_curve25519: 50 } },
+                to_device: { events: [], next_batch: "devices" },
+            },
+        };
+
+        function setup(initialRules: Promise<IPushRules | undefined>) {
+            const client = createClientWithCreds({
+                homeserverUrl: "http://example.com",
+                userId: "@user:example.com",
+                accessToken: "token",
+            });
+            const http = Promise.withResolvers<MSC3575SlidingSyncResponse>();
+            const request = vi.spyOn(client, "slidingSync").mockImplementation((_body, _url, signal) => {
+                signal?.addEventListener("abort", () => http.reject(new DOMException("Stopped", "AbortError")), {
+                    once: true,
+                });
+                return http.promise;
+            });
+            const fetchRules = vi.spyOn(client, "getPushRules").mockResolvedValue(rules);
+            const sliding = new SlidingSync(client.baseUrl, new Map(), {}, client, 20_000);
+            const crypto = {
+                processSyncChanges: vi.fn().mockResolvedValue([]),
+                onCryptoEvent: vi.fn().mockResolvedValue(undefined),
+                onSyncCompleted: vi.fn(),
+                markAllTrackedUsersAsDirty: vi.fn().mockResolvedValue(undefined),
+            };
+            const api = new SlidingSyncSdk(
+                sliding,
+                client,
+                { initialPushRulesPromise: initialRules },
+                { logger, cryptoCallbacks: crypto },
+            );
+            const preProcess = vi.fn().mockResolvedValue(undefined);
+            sliding.registerExtension({
+                name: () => "probe",
+                when: () => ExtensionState.PreProcess,
+                onRequest: async () => ({}),
+                onResponse: preProcess,
+            });
+            const lifecycle = vi.fn();
+            const roomData = vi.fn();
+            sliding.on(SlidingSyncEvent.Lifecycle, lifecycle);
+            sliding.on(SlidingSyncEvent.RoomData, roomData);
+            sliding.on(SlidingSyncEvent.Lifecycle, (state) => {
+                if (state === SlidingSyncState.Complete) api.stop();
+            });
+            return { client, api, http, request, fetchRules, preProcess, lifecycle, roomData, crypto };
+        }
+
+        it("sends HTTP while push rules are pending and gates lifecycle, extensions and room events", async () => {
+            const pending = Promise.withResolvers<IPushRules>();
+            const fixture = setup(pending.promise);
+            const running = fixture.api.sync();
+            await vi.waitFor(() => expect(fixture.request).toHaveBeenCalledOnce());
+            fixture.http.resolve(response);
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(fixture.lifecycle).not.toHaveBeenCalled();
+            expect(fixture.preProcess).not.toHaveBeenCalled();
+            expect(fixture.roomData).not.toHaveBeenCalled();
+            expect(fixture.client.getRoom(roomId)).toBeNull();
+            expect(fixture.crypto.processSyncChanges).not.toHaveBeenCalled();
+            expect(fixture.crypto.markAllTrackedUsersAsDirty).toHaveBeenCalledOnce();
+            expect(fixture.request.mock.calls[0][0].extensions).toMatchObject({
+                e2ee: { enabled: true },
+                to_device: { enabled: true },
+            });
+
+            pending.resolve(rules);
+            await running;
+            expect(fixture.client.pushRules).toBe(rules);
+            expect(fixture.fetchRules).not.toHaveBeenCalled();
+            expect(fixture.lifecycle).toHaveBeenCalledWith(SlidingSyncState.RequestFinished, response, undefined);
+            expect(fixture.preProcess).toHaveBeenCalledOnce();
+            expect(fixture.crypto.processSyncChanges).toHaveBeenCalledOnce();
+            expect(fixture.crypto.processSyncChanges).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    oneTimeKeysCounts: { signed_curve25519: 50 },
+                    toDeviceEvents: [],
+                    useMsc4186: true,
+                }),
+            );
+            expect(fixture.roomData).toHaveBeenCalledOnce();
+            expect(fixture.client.getRoom(roomId)?.getLiveTimeline().getEvents()[0].getContent().body).toBe("Ready");
+        });
+
+        it("still completes crypto processing before publishing room data", async () => {
+            const fixture = setup(Promise.resolve(rules));
+            const cryptoReady = Promise.withResolvers<[]>();
+            fixture.crypto.processSyncChanges.mockReturnValue(cryptoReady.promise);
+            const running = fixture.api.sync();
+            await vi.waitFor(() => expect(fixture.request).toHaveBeenCalledOnce());
+            fixture.http.resolve(response);
+            await vi.waitFor(() => expect(fixture.crypto.processSyncChanges).toHaveBeenCalledOnce());
+            expect(fixture.roomData).not.toHaveBeenCalled();
+            expect(fixture.client.getRoom(roomId)).toBeNull();
+            cryptoReady.resolve([]);
+            await running;
+            expect(fixture.roomData).toHaveBeenCalledOnce();
+        });
+
+        it("retries missing or failed prefetched rules before processing the buffered response", async () => {
+            const pending = Promise.withResolvers<IPushRules | undefined>();
+            const retry = Promise.withResolvers<IPushRules>();
+            const fixture = setup(pending.promise);
+            fixture.fetchRules.mockRejectedValueOnce(new Error("Offline")).mockReturnValueOnce(retry.promise);
+            const running = fixture.api.sync();
+            await vi.waitFor(() => expect(fixture.request).toHaveBeenCalledOnce());
+            fixture.http.resolve(response);
+            pending.resolve(undefined);
+            await vi.waitFor(() => expect(fixture.fetchRules).toHaveBeenCalledTimes(2));
+            expect(fixture.lifecycle).not.toHaveBeenCalled();
+            retry.resolve(rules);
+            await running;
+            expect(fixture.client.pushRules).toBe(rules);
+            expect(fixture.roomData).toHaveBeenCalledOnce();
+        });
+
+        it("stops on a terminal push-rule error without processing the buffered response", async () => {
+            const pending = Promise.withResolvers<IPushRules | undefined>();
+            const fixture = setup(pending.promise);
+            const error = new MatrixError({ errcode: "M_UNKNOWN_TOKEN", error: "Expired" });
+            fixture.fetchRules.mockRejectedValue(error);
+            const syncState = vi.fn();
+            fixture.client.on(ClientEvent.Sync, syncState);
+            const running = fixture.api.sync();
+            await vi.waitFor(() => expect(fixture.request).toHaveBeenCalledOnce());
+            fixture.http.resolve(response);
+            pending.resolve(undefined);
+            await running;
+            expect(fixture.fetchRules).toHaveBeenCalledOnce();
+            expect(syncState).toHaveBeenCalledWith("ERROR", null, { error });
+            expect(fixture.lifecycle).not.toHaveBeenCalled();
+            expect(fixture.preProcess).not.toHaveBeenCalled();
+            expect(fixture.roomData).not.toHaveBeenCalled();
+            expect(fixture.client.getRoom(roomId)).toBeNull();
+        });
+
+        it.each([false, true])("settles stop while startup is pending (HTTP received: %s)", async (received) => {
+            const pending = Promise.withResolvers<IPushRules | undefined>();
+            const fixture = setup(pending.promise);
+            const running = fixture.api.sync();
+            await vi.waitFor(() => expect(fixture.request).toHaveBeenCalledOnce());
+            if (received) fixture.http.resolve(response);
+            await Promise.resolve();
+            fixture.api.stop();
+            await running;
+            pending.resolve(undefined);
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(fixture.fetchRules).not.toHaveBeenCalled();
+            expect(fixture.client.pushRules).toBeUndefined();
+            expect(fixture.lifecycle).not.toHaveBeenCalled();
+            expect(fixture.preProcess).not.toHaveBeenCalled();
+            expect(fixture.roomData).not.toHaveBeenCalled();
+        });
+    });
+
+    describe.each(["regular", "sliding"])("%s SDK push-rule startup", (protocol) => {
+        it("consumes prefetched rules once and fetches fresh rules on a later startup", async () => {
+            const client = createClientWithCreds({
+                homeserverUrl: "http://example.com",
+                userId: "@user:example.com",
+                accessToken: "token",
+            });
+            const initialRules = { global: {} };
+            const laterRules = { global: {} };
+            const fetchRules = vi.spyOn(client, "getPushRules").mockResolvedValue(laterRules);
+            const sliding = new SlidingSync(client.baseUrl, new Map(), {}, client, 20_000);
+            vi.spyOn(sliding, "start").mockImplementation(async (ready) => {
+                await ready;
+            });
+            const api =
+                protocol === "sliding"
+                    ? new SlidingSyncSdk(sliding, client, { initialPushRules: initialRules }, { logger })
+                    : new SyncApi(client, { initialPushRules: initialRules }, { logger });
+            const loadRules = (): Promise<void> =>
+                protocol === "sliding"
+                    ? (api as SlidingSyncSdk).sync()
+                    : // The regular sync loop runs indefinitely; exercise its actual startup rule gate directly.
+                      (api as unknown as { getPushRules: () => Promise<void> }).getPushRules();
+            await loadRules();
+            expect(fetchRules).not.toHaveBeenCalled();
+            expect(client.pushRules).toBe(initialRules);
+            await loadRules();
+            expect(fetchRules).toHaveBeenCalledOnce();
+            expect(client.pushRules).toBe(laterRules);
         });
     });
 });

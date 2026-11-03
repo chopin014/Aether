@@ -29,3 +29,154 @@ index f2c46a15c2bc79172c3e90b02157c1c09c5a2109..62957811f487d55f67625f69319148be
          if (!fullMembership) {
              this.logger?.info(
                  `No matching RTC membership for key from ${membership.userId}:${membership.deviceId}, delaying key addition`,
+diff --git a/src/client.ts b/src/client.ts
+--- a/src/client.ts
++++ b/src/client.ts
+@@ -507,6 +507,12 @@
+      */
+     initialSyncLimit?: number;
+
++    /** Fresh push rules fetched alongside local startup; consumed once before processing sync events. */
++    initialPushRules?: IPushRules;
++
++    /** Pending fresh push rules; native sync can fetch its first response while these load. */
++    initialPushRulesPromise?: Promise<IPushRules | undefined>;
++
+     /**
+      * True to put `archived=true</code> on the <code>/initialSync` request. Default: false.
+      */
+diff --git a/src/sync.ts b/src/sync.ts
+--- a/src/sync.ts
++++ b/src/sync.ts
+@@ -605,7 +605,9 @@
+     private getPushRules = async (): Promise<void> => {
+         try {
+             this.syncOpts.logger.debug("Getting push rules...");
+-            const result = await this.client.getPushRules();
++            const initialPushRules = this.opts.initialPushRules;
++            delete this.opts.initialPushRules;
++            const result = initialPushRules ?? (await this.client.getPushRules());
+             this.syncOpts.logger.debug("Got push rules");
+
+             this.client.pushRules = result;
+diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
+--- a/src/sliding-sync-sdk.ts
++++ b/src/sliding-sync-sdk.ts
+@@ -428,6 +428,7 @@
+     private syncStateData?: ISyncStateData;
+     private lastPos: string | null = null;
+     private failCount = 0;
++    private stopped = false;
+     private notifEvents: MatrixEvent[] = []; // accumulator of sync events in the current sync response
+
+     public constructor(
+@@ -991,12 +992,23 @@
+     public async sync(): Promise<void> {
+         this.syncOpts.logger.debug("Sliding sync init loop");
+
+-        //   1) We need to get push rules so we can check if events should bing as we get
+-        //      them from /sync.
+-        while (!this.client.isGuest()) {
++        // Fetch the first response alongside push rules, but keep notification and crypto
++        // processing behind the rule gate.
++        await this.slidingSync.start(this.preparePushRules());
++    }
++
++    private async preparePushRules(): Promise<void> {
++        while (!this.stopped && !this.client.isGuest()) {
+             try {
+                 this.syncOpts.logger.debug("Getting push rules...");
+-                const result = await this.client.getPushRules();
++                const initialPushRules = this.opts.initialPushRules;
++                const initialPushRulesPromise = this.opts.initialPushRulesPromise;
++                delete this.opts.initialPushRules;
++                delete this.opts.initialPushRulesPromise;
++                let result = initialPushRules ?? (await initialPushRulesPromise);
++                if (this.stopped) return;
++                result ??= await this.client.getPushRules();
++                if (this.stopped) return;
+                 this.syncOpts.logger.debug("Got push rules");
+                 this.client.pushRules = result;
+                 break;
+@@ -1007,9 +1019,6 @@
+                 }
+             }
+         }
+-
+-        // start syncing
+-        await this.slidingSync.start();
+     }
+
+     /**
+@@ -1017,6 +1026,7 @@
+      */
+     public stop(): void {
+         this.syncOpts.logger.debug("SyncApi.stop");
++        this.stopped = true;
+         this.slidingSync.stop();
+     }
+
+diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
+--- a/src/sliding-sync.ts
++++ b/src/sliding-sync.ts
+@@ -317,6 +317,7 @@
+     private lists: Map<string, SlidingList>;
+     private listModifiedCount = 0;
+     private terminated = false;
++    private readonly stopped = Promise.withResolvers<void>();
+     // flag set when resend() is called because we cannot rely on detecting AbortError in JS SDK :(
+     private needsResend = false;
+     // map of extension name to req/resp handler
+@@ -578,6 +579,7 @@
+      */
+     public stop(): void {
+         this.terminated = true;
++        this.stopped.resolve();
+         this.abortController?.abort();
+         // remove all listeners so things can be GC'd
+         this.removeAllListeners(SlidingSyncEvent.Lifecycle);
+@@ -600,9 +602,21 @@
+
+     /**
+      * Start syncing with the server. Blocks until stopped.
+-     */
+-    public async start(): Promise<void> {
++     * @param processingReady - Optional startup gate. Requests can run before it resolves,
++     * but no response state, lifecycle listeners or extensions are processed until it does.
++     * Rejection stops the sync without processing the response.
++     */
++    public async start(processingReady?: Promise<void>): Promise<void> {
+         this.abortController = new AbortController();
++        // Attach the rejection handler immediately, even if the first HTTP request is still pending.
++        let ready = processingReady?.then(
++            () => true,
++            (error) => {
++                logger.error("SlidingSync: response processing startup failed", error);
++                this.stop();
++                return false;
++            },
++        );
+
+         let currentPos: string | undefined;
+         while (!this.terminated) {
+@@ -620,6 +634,7 @@
+                     clientTimeout: this.timeoutMS + BUFFER_PERIOD_MS,
+                     extensions: await this.getExtensionRequest(currentPos === undefined),
+                 };
++                if (this.terminated) return;
+                 // check if we are (un)subscribing to a room and modify request this one time for it
+                 const newSubscriptions = difference(this.desiredRoomSubscriptions, this.confirmedRoomSubscriptions);
+                 const unsubscriptions = difference(this.confirmedRoomSubscriptions, this.desiredRoomSubscriptions);
+@@ -639,6 +654,12 @@
+                 }
+                 this.pendingReq = this.client.slidingSync(reqBody, this.proxyBaseUrl, this.abortController.signal);
+                 resp = await this.pendingReq;
++                if (ready) {
++                    const canProcess = await Promise.race([ready, this.stopped.promise.then(() => false)]);
++                    if (!canProcess || this.terminated) return;
++                    ready = undefined;
++                }
++                if (this.terminated) return;
+                 currentPos = resp.pos;
+                 // update what we think we're subscribed to.
+                 for (const roomId of newSubscriptions) {

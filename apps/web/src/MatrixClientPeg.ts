@@ -251,6 +251,14 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         void this.matrixClient.getVersions().catch((error: unknown) => {
             logger.warn("Unable to prefetch server versions; startup will retry", error);
         });
+        // Push rules must precede sync event processing, but can load alongside the local stores.
+        // The SDK consumes this fresh result once; failures keep its normal startup retry path.
+        const pushRulesReady = this.matrixClient.isGuest()
+            ? undefined
+            : this.matrixClient.getPushRules().catch((error: unknown) => {
+                  logger.warn("Unable to prefetch push rules; sync startup will retry", error);
+                  return undefined;
+              });
 
         // Opening the sync store and starting crypto are independent, and each can take hundreds of milliseconds on a
         // big account, so they run side by side.
@@ -263,6 +271,12 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         if (crypto.status === "rejected") throw crypto.reason;
 
         const opts = utils.deepCopy(this.opts);
+        if (SettingsStore.getValue("feature_simplified_sliding_sync")) {
+            // Native sync can fetch its response while rules load, before processing any events.
+            opts.initialPushRulesPromise = pushRulesReady;
+        } else {
+            opts.initialPushRules = await pushRulesReady;
+        }
         // the react sdk doesn't work without this, so don't allow
         opts.pendingEventOrdering = PendingEventOrdering.Detached;
         opts.lazyLoadMembers = true;
