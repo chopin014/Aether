@@ -90,6 +90,12 @@
     font: var(--cpd-font-body-xs-semibold);
     font-variant-numeric: tabular-nums;
     pointer-events: none;
+    transition: opacity 160ms ease-out;
+}
+
+/* The bar shows the same length, and would sit on top of the badge. */
+.player:is(:hover, :focus-within) .durationBadge {
+    opacity: 0;
 }
 
 /* The control bar fades in while the pointer is over a playing video, and stays while paused or focused. */
