@@ -830,6 +830,25 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
     }
 
     /*
+     * The day between messages is a quiet label on a faint rule: small, semibold and muted, so it marks the change
+     * of day without competing with the messages around it.
+     */
+    .mx_TimelineSeparator {
+        margin-block: var(--cpd-space-4x) var(--cpd-space-1x);
+        font: var(--cpd-font-body-xs-semibold);
+        color: var(--cpd-color-text-secondary);
+
+        > hr {
+            border-bottom-color: var(--cpd-color-border-interactive-secondary);
+        }
+
+        /* The label between the two halves of the rule. */
+        > :not(hr) {
+            padding-inline: var(--cpd-space-2x);
+        }
+    }
+
+    /*
      * Pictures sent together (see GalleryGrouper): the first is an ordinary message, and the rest fill a grid as wide
      * as a picture under it, cropped to squares when they share a row.
      */
