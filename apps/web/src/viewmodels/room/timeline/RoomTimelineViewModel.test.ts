@@ -179,6 +179,159 @@ describe("RoomTimelineViewModel", () => {
             expect(vm.getSnapshot().atLiveEnd).toBe(true);
         });
 
+        it("publishes cached live messages before fetching older history", async () => {
+            seedTimeline([makeMessage("$cached")]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            let finishPage!: (more: boolean) => void;
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockReturnValue(
+                new Promise<boolean>((resolve) => {
+                    finishPage = resolve;
+                }),
+            );
+
+            const vm = await createStartedViewModel();
+
+            expect(fetchPage).not.toHaveBeenCalled();
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$cached"]);
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$cached", align: "end" });
+            expect(vm.getSnapshot().alignToBottom).toBe(true);
+            vm.onAnchorReached();
+            vm.onStartReached();
+            await vi.waitFor(() => expect(fetchPage).toHaveBeenCalledTimes(1));
+            expect(eventKeys(vm.getSnapshot().items)).toContain("$cached");
+            finishPage(false);
+        });
+
+        it("publishes the first visible live page without waiting to fill forty messages", async () => {
+            seedTimeline([
+                new MatrixEvent({
+                    event_id: "$hidden",
+                    room_id: ROOM_ID,
+                    type: EventType.Reaction,
+                    content: {},
+                }),
+            ]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockImplementation(async (timeline) => {
+                room.getUnfilteredTimelineSet().addEventsToTimeline(
+                    [makeMessage("$visible")],
+                    true,
+                    false,
+                    timeline,
+                    "more-older",
+                );
+                return true;
+            });
+
+            const vm = await createStartedViewModel();
+
+            expect(fetchPage).toHaveBeenCalledTimes(1);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$visible"]);
+            expect(vm.getSnapshot().alignToBottom).toBe(true);
+        });
+
+        it("continues backward after hidden initial pages instead of leaving the live timeline blank", async () => {
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            let page = 0;
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockImplementation(async (timeline) => {
+                page++;
+                const event =
+                    page < 3
+                        ? new MatrixEvent({
+                              event_id: `$hidden${page}`,
+                              room_id: ROOM_ID,
+                              type: EventType.Reaction,
+                              content: {},
+                          })
+                        : makeMessage("$visible");
+                room.getUnfilteredTimelineSet().addEventsToTimeline([event], true, false, timeline, `older${page}`);
+                return true;
+            });
+            const vm = new RoomTimelineViewModel({ client, room });
+            vms.push(vm);
+            vm.start();
+
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$visible"]));
+            expect(fetchPage).toHaveBeenCalledTimes(3);
+        });
+
+        it("continues through empty server pages with valid tokens to find the first visible message", async () => {
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            let page = 0;
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockImplementation(async (timeline) => {
+                page++;
+                if (page <= 3) {
+                    timeline.setPaginationToken(`older${page}`, Direction.Backward);
+                } else {
+                    room.getUnfilteredTimelineSet().addEventsToTimeline(
+                        [makeMessage("$visible")],
+                        true,
+                        false,
+                        timeline,
+                        `older${page}`,
+                    );
+                }
+                return true;
+            });
+            const vm = new RoomTimelineViewModel({ client, room });
+            vms.push(vm);
+            vm.start();
+
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$visible"]));
+            expect(fetchPage).toHaveBeenCalledTimes(4);
+        });
+
+        it("bounds empty server pages on both sides of a permalink and preserves its anchor", async () => {
+            seedTimeline([makeMessage("$target")]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            room.getLiveTimeline().setPaginationToken("newer", Direction.Forward);
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockResolvedValue(true);
+
+            const vm = await createStartedViewModel("$target");
+
+            expect(fetchPage.mock.calls.map(([, options]) => options?.backwards)).toEqual([true, true, false, false]);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$target"]);
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$target", align: "center" });
+            expect(vm.getSnapshot().highlightedEventId).toBe("$target");
+        });
+
+        it("fills a restored position before publishing without bottom alignment", async () => {
+            seedTimeline([makeMessage("$saved")]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            localStorage.setItem(`timeline_scroll_${ROOM_ID}`, "$saved");
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockResolvedValue(true);
+
+            const vm = await createStartedViewModel();
+
+            expect(fetchPage).toHaveBeenCalledTimes(2);
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$saved", align: "end" });
+            expect(vm.getSnapshot().alignToBottom).toBe(false);
+        });
+
+        it("stops filling when disposed while a server page is pending", async () => {
+            seedTimeline([makeMessage("$cached")]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            let finishPage!: (more: boolean) => void;
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockReturnValue(
+                new Promise<boolean>((resolve) => {
+                    finishPage = resolve;
+                }),
+            );
+            const vm = new RoomTimelineViewModel({ client, room, initialEventId: "$cached" });
+            vms.push(vm);
+            vm.start();
+            await vi.waitFor(() => expect(fetchPage).toHaveBeenCalledTimes(1));
+
+            vm.dispose();
+            finishPage(true);
+            await Promise.resolve();
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(fetchPage).toHaveBeenCalledTimes(1);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual([]);
+        });
+
         it("highlights and anchors the permalink event it was opened on", async () => {
             seedTimeline([makeMessage("$a"), makeMessage("$b"), makeMessage("$c")]);
 
@@ -281,7 +434,9 @@ describe("RoomTimelineViewModel", () => {
 
             vm.onStartReached();
 
-            await vi.waitFor(() => expect(paginate).toHaveBeenCalledWith(Direction.Backward, expect.any(Number)));
+            await vi.waitFor(() =>
+                expect(paginate).toHaveBeenCalledWith(Direction.Backward, expect.any(Number), true, 1),
+            );
         });
 
         it("does not ask for older messages once the start of the room is loaded", async () => {
@@ -341,7 +496,9 @@ describe("RoomTimelineViewModel", () => {
 
             vm.onEndReached();
 
-            await vi.waitFor(() => expect(paginate).toHaveBeenCalledWith(Direction.Forward, expect.any(Number)));
+            await vi.waitFor(() =>
+                expect(paginate).toHaveBeenCalledWith(Direction.Forward, expect.any(Number), true, 1),
+            );
         });
 
         it("does not ask for newer messages once the latest is loaded", async () => {
@@ -377,7 +534,9 @@ describe("RoomTimelineViewModel", () => {
             vm.onStartReached(); // lands while the first fetch is still running
             release(); // first fetch settles, having found nothing new
 
-            await vi.waitFor(() => expect(paginate).toHaveBeenCalledTimes(2));
+            // Empty pages retain a continuation token: each chain exhausts its bounded
+            // eleven attempts, and the queued edge report runs one more bounded chain.
+            await vi.waitFor(() => expect(paginate).toHaveBeenCalledTimes(22));
         });
 
         it("clears the spinner when fetching fails", async () => {

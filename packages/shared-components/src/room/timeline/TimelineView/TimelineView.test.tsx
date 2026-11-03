@@ -169,6 +169,47 @@ describe("<TimelineView />", () => {
         expect(actions.onJumpToLive.mock.calls[0][0]).toBeTypeOf("function");
     });
 
+    it("holds the newest message in place as a short live list grows past the viewport", async () => {
+        const { vm, actions, update } = makeFakeVm({ items: eventItems(2, 20), alignToBottom: true });
+        renderTimeline(vm);
+        const scroller = screen.getByTestId("timeline-scroller");
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+        await waitFor(() => expect(scroller).toHaveStyle({ visibility: "visible" }));
+        const newest = screen.getByTestId("row-evt-21");
+        const bottom = (): number => newest.getBoundingClientRect().bottom;
+        const viewportBottom = scroller.getBoundingClientRect().bottom;
+        await waitFor(() => expect(bottom()).toBeCloseTo(viewportBottom, 0));
+
+        // Retain the placement even if the bounded SDK window no longer reaches the live end.
+        update({ atLiveEnd: false });
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        expect(bottom()).toBeCloseTo(viewportBottom, 0);
+
+        // First prepend still fits; the next crosses from an unscrollable to a scrollable list.
+        for (const count of [5, 22]) {
+            update({ items: eventItems(count, 22 - count) });
+            await waitFor(() => expect(screen.getByTestId("row-evt-21")).toBeInTheDocument());
+            for (let frame = 0; frame < 5; frame++) {
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+                expect(bottom()).toBeCloseTo(viewportBottom, 0);
+            }
+        }
+    });
+
+    it("keeps short anchored lists at the top", async () => {
+        const { vm, actions } = makeFakeVm({
+            items: eventItems(2),
+            pendingAnchor: { targetKey: "evt-0", align: "center" },
+            alignToBottom: false,
+        });
+        renderTimeline(vm);
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+        expect(screen.getByTestId("row-evt-0").getBoundingClientRect().top).toBeCloseTo(
+            screen.getByTestId("timeline-scroller").getBoundingClientRect().top,
+            0,
+        );
+    });
+
     describe("when the viewport changes height", () => {
         // The view is height:100%, so re-rendering the wrapper with a new height is how the composer
         // growing, or a banner appearing above the timeline, reaches the scroller.

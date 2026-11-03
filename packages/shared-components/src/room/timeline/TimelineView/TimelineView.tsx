@@ -370,7 +370,10 @@ export function TimelineView({ vm, renderItem }: TimelineViewProps): JSX.Element
                 data-testid="timeline-scroller"
                 // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
                 tabIndex={0}
-                className={classNames(styles.scroller, { [styles.hidden]: !revealed })}
+                className={classNames(styles.scroller, {
+                    [styles.hidden]: !revealed,
+                    [styles.bottomAligned]: snapshot.alignToBottom,
+                })}
             >
                 {/* An <ol> of <li> rows, so screen readers announce this as a list of messages
                     and can say how many there are. The role="list" is stated explicitly even

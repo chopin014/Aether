@@ -113,6 +113,9 @@ export interface TimelineViewSnapshot {
      */
     atLiveEnd: boolean;
 
+    /** Bottom-align a short live list while older history loads. Defaults to false. */
+    alignToBottom?: boolean;
+
     /**
      * Placement target for the current load. The View scrolls it into place on mount
      * and re-asserts it on later loads without remounting. While set, follow-on-append

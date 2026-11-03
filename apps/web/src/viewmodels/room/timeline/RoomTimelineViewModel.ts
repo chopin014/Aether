@@ -79,31 +79,9 @@ const PAGINATE_SIZE = 100;
 const INITIAL_SIZE = 100;
 
 /**
- * How many messages we try to gather before showing the timeline for the first time. Enough to
- * more than fill any realistic window, so the list is long enough to scroll straight away.
- *
- * This matters more than it looks. The view keeps the reader's place by adjusting the scroll
- * position to cancel out whatever was added or removed — but a list shorter than the window
- * cannot be scrolled, so there is no scroll position to adjust and that trick does nothing.
- * Rows are then placed by layout alone, and anything loading in around them shoves them about.
- *
- * It bites hardest when we are holding a particular message in place — opening a permalink, or
- * returning to where someone left off. A permalink has to fill both above and below its target,
- * and letting those batches arrive progressively would shift the target around as each one lands,
- * which is precisely the message the reader came to see. Gathering them before we show anything
- * costs a slightly slower first paint, and we take that trade deliberately.
- *
- * Starting at the newest message suffers a milder version: today the rows are laid out from the
- * top, so older history arriving above pushes everything down.
- *
- * The intended fix for that second case (not built yet) is to lay the rows out from the bottom
- * instead whenever we are at the live end and there is still history above us. Older messages
- * then grow upwards into the empty space, and the newest message — the one being read — never
- * moves, however few messages are loaded. Note this only applies while more history exists:
- * once the start of the room is loaded there is nothing left to grow into, and laying out from
- * the top is the right thing to do, as the timeline does today.
- *
- * Once that lands, this constant only matters for the anchored loads.
+ * Fill anchored loads before placing their target so a short list does not shift the reader.
+ * Live loads can show cached messages immediately: the view bottom-aligns a short live list
+ * while older messages arrive, keeping the newest message in place.
  */
 const MIN_INITIAL_EVENTS = 40;
 
@@ -765,9 +743,14 @@ export class RoomTimelineViewModel
         try {
             await this.timelineWindow.load(sdkLoadTarget, INITIAL_SIZE);
             if (this.isDisposed) return;
-            // Gather enough messages to fill the window before we show anything. Only a permalink
-            // needs messages on both sides of its target; see fillInitialWindow.
-            await this.fillInitialWindow(target.kind === "permalink" ? sdkLoadTarget : undefined);
+            // Cached live messages should not wait for history. Anchored loads still fill before
+            // placement; a live window with no visible events must first look for something to show.
+            if (target.kind !== "live" || this.renderableEventCount(undefined, Direction.Backward) === 0) {
+                await this.fillInitialWindow(
+                    target.kind === "permalink" ? sdkLoadTarget : undefined,
+                    target.kind === "live" ? 1 : MIN_INITIAL_EVENTS,
+                );
+            }
             if (this.isDisposed) return;
             const windowEvents = this.timelineWindow.getEvents();
             debug(
@@ -826,17 +809,22 @@ export class RoomTimelineViewModel
             this.forwardSpinnerVisible = false;
             this.republish(`load(${target.kind})-done`, {
                 atLiveEnd: !this.timelineWindow.canPaginate(Direction.Forward),
+                // Keep this for the session, including when the final short history page arrives,
+                // so exhausting older history cannot move the messages back to the top.
+                alignToBottom: target.kind === "live" && this.timelineWindow.canPaginate(Direction.Backward),
                 pendingAnchor,
                 highlightedEventId: target.kind === "permalink" ? target.eventId : null,
                 canJumpToReadMarker: this.computeCanJumpToReadMarker(items),
             });
 
-            // If all events in the initial window were filtered (items empty) but more
-            // content exists ahead, the view won't fire onEndReached on an empty list.
-            // Proactively forward-paginate to find visible events.
-            if (items.length === 0 && this.timelineWindow.canPaginate(Direction.Forward)) {
-                debug(`[TimelineVM] load() — items empty with more content ahead, auto-triggering forward paginate`);
-                this.triggerForwardPaginate();
+            // An empty list cannot report either scroll edge. Search toward live content first,
+            // or older history when we are already at the live end, instead of waiting forever.
+            if (items.length === 0) {
+                if (this.timelineWindow.canPaginate(Direction.Forward)) {
+                    this.triggerForwardPaginate();
+                } else if (this.timelineWindow.canPaginate(Direction.Backward)) {
+                    this.triggerBackwardPaginate();
+                }
             }
         } catch (e) {
             logger.error(`[TimelineVM] load() error`, e);
@@ -849,9 +837,9 @@ export class RoomTimelineViewModel
     }
 
     /**
-     * Fetches extra messages so the first thing the reader sees is longer than the window and
-     * can be scrolled — see {@link MIN_INITIAL_EVENTS} for why that matters. All of this happens
-     * before anything is shown.
+     * Fetches enough messages to place an anchored load, or the first visible event for an
+     * empty live load. This happens before publishing; live history beyond that first event
+     * loads progressively after the view reveals the timeline.
      *
      * Which way we fetch depends on where we are starting:
      *  - **Opening a permalink** (`centreOn` set): the message has to sit in the middle, so it
@@ -862,13 +850,13 @@ export class RoomTimelineViewModel
      *
      * Usually this costs nothing: opening a permalink already fetches the messages around it,
      * and we only go to the server when there is genuinely nothing loaded on that side. Each
-     * direction gets a couple of attempts at most, so a room that keeps returning events we
-     * do not display cannot hold up the first paint — we show what we have, and the reader's
-     * first scroll fetches more in the normal way.
+     * direction gets a couple of attempts at most, with one server request per attempt. The
+     * SDK otherwise retries empty pages internally, multiplying our limit by ten. A room that
+     * returns duplicate or hidden events should show what we have before loading more on scroll.
      */
-    private async fillInitialWindow(centreOn: string | undefined): Promise<void> {
+    private async fillInitialWindow(centreOn: string | undefined, minimumEvents: number): Promise<void> {
         const MAX_FILL_REQUESTS_PER_DIRECTION = 2;
-        const perDirectionTarget = centreOn ? Math.ceil(MIN_INITIAL_EVENTS / 2) : MIN_INITIAL_EVENTS;
+        const perDirectionTarget = centreOn ? Math.ceil(minimumEvents / 2) : minimumEvents;
 
         for (const direction of [Direction.Backward, Direction.Forward]) {
             // Unanchored loads only need history above the bottom-anchored view.
@@ -882,7 +870,7 @@ export class RoomTimelineViewModel
             ) {
                 requests++;
                 const before = this.timelineWindow.getEvents().length;
-                await this.timelineWindow.paginate(direction, PAGINATE_SIZE);
+                await this.timelineWindow.paginate(direction, PAGINATE_SIZE, true, 1);
                 if (this.isDisposed) return;
                 debug(
                     `[TimelineVM] fillInitialWindow — paginate(${direction === Direction.Backward ? "backward" : "forward"}) ` +
@@ -1459,7 +1447,7 @@ export class RoomTimelineViewModel
                 if (this.isDisposed) return;
 
                 const eventsBefore = new Set(this.timelineWindow.getEvents());
-                const hasMore = await this.timelineWindow.paginate(direction, PAGINATE_SIZE);
+                const hasMore = await this.timelineWindow.paginate(direction, PAGINATE_SIZE, true, 1);
                 if (this.isDisposed) return;
                 const eventsAfter = this.timelineWindow.getEvents();
 
@@ -1493,7 +1481,9 @@ export class RoomTimelineViewModel
                     });
                 }
 
-                if (newlyShown > 0 || !hasMore) break;
+                // With one SDK request per batch, false can mean an empty or duplicate page,
+                // even when its continuation token still points to more history.
+                if (newlyShown > 0 || !this.timelineWindow.canPaginate(direction)) break;
                 emptyBatches++;
             }
 
