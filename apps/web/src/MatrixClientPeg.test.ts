@@ -217,7 +217,7 @@ describe("MatrixClientPeg", () => {
             expect(client.startClient).toHaveBeenCalled();
         });
 
-        it("fetches push rules while the local store opens and passes the fresh result to sync", async () => {
+        it("fetches push rules while the local store opens and passes the pending result to sync", async () => {
             const client = testPeg.safeGet();
             const store = Promise.withResolvers<void>();
             client.store.startup = vi.fn().mockReturnValue(store.promise);
@@ -228,7 +228,19 @@ describe("MatrixClientPeg", () => {
             expect(client.startClient).not.toHaveBeenCalled();
             store.resolve();
             await starting;
-            expect(client.startClient).toHaveBeenCalledWith(expect.objectContaining({ initialPushRules: rules }));
+            const opts = vi.mocked(client.startClient).mock.calls[0][0]!;
+            expect(opts.initialPushRules).toBeUndefined();
+            await expect(opts.initialPushRulesPromise).resolves.toBe(rules);
+        });
+
+        it("starts regular sync while a push rules request is still pending", async () => {
+            const client = testPeg.safeGet();
+            // A homeserver that accepts the request but never answers must not hold cached startup.
+            vi.spyOn(client, "getPushRules").mockReturnValue(new Promise(() => {}));
+            await testPeg.start();
+            expect(client.startClient).toHaveBeenCalledWith(
+                expect.objectContaining({ initialPushRulesPromise: expect.any(Promise) }),
+            );
         });
 
         it("passes pending push rules to native sync after the store and crypto are ready", async () => {
@@ -263,9 +275,8 @@ describe("MatrixClientPeg", () => {
         it("leaves failed push-rule prefetches to the SDK retry path", async () => {
             vi.spyOn(testPeg.safeGet(), "getPushRules").mockRejectedValueOnce(new Error("Offline"));
             await testPeg.start();
-            expect(testPeg.safeGet().startClient).toHaveBeenCalledWith(
-                expect.objectContaining({ initialPushRules: undefined }),
-            );
+            const opts = vi.mocked(testPeg.safeGet().startClient).mock.calls[0][0]!;
+            await expect(opts.initialPushRulesPromise).resolves.toBeUndefined();
         });
 
         it("does not fetch push rules for a guest", async () => {

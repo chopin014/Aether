@@ -271,12 +271,9 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         if (crypto.status === "rejected") throw crypto.reason;
 
         const opts = utils.deepCopy(this.opts);
-        if (SettingsStore.getValue("feature_simplified_sliding_sync")) {
-            // Native sync can fetch its response while rules load, before processing any events.
-            opts.initialPushRulesPromise = pushRulesReady;
-        } else {
-            opts.initialPushRules = await pushRulesReady;
-        }
+        // Both sync protocols await the rules only before processing events, so stored data and the first request
+        // never wait on a slow push rules response.
+        opts.initialPushRulesPromise = pushRulesReady;
         // the react sdk doesn't work without this, so don't allow
         opts.pendingEventOrdering = PendingEventOrdering.Detached;
         opts.lazyLoadMembers = true;
