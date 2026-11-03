@@ -129,7 +129,35 @@ describe("MatrixClientPeg", () => {
             });
             const setup = vi.spyOn(SlidingSyncManager.instance, "setup").mockResolvedValue(undefined);
             await testPeg.start();
-            expect(setup).toHaveBeenCalledWith(testPeg.safeGet(), expectedRoomId);
+            expect(setup).toHaveBeenCalledWith(
+                testPeg.safeGet(),
+                expectedRoomId,
+                route === "#/home" ? { roomId: "!last:example.org", spaceId: undefined } : undefined,
+            );
+        });
+
+        it.each([
+            [
+                "!space:example.org",
+                "!channel:example.org",
+                { roomId: "!channel:example.org", spaceId: "!space:example.org" },
+            ],
+            ["home", "!channel:example.org", { roomId: "!last:example.org", spaceId: undefined }],
+            ["!space:example.org", "#alias:example.org", { roomId: undefined, spaceId: "!space:example.org" }],
+        ])("prefetches the saved Home context without selecting it (%s, %s)", async (space, channel, expected) => {
+            window.location.hash = "#/home";
+            localStorage.setItem("mx_active_space", space);
+            localStorage.setItem(`mx_space_context_${space}`, channel);
+            localStorage.setItem("mx_last_room_id", "!last:example.org");
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) => {
+                if (name === "feature_simplified_sliding_sync") return true;
+                return getValue(name, ...args);
+            });
+            const setup = vi.spyOn(SlidingSyncManager.instance, "setup").mockResolvedValue(undefined);
+            await testPeg.start();
+            expect(setup).toHaveBeenCalledWith(testPeg.safeGet(), undefined, expected);
+            expect(window.location.hash).toBe("#/home");
         });
 
         it("should initialise the rust crypto library by default", async () => {

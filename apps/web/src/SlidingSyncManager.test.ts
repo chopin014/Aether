@@ -230,6 +230,81 @@ describe("SlidingSyncManager", () => {
         });
     });
 
+    it.each([false, true])("prefetches Home's Space and channel (encrypted=%s)", async (encrypted) => {
+        const roomId = "!channel:example.org";
+        const spaceId = "!space:example.org";
+        const sync = (await manager.setup(client, undefined, { roomId, spaceId }))!;
+        const internals = sync as unknown as {
+            roomIdToCustomSubscription: Map<string, string>;
+            customSubscriptions: Map<string, { timeline_limit: number; required_state: string[][] }>;
+        };
+        const subscription = (id: string) =>
+            internals.customSubscriptions.get(internals.roomIdToCustomSubscription.get(id)!)!;
+        expect(sync.getRoomSubscriptions()).toEqual(new Set([roomId, spaceId]));
+        expect(sync.getListParams("untagged")?.ranges).toEqual([[0, 0]]);
+        expect(subscription(roomId).timeline_limit).toBe(50);
+        expect(subscription(spaceId).timeline_limit).toBe(0);
+        expect(subscription(spaceId).required_state).toContainEqual(["m.space.child", "*"]);
+        const room = new Room(roomId, client, client.getUserId()!);
+        vi.spyOn(room, "hasEncryptionStateEvent").mockReturnValue(encrypted);
+        vi.mocked(client.getRoom).mockImplementation((id) => (id === roomId ? room : null));
+        const modify = vi.spyOn(sync, "modifyRoomSubscriptions");
+        sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, {
+            pos: "one",
+            lists: {},
+            extensions: {},
+            rooms: {
+                [roomId]: { name: "Channel", required_state: [], timeline: [] },
+                [spaceId]: { name: "Space", required_state: [], timeline: [] },
+            },
+        });
+        expect(modify).not.toHaveBeenCalled();
+        await vi.waitFor(() =>
+            expect(internals.roomIdToCustomSubscription.get(roomId)).toBe(encrypted ? "encrypted" : "unencrypted"),
+        );
+        expect(subscription(spaceId).timeline_limit).toBe(0);
+    });
+
+    it("drops absent Home hints only after a successful response and preserves newer subscriptions", async () => {
+        const roomId = "!left:example.org";
+        const spaceId = "!space:example.org";
+        const visibleId = "!selected:example.org";
+        const sync = (await manager.setup(client, undefined, { roomId, spaceId }))!;
+        sync.modifyRoomSubscriptions(new Set([roomId, spaceId, visibleId]));
+        sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, null, new Error("offline"));
+        expect(sync.getRoomSubscriptions()).toContain(roomId);
+        sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, {
+            pos: "one",
+            lists: {},
+            extensions: {},
+            rooms: { [spaceId]: { name: "Space", required_state: [], timeline: [] } },
+        });
+        expect(sync.getRoomSubscriptions()).toEqual(new Set([spaceId, visibleId]));
+        expect((manager as unknown as { bootstrapRooms: Set<string> }).bootstrapRooms.has(roomId)).toBe(false);
+    });
+
+    it.each([
+        [{ roomId: "#alias:example.org", spaceId: "home" }, []],
+        [{ roomId: "!space:example.org", spaceId: "!space:example.org" }, ["!space:example.org"]],
+    ] as const)("bounds and validates Home hints %j", async (prefetch, expected) => {
+        const sync = (await manager.setup(client, undefined, prefetch))!;
+        expect(sync.getRoomSubscriptions()).toEqual(new Set(expected));
+        expect((manager as unknown as { bootstrapRooms: Set<string> }).bootstrapRooms.size).toBe(0);
+    });
+
+    it("ignores Home hints for an explicit destination and ignores obsolete hint responses", async () => {
+        const previous = (await manager.setup(client, undefined, { roomId: "!old:example.org" }))!;
+        const current = (await manager.setup(client, "!selected:example.org", { roomId: "!hint:example.org" }))!;
+        previous.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, {
+            pos: "one",
+            lists: {},
+            extensions: {},
+            rooms: {},
+        });
+        expect(current.getRoomSubscriptions()).toEqual(new Set(["!selected:example.org"]));
+        expect(current.getListParams("untagged")).toBeNull();
+    });
+
     it("starts with small lists then restores recent messages after the first response", async () => {
         const sync = await manager.setup(client);
         for (const name of ["spaces", "invites", "favourites", "dms", "untagged"]) {

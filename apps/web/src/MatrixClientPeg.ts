@@ -304,7 +304,11 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         // If the user has enabled the labs feature for sliding sync, set it up
         // otherwise check if the feature is supported
         if (SettingsStore.getValue("feature_simplified_sliding_sync")) {
-            opts.slidingSync = await SlidingSyncManager.instance.setup(this.matrixClient, this.getInitialRoomId());
+            opts.slidingSync = await SlidingSyncManager.instance.setup(
+                this.matrixClient,
+                this.getInitialRoomId(),
+                this.getHomePrefetch(),
+            );
         } else {
             void SlidingSyncManager.instance.checkSupport(this.matrixClient);
         }
@@ -328,6 +332,22 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         try {
             const lastRoom = localStorage.getItem("mx_last_room_id");
             return lastRoom?.startsWith("!") ? lastRoom : undefined;
+        } catch {
+            return undefined;
+        }
+    }
+
+    /** Load the last Space and channel in the background without changing the Home destination. */
+    private getHomePrefetch(): { roomId?: string; spaceId?: string } | undefined {
+        if (parseQsFromFragment(window.location).location !== "/home") return undefined;
+        try {
+            const savedSpace = localStorage.getItem("mx_active_space");
+            const spaceId = savedSpace?.startsWith("!") ? savedSpace : undefined;
+            const savedRoom =
+                (spaceId && localStorage.getItem(`mx_space_context_${spaceId}`)) ||
+                localStorage.getItem("mx_last_room_id");
+            const roomId = savedRoom?.startsWith("!") ? savedRoom : undefined;
+            return roomId || spaceId ? { roomId, spaceId } : undefined;
         } catch {
             return undefined;
         }

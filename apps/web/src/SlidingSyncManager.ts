@@ -469,14 +469,54 @@ export class SlidingSyncManager {
      *   3. The homeserver base url (for native server support)
      * @param client The MatrixClient to use
      * @param initialRoomId Resolved room ID to prioritise on the first request; aliases must be resolved first.
+     * @param prefetch Last Space and channel to load alongside the small Home lists, without selecting either.
      * @returns A working Sliding Sync or undefined
      */
-    public async setup(client: MatrixClient, initialRoomId?: string): Promise<SlidingSync | undefined> {
+    public async setup(
+        client: MatrixClient,
+        initialRoomId?: string,
+        prefetch?: { roomId?: string; spaceId?: string },
+    ): Promise<SlidingSync | undefined> {
         const slidingSync = this.configure(client, client.baseUrl, initialRoomId);
         if (initialRoomId?.startsWith("!")) {
             this.bootstrapRooms.add(initialRoomId);
             slidingSync.useCustomSubscription(initialRoomId, BOOTSTRAP_SUBSCRIPTION_NAME);
             slidingSync.modifyRoomSubscriptions(new Set([initialRoomId]));
+        } else if (prefetch) {
+            const subscriptions = new Set<string>();
+            if (prefetch.roomId?.startsWith("!") && prefetch.roomId !== prefetch.spaceId) {
+                subscriptions.add(prefetch.roomId);
+                this.bootstrapRooms.add(prefetch.roomId);
+                slidingSync.useCustomSubscription(prefetch.roomId, BOOTSTRAP_SUBSCRIPTION_NAME);
+            }
+            if (prefetch.spaceId?.startsWith("!")) {
+                subscriptions.add(prefetch.spaceId);
+                // Spaces need their child graph and metadata, without conversation history.
+                const spaceSubscription = "space-bootstrap";
+                slidingSync.addCustomSubscription(spaceSubscription, { ...BOOTSTRAP_SUBSCRIPTION, timeline_limit: 0 });
+                slidingSync.useCustomSubscription(prefetch.spaceId, spaceSubscription);
+            }
+            slidingSync.modifyRoomSubscriptions(subscriptions);
+            // Saved hints may refer to rooms the account has since left. Drop absent hints
+            // after the first response so they cannot keep background discovery pending.
+            const onFirstResponse = (
+                state: SlidingSyncState,
+                response: MSC3575SlidingSyncResponse | null,
+                error?: Error,
+            ): void => {
+                if (state !== SlidingSyncState.Complete || !response || error) return;
+                slidingSync.off(SlidingSyncEvent.Lifecycle, onFirstResponse);
+                if (this.slidingSync !== slidingSync) return;
+                const current = slidingSync.getRoomSubscriptions();
+                let removed = false;
+                for (const roomId of subscriptions) {
+                    if (response.rooms?.[roomId]) continue;
+                    this.bootstrapRooms.delete(roomId);
+                    removed = current.delete(roomId) || removed;
+                }
+                if (removed) slidingSync.modifyRoomSubscriptions(current);
+            };
+            slidingSync.on(SlidingSyncEvent.Lifecycle, onFirstResponse);
         }
         logger.info("Simplified Sliding Sync activated at", client.baseUrl);
         void this.startSpidering(slidingSync, 50, 50, true); // 50 rooms at a time, 50ms apart
