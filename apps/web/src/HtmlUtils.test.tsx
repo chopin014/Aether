@@ -18,6 +18,7 @@ import { bodyToHtml, bodyToNode, formatEmojis, sanitizedHtmlNode, topicToHtml } 
 import SettingsStore from "./settings/SettingsStore";
 import { SettingLevel } from "./settings/SettingLevel";
 import SdkConfig from "./SdkConfig";
+import { graphemeSegmenter } from "./utils/strings";
 
 describe("topicToHtml", () => {
     function getContent() {
@@ -238,6 +239,19 @@ describe("bodyToHtml", () => {
 });
 
 describe("formatEmojis", () => {
+    it.each(["A long plain message. ".repeat(1000), "Café e\u0301 中文", "<b>Plain HTML</b>"])(
+        "preserves text without emoji without character segmentation",
+        (text) => {
+            const segment = vi.spyOn(graphemeSegmenter, "segment");
+            try {
+                expect(formatEmojis(text, false)).toEqual([text]);
+                expect(formatEmojis(text, true)).toEqual([text]);
+                expect(segment).not.toHaveBeenCalled();
+            } finally {
+                segment.mockRestore();
+            }
+        },
+    );
     it.each([
         ["🏴󠁧󠁢󠁥󠁮󠁧󠁿", [["🏴󠁧󠁢󠁥󠁮󠁧󠁿", "flag-england"]]],
         ["🏴󠁧󠁢󠁳󠁣󠁴󠁿", [["🏴󠁧󠁢󠁳󠁣󠁴󠁿", "flag-scotland"]]],
