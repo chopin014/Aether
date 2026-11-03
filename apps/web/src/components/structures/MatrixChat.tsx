@@ -1031,10 +1031,15 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
             logger.log(`Switching to room id ${roomInfo.room_id} at event ${roomInfo.event_id}`);
         }
 
-        // Wait for the first sync to complete so that if a room does have an alias,
-        // it would have been retrieved.
+        // A public preview or alias resolution does not need account-wide room discovery, so an unknown room can
+        // open once the client is running. Known rooms wait for the first sync to populate their contents.
         if (!this.firstSyncComplete) {
-            await this.firstSyncPromise.promise;
+            const client = MatrixClientPeg.safeGet();
+            const unknownDestination =
+                Boolean(roomInfo.room_alias || roomInfo.room_id) && !client.getRoom(roomInfo.room_id);
+            const canOpenPreview = client.clientRunning && unknownDestination;
+            if (canOpenPreview && (await this.shouldForceVerification())) return;
+            if (!canOpenPreview) await this.firstSyncPromise.promise;
         }
 
         let presentedId = roomInfo.room_alias || roomInfo.room_id!;
@@ -1866,18 +1871,18 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
         // If the view is something else, that probably means it's a login or registration view; we handle that in
         // `postLoginSetup`.
         if (this.state.view === Views.PENDING_CLIENT_START) {
-            // Wait for the first sync to complete before showing the logged-in view: otherwise we render
-            // LoggedInView/HomePage against an empty store, with no loading indicator, while /sync is still
-            // in flight.
-            if (!this.firstSyncComplete) {
-                await this.firstSyncPromise.promise;
-            }
-
             if (shouldForceVerification) {
                 this.setStateForNewView({ view: Views.COMPLETE_SECURITY });
-            } else {
-                this.onShowPostLoginScreen();
+                return;
             }
+
+            // An explicit room route can show its public join preview before the stores are populated. Anything
+            // else waits for the first sync, so the logged-in view never renders against an empty store.
+            const hasExplicitRoomRoute = /^room\/[!#]/.test(this.screenAfterLogin?.screen ?? "");
+            if (!this.firstSyncComplete && !(cli.clientRunning && hasExplicitRoomRoute)) {
+                await this.firstSyncPromise.promise;
+            }
+            this.onShowPostLoginScreen();
         }
     }
 

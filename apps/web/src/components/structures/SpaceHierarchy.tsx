@@ -35,7 +35,7 @@ import {
     type HierarchyRoom,
     JoinRule,
 } from "matrix-js-sdk/src/matrix";
-import { RoomHierarchy } from "matrix-js-sdk/src/room-hierarchy";
+import { type RoomHierarchy } from "matrix-js-sdk/src/room-hierarchy";
 import classNames from "classnames";
 import { sortBy, uniqBy } from "lodash";
 import { logger } from "matrix-js-sdk/src/logger";
@@ -63,6 +63,7 @@ import { type IState, RovingTabIndexProvider, useRovingTabIndex } from "../../ac
 import MatrixClientContext from "../../contexts/MatrixClientContext";
 import { useTypedEventEmitterState } from "../../hooks/useEventEmitter";
 import { awaitRoomDownSync } from "../../utils/RoomUpgrade";
+import { invalidatePreparedSpaceHierarchy, prepareSpaceHierarchy } from "../../performance/PreparedSpaceHierarchy";
 import { type ViewRoomPayload } from "../../dispatcher/payloads/ViewRoomPayload";
 import { type JoinRoomReadyPayload } from "../../dispatcher/payloads/JoinRoomReadyPayload";
 import { KeyBindingAction } from "../../accessibility/KeyboardShortcuts";
@@ -586,8 +587,6 @@ export const HierarchyLevel: React.FC<IHierarchyLevelProps> = ({
     );
 };
 
-const INITIAL_PAGE_SIZE = 20;
-
 export const useRoomHierarchy = (
     space: Room,
 ): {
@@ -600,22 +599,39 @@ export const useRoomHierarchy = (
     const [rooms, setRooms] = useState<HierarchyRoom[]>([]);
     const [hierarchy, setHierarchy] = useState<RoomHierarchy>();
     const [error, setError] = useState<Error | undefined>();
+    const generation = useRef(0);
 
-    const resetHierarchy = useCallback(() => {
-        setError(undefined);
-        const hierarchy = new RoomHierarchy(space, INITIAL_PAGE_SIZE);
-        hierarchy.load().then(() => {
-            if (space !== hierarchy.root) return; // discard stale results
-            setRooms(hierarchy.rooms ?? []);
-        }, setError);
-        setHierarchy(hierarchy);
-    }, [space]);
-    useEffect(resetHierarchy, [resetHierarchy]);
+    const resetHierarchy = useCallback(
+        (invalidate = false) => {
+            const current = ++generation.current;
+            setError(undefined);
+            if (invalidate) invalidatePreparedSpaceHierarchy(space.client, space.roomId);
+            const { hierarchy, ready } = prepareSpaceHierarchy(space.client, space.roomId);
+            ready.then(
+                () => {
+                    if (generation.current === current) setRooms(hierarchy.rooms ?? []);
+                },
+                (error: Error) => {
+                    if (generation.current === current) setError(error);
+                },
+            );
+            setHierarchy(hierarchy);
+        },
+        [space],
+    );
+    useEffect(() => {
+        resetHierarchy();
+        return () => {
+            // This ref tracks requests rather than a DOM node; invalidate the current request on teardown.
+            // oxlint-disable-next-line react-hooks/exhaustive-deps
+            generation.current++;
+        };
+    }, [resetHierarchy]);
 
     useDispatcher(defaultDispatcher, (payload) => {
         if (payload.action === Action.UpdateSpaceHierarchy) {
             setRooms([]); // TODO
-            resetHierarchy();
+            resetHierarchy(true);
         }
     });
 
@@ -629,7 +645,7 @@ export const useRoomHierarchy = (
     );
 
     // Only return the hierarchy if it is for the space requested
-    if (hierarchy?.root !== space) {
+    if (hierarchy?.root.roomId !== space.roomId || hierarchy?.root.client !== space.client) {
         return {
             loading: true,
             loadMore,

@@ -62,6 +62,7 @@ import PlatformPeg from "../../PlatformPeg";
 import EventIndexPeg from "../../indexing/EventIndexPeg";
 import MediaDeviceHandler from "../../MediaDeviceHandler";
 import * as Lifecycle from "../../Lifecycle";
+import Views from "../../Views";
 import { LegacyCryptoStoreError } from "../../utils/LegacyCryptoStoreError.ts";
 import { SSO_HOMESERVER_URL_KEY, SSO_ID_SERVER_URL_KEY } from "../../BasePlatform";
 import SettingsStore from "../../settings/SettingsStore";
@@ -863,6 +864,124 @@ describe("<MatrixChat />", () => {
             await expect(screen.findByLabelText("User menu")).resolves.toBeVisible();
 
             await expect(screen.findByRole("heading", { level: 1, name: "Welcome Ernie" })).resolves.toBeVisible();
+        });
+
+        describe("public previews before account sync", () => {
+            it.each(["!unjoined:server.org", "#unjoined:server.org"])(
+                "opens an explicit %s preview without waiting for initial account sync",
+                async (destination) => {
+                    vi.spyOn(MatrixClientPeg, "safeGet").mockReturnValue(mockClient);
+                    mockClient.clientRunning = true;
+                    const chat = new MatrixChat({
+                        ...defaultProps,
+                        initialScreenAfterLogin: { screen: `room/${destination}`, params: {} },
+                    });
+                    chat.state = { ...chat.state, view: Views.PENDING_CLIENT_START };
+                    vi.spyOn(chat, "setState").mockImplementation(() => {});
+                    chat["shouldForceVerification"] = vi.fn().mockResolvedValue(false);
+                    chat["onShowPostLoginScreen"] = vi.fn();
+                    await chat["onClientStarted"]();
+                    expect(chat["onShowPostLoginScreen"]).toHaveBeenCalledOnce();
+                    expect(chat["firstSyncComplete"]).toBe(false);
+                },
+            );
+
+            it("keeps other startups waiting for account sync", async () => {
+                vi.spyOn(MatrixClientPeg, "safeGet").mockReturnValue(mockClient);
+                mockClient.clientRunning = true;
+                const chat = new MatrixChat({
+                    ...defaultProps,
+                    initialScreenAfterLogin: { screen: "home", params: {} },
+                });
+                chat.state = { ...chat.state, view: Views.PENDING_CLIENT_START };
+                vi.spyOn(chat, "setState").mockImplementation(() => {});
+                chat["shouldForceVerification"] = vi.fn().mockResolvedValue(false);
+                chat["onShowPostLoginScreen"] = vi.fn();
+                const starting = chat["onClientStarted"]();
+                await flushPromises();
+                expect(chat["onShowPostLoginScreen"]).not.toHaveBeenCalled();
+                chat["firstSyncPromise"].resolve();
+                await starting;
+                expect(chat["onShowPostLoginScreen"]).toHaveBeenCalledOnce();
+            });
+
+            it("keeps explicit previews behind required verification", async () => {
+                vi.spyOn(MatrixClientPeg, "safeGet").mockReturnValue(mockClient);
+                mockClient.clientRunning = true;
+                const chat = new MatrixChat({
+                    ...defaultProps,
+                    initialScreenAfterLogin: { screen: "room/#unjoined:server.org", params: {} },
+                });
+                chat.state = { ...chat.state, view: Views.PENDING_CLIENT_START };
+                vi.spyOn(chat, "setState").mockImplementation(() => {});
+                chat["shouldForceVerification"] = vi.fn().mockResolvedValue(true);
+                chat["setStateForNewView"] = vi.fn();
+                chat["onShowPostLoginScreen"] = vi.fn();
+                await chat["onClientStarted"]();
+                expect(chat["setStateForNewView"]).toHaveBeenCalledWith({ view: Views.COMPLETE_SECURITY });
+                expect(chat["onShowPostLoginScreen"]).not.toHaveBeenCalled();
+            });
+
+            it("keeps navigation to a known room waiting for account sync", async () => {
+                vi.spyOn(MatrixClientPeg, "safeGet").mockReturnValue(mockClient);
+                mockClient.clientRunning = true;
+                mockClient.getRoom.mockReturnValue(new Room("!known:server.org", mockClient, userId));
+                const chat = new MatrixChat(defaultProps);
+                const update = vi.spyOn(chat, "setState").mockImplementation(() => {});
+                vi.spyOn(SDKContextClass.instance.roomViewStore, "getCallSwitch").mockReturnValue(undefined);
+                const viewing = chat["viewRoom"]({
+                    action: Action.ViewRoom,
+                    room_id: "!known:server.org",
+                    metricsTrigger: undefined,
+                });
+                await flushPromises();
+                expect(update).not.toHaveBeenCalled();
+                chat["firstSyncPromise"].resolve();
+                await viewing;
+                expect(update).toHaveBeenCalledWith(
+                    expect.objectContaining({ currentRoomId: "!known:server.org", view: Views.LOGGED_IN }),
+                    expect.any(Function),
+                );
+            });
+
+            it("keeps alias navigation waiting until the client is running", async () => {
+                vi.spyOn(MatrixClientPeg, "safeGet").mockReturnValue(mockClient);
+                const chat = new MatrixChat(defaultProps);
+                const update = vi.spyOn(chat, "setState").mockImplementation(() => {});
+                vi.spyOn(SDKContextClass.instance.roomViewStore, "getCallSwitch").mockReturnValue(undefined);
+                const viewing = chat["viewRoom"]({
+                    action: Action.ViewRoom,
+                    room_alias: "#destination:server.org",
+                    metricsTrigger: undefined,
+                });
+                await flushPromises();
+                expect(update).not.toHaveBeenCalled();
+                chat["firstSyncPromise"].resolve();
+                await viewing;
+                expect(update).toHaveBeenCalledOnce();
+            });
+
+            it.each(["!unjoined:server.org", "#unjoined:server.org"])(
+                "navigates to an unknown %s preview before account sync",
+                async (destination) => {
+                    vi.spyOn(MatrixClientPeg, "safeGet").mockReturnValue(mockClient);
+                    mockClient.clientRunning = true;
+                    const chat = new MatrixChat(defaultProps);
+                    chat["shouldForceVerification"] = vi.fn().mockResolvedValue(false);
+                    const update = vi.spyOn(chat, "setState").mockImplementation(() => {});
+                    vi.spyOn(SDKContextClass.instance.roomViewStore, "getCallSwitch").mockReturnValue(undefined);
+                    await chat["viewRoom"]({
+                        action: Action.ViewRoom,
+                        ...(destination.startsWith("#") ? { room_alias: destination } : { room_id: destination }),
+                        metricsTrigger: undefined,
+                    });
+                    expect(update).toHaveBeenCalledWith(
+                        expect.objectContaining({ view: Views.LOGGED_IN }),
+                        expect.any(Function),
+                    );
+                    expect(chat["firstSyncComplete"]).toBe(false);
+                },
+            );
         });
 
         it("restores a space's text channel when an older build saved a voice channel at startup", () => {
@@ -1905,6 +2024,7 @@ describe("<MatrixChat />", () => {
     });
 
     describe("automatic SSO selection", () => {
+        let originalLocationDescriptor: PropertyDescriptor | undefined;
         let ssoClient: ReturnType<typeof getMockClientWithEventEmitter>;
         let hrefSetter: Mocked<(href: string) => void>;
         beforeEach(() => {
@@ -1921,6 +2041,7 @@ describe("<MatrixChat />", () => {
             unmockClientPeg();
 
             hrefSetter = vi.fn();
+            originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, "location");
             const originalHref = window.location.href.toString();
             Object.defineProperty(window, "location", {
                 value: {
@@ -1933,6 +2054,11 @@ describe("<MatrixChat />", () => {
                 },
                 writable: true,
             });
+        });
+
+        afterEach(() => {
+            // Keep this href-only navigation stub from leaking into later restored-session tests.
+            if (originalLocationDescriptor) Object.defineProperty(window, "location", originalLocationDescriptor);
         });
 
         it("should automatically setup and redirect to SSO login", async () => {
