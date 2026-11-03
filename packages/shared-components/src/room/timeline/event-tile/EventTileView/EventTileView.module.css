@@ -2005,8 +2005,10 @@
         position: relative;
         z-index: 1;
         min-height: 0;
+        /* Exactly one text line tall, with no margin above: any overlap with the second line keeps it beside the
+           name instead of letting it return under it. */
         height: var(--desktop-message-line-height);
-        margin: var(--event-tile-group-line-spacing-block-start) var(--cpd-space-1-5x) 0 0;
+        margin: 0 var(--cpd-space-1-5x) 0 0;
     }
 
     .desktopMetadata .slotTimestamp {
@@ -2021,6 +2023,15 @@
 
     .desktopMetadata .slotSender > * {
         font: var(--cpd-font-body-md-semibold);
+    }
+
+    /*
+     * Clipping the body with `hidden` would make it a box of its own that sits beside the name instead of flowing
+     * around it, so its later lines would not return under the name. `clip` still traps overflowing marks without
+     * that. The app's own body styles are overridden the same way in its desktop shell stylesheet.
+     */
+    .line:not(.lineMedia) .slotBody > * {
+        overflow: clip;
     }
 
     /* The reply preview and media start on their own line, under the name. */

@@ -783,6 +783,16 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
         line-height: 22px;
     }
 
+    /*
+     * In compact messages the text flows around the time and name, so its later lines return under the name. Text
+     * bodies clip their overflow to trap stacked marks, and `hidden` would make each a box that sits beside the name
+     * instead; `clip` traps the marks without that.
+     */
+    &.mx_MatrixChat_useCompactLayout .mx_EventTile_line :is(.mx_MTextBody, .mx_EventTile_body),
+    .mx_MatrixChat_useCompactLayout .mx_EventTile_line :is(.mx_MTextBody, .mx_EventTile_body) {
+        overflow: clip;
+    }
+
     /* Text sent with files reads first, above them, as a message that carries attachments. */
     .mx_EventTile_captioned {
         display: flex;
