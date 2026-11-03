@@ -534,12 +534,14 @@ export class DesktopCallStageViewModel
                 includeSystemAudio: this.snapshot.current.canShareSystemAudio && resolved.includeSystemAudio,
             };
             try {
-                await this.bridge.actions.updateScreenShareQuality(merged);
+                const confirmed = await this.bridge.actions.updateScreenShareQuality(merged);
                 if (this.isDisposed) return;
-                DesktopVoicePipeline.instance.setScreenShareQuality(merged);
-                this.snapshot.merge({ screenShareQuality: merged });
+                const applied = confirmed ?? merged;
+                DesktopVoicePipeline.instance.setScreenShareQuality(applied);
+                this.snapshot.merge({ screenShareQuality: applied });
             } catch (error) {
-                this.reportActionError(error);
+                if (!(error instanceof Error && error.name === "ScreenShareCancelledError"))
+                    this.reportActionError(error);
             }
         });
         return this.qualityUpdate;
