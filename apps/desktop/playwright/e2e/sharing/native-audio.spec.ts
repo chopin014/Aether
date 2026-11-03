@@ -50,6 +50,8 @@ for (const kind of ["screen", "window"] as const) {
         try {
             const targetPage = await target.firstWindow();
             const hostPage = await host.firstWindow();
+            await expect(targetPage).toHaveTitle("Audio capture test");
+            await expect(hostPage).toHaveTitle("Audio capture test");
             const play = async (page: typeof targetPage, frequency: number): Promise<void> => {
                 await page.evaluate(async (frequency) => {
                     const context = new AudioContext({ sampleRate: 48000 });

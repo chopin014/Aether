@@ -62,6 +62,7 @@ for (const kind of ["window", "screen"] as const) {
                 );
                 await page.reload();
                 const source = await target.firstWindow();
+                await expect(source).toHaveTitle("Aether audio source");
                 await source.evaluate(async () => {
                     const context = new AudioContext({ sampleRate: 48000 });
                     const oscillator = context.createOscillator();
@@ -95,6 +96,23 @@ for (const kind of ["window", "screen"] as const) {
                     )
                     .toBeGreaterThan(-65);
                 await expect(page.getByRole("heading", { name: "Welcome to Aether" })).toBeVisible();
+                let windowName = "";
+                if (kind === "window") {
+                    const handle = await target.evaluate(({ BrowserWindow }) => {
+                        const bytes = BrowserWindow.getAllWindows()[0].getNativeWindowHandle();
+                        return bytes.length === 8 ? Number(bytes.readBigUInt64LE()) : bytes.readUInt32LE();
+                    });
+                    // Wait for the OS to enumerate the loaded source before asking the production picker for it.
+                    await expect
+                        .poll(async () => {
+                            windowName = await app.evaluate(async ({ desktopCapturer }, handle) => {
+                                const sources = await desktopCapturer.getSources({ types: ["window"] });
+                                return sources.find((source) => source.id.split(":")[1] === String(handle))?.name ?? "";
+                            }, handle);
+                            return windowName;
+                        })
+                        .not.toBe("");
+                }
                 const capture = page.evaluate(async () => {
                     const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
                     Object.assign(globalThis, { capturedStream: stream });
@@ -111,7 +129,7 @@ for (const kind of ["window", "screen"] as const) {
                     );
                     await picker.getByRole("tab", { name: "Entire screen", exact: true }).click();
                     await picker.getByRole("button", { name: screen, exact: true }).click();
-                } else await picker.getByRole("button", { name: "Aether audio source", exact: true }).click();
+                } else await picker.getByRole("button", { name: windowName, exact: true }).click();
                 await picker.getByRole("button", { name: "Next", exact: true }).click();
                 await picker.getByRole("checkbox", { name: "Share System Audio" }).setChecked(includeAudio);
                 await picker.getByRole("button", { name: "Share", exact: true }).click();
@@ -178,9 +196,16 @@ for (const kind of ["window", "screen"] as const) {
                     analyser.connect(silentOutput).connect(context.destination);
                     const peer = new RTCPeerConnection();
                     peer.addEventListener("track", ({ track }) => {
-                        if (track.kind === "audio")
-                            context.createMediaStreamSource(new MediaStream([track])).connect(analyser);
-                        else {
+                        if (track.kind === "audio") {
+                            const stream = new MediaStream([track]);
+                            const audio = document.createElement("audio");
+                            audio.srcObject = stream;
+                            audio.autoplay = true;
+                            // Start Chromium's remote playout with negligible feedback into the tone source.
+                            audio.volume = 0.0001;
+                            document.body.appendChild(audio);
+                            context.createMediaStreamSource(stream).connect(analyser);
+                        } else {
                             const video = document.createElement("video");
                             video.srcObject = new MediaStream([track]);
                             video.autoplay = true;
@@ -233,15 +258,26 @@ for (const kind of ["window", "screen"] as const) {
                             const { audioProbe } = globalThis as unknown as {
                                 audioProbe: { peer: RTCPeerConnection };
                             };
-                            let energy = 0;
+                            let samples = 0;
                             for (const stat of (await audioProbe.peer.getStats()).values()) {
                                 if (stat.type === "inbound-rtp" && stat.kind === "audio")
-                                    energy += stat.totalAudioEnergy ?? 0;
+                                    samples += stat.totalSamplesReceived ?? 0;
                             }
-                            return energy;
+                            return samples;
                         }),
                     )
                     .toBeGreaterThan(0);
+                // Some Chromium builds report zero RTP audio energy despite decoded PCM being present.
+                await expect
+                    .poll(() =>
+                        source.evaluate(() => {
+                            const { audioProbe } = globalThis as unknown as { audioProbe: { analyser: AnalyserNode } };
+                            const samples = new Float32Array(audioProbe.analyser.fftSize);
+                            audioProbe.analyser.getFloatTimeDomainData(samples);
+                            return samples.reduce((energy, sample) => energy + sample * sample, 0) / samples.length;
+                        }),
+                    )
+                    .toBeGreaterThan(0.000001);
                 await expect
                     .poll(() =>
                         source.evaluate(() => {

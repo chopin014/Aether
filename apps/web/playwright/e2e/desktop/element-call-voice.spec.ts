@@ -397,7 +397,9 @@ test(
             await expect.poll(() => playbackGains(bobPage)).toMatchObject({ microphone: [1], stream: [] });
             // Enabling audio after a video-only share must reacquire and publish an audio track.
             await page.getByRole("button", { name: "Stream Quality", exact: true }).click();
-            await page.getByRole("checkbox").check();
+            // Confirmation waits for asynchronous track acquisition and publication.
+            await page.getByRole("checkbox").click();
+            await expect(page.getByRole("checkbox")).toBeChecked();
             await page.keyboard.press("Escape");
             await expect
                 .poll(() =>
