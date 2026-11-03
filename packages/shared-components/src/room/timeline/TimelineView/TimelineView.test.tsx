@@ -356,6 +356,38 @@ describe("<TimelineView />", () => {
         });
     });
 
+    it("keeps the latest message at the bottom while a membership summary expands and collapses", async () => {
+        const group: TimelineItem = { key: "members", kind: "event-group", events: [null, null, null] };
+        const { vm, actions } = makeFakeVm({
+            items: [...eventItems(2), group, ...eventItems(2, 2)],
+            alignToBottom: true,
+        });
+        const Summary = (): React.JSX.Element => {
+            const [expanded, setExpanded] = React.useState(false);
+            return (
+                <div style={{ height: expanded ? 500 : ROW_HEIGHT }}>
+                    <button onClick={() => setExpanded(!expanded)}>{expanded ? "Collapse" : "Expand"}</button>
+                </div>
+            );
+        };
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView
+                    vm={vm}
+                    renderItem={(item) => (item.kind === "event-group" ? <Summary /> : renderItem(item))}
+                />
+            </div>,
+        );
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled());
+        const latestBottom = (): number => screen.getByTestId("row-evt-3").getBoundingClientRect().bottom;
+        const viewportBottom = (): number => screen.getByTestId("timeline-scroller").getBoundingClientRect().bottom;
+        await userEvent.click(screen.getByRole("button", { name: "Expand" }));
+        await waitFor(() => expect(latestBottom()).toBeCloseTo(viewportBottom(), 0));
+        // The toggle can scroll out of view on expansion; collapse through the rendered button.
+        act(() => screen.getByRole("button", { name: "Collapse" }).click());
+        await waitFor(() => expect(latestBottom()).toBeCloseTo(viewportBottom(), 0));
+    });
+
     it("keeps short anchored lists at the top", async () => {
         const { vm, actions } = makeFakeVm({
             items: eventItems(2),

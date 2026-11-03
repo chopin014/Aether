@@ -254,6 +254,13 @@ export class RoomTimelineViewModel
      */
     private baseItems: TimelineItem[] = [];
 
+    /** Keep a summary's identity when history is added on either side. */
+    private readonly membershipGroupKeys = new WeakMap<MatrixEvent, string>();
+    private membershipGroupSequence = 0;
+
+    /** A permalink or saved position must remain an individually addressable event row. */
+    private navigationEventId: string | null = null;
+
     /** Whether the leading (backward) pagination spinner is currently shown. */
     private backwardSpinnerVisible = false;
 
@@ -735,6 +742,7 @@ export class RoomTimelineViewModel
 
     private async load(target: LoadTarget): Promise<void> {
         this.loading = true;
+        this.navigationEventId = target.kind === "live" ? null : target.eventId;
         debug(
             `[TimelineVM] load() start — kind=${target.kind}${target.kind !== "live" ? ` eventId=${target.eventId}` : ""}`,
         );
@@ -987,7 +995,12 @@ export class RoomTimelineViewModel
     private bottomConfirmedEventId(items: readonly TimelineItem[]): string | null {
         for (let i = this.visibleEndArrayIndex; i >= this.visibleStartArrayIndex; i--) {
             const item = items[i];
-            if (item?.kind === "event" && !this.opts.room.hasPendingEvent(item.key)) return item.key;
+            if (!item) continue;
+            const events = this.itemEvents(item);
+            for (let j = events.length - 1; j >= 0; j--) {
+                const id = events[j].getId();
+                if (id && !this.opts.room.hasPendingEvent(id)) return id;
+            }
         }
         return null;
     }
@@ -1326,12 +1339,14 @@ export class RoomTimelineViewModel
     private commitItems(rebuilt: TimelineItem[]): number {
         const oldEventKeys = new Set<string>();
         for (const item of this.baseItems) {
-            if (item.kind === "event") oldEventKeys.add(item.key);
+            for (const event of this.itemEvents(item)) oldEventKeys.add(event.getId()!);
         }
 
         let newlyShown = 0;
         for (const item of rebuilt) {
-            if (item.kind === "event" && !oldEventKeys.has(item.key)) newlyShown++;
+            for (const event of this.itemEvents(item)) {
+                if (!oldEventKeys.has(event.getId()!)) newlyShown++;
+            }
         }
 
         this.baseItems = rebuilt;
@@ -1574,7 +1589,7 @@ export class RoomTimelineViewModel
     private shownEventTest(): (event: MatrixEvent) => boolean {
         const shownEventIds = new Set<string>();
         for (const item of this.baseItems) {
-            if (item.kind === "event") shownEventIds.add(item.key);
+            for (const event of this.itemEvents(item)) shownEventIds.add(event.getId()!);
         }
         return (event) => shownEventIds.has(event.getId()!);
     }
@@ -1676,7 +1691,69 @@ export class RoomTimelineViewModel
                 `filtered=${filteredCount}`,
         );
 
-        return items;
+        return this.compactMembershipItems(items);
+    }
+
+    /** The real events represented by a row, also used for receipts and saved positions. */
+    private itemEvents(item: TimelineItem): readonly MatrixEvent[] {
+        if (item.kind === "event") return [item.event as MatrixEvent];
+        if (item.kind === "event-group") return item.events as MatrixEvent[];
+        return [];
+    }
+
+    /** Collapse membership runs without hiding exact navigation or read-marker targets. */
+    private compactMembershipItems(items: TimelineItem[]): TimelineItem[] {
+        const result: TimelineItem[] = [];
+        const usedKeys = new Set<string>();
+        let run: Extract<TimelineItem, { kind: "event" }>[] = [];
+        const flush = (): void => {
+            if (run.length < 3) {
+                result.push(...run);
+            } else {
+                const events = run.map((item) => item.event as MatrixEvent);
+                // Remember every member so trimming away the original first event does not
+                // remount the summary. A split may reuse its old key only once in this list.
+                const keyedEvent = events.find((event) => {
+                    const key = this.membershipGroupKeys.get(event);
+                    return key !== undefined && !usedKeys.has(key);
+                });
+                const key = keyedEvent
+                    ? this.membershipGroupKeys.get(keyedEvent)!
+                    : `membership-summary-${run[0].key}-${this.membershipGroupSequence++}`;
+                usedKeys.add(key);
+                for (const event of events) this.membershipGroupKeys.set(event, key);
+                result.push({ kind: "event-group", key, events });
+            }
+            run = [];
+        };
+        const protectedIds = new Set([
+            this.navigationEventId,
+            this.frozenMarkerEventId,
+            this.snapshot.current.highlightedEventId,
+            this.snapshot.current.pendingAnchor?.targetKey,
+        ]);
+        for (const item of items) {
+            if (
+                item.kind === "event" &&
+                !protectedIds.has(item.key) &&
+                (item.event as MatrixEvent).isState() &&
+                (item.event as MatrixEvent).getType() === EventType.RoomMember
+            ) {
+                if (
+                    run.length > 0 &&
+                    new Date((run[0].event as MatrixEvent).getTs()).toDateString() !==
+                        new Date((item.event as MatrixEvent).getTs()).toDateString()
+                ) {
+                    flush();
+                }
+                run.push(item);
+            } else {
+                flush();
+                result.push(item);
+            }
+        }
+        flush();
+        return result;
     }
 
     /**
