@@ -21,20 +21,7 @@
     align-self: center;
 }
 
-/* A soft ring that keeps breathing while the call is live. */
-.iconFrame::after {
-    content: "";
-    position: absolute;
-    inset: -4px;
-    border-radius: 50%;
-    background: var(--cpd-color-icon-success-primary);
-    opacity: 0;
-    animation: ongoingCallPulse 2s ease-out infinite;
-}
-
 .icon {
-    position: relative;
-    z-index: 1;
     color: var(--cpd-color-icon-success-primary);
 }
 
@@ -64,11 +51,16 @@
     white-space: nowrap;
 }
 
+/*
+ * The dot breathes while the call is live. It stays within its own box: a ring around the icon would reach past the
+ * row, where the message body clips it into a square.
+ */
 .liveDot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
     background: currentcolor;
+    animation: ongoingCallPulse 1.6s ease-in-out infinite;
 }
 
 .duration {
@@ -100,19 +92,13 @@
 }
 
 @keyframes ongoingCallPulse {
-    0% {
+    50% {
         opacity: 0.35;
-        transform: scale(0.6);
-    }
-
-    100% {
-        opacity: 0;
-        transform: scale(1.4);
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .iconFrame::after {
+    .liveDot {
         animation: none;
     }
 }
