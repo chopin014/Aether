@@ -829,6 +829,70 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
         overflow: clip;
     }
 
+    /*
+     * Pictures sent together (see GalleryGrouper): the first is an ordinary message, and the rest fill a grid as wide
+     * as a picture under it, cropped to squares when they share a row.
+     */
+    .mx_DesktopGallery {
+        list-style: none;
+        padding-block: var(--cpd-space-1x) var(--cpd-space-0-5x);
+    }
+
+    .mx_DesktopGallery_list {
+        display: grid;
+        grid-template-columns: repeat(var(--mx-desktop-gallery-columns, 1), minmax(0, 1fr));
+        gap: var(--cpd-space-1x);
+        /* The message text's column, and the width of a picture at the normal size. */
+        width: min(324px, calc(100% - 64px - 96px));
+        margin: 0 0 0 64px;
+        padding: 0;
+        list-style: none;
+
+        > .mx_EventTile {
+            min-width: 0;
+            margin: 0;
+            padding: 0;
+            background: none;
+            box-shadow: none;
+        }
+
+        .mx_EventTile_line {
+            padding: 0;
+            margin: 0;
+        }
+
+        /* Each picture is part of one message: no time or read receipts of its own in the grid. */
+        [data-testid="event-tile-slot-timestamp"],
+        [data-testid="event-tile-slot-receipt"] {
+            display: none;
+        }
+
+        /* The frame's inline size comes from the picture's own dimensions; in the grid the cell decides. */
+        .mx_ImageBody,
+        .mx_ImageBody_container {
+            width: 100% !important; /* Overrides the inline size from the media info */
+            max-width: none !important; /* Overrides the inline size from the media info */
+            max-height: none !important; /* Overrides the inline size from the media info */
+        }
+
+        .mx_ImageBody_container {
+            border-radius: var(--cpd-space-2x);
+            overflow: hidden;
+        }
+
+        &:not([data-columns="1"]) {
+            .mx_ImageBody_container {
+                aspect-ratio: 1 !important; /* Overrides the picture's own aspect ratio to crop it square */
+            }
+
+            .mx_ImageBody_image {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+            }
+        }
+    }
+
     /* Text sent with files reads first, above them, as a message that carries attachments. */
     .mx_EventTile_captioned {
         display: flex;
