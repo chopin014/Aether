@@ -62,6 +62,11 @@ export interface DesktopProfileIdentitySnapshot {
     userId: string;
     displayName: string;
     avatarUrl?: string;
+    /**
+     * A smaller image of the same avatar that has already loaded elsewhere. It is shown, and gives the banner its
+     * colour, until `avatarUrl` has loaded, so the card never opens with an empty avatar.
+     */
+    avatarPreviewUrl?: string;
     presence?: DesktopProfilePresence;
     roles: DesktopProfileRole[];
     /** The user's extended-profile status, when the server provides one. */
@@ -193,6 +198,24 @@ export function useDominantColour(url: string | undefined, enabled: boolean): st
     return colour;
 }
 
+/** Show `preview` until `url` has finished loading, then `url`. Without a preview this is simply `url`. */
+export function useProgressiveImage(url: string | undefined, preview: string | undefined): string | undefined {
+    const [loaded, setLoaded] = useState<string>();
+    useEffect(() => {
+        if (!url || !preview || url === preview) return;
+        let cancelled = false;
+        const image = new Image();
+        image.onload = () => {
+            if (!cancelled) setLoaded(url);
+        };
+        image.src = url;
+        return () => {
+            cancelled = true;
+        };
+    }, [url, preview]);
+    return preview && loaded !== url ? preview : url;
+}
+
 interface DesktopProfileBannerProps {
     identity: DesktopProfileIdentitySnapshot;
     size: "popout" | "full";
@@ -215,7 +238,12 @@ export function DesktopProfileBanner({
     const live = useProfileLive();
     const { appearance } = identity;
     const hashColour = useIdColorHash(identity.userId);
-    const dominant = useDominantColour(identity.avatarUrl, !appearance?.bannerUrl && !appearance?.theme);
+    // The preview is already decoded, so sampling it gives the banner its colour at once rather than after a load.
+    const dominant = useDominantColour(
+        identity.avatarPreviewUrl ?? identity.avatarUrl,
+        !appearance?.bannerUrl && !appearance?.theme,
+    );
+    const avatarUrl = useProgressiveImage(identity.avatarUrl, identity.avatarPreviewUrl);
     const [animatedBannerReady, setAnimatedBannerReady] = useState(false);
     const animatedBanner = live ? appearance?.bannerAnimatedUrl : undefined;
     const bannerColour = (dominant ? { "--desktop-profile-banner": dominant } : undefined) as CSSProperties | undefined;
@@ -224,7 +252,7 @@ export function DesktopProfileBanner({
         <Avatar
             id={identity.userId}
             name={identity.displayName}
-            src={(live && appearance?.avatarAnimatedUrl) || identity.avatarUrl}
+            src={(live && appearance?.avatarAnimatedUrl) || avatarUrl}
             size={size === "popout" ? "80px" : "120px"}
             type="round"
         />

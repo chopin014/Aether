@@ -132,6 +132,16 @@ describe("DesktopProfileViewModel", () => {
         });
     });
 
+    it("offers the clicked avatar as a preview only when the person has an avatar", () => {
+        const preview = "https://example.org/_matrix/media/v3/thumbnail/example.org/avatar?width=30&height=30";
+        expect(create({ avatarPreviewUrl: preview }).getSnapshot().avatarPreviewUrl).toBeUndefined();
+        member.getMxcAvatarUrl = () => "mxc://example.org/avatar";
+        const snapshot = create({ avatarPreviewUrl: preview }).getSnapshot();
+        expect(snapshot.avatarPreviewUrl).toBe(preview);
+        expect(snapshot.avatarUrl).toBeDefined();
+        expect(snapshot.avatarUrl).not.toBe(preview);
+    });
+
     it("omits presence the server never reported and follows later updates", () => {
         delete user.events.presence;
         user.presence = "offline";

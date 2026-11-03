@@ -84,6 +84,8 @@ export interface DesktopProfileViewModelProps {
     isRoomViewed: boolean;
     /** Load the extra facts only the full profile shows. */
     full: boolean;
+    /** An already loaded image of the person's avatar, shown while the larger one loads. */
+    avatarPreviewUrl?: string;
     onClose(this: void): void;
     onOpenFull(this: void): void;
 }
@@ -199,6 +201,7 @@ export class DesktopProfileViewModel
             userId,
             displayName: name,
             avatarUrl: mxc ? (mediaFromMxc(mxc).getThumbnailOfSourceHttp(160, 160, "crop") ?? undefined) : undefined,
+            avatarPreviewUrl: mxc ? props.avatarPreviewUrl : undefined,
             presence:
                 presence === "online" || presence === "unavailable" || presence === "offline" ? presence : undefined,
             roles: DesktopProfileViewModel.roles(props, userId, member),

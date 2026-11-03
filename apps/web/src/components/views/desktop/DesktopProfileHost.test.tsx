@@ -62,7 +62,10 @@ describe("DesktopProfileHost", () => {
         vi.spyOn(SettingsStore, "getValue").mockReturnValue(false);
         vi.spyOn(Modal, "createDialog").mockReturnValue({ close: vi.fn() } as never);
     });
-    afterEach(() => vi.restoreAllMocks());
+    afterEach(() => {
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+    });
 
     it("opens an anchored, non-modal card from a click and returns focus to it on Escape", async () => {
         render(<Fixture />);
@@ -82,6 +85,49 @@ describe("DesktopProfileHost", () => {
         document.removeEventListener("keydown", globalShortcut);
         expect(screen.queryByRole("dialog", { name: "Profile" })).toBeNull();
         expect(trigger).toHaveFocus();
+    });
+
+    /** Keep the card's larger avatar loading, so the preview it shows meanwhile can be observed. */
+    function holdImageLoads(): void {
+        vi.stubGlobal(
+            "Image",
+            class {
+                public onload: (() => void) | null = null;
+                public src = "";
+            },
+        );
+    }
+
+    it("passes the avatar already loaded in the clicked element to the card as its preview", async () => {
+        holdImageLoads();
+        member.getMxcAvatarUrl = () => "mxc://example.org/robin";
+        render(<Fixture />);
+        const trigger = screen.getByRole("button", { name: "Open Robin" });
+        const image = document.createElement("img");
+        image.src = "https://example.org/_matrix/media/v3/thumbnail/example.org/robin?width=30&height=30";
+        Object.defineProperty(image, "complete", { value: true });
+        Object.defineProperty(image, "naturalWidth", { value: 30 });
+        trigger.append(image);
+        await userEvent.click(image);
+        await screen.findByRole("dialog", { name: "Profile" });
+        const avatar = document.querySelector<HTMLImageElement>("[role=dialog] img");
+        expect(avatar?.getAttribute("src")).toBe(image.src);
+    });
+
+    it("ignores an image in the clicked element that has not loaded", async () => {
+        holdImageLoads();
+        member.getMxcAvatarUrl = () => "mxc://example.org/robin";
+        render(<Fixture />);
+        const trigger = screen.getByRole("button", { name: "Open Robin" });
+        const image = document.createElement("img");
+        image.src = "https://example.org/_matrix/media/v3/thumbnail/example.org/robin?width=30&height=30";
+        Object.defineProperty(image, "complete", { value: false });
+        trigger.append(image);
+        await userEvent.click(image);
+        await screen.findByRole("dialog", { name: "Profile" });
+        const avatar = document.querySelector<HTMLImageElement>("[role=dialog] img");
+        expect(avatar?.getAttribute("src")).toBeTruthy();
+        expect(avatar?.getAttribute("src")).not.toBe(image.src);
     });
 
     it("keeps a tall card inside a narrow viewport after moving below window controls", async () => {
