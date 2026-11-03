@@ -125,14 +125,14 @@ jobs:
                       pnpm --dir apps/desktop exec playwright test \
                           playwright/e2e/sharing/native-audio.spec.ts \
                           playwright/e2e/sharing/native-lifecycle.spec.ts \
-                          playwright/e2e/sharing/renderer-audio.spec.ts --reporter=line
+                          playwright/e2e/sharing/renderer-audio.spec.ts --reporter=line --retries=0 --repeat-each=2
                   '
             - name: Exercise encrypted MatrixRTC calls and stream playback controls
               if: ${{ !cancelled() && steps.desktop-build.outcome == 'success' }}
               working-directory: apps/web
               run: >-
                   pnpm exec playwright test playwright/e2e/desktop/element-call-voice.spec.ts
-                  --project=Chrome --reporter=line
+                  --project=Chrome --reporter=line --retries=0
             - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
               if: always()
               with:

@@ -69,6 +69,7 @@ for (const kind of ["window", "screen"] as const) {
                     const gain = context.createGain();
                     const analyser = context.createAnalyser();
                     analyser.fftSize = 8192;
+                    analyser.smoothingTimeConstant = 0;
                     oscillator.frequency.value = 440;
                     gain.gain.value = 0.01;
                     oscillator.connect(gain).connect(analyser).connect(context.destination);
@@ -143,6 +144,7 @@ for (const kind of ["window", "screen"] as const) {
                         const context = new AudioContext();
                         const analyser = context.createAnalyser();
                         analyser.fftSize = 8192;
+                        analyser.smoothingTimeConstant = 0;
                         context
                             .createMediaStreamSource(new MediaStream(capturedStream.getAudioTracks()))
                             .connect(analyser);
@@ -190,6 +192,7 @@ for (const kind of ["window", "screen"] as const) {
                     const context = new AudioContext();
                     const analyser = context.createAnalyser();
                     analyser.fftSize = 8192;
+                    analyser.smoothingTimeConstant = 0;
                     // Consume remote audio without feeding it back into the captured source application.
                     const silentOutput = context.createGain();
                     silentOutput.gain.value = 0;
