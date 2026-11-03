@@ -784,6 +784,42 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
     }
 
     /*
+     * A collapsed run of room changes reads as one line of text with its toggle right after it, rather than the
+     * toggle floating at the far edge of the timeline, away from what it opens.
+     */
+    .mx_GenericEventListSummary[data-layout="group"] {
+        &[data-expanded="false"] {
+            display: flex;
+            align-items: center;
+
+            > .mx_EventTile_line {
+                flex: 0 1 auto;
+                min-width: 0;
+            }
+        }
+
+        .mx_GenericEventListSummary_toggle {
+            order: 1;
+            float: none;
+            flex: none;
+            margin-inline: var(--cpd-space-2x) 0;
+            padding: 0;
+            color: var(--cpd-color-text-action-accent);
+            font: var(--cpd-font-body-sm-medium);
+            text-decoration: none;
+
+            &:hover,
+            &:focus-visible {
+                text-decoration: underline;
+            }
+        }
+
+        &[data-expanded="true"] .mx_GenericEventListSummary_toggle {
+            margin-inline-start: var(--cpd-space-16x);
+        }
+    }
+
+    /*
      * In compact messages the text flows around the time and name, so its later lines return under the name. Text
      * bodies clip their overflow to trap stacked marks, and `hidden` would make each a box that sits beside the name
      * instead; `clip` traps the marks without that.
