@@ -26,6 +26,7 @@ import {
     formatFullDate,
     formatFullDateNoTime,
     formatDate,
+    formatMessageSentTime,
     HOUR_MS,
     MINUTE_MS,
     DAY_MS,
@@ -305,5 +306,28 @@ describe("formatLocalDateShort()", () => {
 
         locale.mockReturnValue("de-DE");
         expect(formatLocalDateShort(timestamp)).toEqual("17.12.21");
+    });
+});
+
+describe("formatMessageSentTime", () => {
+    // Midday, so a day either side never crosses a time zone boundary in the test environment.
+    const now = new Date("2026-11-02T12:00:00Z");
+
+    it("shows only the time for today", () => {
+        expect(formatMessageSentTime(new Date("2026-11-02T09:05:00Z"), false, "en-GB", now)).toBe(
+            formatTime(new Date("2026-11-02T09:05:00Z"), false, "en-GB"),
+        );
+    });
+
+    it("says yesterday with the time", () => {
+        const date = new Date("2026-11-01T16:13:00Z");
+        expect(formatMessageSentTime(date, false, "en-GB", now)).toBe(
+            `Yesterday at ${formatTime(date, false, "en-GB")}`,
+        );
+    });
+
+    it("shows the short date with the time for anything older", () => {
+        const date = new Date("2026-04-28T16:13:00Z");
+        expect(formatMessageSentTime(date, false, "en-GB", now)).toMatch(/^28\/04\/2026, \d{2}:13$/);
     });
 });

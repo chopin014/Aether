@@ -12,7 +12,13 @@ import {
     type MessageTimestampViewModel as MessageTimestampViewModelInterface,
 } from "@element-hq/web-shared-components";
 
-import { formatFullDate, formatTime, formatFullTime, formatRelativeTime } from "../../../../../DateUtils";
+import {
+    formatFullDate,
+    formatTime,
+    formatFullTime,
+    formatMessageSentTime,
+    formatRelativeTime,
+} from "../../../../../DateUtils";
 import { objectHasDiff } from "../../../../../utils/objects";
 
 export interface MessageTimestampViewModelProps {
@@ -40,6 +46,11 @@ export interface MessageTimestampViewModelProps {
      * If set, display a relative timestamp (e.g. "5 minutes ago").
      */
     showRelative?: boolean;
+    /**
+     * If set, show the date as well as the time when the message is not from today, as at the head of a group of
+     * messages: "Yesterday at 16:13", or the short date and time.
+     */
+    showSentDay?: boolean;
     /**
      * If set to true then no tooltip will be shown
      */
@@ -77,6 +88,8 @@ export class MessageTimestampViewModel
         let timestamp: string;
         if (props.showRelative) {
             timestamp = formatRelativeTime(date, props.showTwelveHour);
+        } else if (props.showSentDay) {
+            timestamp = formatMessageSentTime(date, props.showTwelveHour);
         } else if (props.showFullDate) {
             timestamp = formatFullDate(date, props.showTwelveHour, props.showSeconds);
         } else if (props.showSeconds) {
