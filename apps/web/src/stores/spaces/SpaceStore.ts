@@ -288,7 +288,9 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
             this.traverseSpace(
                 space,
                 (roomId) => {
-                    void this.matrixClient?.getRoom(roomId)?.loadMembersIfNeeded();
+                    void this.sdkContext.memberListStore.ensureMembersLoaded(roomId).catch((error: unknown) => {
+                        logger.warn("Unable to load Space members", error);
+                    });
                 },
                 false,
             );

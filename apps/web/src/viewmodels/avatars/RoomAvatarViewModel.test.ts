@@ -8,7 +8,17 @@
 // @vitest-environment happy-dom
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { type MatrixClient, RoomEvent, RoomMember } from "matrix-js-sdk/src/matrix";
+import {
+    type MatrixClient,
+    RoomEvent,
+    RoomMember,
+    Room,
+    MatrixEvent,
+    EventType,
+    KnownMembership,
+    RoomStateEvent,
+    ClientEvent,
+} from "matrix-js-sdk/src/matrix";
 import { act } from "react";
 import { createTestClient, mkStubRoom } from "test-utils";
 
@@ -16,6 +26,7 @@ import { RoomAvatarViewModel } from "./RoomAvatarViewModel";
 import { LocalRoom } from "../../models/LocalRoom";
 import DMRoomMap from "../../utils/DMRoomMap";
 import { DirectoryMember } from "../../utils/direct-messages";
+import * as Avatar from "../../Avatar";
 
 vi.mock("../../customisations/Media", () => ({
     mediaFromMxc: vi.fn(() => ({
@@ -84,6 +95,75 @@ describe("RoomAvatarViewModel", () => {
         vm.setOnClick(undefined);
 
         expect(listener).not.toHaveBeenCalled();
+    });
+
+    it("refreshes once after a large member import and uses the final room state", async () => {
+        const room = new Room("!large:example.com", client, client.getSafeUserId());
+        vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+        const avatar = vi
+            .spyOn(Avatar, "avatarUrlForRoom")
+            .mockImplementation((value) => `${value?.getMembers().length}.png`);
+        const vm = new RoomAvatarViewModel({ room, size: "36px" });
+        avatar.mockClear();
+        const members = Array.from(
+            { length: 1000 },
+            (_, i) =>
+                new MatrixEvent({
+                    type: EventType.RoomMember,
+                    state_key: `@member${i}:example.com`,
+                    room_id: room.roomId,
+                    sender: `@member${i}:example.com`,
+                    content: { membership: KnownMembership.Join, displayname: `Member ${i}` },
+                }),
+        );
+
+        room.currentState.markOutOfBandMembersStarted();
+        room.currentState.setOutOfBandMembers(members);
+        await Promise.resolve();
+
+        expect(room.getMembers()).toHaveLength(1000);
+        expect(avatar).toHaveBeenCalledTimes(1);
+        expect(vm.getSnapshot().urls).toEqual(["1000.png"]);
+        vm.dispose();
+    });
+
+    it("ignores unrelated account data and other rooms' state", async () => {
+        const room = new Room("!room:example.com", client, client.getSafeUserId());
+        const other = new Room("!other:example.com", client, client.getSafeUserId());
+        vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+        const avatar = vi.spyOn(Avatar, "avatarUrlForRoom");
+        const vm = new RoomAvatarViewModel({ room, size: "36px" });
+        avatar.mockClear();
+
+        client.emit(ClientEvent.AccountData, new MatrixEvent({ type: EventType.FullyRead, content: {} }));
+        other.currentState.emit(RoomStateEvent.Update, other.currentState);
+        await Promise.resolve();
+        expect(avatar).not.toHaveBeenCalled();
+
+        client.emit(ClientEvent.AccountData, new MatrixEvent({ type: EventType.Direct, content: {} }));
+        await Promise.resolve();
+        expect(avatar).toHaveBeenCalledTimes(1);
+        vm.dispose();
+    });
+
+    it("drops a queued refresh when the room changes or the view model is disposed", async () => {
+        const room = new Room("!room:example.com", client, client.getSafeUserId());
+        const nextRoom = new Room("!next:example.com", client, client.getSafeUserId());
+        vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+        vi.spyOn(nextRoom, "getMyMembership").mockReturnValue(KnownMembership.Join);
+        const avatar = vi.spyOn(Avatar, "avatarUrlForRoom");
+        const vm = new RoomAvatarViewModel({ room, size: "36px" });
+
+        room.currentState.emit(RoomStateEvent.Update, room.currentState);
+        vm.setRoom(nextRoom);
+        avatar.mockClear();
+        await Promise.resolve();
+        expect(avatar).not.toHaveBeenCalled();
+
+        nextRoom.currentState.emit(RoomStateEvent.Update, nextRoom.currentState);
+        vm.dispose();
+        await Promise.resolve();
+        expect(avatar).not.toHaveBeenCalled();
     });
 
     it("derives a DM identity name when available", () => {

@@ -77,7 +77,7 @@ export function useDesktopMemberListViewModel(
         if (!roleSpace) return;
         let disposed = false;
         // Space membership can be lazy-loaded independently of the open channel's member list.
-        void roleSpace.loadMembersIfNeeded().then(
+        void sdkContext.memberListStore.ensureMembersLoaded(roleSpace.roomId).then(
             () => {
                 if (!disposed) refresh();
             },
@@ -86,7 +86,7 @@ export function useDesktopMemberListViewModel(
         return () => {
             disposed = true;
         };
-    }, [roleSpace]);
+    }, [roleSpace, sdkContext]);
 
     return enabled
         ? groupDesktopMembers(vm.members, vm.isPresenceEnabled, roleSpace, SettingsStore.getValue("language"))

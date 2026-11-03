@@ -12,6 +12,7 @@ import {
     RoomEvent,
     RoomStateEvent,
     RoomType,
+    MatrixEvent,
     type Room,
     type RoomMember,
 } from "matrix-js-sdk/src/matrix";
@@ -98,6 +99,8 @@ export class RoomAvatarViewModel
 {
     private roomListenerDisposables?: Disposables;
     private mediaPreviewSettingDisposables?: Disposables;
+    private roomRefreshQueued = false;
+    private roomBindingGeneration = 0;
 
     public constructor(props: Props) {
         super(props, RoomAvatarViewModel.computeSnapshot(props));
@@ -247,18 +250,37 @@ export class RoomAvatarViewModel
         });
     };
 
+    /** Coalesce state updates re-emitted by the room and its current state. */
+    private scheduleRoomRefresh = (): void => {
+        if (this.roomRefreshQueued || this.isDisposed) return;
+        this.roomRefreshQueued = true;
+        const generation = this.roomBindingGeneration;
+        queueMicrotask(() => {
+            if (generation !== this.roomBindingGeneration) return;
+            this.roomRefreshQueued = false;
+            if (!this.isDisposed) this.refreshSnapshot();
+        });
+    };
+
+    private onAccountData = (event: unknown): void => {
+        if (event instanceof MatrixEvent && event.getType() === EventType.Direct) this.scheduleRoomRefresh();
+    };
+
     private bindRoomListeners(room?: Room): void {
         this.roomListenerDisposables?.dispose();
         this.roomListenerDisposables = undefined;
+        this.roomBindingGeneration++;
+        this.roomRefreshQueued = false;
         if (!room) return;
 
         const roomListenerDisposables = new Disposables();
         roomListenerDisposables.trackListener(room, RoomEvent.Name, this.refreshSnapshot);
         roomListenerDisposables.trackListener(room, RoomEvent.MyMembership, this.refreshSnapshot);
-        roomListenerDisposables.trackListener(room, RoomStateEvent.Update, this.refreshSnapshot);
-        roomListenerDisposables.trackListener(room.currentState, RoomStateEvent.Update, this.refreshSnapshot);
-        roomListenerDisposables.trackListener(room.currentState, RoomStateEvent.Members, this.refreshSnapshot);
-        roomListenerDisposables.trackListener(room.client, ClientEvent.AccountData, this.refreshSnapshot);
+        // The SDK emits Update after a state batch, including out-of-band member imports.
+        // Listening to Members would recompute every avatar once per imported member.
+        roomListenerDisposables.trackListener(room, RoomStateEvent.Update, this.scheduleRoomRefresh);
+        roomListenerDisposables.trackListener(room.currentState, RoomStateEvent.Update, this.scheduleRoomRefresh);
+        roomListenerDisposables.trackListener(room.client, ClientEvent.AccountData, this.onAccountData);
 
         this.roomListenerDisposables = roomListenerDisposables;
     }

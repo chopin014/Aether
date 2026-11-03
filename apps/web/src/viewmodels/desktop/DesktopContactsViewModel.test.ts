@@ -8,7 +8,16 @@ Please see LICENSE in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EventType, MatrixEvent, Room, User, UserEvent, type MatrixClient } from "matrix-js-sdk/src/matrix";
+import {
+    EventType,
+    MatrixEvent,
+    Room,
+    RoomMemberEvent,
+    RoomMember,
+    User,
+    UserEvent,
+    type MatrixClient,
+} from "matrix-js-sdk/src/matrix";
 import { stubClient } from "test-utils";
 
 import { DesktopContactsViewModel } from "./DesktopContactsViewModel";
@@ -48,9 +57,10 @@ describe("DesktopContactsViewModel", () => {
         ]);
         expect(vm.getSnapshot().pendingCount).toBe(0);
     });
-    it("updates presence live, filters by name or Matrix ID and preserves offline contacts in All", () => {
+    it("updates presence live, filters by name or Matrix ID and preserves offline contacts in All", async () => {
         user.presence = "offline";
         client.emit(UserEvent.Presence, undefined, user);
+        await Promise.resolve();
         expect(vm.getSnapshot().contacts).toEqual([]);
         vm.setTab("all");
         expect(vm.getSnapshot().contacts).toHaveLength(1);
@@ -59,22 +69,25 @@ describe("DesktopContactsViewModel", () => {
         vm.setQuery("unknown");
         expect(vm.getSnapshot().contacts).toEqual([]);
     });
-    it("should keep missing presence neutral in All and exclude it from Online", () => {
+    it("should keep missing presence neutral in All and exclude it from Online", async () => {
         delete user.events.presence;
         user.presence = "offline";
         client.emit(UserEvent.LastPresenceTs, undefined, user);
+        await Promise.resolve();
         expect(vm.getSnapshot().onlineContacts).toEqual([]);
         expect(vm.getSnapshot().contacts).toEqual([]);
         vm.setTab("all");
         expect(vm.getSnapshot().contacts[0].presence).toBe("unknown");
         user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "offline" } }));
         client.emit(UserEvent.LastPresenceTs, user.events.presence!, user);
+        await Promise.resolve();
         expect(vm.getSnapshot().contacts[0].presence).toBe("offline");
     });
 
-    it("should hide known presence when explicitly disabled", () => {
+    it("should hide known presence when explicitly disabled", async () => {
         SdkConfig.put({ enable_presence_by_hs_url: { [client.baseUrl]: false } });
         client.emit(UserEvent.LastPresenceTs, user.events.presence!, user);
+        await Promise.resolve();
         expect(vm.getSnapshot().onlineContacts).toEqual([]);
         vm.setTab("all");
         expect(vm.getSnapshot().contacts[0].presence).toBe("unknown");
@@ -92,6 +105,7 @@ describe("DesktopContactsViewModel", () => {
     it("uses the existing invitation APIs and navigates after successful join", async () => {
         vi.mocked(room.getMyMembership).mockReturnValue("invite");
         client.emit(UserEvent.Presence, undefined, user);
+        await Promise.resolve();
         vm.setTab("pending");
         expect(vm.getSnapshot().pendingCount).toBe(1);
         vi.mocked(client.joinRoom).mockResolvedValue(room);
@@ -110,6 +124,7 @@ describe("DesktopContactsViewModel", () => {
     it("preserves failed invitations and allows retry after network errors", async () => {
         vi.mocked(room.getMyMembership).mockReturnValue("invite");
         client.emit(UserEvent.Presence, undefined, user);
+        await Promise.resolve();
         vm.setTab("pending");
         vi.mocked(client.joinRoom).mockRejectedValue(new Error("Offline"));
         await vm.acceptInvitation(room.roomId);
@@ -128,6 +143,7 @@ describe("DesktopContactsViewModel", () => {
             return {};
         });
         client.emit(UserEvent.Presence, undefined, user);
+        await Promise.resolve();
         expect(vm.getSnapshot().contacts).toEqual([]);
         vm.setTab("blocked");
         expect(vm.getSnapshot().contacts).toHaveLength(2);
@@ -135,6 +151,29 @@ describe("DesktopContactsViewModel", () => {
         expect(client.setIgnoredUsers).toHaveBeenCalledWith(["@other:example.org"]);
         expect(vm.getSnapshot().contacts).toHaveLength(1);
     });
+    it("coalesces a roster import into one refresh and publishes the latest contact state", async () => {
+        const getRooms = vi.mocked(client.getRooms);
+        getRooms.mockClear();
+        const event = new MatrixEvent({ type: EventType.RoomMember });
+        const member = new RoomMember(room.roomId, user.userId);
+        for (let i = 0; i < 1000; i++) client.emit(RoomMemberEvent.Name, event, member, "Bob");
+        user.displayName = "Updated Bob";
+        client.emit(UserEvent.DisplayName, new MatrixEvent({ type: "m.presence" }), user);
+        expect(getRooms).not.toHaveBeenCalled();
+        await Promise.resolve();
+        expect(getRooms).toHaveBeenCalledTimes(1);
+        expect(vm.getSnapshot().contacts[0].name).toBe("Updated Bob");
+    });
+
+    it("discards a queued refresh when disposed", async () => {
+        const getRooms = vi.mocked(client.getRooms);
+        getRooms.mockClear();
+        client.emit(UserEvent.Presence, undefined, user);
+        vm.dispose();
+        await Promise.resolve();
+        expect(getRooms).not.toHaveBeenCalled();
+    });
+
     it("removes client listeners on disposal", () => {
         const off = vi.spyOn(client, "off");
         vm.dispose();

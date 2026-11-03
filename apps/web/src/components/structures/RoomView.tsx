@@ -1573,7 +1573,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         if (this.context.client?.hasLazyLoadMembersEnabled()) {
             if (room && room.getMyMembership() === KnownMembership.Join) {
                 try {
-                    await room.loadMembersIfNeeded();
+                    await this.context.memberListStore.ensureMembersLoaded(room.roomId);
                     if (!this.unmounted) {
                         this.setState({ membersLoaded: true });
                     }
