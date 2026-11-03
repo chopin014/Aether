@@ -1867,18 +1867,24 @@
         }
     }
 
-    /* One text line tall, with the name and the smaller time sharing a baseline. */
+    /*
+     * One text line tall, every item centred on it. Not aligned by baseline: the name sits in an inline block that
+     * clips to ellipsise, and such a box reports its bottom edge as its baseline, which dropped the time below the
+     * name and out of the row, under the content that follows.
+     */
     .desktopMetadata {
         display: flex;
-        align-items: baseline;
+        align-items: center;
         gap: var(--cpd-space-2x);
         margin-inline: var(--event-tile-group-gutter) var(--cpd-space-4x);
         height: var(--desktop-message-line-height);
     }
 
     .desktopMetadata .slotSender {
-        display: block;
+        display: flex;
+        align-items: center;
         min-width: 0;
+        height: 100%;
 
         > * {
             margin: 0;
@@ -1888,16 +1894,21 @@
         }
     }
 
+    /* The time is a step smaller and muted, as quiet as Discord's, and one line tall so it can't leave the row. */
     .desktopMetadata .slotTimestamp {
         position: static;
+        display: flex;
+        align-items: center;
         width: auto;
-        height: auto;
+        height: 100%;
         flex: none;
-        font: var(--cpd-font-body-sm-regular);
+        font: var(--cpd-font-body-xs-regular);
         color: var(--cpd-color-text-tertiary, var(--cpd-color-text-secondary));
+        white-space: nowrap;
 
         > * {
-            font-size: var(--cpd-font-size-body-sm);
+            font-size: var(--cpd-font-size-body-xs);
+            line-height: var(--desktop-message-line-height);
         }
     }
 
