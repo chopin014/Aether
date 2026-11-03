@@ -28,6 +28,7 @@ import { type TimelineItem } from "@element-hq/web-shared-components";
 import { createTestClient, mkMembership, mkMessage } from "test-utils";
 
 import SettingsStore from "../../../settings/SettingsStore";
+import { SlidingSyncManager } from "../../../SlidingSyncManager";
 import { RoomTimelineViewModel } from "./RoomTimelineViewModel";
 
 vi.mock("../../../settings/SettingsStore");
@@ -162,6 +163,94 @@ describe("RoomTimelineViewModel", () => {
         });
     });
 
+    describe("native initial timeline preparation", () => {
+        it("publishes preview rows and reloads expanded cached history without a messages request", async () => {
+            const preparation = Promise.withResolvers<boolean>();
+            vi.spyOn(SlidingSyncManager.instance, "initialTimelinePreparation").mockReturnValue(preparation.promise);
+            seedTimeline([makeMessage("$preview")]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            const paginate = vi.spyOn(client, "paginateEventTimeline");
+            const vm = await createStartedViewModel();
+            expect(eventKeys(vm.getSnapshot().items)).toContain("$preview");
+            vm.onAnchorReached();
+            vm.onAtBottomStateChange(true);
+            vm.onStartReached();
+            expect(paginate).not.toHaveBeenCalled();
+            room.addEventsToTimeline([makeMessage("$expanded")], true, false, room.getLiveTimeline(), "older-again");
+            preparation.resolve(true);
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$expanded"));
+            expect(paginate).not.toHaveBeenCalled();
+        });
+
+        it.each([false, true])("replays a deferred history request after fallback (rejected=%s)", async (rejected) => {
+            const preparation = Promise.withResolvers<boolean>();
+            vi.spyOn(SlidingSyncManager.instance, "initialTimelinePreparation").mockReturnValue(preparation.promise);
+            seedTimeline([makeMessage("$preview")]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            const paginate = vi.spyOn(client, "paginateEventTimeline").mockImplementation(async (timeline) => {
+                timeline.setPaginationToken(null, Direction.Backward);
+                return false;
+            });
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onStartReached();
+            expect(paginate).not.toHaveBeenCalled();
+            if (rejected) preparation.reject(new Error("preparation failed"));
+            else preparation.resolve(false);
+            await vi.waitFor(() => expect(paginate).toHaveBeenCalledTimes(1));
+        });
+
+        it("does not start initial hidden-history filling while native expansion is pending", async () => {
+            const preparation = Promise.withResolvers<boolean>();
+            vi.spyOn(SlidingSyncManager.instance, "initialTimelinePreparation").mockReturnValue(preparation.promise);
+            seedTimeline([
+                mkMembership({ room: ROOM_ID, user: OTHER_USER_ID, skey: OTHER_USER_ID, mship: "join", event: true }),
+            ]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            const paginate = vi.spyOn(client, "paginateEventTimeline");
+            const vm = new RoomTimelineViewModel({ client, room });
+            vms.push(vm);
+            vm.start();
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(paginate).not.toHaveBeenCalled();
+            room.addEventsToTimeline([makeMessage("$expanded")], true, false, room.getLiveTimeline(), "older-again");
+            preparation.resolve(true);
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$expanded"));
+            expect(paginate).not.toHaveBeenCalled();
+        });
+
+        it("does not reload after disposal or when the reader scrolled away from the live end", async () => {
+            for (const disposed of [false, true]) {
+                const preparation = Promise.withResolvers<boolean>();
+                vi.spyOn(SlidingSyncManager.instance, "initialTimelinePreparation").mockReturnValue(
+                    preparation.promise,
+                );
+                seedTimeline([makeMessage(`$preview-${disposed}`)]);
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+                vm.onAtBottomStateChange(false);
+                if (disposed) vm.dispose();
+                const before = vm.getSnapshot();
+                room.addEventsToTimeline([makeMessage(`$expanded-${disposed}`)], true, false, room.getLiveTimeline());
+                preparation.resolve(true);
+                await Promise.resolve();
+                await Promise.resolve();
+                expect(vm.getSnapshot()).toBe(before);
+            }
+        });
+
+        it.each([false, true])("preserves exact anchored loads (permalink=%s)", async (permalink) => {
+            const prepare = vi.spyOn(SlidingSyncManager.instance, "initialTimelinePreparation");
+            seedTimeline([makeMessage("$target")]);
+            if (!permalink) localStorage.setItem(`timeline_scroll_${ROOM_ID}`, "$target");
+            const vm = await createStartedViewModel(permalink ? "$target" : undefined);
+            expect(prepare).not.toHaveBeenCalled();
+            expect(vm.getSnapshot().pendingAnchor?.targetKey).toBe("$target");
+        });
+    });
+
     describe("membership summaries", () => {
         const makeMember = (id: string, ts = 1_700_000_000_000): MatrixEvent =>
             new MatrixEvent({
@@ -207,6 +296,15 @@ describe("RoomTimelineViewModel", () => {
             const vm = await createStartedViewModel();
             expect(groups(vm)).toHaveLength(0);
             expect(eventKeys(vm.getSnapshot().items)).toEqual(["$message"]);
+        });
+
+        it("publishes cached conversation behind a long membership tail without fetching history", async () => {
+            seedTimeline([makeMessage("$conversation"), ...memberships(90)]);
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline");
+            const vm = await createStartedViewModel();
+            expect(eventKeys(vm.getSnapshot().items)).toContain("$conversation");
+            expect(groups(vm)[0].events).toHaveLength(90);
+            expect(fetchPage).not.toHaveBeenCalled();
         });
 
         it("does not combine runs across a date boundary", async () => {

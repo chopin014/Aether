@@ -40,6 +40,7 @@ import { type MatrixClient, ClientEvent, EventType, type Room } from "matrix-js-
 import {
     type MSC3575Filter,
     type MSC3575List,
+    type MSC3575RoomData,
     type MSC3575SlidingSyncResponse,
     MSC3575_STATE_KEY_LAZY,
     MSC3575_STATE_KEY_ME,
@@ -117,6 +118,7 @@ const ENCRYPTED_SUBSCRIPTION = {
 // Fetch enough state to discover encryption and render the destination before loading its full roster.
 const BOOTSTRAP_SUBSCRIPTION_NAME = "bootstrap";
 const ENCRYPTED_SUBSCRIPTION_NAME = "encrypted";
+const EXPANDED_BOOTSTRAP_SUBSCRIPTION_NAME = "bootstrap-expanded";
 const BOOTSTRAP_SUBSCRIPTION = {
     timeline_limit: 50,
     required_state: [
@@ -217,6 +219,18 @@ export class SlidingSyncManager {
     private client?: MatrixClient;
     private readonly bootstrapRooms = new Set<string>();
     private readonly roomWaiters = new Set<() => void>();
+    private readonly initialTimelines = new Map<
+        string,
+        {
+            promise: Promise<boolean>;
+            resolve: (expanded: boolean) => void;
+            phase: "initial" | "expanding";
+            received: boolean;
+            needsExpansion: boolean;
+            timeout?: ReturnType<typeof setTimeout>;
+        }
+    >();
+    private cancelInitialPreparations?: () => void;
 
     private configureDefer = Promise.withResolvers<void>();
 
@@ -225,6 +239,8 @@ export class SlidingSyncManager {
     }
 
     private configure(client: MatrixClient, proxyUrl: string, initialRoomId?: string): SlidingSync {
+        this.cancelInitialPreparations?.();
+        this.initialTimelines.clear();
         for (const settle of this.roomWaiters) settle();
         this.client = client;
         this.bootstrapRooms.clear();
@@ -245,8 +261,141 @@ export class SlidingSyncManager {
         this.slidingSync.addCustomSubscription(UNENCRYPTED_SUBSCRIPTION_NAME, UNENCRYPTED_SUBSCRIPTION);
         this.slidingSync.addCustomSubscription(ENCRYPTED_SUBSCRIPTION_NAME, ENCRYPTED_SUBSCRIPTION);
         this.slidingSync.addCustomSubscription(BOOTSTRAP_SUBSCRIPTION_NAME, BOOTSTRAP_SUBSCRIPTION);
+        this.slidingSync.addCustomSubscription(EXPANDED_BOOTSTRAP_SUBSCRIPTION_NAME, {
+            ...BOOTSTRAP_SUBSCRIPTION,
+            timeline_limit: 100,
+        });
+        this.trackInitialTimelines(this.slidingSync);
+        const ownedSync = this.slidingSync;
+        // SlidingSync has no stopped event. Settle waits before our owned instance stops.
+        const stop = ownedSync.stop.bind(ownedSync);
+        ownedSync.stop = (): void => {
+            if (this.slidingSync === ownedSync) this.cancelInitialPreparations?.();
+            stop();
+        };
         this.configureDefer.resolve();
         return this.slidingSync;
+    }
+
+    /**
+     * Preparation of this client's first room timeline. True means native expansion was processed.
+     * A view mounted after completion can load the expanded cached timeline immediately.
+     */
+    public initialTimelinePreparation(client: MatrixClient, roomId: string): Promise<boolean> | undefined {
+        return this.client === client ? this.initialTimelines.get(roomId)?.promise : undefined;
+    }
+
+    private beginInitialTimeline(roomId: string): void {
+        this.bootstrapRooms.add(roomId);
+        if (this.initialTimelines.has(roomId)) return;
+        const { promise, resolve } = Promise.withResolvers<boolean>();
+        this.initialTimelines.set(roomId, {
+            promise,
+            resolve,
+            phase: "initial",
+            received: false,
+            needsExpansion: false,
+        });
+        if (!this.cancelInitialPreparations && this.slidingSync) this.trackInitialTimelines(this.slidingSync);
+    }
+
+    private settleInitialTimeline(roomId: string, expanded: boolean): void {
+        const preparation = this.initialTimelines.get(roomId);
+        if (!preparation) return;
+        clearTimeout(preparation.timeout);
+        this.initialTimelines.delete(roomId);
+        if (preparation.phase === "expanding" && this.slidingSync) {
+            const room = this.client?.getRoom(roomId);
+            if (room) this.upgradeDiscoveredRoom(this.slidingSync, room);
+            else this.slidingSync.useCustomSubscription(roomId, BOOTSTRAP_SUBSCRIPTION_NAME);
+        }
+        preparation.resolve(expanded);
+        if (this.initialTimelines.size === 0) this.cancelInitialPreparations?.();
+    }
+
+    /** Expand only a public notice-only tail, after its first response has reached SDK rooms. */
+    private trackInitialTimelines(slidingSync: SlidingSync): void {
+        const onRoomData = (roomId: string, data: MSC3575RoomData): void => {
+            const preparation = this.initialTimelines.get(roomId);
+            if (!preparation) return;
+            preparation.received = true;
+            preparation.needsExpansion =
+                (data.timeline?.length ?? 0) > 0 &&
+                !(data.required_state ?? []).some(
+                    (event) =>
+                        event.type === EventType.RoomEncryption ||
+                        (event.type === EventType.RoomCreate && event.content?.type === "m.space") ||
+                        (event.type === EventType.RoomMember &&
+                            event.state_key === this.client?.getUserId() &&
+                            ["leave", "ban"].includes(event.content?.membership ?? "")),
+                ) &&
+                !(data.timeline ?? []).some(
+                    (event) =>
+                        event.unsigned?.redacted_because === undefined &&
+                        !("state_key" in event) &&
+                        event.type !== EventType.RoomMember &&
+                        event.type !== EventType.RoomRedaction &&
+                        event.content?.["m.relates_to"]?.rel_type !== "m.replace" &&
+                        event.type !== EventType.Reaction,
+                );
+        };
+        const onComplete = (
+            state: SlidingSyncState,
+            response: MSC3575SlidingSyncResponse | null,
+            error?: Error,
+        ): void => {
+            if (error) {
+                for (const roomId of this.initialTimelines.keys()) this.settleInitialTimeline(roomId, false);
+                return;
+            }
+            if (state !== SlidingSyncState.Complete) return;
+            if (this.initialTimelines.size === 0) {
+                cancel();
+                return;
+            }
+            if (!response) return;
+            for (const [roomId, preparation] of this.initialTimelines) {
+                if (
+                    preparation.phase === "initial" &&
+                    preparation.received &&
+                    preparation.needsExpansion &&
+                    !this.client?.getRoom(roomId)?.hasEncryptionStateEvent()
+                ) {
+                    preparation.phase = "expanding";
+                    preparation.received = false;
+                    slidingSync.useCustomSubscription(roomId, EXPANDED_BOOTSTRAP_SUBSCRIPTION_NAME);
+                    // Native expansion must not indefinitely suppress ordinary history pagination.
+                    preparation.timeout = setTimeout(() => this.settleInitialTimeline(roomId, false), 3000);
+                    continue;
+                }
+                if (
+                    preparation.phase === "expanding" &&
+                    !preparation.received &&
+                    slidingSync.getRoomSubscriptions().has(roomId)
+                )
+                    continue;
+                const expanded = preparation.phase === "expanding" && preparation.received;
+                this.settleInitialTimeline(roomId, expanded);
+                if (!response.rooms[roomId]) this.bootstrapRooms.delete(roomId);
+            }
+            if (this.initialTimelines.size === 0) cancel();
+        };
+        slidingSync.on(SlidingSyncEvent.RoomData, onRoomData);
+        slidingSync.on(SlidingSyncEvent.Lifecycle, onComplete);
+        let active = true;
+        const cancel = (): void => {
+            if (!active) return;
+            active = false;
+            slidingSync.off(SlidingSyncEvent.RoomData, onRoomData);
+            slidingSync.off(SlidingSyncEvent.Lifecycle, onComplete);
+            for (const preparation of this.initialTimelines.values()) {
+                clearTimeout(preparation.timeout);
+                preparation.resolve(false);
+            }
+            this.initialTimelines.clear();
+            if (this.cancelInitialPreparations === cancel) this.cancelInitialPreparations = undefined;
+        };
+        this.cancelInitialPreparations = cancel;
     }
 
     /**
@@ -333,7 +482,7 @@ export class SlidingSyncManager {
         if (this.client !== client || this.slidingSync !== slidingSync) return;
         logger.log("SlidingSync setRoomVisible:", roomId, "shouldLazyLoad:", shouldLazyLoad);
         if (!room) {
-            this.bootstrapRooms.add(roomId);
+            this.beginInitialTimeline(roomId);
             slidingSync.useCustomSubscription(roomId, BOOTSTRAP_SUBSCRIPTION_NAME);
         } else if (shouldLazyLoad) {
             // lazy load this room
@@ -366,6 +515,9 @@ export class SlidingSyncManager {
 
     /** Replace discovery state with the normal subscription once encryption state is known. */
     private upgradeDiscoveredRoom(slidingSync: SlidingSync, room: Room): void {
+        const preparation = this.initialTimelines.get(room.roomId);
+        if (preparation?.phase === "expanding" || (preparation?.phase === "initial" && preparation.needsExpansion))
+            return;
         if (!this.bootstrapRooms.delete(room.roomId)) return;
         slidingSync.useCustomSubscription(
             room.roomId,
@@ -416,6 +568,9 @@ export class SlidingSyncManager {
                 slidingSync.off(SlidingSyncEvent.Lifecycle, lifecycle);
                 return;
             }
+
+            // Keep the next native response focused while a membership-only destination expands.
+            if ([...this.initialTimelines.values()].some((preparation) => preparation.phase === "expanding")) return;
 
             for (const roomId of this.bootstrapRooms) {
                 const room = this.client?.getRoom(roomId);
@@ -479,14 +634,14 @@ export class SlidingSyncManager {
     ): Promise<SlidingSync | undefined> {
         const slidingSync = this.configure(client, client.baseUrl, initialRoomId);
         if (initialRoomId?.startsWith("!")) {
-            this.bootstrapRooms.add(initialRoomId);
+            this.beginInitialTimeline(initialRoomId);
             slidingSync.useCustomSubscription(initialRoomId, BOOTSTRAP_SUBSCRIPTION_NAME);
             slidingSync.modifyRoomSubscriptions(new Set([initialRoomId]));
         } else if (prefetch) {
             const subscriptions = new Set<string>();
             if (prefetch.roomId?.startsWith("!") && prefetch.roomId !== prefetch.spaceId) {
                 subscriptions.add(prefetch.roomId);
-                this.bootstrapRooms.add(prefetch.roomId);
+                this.beginInitialTimeline(prefetch.roomId);
                 slidingSync.useCustomSubscription(prefetch.roomId, BOOTSTRAP_SUBSCRIPTION_NAME);
             }
             if (prefetch.spaceId?.startsWith("!")) {

@@ -61,6 +61,237 @@ describe("SlidingSyncManager", () => {
         fetchMock.get("https://proxy/client/server.json", {});
     });
 
+    describe("adaptive initial timeline", () => {
+        const roomId = "!adaptive:example.org";
+        const userId = "@alice:example.org";
+        const memberEvent = {
+            type: EventType.RoomMember,
+            state_key: userId,
+            sender: userId,
+            room_id: roomId,
+            event_id: "$member",
+            origin_server_ts: 1,
+            content: { membership: "join" },
+        };
+        const textEvent = {
+            type: EventType.RoomMessage,
+            sender: userId,
+            room_id: roomId,
+            event_id: "$text",
+            origin_server_ts: 0,
+            content: { msgtype: "m.text", body: "Conversation" },
+        };
+        const data = (timeline: MSC3575RoomData["timeline"]): MSC3575RoomData => ({
+            name: "Adaptive room",
+            initial: true,
+            timeline,
+            required_state: [
+                {
+                    type: EventType.RoomCreate,
+                    state_key: "",
+                    sender: userId,
+                    event_id: "$create",
+                    origin_server_ts: 0,
+                    content: {},
+                },
+                memberEvent,
+            ],
+        });
+        const complete = (sync: SlidingSync, rooms: Record<string, MSC3575RoomData>) =>
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, {
+                pos: "next",
+                lists: {},
+                extensions: {},
+                rooms,
+            });
+
+        it("expands once, waits for processed SDK room data, and delays background lists", async () => {
+            client = createClient({ baseUrl: "https://example.org", userId, deviceId: "ALICE", accessToken: "test" });
+            client.pushRules = { global: {} };
+            const sync = (await manager.setup(client, roomId))!;
+            const api = new SlidingSyncSdk(sync, client, { lazyLoadMembers: true }, { logger });
+            try {
+                const preparation = manager.initialTimelinePreparation(client, roomId)!;
+                const settled = vi.fn();
+                void preparation.then(settled);
+                const select = vi.spyOn(sync, "useCustomSubscription");
+                const first = data([memberEvent]);
+                await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, first);
+                complete(sync, { [roomId]: first });
+                await new Promise((resolve) => setTimeout(resolve, 70));
+                expect(settled).not.toHaveBeenCalled();
+                expect(select).toHaveBeenCalledWith(roomId, "bootstrap-expanded");
+                expect(sync.getListParams("untagged")).toBeNull();
+                complete(sync, {});
+                await Promise.resolve();
+                expect(settled).not.toHaveBeenCalled();
+                const expanded = { ...data([textEvent, memberEvent]), initial: false, expanded_timeline: true };
+                await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, expanded);
+                expect(settled).not.toHaveBeenCalled();
+                expect(
+                    client
+                        .getRoom(roomId)!
+                        .getLiveTimeline()
+                        .getEvents()
+                        .map((e) => e.getId()),
+                ).toEqual(["$text", "$member"]);
+                complete(sync, { [roomId]: expanded });
+                await expect(preparation).resolves.toBe(true);
+                expect(manager.initialTimelinePreparation(client, roomId)).toBeUndefined();
+                await vi.waitFor(() => expect(sync.getListParams("untagged")?.timeline_limit).toBe(20));
+                expect(select.mock.calls.filter(([, name]) => name === "bootstrap-expanded")).toHaveLength(1);
+            } finally {
+                api.stop();
+            }
+        });
+
+        it.each([
+            ["text", [textEvent]],
+            ["encrypted", [{ ...textEvent, type: EventType.RoomMessageEncrypted }]],
+            ["custom content", [{ ...textEvent, type: "org.example.custom" }]],
+            ["empty room", []],
+        ] as const)("keeps the small response for %s", async (_label, events) => {
+            const sync = (await manager.setup(client, roomId))!;
+            const preparation = manager.initialTimelinePreparation(client, roomId)!;
+            const select = vi.spyOn(sync, "useCustomSubscription");
+            const response = data([...events]);
+            await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, response);
+            complete(sync, { [roomId]: response });
+            await expect(preparation).resolves.toBe(false);
+            expect(select).not.toHaveBeenCalledWith(roomId, "bootstrap-expanded");
+            sync.stop();
+        });
+
+        it.each([EventType.RoomEncryption, EventType.RoomCreate])(
+            "does not expand protected metadata %s",
+            async (type) => {
+                const sync = (await manager.setup(client, roomId))!;
+                const preparation = manager.initialTimelinePreparation(client, roomId)!;
+                const response = data([memberEvent]);
+                response.required_state.push({
+                    type,
+                    state_key: "",
+                    event_id: "$metadata",
+                    sender: userId,
+                    origin_server_ts: 0,
+                    content:
+                        type === EventType.RoomCreate ? { type: "m.space" } : { algorithm: "m.megolm.v1.aes-sha2" },
+                });
+                await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, response);
+                complete(sync, { [roomId]: response });
+                await expect(preparation).resolves.toBe(false);
+                sync.stop();
+            },
+        );
+
+        it.each(["leave", "ban"])("does not expand a destination with own membership %s", async (membership) => {
+            vi.mocked(client.getUserId).mockReturnValue(userId);
+            const sync = (await manager.setup(client, roomId))!;
+            const preparation = manager.initialTimelinePreparation(client, roomId)!;
+            const select = vi.spyOn(sync, "useCustomSubscription");
+            const response = data([memberEvent]);
+            response.required_state[1] = { ...memberEvent, content: { membership } };
+            await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, response);
+            complete(sync, { [roomId]: response });
+            await expect(preparation).resolves.toBe(false);
+            expect(select).not.toHaveBeenCalledWith(roomId, "bootstrap-expanded");
+            sync.stop();
+        });
+
+        it("restores a destination selected after background discovery finishes", async () => {
+            const sync = (await manager.setup(client))!;
+            complete(sync, {});
+            await vi.waitFor(() => expect(sync.getListParams("untagged")?.timeline_limit).toBe(20));
+            complete(sync, {});
+            await vi.waitFor(() => expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(0));
+            const select = vi.spyOn(sync, "useCustomSubscription");
+            const visible = manager.setRoomVisible(roomId);
+            await vi.waitFor(() => expect(select).toHaveBeenCalledWith(roomId, "bootstrap"));
+            const preparation = manager.initialTimelinePreparation(client, roomId)!;
+            const response = data([memberEvent]);
+            await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, response);
+            const room = new Room(roomId, client, client.getUserId()!);
+            vi.mocked(client.getRoom).mockReturnValue(room);
+            client.emit(ClientEvent.Room, room);
+            await visible;
+            complete(sync, { [roomId]: response });
+            expect(select).toHaveBeenLastCalledWith(roomId, "bootstrap-expanded");
+            await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, response);
+            complete(sync, { [roomId]: response });
+            await expect(preparation).resolves.toBe(true);
+            expect(select).toHaveBeenLastCalledWith(roomId, "unencrypted");
+            expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(0);
+            sync.stop();
+        });
+
+        it.each(["redacted", "edit", "members"])(
+            "bounds expansion even when %s still supplies no text",
+            async (kind) => {
+                const sync = (await manager.setup(client, roomId))!;
+                const preparation = manager.initialTimelinePreparation(client, roomId)!;
+                const event =
+                    kind === "redacted"
+                        ? {
+                              ...textEvent,
+                              unsigned: {
+                                  redacted_because: {
+                                      ...textEvent,
+                                      type: EventType.RoomRedaction,
+                                      content: {},
+                                      unsigned: {},
+                                  },
+                              },
+                          }
+                        : kind === "edit"
+                          ? {
+                                ...textEvent,
+                                content: {
+                                    ...textEvent.content,
+                                    "m.relates_to": { rel_type: "m.replace", event_id: "$old" },
+                                },
+                            }
+                          : memberEvent;
+                const response = data([event]);
+                await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, response);
+                complete(sync, { [roomId]: response });
+                await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, response);
+                complete(sync, { [roomId]: response });
+                await expect(preparation).resolves.toBe(true);
+                expect(manager.initialTimelinePreparation(client, roomId)).toBeUndefined();
+                sync.stop();
+            },
+        );
+
+        it.each(["error", "stop", "replace", "deadline", "omitted"])(
+            "settles without expansion on %s",
+            async (reason) => {
+                const sync = (await manager.setup(client, roomId))!;
+                const preparation = manager.initialTimelinePreparation(client, roomId)!;
+                const response = data([memberEvent]);
+                if (reason !== "omitted") {
+                    await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, response);
+                    if (reason === "deadline") vi.useFakeTimers();
+                    complete(sync, { [roomId]: response });
+                }
+                if (reason === "error")
+                    sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null, new Error("offline"));
+                if (reason === "stop") sync.stop();
+                if (reason === "replace") await manager.setup(stubClient());
+                if (reason === "deadline") {
+                    await vi.advanceTimersByTimeAsync(3000);
+                    vi.useRealTimers();
+                }
+                if (reason === "omitted") complete(sync, {});
+                await expect(preparation).resolves.toBe(false);
+                expect(manager.initialTimelinePreparation(client, roomId)).toBeUndefined();
+                await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, response);
+                complete(sync, { [roomId]: response });
+                expect(manager.initialTimelinePreparation(client, roomId)).toBeUndefined();
+                sync.stop();
+            },
+        );
+    });
+
     describe("ongoing call state", () => {
         const roomId = "!call:example.org";
         const userId = "@alice:example.org";

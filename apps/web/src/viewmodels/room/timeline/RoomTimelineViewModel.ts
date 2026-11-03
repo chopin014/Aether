@@ -35,6 +35,7 @@ import type {
 import { haveRendererForEvent, pickFactory } from "../../../events/EventTileFactory";
 import shouldHideEvent from "../../../shouldHideEvent";
 import SettingsStore from "../../../settings/SettingsStore";
+import { SlidingSyncManager } from "../../../SlidingSyncManager";
 import { clearRoomNotification } from "../../../utils/notifications";
 import { findLastSuccessfulWeSent } from "./event-tile/EventTileReceiptState";
 import {
@@ -213,6 +214,10 @@ export class RoomTimelineViewModel
 
     /** Set while a {@link load} is running; see {@link scheduleRebuild}. */
     private loading = false;
+
+    /** Avoid racing native initial history expansion with a separate messages request. */
+    private initialTimelinePending = false;
+    private backwardAfterInitialTimeline = false;
 
     /**
      * In-flight backward pagination chain, or null when idle.
@@ -412,7 +417,7 @@ export class RoomTimelineViewModel
             loadTarget = savedEventId ? { kind: "restore", eventId: savedEventId } : { kind: "live" };
         }
 
-        void this.load(loadTarget);
+        void this.loadInitialTimeline(loadTarget);
 
         // Listen for new events so live messages appear.
         this.disposables.trackListener(
@@ -740,6 +745,35 @@ export class RoomTimelineViewModel
         debug(`[TimelineVM] freezeReadMarkerForSession — frozen=${this.frozenMarkerEventId}`);
     }
 
+    /** Publish cached rows immediately, then incorporate native history before requesting more. */
+    private async loadInitialTimeline(target: LoadTarget): Promise<void> {
+        const preparation =
+            target.kind === "live"
+                ? SlidingSyncManager.instance.initialTimelinePreparation(this.opts.client, this.opts.room.roomId)
+                : undefined;
+        this.initialTimelinePending = preparation !== undefined;
+        const initialLoad = this.load(target);
+        if (!preparation) return initialLoad;
+        let expanded = false;
+        try {
+            [, expanded] = await Promise.all([initialLoad, preparation]);
+        } catch (error) {
+            await initialLoad;
+            logger.warn("Native timeline preparation failed; allowing history pagination", error);
+        }
+        this.initialTimelinePending = false;
+        const deferredBackward = this.backwardAfterInitialTimeline;
+        this.backwardAfterInitialTimeline = false;
+        if (this.isDisposed) return;
+        // Expanded native history is prepended to the SDK cache, outside the existing window.
+        // Reload only the initial live view; preserve a reader's navigation or scroll position.
+        if (expanded && this.navigationEventId === null && (!this.lastBottomEventId || this.isAtBottom)) {
+            await this.load({ kind: "live" });
+        } else if (deferredBackward) {
+            this.triggerBackwardPaginate();
+        }
+    }
+
     private async load(target: LoadTarget): Promise<void> {
         this.loading = true;
         this.navigationEventId = target.kind === "live" ? null : target.eventId;
@@ -753,7 +787,10 @@ export class RoomTimelineViewModel
             if (this.isDisposed) return;
             // Cached live messages should not wait for history. Anchored loads still fill before
             // placement; a live window with no visible events must first look for something to show.
-            if (target.kind !== "live" || this.renderableEventCount(undefined, Direction.Backward) === 0) {
+            if (
+                target.kind !== "live" ||
+                (!this.initialTimelinePending && this.renderableEventCount(undefined, Direction.Backward) === 0)
+            ) {
                 await this.fillInitialWindow(
                     target.kind === "permalink" ? sdkLoadTarget : undefined,
                     target.kind === "live" ? 1 : MIN_INITIAL_EVENTS,
@@ -1216,6 +1253,10 @@ export class RoomTimelineViewModel
      * {@link backwardRerunRequested} for why it cannot just be dropped.
      */
     private triggerBackwardPaginate(): void {
+        if (this.initialTimelinePending) {
+            this.backwardAfterInitialTimeline = true;
+            return;
+        }
         if (this.backwardPaginateChain) {
             // Remember it rather than dropping it; see backwardRerunRequested.
             this.backwardRerunRequested = true;
