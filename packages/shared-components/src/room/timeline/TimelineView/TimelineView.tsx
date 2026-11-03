@@ -376,7 +376,9 @@ export function TimelineView({ vm, renderItem }: TimelineViewProps): JSX.Element
                 return;
             }
             const info = virtualizer.getOffsetForIndex(idx, align);
-            const offset = virtualizer.scrollOffset ?? 0;
+            // The browser can clamp a short list to zero without emitting a scroll event,
+            // leaving the virtualizer's cached offset stale after its resize compensation.
+            const offset = scrollerRef.current?.scrollTop ?? virtualizer.scrollOffset ?? 0;
             const landed = startedPlacement && info !== undefined && Math.abs(info[0] - offset) <= 1.5;
             if ((measured && (landed || timedOut)) || (timedOut && !receivedResizeEntryRef.current)) {
                 phaseRef.current = "live";

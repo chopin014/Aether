@@ -106,6 +106,32 @@ function renderTimeline(vm: TimelineViewModel): RenderResult {
 }
 
 describe("<TimelineView />", () => {
+    it("reveals a short bottom-aligned list without waiting for the placement timeout", async () => {
+        const { vm, actions, update } = makeFakeVm();
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView
+                    vm={vm}
+                    renderItem={(item) => (
+                        <div data-testid={`row-${item.key}`} style={{ height: 30 }}>
+                            {item.key}
+                        </div>
+                    )}
+                />
+            </div>,
+        );
+        update({ items: eventItems(8), alignToBottom: true, pendingAnchor: { targetKey: "evt-7", align: "end" } });
+        // Shrinking below the estimate until the list fits in the viewport can leave the
+        // virtualizer's cached offset above zero even though the browser clamps scrollTop.
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 500 });
+        const scroller = screen.getByTestId("timeline-scroller");
+        expect(scroller.scrollTop).toBe(0);
+        expect(screen.getByTestId("row-evt-7").getBoundingClientRect().bottom).toBeCloseTo(
+            scroller.getBoundingClientRect().bottom,
+            0,
+        );
+    });
+
     it("renders each item via the renderItem callback", async () => {
         const { vm } = makeFakeVm({ items: eventItems(5) });
         renderTimeline(vm);
