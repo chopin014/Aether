@@ -105,6 +105,7 @@ jobs:
             - run: pnpm exec nx run element-web:build
             - run: pnpm exec nx run-many -t build:playwright -p
             - name: Build the desktop host with the current renderer
+              id: desktop-build
               run: |
                   pnpm --dir apps/desktop exec tsc
                   pnpm --dir apps/desktop exec node scripts/copy-res.ts
@@ -123,6 +124,7 @@ jobs:
                       playwright/e2e/sharing/native-audio.spec.ts \
                       playwright/e2e/sharing/renderer-audio.spec.ts --reporter=line
             - name: Exercise encrypted MatrixRTC calls and stream playback controls
+              if: ${{ !cancelled() && steps.desktop-build.outcome == 'success' }}
               working-directory: apps/web
               run: >-
                   pnpm exec playwright test playwright/e2e/desktop/element-call-voice.spec.ts

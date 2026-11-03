@@ -42,20 +42,20 @@ addressing a demonstrated cause. Retaining the native bridge supports the intend
 
 ## Required behavior and acceptance tests
 
-| Area | Required evidence |
-| --- | --- |
-| Full-screen audio | External application's known tone reaches the receiver; Aether's own playback is excluded. |
-| Application audio | Selected application's tone reaches the receiver; another application's tone is excluded. |
-| Consent | Audio off produces video without captured audio; cancel produces neither capture nor publication. |
-| Picker changes | The final audio preference applies even when changed while display capture is pending. |
-| Voice independence | Microphone mute and push to talk do not suppress shared program audio. |
-| Playback | Stream mute and volume affect stream audio independently of the participant's microphone. |
-| Global output | Deafen, speaker volume, and selected output device apply consistently to received audio. |
-| Lifecycle | Stop, OS-ended capture, leave, renderer teardown, repeated start/stop, and failed starts release resources. |
-| Quality | Resolution, FPS, and bitrate limits still apply before and after publication. |
-| Failure visibility | Requested audio cannot silently be reported as successful when its capture path fails. |
-| Transport | Tests measure decoded audio energy or the expected tone, not merely track counts or received bytes. |
-| Release | Verify packaged native modules and the renderer integration used by the shipped app. |
+| Area               | Required evidence                                                                                           |
+| ------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Full-screen audio  | External application's known tone reaches the receiver; Aether's own playback is excluded.                  |
+| Application audio  | Selected application's tone reaches the receiver; another application's tone is excluded.                   |
+| Consent            | Audio off produces video without captured audio; cancel produces neither capture nor publication.           |
+| Picker changes     | The final audio preference applies even when changed while display capture is pending.                      |
+| Voice independence | Microphone mute and push to talk do not suppress shared program audio.                                      |
+| Playback           | Stream mute and volume affect stream audio independently of the participant's microphone.                   |
+| Global output      | Deafen, speaker volume, and selected output device apply consistently to received audio.                    |
+| Lifecycle          | Stop, OS-ended capture, leave, renderer teardown, repeated start/stop, and failed starts release resources. |
+| Quality            | Resolution, FPS, and bitrate limits still apply before and after publication.                               |
+| Failure visibility | Requested audio cannot silently be reported as successful when its capture path fails.                      |
+| Transport          | Tests measure decoded audio energy or the expected tone, not merely track counts or received bytes.         |
+| Release            | Verify packaged native modules and the renderer integration used by the shipped app.                        |
 
 For source changes, test stopping the old share and starting the newly selected source. Any direct source-switch
 capability found necessary during the audit must retain the same consent, isolation, and cleanup guarantees.
