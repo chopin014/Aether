@@ -1103,6 +1103,59 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
         .mx_MessageComposer_input textarea {
             background: transparent;
         }
+
+        /*
+         * A change to someone's identity heads the composer box as a strip across its top: tinted, with the text in
+         * the body colour so it stays readable, and a compact action at its end.
+         */
+        .mx_UserIdentityWarning {
+            --mx-desktop-identity-tint: var(--cpd-color-icon-warning-primary, var(--cpd-color-yellow-900));
+
+            margin: 0 -12px;
+            padding: 8px 12px;
+            border-block-end: 1px solid var(--cpd-color-border-interactive-secondary);
+            border-start-start-radius: 8px;
+            border-start-end-radius: 8px;
+            background: color-mix(in srgb, var(--mx-desktop-identity-tint) 10%, transparent);
+
+            &.critical {
+                --mx-desktop-identity-tint: var(--cpd-color-icon-critical-primary);
+            }
+
+            /* The strip's own edge replaces the separator above it. */
+            > :not(.mx_UserIdentityWarning_row) {
+                display: none;
+            }
+
+            .mx_UserIdentityWarning_row {
+                gap: 12px;
+
+                .mx_BaseAvatar {
+                    --cpd-avatar-size: 24px;
+
+                    flex: none;
+                    margin: 0;
+                }
+
+                .mx_UserIdentityWarning_main {
+                    margin: 0;
+                    font: var(--cpd-font-body-sm-regular);
+                    color: var(--cpd-color-text-primary);
+
+                    &.critical {
+                        color: var(--cpd-color-text-critical-primary);
+                    }
+                }
+
+                > button {
+                    flex: none;
+                    min-height: 32px;
+                    padding-block: 4px;
+                    padding-inline: 12px;
+                    font: var(--cpd-font-body-sm-semibold);
+                }
+            }
+        }
     }
 
     /*
