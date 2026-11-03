@@ -189,7 +189,8 @@
             "ongoing": {
                 "common": {
                     "call_started_by": "%(startedByDisplayName)s iniciou uma chamada",
-                    "join_button": "Entrar"
+                    "join_button": "Entrar",
+                    "ongoing": "Em andamento"
                 },
                 "dm": {
                     "call_started": "Chamada iniciada",
@@ -200,7 +201,8 @@
                         "one": "%(count)s entrou",
                         "other": "%(count)s entraram"
                     },
-                    "title": "Chamada em grupo em andamento"
+                    "title": "Chamada em grupo em andamento",
+                    "started_group_call": "<b>%(name)s</b> iniciou uma chamada em grupo."
                 }
             },
             "tombstone": {
@@ -264,6 +266,16 @@
             "view_file": "Ver arquivo",
             "view_image": "Ver imagem",
             "view_video": "Ver vídeo"
+        },
+        "video_player": {
+            "exit_full_screen": "Sair da tela cheia",
+            "full_screen": "Tela cheia",
+            "mute": "Silenciar",
+            "pause": "Pausar",
+            "play": "Reproduzir",
+            "seek": "Posição do vídeo",
+            "unmute": "Ativar som",
+            "volume": "Volume"
         }
     },
     "presence_controls": {
@@ -1011,6 +1023,15 @@
             "role_sidebar": "Lista de canais",
             "role_text": "Texto",
             "title": "Cores"
+        },
+        "message_display": {
+            "compact": "Compacto",
+            "compact_description": "Hora, nome e mensagem dividem uma linha, para caber mais da conversa.",
+            "cozy": "Confortável",
+            "cozy_description": "Cada grupo de mensagens começa com o avatar e o nome de quem enviou.",
+            "group_spacing": "Espaço entre grupos de mensagens",
+            "group_spacing_value": "%(size)spx",
+            "title": "Exibição das mensagens"
         }
     },
     "threads": {
@@ -1029,6 +1050,13 @@
                 "other": "%(count)s links"
             },
             "remove": "Remover pré-visualização de URL"
+        },
+        "attachments": {
+            "label": {
+                "one": "%(count)s arquivo para enviar",
+                "other": "%(count)s arquivos para enviar"
+            },
+            "remove": "Remover %(name)s"
         }
     },
     "devtools": {
