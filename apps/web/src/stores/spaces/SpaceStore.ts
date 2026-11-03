@@ -62,6 +62,7 @@ import { type SwitchSpacePayload } from "../../dispatcher/payloads/SwitchSpacePa
 import { type AfterLeaveRoomPayload } from "../../dispatcher/payloads/AfterLeaveRoomPayload";
 import { type SDKContextClass } from "../../contexts/SDKContextClass";
 import { ModuleApi } from "../../modules/Api.ts";
+import { deferRoomEntryWork } from "../../performance/RoomEntryReady";
 
 const ACTIVE_SPACE_LS_KEY = "mx_active_space";
 
@@ -129,6 +130,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
     };
     // The space currently selected in the Space Panel
     private _activeSpace: SpaceKey = MetaSpace.Home; // set properly by onReady
+    private cancelMemberPreparation?: () => void;
     private _suggestedRooms: ISuggestedRoom[] = [];
     private _invitedSpaces = new Set<Room>();
     private spaceOrderLocalEchoMap = new Map<string, string | undefined>();
@@ -235,6 +237,9 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         }
 
         window.localStorage.setItem(ACTIVE_SPACE_LS_KEY, (this._activeSpace = space)); // Update & persist selected space
+        this.cancelMemberPreparation?.();
+        let destinationRoomId =
+            this.sdkContext.roomViewStore.getRoomId() ?? this.getLastSelectedRoomIdForSpace(space) ?? undefined;
 
         if (contextSwitch) {
             const canView = (roomId: string | null): roomId is string =>
@@ -254,6 +259,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
             // else if the last viewed room (or first channel) in this space is joined then view that
             // else view space home or home depending on what is being clicked on
             if (canView(roomId)) {
+                destinationRoomId = roomId;
                 this.dispatcher.dispatch<ViewRoomPayload>({
                     action: Action.ViewRoom,
                     room_id: roomId,
@@ -285,15 +291,19 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
             // Load all members for the selected space and its subspaces,
             // so we can correctly show DMs we have with members of this space.
-            this.traverseSpace(
-                space,
-                (roomId) => {
-                    void this.sdkContext.memberListStore.ensureMembersLoaded(roomId).catch((error: unknown) => {
-                        logger.warn("Unable to load Space members", error);
-                    });
-                },
-                false,
-            );
+            this.cancelMemberPreparation = deferRoomEntryWork(this.matrixClient, destinationRoomId, () => {
+                if (this.activeSpace !== space) return;
+                if (destinationRoomId && this.sdkContext.roomViewStore.getRoomId() !== destinationRoomId) return;
+                this.traverseSpace(
+                    space,
+                    (roomId) => {
+                        void this.sdkContext.memberListStore.ensureMembersLoaded(roomId).catch((error: unknown) => {
+                            logger.warn("Unable to load Space members", error);
+                        });
+                    },
+                    false,
+                );
+            });
         }
     }
 
@@ -1103,6 +1113,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
     };
 
     protected async reset(): Promise<void> {
+        this.cancelMemberPreparation?.();
         this.rootSpaces = [];
         this.parentMap = new EnhancedMap();
         this.notificationStateMap = new Map();

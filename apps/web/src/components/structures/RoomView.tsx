@@ -67,6 +67,7 @@ import MainSplit from "./MainSplit";
 import { DesktopSearchResultsHost } from "../views/desktop/DesktopSearchResultsHost";
 import { DESKTOP_SEARCH_UPDATE, DesktopMessageSearchStore } from "../../stores/DesktopMessageSearchStore";
 import RightPanel from "./RightPanel";
+import { deferRoomEntryWork } from "../../performance/RoomEntryReady";
 import RoomScrollStateStore, { type ScrollState } from "../../stores/RoomScrollStateStore";
 import WidgetEchoStore from "../../stores/WidgetEchoStore";
 import SettingsStore from "../../settings/SettingsStore";
@@ -440,6 +441,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     private settingWatchers: string[] = [];
 
     private unmounted = false;
+    private cancelMemberPreparation?: () => void;
     private permalinkCreators: Record<string, RoomPermalinkCreator> = {};
 
     // The userId from which we received this invite.
@@ -1105,6 +1107,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         //
         // (We could use isMounted, but facebook have deprecated that.)
         this.unmounted = true;
+        this.cancelMemberPreparation?.();
 
         this.context.legacyCallHandler.removeListener(LegacyCallHandlerEvent.CallState, this.onCallState);
 
@@ -1521,7 +1524,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         this.context.widgetLayoutStore.on(WidgetLayoutStore.emissionForRoom(room), this.onWidgetLayoutChange);
 
         this.calculatePeekRules(room);
-        void this.loadMembersIfJoined(room);
+        this.loadMembersIfJoined(room);
         void this.calculateRecommendedVersion(room);
         this.updatePermissions(room);
         this.checkWidgets(room);
@@ -1568,7 +1571,18 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         this.setState({ upgradeRecommendation });
     }
 
-    private async loadMembersIfJoined(room: Room): Promise<void> {
+    private loadMembersIfJoined(room: Room): void {
+        this.cancelMemberPreparation?.();
+        if (room.hasEncryptionStateEvent()) {
+            void this.hydrateMembersIfJoined(room);
+        } else {
+            this.cancelMemberPreparation = deferRoomEntryWork(this.context.client!, room.roomId, () => {
+                if (!this.unmounted) void this.hydrateMembersIfJoined(room);
+            });
+        }
+    }
+
+    private async hydrateMembersIfJoined(room: Room): Promise<void> {
         // lazy load members if enabled
         if (this.context.client?.hasLazyLoadMembersEnabled()) {
             if (room && room.getMyMembership() === KnownMembership.Join) {
@@ -1704,7 +1718,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     private onMyMembership = (room: Room): void => {
         if (room.roomId === this.state.roomId) {
             this.forceUpdate();
-            void this.loadMembersIfJoined(room);
+            this.loadMembersIfJoined(room);
             this.updatePermissions(room);
         }
     };

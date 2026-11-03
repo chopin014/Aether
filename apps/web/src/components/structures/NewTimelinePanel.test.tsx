@@ -8,7 +8,7 @@ Please see LICENSE files in the repository root for full details.
 // @vitest-environment happy-dom
 
 import React from "react";
-import { fireEvent, render, screen } from "test-utils-rtl";
+import { act, fireEvent, render, screen } from "test-utils-rtl";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { type MatrixClient, type MatrixEvent, PendingEventOrdering, Room, RoomMember } from "matrix-js-sdk/src/matrix";
 import type { TimelineItem } from "@element-hq/web-shared-components";
@@ -19,6 +19,7 @@ import { Layout } from "../../settings/enums/Layout";
 import EditorStateTransfer from "../../utils/EditorStateTransfer";
 import MatrixClientContext from "../../contexts/MatrixClientContext";
 import { SDKContext } from "../../contexts/SDKContext";
+import * as roomEntry from "../../performance/RoomEntryReady";
 
 const ROOM_ID = "!room:example.org";
 const USER_ID = "@alice:example.org";
@@ -26,7 +27,10 @@ const USER_ID = "@alice:example.org";
 // The virtualised TimelineView needs real layout, which this environment has none
 // of, and it has its own tests in shared-components. Stand in a stub that simply
 // draws every row, so these tests cover how this panel renders each kind of row.
-const { rowsRendered } = vi.hoisted(() => ({ rowsRendered: { current: [] as unknown[] } }));
+const { rowsRendered, paintedItems } = vi.hoisted(() => ({
+    rowsRendered: { current: [] as unknown[] },
+    paintedItems: { current: undefined as ((items: TimelineItem[]) => void) | undefined },
+}));
 
 vi.mock("@element-hq/web-shared-components", async () => {
     const actual = await vi.importActual<typeof import("@element-hq/web-shared-components")>(
@@ -37,12 +41,15 @@ vi.mock("@element-hq/web-shared-components", async () => {
         TimelineView: ({
             vm,
             renderItem,
+            onItemsPainted,
         }: {
             vm: { getSnapshot: () => { items: TimelineItem[] } };
             renderItem: (item: TimelineItem) => React.ReactNode;
+            onItemsPainted?: (items: TimelineItem[]) => void;
         }) => {
             const items = vm.getSnapshot().items;
             rowsRendered.current = items;
+            paintedItems.current = onItemsPainted;
             return <div data-testid="timeline-stub">{items.map((item) => renderItem(item))}</div>;
         },
     };
@@ -143,6 +150,25 @@ describe("<NewTimelinePanel />", () => {
         vi.spyOn(client, "getRoom").mockReturnValue(room);
         event = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "hello", event: true });
         room.getUnfilteredTimelineSet().addLiveEvent(event, { addToState: false });
+    });
+
+    it("releases decorative loading only after conversation rows have painted", () => {
+        const ready = vi.spyOn(roomEntry, "notifyRoomEntryReady");
+        withItems([eventRow(event)]);
+        renderPanel();
+        expect(ready).not.toHaveBeenCalled();
+        paintedItems.current?.([{ kind: "event-group", key: "notices", events: [] }]);
+        expect(ready).not.toHaveBeenCalled();
+        act(() => paintedItems.current?.([eventRow(event)]));
+        expect(ready).toHaveBeenCalledWith(client, ROOM_ID);
+    });
+
+    it("does not release decorative work from a hidden timeline", () => {
+        const ready = vi.spyOn(roomEntry, "notifyRoomEntryReady");
+        withItems([eventRow(event)]);
+        renderPanel({ hidden: true });
+        paintedItems.current?.([eventRow(event)]);
+        expect(ready).not.toHaveBeenCalled();
     });
 
     it("draws the event the row carries", () => {

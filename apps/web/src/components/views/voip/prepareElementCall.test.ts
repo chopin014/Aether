@@ -77,4 +77,37 @@ describe("prepareElementCall", () => {
         prepareCallSoon();
         expect(DesktopVoicePipeline.instance.prepare).toHaveBeenCalledTimes(3);
     });
+
+    it("holds automatic idle scheduling until conversation paint while explicit voice intent works immediately", async () => {
+        let release: (() => void) | undefined;
+        const cancelWait = vi.fn();
+        const cancel = prepareElementCall((start) => {
+            release = start;
+            return cancelWait;
+        });
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(loadElementCallComponent).not.toHaveBeenCalled();
+        prepareCallSoon();
+        expect(loadElementCallComponent).toHaveBeenCalledOnce();
+        release?.();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(loadElementCallComponent).toHaveBeenCalledTimes(2);
+        cancel();
+        expect(cancelWait).toHaveBeenCalledOnce();
+    });
+
+    it("ignores a late paint callback after logout", async () => {
+        let release: (() => void) | undefined;
+        const cancelWait = vi.fn();
+        const cancel = prepareElementCall((start) => {
+            release = start;
+            return cancelWait;
+        });
+        cancel();
+        release?.();
+        prepareCallSoon();
+        await vi.runAllTimersAsync();
+        expect(loadElementCallComponent).not.toHaveBeenCalled();
+        expect(cancelWait).toHaveBeenCalledOnce();
+    });
 });

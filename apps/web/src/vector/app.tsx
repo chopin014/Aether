@@ -208,26 +208,31 @@ async function verifyServerConfig(): Promise<IConfigOptions> {
             }
         }
 
-        let discoveryResult: ClientConfig | undefined;
         if (!serverName && wkConfig) {
             logger.log("Config uses a default_server_config - validating object");
-            discoveryResult = await AutoDiscovery.fromDiscoveryConfig(wkConfig);
-        }
-
-        if (serverName) {
-            logger.log("Config uses a default_server_name - doing .well-known lookup");
-            logger.warn(
-                "DEPRECATED CONFIG OPTION: In the future, default_server_name will not be accepted. Please " +
-                    "use default_server_config instead.",
-            );
-            discoveryResult = await AutoDiscovery.findClientConfig(serverName);
-            if (discoveryResult["m.homeserver"].base_url === null && wkConfig) {
-                logger.log("Finding base_url failed but a default_server_config was found - using it as a fallback");
-                discoveryResult = await AutoDiscovery.fromDiscoveryConfig(wkConfig);
+            validatedConfig = await AutoDiscoveryUtils.validateServerConfigWithWellKnown(wkConfig, undefined, true);
+        } else {
+            let discoveryResult: ClientConfig | undefined;
+            if (serverName) {
+                logger.log("Config uses a default_server_name - doing .well-known lookup");
+                logger.warn(
+                    "DEPRECATED CONFIG OPTION: In the future, default_server_name will not be accepted. Please " +
+                        "use default_server_config instead.",
+                );
+                discoveryResult = await AutoDiscovery.findClientConfig(serverName);
+                if (discoveryResult["m.homeserver"].base_url === null && wkConfig) {
+                    logger.log(
+                        "Finding base_url failed but a default_server_config was found - using it as a fallback",
+                    );
+                    discoveryResult = await AutoDiscovery.fromDiscoveryConfig(wkConfig);
+                }
             }
+            validatedConfig = await AutoDiscoveryUtils.buildValidatedConfigFromDiscovery(
+                serverName,
+                discoveryResult,
+                true,
+            );
         }
-
-        validatedConfig = await AutoDiscoveryUtils.buildValidatedConfigFromDiscovery(serverName, discoveryResult, true);
     } catch (e) {
         const { hsUrl, isUrl, userId } = await Lifecycle.getStoredSessionVars();
         if (hsUrl && userId) {

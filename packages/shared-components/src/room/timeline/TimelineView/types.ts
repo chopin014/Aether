@@ -225,4 +225,6 @@ export interface TimelineViewProps {
      * The shared container calls this for every visible item.
      */
     renderItem: (item: TimelineItem) => ReactNode;
+    /** Called after positioned rows intersecting the timeline viewport have had a chance to paint. */
+    onItemsPainted?: (items: TimelineItem[]) => void;
 }

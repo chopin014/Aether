@@ -33,6 +33,7 @@ import { UPDATE_SELECTED_SPACE } from "../../stores/spaces";
 import { SEPARATOR, useMemberListViewModel } from "../../components/viewmodels/memberlist/MemberListViewModel";
 import { isMemberHeading, type DesktopMemberListItem } from "./desktopMemberGroups";
 import { useDesktopMemberListViewModel } from "./useDesktopMemberListViewModel";
+import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
 
 function headings(items: DesktopMemberListItem[]) {
     return items.filter(isMemberHeading).map(({ heading, count }) => [heading, count]);
@@ -42,7 +43,7 @@ function memberRows(items: DesktopMemberListItem[]) {
     return items.flatMap((item) => (item !== SEPARATOR && !isMemberHeading(item) && item.member ? item.member : []));
 }
 
-function setup(inSpace = false, enabled = true, loadSpace: () => Promise<boolean> = async () => false) {
+function setup(inSpace = false, enabled = true, loadSpace: () => Promise<boolean> = async () => false, painted = true) {
     const client = stubClient();
     vi.mocked(client.hasLazyLoadMembersEnabled).mockReturnValue(true);
     const context = new TestSDKContext();
@@ -75,6 +76,7 @@ function setup(inSpace = false, enabled = true, loadSpace: () => Promise<boolean
     const cy = addMember(room, "Cy", 0, "offline");
     const serverAda = addMember(space, "Ada", 0);
     const serverBob = addMember(space, "Bob", 100);
+    if (painted) notifyRoomEntryReady(client, room.roomId);
 
     const hook = renderHook(
         () => {
@@ -112,6 +114,22 @@ function setup(inSpace = false, enabled = true, loadSpace: () => Promise<boolean
 }
 
 describe("useDesktopMemberListViewModel", () => {
+    it("keeps cached Space roles visible while deferring automatic hydration until conversation paint", async () => {
+        const { result, client, space, room } = setup(true, true, async () => false, false);
+        await waitFor(() => expect(result.current.vm.isLoading).toBe(false));
+        expect(memberRows(result.current.items)[0].name).toBe("Bob");
+        expect(space.loadMembersIfNeeded).not.toHaveBeenCalled();
+        act(() => notifyRoomEntryReady(client, room.roomId));
+        await waitFor(() => expect(space.loadMembersIfNeeded).toHaveBeenCalledOnce());
+    });
+
+    it("cancels deferred Space hydration after the member list unmounts", async () => {
+        const { client, space, room, unmount } = setup(true, true, async () => false, false);
+        unmount();
+        act(() => notifyRoomEntryReady(client, room.roomId));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(space.loadMembersIfNeeded).not.toHaveBeenCalled();
+    });
     it("should present unknown SDK presence as offline and retain the received state separately", async () => {
         const { result, client, ada, bob, cy } = setup();
         await waitFor(() => expect(result.current.vm.isLoading).toBe(false));

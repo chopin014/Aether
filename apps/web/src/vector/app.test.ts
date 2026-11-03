@@ -74,4 +74,40 @@ describe("sso_redirect_options", () => {
             );
         });
     });
+
+    describe("configured homeserver startup", () => {
+        it("starts authentication discovery before the configured server's versions request finishes", async () => {
+            SdkConfig.put({
+                default_server_config: {
+                    "m.homeserver": { base_url: "https://synapse", server_name: "matrix.org" },
+                },
+            });
+            const versions = Promise.withResolvers<{ versions: string[] }>();
+            fetchMock.get("https://synapse/_matrix/client/versions", () => versions.promise);
+            fetchMock.get("https://synapse/_matrix/client/v1/auth_metadata", makeDelegatedAuthMetadata(issuer));
+
+            const loading = loadApp({}, vi.fn() as RefCallback<MatrixChat>);
+            await vi.waitFor(() => {
+                expect(fetchMock.callHistory.called("https://synapse/_matrix/client/versions")).toBe(true);
+                expect(fetchMock.callHistory.called("https://synapse/_matrix/client/v1/auth_metadata")).toBe(true);
+            });
+            versions.resolve({ versions: ["v1.1", "v1.15"] });
+            await loading;
+            expect(SdkConfig.get("validated_server_config")).toEqual(
+                expect.objectContaining({
+                    hsUrl: "https://synapse",
+                    hsName: "matrix.org",
+                    hsNameIsDifferent: true,
+                    isNameResolvable: true,
+                    delegatedAuthentication: expect.objectContaining({ issuer }),
+                }),
+            );
+        });
+
+        it("retains invalid configured-server errors", async () => {
+            SdkConfig.put({ default_server_config: { "m.homeserver": { base_url: "banana" } } });
+            await expect(loadApp({}, vi.fn() as RefCallback<MatrixChat>)).rejects.toThrow();
+            expect(fetchMock.callHistory.called("https://synapse/_matrix/client/v1/auth_metadata")).toBe(false);
+        });
+    });
 });

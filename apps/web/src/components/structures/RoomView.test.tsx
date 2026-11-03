@@ -8,7 +8,17 @@ Please see LICENSE files in the repository root for full details.
 
 // @vitest-environment happy-dom
 
-import { vi, describe, it, expect, beforeEach, afterEach, type Mock, type MockedObject } from "vitest";
+import {
+    vi,
+    describe,
+    it,
+    expect,
+    beforeEach,
+    afterEach,
+    type Mock,
+    type MockedObject,
+    type MockInstance,
+} from "vitest";
 import React, { createRef, type RefObject } from "react";
 import {
     EventTimeline,
@@ -39,6 +49,7 @@ import {
     mkThirdPartyInviteEvent,
     mockPlatformPeg,
     setupAsyncStoreWithClient,
+    resetAsyncStoreWithClient,
     stubClient,
     TestSDKContext,
     unmockPlatformPeg,
@@ -77,6 +88,8 @@ import { TimelineRenderingType } from "../../contexts/RoomContext";
 import { ModuleApi } from "../../modules/Api";
 import MatrixClientBackedController from "../../settings/controllers/MatrixClientBackedController.ts";
 import { type ComposerInsertPayload, ComposerType } from "../../dispatcher/payloads/ComposerInsertPayload.ts";
+import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
+import { ElementCall } from "../../models/Call";
 
 // Used by group calls
 vi.spyOn(MediaDeviceHandler, "getDevices").mockResolvedValue({
@@ -224,6 +237,27 @@ describe("RoomView", () => {
         await mountRoomView(ref);
         return ref.current!;
     };
+
+    it("defers automatic public roster hydration until first conversation paint", async () => {
+        cli.hasLazyLoadMembersEnabled.mockReturnValue(true);
+        vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+        const load = vi.spyOn(stores.memberListStore, "ensureMembersLoaded").mockResolvedValue(undefined);
+        await mountRoomView(undefined, { hideHeader: true, hideComposer: true });
+        expect(load).not.toHaveBeenCalled();
+        act(() => notifyRoomEntryReady(cli, room.roomId));
+        await waitFor(() => expect(load).toHaveBeenCalledWith(room.roomId));
+    });
+
+    it("cancels automatic public roster hydration when leaving before first paint", async () => {
+        cli.hasLazyLoadMembersEnabled.mockReturnValue(true);
+        vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+        const load = vi.spyOn(stores.memberListStore, "ensureMembersLoaded").mockResolvedValue(undefined);
+        const { unmount } = await mountRoomView(undefined, { hideHeader: true, hideComposer: true });
+        unmount();
+        act(() => notifyRoomEntryReady(cli, room.roomId));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(load).not.toHaveBeenCalled();
+    });
 
     it("clears an old permalink when returning to the live timeline", async () => {
         const view = await getRoomViewInstance();
@@ -788,11 +822,21 @@ describe("RoomView", () => {
     });
 
     describe("video rooms", () => {
+        let startCall: MockInstance<ElementCall["start"]>;
+
         beforeEach(async () => {
+            // These tests exercise room layout; happy-dom cannot complete the widget handshake.
+            startCall = vi.spyOn(ElementCall.prototype, "start").mockResolvedValue(null);
             await setupAsyncStoreWithClient(CallStore.instance, MatrixClientPeg.safeGet());
             // Make it a video room
             room.isElementVideoRoom = () => true;
             await SettingsStore.setValue("feature_video_rooms", null, SettingLevel.DEVICE, true);
+        });
+
+        afterEach(async () => {
+            cleanup();
+            await resetAsyncStoreWithClient(CallStore.instance);
+            startCall.mockRestore();
         });
 
         it("normally doesn't open the chat panel", async () => {
@@ -836,9 +880,19 @@ describe("RoomView", () => {
     });
 
     describe("group calls", () => {
+        let startCall: MockInstance<ElementCall["start"]>;
+
         beforeEach(async () => {
+            // Widget transport lifecycle is covered by the call tests, not these room layout fixtures.
+            startCall = vi.spyOn(ElementCall.prototype, "start").mockResolvedValue(null);
             await setupAsyncStoreWithClient(CallStore.instance, MatrixClientPeg.safeGet());
             vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+        });
+
+        afterEach(async () => {
+            cleanup();
+            await resetAsyncStoreWithClient(CallStore.instance);
+            startCall.mockRestore();
         });
 
         it("keeps the desktop conversation timeline and composer beneath its call", async () => {

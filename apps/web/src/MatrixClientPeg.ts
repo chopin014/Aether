@@ -32,6 +32,7 @@ import { setDeviceIsolationMode } from "./settings/controllers/DeviceIsolationMo
 import { initialiseDehydrationIfEnabled } from "./utils/device/dehydration";
 import { LegacyCryptoStoreError } from "./utils/LegacyCryptoStoreError.ts";
 import { markStartup } from "./performance/StartupTimings";
+import { parseQsFromFragment } from "./vector/url_utils";
 
 export interface MatrixClientPegAssignOpts {
     /**
@@ -245,6 +246,20 @@ class MatrixClientPegClass implements IMatrixClientPeg {
             throw new Error("createClient must be called first");
         }
 
+        // The SDK needs server capabilities before starting sync. Fetch them while local stores
+        // open; getVersions shares its cached request with later SDK feature checks.
+        void this.matrixClient.getVersions().catch((error: unknown) => {
+            logger.warn("Unable to prefetch server versions; startup will retry", error);
+        });
+        // Push rules must precede sync event processing, but can load alongside the local stores.
+        // The SDK consumes this fresh result once; failures keep its normal startup retry path.
+        const pushRulesReady = this.matrixClient.isGuest()
+            ? undefined
+            : this.matrixClient.getPushRules().catch((error: unknown) => {
+                  logger.warn("Unable to prefetch push rules; sync startup will retry", error);
+                  return undefined;
+              });
+
         // Opening the sync store and starting crypto are independent, and each can take hundreds of milliseconds on a
         // big account, so they run side by side.
         const storeReady = this.startStore(this.matrixClient).then(() => markStartup("store_ready"));
@@ -256,6 +271,9 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         if (crypto.status === "rejected") throw crypto.reason;
 
         const opts = utils.deepCopy(this.opts);
+        // Both sync protocols await the rules only before processing events, so stored data and the first request
+        // never wait on a slow push rules response.
+        opts.initialPushRulesPromise = pushRulesReady;
         // the react sdk doesn't work without this, so don't allow
         opts.pendingEventOrdering = PendingEventOrdering.Detached;
         opts.lazyLoadMembers = true;
@@ -283,7 +301,11 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         // If the user has enabled the labs feature for sliding sync, set it up
         // otherwise check if the feature is supported
         if (SettingsStore.getValue("feature_simplified_sliding_sync")) {
-            opts.slidingSync = await SlidingSyncManager.instance.setup(this.matrixClient);
+            opts.slidingSync = await SlidingSyncManager.instance.setup(
+                this.matrixClient,
+                this.getInitialRoomId(),
+                this.getHomePrefetch(),
+            );
         } else {
             void SlidingSyncManager.instance.checkSupport(this.matrixClient);
         }
@@ -294,6 +316,38 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         MatrixClientBackedController.matrixClient = this.matrixClient;
 
         return opts;
+    }
+
+    /** Prioritize the destination before the UI can select a room from the first sync response. */
+    private getInitialRoomId(): string | undefined {
+        const route = parseQsFromFragment(window.location).location;
+        const destination = route.match(/^\/room\/(![^/]+)(?:\/|$)/)?.[1];
+        if (destination) return destination;
+        // Explicit screens and aliases must keep their navigation intent. Only an empty route
+        // restores the last room, matching MatrixChat.showScreenAfterLogin.
+        if (route && route !== "/") return undefined;
+        try {
+            const lastRoom = localStorage.getItem("mx_last_room_id");
+            return lastRoom?.startsWith("!") ? lastRoom : undefined;
+        } catch {
+            return undefined;
+        }
+    }
+
+    /** Load the last Space and channel in the background without changing the Home destination. */
+    private getHomePrefetch(): { roomId?: string; spaceId?: string } | undefined {
+        if (parseQsFromFragment(window.location).location !== "/home") return undefined;
+        try {
+            const savedSpace = localStorage.getItem("mx_active_space");
+            const spaceId = savedSpace?.startsWith("!") ? savedSpace : undefined;
+            const savedRoom =
+                (spaceId && localStorage.getItem(`mx_space_context_${spaceId}`)) ||
+                localStorage.getItem("mx_last_room_id");
+            const roomId = savedRoom?.startsWith("!") ? savedRoom : undefined;
+            return roomId || spaceId ? { roomId, spaceId } : undefined;
+        } catch {
+            return undefined;
+        }
     }
 
     /** Open the client's sync store, falling back to memory if IndexedDB is unusable. */
