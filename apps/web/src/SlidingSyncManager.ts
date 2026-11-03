@@ -51,6 +51,8 @@ import {
 import { logger } from "matrix-js-sdk/src/logger";
 import { sleep } from "matrix-js-sdk/src/utils";
 
+import { JitsiCallMemberEventType } from "./call-types";
+
 // how long to long poll for
 const SLIDING_SYNC_TIMEOUT_MS = 20 * 1000;
 
@@ -58,9 +60,19 @@ const SLIDING_SYNC_TIMEOUT_MS = 20 * 1000;
 // A single event is often a hidden membership update in large public rooms.
 const LIST_TIMELINE_LIMIT = 20;
 
+// Calls and widgets can outlive the recent timeline; request their current state explicitly.
+const CALL_STATE = [
+    [EventType.GroupCallPrefix, MSC3575_WILDCARD],
+    [EventType.GroupCallMemberPrefix, MSC3575_WILDCARD],
+    [EventType.RTCSlot, MSC3575_WILDCARD],
+    ["im.vector.modular.widgets", MSC3575_WILDCARD],
+    [JitsiCallMemberEventType, MSC3575_WILDCARD],
+];
+
 // The state events we will get for every single room/space/old room/etc
 // This list is only augmented when a direct room subscription is made. (e.g you view a room)
 const REQUIRED_STATE_LIST = [
+    ...CALL_STATE,
     [EventType.RoomJoinRules, ""], // the public icon on the room list
     [EventType.RoomAvatar, ""], // any room avatar
     [EventType.RoomCanonicalAlias, ""], // for room name calculations
@@ -86,6 +98,7 @@ const DEFAULT_ROOM_SUBSCRIPTION_INFO = {
 const UNENCRYPTED_SUBSCRIPTION_NAME = "unencrypted";
 const UNENCRYPTED_SUBSCRIPTION = {
     required_state: [
+        ...CALL_STATE,
         [EventType.RoomMember, MSC3575_STATE_KEY_ME], // except for m.room.members, get our own membership
         [EventType.RoomMember, MSC3575_STATE_KEY_LAZY], // ...and lazy load the rest.
     ],

@@ -8,15 +8,26 @@ Please see LICENSE files in the repository root for full details.
 
 // @vitest-environment happy-dom
 
-import { vi, describe, it, expect, beforeEach } from "vitest";
-import { type SlidingSync, SlidingSyncEvent, SlidingSyncState } from "matrix-js-sdk/src/sliding-sync";
-import { ClientEvent, type MatrixClient, MatrixEvent, Room } from "matrix-js-sdk/src/matrix";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import {
+    type SlidingSync,
+    SlidingSyncEvent,
+    SlidingSyncState,
+    type MSC3575RoomData,
+} from "matrix-js-sdk/src/sliding-sync";
+import { ClientEvent, EventType, createClient, type MatrixClient, MatrixEvent, Room } from "matrix-js-sdk/src/matrix";
+import { logger } from "matrix-js-sdk/src/logger";
+import { MatrixRTCSessionManagerEvents } from "matrix-js-sdk/src/matrixrtc";
+// The real SDK adapter verifies state-to-call discovery, beyond checking request parameters.
+// oxlint-disable-next-line no-restricted-imports
+import { SlidingSyncSdk } from "matrix-js-sdk/src/sliding-sync-sdk";
 import fetchMock from "@fetch-mock/vitest";
 import EventEmitter from "node:events";
 import { waitFor } from "test-utils-rtl";
 import { mkStubRoom, stubClient } from "test-utils";
 
 import { SlidingSyncManager } from "./SlidingSyncManager";
+import { JitsiCallMemberEventType } from "./call-types";
 
 class MockSlidingSync extends EventEmitter {
     lists = {};
@@ -48,6 +59,175 @@ describe("SlidingSyncManager", () => {
         (manager as any).configure(client, "invalid");
         manager.slidingSync = slidingSync;
         fetchMock.get("https://proxy/client/server.json", {});
+    });
+
+    describe("ongoing call state", () => {
+        const roomId = "!call:example.org";
+        const userId = "@alice:example.org";
+        const caller = "@bob:example.org";
+        const callTypes = [
+            EventType.GroupCallPrefix,
+            EventType.GroupCallMemberPrefix,
+            EventType.RTCSlot,
+            "im.vector.modular.widgets",
+            JitsiCallMemberEventType,
+        ];
+        const running: Array<{ api: SlidingSyncSdk; client: MatrixClient }> = [];
+
+        afterEach(() => {
+            for (const { api, client } of running.splice(0)) {
+                api.stop();
+                client.matrixRTC.stop();
+            }
+        });
+
+        const state = (
+            type: string,
+            key: string,
+            content: object,
+            id = `${type}-${key}`,
+        ): MSC3575RoomData["required_state"][number] => ({
+            type,
+            state_key: key,
+            room_id: roomId,
+            event_id: `$${id}`,
+            sender: caller,
+            origin_server_ts: Date.now() - 60_000,
+            content,
+        });
+
+        function currentState() {
+            return [
+                state(EventType.RoomCreate, "", { creator: userId, room_version: "11" }),
+                state(EventType.RoomMember, userId, { membership: "join" }),
+                state(EventType.RoomMember, caller, { membership: "join" }),
+                state(EventType.GroupCallPrefix, "legacy", { "m.type": "m.video", "m.intent": "m.room" }),
+                state(EventType.GroupCallMemberPrefix, `${caller}_BOB`, {
+                    application: "m.call",
+                    call_id: "",
+                    device_id: "BOB",
+                    focus_active: { type: "livekit", focus_selection: "oldest_membership" },
+                    foci_preferred: [],
+                    scope: "m.room",
+                    created_ts: Date.now() - 60_000,
+                    expires: 3_600_000,
+                }),
+                state(EventType.RTCSlot, "m.call#ROOM", { status: "open", application: { type: "m.call" } }),
+                state("im.vector.modular.widgets", "call-widget", { type: "jitsi", url: "https://call.example.org" }),
+                state(JitsiCallMemberEventType, caller, { devices: ["BOB"] }),
+            ];
+        }
+
+        async function setup(scope: "list" | "bootstrap" | "focused") {
+            client = createClient({ baseUrl: "https://example.org", userId, deviceId: "ALICE", accessToken: "test" });
+            client.pushRules = { global: {} };
+            const sync = (await manager.setup(client, scope === "bootstrap" ? roomId : undefined))!;
+            const api = new SlidingSyncSdk(sync, client, { lazyLoadMembers: true }, { logger });
+            running.push({ api, client });
+            client.matrixRTC.start();
+            if (scope === "focused") {
+                await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, {
+                    name: "Call room",
+                    initial: true,
+                    required_state: currentState().filter(
+                        (event) => event.type === EventType.RoomCreate || event.state_key === userId,
+                    ),
+                    timeline: [],
+                });
+                await manager.setRoomVisible(roomId);
+            }
+            const internals = sync as unknown as {
+                roomIdToCustomSubscription: Map<string, string>;
+                customSubscriptions: Map<string, { required_state: string[][] }>;
+            };
+            const required =
+                scope === "list"
+                    ? sync.getListParams("untagged")!.required_state!
+                    : internals.customSubscriptions.get(internals.roomIdToCustomSubscription.get(roomId)!)!
+                          .required_state;
+            const selectedState = (recentSender: string): MSC3575RoomData["required_state"] =>
+                currentState().filter((event) =>
+                    required.some(
+                        ([type, key]) =>
+                            type === event.type &&
+                            (key === "*" ||
+                                key === event.state_key ||
+                                (type === EventType.RoomMember && key === "$ME" && event.state_key === userId) ||
+                                (type === EventType.RoomMember && key === "$LAZY" && event.state_key === recentSender)),
+                    ),
+                );
+            const receive = (recentSender: string) =>
+                sync.emitPromised(SlidingSyncEvent.RoomData, roomId, {
+                    name: "Call room",
+                    initial: scope !== "focused",
+                    required_state: selectedState(recentSender),
+                    timeline: [
+                        {
+                            type: EventType.RoomMessage,
+                            room_id: roomId,
+                            event_id: "$latest-message",
+                            sender: recentSender,
+                            origin_server_ts: Date.now(),
+                            content: { msgtype: "m.text", body: "Recent message" },
+                        },
+                    ],
+                });
+            return { sync, required, receive };
+        }
+
+        it.each(["list", "bootstrap", "focused"] as const)(
+            "discovers older call state outside the %s timeline for a known joined caller",
+            async (scope) => {
+                const { required, receive } = await setup(scope);
+                for (const type of callTypes) expect(required).toContainEqual([type, "*"]);
+                expect(required).not.toContainEqual([EventType.RoomMember, "*"]);
+                const started = vi.fn();
+                client.matrixRTC.on(MatrixRTCSessionManagerEvents.SessionStarted, started);
+                await receive(caller);
+                const room = client.getRoom(roomId)!;
+                await vi.waitFor(() => expect(started).toHaveBeenCalledWith(roomId, expect.anything()));
+                const session = client.matrixRTC.getRoomSession(room);
+                expect(session.memberships.map((membership) => membership.userId)).toEqual([caller]);
+                expect(client.matrixRTC.getRtcSlot(room)?.status).toBe("open");
+                expect(
+                    room
+                        .getLiveTimeline()
+                        .getEvents()
+                        .map((event) => event.getId()),
+                ).toEqual(["$latest-message"]);
+                for (const type of callTypes) expect(room.currentState.getStateEvents(type)).toHaveLength(1);
+            },
+        );
+
+        it("retains older call state until a silent caller's explicit room membership arrives", async () => {
+            const { sync, required, receive } = await setup("bootstrap");
+            const started = vi.fn();
+            client.matrixRTC.on(MatrixRTCSessionManagerEvents.SessionStarted, started);
+            await receive(userId);
+            const room = client.getRoom(roomId)!;
+            const session = client.matrixRTC.getRoomSession(room);
+            await session.ensureRecalculateSessionMembers();
+            expect(room.getMember(caller)).toBeNull();
+            expect(session.memberships).toHaveLength(0);
+            expect(room.currentState.getStateEvents(EventType.GroupCallMemberPrefix)).toHaveLength(1);
+
+            // A follow-up subscription can request the missing sender without downloading the full room roster.
+            sync.addCustomSubscription("call-participant", {
+                required_state: [...required, [EventType.RoomMember, caller]],
+                timeline_limit: 0,
+            });
+            sync.useCustomSubscription(roomId, "call-participant");
+            await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, {
+                name: "Call room",
+                required_state: [state(EventType.RoomMember, caller, { membership: "join" })],
+                timeline: [],
+            });
+            await vi.waitFor(() =>
+                expect(session.memberships.map((membership) => membership.userId)).toEqual([caller]),
+            );
+            expect(room.getLiveTimeline().getEvents()).toHaveLength(1);
+            expect(started).not.toHaveBeenCalled();
+        });
     });
 
     it("starts with small lists then restores recent messages after the first response", async () => {
