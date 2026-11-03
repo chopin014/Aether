@@ -219,8 +219,11 @@ test(
         test.setTimeout(300_000);
         const jitsiRequests: string[] = [];
         const soundResponses = new Map<string, number>();
+        const denoiserResponses = new Map<string, number>();
         const onSound = (response: Response): void => {
             if (response.url().endsWith(".wav")) soundResponses.set(response.url(), response.status());
+            if (/aether-denoiser\.[^/]+\.wasm$/.test(response.url()))
+                denoiserResponses.set(response.url(), response.status());
         };
         page.on("response", onSound);
         const checkRequest = (url: string): void => {
@@ -380,7 +383,7 @@ test(
                 });
             });
             await page.getByRole("button", { name: "Stream Quality", exact: true }).click();
-            await page.getByRole("checkbox").check();
+            await page.getByRole("checkbox").uncheck();
             await page.getByRole("button", { name: "Go Live", exact: true }).click();
             const remoteScreen = bobPage.getByTestId(`screenshare-video-${user.userId}`);
             await expect(remoteScreen).toBeVisible({ timeout: 30_000 });
@@ -391,6 +394,11 @@ test(
                     ),
                 )
                 .toBeGreaterThan(3);
+            await expect.poll(() => playbackGains(bobPage)).toMatchObject({ microphone: [1], stream: [] });
+            // Enabling audio after a video-only share must reacquire and publish an audio track.
+            await page.getByRole("button", { name: "Stream Quality", exact: true }).click();
+            await page.getByRole("checkbox").check();
+            await page.keyboard.press("Escape");
             await expect
                 .poll(() =>
                     bobPage.evaluate(async () => {
@@ -593,9 +601,9 @@ test(
             const noisePanel = page.getByRole("dialog", { name: "Advanced noise suppression", exact: true });
             const suppression = noisePanel.getByRole("switch", { name: "Noise suppression", exact: true });
             await expect(suppression).not.toBeChecked();
-            const denoiser = page.waitForResponse((response) => /aether-denoiser\.[^/]+\.wasm$/.test(response.url()));
             await suppression.check();
-            expect((await denoiser).status()).toBe(200);
+            // Microphone preparation may have loaded the shared module before this control is toggled.
+            await expect.poll(() => [...denoiserResponses.values()]).toContain(200);
             const strength = noisePanel.getByRole("slider", { name: "Suppression strength", exact: true });
             await expect(strength).toBeEnabled();
             await strength.press("End");
@@ -803,12 +811,13 @@ for (const camera of [false, true]) {
                 if (!camera) await observeRingback(page);
                 await page.getByRole("button", { name: camera ? "Video call" : "Voice call", exact: true }).click();
                 const stage = page.getByTestId("aether-call-stage");
+                const timeline = page.getByRole("main").filter({ has: page.getByRole("list") });
                 await expect(stage).toHaveAttribute("data-presentation", "conversation");
                 await expect(stage).toHaveAttribute("data-phase", "in_call", { timeout: 60_000 });
-                await expect(page.getByTestId("timeline")).toBeVisible();
+                await expect(timeline).toBeVisible();
                 await expect(page.getByRole("region", { name: "Message composer" }).getByRole("textbox")).toBeVisible();
                 const stageBounds = await stage.boundingBox();
-                const timelineBounds = await page.getByTestId("timeline").boundingBox();
+                const timelineBounds = await timeline.boundingBox();
                 expect(stageBounds!.y + stageBounds!.height).toBeLessThanOrEqual(timelineBounds!.y + 1);
                 expect(stageBounds!.height).toBeLessThan(400);
                 await expect(stage.getByTestId("call-control-camera")).toHaveAttribute("aria-pressed", String(camera));
@@ -858,7 +867,7 @@ for (const camera of [false, true]) {
                     path: testInfo.outputPath(`conversation-${camera ? "video" : "voice"}.png`),
                 });
                 await stage.getByTestId("incall_leave").click();
-                await expect(page.getByTestId("timeline")).toBeVisible();
+                await expect(timeline).toBeVisible();
             } finally {
                 await context.close();
             }

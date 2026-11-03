@@ -99,7 +99,7 @@ jobs:
             - name: Install native capture and virtual audio dependencies
               run: >-
                   sudo apt-get update && sudo apt-get install -y
-                  libpipewire-0.3-dev libpulse-dev pulseaudio xvfb xauth
+                  libpipewire-0.3-dev libpulse-dev pulseaudio xvfb xauth openbox
             - run: pnpm install --frozen-lockfile
             - run: pnpm exec playwright install --with-deps chromium
             - run: pnpm exec nx run element-web:build
@@ -120,9 +120,13 @@ jobs:
                   pulseaudio --start --exit-idle-time=-1
                   pactl load-module module-null-sink sink_name=aether_test
                   pactl set-default-sink aether_test
-                  xvfb-run -a pnpm --dir apps/desktop exec playwright test \
-                      playwright/e2e/sharing/native-audio.spec.ts \
-                      playwright/e2e/sharing/renderer-audio.spec.ts --reporter=line
+                  xvfb-run -a sh -c '
+                      openbox > /tmp/aether-openbox.log 2>&1 &
+                      pnpm --dir apps/desktop exec playwright test \
+                          playwright/e2e/sharing/native-audio.spec.ts \
+                          playwright/e2e/sharing/native-lifecycle.spec.ts \
+                          playwright/e2e/sharing/renderer-audio.spec.ts --reporter=line
+                  '
             - name: Exercise encrypted MatrixRTC calls and stream playback controls
               if: ${{ !cancelled() && steps.desktop-build.outcome == 'success' }}
               working-directory: apps/web
