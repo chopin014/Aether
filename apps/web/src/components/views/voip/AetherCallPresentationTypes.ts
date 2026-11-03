@@ -151,7 +151,10 @@ export interface AetherCallPresentationActions {
     toggleLocalVideo(): void;
     startScreenShare(quality?: Partial<AetherScreenShareQualitySettings>): Promise<void> | void;
     stopScreenShare(): Promise<void> | void;
-    updateScreenShareQuality(quality: Partial<AetherScreenShareQualitySettings>): Promise<void> | void;
+    /** Return the preferences confirmed by capture when the source picker changes the requested values. */
+    updateScreenShareQuality(
+        quality: Partial<AetherScreenShareQualitySettings>,
+    ): Promise<AetherScreenShareQualitySettings | void> | void;
     dismissScreenShareError(): void;
 }
 
