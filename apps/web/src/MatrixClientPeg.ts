@@ -32,6 +32,7 @@ import { setDeviceIsolationMode } from "./settings/controllers/DeviceIsolationMo
 import { initialiseDehydrationIfEnabled } from "./utils/device/dehydration";
 import { LegacyCryptoStoreError } from "./utils/LegacyCryptoStoreError.ts";
 import { markStartup } from "./performance/StartupTimings";
+import { parseQsFromFragment } from "./vector/url_utils";
 
 export interface MatrixClientPegAssignOpts {
     /**
@@ -245,6 +246,12 @@ class MatrixClientPegClass implements IMatrixClientPeg {
             throw new Error("createClient must be called first");
         }
 
+        // The SDK needs server capabilities before starting sync. Fetch them while local stores
+        // open; getVersions shares its cached request with later SDK feature checks.
+        void this.matrixClient.getVersions().catch((error: unknown) => {
+            logger.warn("Unable to prefetch server versions; startup will retry", error);
+        });
+
         // Opening the sync store and starting crypto are independent, and each can take hundreds of milliseconds on a
         // big account, so they run side by side.
         const storeReady = this.startStore(this.matrixClient).then(() => markStartup("store_ready"));
@@ -283,7 +290,7 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         // If the user has enabled the labs feature for sliding sync, set it up
         // otherwise check if the feature is supported
         if (SettingsStore.getValue("feature_simplified_sliding_sync")) {
-            opts.slidingSync = await SlidingSyncManager.instance.setup(this.matrixClient);
+            opts.slidingSync = await SlidingSyncManager.instance.setup(this.matrixClient, this.getInitialRoomId());
         } else {
             void SlidingSyncManager.instance.checkSupport(this.matrixClient);
         }
@@ -294,6 +301,22 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         MatrixClientBackedController.matrixClient = this.matrixClient;
 
         return opts;
+    }
+
+    /** Prioritize the destination before the UI can select a room from the first sync response. */
+    private getInitialRoomId(): string | undefined {
+        const route = parseQsFromFragment(window.location).location;
+        const destination = route.match(/^\/room\/(![^/]+)(?:\/|$)/)?.[1];
+        if (destination) return destination;
+        // Explicit screens and aliases must keep their navigation intent. Only an empty route
+        // restores the last room, matching MatrixChat.showScreenAfterLogin.
+        if (route && route !== "/") return undefined;
+        try {
+            const lastRoom = localStorage.getItem("mx_last_room_id");
+            return lastRoom?.startsWith("!") ? lastRoom : undefined;
+        } catch {
+            return undefined;
+        }
     }
 
     /** Open the client's sync store, falling back to memory if IndexedDB is unusable. */

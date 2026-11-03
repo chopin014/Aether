@@ -19,7 +19,9 @@ import { presencePreferenceKey } from "./utils/presencePreference";
 import SdkConfig from "./SdkConfig";
 import { createClientWithCreds } from "./utils/createMatrixClient";
 import * as StorageManager from "./utils/StorageManager";
+import { SlidingSyncManager } from "./SlidingSyncManager";
 import { LegacyCryptoStoreError } from "./utils/LegacyCryptoStoreError.ts";
+import SettingsStore from "./settings/SettingsStore";
 
 vi.useFakeTimers();
 
@@ -33,6 +35,7 @@ describe("MatrixClientPeg", () => {
 
     afterEach(() => {
         localStorage.clear();
+        window.location.hash = "";
         vi.restoreAllMocks();
 
         // some of the tests assign `MatrixClientPeg.matrixClient`: clear it, to prevent leakage between tests
@@ -97,6 +100,26 @@ describe("MatrixClientPeg", () => {
             );
         });
 
+        it.each([
+            ["#/room/!target:example.org", "!target:example.org"],
+            ["#/room/%21target%3Aexample.org/%24event?via=example.org", "!target:example.org"],
+            ["", "!last:example.org"],
+            ["#/", "!last:example.org"],
+            ["#/home", undefined],
+            ["#/room/%23alias%3Aexample.org", undefined],
+        ])("prioritizes the startup destination for sliding sync at %s", async (route, expectedRoomId) => {
+            window.location.hash = route;
+            localStorage.setItem("mx_last_room_id", "!last:example.org");
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) => {
+                if (name === "feature_simplified_sliding_sync") return true;
+                return getValue(name, ...args);
+            });
+            const setup = vi.spyOn(SlidingSyncManager.instance, "setup").mockResolvedValue(undefined);
+            await testPeg.start();
+            expect(setup).toHaveBeenCalledWith(testPeg.safeGet(), expectedRoomId);
+        });
+
         it("should initialise the rust crypto library by default", async () => {
             const mockInitRustCrypto = vi.spyOn(testPeg.safeGet(), "initRustCrypto").mockResolvedValue(undefined);
 
@@ -139,6 +162,29 @@ describe("MatrixClientPeg", () => {
             openStore();
             await starting;
             expect(client.startClient).toHaveBeenCalled();
+        });
+
+        it("prefetches server versions while the sync store is opening without adding a startup gate", async () => {
+            const client = testPeg.safeGet();
+            const store = Promise.withResolvers<void>();
+            client.store.startup = vi.fn().mockReturnValue(store.promise);
+            const versions = vi.spyOn(client, "getVersions").mockReturnValue(new Promise(() => {}));
+            const starting = testPeg.start();
+            expect(versions).toHaveBeenCalledTimes(1);
+            expect(client.startClient).not.toHaveBeenCalled();
+            store.resolve();
+            await starting;
+            expect(client.startClient).toHaveBeenCalled();
+        });
+
+        it("handles a failed versions prefetch without aborting local startup", async () => {
+            const error = new Error("Offline");
+            vi.spyOn(testPeg.safeGet(), "getVersions").mockRejectedValueOnce(error);
+            vi.spyOn(SlidingSyncManager.instance, "checkSupport").mockResolvedValue(undefined);
+            const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+            await testPeg.start();
+            expect(testPeg.safeGet().startClient).toHaveBeenCalled();
+            expect(warn).toHaveBeenCalledWith("Unable to prefetch server versions; startup will retry", error);
         });
 
         it("should not wait for the server to answer about dehydration before syncing", async () => {
@@ -221,6 +267,12 @@ describe("MatrixClientPeg", () => {
                 await fetchMock.callHistory.flush();
                 return fetchMock.callHistory.calls().map((call) => call.url);
             }
+
+            it("shares the prefetched versions request with the SDK startup", async () => {
+                await testPeg.start();
+                const urls = await requestedUrls();
+                expect(urls.filter((url) => url.endsWith("/_matrix/client/versions"))).toHaveLength(1);
+            });
 
             it("requests the client well-known on startup by default", async () => {
                 await testPeg.start();

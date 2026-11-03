@@ -54,6 +54,10 @@ import { sleep } from "matrix-js-sdk/src/utils";
 // how long to long poll for
 const SLIDING_SYNC_TIMEOUT_MS = 20 * 1000;
 
+// Keep enough recent events to open a listed room before its focused subscription returns.
+// A single event is often a hidden membership update in large public rooms.
+const LIST_TIMELINE_LIMIT = 20;
+
 // The state events we will get for every single room/space/old room/etc
 // This list is only augmented when a direct room subscription is made. (e.g you view a room)
 const REQUIRED_STATE_LIST = [
@@ -66,6 +70,7 @@ const REQUIRED_STATE_LIST = [
     [EventType.SpaceChild, MSC3575_WILDCARD], // all space children
     [EventType.SpaceParent, MSC3575_WILDCARD], // all space parents
     [EventType.RoomMember, MSC3575_STATE_KEY_ME], // lets the client calculate that we are in fact in the room
+    [EventType.RoomMember, MSC3575_STATE_KEY_LAZY], // names and avatars for cached timeline senders
 ];
 
 // the things to fetch when a user clicks on a room
@@ -94,6 +99,20 @@ const ENCRYPTED_SUBSCRIPTION = {
         [MSC3575_WILDCARD, MSC3575_WILDCARD], // all events
     ],
     ...DEFAULT_ROOM_SUBSCRIPTION_INFO,
+};
+
+// Fetch enough state to discover encryption and render the destination before loading its full roster.
+const BOOTSTRAP_SUBSCRIPTION_NAME = "bootstrap";
+const ENCRYPTED_SUBSCRIPTION_NAME = "encrypted";
+const BOOTSTRAP_SUBSCRIPTION = {
+    timeline_limit: 50,
+    required_state: [
+        ...REQUIRED_STATE_LIST,
+        [EventType.RoomName, ""],
+        [EventType.RoomTopic, ""],
+        [EventType.RoomPowerLevels, ""],
+        [EventType.RoomHistoryVisibility, ""],
+    ],
 };
 
 // the complete set of lists made in SSS. The manager will spider all of these lists depending
@@ -125,7 +144,7 @@ const sssLists: Record<string, MSC3575List> = {
     },
     favourites: {
         ranges: [[0, 10]],
-        timeline_limit: 1, // most recent message display
+        timeline_limit: LIST_TIMELINE_LIMIT, // recent events for immediate room entry
         required_state: REQUIRED_STATE_LIST,
         include_old_rooms: {
             timeline_limit: 0,
@@ -137,7 +156,7 @@ const sssLists: Record<string, MSC3575List> = {
     },
     dms: {
         ranges: [[0, 10]],
-        timeline_limit: 1, // most recent message display
+        timeline_limit: LIST_TIMELINE_LIMIT, // recent events for immediate room entry
         required_state: REQUIRED_STATE_LIST,
         include_old_rooms: {
             timeline_limit: 0,
@@ -153,7 +172,7 @@ const sssLists: Record<string, MSC3575List> = {
     untagged: {
         // SSS will dupe suppress invites/dms from here, so we don't need "not dms, not invites"
         ranges: [[0, 10]],
-        timeline_limit: 1, // most recent message display
+        timeline_limit: LIST_TIMELINE_LIMIT, // recent events for immediate room entry
         required_state: REQUIRED_STATE_LIST,
         include_old_rooms: {
             timeline_limit: 0,
@@ -183,6 +202,8 @@ export class SlidingSyncManager {
 
     public slidingSync?: SlidingSync;
     private client?: MatrixClient;
+    private readonly bootstrapRooms = new Set<string>();
+    private readonly roomWaiters = new Set<() => void>();
 
     private configureDefer = Promise.withResolvers<void>();
 
@@ -190,17 +211,27 @@ export class SlidingSyncManager {
         return SlidingSyncManager.internalInstance;
     }
 
-    private configure(client: MatrixClient, proxyUrl: string): SlidingSync {
+    private configure(client: MatrixClient, proxyUrl: string, initialRoomId?: string): SlidingSync {
+        for (const settle of this.roomWaiters) settle();
         this.client = client;
+        this.bootstrapRooms.clear();
         // create the set of lists we will use.
         const lists = new Map();
         for (const listName in sssLists) {
-            lists.set(listName, sssLists[listName]);
+            // A resolved destination takes priority over background room discovery on the first response.
+            if (initialRoomId?.startsWith("!")) break;
+            lists.set(listName, {
+                ...sssLists[listName],
+                ranges: [[0, 0]],
+                timeline_limit: listName === "spaces" ? 0 : 1,
+            });
         }
         // by default use the encrypted subscription as that gets everything, which is a safer
         // default than potentially missing member events.
         this.slidingSync = new SlidingSync(proxyUrl, lists, ENCRYPTED_SUBSCRIPTION, client, SLIDING_SYNC_TIMEOUT_MS);
         this.slidingSync.addCustomSubscription(UNENCRYPTED_SUBSCRIPTION_NAME, UNENCRYPTED_SUBSCRIPTION);
+        this.slidingSync.addCustomSubscription(ENCRYPTED_SUBSCRIPTION_NAME, ENCRYPTED_SUBSCRIPTION);
+        this.slidingSync.addCustomSubscription(BOOTSTRAP_SUBSCRIPTION_NAME, BOOTSTRAP_SUBSCRIPTION);
         this.configureDefer.resolve();
         return this.slidingSync;
     }
@@ -219,7 +250,7 @@ export class SlidingSyncManager {
             list = {
                 ranges: [[0, 20]],
                 sort: ["by_notification_level", "by_recency"],
-                timeline_limit: 1, // most recent message display: though this seems to only be needed for favourites?
+                timeline_limit: LIST_TIMELINE_LIMIT,
                 required_state: [
                     [EventType.RoomJoinRules, ""], // the public icon on the room list
                     [EventType.RoomAvatar, ""], // any room avatar
@@ -227,6 +258,7 @@ export class SlidingSyncManager {
                     [EventType.RoomEncryption, ""], // lets rooms be configured for E2EE correctly
                     [EventType.RoomCreate, ""], // for isSpaceRoom checks
                     [EventType.RoomMember, MSC3575_STATE_KEY_ME], // lets the client calculate that we are in fact in the room
+                    [EventType.RoomMember, MSC3575_STATE_KEY_LAZY], // senders in the cached timeline
                 ],
                 include_old_rooms: {
                     timeline_limit: 0,
@@ -270,41 +302,63 @@ export class SlidingSyncManager {
      */
     public async setRoomVisible(roomId: string): Promise<void> {
         await this.configureDefer.promise;
-        const subscriptions = this.slidingSync!.getRoomSubscriptions();
+        const client = this.client!;
+        const slidingSync = this.slidingSync!;
+        const subscriptions = slidingSync.getRoomSubscriptions();
         if (subscriptions.has(roomId)) return;
 
         subscriptions.add(roomId);
 
-        const room = this.client?.getRoom(roomId);
-        // default to safety: request all state if we can't work it out. This can happen if you
-        // refresh the app whilst viewing a room: we call setRoomVisible before we know anything
-        // about the room.
+        const room = client.getRoom(roomId);
+        // Unknown rooms first fetch encryption metadata and lazy members, then upgrade once discovered.
         let shouldLazyLoad = false;
         if (room) {
             // do not lazy load encrypted rooms as we need the entire member list.
-            shouldLazyLoad = !(await this.client?.getCrypto()?.isEncryptionEnabledInRoom(roomId));
+            shouldLazyLoad =
+                !room.hasEncryptionStateEvent() && !(await client.getCrypto()?.isEncryptionEnabledInRoom(roomId));
         }
+        if (this.client !== client || this.slidingSync !== slidingSync) return;
         logger.log("SlidingSync setRoomVisible:", roomId, "shouldLazyLoad:", shouldLazyLoad);
-        if (shouldLazyLoad) {
+        if (!room) {
+            this.bootstrapRooms.add(roomId);
+            slidingSync.useCustomSubscription(roomId, BOOTSTRAP_SUBSCRIPTION_NAME);
+        } else if (shouldLazyLoad) {
             // lazy load this room
-            this.slidingSync!.useCustomSubscription(roomId, UNENCRYPTED_SUBSCRIPTION_NAME);
+            slidingSync.useCustomSubscription(roomId, UNENCRYPTED_SUBSCRIPTION_NAME);
         }
-        this.slidingSync!.modifyRoomSubscriptions(subscriptions);
+        slidingSync.modifyRoomSubscriptions(subscriptions);
         if (room) {
             return; // we have data already for this room, show immediately e.g it's in a list
         }
         // wait until we know about this room. This may take a little while.
         return new Promise((resolve) => {
-            logger.log(`SlidingSync setRoomVisible room ${roomId} not found, waiting for ClientEvent.Room`);
-            const waitForRoom = (r: Room): void => {
-                if (r.roomId === roomId) {
-                    this.client?.off(ClientEvent.Room, waitForRoom);
-                    logger.log(`SlidingSync room ${roomId} found, resolving setRoomVisible`);
-                    resolve();
-                }
+            const settle = (): void => {
+                client.off(ClientEvent.Room, waitForRoom);
+                this.roomWaiters.delete(settle);
+                resolve();
             };
-            this.client?.on(ClientEvent.Room, waitForRoom);
+            const waitForRoom = (r: Room): void => {
+                if (this.client !== client || this.slidingSync !== slidingSync) {
+                    settle();
+                    return;
+                }
+                if (r.roomId !== roomId) return;
+                this.upgradeDiscoveredRoom(slidingSync, r);
+                settle();
+            };
+            this.roomWaiters.add(settle);
+            client.on(ClientEvent.Room, waitForRoom);
         });
+    }
+
+    /** Replace discovery state with the normal subscription once encryption state is known. */
+    private upgradeDiscoveredRoom(slidingSync: SlidingSync, room: Room): void {
+        if (!this.bootstrapRooms.delete(room.roomId)) return;
+        slidingSync.useCustomSubscription(
+            room.roomId,
+            room.hasEncryptionStateEvent() ? ENCRYPTED_SUBSCRIPTION_NAME : UNENCRYPTED_SUBSCRIPTION_NAME,
+        );
+        slidingSync.modifyRoomSubscriptions(slidingSync.getRoomSubscriptions());
     }
 
     /**
@@ -317,6 +371,7 @@ export class SlidingSyncManager {
         slidingSync: SlidingSync,
         batchSize: number,
         gapBetweenRequestsMs: number,
+        bootstrap = false,
     ): Promise<void> {
         // The manager has created several lists (see `sssLists` in this file), all of which will be spidered simultaneously.
         // There are multiple lists to ensure that we can populate invites/favourites/DMs sections immediately, rather than
@@ -327,7 +382,7 @@ export class SlidingSyncManager {
         // copy the initial set of list names and ranges, we'll keep this map updated.
         const listToUpperBound = new Map(
             Object.keys(sssLists).map((listName) => {
-                return [listName, sssLists[listName].ranges[0][1]];
+                return [listName, slidingSync.getListParams(listName)?.ranges[0][1] ?? sssLists[listName].ranges[0][1]];
             }),
         );
         console.log("startSpidering:", listToUpperBound);
@@ -341,11 +396,32 @@ export class SlidingSyncManager {
             _: MSC3575SlidingSyncResponse | null,
             err?: Error,
         ): Promise<void> => {
-            if (state !== SlidingSyncState.Complete) {
+            if (state !== SlidingSyncState.Complete || err) return;
+            // Complete precedes account-data extensions. Yield before expanding the background lists.
+            await sleep(gapBetweenRequestsMs);
+            if (this.slidingSync !== slidingSync) {
+                slidingSync.off(SlidingSyncEvent.Lifecycle, lifecycle);
                 return;
             }
-            await sleep(gapBetweenRequestsMs); // don't tightloop; even on errors
-            if (err) {
+
+            for (const roomId of this.bootstrapRooms) {
+                const room = this.client?.getRoom(roomId);
+                if (!room) continue;
+                this.upgradeDiscoveredRoom(slidingSync, room);
+            }
+
+            if (bootstrap) {
+                bootstrap = false;
+                for (const [name, normal] of Object.entries(sssLists)) {
+                    const current = slidingSync.getListParams(name) ?? normal;
+                    const upperBound = Math.max(current.ranges[0][1], normal.ranges[0][1]);
+                    slidingSync.setList(name, {
+                        ...current,
+                        ranges: [[0, upperBound]],
+                        timeline_limit: normal.timeline_limit,
+                    });
+                    listToUpperBound.set(name, upperBound);
+                }
                 return;
             }
 
@@ -353,9 +429,9 @@ export class SlidingSyncManager {
             let hasSetRanges = false;
             listToUpperBound.forEach((currentUpperBound, listName) => {
                 const totalCount = slidingSync.getListData(listName)?.joinedCount || 0;
-                if (currentUpperBound < totalCount) {
+                if (currentUpperBound < totalCount - 1) {
                     // increment the upper bound
-                    const newUpperBound = currentUpperBound + batchSize;
+                    const newUpperBound = Math.min(currentUpperBound + batchSize, totalCount - 1);
                     console.log(`startSpidering: ${listName} ${currentUpperBound} => ${newUpperBound}`);
                     listToUpperBound.set(listName, newUpperBound);
                     // make the next request. This will only send the request when this callback has finished, so if
@@ -364,7 +440,7 @@ export class SlidingSyncManager {
                     hasSetRanges = true;
                 }
             });
-            if (!hasSetRanges) {
+            if (!hasSetRanges && this.bootstrapRooms.size === 0) {
                 // finish spidering
                 slidingSync.off(SlidingSyncEvent.Lifecycle, lifecycle);
             }
@@ -379,12 +455,18 @@ export class SlidingSyncManager {
      *   2. The client `well-known` sliding sync proxy URL [declared at the unstable prefix](https://github.com/matrix-org/matrix-spec-proposals/blob/kegan/sync-v3/proposals/3575-sync.md#unstable-prefix)
      *   3. The homeserver base url (for native server support)
      * @param client The MatrixClient to use
+     * @param initialRoomId Resolved room ID to prioritise on the first request; aliases must be resolved first.
      * @returns A working Sliding Sync or undefined
      */
-    public async setup(client: MatrixClient): Promise<SlidingSync | undefined> {
-        const slidingSync = this.configure(client, client.baseUrl);
+    public async setup(client: MatrixClient, initialRoomId?: string): Promise<SlidingSync | undefined> {
+        const slidingSync = this.configure(client, client.baseUrl, initialRoomId);
+        if (initialRoomId?.startsWith("!")) {
+            this.bootstrapRooms.add(initialRoomId);
+            slidingSync.useCustomSubscription(initialRoomId, BOOTSTRAP_SUBSCRIPTION_NAME);
+            slidingSync.modifyRoomSubscriptions(new Set([initialRoomId]));
+        }
         logger.info("Simplified Sliding Sync activated at", client.baseUrl);
-        void this.startSpidering(slidingSync, 50, 50); // 50 rooms at a time, 50ms apart
+        void this.startSpidering(slidingSync, 50, 50, true); // 50 rooms at a time, 50ms apart
         return slidingSync;
     }
 
