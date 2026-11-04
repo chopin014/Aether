@@ -71,6 +71,17 @@ export class RichProfileStore {
         return store;
     }
 
+    /**
+     * Ends the session this client signed in with. Its store forgets everything, and lookups or saves that finish
+     * later are dropped, so they cannot write a previous account's profile back after logout. A later session on the
+     * same client starts a fresh store.
+     */
+    public static endSession(client: MatrixClient): void {
+        const store = RichProfileStore.stores.get(client);
+        RichProfileStore.stores.delete(client);
+        store?.end();
+    }
+
     private readonly entries = new LruCache<string, Entry>(CACHE_SIZE);
     private readonly listeners = new Map<string, Set<() => void>>();
     private readonly inFlight = new Map<string, { version: number; task: Promise<void> }>();
@@ -80,6 +91,8 @@ export class RichProfileStore {
     private readonly lastHint = new Map<string, number>();
     private active = 0;
     private supported?: Promise<boolean>;
+
+    private ended = false;
 
     public constructor(
         private readonly client: MatrixClient,
@@ -134,6 +147,7 @@ export class RichProfileStore {
 
     /** Record a profile we have just written ourselves, without waiting for it to be read back. */
     public set(userId: string, raw: Record<string, unknown>): void {
+        if (this.ended) return;
         this.bump(userId);
         this.entries.set(userId, { raw, profile: parseRichProfile(raw), fetchedAt: this.now(), failed: false });
         if (userId === this.client.getUserId()) writeOwnProfile(userId, raw);
@@ -171,11 +185,24 @@ export class RichProfileStore {
         if (batch.batch.length) await this.client.queueToDevice(batch);
     }
 
+    private end(): void {
+        this.ended = true;
+        this.client.off(ClientEvent.UserProfileUpdate, this.onSyncUpdate);
+        this.client.off(ClientEvent.ReceivedToDeviceMessage, this.onToDevice);
+        this.entries.clear();
+        // Emptied in place, so a notification already running stops calling them.
+        for (const set of this.listeners.values()) set.clear();
+        this.listeners.clear();
+        this.versions.clear();
+        this.lastHint.clear();
+    }
+
     private bump(userId: string): void {
         this.versions.set(userId, (this.versions.get(userId) ?? 0) + 1);
     }
 
     private fetch(userId: string): Promise<void> {
+        if (this.ended) return Promise.resolve();
         const version = this.versions.get(userId) ?? 0;
         const running = this.inFlight.get(userId);
         if (running?.version === version) return running.task;
@@ -206,6 +233,8 @@ export class RichProfileStore {
     }
 
     private async load(userId: string, version: number): Promise<void> {
+        // A lookup queued or chained before the session ended does not reach the network.
+        if (this.ended) return;
         let raw: Record<string, unknown> = {};
         let failed = false;
         try {
@@ -218,8 +247,8 @@ export class RichProfileStore {
                 logger.warn(`Could not load the profile of ${userId}`, error);
             }
         }
-        // Something newer replaced or invalidated this person meanwhile.
-        if ((this.versions.get(userId) ?? 0) !== version) return;
+        // Something newer replaced or invalidated this person meanwhile, or the session ended.
+        if (this.ended || (this.versions.get(userId) ?? 0) !== version) return;
         const own = userId === this.client.getUserId();
         const previous = this.entries.get(userId);
         if (failed && own && previous && !previous.failed) {

@@ -82,6 +82,53 @@ describe("RichProfileStore", () => {
             expect(store.get(ME)).toBeUndefined();
         });
 
+        it("is not written back by a lookup or save that finishes after the session ended", async () => {
+            const lookup = Promise.withResolvers<Record<string, unknown>>();
+            const client = makeClient({ getExtendedProfile: vi.fn().mockReturnValue(lookup.promise) });
+            const store = RichProfileStore.forClient(client);
+            const pending = store.request(ME);
+            await Promise.resolve();
+
+            RichProfileStore.endSession(client);
+            lookup.resolve({ [RICH_PROFILE_FIELD]: { decoration: "orbit" } });
+            await pending;
+            store.set(ME, { [RICH_PROFILE_FIELD]: { decoration: "halo" } });
+            expect(window.localStorage.getItem("aether_own_rich_profile")).toBeNull();
+            expect(store.get(ME)).toBeUndefined();
+            // A later session on the same client starts afresh.
+            expect(RichProfileStore.forClient(client)).not.toBe(store);
+        });
+
+        it("starts no queued lookups once the session ended", async () => {
+            const lookups = Array.from({ length: 4 }, () => Promise.withResolvers<Record<string, unknown>>());
+            const getExtendedProfile = vi
+                .fn()
+                .mockImplementation(
+                    () => lookups[getExtendedProfile.mock.calls.length - 1]?.promise ?? new Promise(() => {}),
+                );
+            const client = makeClient({ getExtendedProfile });
+            const store = RichProfileStore.forClient(client);
+            const pending = ["@a:x", "@b:x", "@c:x", "@d:x", "@e:x", "@f:x"].map((userId) => store.request(userId));
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(getExtendedProfile).toHaveBeenCalledTimes(4);
+
+            RichProfileStore.endSession(client);
+            for (const lookup of lookups) lookup.resolve({});
+            await Promise.all(pending);
+            expect(getExtendedProfile).toHaveBeenCalledTimes(4);
+        });
+
+        it("calls no further subscribers once a subscriber ends the session", async () => {
+            const client = makeClient();
+            const store = RichProfileStore.forClient(client);
+            const second = vi.fn();
+            store.subscribe(ROBIN, () => RichProfileStore.endSession(client));
+            store.subscribe(ROBIN, second);
+            store.set(ROBIN, { [RICH_PROFILE_FIELD]: { decoration: "orbit" } });
+            expect(second).not.toHaveBeenCalled();
+        });
+
         it("keeps showing when a refresh fails or sync reports a change", async () => {
             const getExtendedProfile = vi.fn().mockRejectedValue(new MatrixError({ errcode: "M_UNKNOWN" }));
             const client = makeClient({ getExtendedProfile });
