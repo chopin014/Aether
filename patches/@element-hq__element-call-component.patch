@@ -1673,3 +1673,15 @@ index b95e092b28..4c668bf803 100644
      /**
       * Whether Element Call may offer to change the user's profile — their
       * display name and avatar. Only when the account is Element Call's own,
+diff --git a/dist/matrix-C_sMRXGh.js b/dist/matrix-C_sMRXGh.js
+--- a/dist/matrix-C_sMRXGh.js
++++ b/dist/matrix-C_sMRXGh.js
+@@ -11266,7 +11266,7 @@
+ 			{
+ 				key: "sendInternal",
+ 				value: function(e) {
+-					console.log(`[PostmessageTransport] Sending object to ${this.targetOrigin}: `, e), this.transportWindow.postMessage(e, this.targetOrigin);
++					console.log("[PostmessageTransport] Sending action:", e.action), this.transportWindow.postMessage(e, this.targetOrigin);
+ 				}
+ 			},
+ 			{

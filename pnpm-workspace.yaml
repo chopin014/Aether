@@ -134,6 +134,7 @@ patchedDependencies:
     # Tweaks to record screenshot diffs as vitest artifacts
     vitest-plugin-vis@5: patches/vitest-plugin-vis@5.1.5.patch
     storybook-addon-vis@4: patches/storybook-addon-vis@4.3.1.patch
+    matrix-widget-api@1.20.0: patches/matrix-widget-api@1.20.0.patch
     matrix-js-sdk@44.0.0: patches/matrix-js-sdk@44.0.0.patch
     # Closed label tooltips stay mounted: only track their position, and draw their arrow, while open
     "@vector-im/compound-web@10.3.1": patches/@vector-im__compound-web@10.3.1.patch
