@@ -169,6 +169,26 @@ describe("MemberListStore", () => {
             expect(room.loadMembersIfNeeded).toHaveBeenCalledTimes(1);
         });
 
+        it("skips obsolete roster work without interrupting a live consumer's shared hydration", async () => {
+            const hydration = Promise.withResolvers<boolean>();
+            vi.mocked(room.loadMembersIfNeeded).mockReturnValue(hydration.promise);
+            addMember(room, bob, KnownMembership.Join);
+            const getUser = vi.mocked(client.getUser).mockReturnValue(null);
+            const presence = vi.spyOn(store, "isPresenceEnabled");
+            let current = true;
+            const obsolete = store.loadMemberList(roomId, undefined, () => current);
+            const live = store.loadMemberList(roomId);
+            await vi.waitFor(() => expect(room.loadMembersIfNeeded).toHaveBeenCalledOnce());
+            getUser.mockClear();
+            current = false;
+            hydration.resolve(true);
+            expect(await obsolete).toEqual({ joined: [], invited: [] });
+            expect((await live).joined).toEqual([room.getMember(alice), room.getMember(bob)]);
+            expect(getUser).toHaveBeenCalledTimes(2);
+            expect(presence).toHaveBeenCalledOnce();
+            expect(room.loadMembersIfNeeded).toHaveBeenCalledOnce();
+        });
+
         it("retries storage-backed member hydration after a failed attempt", async () => {
             vi.mocked(room.loadMembersIfNeeded).mockRejectedValueOnce(new Error("Offline"));
             await expect(store.ensureMembersLoaded(roomId)).rejects.toThrow("Offline");

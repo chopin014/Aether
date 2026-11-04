@@ -36,11 +36,13 @@ export class MemberListStore {
      * Load the member list. Call this whenever the list may have changed.
      * @param roomId The room to load the member list in
      * @param searchQuery Optional search query to filter the list.
-     * @returns A list of filtered and sorted room members, grouped by membership.
+     * @param isCurrent Whether this consumer still needs the result after shared hydration.
+     * @returns Filtered and sorted members, or empty groups when the consumer is obsolete.
      */
     public async loadMemberList(
         roomId: string,
         searchQuery?: string,
+        isCurrent?: () => boolean,
     ): Promise<Record<"joined" | "invited", RoomMember[]>> {
         if (!this.stores.client) {
             return {
@@ -48,9 +50,10 @@ export class MemberListStore {
                 invited: [],
             };
         }
+        const members = await this.loadMembers(roomId, isCurrent);
+        if (isCurrent?.() === false) return { joined: [], invited: [] };
         const language = SettingsStore.getValue("language");
         this.collator = new Intl.Collator(language, { sensitivity: "base", ignorePunctuation: false });
-        const members = await this.loadMembers(roomId);
         // Filter then sort as it's more efficient than sorting tons of members we will just filter out later.
         // Also sort each group, as there's no point comparing invited/joined users when they aren't in the same list!
         const membersByMembership = this.filterMembers(members, searchQuery);
@@ -83,7 +86,7 @@ export class MemberListStore {
         }
     }
 
-    private async loadMembers(roomId: string): Promise<Array<RoomMember>> {
+    private async loadMembers(roomId: string, isCurrent?: () => boolean): Promise<Array<RoomMember>> {
         const room = this.stores.client!.getRoom(roomId);
         if (!room) return [];
         try {
@@ -92,6 +95,8 @@ export class MemberListStore {
             // Keep known members usable while a later refresh retries the complete roster.
             logger.warn("Unable to load the complete member list", error);
         }
+        // Hydration belongs to every consumer; only this request's enumeration can be discarded.
+        if (isCurrent?.() === false) return [];
         return this.loadMembersInRoom(room);
     }
 
