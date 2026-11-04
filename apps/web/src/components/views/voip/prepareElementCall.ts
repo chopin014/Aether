@@ -11,6 +11,9 @@ import { loadElementCallComponent } from "./ElementCallLoader";
 import { DesktopVoicePipeline } from "../../../audio/desktop/DesktopVoicePipeline";
 import { preloadDesktopVoiceSounds } from "../../../audio/DesktopVoiceSounds";
 
+/** Automatic preparation starts by then even if the scheduler never releases it, so calls are not left cold. */
+const RELEASE_DEADLINE_MS = 30_000;
+
 /** Prepares again while preparation is active, for example when someone points at a voice channel. */
 let prepareAgain: (() => void) | undefined;
 
@@ -25,7 +28,8 @@ export function prepareCallSoon(): void {
 
 /**
  * Prepare a desktop call during idle time, with cancellation on logout and no microphone capture.
- * An optional scheduler holds automatic preparation until the first conversation paints; explicit intent stays immediate.
+ * An optional scheduler holds automatic preparation, including re-preparation when the window regains focus, until
+ * the scheduler releases it. Explicit voice intent through {@link prepareCallSoon} stays immediate.
  */
 export function prepareElementCall(schedule?: (start: () => void) => () => void): () => void {
     let disposed = false;
@@ -45,17 +49,24 @@ export function prepareElementCall(schedule?: (start: () => void) => () => void)
     };
     let idle: number | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // Automatic preparation is held until the scheduler releases it, so startup work is not loaded early.
+    let released = false;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
     const startIdle = (): void => {
-        if (disposed) return;
+        if (disposed || released) return;
+        released = true;
+        clearTimeout(deadline);
         idle = typeof requestIdleCallback === "function" ? requestIdleCallback(prepare, { timeout: 3000 }) : undefined;
         timer = idle === undefined ? setTimeout(prepare, 1000) : undefined;
     };
     const cancelScheduled = schedule?.(startIdle);
+    // The scheduler may already have released preparation synchronously.
     if (!schedule) startIdle();
+    else if (!released) deadline = setTimeout(startIdle, RELEASE_DEADLINE_MS);
 
     // Coming back to the app is a good moment to replace a prepared microphone that expired meanwhile.
     const onReturn = (): void => {
-        if (document.visibilityState === "visible") prepare();
+        if (released && document.visibilityState === "visible") prepare();
     };
     window.addEventListener("focus", onReturn);
     document.addEventListener("visibilitychange", onReturn);
@@ -64,6 +75,7 @@ export function prepareElementCall(schedule?: (start: () => void) => () => void)
     return () => {
         disposed = true;
         cancelScheduled?.();
+        clearTimeout(deadline);
         if (idle !== undefined) cancelIdleCallback(idle);
         clearTimeout(timer);
         window.removeEventListener("focus", onReturn);
