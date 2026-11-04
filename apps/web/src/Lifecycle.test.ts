@@ -35,6 +35,7 @@ import { encryptPickleKey } from "./utils/tokens/pickling";
 import * as StorageManager from "./utils/StorageManager.ts";
 import type BasePlatform from "./BasePlatform.ts";
 import * as createMatrixClientModule from "./utils/createMatrixClient";
+import { RichProfileStore } from "./profile/RichProfileStore";
 
 const { logout, restoreSessionFromStorage, setLoggedIn } = Lifecycle;
 
@@ -939,11 +940,14 @@ describe("Lifecycle", () => {
     describe("logout()", () => {
         it("should call logout on the client", async () => {
             const stopVoiceSound = vi.spyOn(DesktopVoiceSounds, "stopDesktopVoiceSound");
+            const endProfiles = vi.spyOn(RichProfileStore, "endSession");
             await logout();
 
             await flushPromises();
 
             expect(stopVoiceSound).toHaveBeenCalled();
+            // Profile lookups still running must not write this account's data back after logout.
+            expect(endProfiles).toHaveBeenCalledWith(mockClient);
 
             expect(mockClient.logout).toHaveBeenCalledWith(true);
         });
