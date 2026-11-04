@@ -2382,7 +2382,13 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                                 oobData={this.props.oobData}
                                 roomId={this.state.roomId}
                             />
-                            <SpaceHierarchy space={this.state.previewSpace} showRoom={showRoom} />
+                            <main className="mx_SpaceRoomView">
+                                <MainSplit analyticsRoomType="space">
+                                    <div className="mx_SpaceRoomView_landing">
+                                        <SpaceHierarchy space={this.state.previewSpace} showRoom={showRoom} />
+                                    </div>
+                                </MainSplit>
+                            </main>
                         </ErrorBoundary>
                     </div>
                 </ScopedRoomContextProvider>

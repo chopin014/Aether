@@ -1207,6 +1207,12 @@ describe("RoomView", () => {
             it("prefetches and browses a public hierarchy before Join without storing a joined room", async () => {
                 const instance = await getRoomViewInstance();
                 expect(await screen.findByText("Public text channel")).toBeInTheDocument();
+                // The hierarchy styles and scrolling depend on the same layout as the joined Space overview.
+                const overview = screen.getByRole("main");
+                expect(overview).toHaveClass("mx_SpaceRoomView");
+                expect(screen.getByRole("tree").closest(".mx_SpaceRoomView_landing")).toBe(
+                    overview.querySelector(".mx_MainSplit > .mx_SpaceRoomView_landing"),
+                );
                 expect(screen.getByRole("button", { name: "Join the discussion" })).toBeInTheDocument();
                 // Hierarchy Join errors must reach this room's store before the normal room view exists.
                 const preview = instance.render() as ReactElement<{ roomViewStore: typeof stores.roomViewStore }>;
