@@ -73,7 +73,9 @@ export class RichProfileStore {
 
     private readonly entries = new LruCache<string, Entry>(CACHE_SIZE);
     private readonly listeners = new Map<string, Set<() => void>>();
-    private readonly inFlight = new Map<string, Promise<void>>();
+    private readonly inFlight = new Map<string, { version: number; task: Promise<void> }>();
+    /** Bumped whenever what we hold for a person is replaced or invalidated, so older lookups cannot overwrite it. */
+    private readonly versions = new Map<string, number>();
     private readonly queue: (() => void)[] = [];
     private readonly lastHint = new Map<string, number>();
     private active = 0;
@@ -132,6 +134,7 @@ export class RichProfileStore {
 
     /** Record a profile we have just written ourselves, without waiting for it to be read back. */
     public set(userId: string, raw: Record<string, unknown>): void {
+        this.bump(userId);
         this.entries.set(userId, { raw, profile: parseRichProfile(raw), fetchedAt: this.now(), failed: false });
         if (userId === this.client.getUserId()) writeOwnProfile(userId, raw);
         this.notify(userId);
@@ -139,6 +142,7 @@ export class RichProfileStore {
 
     /** Forget what we hold and fetch again if anyone is showing this person. */
     public invalidate(userId: string): void {
+        this.bump(userId);
         const entry = this.entries.get(userId);
         // Our own profile keeps showing while it is re-read, since it is on screen almost all the time.
         if (entry && userId === this.client.getUserId() && !entry.failed) entry.fetchedAt = 0;
@@ -167,17 +171,24 @@ export class RichProfileStore {
         if (batch.batch.length) await this.client.queueToDevice(batch);
     }
 
+    private bump(userId: string): void {
+        this.versions.set(userId, (this.versions.get(userId) ?? 0) + 1);
+    }
+
     private fetch(userId: string): Promise<void> {
+        const version = this.versions.get(userId) ?? 0;
         const running = this.inFlight.get(userId);
-        if (running) return running;
+        if (running?.version === version) return running.task;
+        // A lookup started before the latest change cannot be used, so ask again once it is done.
+        if (running) return running.task.then(() => this.fetch(userId));
         const task = this.whenSlotFree()
-            .then(() => this.load(userId))
+            .then(() => this.load(userId, version))
             .finally(() => {
-                this.inFlight.delete(userId);
+                if (this.inFlight.get(userId)?.task === task) this.inFlight.delete(userId);
                 this.active--;
                 this.queue.shift()?.();
             });
-        this.inFlight.set(userId, task);
+        this.inFlight.set(userId, { version, task });
         return task;
     }
 
@@ -194,7 +205,7 @@ export class RichProfileStore {
         );
     }
 
-    private async load(userId: string): Promise<void> {
+    private async load(userId: string, version: number): Promise<void> {
         let raw: Record<string, unknown> = {};
         let failed = false;
         try {
@@ -207,6 +218,8 @@ export class RichProfileStore {
                 logger.warn(`Could not load the profile of ${userId}`, error);
             }
         }
+        // Something newer replaced or invalidated this person meanwhile.
+        if ((this.versions.get(userId) ?? 0) !== version) return;
         const own = userId === this.client.getUserId();
         const previous = this.entries.get(userId);
         if (failed && own && previous && !previous.failed) {

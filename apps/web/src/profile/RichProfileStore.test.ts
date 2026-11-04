@@ -95,6 +95,38 @@ describe("RichProfileStore", () => {
         });
     });
 
+    it("keeps a profile just saved when an older lookup finishes after it", async () => {
+        const lookup = Promise.withResolvers<Record<string, unknown>>();
+        const client = makeClient({ getExtendedProfile: vi.fn().mockReturnValue(lookup.promise) });
+        const store = new RichProfileStore(client, clock);
+        const pending = store.request(ROBIN);
+        await Promise.resolve();
+
+        store.set(ROBIN, { [RICH_PROFILE_FIELD]: { decoration: "orbit" } });
+        lookup.resolve({ [RICH_PROFILE_FIELD]: { decoration: "halo" } });
+        await pending;
+        expect(store.get(ROBIN)?.decoration).toBe("orbit");
+    });
+
+    it("asks again when a change is reported while a lookup is running, if someone is looking", async () => {
+        const first = Promise.withResolvers<Record<string, unknown>>();
+        const getExtendedProfile = vi
+            .fn()
+            .mockReturnValueOnce(first.promise)
+            .mockResolvedValueOnce({ [RICH_PROFILE_FIELD]: { decoration: "orbit" } });
+        const client = makeClient({ getExtendedProfile });
+        const store = new RichProfileStore(client, clock);
+        store.subscribe(ROBIN, () => {});
+        const pending = store.request(ROBIN);
+        await Promise.resolve();
+
+        client.emit(ClientEvent.UserProfileUpdate, ROBIN, {});
+        first.resolve({ [RICH_PROFILE_FIELD]: { decoration: "halo" } });
+        await pending;
+        await vi.waitFor(() => expect(store.get(ROBIN)?.decoration).toBe("orbit"));
+        expect(getExtendedProfile).toHaveBeenCalledTimes(2);
+    });
+
     it("makes one request however many rows ask at once", async () => {
         const client = makeClient();
         const store = new RichProfileStore(client, clock);
