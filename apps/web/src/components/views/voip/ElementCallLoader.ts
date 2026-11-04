@@ -8,6 +8,7 @@ Please see LICENSE in the repository root for full details.
 import type * as ElementCallComponent from "@element-hq/element-call-component";
 
 import { ElementCall } from "../../../models/Call";
+import { elementCallOpenIdTokens } from "./ElementCallOpenIdToken";
 import { callServiceUrlFor } from "./ElementCallService";
 
 let loaded: Promise<{ default: typeof ElementCallComponent.ElementCall }> | undefined;
@@ -21,6 +22,7 @@ export function loadElementCallComponent(): Promise<{ default: typeof ElementCal
         .then(async ([module]) => {
             // The call service is asked of the joining account, not fixed here for the first account to load this.
             module.setElementCallServiceUrl(callServiceUrlFor);
+            module.setElementCallOpenIdTokens(elementCallOpenIdTokens);
             await module.initializeElementCall(ElementCall.getConfigOptions());
             return { default: module.ElementCall };
         })

@@ -133,6 +133,7 @@ describe("<LoggedInView />", () => {
                 vi.mocked(prepareElementCall).mockReturnValueOnce(cancel);
                 const { unmount } = getComponent();
                 expect(prepareElementCall).toHaveBeenCalledOnce();
+                expect(prepareElementCall).toHaveBeenCalledWith(mockClient, expect.any(Function));
                 unmount();
                 expect(cancel).toHaveBeenCalledOnce();
             } finally {
@@ -150,7 +151,7 @@ describe("<LoggedInView />", () => {
             });
             const startIdle = vi.fn();
             const cancelPreparation = vi.fn();
-            vi.mocked(prepareElementCall).mockImplementationOnce((schedule) => {
+            vi.mocked(prepareElementCall).mockImplementationOnce((_client, schedule) => {
                 const cancelWait = schedule?.(startIdle);
                 return () => {
                     cancelWait?.();
@@ -183,7 +184,7 @@ describe("<LoggedInView />", () => {
                 return getValue(...args) as never;
             });
             const startIdle = vi.fn();
-            vi.mocked(prepareElementCall).mockImplementationOnce((schedule) => schedule!(startIdle));
+            vi.mocked(prepareElementCall).mockImplementationOnce((_client, schedule) => schedule!(startIdle));
             mockClient.isInitialSyncComplete.mockReturnValue(false);
             try {
                 getComponent({ currentRoomId: "!preview:server" });
@@ -212,7 +213,7 @@ describe("<LoggedInView />", () => {
                 return getValue(...args) as never;
             });
             const startIdle = vi.fn();
-            vi.mocked(prepareElementCall).mockImplementationOnce((schedule) => schedule!(startIdle));
+            vi.mocked(prepareElementCall).mockImplementationOnce((_client, schedule) => schedule!(startIdle));
             mockClient.isInitialSyncComplete.mockReturnValue(false);
             try {
                 const { rerender, unmount } = getComponent({ currentRoomId: "" });
@@ -239,7 +240,7 @@ describe("<LoggedInView />", () => {
                 return getValue(...args) as never;
             });
             const startIdle = vi.fn();
-            vi.mocked(prepareElementCall).mockImplementationOnce((schedule) => schedule!(startIdle));
+            vi.mocked(prepareElementCall).mockImplementationOnce((_client, schedule) => schedule!(startIdle));
             try {
                 const { unmount } = getComponent({ currentRoomId: "!unmounted:server" });
                 unmount();
