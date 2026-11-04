@@ -12,21 +12,29 @@ import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const bundle = readFileSync(require.resolve("@element-hq/element-call-component"), "utf8");
-const start = bundle.indexOf("var O4 = class");
+const start = bundle.indexOf("//#region src/state/CallViewModel/localMember/RtcTransportAutoDiscovery.ts");
 const end = bundle.indexOf("//#endregion", start);
 
-function fixture(cached?: Promise<unknown[]>) {
+function fixture(cached?: Promise<unknown[]>, hostServiceUrl?: (client: unknown) => Promise<string | undefined>) {
     const direct = vi.fn().mockResolvedValue([{ type: "livekit", livekit_service_url: "https://direct" }]);
     const wait = vi.fn().mockReturnValue(cached);
     const client = { _unstable_getRTCTransports: direct, cachedRtcTransports: cached ? { wait } : undefined };
     const logger = { getChild: () => logger, info: vi.fn() };
-    const Discovery = runInNewContext(`${bundle.slice(start, end)}; O4`, {
-        Dt: (operation: () => unknown) => operation(),
-        nr: (transport: { type: string }) => transport.type === "livekit",
-    }) as new (options: unknown) => { discoverPreferredTransport: () => Promise<unknown> };
+    const { Discovery, setServiceUrl } = runInNewContext(
+        `${bundle.slice(start, end)}; ({ Discovery: O4, setServiceUrl: aetherSetCallServiceUrl })`,
+        {
+            Dt: (operation: () => unknown) => operation(),
+            nr: (transport: { type: string }) => transport.type === "livekit",
+        },
+    ) as {
+        Discovery: new (options: unknown) => { discoverPreferredTransport: () => Promise<unknown> };
+        setServiceUrl: (provider: typeof hostServiceUrl | null) => void;
+    };
+    setServiceUrl(hostServiceUrl ?? null);
     return {
         direct,
         wait,
+        client,
         discovery: new Discovery({
             client,
             logger,
@@ -69,6 +77,34 @@ describe("Element Call transport discovery", () => {
                 livekit_service_url: "https://configured",
             });
             expect(direct).not.toHaveBeenCalled();
+        }
+    });
+
+    it("asks the host for the joining account's call service before the configured one", async () => {
+        const host = vi.fn().mockResolvedValue("https://joining-account");
+        const { client, discovery } = fixture(Promise.resolve([]), host);
+        await expect(discovery.discoverPreferredTransport()).resolves.toEqual({
+            type: "livekit",
+            livekit_service_url: "https://joining-account",
+        });
+        expect(host).toHaveBeenCalledWith(client);
+    });
+
+    it("prefers transports the homeserver lists over the host's answer", async () => {
+        const host = vi.fn().mockResolvedValue("https://joining-account");
+        const transport = { type: "livekit", livekit_service_url: "https://listed" };
+        const { discovery } = fixture(Promise.resolve([transport]), host);
+        await expect(discovery.discoverPreferredTransport()).resolves.toEqual(transport);
+        expect(host).not.toHaveBeenCalled();
+    });
+
+    it("falls back to configuration when the host has no answer or fails", async () => {
+        for (const host of [vi.fn().mockResolvedValue(undefined), vi.fn().mockRejectedValue(new Error("broken"))]) {
+            const { discovery } = fixture(Promise.resolve([]), host);
+            await expect(discovery.discoverPreferredTransport()).resolves.toEqual({
+                type: "livekit",
+                livekit_service_url: "https://configured",
+            });
         }
     });
 

@@ -228,7 +228,7 @@ index 0000000000..9e4d0a04ee
 +    };
 +}
 diff --git a/dist/element-call.js b/dist/element-call.js
-index e597a18..f829ebc 100644
+index e597a18..3b698af 100644
 --- a/dist/element-call.js
 +++ b/dist/element-call.js
 @@ -1,3 +1,4 @@
@@ -294,7 +294,32 @@ index e597a18..f829ebc 100644
  	}), {
  		startTracks: D,
  		requestJoinAndPublish: k,
-@@ -42511,7 +42554,8 @@ var O4 = class {
+@@ -42497,6 +42540,11 @@ function D4(e, t, n, { encryptMedia: r, matrixRTCMode: i, delayedLeaveTimings: a
+ }
+ //#endregion
+ //#region src/state/CallViewModel/localMember/RtcTransportAutoDiscovery.ts
++// Aether: the call service of the account that is joining, when its homeserver does not list transports itself.
++let aetherCallServiceUrl = null;
++function aetherSetCallServiceUrl(e) {
++	aetherCallServiceUrl = e;
++}
+ var O4 = class {
+ 	constructor({ client: e, resolvedConfig: t, logger: n }) {
+ 		this.client = e, this.resolvedConfig = t, this.logger = n.getChild("[RtcTransportAutoDiscovery]");
+@@ -42504,6 +42552,12 @@ var O4 = class {
+ 	async discoverPreferredTransport() {
+ 		let e = await this.tryBackendTransports();
+ 		if (e) return this.logger.info(`Found backend transport: ${e.livekit_service_url}`), e;
++		// Aether: the host knows the joining account's call services, where configuration only knows the first one.
++		let n = await aetherCallServiceUrl?.(this.client)?.catch(() => void 0);
++		if (n) return this.logger.info(`Found host transport: ${n}`), {
++			type: "livekit",
++			livekit_service_url: n
++		};
+ 		let t = this.tryConfigTransport();
+ 		return t ? (this.logger.info(`Found app config transport: ${t.livekit_service_url}`), t) : null;
+ 	}
+@@ -42511,7 +42565,8 @@ var O4 = class {
  		let e = this.client;
  		this.logger.info("First try to use getRTCTransports end point ...");
  		try {
@@ -304,7 +329,7 @@ index e597a18..f829ebc 100644
  			if (n) return n;
  			this.logger.info("No livekit transport found in getRTCTransports end point", t);
  		} catch (e) {
-@@ -42634,6 +42678,33 @@ function H4() {
+@@ -42634,6 +42689,33 @@ function H4() {
  }
  //#endregion
  //#region src/state/CallViewModel/remoteMembers/ConnectionFactory.ts
@@ -338,7 +363,7 @@ index e597a18..f829ebc 100644
  var U4 = class {
  	constructor(e, t, n, r, i, a, o) {
  		this.client = e, this.roomId = t, this.devices = n, this.processorState$ = r, this.controlledAudioDevices = a;
-@@ -42647,7 +42718,11 @@ var U4 = class {
+@@ -42647,7 +42729,11 @@ var U4 = class {
  				},
  				controlledAudioDevices: this.controlledAudioDevices
  			});
@@ -351,7 +376,7 @@ index e597a18..f829ebc 100644
  		};
  		this.livekitRoomFactory = o ?? s;
  	}
-@@ -42699,7 +42774,7 @@ function W4({ devices: e, processorState: t, e2eeLivekitOptions: n, controlledAu
+@@ -42699,7 +42785,7 @@ function W4({ devices: e, processorState: t, e2eeLivekitOptions: n, controlledAu
  			autoGainControl: b.getValue()
  		},
  		audioOutput: { deviceId: r ? void 0 : e.audioOutput.selected$.value?.id },
@@ -360,7 +385,7 @@ index e597a18..f829ebc 100644
  	};
  }
  //#endregion
-@@ -42895,7 +42970,8 @@ var c3 = class {
+@@ -42895,7 +42981,8 @@ var c3 = class {
  	constructor(e, t, n, r, i, a) {
  		this.connection = e, this.muteStates = n, this.logger = i, this.shouldPublish = !1, this.scope = new yL();
  		let o = e.livekitRoom;
@@ -370,7 +395,7 @@ index e597a18..f829ebc 100644
  			this.logger.error("Failed to set E2EE enabled on room", e);
  		}), this.observeTrackProcessors(this.scope, o, r), this.observeMediaDevices(this.scope, t, a), this.workaroundRestartAudioInputTrackChrome(t, this.scope), this.connection.livekitRoom.localParticipant.on(J.LocalTrackPublished, this.onLocalTrackPublished.bind(this));
  	}
-@@ -43118,6 +43194,368 @@ function _3(e, t) {
+@@ -43118,6 +43205,368 @@ function _3(e, t) {
  }
  //#endregion
  //#region src/state/media/UserMediaViewModel.ts
@@ -739,7 +764,7 @@ index e597a18..f829ebc 100644
  function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType: i, ...a }) {
  	let { participant$: o } = a, s = e.behavior(o.pipe(wA((e) => (e && aL(e)) ?? Ck(void 0)))), c = new He(), l = new Rt(NaN), u = (e, t) => e.behavior(Lk([o, Et.value$]).pipe(wA(([e, n]) => e && n ? p3(e, t, i) : Ck(void 0))));
  	return {
-@@ -43127,6 +43565,7 @@ function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType:
+@@ -43127,6 +43576,7 @@ function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType:
  			videoSource: Z.Source.Camera
  		}),
  		type: "user",
@@ -747,7 +772,7 @@ index e597a18..f829ebc 100644
  		speaking$: e.behavior(o.pipe(wA((e) => e ? iL(e, J.IsSpeakingChanged).pipe(F((e) => e.isSpeaking)) : Ck(!1)))),
  		audioEnabled$: e.behavior(s.pipe(F((e) => e?.microphoneTrack?.isMuted === !1))),
  		videoEnabled$: e.behavior(s.pipe(F((e) => e?.cameraTrack?.isMuted === !1))),
-@@ -43153,7 +43592,7 @@ function y3(e, { mediaDevices: t, ...n }) {
+@@ -43153,7 +43603,7 @@ function y3(e, { mediaDevices: t, ...n }) {
  	return {
  		...r,
  		local: !0,
@@ -756,7 +781,7 @@ index e597a18..f829ebc 100644
  		alwaysShow$: se.value$,
  		setAlwaysShow: se.setValue,
  		switchCamera$: e.behavior(Wt === "desktop" ? Ck(null) : i.pipe(F((e) => {
-@@ -43209,7 +43648,7 @@ function x3(e, { pretendToBeDisconnected$: t, ...n }) {
+@@ -43209,7 +43659,7 @@ function x3(e, { pretendToBeDisconnected$: t, ...n }) {
  		...r,
  		...b3(e, {
  			pretendToBeDisconnected$: t,
@@ -765,7 +790,7 @@ index e597a18..f829ebc 100644
  		}),
  		local: !1,
  		speaking$: e.behavior(t.pipe(wA((e) => e ? Ck(!1) : r.speaking$))),
-@@ -43234,6 +43673,7 @@ function S3(e, t) {
+@@ -43234,6 +43684,7 @@ function S3(e, t) {
  function C3(e, t) {
  	return {
  		...S3(e, t),
@@ -773,7 +798,7 @@ index e597a18..f829ebc 100644
  		local: !0
  	};
  }
-@@ -43244,7 +43684,7 @@ function w3(e, { pretendToBeDisconnected$: t, ...n }) {
+@@ -43244,7 +43695,7 @@ function w3(e, { pretendToBeDisconnected$: t, ...n }) {
  		...S3(e, n),
  		...b3(e, {
  			pretendToBeDisconnected$: t,
@@ -782,7 +807,7 @@ index e597a18..f829ebc 100644
  		}),
  		local: !1,
  		videoEnabled$: e.behavior(t.pipe(F((e) => !e))),
-@@ -43611,7 +44051,110 @@ function k3(e, t, n, r, i, a, o, s, c) {
+@@ -43611,7 +44062,110 @@ function k3(e, t, n, r, i, a, o, s, c) {
  		let t = {};
  		return e instanceof hX ? { transportError: e } : e === C4.Waiting ? null : (e.matrix instanceof hX && (t.matrixError = e.matrix), e.media instanceof hX ? t.publishError = e.media : typeof e.media == "object" && e.media.connection instanceof hX && (t.connectionError = e.media.connection), t);
  	})), null);
@@ -893,7 +918,7 @@ index e597a18..f829ebc 100644
  		autoLeave$: ie,
  		ringingVm$: de,
  		ringingStatusLocation: h === Ut.AppBar ? "app_bar" : "tile",
-@@ -45955,7 +46498,7 @@ var k5 = (e) => {
+@@ -45955,7 +46509,7 @@ var k5 = (e) => {
  		n
  	], t[30] = u, t[31] = e.client, t[32] = e.e2eeSystem, t[33] = e.matrixRoom, t[34] = e.muteStates, t[35] = e.onLeft, t[36] = e.rtcSession, t[37] = d, t[38] = c, t[39] = n, t[40] = g) : g = t[40], z(h, g), n === null || i === null || o === null) return null;
  	let _;
@@ -902,7 +927,7 @@ index e597a18..f829ebc 100644
  		...e,
  		vm: n,
  		footerVm: i,
-@@ -45967,6 +46510,300 @@ var k5 = (e) => {
+@@ -45967,6 +46521,300 @@ var k5 = (e) => {
  		rtcSession: e.rtcSession,
  		children: _
  	}), t[46] = e.rtcSession, t[47] = _, t[48] = n, t[49] = v) : v = t[49], v;
@@ -1203,7 +1228,7 @@ index e597a18..f829ebc 100644
  }, A5 = ({ client: e, vm: t, footerVm: n, developerSettingsVm: r, matrixInfo: i, matrixRoom: a, muteStates: o, onShareClick: s }) => {
  	let c = V.getChild("[InCallView]"), { t: l } = Je(), u = pe(), { sendReaction: d, toggleRaisedHand: f } = rZ();
  	N2();
-@@ -47656,6 +48493,8 @@ var L5 = /* @__PURE__ */ c(((e, t) => {
+@@ -47656,6 +48504,8 @@ var L5 = /* @__PURE__ */ c(((e, t) => {
  	}) }), t[23] = n.localisedTitle, t[24] = a, t[25] = c, t[26] = u, t[27] = d, t[28] = f, t[29] = p) : p = t[29], p;
  }, v7 = (e) => {
  	let t = I(8), { recoveryActionHandler: n, onError: r, children: i } = e, a;
@@ -1212,7 +1237,7 @@ index e597a18..f829ebc 100644
  	t[0] === n ? a = t[1] : (a = (e) => {
  		let { error: t, resetError: r } = e, i = t instanceof hX ? t : new xX(t instanceof Error ? t : /* @__PURE__ */ Error());
  		return /* @__PURE__ */ H(_7, {
-@@ -47874,8 +48713,8 @@ var T7 = (e) => {
+@@ -47874,8 +48724,8 @@ var T7 = (e) => {
  		s
  	]);
  	let [ee, te] = B(!1), ne = st(), M = nn((e) => {
@@ -1223,7 +1248,7 @@ index e597a18..f829ebc 100644
  			case "allOthersLeft":
  				r = g.current?.playSound("left", 0);
  				break;
-@@ -47925,7 +48764,8 @@ var T7 = (e) => {
+@@ -47925,7 +48775,8 @@ var T7 = (e) => {
  		a
  	]);
  	let ie = F5(_), [ae, oe] = B(!1), se = nn(() => oe(!1), [oe]), ce = nn(() => oe(!0), [oe]), le = ie === Hn.Public ? ce : null;
@@ -1233,7 +1258,7 @@ index e597a18..f829ebc 100644
  	let ue = /* @__PURE__ */ H(g7, {
  		room: _,
  		open: ae,
-@@ -47940,9 +48780,26 @@ var T7 = (e) => {
+@@ -47940,9 +48791,26 @@ var T7 = (e) => {
  		participantCount: D,
  		onShareClick: le
  	})] }), fe;
@@ -1261,7 +1286,7 @@ index e597a18..f829ebc 100644
  		client: e,
  		matrixInfo: E,
  		rtcSession: a,
-@@ -47950,6 +48807,7 @@ var T7 = (e) => {
+@@ -47950,6 +48818,7 @@ var T7 = (e) => {
  		onLeft: M,
  		muteStates: c,
  		e2eeSystem: T,
@@ -1269,7 +1294,7 @@ index e597a18..f829ebc 100644
  		onShareClick: le
  	})] }) : ee && !m ? t || tt.instance.isEnabled() ? /* @__PURE__ */ H(sQ, {
  		endedCallId: a.room.roomId,
-@@ -47964,7 +48822,10 @@ var T7 = (e) => {
+@@ -47964,7 +48833,10 @@ var T7 = (e) => {
  			}));
  		},
  		onError: (e) => {
@@ -1281,7 +1306,7 @@ index e597a18..f829ebc 100644
  		},
  		children: fe
  	});
-@@ -48021,7 +48882,9 @@ function j7(e, t, n) {
+@@ -48021,7 +48893,9 @@ function j7(e, t, n) {
  		themeChange$: new FO(1),
  		join$: new He(),
  		hangUp$: new He(),
@@ -1292,7 +1317,7 @@ index e597a18..f829ebc 100644
  	}));
  	z(() => {
  		n !== void 0 && i.themeChange$.next({
-@@ -48045,6 +48908,28 @@ function j7(e, t, n) {
+@@ -48045,6 +48919,28 @@ function j7(e, t, n) {
  		notifyDeviceMute: async (e) => {
  			await r.current.notifyDeviceMute?.(e);
  		},
@@ -1321,7 +1346,7 @@ index e597a18..f829ebc 100644
  		get close() {
  			let e = r.current.close;
  			return e === void 0 ? void 0 : async () => await e();
-@@ -48061,7 +48946,20 @@ function j7(e, t, n) {
+@@ -48061,7 +48957,20 @@ function j7(e, t, n) {
  	return on(t, () => ({
  		join: async (e) => await A7(i.join$, "join a call", e),
  		hangUp: async () => await A7(i.hangUp$, "hang up", {}),
@@ -1343,7 +1368,7 @@ index e597a18..f829ebc 100644
  	}), [i]), a;
  }
  //#endregion
-@@ -48173,7 +49071,7 @@ var I7 = (e) => {
+@@ -48173,7 +49082,7 @@ var I7 = (e) => {
  		children: /* @__PURE__ */ H(dt, {
  			value: m,
  			children: /* @__PURE__ */ H(oo, {
@@ -1352,6 +1377,15 @@ index e597a18..f829ebc 100644
  				onError: () => void d.setAlwaysOnScreen(!1),
  				children: /* @__PURE__ */ H(I7, { children: /* @__PURE__ */ H(zn, { children: /* @__PURE__ */ H(Mt, {
  					client: n,
+@@ -48219,6 +49128,6 @@ function z7(e) {
+ 	return /* @__PURE__ */ H(S, { error: e });
+ }
+ //#endregion
+-export { Kt as BackgroundStyle, L7 as ElementCall, Ut as HeaderStyle, Gt as UserIntent, Ht as configurationForIntent, F7 as initializeElementCall, N7 as supportedLanguages };
++export { Kt as BackgroundStyle, L7 as ElementCall, Ut as HeaderStyle, Gt as UserIntent, Ht as configurationForIntent, F7 as initializeElementCall, aetherSetCallServiceUrl as setElementCallServiceUrl, N7 as supportedLanguages };
+ 
+ //# sourceMappingURL=element-call.js.map
+\ No newline at end of file
 diff --git a/dist/types/component/api.d.ts b/dist/types/component/api.d.ts
 index 313605238c..a93d113490 100644
 --- a/dist/types/component/api.d.ts
@@ -1468,6 +1502,27 @@ index 0d9ec1bba7..e275b6c522 100644
  }
  /**
   * The {@link HostBridge} the rest of Element Call sees, built from what a
+diff --git a/dist/types/component/index.d.ts b/dist/types/component/index.d.ts
+index 31d5f31..dc70169 100644
+--- a/dist/types/component/index.d.ts
++++ b/dist/types/component/index.d.ts
+@@ -11,6 +11,7 @@
+  */
+ import "../src/base.css";
+ import { type FC } from "react";
++import type { MatrixClient } from "matrix-js-sdk";
+ import { type ConfigOptions } from "../src/config/ConfigOptions";
+ import { type ElementCallProps } from "./api";
+ export { supportedLanguages } from "./localization";
+@@ -23,3 +24,8 @@ export * from "./api";
+  */
+ export declare function initializeElementCall(config?: ConfigOptions): Promise<void>;
+ export declare const ElementCall: FC<ElementCallProps>;
++/**
++ * Lets the host name the call service of the account that is joining, used when its homeserver does not list
++ * transports itself and before any configured one, so a window that signed in to several accounts uses the right one.
++ */
++export declare function setElementCallServiceUrl(provider: ((client: MatrixClient) => Promise<string | undefined>) | null): void;
 diff --git a/dist/types/src/HostBridge.d.ts b/dist/types/src/HostBridge.d.ts
 index b95e092b28..4c668bf803 100644
 --- a/dist/types/src/HostBridge.d.ts
