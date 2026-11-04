@@ -125,6 +125,61 @@ diff --git a/src/sync.ts b/src/sync.ts
              this.syncOpts.logger.debug("Got push rules");
  
              this.client.pushRules = result;
+@@ -853,10 +859,10 @@
+             this.syncOpts.logger.error("Error processing cached sync", e);
+         }
+ 
+-        // Don't emit a prepared if we've bailed because the store is invalid:
++        // Don't emit a prepared after stopping or if we've bailed because the store is invalid:
+         // in this case the client will not be usable until stopped & restarted
+         // so this would be useless and misleading.
+-        if (!this.storeIsInvalid) {
++        if (this.running && !this.storeIsInvalid) {
+             this.updateSyncState(SyncState.Prepared, syncEventData);
+         }
+     }
+@@ -1267,9 +1273,30 @@
+             }),
+         );
+ 
+-        // Handle joins
++        // Yield between cached room starts without serializing their asynchronous crypto and injection work.
++        let batchStart = Promise.resolve();
+         await Promise.all(
+-            joinRooms.map(async (joinObj) => {
++            joinRooms.map(async (joinObj, index) => {
++                if (syncEventData.fromCache) {
++                    if (index > 0 && index % 8 === 0) {
++                        batchStart = batchStart.then(() => {
++                            if (!this.running) return;
++                            // Posted messages yield without the delay imposed on nested timers.
++                            return new Promise<void>((resolve) => {
++                                const { port1, port2 } = new MessageChannel();
++                                port1.onmessage = () => {
++                                    port1.close();
++                                    port2.close();
++                                    resolve();
++                                };
++                                port2.postMessage(null);
++                            });
++                        });
++                    }
++                    await batchStart;
++                    if (!this.running) return;
++                }
++
+                 const room = joinObj.room;
+                 const stateEvents = this.mapSyncEventsFormat(joinObj.state, room);
+                 const stateAfterEvents = this.mapSyncEventsFormat(joinObj["org.matrix.msc4222.state_after"], room);
+@@ -1520,6 +1547,8 @@
+                 room.decryptCriticalEvents();
+             }),
+         );
++
++        if (syncEventData.fromCache && !this.running) return;
+ 
+         // Handle leaves (e.g. kicked rooms)
+         await Promise.all(
 diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 --- a/src/sliding-sync-sdk.ts
 +++ b/src/sliding-sync-sdk.ts
