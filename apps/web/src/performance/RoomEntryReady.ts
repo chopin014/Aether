@@ -63,6 +63,8 @@ export function deferRoomEntryWork(client: MatrixClient, roomId: string | undefi
     const start = (): void => {
         // Queue a task so a paint notification never imports a large roster synchronously.
         task = setTimeout(() => {
+            // A Room the SDK created after the work was scheduled is the destination, not a replacement.
+            entry.room ??= client.getRoom(roomId);
             if (client.getRoom(roomId) === entry.room) work();
         }, 0);
     };

@@ -151,6 +151,17 @@ describe("RoomEntryReady", () => {
         expect(work).toHaveBeenCalledOnce();
     });
 
+    it("runs work the deadline releases after the SDK creates the destination Room", () => {
+        let room: Room | null = null;
+        const client = { getRoom: () => room } as unknown as MatrixClient;
+        const work = vi.fn();
+        deferRoomEntryWork(client, roomId, work);
+        room = {} as Room;
+        vi.advanceTimersByTime(3000);
+        vi.runAllTimers();
+        expect(work).toHaveBeenCalledOnce();
+    });
+
     it("drops released work if the SDK replaces its Room before the task runs", () => {
         const { client, replace } = fixture();
         const work = vi.fn();
