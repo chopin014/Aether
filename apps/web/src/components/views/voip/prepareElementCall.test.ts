@@ -116,6 +116,36 @@ describe("prepareElementCall", () => {
         expect(DesktopVoicePipeline.instance.prepare).toHaveBeenCalledOnce();
     });
 
+    it("starts automatic preparation once by a deadline when the scheduler never releases it", async () => {
+        let release: (() => void) | undefined;
+        const cancel = prepareElementCall((start) => {
+            release = start;
+            return vi.fn();
+        });
+        await vi.advanceTimersByTimeAsync(29_999);
+        expect(loadElementCallComponent).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1 + 1000);
+        expect(loadElementCallComponent).toHaveBeenCalledOnce();
+        // A release arriving later does not prepare a second time.
+        release?.();
+        await vi.runAllTimersAsync();
+        expect(loadElementCallComponent).toHaveBeenCalledOnce();
+        window.dispatchEvent(new Event("focus"));
+        expect(DesktopVoicePipeline.instance.prepare).toHaveBeenCalledTimes(2);
+        cancel();
+    });
+
+    it("arms no deadline when the scheduler releases preparation at once", async () => {
+        const cancel = prepareElementCall((start) => {
+            start();
+            return vi.fn();
+        });
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(loadElementCallComponent).toHaveBeenCalledOnce();
+        expect(vi.getTimerCount()).toBe(0);
+        cancel();
+    });
+
     it("ignores a late paint callback after logout", async () => {
         let release: (() => void) | undefined;
         const cancelWait = vi.fn();
