@@ -6,8 +6,10 @@ Please see LICENSE in the repository root for full details.
 */
 
 import { logger } from "matrix-js-sdk/src/logger";
+import { type MatrixClient } from "matrix-js-sdk/src/matrix";
 
 import { loadElementCallComponent } from "./ElementCallLoader";
+import { getCallOpenIdToken } from "./ElementCallOpenIdToken";
 import { DesktopVoicePipeline } from "../../../audio/desktop/DesktopVoicePipeline";
 import { preloadDesktopVoiceSounds } from "../../../audio/DesktopVoiceSounds";
 
@@ -27,11 +29,12 @@ export function prepareCallSoon(): void {
 }
 
 /**
- * Prepare a desktop call during idle time, with cancellation on logout and no microphone capture.
+ * Prepare a desktop call during idle time, with cancellation on logout and no microphone capture. The account's call
+ * OpenID token is fetched too, so joining only waits for the call service.
  * An optional scheduler holds automatic preparation, including re-preparation when the window regains focus, until
  * the scheduler releases it. Explicit voice intent through {@link prepareCallSoon} stays immediate.
  */
-export function prepareElementCall(schedule?: (start: () => void) => () => void): () => void {
+export function prepareElementCall(client: MatrixClient, schedule?: (start: () => void) => () => void): () => void {
     let disposed = false;
     let pipeline: DesktopVoicePipeline | undefined;
     const prepare = (): void => {
@@ -40,6 +43,9 @@ export function prepareElementCall(schedule?: (start: () => void) => () => void)
             logger.debug("Could not prepare Element Call", error),
         );
         preloadDesktopVoiceSounds();
+        void getCallOpenIdToken(client).catch((error: unknown) =>
+            logger.debug("Could not prepare a call OpenID token", error),
+        );
         try {
             pipeline = DesktopVoicePipeline.instance;
             pipeline.prepare();

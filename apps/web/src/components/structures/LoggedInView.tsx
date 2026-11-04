@@ -166,7 +166,7 @@ class LoggedInView extends React.Component<IProps, IState> {
                 SettingsStore.getValue("feature_element_call_react") &&
                 !SettingsStore.getValue("Developer.elementCallMockComponent")
             ) {
-                this.cancelCallPreparation = prepareElementCall((start) => {
+                this.cancelCallPreparation = prepareElementCall(this._matrixClient, (start) => {
                     this.pendingCallIdle = start;
                     this.scheduleCallIdle();
                     return () => {
