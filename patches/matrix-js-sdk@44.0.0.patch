@@ -245,3 +245,46 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  currentPos = resp.pos;
                  // update what we think we're subscribed to.
                  for (const roomId of newSubscriptions) {
+diff --git a/src/http-api/logging.ts b/src/http-api/logging.ts
+--- a/src/http-api/logging.ts
++++ b/src/http-api/logging.ts
+@@ -16,7 +16,7 @@
+ 
+ /**
+  * Produce a version of the given URL which is safe to write to logs, by redacting the values of any query parameters,
+- * as they may contain secrets.
++ * as they may contain secrets, and delayed event IDs, which let anyone holding them restart, cancel or send the event.
+  *
+  * @internal
+  * @param url - the URL to sanitize.
+@@ -38,7 +38,8 @@
+         const sanitizedQsString = sanitizedQs.toString();
+         const sanitizedQsUrlPiece = sanitizedQsString ? `?${sanitizedQsString}` : "";
+ 
+-        return asUrl.origin + asUrl.pathname + sanitizedQsUrlPiece;
++        const sanitizedPath = asUrl.pathname.replace(/(\/delayed_events\/)[^/]+/g, "$1xxx");
++        return asUrl.origin + sanitizedPath + sanitizedQsUrlPiece;
+     } catch {
+         // defensive coding for malformed url
+         return "??";
+diff --git a/src/http-api/errors.ts b/src/http-api/errors.ts
+--- a/src/http-api/errors.ts
++++ b/src/http-api/errors.ts
+@@ -20,6 +20,7 @@
+ import { type MatrixEvent } from "../models/event.ts";
+ import { NamespacedValue } from "../NamespacedValue.ts";
+ import { hasRequiredStringProperty, isRecord } from "../@types/type-guards.ts";
++import { sanitizeUrlForLogs } from "./logging.ts";
+ 
+ interface IErrorJson extends Partial<IUsageLimit> {
+     [key: string]: any; // extensible
+@@ -123,7 +124,8 @@
+             message = `[${httpStatus}] ${message}`;
+         }
+         if (url) {
+-            message = `${message} (${url})`;
++            // Error messages end up in logs, so the URL in them is sanitized like any other logged URL.
++            message = `${message} (${sanitizeUrlForLogs(url)})`;
+         }
+         super(`MatrixError: ${message}`, httpStatus, httpHeaders);
+         this.errcode = errorJson.errcode;
