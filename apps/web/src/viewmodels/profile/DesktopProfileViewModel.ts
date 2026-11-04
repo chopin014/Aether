@@ -84,8 +84,11 @@ export interface DesktopProfileViewModelProps {
     isRoomViewed: boolean;
     /** Load the extra facts only the full profile shows. */
     full: boolean;
-    /** An already loaded image of the person's avatar, shown while the larger one loads. */
-    avatarPreviewUrl?: string;
+    /**
+     * Images already loaded where the person was clicked. One showing their current avatar is shown while the larger
+     * one loads; the others, such as a nameplate or an older avatar, are ignored.
+     */
+    avatarPreviewUrls?: string[];
     onClose(this: void): void;
     onOpenFull(this: void): void;
 }
@@ -201,7 +204,7 @@ export class DesktopProfileViewModel
             userId,
             displayName: name,
             avatarUrl: mxc ? (mediaFromMxc(mxc).getThumbnailOfSourceHttp(160, 160, "crop") ?? undefined) : undefined,
-            avatarPreviewUrl: mxc ? props.avatarPreviewUrl : undefined,
+            avatarPreviewUrl: mxc ? props.avatarPreviewUrls?.find((url) => showsMedia(url, mxc)) : undefined,
             presence:
                 presence === "online" || presence === "unavailable" || presence === "offline" ? presence : undefined,
             roles: DesktopProfileViewModel.roles(props, userId, member),
@@ -449,6 +452,24 @@ export class DesktopProfileViewModel
         });
         this.props.onClose();
     };
+}
+
+/** Whether a media web address downloads or thumbnails the given `mxc://` content, on any media API version. */
+function showsMedia(url: string, mxc: string): boolean {
+    const content = /^mxc:\/\/([^/]+)\/([^/?#]+)$/.exec(mxc);
+    if (!content) return false;
+    let segments: string[];
+    try {
+        segments = new URL(url).pathname.split("/").map(decodeURIComponent);
+    } catch {
+        return false;
+    }
+    return segments.some(
+        (segment, index) =>
+            (segment === "thumbnail" || segment === "download") &&
+            segments[index + 1] === content[1] &&
+            segments[index + 2] === content[2],
+    );
 }
 
 function roomItem(room: Room): DesktopProfileMutualItem {

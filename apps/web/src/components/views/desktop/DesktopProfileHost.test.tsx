@@ -114,6 +114,27 @@ describe("DesktopProfileHost", () => {
         expect(avatar?.getAttribute("src")).toBe(image.src);
     });
 
+    it("previews the avatar rather than another image loaded before it in the clicked element", async () => {
+        holdImageLoads();
+        member.getMxcAvatarUrl = () => "mxc://example.org/robin";
+        render(<Fixture />);
+        const trigger = screen.getByRole("button", { name: "Open Robin" });
+        const loaded = (src: string): HTMLImageElement => {
+            const image = document.createElement("img");
+            image.src = src;
+            Object.defineProperty(image, "complete", { value: true });
+            Object.defineProperty(image, "naturalWidth", { value: 30 });
+            return image;
+        };
+        const nameplate = loaded("https://example.org/_matrix/media/v3/download/example.org/nameplate");
+        const avatar = loaded("https://example.org/_matrix/media/v3/thumbnail/example.org/robin?width=30&height=30");
+        trigger.append(nameplate, avatar);
+        await userEvent.click(avatar);
+        await screen.findByRole("dialog", { name: "Profile" });
+        const shown = document.querySelector<HTMLImageElement>("[role=dialog] img");
+        expect(shown?.getAttribute("src")).toBe(avatar.src);
+    });
+
     it("ignores an image in the clicked element that has not loaded", async () => {
         holdImageLoads();
         member.getMxcAvatarUrl = () => "mxc://example.org/robin";

@@ -31,8 +31,8 @@ const INTERACTIVE = "button, a, [role='button'], [role='option'], [tabindex]";
 interface Request {
     member: RoomMember | User;
     anchor: HTMLElement;
-    /** The avatar already shown where the person was clicked, which the card can show while its larger one loads. */
-    avatarPreviewUrl?: string;
+    /** Images already loaded where the person was clicked; the card shows the one of their avatar while its own loads. */
+    avatarPreviewUrls?: string[];
     room?: Room;
     roleSpace: Room | null;
     isRoomViewed: boolean;
@@ -60,12 +60,13 @@ function useProfileContext(): (member: RoomMember | User) => Omit<Request, "memb
     );
 }
 
-/** The URL of an avatar image that has already loaded inside the clicked element, if there is one. */
-function loadedAvatarUrl(anchor: HTMLElement): string | undefined {
-    const image = anchor instanceof HTMLImageElement ? anchor : anchor.querySelector("img");
-    if (!image?.complete || !image.naturalWidth) return undefined;
-    const url = image.currentSrc || image.src;
-    return /^(https?|blob):/.test(url) ? url : undefined;
+/** The web addresses of images that have already loaded in the clicked element, such as the person's avatar. */
+function loadedImageUrls(anchor: HTMLElement): string[] {
+    const images = anchor instanceof HTMLImageElement ? [anchor] : [...anchor.querySelectorAll("img")];
+    return images
+        .filter((image) => image.complete && image.naturalWidth > 0)
+        .map((image) => image.currentSrc || image.src)
+        .filter((url) => /^https?:/.test(url));
 }
 
 function PopoutCard({
@@ -88,7 +89,7 @@ function PopoutCard({
                 roleSpace: request.roleSpace,
                 isRoomViewed: request.isRoomViewed,
                 rightPanelStore: sdk.rightPanelStore,
-                avatarPreviewUrl: request.avatarPreviewUrl,
+                avatarPreviewUrls: request.avatarPreviewUrls,
                 full: false,
                 onClose,
                 onOpenFull,
@@ -161,7 +162,7 @@ export function DesktopProfileHost(): JSX.Element | null {
                 setRequest(null);
                 return;
             }
-            setRequest({ member, anchor, avatarPreviewUrl: loadedAvatarUrl(anchor), ...context });
+            setRequest({ member, anchor, avatarPreviewUrls: loadedImageUrls(anchor), ...context });
         });
         return () => dis.unregister(ref);
     }, [resolveContext, openFull]);
