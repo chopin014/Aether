@@ -334,8 +334,11 @@ describe("useDesktopMemberListViewModel", () => {
             .spyOn(context.memberListStore, "loadMemberList")
             .mockImplementation((id, query) => (query === "Ada" ? pending.promise : original(id, query)));
         act(() => result.current.vm.search("Ada"));
-        await waitFor(() => expect(spy).toHaveBeenCalledWith("!channel:example.org", "Ada"));
+        await waitFor(() => expect(spy).toHaveBeenCalledWith("!channel:example.org", "Ada", expect.any(Function)));
+        const isCurrent = spy.mock.calls.find(([, query]) => query === "Ada")![2]!;
+        expect(isCurrent()).toBe(true);
         act(() => result.current.vm.search("Bob"));
+        expect(isCurrent()).toBe(false);
         await waitFor(() => expect(memberRows(result.current.items).map((row) => row.name)).toEqual(["Bob"]));
         await act(async () => pending.resolve(await original("!channel:example.org", "Ada")));
         expect(memberRows(result.current.items).map((row) => row.name)).toEqual(["Bob"]);
@@ -356,7 +359,10 @@ describe("useDesktopMemberListViewModel", () => {
         const spy = vi.spyOn(context.memberListStore, "loadMemberList").mockReturnValue(pending.promise);
         act(() => result.current.vm.search("Ada"));
         await waitFor(() => expect(spy).toHaveBeenCalled());
+        const isCurrent = spy.mock.calls[0][2]!;
+        expect(isCurrent()).toBe(true);
         unmount();
+        expect(isCurrent()).toBe(false);
         expect(spaceStore.listenerCount(UPDATE_SELECTED_SPACE)).toBe(0);
         expect(off).toHaveBeenCalledWith(UserEvent.Presence, expect.any(Function));
         await act(async () => pending.resolve({ joined: [], invited: [] }));
