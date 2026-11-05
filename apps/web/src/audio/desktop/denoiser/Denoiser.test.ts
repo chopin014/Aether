@@ -5,6 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
 
@@ -243,6 +244,22 @@ describe("Denoiser", { timeout: 30000 }, () => {
         const { output, speech: detected } = run(createDenoiser(), input);
         expect(detected.some(Boolean)).toBe(false);
         expect(levelDb(output)).toBeLessThan(levelDb(input) - 30);
+    });
+
+    it("produces exactly the reviewed audio and speech scores", () => {
+        // A speed-up of the inference engine or a rebuild must not change a single bit of the output. Update this
+        // digest only together with an intended change to the model or its processing.
+        const denoiser = createDenoiser();
+        const input = mix(speech, noise(speech.length, -30));
+        const output = new Float32Array(input.length);
+        const scores = new Float32Array(Math.floor(input.length / 128));
+        for (let block = 0; block < scores.length; block++) {
+            const range = [block * 128, block * 128 + 128] as const;
+            denoiser.process(input.subarray(...range), output.subarray(...range));
+            scores[block] = denoiser.speechSnrDb;
+        }
+        const digest = createHash("sha256").update(new Uint8Array(output.buffer)).update(new Uint8Array(scores.buffer));
+        expect(digest.digest("hex")).toBe("a543a11f09a058c75c65cede9c4c4968d3b45c494c8e7cdf46c194ccebae4ee2");
     });
 
     it("produces the same audio whatever block length the audio thread uses", () => {
