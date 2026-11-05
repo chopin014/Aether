@@ -112,7 +112,6 @@ describe("MicrophoneTest", () => {
             desktopSpeakerVolume: 40,
             desktopInputProfile: "custom",
             desktopNoiseSuppression: "standard",
-            desktopNoiseSuppressionStrength: 100,
             desktopVoiceDetection: true,
             desktopInputSensitivityAuto: false,
             desktopInputSensitivity: -40,
@@ -145,7 +144,6 @@ describe("MicrophoneTest", () => {
 
     it("lets you hear enhanced noise suppression and says when it stops working", async () => {
         values.desktopNoiseSuppression = "enhanced";
-        values.desktopNoiseSuppressionStrength = 70;
         const onDenoiserStatus = vi.fn();
         const test = new MicrophoneTest(vi.fn(), onDenoiserStatus);
         await test.start();
@@ -153,7 +151,7 @@ describe("MicrophoneTest", () => {
         expect(getUserMedia).toHaveBeenCalledWith({ audio: expect.objectContaining({ noiseSuppression: false }) });
         expect(nodeOptions?.processorOptions).toEqual(
             expect.objectContaining({
-                config: expect.objectContaining({ noiseSuppression: 70, voiceDetection: true, pushToTalk: false }),
+                config: expect.objectContaining({ noiseSuppression: 100, voiceDetection: true, pushToTalk: false }),
                 denoiserModule: { compiled: true },
             }),
         );

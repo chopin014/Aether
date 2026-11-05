@@ -72,7 +72,6 @@ const WATCHED_SETTINGS: SettingKey[] = [
     "desktopSpeakerVolume",
     "desktopInputProfile",
     "desktopNoiseSuppression",
-    "desktopNoiseSuppressionStrength",
     "desktopVoiceDetection",
     "desktopInputSensitivityAuto",
     "desktopInputSensitivity",
@@ -91,7 +90,6 @@ const RESET_SETTINGS = [
     ["desktopSpeakerVolume", SettingLevel.DEVICE],
     ["desktopInputProfile", SettingLevel.DEVICE],
     ["desktopNoiseSuppression", SettingLevel.DEVICE],
-    ["desktopNoiseSuppressionStrength", SettingLevel.DEVICE],
     ["desktopVoiceDetection", SettingLevel.DEVICE],
     ["desktopInputSensitivityAuto", SettingLevel.DEVICE],
     ["desktopInputSensitivity", SettingLevel.DEVICE],
@@ -148,7 +146,6 @@ export class DesktopVoiceVideoSettingsViewModel
             inputLevel: { level: null, open: false, threshold: null },
             inputProfile: "voice_isolation",
             noiseSuppression: "enhanced",
-            noiseSuppressionStrength: 100,
             voiceDetection: true,
             sensitivityAuto: true,
             sensitivity: -50,
@@ -236,8 +233,6 @@ export class DesktopVoiceVideoSettingsViewModel
             speakerVolume: SettingsStore.getValue("desktopSpeakerVolume"),
             inputProfile,
             noiseSuppression: preset.noiseSuppression ?? SettingsStore.getValue("desktopNoiseSuppression"),
-            noiseSuppressionStrength:
-                preset.noiseSuppressionStrength ?? SettingsStore.getValue("desktopNoiseSuppressionStrength"),
             voiceDetection: preset.voiceDetection ?? SettingsStore.getValue("desktopVoiceDetection"),
             sensitivityAuto: preset.sensitivityAuto ?? SettingsStore.getValue("desktopInputSensitivityAuto"),
             sensitivity: SettingsStore.getValue("desktopInputSensitivity"),
@@ -404,10 +399,6 @@ export class DesktopVoiceVideoSettingsViewModel
     public setNoiseSuppression = async (mode: DesktopNoiseSuppression): Promise<void> => {
         await this.leaveProfile();
         await this.setSetting("desktopNoiseSuppression", mode);
-    };
-    public setNoiseSuppressionStrength = async (percent: number): Promise<void> => {
-        await this.leaveProfile();
-        await this.setSetting("desktopNoiseSuppressionStrength", percent);
     };
     public setVoiceDetection = async (enabled: boolean): Promise<void> => {
         await this.leaveProfile();

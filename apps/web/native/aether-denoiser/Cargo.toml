@@ -14,10 +14,9 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-# The model is compiled into the module, so the worklet needs nothing else to start.
+# The model (model/, see its README) is compiled into the module, so the worklet needs nothing else to start.
 deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet.git", rev = "d375b2d8309e0935d165700c91da9de862a99c31", default-features = false, features = [
     "tract",
-    "default-model",
 ] }
 ndarray = "0.15"
 # Only hash map seeds need randomness here, and an audio worklet has no crypto API to provide it.

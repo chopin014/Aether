@@ -8,6 +8,7 @@ Please see LICENSE files in the repository root for full details.
 
 import { DesktopAccountDockContainer } from "../views/menus/UserMenuContainer";
 import { prepareElementCall } from "../views/voip/prepareElementCall";
+import { migrateToAns } from "../../audio/desktop/DesktopVoiceProfiles";
 import { deferRoomEntryWork, deferUntilAccountSync } from "../../performance/RoomEntryReady";
 import { DesktopProfileHost } from "../views/desktop/DesktopProfileHost";
 
@@ -26,6 +27,7 @@ import {
     ProfileKeyMSC4175Timezone,
 } from "matrix-js-sdk/src/matrix";
 import { type MatrixCall } from "matrix-js-sdk/src/webrtc/call";
+import { logger } from "matrix-js-sdk/src/logger";
 import classNames from "classnames";
 import { GroupView, SeparatorView, Panel, LeftResizablePanelView } from "@element-hq/web-shared-components";
 
@@ -162,6 +164,8 @@ class LoggedInView extends React.Component<IProps, IState> {
     public componentDidMount(): void {
         if (this.desktopShellEnabled) {
             document.body.classList.add("mx_DesktopShell");
+            // Device settings only; runs once per device and before any call prepares its microphone.
+            void migrateToAns().catch((error: unknown) => logger.warn("Could not move voice settings to ANS", error));
             if (
                 SettingsStore.getValue("feature_element_call_react") &&
                 !SettingsStore.getValue("Developer.elementCallMockComponent")

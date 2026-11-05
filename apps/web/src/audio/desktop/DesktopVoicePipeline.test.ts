@@ -27,7 +27,6 @@ const defaults: Record<string, unknown> = {
     "desktopSpeakerVolume": 100,
     "desktopInputProfile": "custom",
     "desktopNoiseSuppression": "none",
-    "desktopNoiseSuppressionStrength": 100,
     "desktopVoiceDetection": true,
     "desktopInputSensitivityAuto": true,
     "desktopInputSensitivity": -50,
@@ -81,7 +80,6 @@ describe("getMicrophoneGateConfig", () => {
     it("removes noise fully and only lets speech through in the voice isolation profile", () => {
         values.desktopInputProfile = "voice_isolation";
         values.desktopInputSensitivityAuto = false;
-        values.desktopNoiseSuppressionStrength = 20;
         values.desktopVoiceDetection = false;
         expect(getMicrophoneGateConfig()).toEqual({
             volume: 1,
@@ -93,11 +91,12 @@ describe("getMicrophoneGateConfig", () => {
         expect(getBrowserNoiseSuppression()).toBe(false);
     });
 
-    it("uses the chosen noise suppression in the custom profile", () => {
+    it("uses the chosen noise suppression in the custom profile, with ANS always at full strength", () => {
         values.desktopNoiseSuppression = "enhanced";
+        // A strength saved by an older version no longer weakens ANS.
         values.desktopNoiseSuppressionStrength = 60;
         expect(getMicrophoneGateConfig()).toEqual(
-            expect.objectContaining({ noiseSuppression: 60, voiceDetection: true }),
+            expect.objectContaining({ noiseSuppression: 100, voiceDetection: true }),
         );
         expect(getBrowserNoiseSuppression()).toBe(false);
 

@@ -26,8 +26,6 @@ import {
     GridIcon,
     SpotlightViewIcon,
     HeadphonesOffSolidIcon,
-    LockIcon,
-    LockOffIcon,
     MicOffIcon,
     MicOnIcon,
     OverflowHorizontalIcon,
@@ -55,6 +53,7 @@ import {
 import { useDominantColour } from "../DesktopProfileIdentity/DesktopProfileIdentity";
 import { useCallStageWindow } from "./useCallStageWindow";
 import { useCallTileMotion } from "./useCallTileMotion";
+import { useCallGridLayout } from "./useCallGridLayout";
 import styles from "./DesktopCallStageView.module.css";
 
 /** Lifecycle phase displayed by the stage. */
@@ -472,58 +471,6 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
         })),
     ];
 
-    const renderEncryptionStatusBadge = (
-        userId: string,
-        unencryptedWarning: boolean,
-        encryptionStatus: DesktopCallStageEncryptionStatus,
-    ): JSX.Element | null => {
-        // Unencrypted media is explained once above the stage instead of repeating an unexplained glyph.
-        if (unencryptedWarning) return null;
-        if (encryptionStatus === "key_missing") {
-            const label = _t("desktop|call_stage|encryption_key_missing");
-            return (
-                <span
-                    className={styles.statusIconBadge}
-                    data-tone="warning"
-                    data-testid={`encryption-badge-${userId}`}
-                    title={label}
-                    aria-label={label}
-                >
-                    <LockOffIcon />
-                </span>
-            );
-        }
-        if (encryptionStatus === "key_invalid" || encryptionStatus === "password_invalid") {
-            const label = _t("desktop|call_stage|encryption_key_invalid");
-            return (
-                <span
-                    className={styles.statusIconBadge}
-                    data-tone="critical"
-                    data-testid={`encryption-badge-${userId}`}
-                    title={label}
-                    aria-label={label}
-                >
-                    <ErrorIcon />
-                </span>
-            );
-        }
-        if (encryptionStatus === "connecting") {
-            const label = _t("desktop|call_stage|encryption_connecting");
-            return (
-                <span
-                    className={styles.statusIconBadge}
-                    data-tone="neutral"
-                    data-testid={`encryption-badge-${userId}`}
-                    title={label}
-                    aria-label={label}
-                >
-                    <LockIcon />
-                </span>
-            );
-        }
-        return null;
-    };
-
     const getTileTriggerRef = (tileId: string): RefObject<HTMLElement | null> => {
         let anchor = tileMenuAnchors.current.get(tileId);
         if (!anchor) {
@@ -763,9 +710,6 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                                 : tile.displayName}
                         </span>
                     </div>
-                    <div className={styles.statusIcons}>
-                        {renderEncryptionStatusBadge(tile.userId, tile.unencryptedWarning, tile.encryptionStatus)}
-                    </div>
                 </div>
             </div>
         );
@@ -945,11 +889,6 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                                         <HeadphonesOffSolidIcon />
                                     </span>
                                 )}
-                                {renderEncryptionStatusBadge(
-                                    tile.userId,
-                                    tile.unencryptedWarning,
-                                    tile.encryptionStatus,
-                                )}
                             </div>
                         </div>
                     </>
@@ -967,6 +906,11 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
         spotlightShare === null ? (allParticipants.find((p) => p.id === effectiveSpotlightId) ?? null) : null;
     const hasSpotlight =
         snapshot.layoutMode === "spotlight" && (spotlightShare !== null || spotlightParticipant !== null);
+
+    const soloChannel =
+        snapshot.presentation === "channel" && allParticipants.length === 1 && allScreenShares.length === 0;
+    const gridCount = allScreenShares.length + allParticipants.length + snapshot.callees.length + (soloChannel ? 1 : 0);
+    const gridRef = useCallGridLayout(gridCount);
 
     const stage = (
         <div
@@ -1148,16 +1092,9 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                 ) : (
                     <div
                         className={styles.grid}
-                        data-count={String(
-                            Math.min(4, allScreenShares.length + allParticipants.length + snapshot.callees.length),
-                        )}
-                        data-solo-channel={
-                            snapshot.presentation === "channel" &&
-                            allParticipants.length === 1 &&
-                            allScreenShares.length === 0
-                                ? "true"
-                                : undefined
-                        }
+                        ref={gridRef}
+                        data-count={gridCount}
+                        data-solo-channel={soloChannel ? "true" : undefined}
                     >
                         {allScreenShares.map((s) => renderScreenShareTile(s, false))}
                         {allParticipants.map((p) => renderParticipantTile(p, false))}
