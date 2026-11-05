@@ -5,6 +5,8 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
+import { RumbleFilter } from "./RumbleFilter";
+
 /** What `aether-denoiser.wasm` exports; see `apps/web/native/aether-denoiser`. */
 export interface DenoiserExports {
     memory: WebAssembly.Memory;
@@ -19,10 +21,11 @@ export interface DenoiserExports {
 export const DENOISER_SAMPLE_RATE = 48000;
 
 /**
- * A frame counts as speech when the model hears speech this far above the noise, in dB. Fans, typing and claps
- * on their own stay below it, while the quietest syllables of speech reach it.
+ * Allow speech when background noise is louder than the speaker, while rejecting brief noise transients.
+ * This is a local SNR estimate, not a calibrated probability that speech is present. The native denoiser
+ * separately runs its learned masks throughout the SNR range, so it does not hard-mute low-SNR speech.
  */
-const SPEECH_SNR_DB = -3;
+const SPEECH_SNR_DB = -8;
 /** Speech must last this many frames in a row (10 ms each), so a single loud frame cannot open the gate. */
 const SPEECH_ONSET_FRAMES = 2;
 /** Room for the incoming and outgoing samples. A frame plus the largest render block fits many times over. */
@@ -44,6 +47,7 @@ export class Denoiser {
     private readonly frameLength: number;
     private readonly inputPointer: number;
     private readonly outputPointer: number;
+    private readonly rumbleFilter = new RumbleFilter(DENOISER_SAMPLE_RATE);
     private memory?: ArrayBuffer;
     private inputFrame!: Float32Array;
     private outputFrame!: Float32Array;
@@ -88,7 +92,7 @@ export class Denoiser {
         this.pendingLength += input.length;
         while (this.pendingLength >= this.frameLength) this.processFrame();
         for (let i = 0; i < output.length; i++) {
-            output[i] = this.ready[(this.readyStart + i) % QUEUE_LENGTH];
+            output[i] = this.rumbleFilter.processSample(this.ready[(this.readyStart + i) % QUEUE_LENGTH]);
         }
         this.readyStart = (this.readyStart + output.length) % QUEUE_LENGTH;
         this.readyLength -= output.length;

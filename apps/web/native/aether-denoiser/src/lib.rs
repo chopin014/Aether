@@ -18,7 +18,11 @@ pub extern "C" fn denoiser_alloc(len: usize) -> *mut f32 {
 /// Loads the built-in model at 48 kHz, mono. Noise is reduced by at most `atten_lim_db`; 100 or more is unlimited.
 #[no_mangle]
 pub extern "C" fn denoiser_create(atten_lim_db: f32) -> *mut DfTract {
-    let params = RuntimeParams::default_with_ch(1).with_atten_lim(atten_lim_db);
+    // Apply both learned decoders throughout the model's [-15, 35] dB SNR range. The estimate
+    // can mistake noise for clean speech or hard-mute quiet syllables, bypassing useful learned output.
+    let params = RuntimeParams::default_with_ch(1)
+        .with_atten_lim(atten_lim_db)
+        .with_thresholds(-15., 35., 35.);
     let df = DfTract::new(DfParams::default(), &params).expect("could not load DeepFilterNet");
     Box::into_raw(Box::new(df))
 }

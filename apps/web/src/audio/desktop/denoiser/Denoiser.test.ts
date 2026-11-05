@@ -86,6 +86,53 @@ describe("attenuationLimitDb", () => {
     });
 });
 
+describe("Denoiser speech decisions", () => {
+    /** Isolates the SNR decision from inference so low-SNR speech and brief transients are repeatable. */
+    function withSnr(snr: number | number[]): Denoiser {
+        let pointer = 0;
+        return new Denoiser(
+            {
+                memory: new WebAssembly.Memory({ initial: 1 }),
+                denoiser_create: () => 1,
+                denoiser_alloc: (length) => {
+                    const allocated = pointer;
+                    pointer += length * Float32Array.BYTES_PER_ELEMENT;
+                    return allocated;
+                },
+                denoiser_frame_length: () => 480,
+                denoiser_set_atten_lim: () => {},
+                denoiser_process: () => (typeof snr === "number" ? snr : (snr.shift() ?? -15)),
+            },
+            100,
+        );
+    }
+
+    it.each([-8, -6, -3])("recognises sustained speech at %s dB local SNR", (snr) => {
+        const denoiser = withSnr(snr);
+        const frame = new Float32Array(480);
+        denoiser.process(frame, frame);
+        expect(denoiser.speechDetected).toBe(false);
+        denoiser.process(frame, frame);
+        expect(denoiser.speechDetected).toBe(true);
+    });
+
+    it.each([-8.1, -10, -15])("does not open for low-confidence frames at %s dB local SNR", (snr) => {
+        const denoiser = withSnr(snr);
+        const frame = new Float32Array(480);
+        for (let i = 0; i < 10; i++) denoiser.process(frame, frame);
+        expect(denoiser.speechDetected).toBe(false);
+    });
+
+    it("requires consecutive speech frames after an interruption", () => {
+        const denoiser = withSnr([-6, -6, -15, -6, -6]);
+        const frame = new Float32Array(480);
+        for (const detected of [false, true, false, false, true]) {
+            denoiser.process(frame, frame);
+            expect(denoiser.speechDetected).toBe(detected);
+        }
+    });
+});
+
 // Loading the model takes most of a second, longer when the whole suite shares the machine.
 describe("Denoiser", { timeout: 30000 }, () => {
     it("removes steady background noise", () => {
@@ -115,6 +162,38 @@ describe("Denoiser", { timeout: 30000 }, () => {
             (_, block) => levelDb(speech.subarray(block * 128, block * 128 + 128)) > levelDb(speech) - 6,
         );
         expect(duringSpeech.filter(Boolean).length / duringSpeech.length).toBeGreaterThan(0.9);
+    });
+
+    it("preserves quiet syllables when noise is louder than speech", () => {
+        const reference = new Float32Array(RATE + speech.length + RATE);
+        reference.set(speech, RATE);
+        const scale = 10 ** ((-38 - levelDb(reference)) / 20);
+        for (let i = 0; i < reference.length; i++) reference[i] *= scale;
+        const input = mix(reference, noise(reference.length, -28));
+        const { output } = run(createDenoiser(), input);
+        // The old native SNR cutoff replaced this syllable with exact silence despite audible speech.
+        // Include the model and queue delay when locating the syllable in the output.
+        const syllable = output.subarray(Math.round(1.34 * RATE), Math.round(1.44 * RATE));
+        expect(levelDb(syllable)).toBeGreaterThan(-70);
+    });
+
+    it("preserves speech as the SNR estimate crosses the clean-frame bypass thresholds", () => {
+        const reference = new Float32Array(RATE + speech.length + RATE);
+        reference.set(speech, RATE);
+        const scale = 10 ** ((-38 - levelDb(reference)) / 20);
+        for (let i = 0; i < reference.length; i++) reference[i] *= scale;
+        const { output } = run(createDenoiser(), mix(reference, noise(reference.length, -58)));
+        const delay = 0.04 * RATE;
+        let dot = 0;
+        let referencePower = 0;
+        let outputPower = 0;
+        for (let i = delay; i < output.length; i++) {
+            dot += output[i] * reference[i - delay];
+            referencePower += reference[i - delay] ** 2;
+            outputPower += output[i] ** 2;
+        }
+        // Bypassing the learned output damaged this otherwise easy, high-SNR utterance.
+        expect(dot / Math.sqrt(referencePower * outputPower)).toBeGreaterThan(0.97);
     });
 
     it("removes claps and does not take them for speech", () => {

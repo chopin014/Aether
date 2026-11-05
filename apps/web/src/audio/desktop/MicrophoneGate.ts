@@ -33,6 +33,8 @@ export const MIN_LEVEL_DB = -100;
 
 /** How long the gate stays open after the level last reached the threshold, so words do not end abruptly. */
 const HOLD_MS = 300;
+/** The SNR estimate can fall briefly during quiet syllables even while the denoiser preserves speech. */
+const VOICE_HOLD_MS = 500;
 /** How fast the gain follows the gate, so it opens and closes without clicking. */
 const OPEN_RAMP_MS = 3;
 const CLOSE_RAMP_MS = 25;
@@ -146,7 +148,8 @@ export class MicrophoneGate {
         if (this.config.pushToTalk) return this.pushToTalkActive;
         if (this._threshold === null) return true;
         const speech = !this.config.voiceDetection || speechDetected !== false;
-        if (speech && this._level >= this._threshold) this.holdLeftMs = HOLD_MS;
+        if (speech && this._level >= this._threshold)
+            this.holdLeftMs = this.config.voiceDetection && speechDetected !== undefined ? VOICE_HOLD_MS : HOLD_MS;
         else this.holdLeftMs = Math.max(0, this.holdLeftMs - durationMs);
         return this.holdLeftMs > 0;
     }
