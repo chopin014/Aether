@@ -5,11 +5,12 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { isBuiltin } from "node:module";
+import { AppImageUpdater } from "electron-updater/out/AppImageUpdater.js";
 import { ModuleKind, preProcessFile, transpileModule } from "typescript";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,6 +18,7 @@ import path from "node:path";
 
 import config from "../aether-builder.ts";
 import { validatePlatformArtifacts } from "../scripts/aether-release-validation.ts";
+import { installAetherAppImage } from "../scripts/install-aether-appimage.ts";
 
 async function writeValidPlatformArtifacts(
     directory: string,
@@ -41,6 +43,74 @@ async function writeValidPlatformArtifacts(
 }
 
 describe("Aether distribution identity", () => {
+    it.skipIf(process.platform !== "linux")(
+        "keeps the installed launcher working after an AppImage update",
+        async () => {
+            const home = await mkdtemp(path.join(tmpdir(), "aether install "));
+            const appImageEnvironment = process.env.APPIMAGE;
+            try {
+                const source = path.join(home, "Aether-0.1.6-linux-x86_64.AppImage");
+                await writeFile(source, '#!/bin/sh\nprintf "%s\\n" "old version" "$@"\n');
+                await installAetherAppImage(source, home);
+                const installed = path.join(home, ".local/opt/aether/Aether.AppImage");
+                const launcher = path.join(home, ".local/bin/aether");
+                const launch = (): ReturnType<typeof spawnSync> =>
+                    spawnSync(launcher, ["aether://example/room with spaces"], {
+                        env: { ...process.env, HOME: home, ELECTRON_RUN_AS_NODE: "1" },
+                        encoding: "utf8",
+                    });
+                expect(launch().stdout).toBe("old version\naether://example/room with spaces\n");
+                const desktopEntry = readFileSync(path.join(home, ".local/share/applications/aether.desktop"), "utf8");
+                expect(desktopEntry).toContain(`Exec="${launcher}" %U`);
+                expect(desktopEntry).not.toContain("0.1.6");
+
+                const update = path.join(home, "Aether-0.1.7-linux-x86_64.AppImage");
+                await writeFile(update, '#!/bin/sh\nprintf "%s\\n" "updated version" "$@"\n', { mode: 0o755 });
+                process.env.APPIMAGE = installed;
+                const filenameUpdated = vi.fn();
+                // Exercise electron-updater's real replacement logic without starting Electron or a download.
+                const result = Reflect.apply(
+                    Reflect.get(AppImageUpdater.prototype, "doInstall"),
+                    {
+                        installerPath: update,
+                        emit: filenameUpdated,
+                    },
+                    [{ isForceRunAfter: false }],
+                );
+                expect(result).toBe(true);
+                expect(filenameUpdated).not.toHaveBeenCalled();
+                expect(launch().stdout).toBe("updated version\naether://example/room with spaces\n");
+                expect(readFileSync(path.join(home, ".local/share/applications/aether.desktop"), "utf8")).toBe(
+                    desktopEntry,
+                );
+            } finally {
+                if (appImageEnvironment === undefined) delete process.env.APPIMAGE;
+                else process.env.APPIMAGE = appImageEnvironment;
+                await rm(home, { recursive: true, force: true });
+            }
+        },
+    );
+
+    it("preserves the installed AppImage if a replacement cannot be read", async () => {
+        const home = await mkdtemp(path.join(tmpdir(), "aether-install-"));
+        try {
+            const source = path.join(home, "download.AppImage");
+            await writeFile(source, "installed version");
+            await installAetherAppImage(source, home);
+            await expect(installAetherAppImage(path.join(home, "missing.AppImage"), home)).rejects.toThrow();
+            expect(readFileSync(path.join(home, ".local/opt/aether/Aether.AppImage"), "utf8")).toBe(
+                "installed version",
+            );
+            await writeFile(source, "reinstalled version");
+            await installAetherAppImage(source, home);
+            expect(readFileSync(path.join(home, ".local/opt/aether/Aether.AppImage"), "utf8")).toBe(
+                "reinstalled version",
+            );
+        } finally {
+            await rm(home, { recursive: true, force: true });
+        }
+    });
+
     it("ships the external runtime dependencies used during localization startup", () => {
         const source = readFileSync(new URL("./language-helper.ts", import.meta.url), "utf8");
         const { outputText } = transpileModule(source, { compilerOptions: { module: ModuleKind.ESNext } });
