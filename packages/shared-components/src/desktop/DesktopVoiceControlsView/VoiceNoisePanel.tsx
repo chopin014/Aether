@@ -11,14 +11,12 @@ import { Button, Text, ToggleInput } from "@vector-im/compound-web";
 import { useI18n } from "../../core/i18n/i18nContext";
 import { useViewModel } from "../../core/viewmodel";
 import { LevelMeter } from "../DesktopVoiceVideoSettingsView/LevelMeter";
-import { RangeSlider } from "../DesktopVoiceVideoSettingsView/RangeSlider";
 import { type DesktopVoiceControlsViewModel } from "./DesktopVoiceControlsView";
 import styles from "./DesktopVoiceControlsView.module.css";
 
 /** The quick noise controls share the call's settings and the settings page's processed microphone test. */
 export function VoiceNoisePanel({ vm }: { vm: DesktopVoiceControlsViewModel }): JSX.Element {
-    const { noiseSuppression, noiseSuppressionStrength, microphoneTest, noiseSuppressionProblem, busy } =
-        useViewModel(vm);
+    const { noiseSuppression, microphoneTest, noiseSuppressionProblem, busy } = useViewModel(vm);
     const { translate: _t } = useI18n();
     return (
         <>
@@ -36,29 +34,6 @@ export function VoiceNoisePanel({ vm }: { vm: DesktopVoiceControlsViewModel }): 
             <Text size="sm" className={styles.description}>
                 {_t("desktop|voice|noise_suppression_description")}
             </Text>
-            <div className={styles.strength}>
-                <div className={styles.panelRow}>
-                    <Text size="sm" weight="semibold">
-                        {_t("desktop|voice_video|noise_suppression_strength")}
-                    </Text>
-                    <Text size="sm" className={styles.numeric}>
-                        {noiseSuppressionStrength}%
-                    </Text>
-                </div>
-                <RangeSlider
-                    label={_t("desktop|voice_video|noise_suppression_strength")}
-                    value={noiseSuppressionStrength}
-                    min={0}
-                    max={100}
-                    valueText={`${noiseSuppressionStrength}%`}
-                    disabled={!noiseSuppression}
-                    onChange={(value) => void vm.setNoiseSuppressionStrength(value)}
-                />
-                <div className={styles.rangeLabels} aria-hidden="true">
-                    <span>0</span>
-                    <span>100</span>
-                </div>
-            </div>
             {noiseSuppressionProblem && (
                 <Text size="sm" role="alert" className={styles.error}>
                     {_t(

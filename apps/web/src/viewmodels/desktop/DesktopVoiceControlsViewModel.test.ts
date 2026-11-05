@@ -471,26 +471,15 @@ describe("DesktopVoiceControlsViewModel", () => {
     describe("quick voice panels", () => {
         it("edits the effective preset while retaining its other processing choices", async () => {
             preferences.set("desktopInputProfile", "voice_isolation");
-            await vm.setNoiseSuppressionStrength(67.6);
+            await vm.setNoiseSuppression(false);
             expect(preferences.get("desktopInputProfile")).toBe("custom");
             expect(preferences.get("desktopVoiceDetection")).toBe(true);
             expect(preferences.get("desktopInputSensitivityAuto")).toBe(true);
-            expect(vm.getSnapshot()).toMatchObject({ noiseSuppression: true, noiseSuppressionStrength: 68 });
-            await vm.setNoiseSuppression(false);
             expect(preferences.get("desktopNoiseSuppression")).toBe("none");
             expect(vm.getSnapshot().noiseSuppression).toBe(false);
             await vm.setNoiseSuppression(true);
-            expect(vm.getSnapshot()).toMatchObject({ noiseSuppression: true, noiseSuppressionStrength: 68 });
-        });
-
-        it("bounds strength without accepting invalid values", async () => {
-            await vm.setNoiseSuppressionStrength(-1);
-            expect(preferences.get("desktopNoiseSuppressionStrength")).toBe(0);
-            await vm.setNoiseSuppressionStrength(101);
-            expect(preferences.get("desktopNoiseSuppressionStrength")).toBe(100);
-            const saves = vi.mocked(SettingsStore.setValue).mock.calls.length;
-            await vm.setNoiseSuppressionStrength(Number.NaN);
-            expect(SettingsStore.setValue).toHaveBeenCalledTimes(saves);
+            expect(preferences.get("desktopNoiseSuppression")).toBe("enhanced");
+            expect(vm.getSnapshot().noiseSuppression).toBe(true);
         });
 
         it("opens a panel without capturing, then tests locally with a temporarily deafened call", async () => {

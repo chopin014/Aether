@@ -13,7 +13,6 @@ import { SettingLevel } from "../../settings/SettingLevel";
 /** The processing choices a preset makes on behalf of the user. */
 export interface DesktopVoiceProfilePreset {
     noiseSuppression: DesktopNoiseSuppression;
-    noiseSuppressionStrength?: number;
     voiceDetection: boolean;
     sensitivityAuto?: boolean;
 }
@@ -23,9 +22,9 @@ export const DESKTOP_VOICE_PROFILE_PRESETS: Record<
     Exclude<DesktopInputProfile, "custom">,
     DesktopVoiceProfilePreset
 > = {
+    // ANS (Aether Noise Suppression) with its speech detection and the automatic sensitivity it was tuned with.
     voice_isolation: {
         noiseSuppression: "enhanced",
-        noiseSuppressionStrength: 100,
         voiceDetection: true,
         sensitivityAuto: true,
     },
@@ -39,16 +38,9 @@ export async function customizeDesktopVoiceProfile(): Promise<void> {
     const preset = DESKTOP_VOICE_PROFILE_PRESETS[profile];
     await SettingsStore.setValue("desktopNoiseSuppression", null, SettingLevel.DEVICE, preset.noiseSuppression);
     await SettingsStore.setValue("desktopVoiceDetection", null, SettingLevel.DEVICE, preset.voiceDetection);
-    if (preset.noiseSuppressionStrength !== undefined) {
-        await SettingsStore.setValue(
-            "desktopNoiseSuppressionStrength",
-            null,
-            SettingLevel.DEVICE,
-            preset.noiseSuppressionStrength,
-        );
-    }
     if (preset.sensitivityAuto !== undefined) {
         await SettingsStore.setValue("desktopInputSensitivityAuto", null, SettingLevel.DEVICE, preset.sensitivityAuto);
     }
     await SettingsStore.setValue("desktopInputProfile", null, SettingLevel.DEVICE, "custom");
 }
+

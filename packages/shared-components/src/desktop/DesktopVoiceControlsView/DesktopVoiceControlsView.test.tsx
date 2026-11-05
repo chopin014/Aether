@@ -30,7 +30,6 @@ function makeVm(snapshot: Partial<DesktopVoiceControlsViewSnapshot> = {}) {
             busy: false,
             panel: null,
             noiseSuppression: true,
-            noiseSuppressionStrength: 100,
             microphoneTest: { active: false, level: null, open: false },
             audioInputs: [
                 { id: "", label: "Default" },
@@ -63,7 +62,6 @@ function makeVm(snapshot: Partial<DesktopVoiceControlsViewSnapshot> = {}) {
             showCall: vi.fn(),
             setPanel: vi.fn(),
             setNoiseSuppression: vi.fn(),
-            setNoiseSuppressionStrength: vi.fn(),
             toggleMicrophoneTest: vi.fn(),
             setAudioInput: vi.fn(),
             setAudioOutput: vi.fn(),
@@ -176,52 +174,24 @@ describe("DesktopVoiceControlsView", () => {
     it("opens quick suppression and connection panels without navigating away from the channel", async () => {
         const vm = makeVm({ roomName: "Lounge" });
         render(<DesktopVoiceConnectionView vm={vm} />);
-        await userEvent.click(screen.getByRole("button", { name: "Advanced noise suppression" }));
+        await userEvent.click(screen.getByRole("button", { name: "ANS (Aether Noise Suppression)" }));
         expect(vm.setPanel).toHaveBeenLastCalledWith("noise");
         await userEvent.click(screen.getByRole("button", { name: "Connection" }));
         expect(vm.setPanel).toHaveBeenLastCalledWith("connection");
         expect(vm.showCall).not.toHaveBeenCalled();
     });
 
-    it("edits the 0–100 suppression strength and starts the processed microphone test", async () => {
-        const vm = makeVm({ roomName: "Lounge", panel: "noise", noiseSuppressionStrength: 80 });
+    it("turns ANS on and off without a strength control and starts the processed microphone test", async () => {
+        const vm = makeVm({ roomName: "Lounge", panel: "noise" });
         render(<DesktopVoiceConnectionView vm={vm} />);
-        expect(screen.getByRole("dialog", { name: "Advanced noise suppression" })).toBeVisible();
-        expect(screen.getByText("80%")).toBeVisible();
-        const slider = screen.getByRole("slider", { name: "Suppression strength" });
-        expect(slider).toHaveAttribute("min", "0");
-        expect(slider).toHaveAttribute("max", "100");
-        fireEvent.change(slider, { target: { value: "35" } });
-        expect(vm.setNoiseSuppressionStrength).toHaveBeenCalledWith(35);
+        expect(screen.getByRole("dialog", { name: "ANS (Aether Noise Suppression)" })).toBeVisible();
+        // ANS always runs at full strength: a lower strength only mixes the noise back in.
+        expect(screen.queryByRole("slider")).toBeNull();
         await userEvent.click(screen.getByRole("switch", { name: "Noise suppression" }));
         expect(vm.setNoiseSuppression).toHaveBeenCalledWith(false);
         await userEvent.click(screen.getByRole("button", { name: "Let's check" }));
         expect(vm.toggleMicrophoneTest).toHaveBeenCalledOnce();
         expect(screen.getByRole("meter", { name: "Microphone level" })).toHaveAttribute("aria-valuenow", "-100");
-    });
-
-    it("keeps the chosen strength visible while suppression is off", () => {
-        render(
-            <DesktopVoiceConnectionView
-                vm={makeVm({
-                    roomName: "Lounge",
-                    panel: "noise",
-                    noiseSuppression: false,
-                    noiseSuppressionStrength: 80,
-                })}
-            />,
-        );
-        expect(screen.getByRole("slider", { name: "Suppression strength" })).toBeDisabled();
-        expect(screen.getByText("80%")).toBeVisible();
-    });
-
-    it("keeps the strength slider usable while a setting is being saved", () => {
-        const vm = makeVm({ roomName: "Lounge", panel: "noise", busy: true });
-        render(<DesktopVoiceConnectionView vm={vm} />);
-        const slider = screen.getByRole("slider", { name: "Suppression strength" });
-        expect(slider).toBeEnabled();
-        fireEvent.change(slider, { target: { value: "60" } });
-        expect(vm.setNoiseSuppressionStrength).toHaveBeenCalledWith(60);
     });
 
     it("shows the processed live level and an explicit stop-test control", async () => {
@@ -315,7 +285,7 @@ describe("DesktopVoiceControlsView", () => {
         expect(screen.getByRole("dialog")).toHaveFocus();
         await userEvent.keyboard("{Escape}");
         expect(vm.setPanel).toHaveBeenCalledWith(null);
-        expect(screen.getByRole("button", { name: "Advanced noise suppression" })).toHaveFocus();
+        expect(screen.getByRole("button", { name: "ANS (Aether Noise Suppression)" })).toHaveFocus();
     });
 
     it("dismisses on an outside click and exposes a close button", async () => {
