@@ -43,7 +43,9 @@ function fixture() {
     const publications = new Map<string, { track: unknown }>();
     const participant = {
         getTrackPublication: (source: string) => publications.get(source),
-        createScreenTracks: vi.fn().mockResolvedValue([track, audio]),
+        createScreenTracks: vi.fn<(options: { audio: unknown }) => Promise<unknown[]>>(async (options) =>
+            options.audio ? [track, audio] : [track],
+        ),
         publishTrack: vi.fn(async (item: typeof track, _options?: unknown) =>
             publications.set(item.source, { track: item }),
         ),
@@ -98,7 +100,7 @@ describe("Element Call screen capture publication boundary", () => {
             expect(controller.requested).toBe(false);
             expect(participant.publishTrack).not.toHaveBeenCalled();
             expect(commit).not.toHaveBeenCalled();
-            await controller.setEnabled(true);
+            await controller.setEnabled(true, { includeSystemAudio: true });
             expect(participant.publishTrack).toHaveBeenCalledTimes(2);
             expect(controller.requested).toBe(true);
         },
@@ -133,6 +135,119 @@ describe("Element Call screen capture publication boundary", () => {
         expect(audio.unmute).toHaveBeenCalledOnce();
     });
 
+    it("reopens the source picker when enabling audio after starting a video-only share", async () => {
+        const { controller, participant, track, audio, commit } = fixture();
+        await controller.setEnabled(true);
+        const replacement = { ...track, stop: vi.fn() };
+        participant.createScreenTracks.mockResolvedValueOnce([replacement, audio]);
+
+        await controller.update({ includeSystemAudio: true });
+
+        expect(participant.createScreenTracks).toHaveBeenCalledTimes(2);
+        expect(participant.createScreenTracks).toHaveBeenLastCalledWith(
+            expect.objectContaining({ audio: expect.any(Object), systemAudio: "include" }),
+        );
+        expect(track.stop).toHaveBeenCalledOnce();
+        expect(participant.unpublishTrack).toHaveBeenCalledWith(track);
+        expect(participant.getTrackPublication("screen")?.track).toBe(replacement);
+        expect(participant.getTrackPublication("audio")?.track).toBe(audio);
+        expect(commit).toHaveBeenLastCalledWith(expect.objectContaining({ includeSystemAudio: true }));
+    });
+
+    it("retains confirmed preferences when the audio source picker is cancelled and permits retry", async () => {
+        const { controller, participant, commit } = fixture();
+        await controller.setEnabled(true);
+        participant.createScreenTracks.mockRejectedValueOnce(new DOMException("Capture cancelled", "NotAllowedError"));
+
+        await expect(controller.update({ includeSystemAudio: true })).rejects.toMatchObject({
+            name: "ScreenShareCancelledError",
+        });
+
+        expect(controller.requested).toBe(false);
+        expect(participant.getTrackPublication("screen")).toBeUndefined();
+        expect(commit).toHaveBeenLastCalledWith(expect.objectContaining({ includeSystemAudio: false }));
+        await controller.setEnabled(true, { includeSystemAudio: true });
+        expect(participant.getTrackPublication("audio")?.track).toBeDefined();
+    });
+
+    it("keeps publication aborts distinct from picker cancellation during audio reselection", async () => {
+        const { controller, participant } = fixture();
+        await controller.setEnabled(true);
+        participant.publishTrack.mockRejectedValueOnce(new DOMException("Publication aborted", "AbortError"));
+
+        await expect(controller.update({ includeSystemAudio: true })).rejects.toMatchObject({
+            name: "AbortError",
+            message: "Publication aborted",
+        });
+        expect(controller.requested).toBe(false);
+    });
+
+    it.each(["success", "NotAllowedError", "NotReadableError"])(
+        "does not cancel a newer share when a superseded audio reselection returns %s",
+        async (outcome) => {
+            const { controller, participant, track, audio } = fixture();
+            await controller.setEnabled(true);
+            let finish!: (tracks: unknown[]) => void;
+            let fail!: (error: Error) => void;
+            participant.createScreenTracks.mockImplementationOnce(
+                () =>
+                    new Promise((resolve, reject) => {
+                        finish = resolve;
+                        fail = reject;
+                    }),
+            );
+            const reselect = controller.update({ includeSystemAudio: true });
+            await vi.waitFor(() => expect(participant.createScreenTracks).toHaveBeenCalledTimes(2));
+            const stop = controller.setEnabled(false);
+            const restart = controller.setEnabled(true, { includeSystemAudio: true });
+            if (outcome === "success")
+                finish([
+                    { ...track, stop: vi.fn() },
+                    { ...audio, stop: vi.fn() },
+                ]);
+            else fail(new DOMException("Capture failed", outcome));
+
+            await expect(Promise.all([reselect, stop, restart])).resolves.toBeDefined();
+            expect(participant.createScreenTracks).toHaveBeenCalledTimes(3);
+            expect(controller.requested).toBe(true);
+            expect(participant.getTrackPublication("audio")?.track).toBeDefined();
+        },
+    );
+
+    it("does not publish audio disabled while the capture picker was pending", async () => {
+        const { controller, participant, track, audio, commit } = fixture();
+        let resolve!: (tracks: unknown[]) => void;
+        participant.createScreenTracks.mockImplementation(
+            () =>
+                new Promise((r) => {
+                    resolve = r;
+                }),
+        );
+        const pending = controller.setEnabled(true, { includeSystemAudio: true });
+        await vi.waitFor(() => expect(participant.createScreenTracks).toHaveBeenCalledOnce());
+        const update = controller.update({ includeSystemAudio: false });
+        resolve([track, audio]);
+        await Promise.all([pending, update]);
+
+        expect(participant.publishTrack).toHaveBeenCalledTimes(1);
+        expect(participant.publishTrack).toHaveBeenCalledWith(track, expect.anything());
+        expect(audio.stop).toHaveBeenCalledOnce();
+        expect(commit).toHaveBeenLastCalledWith(expect.objectContaining({ includeSystemAudio: false }));
+    });
+
+    it("reports requested audio missing from capture instead of confirming a silent stream", async () => {
+        const { controller, participant, track, commit } = fixture();
+        participant.createScreenTracks.mockResolvedValueOnce([track]);
+
+        await expect(controller.setEnabled(true, { includeSystemAudio: true })).rejects.toThrow(
+            "Screen capture returned no audio track",
+        );
+
+        expect(track.stop).toHaveBeenCalled();
+        expect(participant.publishTrack).not.toHaveBeenCalled();
+        expect(commit).not.toHaveBeenCalled();
+    });
+
     it("bounds all encodings of a backup codec too", async () => {
         const { track, sender } = fixture();
         const backup = { ...sender, setParameters: vi.fn() };
@@ -152,7 +267,7 @@ describe("Element Call screen capture publication boundary", () => {
         "reports %s failures, stops tracks, and retains the last applied preference",
         async (failure) => {
             const { controller, participant, mediaStreamTrack, sender, commit, track, audio } = fixture();
-            await controller.setEnabled(true);
+            await controller.setEnabled(true, { includeSystemAudio: true });
             commit.mockClear();
             if (failure === "capture") mediaStreamTrack.applyConstraints.mockRejectedValue(new Error("capture failed"));
             else sender.setParameters.mockRejectedValue(new Error("sender failed"));
@@ -248,7 +363,7 @@ describe("Element Call screen capture publication boundary", () => {
 
     it("releases screen audio as well as video when the OS ends capture", async () => {
         const { controller, participant, track, audio, mediaStreamTrack } = fixture();
-        await controller.setEnabled(true);
+        await controller.setEnabled(true, { includeSystemAudio: true });
         const ended = mediaStreamTrack.addEventListener.mock.calls.find(([event]) => event === "ended")![1];
         ended();
         await vi.waitFor(() => expect(participant.unpublishTrack).toHaveBeenCalledTimes(2));

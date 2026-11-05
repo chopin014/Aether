@@ -531,6 +531,67 @@ describe("DesktopCallStageViewModel", () => {
         vm.dispose();
     });
 
+    it("does not commit audio or show an error when its source picker is cancelled", async () => {
+        const bridge = createBridge({
+            sharingScreen: true,
+            screenShareQuality: {
+                resolutionHeight: 1080,
+                frameRate: 30,
+                maxBitrate: null,
+                includeSystemAudio: false,
+            },
+        });
+        vi.mocked(bridge.actions.updateScreenShareQuality).mockRejectedValue(
+            new DOMException("Cancelled", "ScreenShareCancelledError"),
+        );
+        const pipeline = vi.spyOn(DesktopVoicePipeline.instance, "setScreenShareQuality");
+        const vm = new DesktopCallStageViewModel({ client: mockClient, call: mockCall, bridge });
+
+        await vm.updateScreenShareQuality({ includeSystemAudio: true });
+
+        expect(vm.getSnapshot().screenShareQuality.includeSystemAudio).toBe(false);
+        expect(vm.getSnapshot().deviceError).toBeNull();
+        expect(pipeline).not.toHaveBeenCalled();
+        vm.dispose();
+    });
+
+    it("reports an aborted publication instead of treating it as picker cancellation", async () => {
+        const bridge = createBridge();
+        vi.mocked(bridge.actions.updateScreenShareQuality).mockRejectedValue(
+            new DOMException("Publication aborted", "AbortError"),
+        );
+        const vm = new DesktopCallStageViewModel({ client: mockClient, call: mockCall, bridge });
+        const previous = vm.getSnapshot().screenShareQuality;
+
+        await vm.updateScreenShareQuality({ includeSystemAudio: true });
+
+        expect(vm.getSnapshot().deviceError).toBe("Publication aborted");
+        expect(vm.getSnapshot().screenShareQuality).toEqual(previous);
+        vm.dispose();
+    });
+
+    it("persists the engine-confirmed audio choice when the source picker changes it", async () => {
+        const bridge = createBridge({
+            sharingScreen: true,
+            screenShareQuality: {
+                resolutionHeight: 1080,
+                frameRate: 30,
+                maxBitrate: null,
+                includeSystemAudio: false,
+            },
+        });
+        const confirmed = { ...bridge.state.screenShareQuality, resolutionHeight: 720 };
+        vi.mocked(bridge.actions.updateScreenShareQuality).mockResolvedValue(confirmed);
+        const pipeline = vi.spyOn(DesktopVoicePipeline.instance, "setScreenShareQuality");
+        const vm = new DesktopCallStageViewModel({ client: mockClient, call: mockCall, bridge });
+
+        await vm.updateScreenShareQuality({ includeSystemAudio: true });
+
+        expect(vm.getSnapshot().screenShareQuality).toEqual(confirmed);
+        expect(pipeline).toHaveBeenCalledWith(confirmed);
+        vm.dispose();
+    });
+
     it("forwards raising a hand and sending a reaction to the retained engine", () => {
         const bridge = createBridge();
         const vm = new DesktopCallStageViewModel({ client: mockClient, call: mockCall, bridge });
