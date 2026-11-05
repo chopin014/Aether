@@ -628,10 +628,6 @@ Please see LICENSE in the repository root for full details.
     height: 14px;
 }
 
-.statusIconBadge[data-tone="warning"] {
-    color: var(--cpd-color-text-warning-primary);
-}
-
 .tileVolumePopover {
     width: 228px;
     padding: var(--cpd-space-3x);

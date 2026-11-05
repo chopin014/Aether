@@ -26,8 +26,6 @@ import {
     GridIcon,
     SpotlightViewIcon,
     HeadphonesOffSolidIcon,
-    LockIcon,
-    LockOffIcon,
     MicOffIcon,
     MicOnIcon,
     OverflowHorizontalIcon,
@@ -473,58 +471,6 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
         })),
     ];
 
-    const renderEncryptionStatusBadge = (
-        userId: string,
-        unencryptedWarning: boolean,
-        encryptionStatus: DesktopCallStageEncryptionStatus,
-    ): JSX.Element | null => {
-        // Unencrypted media is explained once above the stage instead of repeating an unexplained glyph.
-        if (unencryptedWarning) return null;
-        if (encryptionStatus === "key_missing") {
-            const label = _t("desktop|call_stage|encryption_key_missing");
-            return (
-                <span
-                    className={styles.statusIconBadge}
-                    data-tone="warning"
-                    data-testid={`encryption-badge-${userId}`}
-                    title={label}
-                    aria-label={label}
-                >
-                    <LockOffIcon />
-                </span>
-            );
-        }
-        if (encryptionStatus === "key_invalid" || encryptionStatus === "password_invalid") {
-            const label = _t("desktop|call_stage|encryption_key_invalid");
-            return (
-                <span
-                    className={styles.statusIconBadge}
-                    data-tone="critical"
-                    data-testid={`encryption-badge-${userId}`}
-                    title={label}
-                    aria-label={label}
-                >
-                    <ErrorIcon />
-                </span>
-            );
-        }
-        if (encryptionStatus === "connecting") {
-            const label = _t("desktop|call_stage|encryption_connecting");
-            return (
-                <span
-                    className={styles.statusIconBadge}
-                    data-tone="neutral"
-                    data-testid={`encryption-badge-${userId}`}
-                    title={label}
-                    aria-label={label}
-                >
-                    <LockIcon />
-                </span>
-            );
-        }
-        return null;
-    };
-
     const getTileTriggerRef = (tileId: string): RefObject<HTMLElement | null> => {
         let anchor = tileMenuAnchors.current.get(tileId);
         if (!anchor) {
@@ -764,9 +710,6 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                                 : tile.displayName}
                         </span>
                     </div>
-                    <div className={styles.statusIcons}>
-                        {renderEncryptionStatusBadge(tile.userId, tile.unencryptedWarning, tile.encryptionStatus)}
-                    </div>
                 </div>
             </div>
         );
@@ -945,11 +888,6 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                                     >
                                         <HeadphonesOffSolidIcon />
                                     </span>
-                                )}
-                                {renderEncryptionStatusBadge(
-                                    tile.userId,
-                                    tile.unencryptedWarning,
-                                    tile.encryptionStatus,
                                 )}
                             </div>
                         </div>

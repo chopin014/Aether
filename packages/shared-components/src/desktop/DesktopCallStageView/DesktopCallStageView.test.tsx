@@ -396,28 +396,23 @@ describe("DesktopCallStageView", () => {
         expect(vm.joinCall).toHaveBeenCalledTimes(1);
     });
 
-    it("renders participant encryptionStatus warning and critical badges for missing or invalid keys", () => {
-        const vm = new TestCallStageViewModel({
-            participants: [
-                makeParticipant({
-                    id: "p-missing",
-                    displayName: "MissingKeyUser",
-                    encryptionStatus: "key_missing",
-                }),
-                makeParticipant({
-                    id: "p-invalid",
-                    displayName: "InvalidKeyUser",
-                    encryptionStatus: "key_invalid",
-                }),
-            ],
-        });
-
-        const { container } = render(<DesktopCallStageView vm={vm} />);
-        const tiles = screen.getAllByTestId("videoTile");
-        expect(tiles).toHaveLength(2);
-        expect(container.querySelectorAll('[data-tone="warning"]')).toHaveLength(1);
-        expect(container.querySelectorAll('[data-tone="critical"]')).toHaveLength(1);
-    });
+    it.each(["okay", "connecting", "key_missing", "key_invalid", "password_invalid"] as const)(
+        "omits encryption badges from participants and screen shares with status %s",
+        (encryptionStatus) => {
+            const vm = new TestCallStageViewModel({
+                participants: [makeParticipant({ encryptionStatus, audioEnabled: false })],
+                screenShares: [makeScreenShare({ encryptionStatus })],
+            });
+            const { container } = render(<DesktopCallStageView vm={vm} />);
+            expect(screen.getByTestId("videoTile")).toBeInTheDocument();
+            expect(screen.getByTestId("call-tile-screenshare-@bob:example.org")).toBeInTheDocument();
+            expect(container.querySelector('[data-testid^="encryption-badge-"]')).not.toBeInTheDocument();
+            expect(screen.queryByLabelText("Negotiating encryption keys...")).not.toBeInTheDocument();
+            expect(screen.queryByLabelText("Waiting for encryption key")).not.toBeInTheDocument();
+            expect(screen.queryByLabelText("Decryption failed (invalid encryption key)")).not.toBeInTheDocument();
+            expect(screen.getByLabelText("Microphone muted")).toBeInTheDocument();
+        },
+    );
 
     it("keeps video attachment mounted without detaching/reattaching across speaking state updates", () => {
         const videoHandle: DesktopCallStageVideoAttachment = {
