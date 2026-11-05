@@ -13,7 +13,11 @@ import { type MicrophoneGateWorkletOptions, type MicrophoneProcessorState } from
 interface TestProcessor {
     port: {
         onmessage: (event: {
-            data: MicrophoneProcessorState | { stop: true } | { denoiserModule: WebAssembly.Module };
+            data:
+                | MicrophoneProcessorState
+                | { stop: true }
+                | { denoiserModule: WebAssembly.Module }
+                | { reportLevel: boolean };
         }) => void;
         postMessage: ReturnType<typeof vi.fn>;
     };
@@ -81,6 +85,7 @@ describe("MicrophoneGateWorklet", () => {
 
     it("limits meter updates to twenty per second while processing every block", () => {
         const processor = new Processor({ processorOptions: { ...state, pushToTalkActive: true } });
+        processor.port.onmessage({ data: { reportLevel: true } });
         const input = new Float32Array(128).fill(0.5);
         const output = new Float32Array(128);
         for (let i = 0; i < 18; i++) processor.process([[input]], [[output]]);
@@ -91,6 +96,23 @@ describe("MicrophoneGateWorklet", () => {
             open: true,
             threshold: null,
         });
+        expect(processor.port.postMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it("only sends meter messages while a surface requests them", () => {
+        const processor = new Processor({ processorOptions: { ...state, pushToTalkActive: true } });
+        const input = new Float32Array(128).fill(0.5);
+        const output = new Float32Array(128);
+        for (let i = 0; i < 375; i++) processor.process([[input]], [[output]]);
+        expect(output[127]).toBeGreaterThan(0.4);
+        expect(processor.port.postMessage).toHaveBeenCalledExactlyOnceWith({ ready: true });
+
+        processor.port.onmessage({ data: { reportLevel: true } });
+        for (let i = 0; i < 19; i++) processor.process([[input]], [[output]]);
+        expect(processor.port.postMessage).toHaveBeenCalledTimes(2);
+
+        processor.port.onmessage({ data: { reportLevel: false } });
+        for (let i = 0; i < 375; i++) processor.process([[input]], [[output]]);
         expect(processor.port.postMessage).toHaveBeenCalledTimes(2);
     });
 });
@@ -174,5 +196,29 @@ describe("MicrophoneGateWorklet with noise suppression", { timeout: 30000 }, () 
         runNoise(processor, 3.2);
         expect(processor.port.postMessage).toHaveBeenCalledWith({ denoiser: "overloaded" });
         expect(runNoise(processor, 0.6)).toBeGreaterThan(0.05);
+    });
+
+    it("keeps noise suppression running within its supported processing budget", () => {
+        const processor = new Processor({
+            processorOptions: { ...suppressed, config: { ...suppressed.config, threshold: null }, denoiserModule },
+        });
+        // One ms per 2.7 ms block consumes 37.5% of a core, within the 70% cutoff.
+        let now = 0;
+        vi.spyOn(Date, "now").mockImplementation(() => ++now);
+        runNoise(processor, 3.2);
+        expect(processor.port.postMessage).not.toHaveBeenCalledWith({ denoiser: "overloaded" });
+    });
+
+    it("tolerates a brief CPU spike and resets the sustained-load window after recovery", () => {
+        const processor = new Processor({ processorOptions: { ...suppressed, denoiserModule } });
+        let now = 0;
+        let cost = 5;
+        vi.spyOn(Date, "now").mockImplementation(() => (now += cost));
+        runNoise(processor, 2.1);
+        cost = 0;
+        runNoise(processor, 1.1);
+        cost = 5;
+        runNoise(processor, 2.1);
+        expect(processor.port.postMessage).not.toHaveBeenCalledWith({ denoiser: "overloaded" });
     });
 });
