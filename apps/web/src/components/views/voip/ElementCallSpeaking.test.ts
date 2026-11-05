@@ -76,9 +76,11 @@ function createPublisher(initialMedia: TestMedia[]) {
         "$e",
         "C",
         "Z",
-        source.slice(helperStart, helperEnd) + source.slice(start, end),
+        "bA",
+        "Rt",
+        source.slice(helperStart, helperEnd) + source.slice(start, end) + "\nreturn aetherObserveMediaSpeaking;",
     );
-    runPublisher(
+    const observeMedia = runPublisher(
         media$,
         { notifySpeakingUsers },
         { bind: () => rxjs.takeUntil(disposed$), onEnd: (callback: () => void) => onEnd.push(callback) },
@@ -90,12 +92,15 @@ function createPublisher(initialMedia: TestMedia[]) {
         rxjs.distinctUntilChanged,
         rxjs.Observable,
         { Source: { Microphone: "microphone" } },
-    );
+        rxjs.share,
+        rxjs.BehaviorSubject,
+    ) as (item: TestMedia) => { subscribe: (next: (speaking: boolean) => void) => { unsubscribe: () => void } };
 
     return {
         media$,
         notifySpeakingUsers,
         warn,
+        observeMedia,
         dispose: () => {
             disposed$.next();
             onEnd.forEach((callback) => callback());
@@ -425,6 +430,52 @@ describe("immediate microphone activity for the sidebar", () => {
         for (const analyser of context.analysers) expect(analyser.disconnect).toHaveBeenCalledOnce();
         expect(context.close).toHaveBeenCalledOnce();
         expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("reuses one analyser while the stage and sidebar rebind the same media", () => {
+        const local = createMicrophone("@local:example.org");
+        const publisher = createPublisher([local.media]);
+        const speaking = vi.fn();
+        let stage = publisher.observeMedia(local.media).subscribe(speaking);
+        const context = TestAudioContext.instances[0];
+
+        for (let i = 0; i < 1000; i++) {
+            publisher.media$.next([local.media]);
+            stage.unsubscribe();
+            stage = publisher.observeMedia(local.media).subscribe(speaking);
+        }
+        expect(context.sources).toHaveLength(1);
+        expect(context.analysers).toHaveLength(1);
+        expect(TestAudioContext.instances).toHaveLength(1);
+        expect(vi.getTimerCount()).toBe(1);
+
+        local.track.level = 0.04;
+        vi.advanceTimersByTime(40);
+        expect(speaking).toHaveBeenLastCalledWith(true);
+        publisher.dispose();
+        expect(context.close).not.toHaveBeenCalled();
+        stage.unsubscribe();
+        expect(context.close).toHaveBeenCalledOnce();
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("keeps the same native source across mute changes without reporting muted speech", () => {
+        const local = createMicrophone("@local:example.org");
+        const publisher = createPublisher([local.media]);
+        const context = TestAudioContext.instances[0];
+        local.track.level = 0.04;
+        for (let i = 0; i < 100; i++) {
+            local.publication.isMuted = true;
+            vi.advanceTimersByTime(40);
+            expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([]);
+            local.publication.isMuted = false;
+            vi.advanceTimersByTime(40);
+            expect(publisher.notifySpeakingUsers).toHaveBeenLastCalledWith([local.media.userId]);
+        }
+        expect(context.sources).toHaveLength(1);
+        expect(context.sources[0].disconnect).not.toHaveBeenCalled();
+        publisher.dispose();
+        expect(context.sources[0].disconnect).toHaveBeenCalledOnce();
     });
 
     it("falls back to SFU speaking activity when WebAudio is unavailable", () => {
