@@ -28,3 +28,7 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# tract-linalg 0.21.4 plus WebAssembly SIMD f32 matrix kernels (src/wasm32.rs), bit-identical to the generic ones.
+[patch.crates-io]
+tract-linalg = { path = "vendor/tract-linalg" }

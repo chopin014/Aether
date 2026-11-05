@@ -22,6 +22,8 @@
         ".vscode/",
         ".env",
         "coverage",
+        // Third-party crates kept exactly as published, apart from documented changes.
+        "/apps/web/native/aether-denoiser/vendor",
         // Auto-generated files,
         "*.api.md",
         "/apps/web/src/modules.ts",
