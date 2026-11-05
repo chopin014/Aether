@@ -43,6 +43,9 @@ const MAX_LOG_SIZE = 1024 * 1024 * 5; // 5 MB
 /** the length of log data we keep in indexeddb (and include in the reports), if there are less than 24 hours of logs */
 const MAX_LOG_SIZE_24H = 1024 * 1024 * 100; // 100 MB
 
+/** Maximum buffered UTF-16 code units, including when IndexedDB cannot flush the logs. */
+const MAX_IN_MEMORY_LOG_SIZE = 1024 * 1024;
+
 type LogFunction = (...args: (Error | DOMException | object | string)[]) => void;
 const consoleFunctionsToLevels = {
     log: "I",
@@ -104,6 +107,10 @@ export class ConsoleLogger {
         // Using + really is the quickest way in JS
         // http://jsperf.com/concat-vs-plus-vs-join
         this.logs += line;
+        // Drop in batches so a full buffer does not need copying on every subsequent message.
+        if (this.logs.length > MAX_IN_MEMORY_LOG_SIZE) {
+            this.logs = this.logs.slice(-MAX_IN_MEMORY_LOG_SIZE / 2);
+        }
     }
 
     /**

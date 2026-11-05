@@ -41,8 +41,18 @@ export type DenoiserStatusListener = (status: DenoiserStatus) => void;
 export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
     public readonly name = "aether-microphone";
     public processedTrack?: MediaStreamTrack;
-    public onLevel?: MicrophoneLevelListener;
+    private levelListener?: MicrophoneLevelListener;
     public onDenoiserStatus?: DenoiserStatusListener;
+
+    /** Subscribe to the meter only while a surface displays it. Calls do not need audio-thread meter messages. */
+    public get onLevel(): MicrophoneLevelListener | undefined {
+        return this.levelListener;
+    }
+
+    public set onLevel(listener: MicrophoneLevelListener | undefined) {
+        this.levelListener = listener;
+        this.processor?.port.postMessage({ reportLevel: Boolean(listener) });
+    }
 
     private context?: AudioContext;
     private source?: MediaStreamAudioSourceNode;
@@ -223,6 +233,7 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
                 else if ("level" in event.data) this.onLevel?.(event.data.level, event.data.open, event.data.threshold);
             };
             // A prepared node has never seen capture. Apply current mute/PTT settings before connecting its source.
+            this.processor.port.postMessage({ reportLevel: Boolean(this.onLevel) });
             this.sendState();
             if (prepared?.graph.denoiserStatus) this.reportDenoiser(prepared.graph.denoiserStatus);
             this.source = context.createMediaStreamSource(new MediaStream([track]));

@@ -183,6 +183,17 @@ describe("MicrophoneProcessor", () => {
         await init(processor);
         (nodes[0].port.onmessage as (event: unknown) => void)({ data: { level: -35, open: true, threshold: -48 } });
         expect(processor.onLevel).toHaveBeenCalledWith(-35, true, -48);
+        expect(nodes[0].port.postMessage).toHaveBeenCalledWith({ reportLevel: true });
+    });
+
+    it("disables the meter for calls and follows changes to the meter subscription", async () => {
+        const processor = new MicrophoneProcessor(config);
+        await init(processor);
+        expect(nodes[0].port.postMessage).toHaveBeenCalledWith({ reportLevel: false });
+        processor.onLevel = vi.fn();
+        expect(nodes[0].port.postMessage).toHaveBeenLastCalledWith({ reportLevel: true });
+        processor.onLevel = undefined;
+        expect(nodes[0].port.postMessage).toHaveBeenLastCalledWith({ reportLevel: false });
     });
 
     it("fails initialization instead of returning an unprocessed microphone", async () => {

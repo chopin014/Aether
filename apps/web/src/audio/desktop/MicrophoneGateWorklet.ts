@@ -12,7 +12,11 @@ import { type DenoiserStatus } from "./denoiser/DenoiserStatus";
 
 declare const sampleRate: number;
 
-type Message = MicrophoneProcessorState | { stop: true } | { denoiserModule: WebAssembly.Module };
+type Message =
+    | MicrophoneProcessorState
+    | { stop: true }
+    | { denoiserModule: WebAssembly.Module }
+    | { reportLevel: boolean };
 
 /** Noise suppression is given up when it takes more than this share of real time for {@link OVERLOAD_SECONDS}. */
 const OVERLOAD_LOAD = 0.7;
@@ -22,6 +26,7 @@ class MicrophoneGateWorklet extends AudioWorkletProcessor {
     private readonly gate = new MicrophoneGate(sampleRate);
     private stopped = false;
     private framesSinceReport = 0;
+    private reportLevel = false;
     private noiseSuppression: number | null = null;
     private denoiser?: Denoiser;
     private denoised = new Float32Array(128);
@@ -37,7 +42,10 @@ class MicrophoneGateWorklet extends AudioWorkletProcessor {
         this.port.onmessage = (event: MessageEvent<Message>): void => {
             if ("stop" in event.data) this.stopped = true;
             else if ("denoiserModule" in event.data) this.startDenoiser(event.data.denoiserModule);
-            else this.applyState(event.data);
+            else if ("reportLevel" in event.data) {
+                this.reportLevel = event.data.reportLevel;
+                this.framesSinceReport = 0;
+            } else this.applyState(event.data);
         };
         this.port.postMessage({ ready: true });
     }
@@ -113,8 +121,8 @@ class MicrophoneGateWorklet extends AudioWorkletProcessor {
         } else {
             output.fill(0);
         }
-        this.framesSinceReport += output.length;
-        if (this.framesSinceReport >= sampleRate / 20) {
+        if (this.reportLevel) this.framesSinceReport += output.length;
+        if (this.reportLevel && this.framesSinceReport >= sampleRate / 20) {
             this.framesSinceReport = 0;
             this.port.postMessage({ level: this.gate.level, open: this.gate.open, threshold: this.gate.threshold });
         }
