@@ -50,6 +50,8 @@ async function settle(page: Page): Promise<void> {
  */
 async function sendMicrophoneUnprocessed(page: Page): Promise<void> {
     await page.evaluate(async (level) => {
+        // Otherwise the one-time move onto ANS could still switch this device back to Voice Isolation.
+        await window.mxSettingsStore.setValue("desktopAnsMigrated", null, level, true);
         await window.mxSettingsStore.setValue("desktopInputProfile", null, level, "custom");
         await window.mxSettingsStore.setValue("desktopNoiseSuppression", null, level, "none");
     }, SettingLevel.DEVICE);

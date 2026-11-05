@@ -9,6 +9,7 @@ import { type DesktopInputProfile, type DesktopNoiseSuppression } from "@element
 
 import SettingsStore from "../../settings/SettingsStore";
 import { SettingLevel } from "../../settings/SettingLevel";
+import MediaDeviceHandler from "../../MediaDeviceHandler";
 
 /** The processing choices a preset makes on behalf of the user. */
 export interface DesktopVoiceProfilePreset {
@@ -44,3 +45,17 @@ export async function customizeDesktopVoiceProfile(): Promise<void> {
     await SettingsStore.setValue("desktopInputProfile", null, SettingLevel.DEVICE, "custom");
 }
 
+/**
+ * Moves this device onto ANS once: custom processing returns to the voice isolation profile, with the echo
+ * cancellation and automatic gain that choosing it in the settings turns on. Studio is left alone, since it is an
+ * explicit choice of raw, unprocessed audio. Anyone can pick another profile afterwards; this never runs again.
+ */
+export async function migrateToAns(): Promise<void> {
+    if (SettingsStore.getValue("desktopAnsMigrated")) return;
+    if (SettingsStore.getValue("desktopInputProfile") === "custom") {
+        await MediaDeviceHandler.setAudioAutoGainControl(true);
+        await MediaDeviceHandler.setAudioEchoCancellation(true);
+        await SettingsStore.setValue("desktopInputProfile", null, SettingLevel.DEVICE, "voice_isolation");
+    }
+    await SettingsStore.setValue("desktopAnsMigrated", null, SettingLevel.DEVICE, true);
+}

@@ -370,6 +370,7 @@ export interface Settings {
     "desktopMicrophoneVolume": IBaseSetting<number>;
     "desktopSpeakerVolume": IBaseSetting<number>;
     "desktopInputProfile": IBaseSetting<"voice_isolation" | "studio" | "custom">;
+    "desktopAnsMigrated": IBaseSetting<boolean>;
     "desktopNoiseSuppression": IBaseSetting<"enhanced" | "standard" | "none">;
     "desktopVoiceDetection": IBaseSetting<boolean>;
     "desktopInputSensitivityAuto": IBaseSetting<boolean>;
@@ -1467,6 +1468,11 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
     "desktopInputProfile": {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
         default: "voice_isolation",
+    },
+    // Whether this device has been moved onto ANS once; see `migrateToAns`.
+    "desktopAnsMigrated": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: false,
     },
     // Enhanced is ANS (Aether Noise Suppression), running in the app; standard is the browser's own noise suppression.
     "desktopNoiseSuppression": {
