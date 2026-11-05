@@ -217,34 +217,18 @@ Please see LICENSE in the repository root for full details.
 .grid {
     flex: 1;
     min-height: 0;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
-    grid-auto-rows: minmax(0, 1fr);
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
     gap: var(--cpd-space-3x);
+    align-content: center;
     align-items: center;
-    justify-items: center;
-    overflow-y: auto;
-}
-
-.grid[data-count="1"] {
-    grid-template-columns: minmax(0, 680px);
     justify-content: center;
 }
 
-.grid[data-count="2"] {
-    grid-template-columns: repeat(2, minmax(0, 560px));
-    justify-content: center;
-}
-
-.grid[data-count="3"],
-.grid[data-count="4"] {
-    grid-template-columns: repeat(2, minmax(0, 560px));
-    justify-content: center;
-}
-
-.grid[data-count="3"] > :last-child {
-    grid-column: 1 / -1;
-    width: calc((100% - var(--cpd-space-3x)) / 2);
+.grid > .tile {
+    flex: none;
+    width: var(--call-grid-tile-width, 100%);
 }
 
 .filmstrip > .tile[data-focused="true"]::after {
@@ -1111,6 +1095,7 @@ Please see LICENSE in the repository root for full details.
 }
 
 .grid[data-solo-channel="true"] {
+    display: grid;
     width: min(100%, calc((100cqh - var(--cpd-space-2x)) * 8 / 9));
     align-self: center;
     grid-template-columns: minmax(0, 1fr);

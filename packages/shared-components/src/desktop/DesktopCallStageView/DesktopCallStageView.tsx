@@ -55,6 +55,7 @@ import {
 import { useDominantColour } from "../DesktopProfileIdentity/DesktopProfileIdentity";
 import { useCallStageWindow } from "./useCallStageWindow";
 import { useCallTileMotion } from "./useCallTileMotion";
+import { useCallGridLayout } from "./useCallGridLayout";
 import styles from "./DesktopCallStageView.module.css";
 
 /** Lifecycle phase displayed by the stage. */
@@ -968,6 +969,11 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
     const hasSpotlight =
         snapshot.layoutMode === "spotlight" && (spotlightShare !== null || spotlightParticipant !== null);
 
+    const soloChannel =
+        snapshot.presentation === "channel" && allParticipants.length === 1 && allScreenShares.length === 0;
+    const gridCount = allScreenShares.length + allParticipants.length + snapshot.callees.length + (soloChannel ? 1 : 0);
+    const gridRef = useCallGridLayout(gridCount);
+
     const stage = (
         <div
             ref={stageRef}
@@ -1148,16 +1154,9 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                 ) : (
                     <div
                         className={styles.grid}
-                        data-count={String(
-                            Math.min(4, allScreenShares.length + allParticipants.length + snapshot.callees.length),
-                        )}
-                        data-solo-channel={
-                            snapshot.presentation === "channel" &&
-                            allParticipants.length === 1 &&
-                            allScreenShares.length === 0
-                                ? "true"
-                                : undefined
-                        }
+                        ref={gridRef}
+                        data-count={gridCount}
+                        data-solo-channel={soloChannel ? "true" : undefined}
                     >
                         {allScreenShares.map((s) => renderScreenShareTile(s, false))}
                         {allParticipants.map((p) => renderParticipantTile(p, false))}

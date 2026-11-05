@@ -247,6 +247,53 @@ describe("DesktopCallStageView", () => {
         expect(screen.getByRole("img", { name: "Alice" })).toBeVisible();
     });
 
+    it.each([2, 3, 4, 5, 6, 7, 8, 9, 12])("fits and centers %i equal tiles with compact rows", async (count) => {
+        const vm = new TestCallStageViewModel({
+            participants: Array.from({ length: count }, (_, i) => makeParticipant({ id: `person-${i}` })),
+        });
+        const { container, rerender } = render(
+            <div style={{ "width": 1200, "height": 760, "--cpd-space-3x": "12px" } as React.CSSProperties}>
+                <DesktopCallStageView vm={vm} />
+            </div>,
+        );
+        const checkLayout = (): void => {
+            const tiles = screen.getAllByTestId("videoTile").map((tile) => tile.getBoundingClientRect());
+            const grid = container.querySelector<HTMLElement>("[data-count]")!;
+            const bounds = grid.getBoundingClientRect();
+            const gap = parseFloat(getComputedStyle(grid).gap);
+            const rows = new Map<number, DOMRect[]>();
+            for (const tile of tiles) {
+                expect(tile.width).toBeGreaterThan(0);
+                expect(tile.width).toBeCloseTo(tiles[0].width, 0);
+                expect(tile.width / tile.height).toBeCloseTo(16 / 9, 1);
+                expect(tile.left).toBeGreaterThanOrEqual(bounds.left - 1);
+                expect(tile.right).toBeLessThanOrEqual(bounds.right + 1);
+                expect(tile.top).toBeGreaterThanOrEqual(bounds.top - 1);
+                expect(tile.bottom).toBeLessThanOrEqual(bounds.bottom + 1);
+                const row = rows.get(tile.top) ?? [];
+                row.push(tile);
+                rows.set(tile.top, row);
+            }
+            const orderedRows = [...rows.values()];
+            for (const [index, row] of orderedRows.entries()) {
+                expect((row[0].left + row.at(-1)!.right) / 2).toBeCloseTo((bounds.left + bounds.right) / 2, 0);
+                if (index > 0) {
+                    expect(row[0].top - orderedRows[index - 1][0].bottom).toBeCloseTo(gap, 0);
+                }
+            }
+            expect((tiles[0].top + tiles.at(-1)!.bottom) / 2).toBeCloseTo((bounds.top + bounds.bottom) / 2, 0);
+        };
+        await waitFor(checkLayout);
+        rerender(
+            <div style={{ "width": 360, "height": 640, "--cpd-space-3x": "12px" } as React.CSSProperties}>
+                <DesktopCallStageView vm={vm} />
+            </div>,
+        );
+        await waitFor(checkLayout);
+        act(() => vm.updateSnapshot({ participants: vm.getSnapshot().participants.slice(0, 2) }));
+        await waitFor(checkLayout);
+    });
+
     it("uses profile colours, decorations, effects and name styles on participant tiles", () => {
         const tile = makeParticipant({
             appearance: {
