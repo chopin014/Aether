@@ -80,7 +80,6 @@ export class DesktopVoiceControlsViewModel
             busy: false,
             panel: null,
             noiseSuppression: false,
-            noiseSuppressionStrength: 100,
             microphoneTest: { active: false, level: null, open: false },
             audioInputs: [],
             audioOutputs: [],
@@ -106,7 +105,6 @@ export class DesktopVoiceControlsViewModel
             "desktopDeafened",
             "desktopInputProfile",
             "desktopNoiseSuppression",
-            "desktopNoiseSuppressionStrength",
             "desktopVoiceDetection",
             "desktopInputSensitivityAuto",
             "desktopInputSensitivity",
@@ -215,8 +213,6 @@ export class DesktopVoiceControlsViewModel
             screenSharing: call?.screenShare.sharing ?? false,
             roomName: call ? (this.props.client.getRoom(call.roomId)?.name ?? call.roomId) : undefined,
             noiseSuppression: processing.noiseSuppression !== null,
-            noiseSuppressionStrength:
-                processing.noiseSuppression ?? SettingsStore.getValue("desktopNoiseSuppressionStrength"),
             connection: call?.connectionStats ?? {
                 state: call ? "connecting" : "disconnected",
                 quality: "unknown",
@@ -315,20 +311,6 @@ export class DesktopVoiceControlsViewModel
             );
             this.microphoneTest.update();
             this.snapshot.merge({ noiseSuppressionProblem: undefined });
-        });
-    };
-
-    public setNoiseSuppressionStrength = async (percent: number): Promise<void> => {
-        if (!Number.isFinite(percent)) return;
-        await this.perform(async () => {
-            await customizeDesktopVoiceProfile();
-            await SettingsStore.setValue(
-                "desktopNoiseSuppressionStrength",
-                null,
-                SettingLevel.DEVICE,
-                Math.max(0, Math.min(100, Math.round(percent))),
-            );
-            this.microphoneTest.update();
         });
     };
 

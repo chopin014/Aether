@@ -177,7 +177,6 @@ describe("DesktopVoiceVideoSettingsViewModel", () => {
             expect(vm.getSnapshot()).toMatchObject({
                 inputProfile: "voice_isolation",
                 noiseSuppression: "enhanced",
-                noiseSuppressionStrength: 100,
                 voiceDetection: true,
                 sensitivityAuto: true,
             });
@@ -209,13 +208,12 @@ describe("DesktopVoiceVideoSettingsViewModel", () => {
             await vm.setNoiseSuppression("none");
             await vm.setSensitivityAuto(false);
             await vm.setInputProfile("voice_isolation");
-            await vm.setNoiseSuppressionStrength(40);
+            await vm.setVoiceDetection(false);
             // Only the edited setting changes; the rest stays as Voice Isolation had it.
             expect(vm.getSnapshot()).toMatchObject({
                 inputProfile: "custom",
                 noiseSuppression: "enhanced",
-                noiseSuppressionStrength: 40,
-                voiceDetection: true,
+                voiceDetection: false,
                 sensitivityAuto: true,
             });
         });

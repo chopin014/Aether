@@ -52,9 +52,8 @@ export interface DesktopVoiceControlsViewSnapshot {
      * or speaker ("output") menu of the account row.
      */
     panel: "noise" | "connection" | "input" | "output" | "soundboard" | null;
-    /** Whether the call currently uses Aether's enhanced noise suppression. */
+    /** Whether the call currently uses ANS (Aether Noise Suppression). It always runs at full strength. */
     noiseSuppression: boolean;
-    noiseSuppressionStrength: number;
     microphoneTest: { active: boolean; level: number | null; open: boolean; error?: "denied" | "unavailable" };
     noiseSuppressionProblem?: "failed" | "overloaded";
     /** Microphones to choose from; listed when the microphone menu opens. */
@@ -89,7 +88,6 @@ export interface DesktopVoiceControlsViewActions {
     showCall: () => void;
     setPanel: (panel: DesktopVoiceControlsViewSnapshot["panel"]) => void;
     setNoiseSuppression: (enabled: boolean) => Promise<void>;
-    setNoiseSuppressionStrength: (percent: number) => Promise<void>;
     toggleMicrophoneTest: () => Promise<void>;
     setAudioInput: (id: string) => Promise<void>;
     setAudioOutput: (id: string) => Promise<void>;

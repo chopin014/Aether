@@ -27,9 +27,6 @@ function VoiceStory(snapshot: DesktopVoiceControlsViewSnapshot): JSX.Element {
         showCall: fn(),
         setPanel: fn((panel) => setCurrent((value) => ({ ...value, panel }))),
         setNoiseSuppression: fn(async (noiseSuppression) => setCurrent((value) => ({ ...value, noiseSuppression }))),
-        setNoiseSuppressionStrength: fn(async (noiseSuppressionStrength) =>
-            setCurrent((value) => ({ ...value, noiseSuppressionStrength })),
-        ),
         toggleMicrophoneTest: fn(async () =>
             setCurrent((value) => ({
                 ...value,
@@ -74,7 +71,6 @@ const meta = {
         busy: false,
         panel: null,
         noiseSuppression: true,
-        noiseSuppressionStrength: 100,
         microphoneTest: { active: false, level: null, open: false },
         audioInputs: [
             { id: "", label: "Default" },
@@ -107,7 +103,7 @@ export const ScreenShareUnavailable: Story = { args: { roomName: "Lounge", scree
 export const Deafened: Story = { args: { roomName: "Lounge", microphoneMuted: true, deafened: true } };
 export const DeviceError: Story = { args: { error: "The audio control could not be changed. Please try again." } };
 
-export const NoiseSuppression: Story = { args: { roomName: "Lounge", panel: "noise", noiseSuppressionStrength: 80 } };
+export const NoiseSuppression: Story = { args: { roomName: "Lounge", panel: "noise" } };
 export const TestingMicrophone: Story = {
     args: { roomName: "Lounge", panel: "noise", microphoneTest: { active: true, level: -24, open: true } },
 };
