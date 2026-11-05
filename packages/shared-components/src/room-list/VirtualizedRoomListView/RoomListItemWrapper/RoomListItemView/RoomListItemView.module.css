@@ -54,9 +54,13 @@
  */
 .roomListItem,
 .callParticipants {
-    --channel-symbol-size: calc(var(--cpd-space-5x) + var(--cpd-space-0-5x));
+    /*
+     * The kind symbol is the row's strongest mark, larger than the name; a custom channel image sits beside it a step
+     * smaller, the size of the voice participants' avatars below it so the two columns line up.
+     */
+    --channel-symbol-size: var(--cpd-space-6x);
     --channel-column-gap: var(--cpd-space-2x);
-    --channel-image-size: var(--cpd-space-6x);
+    --channel-image-size: var(--cpd-space-5x);
 }
 
 .callParticipants {
@@ -282,7 +286,7 @@
     flex: none;
     width: var(--channel-image-size);
     height: var(--channel-image-size);
-    border-radius: var(--cpd-space-1-5x);
+    border-radius: var(--cpd-space-1x);
     object-fit: cover;
     outline: var(--cpd-border-width-1) solid var(--cpd-color-alpha-gray-400);
     outline-offset: calc(-1 * var(--cpd-border-width-1));

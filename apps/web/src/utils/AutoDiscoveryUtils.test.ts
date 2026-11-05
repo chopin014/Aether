@@ -272,6 +272,69 @@ describe("AutoDiscoveryUtils", () => {
         });
     });
 
+    describe("validateServerConfigWithStaticUrls", () => {
+        const homeserver = "https://matrix.org";
+
+        it("starts authentication metadata while server liveliness is still pending", async () => {
+            const versions = Promise.withResolvers<{ versions: string[] }>();
+            fetchMock.get(`${homeserver}/_matrix/client/versions`, () => versions.promise);
+            fetchMock.get(`${homeserver}/_matrix/client/v1/auth_metadata`, {
+                ...makeDelegatedAuthMetadata("https://auth.matrix.org/"),
+            });
+            const validating = AutoDiscoveryUtils.validateServerConfigWithStaticUrls(homeserver);
+            await vi.waitFor(() => {
+                expect(fetchMock.callHistory.called(`${homeserver}/_matrix/client/versions`)).toBe(true);
+                expect(fetchMock.callHistory.called(`${homeserver}/_matrix/client/v1/auth_metadata`)).toBe(true);
+            });
+            versions.resolve({ versions: ["v1.13"] });
+            expect((await validating).delegatedAuthentication?.issuer).toBe("https://auth.matrix.org/");
+        });
+
+        it("requests metadata from the normalized static homeserver URL", async () => {
+            fetchMock.get(`${homeserver}/proxy/_matrix/client/versions`, { versions: ["v1.13"] });
+            fetchMock.get(`${homeserver}/proxy/_matrix/client/v1/auth_metadata`, {
+                ...makeDelegatedAuthMetadata("https://auth.matrix.org/"),
+            });
+            const config = await AutoDiscoveryUtils.validateServerConfigWithStaticUrls(
+                `${homeserver}/proxy/?ignored=value#fragment`,
+            );
+            expect(config.hsUrl).toBe(`${homeserver}/proxy`);
+            expect(config.delegatedAuthentication?.issuer).toBe("https://auth.matrix.org/");
+            expect(fetchMock.callHistory.calls().map((call) => call.url)).toEqual(
+                expect.arrayContaining([
+                    `${homeserver}/proxy/_matrix/client/versions`,
+                    `${homeserver}/proxy/_matrix/client/v1/auth_metadata`,
+                ]),
+            );
+        });
+
+        it("retains a fatal discovery error without waiting for pending authentication metadata", async () => {
+            fetchMock.get(`${homeserver}/_matrix/client/versions`, { versions: ["r0.0.1"] });
+            const metadata = Promise.withResolvers<object>();
+            fetchMock.get(`${homeserver}/_matrix/client/v1/auth_metadata`, () => metadata.promise);
+            try {
+                await expect(AutoDiscoveryUtils.validateServerConfigWithStaticUrls(homeserver)).rejects.toThrow(
+                    "Your homeserver is too old",
+                );
+            } finally {
+                metadata.resolve({});
+            }
+        });
+
+        it("treats unsupported OIDC as optional while retaining other metadata errors as warnings", async () => {
+            fetchMock.get(`${homeserver}/_matrix/client/versions`, { versions: ["v1.13"] });
+            expect((await AutoDiscoveryUtils.validateServerConfigWithStaticUrls(homeserver)).warning).toBeNull();
+            fetchMock.get(`${homeserver}/_matrix/client/v1/auth_metadata`, {
+                status: 400,
+                body: { errcode: "M_UNKNOWN", error: "Unavailable" },
+            });
+            const config = await AutoDiscoveryUtils.validateServerConfigWithStaticUrls(homeserver);
+            expect(config.hsUrl).toBe(homeserver);
+            expect(config.warning).toBeInstanceOf(Error);
+            expect(config.delegatedAuthentication).toBeUndefined();
+        });
+    });
+
     describe("authComponentStateForError", () => {
         const error = new Error("TEST");
 

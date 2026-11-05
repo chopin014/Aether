@@ -11,7 +11,7 @@ Please see LICENSE files in the repository root for full details.
 
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import React from "react";
-import { render, fireEvent, type RenderResult } from "test-utils-rtl";
+import { act, render, fireEvent, waitFor, type RenderResult } from "test-utils-rtl";
 import {
     ConditionKind,
     EventType,
@@ -39,6 +39,7 @@ import {
 
 import LoggedInView from "./LoggedInView";
 import { prepareElementCall } from "../views/voip/prepareElementCall";
+import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
 
 import { SDKContext } from "../../contexts/SDKContext";
 import { StandardActions } from "../../notifications/StandardActions";
@@ -132,8 +133,120 @@ describe("<LoggedInView />", () => {
                 vi.mocked(prepareElementCall).mockReturnValueOnce(cancel);
                 const { unmount } = getComponent();
                 expect(prepareElementCall).toHaveBeenCalledOnce();
+                expect(prepareElementCall).toHaveBeenCalledWith(mockClient, expect.any(Function));
                 unmount();
                 expect(cancel).toHaveBeenCalledOnce();
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it("holds automatic call preparation until destination paint and follows navigation before paint", async () => {
+            await SettingsStore.setValue("feature_desktop_shell", null, SettingLevel.DEVICE, true);
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            const spy = vi.spyOn(SettingsStore, "getValue").mockImplementation((...args) => {
+                if (args[0] === "feature_element_call_react") return true as never;
+                if (args[0] === "Developer.elementCallMockComponent") return false as never;
+                return getValue(...args) as never;
+            });
+            const startIdle = vi.fn();
+            const cancelPreparation = vi.fn();
+            vi.mocked(prepareElementCall).mockImplementationOnce((_client, schedule) => {
+                const cancelWait = schedule?.(startIdle);
+                return () => {
+                    cancelWait?.();
+                    cancelPreparation();
+                };
+            });
+            mockClient.isInitialSyncComplete.mockReturnValue(true);
+            try {
+                const { rerender, unmount } = getComponent({ currentRoomId: "!first:server" });
+                expect(startIdle).not.toHaveBeenCalled();
+                rerender(<LoggedInView {...defaultProps} currentRoomId="!second:server" />);
+                act(() => notifyRoomEntryReady(mockClient, "!first:server"));
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                expect(startIdle).not.toHaveBeenCalled();
+                act(() => notifyRoomEntryReady(mockClient, "!second:server"));
+                await waitFor(() => expect(startIdle).toHaveBeenCalledOnce());
+                unmount();
+                expect(cancelPreparation).toHaveBeenCalledOnce();
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it("holds automatic call preparation until the account's first sync after destination paint", async () => {
+            await SettingsStore.setValue("feature_desktop_shell", null, SettingLevel.DEVICE, true);
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            const spy = vi.spyOn(SettingsStore, "getValue").mockImplementation((...args) => {
+                if (args[0] === "feature_element_call_react") return true as never;
+                if (args[0] === "Developer.elementCallMockComponent") return false as never;
+                return getValue(...args) as never;
+            });
+            const startIdle = vi.fn();
+            vi.mocked(prepareElementCall).mockImplementationOnce((_client, schedule) => schedule!(startIdle));
+            mockClient.isInitialSyncComplete.mockReturnValue(false);
+            try {
+                getComponent({ currentRoomId: "!preview:server" });
+                act(() => notifyRoomEntryReady(mockClient, "!preview:server"));
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                expect(startIdle).not.toHaveBeenCalled();
+                act(() => {
+                    mockClient.emit(ClientEvent.Sync, SyncState.Prepared, null);
+                });
+                expect(startIdle).toHaveBeenCalledOnce();
+                act(() => {
+                    mockClient.emit(ClientEvent.Sync, SyncState.Syncing, SyncState.Prepared);
+                });
+                expect(startIdle).toHaveBeenCalledOnce();
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it("cancels the account-sync wait when started without a destination", async () => {
+            await SettingsStore.setValue("feature_desktop_shell", null, SettingLevel.DEVICE, true);
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            const spy = vi.spyOn(SettingsStore, "getValue").mockImplementation((...args) => {
+                if (args[0] === "feature_element_call_react") return true as never;
+                if (args[0] === "Developer.elementCallMockComponent") return false as never;
+                return getValue(...args) as never;
+            });
+            const startIdle = vi.fn();
+            vi.mocked(prepareElementCall).mockImplementationOnce((_client, schedule) => schedule!(startIdle));
+            mockClient.isInitialSyncComplete.mockReturnValue(false);
+            try {
+                const { rerender, unmount } = getComponent({ currentRoomId: "" });
+                const waiting = mockClient.listenerCount(ClientEvent.Sync);
+                rerender(<LoggedInView {...defaultProps} currentRoomId="!entered:server" />);
+                // Navigating cancels the destination-less account-sync wait instead of leaving it behind.
+                expect(mockClient.listenerCount(ClientEvent.Sync)).toBe(waiting - 1);
+                act(() => {
+                    mockClient.emit(ClientEvent.Sync, SyncState.Prepared, null);
+                });
+                expect(startIdle).not.toHaveBeenCalled();
+                unmount();
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it("cancels deferred call preparation on logout before the destination paints", async () => {
+            await SettingsStore.setValue("feature_desktop_shell", null, SettingLevel.DEVICE, true);
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            const spy = vi.spyOn(SettingsStore, "getValue").mockImplementation((...args) => {
+                if (args[0] === "feature_element_call_react") return true as never;
+                if (args[0] === "Developer.elementCallMockComponent") return false as never;
+                return getValue(...args) as never;
+            });
+            const startIdle = vi.fn();
+            vi.mocked(prepareElementCall).mockImplementationOnce((_client, schedule) => schedule!(startIdle));
+            try {
+                const { unmount } = getComponent({ currentRoomId: "!unmounted:server" });
+                unmount();
+                act(() => notifyRoomEntryReady(mockClient, "!unmounted:server"));
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                expect(startIdle).not.toHaveBeenCalled();
             } finally {
                 spy.mockRestore();
             }

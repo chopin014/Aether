@@ -8,7 +8,7 @@ Please see LICENSE files in the repository root for full details.
 
 // @vitest-environment happy-dom
 
-import { EventType, type IContent, type MatrixClient, MatrixEvent, Room } from "matrix-js-sdk/src/matrix";
+import { EventType, type IContent, type MatrixClient, MatrixEvent, Room, User } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { stubClient, TestSDKContext } from "test-utils";
@@ -125,6 +125,17 @@ describe("MemberListStore", () => {
         ]);
     });
 
+    it("reads presence configuration once per sort, including a changed setting on refresh", async () => {
+        addMember(room, bob, KnownMembership.Join);
+        addMember(room, charlie, KnownMembership.Join);
+        for (const member of room.getMembers()) member.user = new User(member.userId);
+        const presence = vi.spyOn(store, "isPresenceEnabled").mockReturnValueOnce(false).mockReturnValueOnce(true);
+        await store.loadMemberList(roomId);
+        expect(presence).toHaveBeenCalledTimes(1);
+        await store.loadMemberList(roomId);
+        expect(presence).toHaveBeenCalledTimes(2);
+    });
+
     it("filters based on a search query", async () => {
         const mice = "@mice:bar";
         const zorro = "@zorro:bar";
@@ -157,6 +168,33 @@ describe("MemberListStore", () => {
             expect(joined).toEqual([room.getMember(alice)]);
             expect(room.loadMembersIfNeeded).toHaveBeenCalledTimes(1);
         });
+
+        it("skips obsolete roster work without interrupting a live consumer's shared hydration", async () => {
+            const hydration = Promise.withResolvers<boolean>();
+            vi.mocked(room.loadMembersIfNeeded).mockReturnValue(hydration.promise);
+            addMember(room, bob, KnownMembership.Join);
+            const getUser = vi.mocked(client.getUser).mockReturnValue(null);
+            const presence = vi.spyOn(store, "isPresenceEnabled");
+            let current = true;
+            const obsolete = store.loadMemberList(roomId, undefined, () => current);
+            const live = store.loadMemberList(roomId);
+            await vi.waitFor(() => expect(room.loadMembersIfNeeded).toHaveBeenCalledOnce());
+            getUser.mockClear();
+            current = false;
+            hydration.resolve(true);
+            expect(await obsolete).toEqual({ joined: [], invited: [] });
+            expect((await live).joined).toEqual([room.getMember(alice), room.getMember(bob)]);
+            expect(getUser).toHaveBeenCalledTimes(2);
+            expect(presence).toHaveBeenCalledOnce();
+            expect(room.loadMembersIfNeeded).toHaveBeenCalledOnce();
+        });
+
+        it("retries storage-backed member hydration after a failed attempt", async () => {
+            vi.mocked(room.loadMembersIfNeeded).mockRejectedValueOnce(new Error("Offline"));
+            await expect(store.ensureMembersLoaded(roomId)).rejects.toThrow("Offline");
+            await store.ensureMembersLoaded(roomId);
+            expect(room.loadMembersIfNeeded).toHaveBeenCalledTimes(2);
+        });
     });
 
     describe("sliding sync", () => {
@@ -165,6 +203,75 @@ describe("MemberListStore", () => {
                 return settingName === "feature_simplified_sliding_sync"; // this is enabled, everything else is disabled.
             });
             client.members = vi.fn();
+        });
+
+        it("shares an in-flight roster request across refreshes and applies each search separately", async () => {
+            const response = Promise.withResolvers<Awaited<ReturnType<MatrixClient["members"]>>>();
+            vi.mocked(client.members).mockReturnValue(response.promise);
+            const sdkLoad = vi.spyOn(room, "loadMembersIfNeeded");
+            const hydration = store.ensureMembersLoaded(roomId);
+            const all = store.loadMemberList(roomId);
+            const filtered = store.loadMemberList(roomId, "bob");
+            await vi.waitFor(() => expect(client.members).toHaveBeenCalledTimes(1));
+            response.resolve({
+                chunk: [
+                    {
+                        type: EventType.RoomMember,
+                        state_key: bob,
+                        sender: bob,
+                        room_id: roomId,
+                        event_id: "$bob",
+                        origin_server_ts: 0,
+                        content: { membership: KnownMembership.Join, displayname: "Bob" },
+                    },
+                ],
+            });
+            await hydration;
+            expect(sdkLoad).not.toHaveBeenCalled();
+            expect((await all).joined).toContain(room.getMember(bob));
+            expect((await filtered).joined).toEqual([room.getMember(bob)]);
+            await store.loadMemberList(roomId);
+            expect(client.members).toHaveBeenCalledTimes(1);
+        });
+
+        it("shares a failed roster request and retries on the next refresh", async () => {
+            const response = Promise.withResolvers<Awaited<ReturnType<MatrixClient["members"]>>>();
+            vi.mocked(client.members).mockReturnValueOnce(response.promise).mockResolvedValue({ chunk: [] });
+            const markFailed = vi.spyOn(room.currentState, "markOutOfBandMembersFailed");
+            const results = Promise.allSettled([store.ensureMembersLoaded(roomId), store.ensureMembersLoaded(roomId)]);
+            await vi.waitFor(() => expect(client.members).toHaveBeenCalledTimes(1));
+            response.reject(new Error("Offline"));
+            expect((await results).map((result) => result.status)).toEqual(["rejected", "rejected"]);
+            expect(markFailed).toHaveBeenCalledTimes(1);
+            await store.loadMemberList(roomId);
+            expect(client.members).toHaveBeenCalledTimes(2);
+        });
+
+        it("shows known members on failure and retries on refresh", async () => {
+            vi.mocked(client.members).mockRejectedValueOnce(new Error("Offline")).mockResolvedValue({ chunk: [] });
+            expect((await store.loadMemberList(roomId)).joined).toEqual([room.getMember(alice)]);
+            await store.loadMemberList(roomId);
+            expect(client.members).toHaveBeenCalledTimes(2);
+        });
+
+        it("hydrates a replacement Room with the same ID instead of reusing another session's cache", async () => {
+            vi.mocked(client.members).mockResolvedValue({ chunk: [] });
+            await store.ensureMembersLoaded(roomId);
+            room = new Room(roomId, client, client.getUserId()!);
+            await store.ensureMembersLoaded(roomId);
+            expect(client.members).toHaveBeenCalledTimes(2);
+        });
+
+        it("does not share an in-flight hydration with a replacement Room", async () => {
+            const firstResponse = Promise.withResolvers<Awaited<ReturnType<MatrixClient["members"]>>>();
+            vi.mocked(client.members).mockReturnValueOnce(firstResponse.promise).mockResolvedValue({ chunk: [] });
+            const first = store.ensureMembersLoaded(roomId);
+            await vi.waitFor(() => expect(client.members).toHaveBeenCalledTimes(1));
+            room = new Room(roomId, client, client.getUserId()!);
+            await store.ensureMembersLoaded(roomId);
+            expect(client.members).toHaveBeenCalledTimes(2);
+            firstResponse.resolve({ chunk: [] });
+            await first;
         });
 
         it("calls /members when lazy loading", async () => {

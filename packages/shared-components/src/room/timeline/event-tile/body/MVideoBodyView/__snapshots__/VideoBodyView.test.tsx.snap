@@ -71,16 +71,149 @@ exports[`VideoBodyView > matches snapshot for ready story 1`] = `
       data-video-body-mask-target=""
       style="width: min(100%, 320px); max-width: 320px; max-height: 180px; aspect-ratio: 16 / 9;"
     >
-      <video
-        aria-label="Product demo video"
-        class="VideoBodyView-module_video"
-        controls=""
-        controlslist="nodownload"
-        crossorigin="anonymous"
-        poster="/static/element.png"
-        preload="none"
-        src="/static/videoBodyDemo.webm"
-      />
+      <div
+        class="VideoPlayer-module_player"
+        data-testid="video-player"
+        style="--video-progress: 0%; --video-buffered: 0%; --video-volume: 100%;"
+      >
+        <video
+          aria-label="Product demo video"
+          class="VideoPlayer-module_video VideoBodyView-module_video"
+          controlslist="nodownload"
+          crossorigin="anonymous"
+          playsinline=""
+          poster="/static/element.png"
+          preload="none"
+          src="/static/videoBodyDemo.webm"
+        />
+        <button
+          aria-label="Play"
+          class="VideoPlayer-module_bigPlay"
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            fill="currentColor"
+            height="1em"
+            viewBox="0 0 24 24"
+            width="1em"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="m8.98 4.677 9.921 5.58c1.36.764 1.36 2.722 0 3.486l-9.92 5.58C7.647 20.073 6 19.11 6 17.58V6.42c0-1.53 1.647-2.493 2.98-1.743"
+            />
+          </svg>
+        </button>
+        <div
+          class="VideoPlayer-module_controls"
+        >
+          <input
+            aria-label="Seek"
+            class="VideoPlayer-module_seek"
+            disabled=""
+            max="0"
+            min="0"
+            step="any"
+            type="range"
+            value="0"
+          />
+          <div
+            class="VideoPlayer-module_bar"
+          >
+            <button
+              aria-label="Play"
+              class="VideoPlayer-module_control"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                fill="currentColor"
+                height="1em"
+                viewBox="0 0 24 24"
+                width="1em"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m8.98 4.677 9.921 5.58c1.36.764 1.36 2.722 0 3.486l-9.92 5.58C7.647 20.073 6 19.11 6 17.58V6.42c0-1.53 1.647-2.493 2.98-1.743"
+                />
+              </svg>
+            </button>
+            <span
+              class="VideoPlayer-module_time"
+            >
+              <time
+                class="mx_Clock"
+                datetime="PT0S"
+              >
+                0:00
+              </time>
+              <span
+                aria-hidden="true"
+              >
+                 / 
+              </span>
+              <time
+                class="mx_Clock"
+                datetime="PT0S"
+              >
+                0:00
+              </time>
+            </span>
+            <div
+              class="VideoPlayer-module_volume"
+            >
+              <button
+                aria-label="Mute"
+                class="VideoPlayer-module_control"
+                type="button"
+              >
+                <svg
+                  aria-hidden="true"
+                  fill="currentColor"
+                  height="1em"
+                  viewBox="0 0 24 24"
+                  width="1em"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="M3 14v-4a2 2 0 0 1 2-2h2l3.293-3.293c.63-.63 1.707-.184 1.707.707v13.172c0 .89-1.077 1.337-1.707.707L7 16H5a2 2 0 0 1-2-2m11.122-5.536a1 1 0 0 1 1.414 0A5 5 0 0 1 17 12c0 1.38-.56 2.632-1.464 3.536a1 1 0 0 1-1.415-1.415 3 3 0 0 0 .88-2.121c0-.829-.335-1.577-.88-2.121a1 1 0 0 1 0-1.415"
+                  />
+                  <path
+                    d="M16.95 5.636a1 1 0 0 1 1.414 0A8.98 8.98 0 0 1 21 12a8.98 8.98 0 0 1-2.636 6.364 1 1 0 0 1-1.414-1.414A6.98 6.98 0 0 0 19 12a6.98 6.98 0 0 0-2.05-4.95 1 1 0 0 1 0-1.414"
+                  />
+                </svg>
+              </button>
+              <input
+                aria-label="Volume"
+                class="VideoPlayer-module_volumeSlider"
+                max="1"
+                min="0"
+                step="0.05"
+                type="range"
+                value="1"
+              />
+            </div>
+            <button
+              aria-label="Full screen"
+              class="VideoPlayer-module_control VideoPlayer-module_fullScreenButton"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                fill="currentColor"
+                height="1em"
+                viewBox="0 0 24 24"
+                width="1em"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M4 14a1 1 0 0 1 1 1v4h4a1 1 0 1 1 0 2H3v-6a1 1 0 0 1 1-1m16 0a1 1 0 0 1 1 1v6h-6a1 1 0 1 1 0-2h4v-4a1 1 0 0 1 1-1M9 3a1 1 0 0 1 0 2H5v4a1 1 0 0 1-2 0V3zm12 6a1 1 0 1 1-2 0V5h-4a1 1 0 1 1 0-2h6z"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
     <div>
       File body slot

@@ -448,23 +448,12 @@ Please see LICENSE in the repository root for full details.
     padding: var(--cpd-space-1x);
 }
 .description,
-.localProcessing,
-.rangeLabels {
+.localProcessing {
     color: var(--cpd-color-text-secondary);
-}
-.strength {
-    display: flex;
-    flex-direction: column;
-    gap: var(--cpd-space-2x);
 }
 .numeric,
 .metrics dd {
     font-variant-numeric: tabular-nums;
-}
-.rangeLabels {
-    display: flex;
-    justify-content: space-between;
-    font: var(--cpd-font-body-xs-regular);
 }
 .testSection {
     display: flex;

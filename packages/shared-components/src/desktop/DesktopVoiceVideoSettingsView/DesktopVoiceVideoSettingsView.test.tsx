@@ -35,7 +35,6 @@ const baseSnapshot: DesktopVoiceVideoSettingsViewSnapshot = {
     inputLevel: { level: null, open: false, threshold: null },
     inputProfile: "custom",
     noiseSuppression: "enhanced",
-    noiseSuppressionStrength: 100,
     voiceDetection: true,
     sensitivityAuto: true,
     sensitivity: -50,
@@ -67,7 +66,6 @@ function makeVm(snapshot: Partial<DesktopVoiceVideoSettingsViewSnapshot> = {}) {
         toggleMicrophoneTest: vi.fn(),
         setInputProfile: vi.fn(),
         setNoiseSuppression: vi.fn(),
-        setNoiseSuppressionStrength: vi.fn(),
         setVoiceDetection: vi.fn(),
         setSensitivityAuto: vi.fn(),
         setSensitivity: vi.fn(),
@@ -183,15 +181,13 @@ describe("DesktopVoiceVideoSettingsView", () => {
             expect(select).toHaveValue("enhanced");
             await userEvent.selectOptions(select, "standard");
             expect(vm.setNoiseSuppression).toHaveBeenCalledWith("standard");
-            const strength = screen.getByRole("slider", { name: "Suppression strength" });
-            expect(strength).toHaveAttribute("aria-valuetext", "100%");
-            fireEvent.change(strength, { target: { value: "60" } });
-            expect(vm.setNoiseSuppressionStrength).toHaveBeenCalledWith(60);
+            expect(screen.getByRole("option", { name: "ANS (Aether Noise Suppression)" })).toBeInTheDocument();
+            // ANS always runs at full strength: a lower strength only mixes the noise back in.
+            expect(screen.queryByRole("slider", { name: /strength/i })).toBeNull();
         });
 
-        it("only offers the strength and voice detection with enhanced noise suppression", () => {
+        it("only offers voice detection with ANS", () => {
             render(<DesktopVoiceVideoSettingsView vm={makeVm({ noiseSuppression: "standard" })} />);
-            expect(screen.queryByRole("slider", { name: "Suppression strength" })).toBeNull();
             expect(screen.getByRole("switch", { name: "Advanced voice detection" })).toBeDisabled();
         });
 

@@ -40,6 +40,7 @@ import {
     THREAD_RELATION_TYPE,
     type MatrixClient,
     type RoomSummary,
+    RoomType,
 } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { logger } from "matrix-js-sdk/src/logger";
@@ -67,6 +68,7 @@ import MainSplit from "./MainSplit";
 import { DesktopSearchResultsHost } from "../views/desktop/DesktopSearchResultsHost";
 import { DESKTOP_SEARCH_UPDATE, DesktopMessageSearchStore } from "../../stores/DesktopMessageSearchStore";
 import RightPanel from "./RightPanel";
+import { deferRoomEntryWork } from "../../performance/RoomEntryReady";
 import RoomScrollStateStore, { type ScrollState } from "../../stores/RoomScrollStateStore";
 import WidgetEchoStore from "../../stores/WidgetEchoStore";
 import SettingsStore from "../../settings/SettingsStore";
@@ -98,6 +100,9 @@ import { WidgetLayoutStore } from "../../stores/widgets/WidgetLayoutStore";
 import { getKeyBindingsManager } from "../../KeyBindingsManager";
 import { objectHasDiff } from "../../utils/objects";
 import SpaceRoomView from "./SpaceRoomView";
+import SpaceHierarchy, { showRoom } from "./SpaceHierarchy";
+import { getPreparedHierarchySummary, prepareSpaceHierarchy } from "../../performance/PreparedSpaceHierarchy";
+import { takeAliasSummary } from "../../performance/AliasRoomSummary";
 import { type IOpts } from "../../createRoom";
 import EditorStateTransfer from "../../utils/EditorStateTransfer";
 import ErrorDialog from "../views/dialogs/ErrorDialog";
@@ -303,6 +308,10 @@ export interface IRoomState {
      * See https://spec.matrix.org/latest/client-server-api/#room-summaries
      */
     roomSummary?: RoomSummary;
+    /** Public hierarchy adapter, separate from SDK membership and conversation state. */
+    previewSpace?: Room;
+    /** HTTP join acknowledgement only; canonical membership still controls joined capabilities. */
+    previewSpaceJoinAcknowledged?: string;
     promptAskToJoin: boolean;
 }
 
@@ -440,6 +449,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     private settingWatchers: string[] = [];
 
     private unmounted = false;
+    private cancelMemberPreparation?: () => void;
     private permalinkCreators: Record<string, RoomPermalinkCreator> = {};
 
     // The userId from which we received this invite.
@@ -917,6 +927,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         }
         // We don't have a roomId to set up a room for, so we can't do anything
         if (!roomId) return;
+        if (!this.state.matrixClientIsReady && !client.clientRunning) return;
 
         // if this is an unknown room then we're in one of these states:
         // - We are already joined, but sync has not caught up with the room yet. (we can /peek)
@@ -938,18 +949,59 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
 
         this.setState({ peekAndSummaryLoading: true });
 
-        let roomSummary: RoomSummary | undefined;
-        try {
-            logger.info(`Attempting to get the room summary of ${roomId}`);
-            roomSummary = await client.getRoomSummary(roomId, this.roomViewStore.getViaServers());
-        } catch (err) {
-            logger.warn(`Failed to get the room summary of ${roomId}`, err);
+        // A loaded hierarchy page already lists this room's public metadata, so its Join prompt can show
+        // immediately. The summary still confirms membership and encryption, and decides whether to peek.
+        const hinted = getPreparedHierarchySummary(client, roomId);
+        const seeded = hinted?.join_rule === JoinRule.Public ? hinted : undefined;
+        const oobRoomType = this.props.oobData?.roomType;
+        if (!hinted && (oobRoomType === undefined || oobRoomType === RoomType.Space)) {
+            // The overview of an unknown Space is its slowest request; start it alongside the summary.
+            prepareSpaceHierarchy(client, roomId);
         }
 
-        // Room changed while we were fetching the summary, so ignore it.
-        if (this.unmounted || this.state.roomId !== roomId) return;
+        logger.info(`Attempting to get the room summary of ${roomId}`);
+        const fetchSummary = (): Promise<RoomSummary | undefined> =>
+            client.getRoomSummary(roomId, this.roomViewStore.getViaServers()).catch((err) => {
+                logger.warn(`Failed to get the room summary of ${roomId}`, err);
+                return undefined;
+            });
+        // An alias navigation already requested the summary alongside resolving the alias.
+        const alias = this.roomViewStore.getRoomAlias();
+        const prefetched = alias ? takeAliasSummary(client, alias, roomId) : undefined;
+        const summaryRequest = prefetched ? prefetched.then((summary) => summary ?? fetchSummary()) : fetchSummary();
+        if (seeded) await this.showRoomSummary(client, roomId, seeded, false);
+
+        const roomSummary = await summaryRequest;
+        // Keep the seeded prompt if the summary is unavailable.
+        if (seeded && !roomSummary) return;
+        await this.showRoomSummary(client, roomId, roomSummary, shouldPeek);
+    }
+
+    /** Present the join, Space overview or peek state for an unknown room's summary. */
+    private async showRoomSummary(
+        client: MatrixClient,
+        roomId: string,
+        roomSummary: RoomSummary | undefined,
+        shouldPeek: boolean,
+    ): Promise<void> {
+        // The viewed room changed meanwhile, so ignore it. Read the store: a seeded summary is shown in the same
+        // tick that the room ID is set, before React has applied that state.
+        if (this.unmounted || this.context.client !== client || this.roomViewStore.getRoomId() !== roomId) return;
+        // Sync published the room meanwhile; it now owns the view.
+        if (client.getRoom(roomId)) return;
         // Share the summary so the room list can show the room before the user joins it.
         this.roomViewStore.setRoomSummary(roomId, roomSummary);
+
+        if (roomSummary?.room_type === RoomType.Space && roomSummary.join_rule === JoinRule.Public) {
+            const prepared = prepareSpaceHierarchy(client, roomId);
+            this.setState({
+                roomSummary,
+                previewSpace: prepared.hierarchy.root,
+                peekAndSummaryLoading: false,
+                isPeeking: false,
+            });
+            return;
+        }
 
         const alreadyJoined = roomSummary?.membership === KnownMembership.Join;
         if (!shouldPeek || !(roomSummary?.world_readable || alreadyJoined)) {
@@ -957,7 +1009,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             return;
         }
 
-        this.setState({ roomSummary, isPeeking: true }); // this will change to false if peeking fails
+        // Optional history must not hide Join after the public summary is available.
+        // An already joined summary still waits for its room rather than offering Join again.
+        this.setState({ roomSummary, peekAndSummaryLoading: alreadyJoined, isPeeking: true });
 
         try {
             logger.info(`Attempting to peek into room ${roomId}`);
@@ -1105,6 +1159,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         //
         // (We could use isMounted, but facebook have deprecated that.)
         this.unmounted = true;
+        this.cancelMemberPreparation?.();
 
         this.context.legacyCallHandler.removeListener(LegacyCallHandlerEvent.CallState, this.onCallState);
 
@@ -1233,6 +1288,16 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     private onAction = async (payload: ActionPayload): Promise<void> => {
         if (!this.context.client) return;
         switch (payload.action) {
+            case Action.JoinRoomReady:
+                if (payload.roomId === this.state.roomId && this.state.previewSpace?.client === this.context.client) {
+                    this.setState({ previewSpaceJoinAcknowledged: payload.roomId });
+                }
+                break;
+            case Action.JoinRoomError:
+                if (payload.roomId === this.state.roomId) {
+                    this.setState({ previewSpaceJoinAcknowledged: undefined });
+                }
+                break;
             case "message_sent":
                 this.checkDesktopNotifications();
                 break;
@@ -1521,7 +1586,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         this.context.widgetLayoutStore.on(WidgetLayoutStore.emissionForRoom(room), this.onWidgetLayoutChange);
 
         this.calculatePeekRules(room);
-        void this.loadMembersIfJoined(room);
+        this.loadMembersIfJoined(room);
         void this.calculateRecommendedVersion(room);
         this.updatePermissions(room);
         this.checkWidgets(room);
@@ -1568,12 +1633,23 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         this.setState({ upgradeRecommendation });
     }
 
-    private async loadMembersIfJoined(room: Room): Promise<void> {
+    private loadMembersIfJoined(room: Room): void {
+        this.cancelMemberPreparation?.();
+        if (room.hasEncryptionStateEvent()) {
+            void this.hydrateMembersIfJoined(room);
+        } else {
+            this.cancelMemberPreparation = deferRoomEntryWork(this.context.client!, room.roomId, () => {
+                if (!this.unmounted) void this.hydrateMembersIfJoined(room);
+            });
+        }
+    }
+
+    private async hydrateMembersIfJoined(room: Room): Promise<void> {
         // lazy load members if enabled
         if (this.context.client?.hasLazyLoadMembersEnabled()) {
             if (room && room.getMyMembership() === KnownMembership.Join) {
                 try {
-                    await room.loadMembersIfNeeded();
+                    await this.context.memberListStore.ensureMembersLoaded(room.roomId);
                     if (!this.unmounted) {
                         this.setState({ membersLoaded: true });
                     }
@@ -1704,7 +1780,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     private onMyMembership = (room: Room): void => {
         if (room.roomId === this.state.roomId) {
             this.forceUpdate();
-            void this.loadMembersIfJoined(room);
+            this.loadMembersIfJoined(room);
             this.updatePermissions(room);
         }
     };
@@ -2281,13 +2357,56 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             }
         }
 
+        if (
+            this.state.previewSpace &&
+            this.state.previewSpace.client === this.context.client &&
+            this.state.previewSpace.roomId === this.state.roomId &&
+            !this.props.forceTimeline &&
+            (!this.state.room ||
+                !this.state.matrixClientIsReady ||
+                this.state.room.getMyMembership() !== KnownMembership.Join)
+        ) {
+            const acknowledged = this.state.previewSpaceJoinAcknowledged === this.state.roomId;
+            const joinedSummary = this.state.roomSummary?.membership === KnownMembership.Join;
+            return (
+                <ScopedRoomContextProvider {...this.state} roomViewStore={this.roomViewStore}>
+                    <div className="mx_RoomView">
+                        <ErrorBoundary>
+                            <RoomPreviewBar
+                                onJoinClick={acknowledged || joinedSummary ? undefined : this.onJoinButtonClicked}
+                                canPreview={false}
+                                error={this.state.roomLoadError}
+                                roomAlias={this.state.roomAlias}
+                                joining={this.state.joining || acknowledged}
+                                loading={acknowledged || joinedSummary}
+                                oobData={this.props.oobData}
+                                roomId={this.state.roomId}
+                            />
+                            <main className="mx_SpaceRoomView">
+                                <MainSplit analyticsRoomType="space">
+                                    <div className="mx_SpaceRoomView_landing">
+                                        <SpaceHierarchy space={this.state.previewSpace} showRoom={showRoom} />
+                                    </div>
+                                </MainSplit>
+                            </main>
+                        </ErrorBoundary>
+                    </div>
+                </ScopedRoomContextProvider>
+            );
+        }
+
         if (!this.state.room) {
-            const loading =
-                !this.state.matrixClientIsReady || this.state.roomLoading || this.state.peekAndSummaryLoading;
+            // A public summary can offer Join while account discovery continues. A joined
+            // summary must keep waiting for sync rather than offer to join the room again.
+            const canShowJoinPreview =
+                this.context.client.clientRunning &&
+                this.state.roomSummary !== undefined &&
+                this.state.roomSummary.membership !== KnownMembership.Join;
+            const waitingForClient = !this.state.matrixClientIsReady && !canShowJoinPreview;
+            const loading = waitingForClient || this.state.roomLoading || this.state.peekAndSummaryLoading;
             if (loading) {
                 // Assume preview loading if we don't have a ready client or a room ID (still resolving the alias)
-                const previewLoading =
-                    !this.state.matrixClientIsReady || !this.state.roomId || this.state.peekAndSummaryLoading;
+                const previewLoading = waitingForClient || !this.state.roomId || this.state.peekAndSummaryLoading;
                 return (
                     <div className="mx_RoomView">
                         <ErrorBoundary>
@@ -2337,6 +2456,14 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                     </div>
                 );
             }
+        }
+
+        if (!this.state.matrixClientIsReady) {
+            return (
+                <div className="mx_RoomView">
+                    <RoomPreviewBar canPreview={false} previewLoading loading roomId={this.state.roomId} />
+                </div>
+            );
         }
 
         const myMembership = this.state.room.getMyMembership();

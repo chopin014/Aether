@@ -50,6 +50,8 @@ async function settle(page: Page): Promise<void> {
  */
 async function sendMicrophoneUnprocessed(page: Page): Promise<void> {
     await page.evaluate(async (level) => {
+        // Otherwise the one-time move onto ANS could still switch this device back to Voice Isolation.
+        await window.mxSettingsStore.setValue("desktopAnsMigrated", null, level, true);
         await window.mxSettingsStore.setValue("desktopInputProfile", null, level, "custom");
         await window.mxSettingsStore.setValue("desktopNoiseSuppression", null, level, "none");
     }, SettingLevel.DEVICE);
@@ -589,35 +591,26 @@ test(
             await expect.poll(() => soundResponses.size).toBeGreaterThanOrEqual(5);
             expect([...soundResponses.values()].every((status) => status === 200 || status === 206)).toBe(true);
 
-            await dock.getByRole("button", { name: "Advanced noise suppression", exact: true }).click();
-            const noisePanel = page.getByRole("dialog", { name: "Advanced noise suppression", exact: true });
+            await dock.getByRole("button", { name: "ANS (Aether Noise Suppression)", exact: true }).click();
+            const noisePanel = page.getByRole("dialog", { name: "ANS (Aether Noise Suppression)", exact: true });
             const suppression = noisePanel.getByRole("switch", { name: "Noise suppression", exact: true });
             await expect(suppression).not.toBeChecked();
             const denoiser = page.waitForResponse((response) => /aether-denoiser\.[^/]+\.wasm$/.test(response.url()));
             await suppression.check();
             expect((await denoiser).status()).toBe(200);
-            const strength = noisePanel.getByRole("slider", { name: "Suppression strength", exact: true });
-            await expect(strength).toBeEnabled();
-            await strength.press("End");
-            for (let value = 99; value >= 80; value--) {
-                await strength.press("ArrowLeft");
-                await expect(strength).toHaveValue(String(value));
-            }
-            await expect(noisePanel.getByText("80%", { exact: true })).toBeVisible();
+            // ANS always runs at full strength, so there is nothing to tune.
+            await expect(noisePanel.getByRole("slider")).toHaveCount(0);
             await expect
                 .poll(() =>
                     page.evaluate(() => {
-                        // The fixture declares only writes; read these two settings from the app's exposed store.
+                        // The fixture declares only writes; read the setting from the app's exposed store.
                         const settings = window.mxSettingsStore as typeof window.mxSettingsStore & {
                             getValue: (name: string) => unknown;
                         };
-                        return {
-                            suppression: settings.getValue("desktopNoiseSuppression"),
-                            strength: settings.getValue("desktopNoiseSuppressionStrength"),
-                        };
+                        return settings.getValue("desktopNoiseSuppression");
                     }),
                 )
-                .toEqual({ suppression: "enhanced", strength: 80 });
+                .toBe("enhanced");
             await noisePanel.getByRole("button", { name: "Let's check", exact: true }).click();
             await expect(noisePanel.getByRole("meter", { name: "Microphone level", exact: true })).toBeVisible();
             await expect(dock.getByRole("button", { name: "Undeafen", exact: true })).toHaveAttribute(
@@ -635,7 +628,9 @@ test(
             await suppression.uncheck();
             await page.keyboard.press("Escape");
             await expect(noisePanel).toHaveCount(0);
-            await expect(dock.getByRole("button", { name: "Advanced noise suppression", exact: true })).toBeFocused();
+            await expect(
+                dock.getByRole("button", { name: "ANS (Aether Noise Suppression)", exact: true }),
+            ).toBeFocused();
 
             await dock.getByRole("button", { name: "Connection", exact: true }).click();
             const connectionPanel = page.getByRole("dialog", { name: "Connection", exact: true });

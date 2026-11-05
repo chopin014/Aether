@@ -36,6 +36,18 @@ import { useUserStatus } from "../../../hooks/useUserStatus";
  */
 const SHOW_EXPAND_QUOTE_PIXELS = 60;
 
+const pendingQuoteMeasurements = new Set<() => (() => void) | undefined>();
+let quoteMeasurementFrame: number | undefined;
+
+function flushQuoteMeasurements(): void {
+    quoteMeasurementFrame = undefined;
+    const measurements = [...pendingQuoteMeasurements];
+    pendingQuoteMeasurements.clear();
+    // Read every quote before changing expansion state, avoiding layout between React commits.
+    const updates = measurements.map((measure) => measure());
+    for (const update of updates) update?.();
+}
+
 function ReplyChainPresentationWrapper({ children }: Readonly<{ children: React.ReactNode }>): JSX.Element {
     const { density } = useEventPresentation();
 
@@ -191,9 +203,21 @@ export default class ReplyChain extends React.Component<IProps, IState> {
 
     public componentWillUnmount(): void {
         this.unmounted = true;
+        pendingQuoteMeasurements.delete(this.measureExpandableQuote);
+        if (pendingQuoteMeasurements.size === 0 && quoteMeasurementFrame !== undefined) {
+            cancelAnimationFrame(quoteMeasurementFrame);
+            quoteMeasurementFrame = undefined;
+        }
     }
 
     private trySetExpandableQuotes(): void {
+        if (this.props.isQuoteExpanded !== undefined || !this.blockquoteRef.current) return;
+        pendingQuoteMeasurements.add(this.measureExpandableQuote);
+        quoteMeasurementFrame ??= requestAnimationFrame(flushQuoteMeasurements);
+    }
+
+    private measureExpandableQuote = (): (() => void) | undefined => {
+        if (this.unmounted) return;
         if (this.props.isQuoteExpanded === undefined && this.blockquoteRef.current) {
             const el: HTMLElement | null = this.blockquoteRef.current.querySelector(".mx_EventTile_body");
             if (el) {
@@ -207,11 +231,14 @@ export default class ReplyChain extends React.Component<IProps, IState> {
                     // Do the same for its children as the scroll container may be on them instead
                     [...el.children].some((child) => child.clientHeight !== child.scrollHeight);
                 if (isElipsisShown) {
-                    this.props.setQuoteExpanded(false);
+                    return () => {
+                        if (!this.unmounted && this.props.isQuoteExpanded === undefined)
+                            this.props.setQuoteExpanded(false);
+                    };
                 }
             }
         }
-    }
+    };
 
     private async initialize(): Promise<void> {
         const { parentEv } = this.props;

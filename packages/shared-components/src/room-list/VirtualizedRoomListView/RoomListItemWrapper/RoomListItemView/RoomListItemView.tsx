@@ -376,7 +376,7 @@ export const RoomListItemView = memo(function RoomListItemView({
                                 id={participant.userId}
                                 name={participant.name}
                                 src={participant.avatarUrl}
-                                size="24px"
+                                size="20px"
                                 type="round"
                             />
                         </span>

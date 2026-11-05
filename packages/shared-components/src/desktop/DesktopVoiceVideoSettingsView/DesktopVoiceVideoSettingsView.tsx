@@ -82,10 +82,11 @@ export interface DesktopVoiceVideoSettingsViewSnapshot {
      */
     inputLevel: { level: number | null; open: boolean; threshold: number | null };
     inputProfile: DesktopInputProfile;
-    /** The noise suppression in effect: enhanced runs in the app, standard is the browser's own. */
+    /**
+     * The noise suppression in effect: enhanced is ANS (Aether Noise Suppression), which runs in the app at full
+     * strength; standard is the browser's own.
+     */
     noiseSuppression: DesktopNoiseSuppression;
-    /** How strongly enhanced noise suppression lowers the noise, 0 to 100. */
-    noiseSuppressionStrength: number;
     /** Whether only speech, as enhanced noise suppression hears it, opens the microphone. */
     voiceDetection: boolean;
     /** Why enhanced noise suppression stopped during the microphone test, if it did. */
@@ -127,7 +128,6 @@ export interface DesktopVoiceVideoSettingsViewActions {
     toggleMicrophoneTest: () => void;
     setInputProfile: (profile: DesktopInputProfile) => void;
     setNoiseSuppression: (mode: DesktopNoiseSuppression) => void;
-    setNoiseSuppressionStrength: (percent: number) => void;
     setVoiceDetection: (enabled: boolean) => void;
     setSensitivityAuto: (auto: boolean) => void;
     setSensitivity: (db: number) => void;
@@ -367,21 +367,6 @@ export function DesktopVoiceVideoSettingsView({ vm }: { vm: DesktopVoiceVideoSet
                         onChange={(mode) => vm.setNoiseSuppression(mode as DesktopNoiseSuppression)}
                     />
                     <p className={styles.description}>{_t("desktop|voice_video|noise_suppression_description")}</p>
-                    {snapshot.noiseSuppression === "enhanced" && (
-                        <>
-                            <span className={styles.fieldLabel}>
-                                {_t("desktop|voice_video|noise_suppression_strength")}
-                            </span>
-                            <RangeSlider
-                                label={_t("desktop|voice_video|noise_suppression_strength")}
-                                value={snapshot.noiseSuppressionStrength}
-                                min={0}
-                                max={100}
-                                valueText={`${snapshot.noiseSuppressionStrength}%`}
-                                onChange={vm.setNoiseSuppressionStrength}
-                            />
-                        </>
-                    )}
                     {noiseSuppressionProblem && (
                         <Text size="md" role="alert" className={styles.error}>
                             {noiseSuppressionProblem}

@@ -45,6 +45,7 @@ import { RoomNotificationStateStore } from "../notifications/RoomNotificationSta
 import { type SummarizedNotificationState } from "../notifications/SummarizedNotificationState";
 import { NotificationLevel } from "../notifications/NotificationLevel";
 import { storeRoomAliasInCache } from "../../RoomAliasCache.ts";
+import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
 
 vi.useFakeTimers();
 
@@ -945,8 +946,43 @@ describe("SpaceStore", () => {
         });
     });
 
+    it("defers decorative Space hydration until the selected conversation paints", async () => {
+        store.setActiveSpace(MetaSpace.Home);
+        window.localStorage.setItem("mx_active_space", MetaSpace.Home);
+        mkRoom(room1);
+        const space = mkSpace(space1, [room1]);
+        await run();
+        const selected = vi.spyOn(sdkContext.roomViewStore, "getRoomId").mockReturnValue(room1);
+        vi.mocked(client.hasLazyLoadMembersEnabled).mockReturnValue(true);
+        const load = space.loadMembersIfNeeded;
+        store.setActiveSpace(space1, false);
+        expect(load).not.toHaveBeenCalled();
+        notifyRoomEntryReady(client, room1);
+        await vi.runOnlyPendingTimersAsync();
+        expect(load).toHaveBeenCalledOnce();
+        selected.mockRestore();
+    });
+
+    it("drops deferred Space hydration after switching to another conversation", async () => {
+        store.setActiveSpace(MetaSpace.Home);
+        window.localStorage.setItem("mx_active_space", MetaSpace.Home);
+        mkRoom(room1);
+        const space = mkSpace(space1, [room1]);
+        await run();
+        const selected = vi.spyOn(sdkContext.roomViewStore, "getRoomId").mockReturnValue(room1);
+        vi.mocked(client.hasLazyLoadMembersEnabled).mockReturnValue(true);
+        const load = space.loadMembersIfNeeded;
+        store.setActiveSpace(space1, false);
+        selected.mockReturnValue(room2);
+        notifyRoomEntryReady(client, room1);
+        await vi.runOnlyPendingTimersAsync();
+        expect(load).not.toHaveBeenCalled();
+        selected.mockRestore();
+    });
+
     it("does not race with lazy loading", async () => {
         store.setActiveSpace(MetaSpace.Home);
+        window.localStorage.setItem("mx_active_space", MetaSpace.Home);
 
         mkRoom(room1);
         const space = mkSpace(space1, [room1]);
@@ -990,13 +1026,18 @@ describe("SpaceStore", () => {
         // set up space with LL where loadMembersIfNeeded emits membership events which trip switchSpaceIfNeeded
         expect(space.loadMembersIfNeeded).not.toHaveBeenCalled();
 
+        vi.mocked(client.hasLazyLoadMembersEnabled).mockReturnValue(true);
+        const selected = vi.spyOn(sdkContext.roomViewStore, "getRoomId").mockReturnValue(room1);
         store.setActiveSpace(space1, true);
-        vi.runOnlyPendingTimers();
+        expect(store.activeSpace).toBe(space1);
+        notifyRoomEntryReady(client, room1);
+        await vi.runOnlyPendingTimersAsync();
         expect(space.loadMembersIfNeeded).toHaveBeenCalled();
         vi.runAllTimers();
 
         expect(store.activeSpace).toBe(space1);
         expect(getCurrentRoom()).toBe(room1);
+        selected.mockRestore();
 
         await deferred.promise;
         expect(store.activeSpace).toBe(space1);

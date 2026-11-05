@@ -24,6 +24,7 @@ import MatrixClientContext from "../../contexts/MatrixClientContext";
 import DMRoomMap from "../../utils/DMRoomMap";
 import SettingsStore from "../../settings/SettingsStore";
 import { type RoomViewStore } from "../../stores/RoomViewStore";
+import { invalidatePreparedSpaceHierarchy, prepareSpaceHierarchy } from "../../performance/PreparedSpaceHierarchy";
 
 describe("SpaceHierarchy", () => {
     describe("showRoom", () => {
@@ -202,6 +203,7 @@ describe("SpaceHierarchy", () => {
 
     describe("<SpaceHierarchy />", () => {
         beforeEach(() => {
+            invalidatePreparedSpaceHierarchy(client, root.roomId);
             // IntersectionObserver isn't available in test environment
             const mockIntersectionObserver = vi.fn();
             mockIntersectionObserver.mockReturnValue({
@@ -346,6 +348,14 @@ describe("SpaceHierarchy", () => {
             // Wait for spinners to go away
             await waitForElementToBeRemoved(screen.getAllByRole("progressbar"));
             expect(asFragment()).toMatchSnapshot();
+        });
+
+        it("reuses the public preview page without another hierarchy request", async () => {
+            await prepareSpaceHierarchy(client, root.roomId).ready;
+            vi.mocked(client.getRoomHierarchy).mockClear();
+            render(getComponent());
+            expect((await screen.findAllByRole("treeitem")).length).toBeGreaterThan(0);
+            expect(client.getRoomHierarchy).not.toHaveBeenCalled();
         });
 
         it("should join subspace when joining nested room", async () => {

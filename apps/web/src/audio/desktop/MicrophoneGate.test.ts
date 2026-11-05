@@ -212,10 +212,10 @@ describe("MicrophoneGate with voice detection", () => {
         expect(gate.open).toBe(true);
     });
 
-    it("keeps speech that trails off within the hold time", () => {
+    it("keeps quiet syllables through brief gaps in the model's speech decision", () => {
         const gate = gateWith({ threshold: -50, voiceDetection: true });
         runWithSpeech(gate, -30, 100, true);
-        runWithSpeech(gate, -30, 200, false);
+        runWithSpeech(gate, -30, 400, false);
         expect(gate.open).toBe(true);
         runWithSpeech(gate, -30, 200, false);
         expect(gate.open).toBe(false);

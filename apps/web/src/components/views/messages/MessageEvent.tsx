@@ -345,7 +345,7 @@ const CaptionBody: React.FunctionComponent<IBodyProps & { WrappedBodyType: React
     WrappedBodyType,
     ...props
 }) => (
-    <div className="mx_EventTile_content">
+    <div className="mx_EventTile_content mx_EventTile_captioned">
         <WrappedBodyType {...props} />
         <TextualBodyFactory {...{ ...props, ref: undefined }} />
     </div>

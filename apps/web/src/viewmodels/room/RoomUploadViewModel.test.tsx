@@ -16,7 +16,17 @@ import {
     RoomEvent,
 } from "matrix-js-sdk/src/matrix";
 import { render } from "test-utils-rtl";
-import { vi, describe, it, expect, beforeEach, afterEach, afterAll, type MockedObject } from "vitest";
+import {
+    vi,
+    describe,
+    it,
+    expect,
+    beforeEach,
+    afterEach,
+    afterAll,
+    type MockedObject,
+    type MockInstance,
+} from "vitest";
 import { getRoomContext, mkEvent, mkStubRoom, stubClient } from "test-utils";
 
 import { RoomUploadContextProvider, RoomUploadViewModel } from "./RoomUploadViewModel";
@@ -29,6 +39,7 @@ import { ScopedRoomContextProvider } from "../../contexts/ScopedRoomContext";
 import { Action } from "../../dispatcher/actions";
 import MatrixClientContext from "../../contexts/MatrixClientContext";
 import { PosthogAnalytics } from "../../PosthogAnalytics";
+import SettingsStore from "../../settings/SettingsStore";
 
 const sendContentListToRoomSpy = vi.spyOn(ContentMessages.sharedInstance(), "sendContentListToRoom");
 
@@ -334,5 +345,80 @@ describe("RoomUploadViewModel", () => {
             expect(() => vm.onUploadOptionSelected("local")).toThrow("TimelineRenderingType must be Room or Thread");
             expect(trackEvent).not.toHaveBeenCalled();
         });
+    });
+});
+
+describe("RoomUploadViewModel attachment tray", () => {
+    let client: MockedObject<MatrixClient>;
+    let room: MockedObject<Room>;
+    let dis: MockedObject<MatrixDispatcher>;
+    let vm: RoomUploadViewModel;
+    let sendList: MockInstance<ContentMessages["sendContentListToRoom"]>;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        // The first suite restores every mock when it ends, so this one keeps its own spy.
+        sendList = vi.spyOn(ContentMessages.sharedInstance(), "sendContentListToRoom").mockResolvedValue(undefined);
+        vi.spyOn(SettingsStore, "getValue").mockImplementation(
+            ((name: string) => name === "feature_desktop_shell") as unknown as typeof SettingsStore.getValue,
+        );
+        vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:preview");
+        vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+        client = stubClient() as MockedObject<MatrixClient>;
+        room = mkStubRoom("!tray", undefined, undefined) as MockedObject<Room>;
+        dis = { dispatch: vi.fn() } as Partial<MatrixDispatcher> as MockedObject<MatrixDispatcher>;
+        vm = new RoomUploadViewModel(room, client, TimelineRenderingType.Room, dis, undefined, undefined, () => {});
+    });
+
+    afterEach(() => {
+        vm.dispose();
+        vi.restoreAllMocks();
+    });
+
+    const image = new File(["a"], "photo.png", { type: "image/png" });
+    const notes = new File(["bb"], "notes.txt", { type: "text/plain" });
+
+    it("keeps chosen files in the tray instead of sending them", async () => {
+        await vm.initiateViaInputFiles([image, notes]);
+
+        expect(sendList).not.toHaveBeenCalled();
+        expect(vm.hasPendingAttachments).toBe(true);
+        expect(vm.getSnapshot().attachments).toEqual([
+            expect.objectContaining({ name: "photo.png", kind: "image", previewUrl: "blob:preview", size: 1 }),
+            expect.objectContaining({ name: "notes.txt", kind: "file", previewUrl: undefined, size: 2 }),
+        ]);
+    });
+
+    it("is found by the composer it serves", () => {
+        expect(RoomUploadViewModel.forComposer("!tray")).toBe(vm);
+        expect(RoomUploadViewModel.forComposer("!tray", "$thread")).toBeUndefined();
+    });
+
+    it("takes a file out of the tray", async () => {
+        await vm.initiateViaInputFiles([image, notes]);
+        const [first] = vm.getSnapshot().attachments;
+
+        vm.removeAttachment(first.id);
+
+        expect(vm.getSnapshot().attachments.map((attachment) => attachment.name)).toEqual(["notes.txt"]);
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview");
+    });
+
+    it("sends the files in order without asking, with the caption, and empties the tray", async () => {
+        await vm.initiateViaInputFiles([image, notes]);
+
+        await vm.sendPendingAttachments({ body: "look" });
+
+        expect(sendList).toHaveBeenCalledWith(
+            [image, notes],
+            "!tray",
+            undefined,
+            undefined,
+            client,
+            TimelineRenderingType.Room,
+            { skipConfirmation: true, caption: { body: "look" } },
+        );
+        expect(vm.hasPendingAttachments).toBe(false);
+        expect(vm.getSnapshot().attachments).toEqual([]);
     });
 });

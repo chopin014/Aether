@@ -6,7 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import React, { type JSX, createRef, type ReactNode, useEffect } from "react";
+import React, { type JSX, createRef, type ReactNode, useContext, useEffect } from "react";
 import classNames from "classnames";
 import {
     type IEventRelation,
@@ -19,7 +19,7 @@ import {
 import { Tooltip } from "@vector-im/compound-web";
 import { logger } from "matrix-js-sdk/src/logger";
 import { LockOffIcon, SendSolidIcon, PlusIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
-import { useCreateAutoDisposedViewModel, UploadButton } from "@element-hq/web-shared-components";
+import { AttachmentTrayView, useCreateAutoDisposedViewModel, UploadButton } from "@element-hq/web-shared-components";
 
 import { _t } from "../../../languageHandler";
 import { MatrixClientPeg } from "../../../MatrixClientPeg";
@@ -66,11 +66,19 @@ import { MessageComposerUrlPreviewViewModel } from "../../../viewmodels/composer
 import { useScopedRoomContext } from "../../../contexts/ScopedRoomContext";
 import PlatformPeg from "../../../PlatformPeg";
 import { ModuleApi } from "../../../modules/Api";
+import { SDKContext } from "../../../contexts/SDKContext";
+import { type MemberListStore } from "../../../stores/MemberListStore";
 
 /** Keep file selection and upload permissions in the existing room upload model. */
 function DesktopAttachmentButton(): JSX.Element {
     const vm = useRoomUploadViewModel();
     return <UploadButton vm={vm} className="mx_DesktopShell_attachment" icon={<PlusIcon />} />;
+}
+
+/** The files waiting to go with the next message, kept by the same room upload model. */
+function DesktopAttachmentTray(): JSX.Element {
+    const vm = useRoomUploadViewModel();
+    return <AttachmentTrayView vm={vm} />;
 }
 
 // The prefix used when persisting editor drafts to localstorage.
@@ -105,6 +113,7 @@ interface IProps extends MatrixClientProps {
     e2eStatus?: E2EStatus;
     compact?: boolean;
     urlPreviewVm: MessageComposerUrlPreviewViewModel;
+    memberListStore: MemberListStore;
 }
 
 interface IState {
@@ -329,13 +338,14 @@ export class MessageComposer extends React.Component<IProps, IState> {
             this.setState({ me });
             return;
         }
-        // Otherwise, wait for member loading to finish and then update the member for the avatar.
-        // The members should already be loading, and loadMembersIfNeeded
-        // will return the promise for the existing operation
-        void this.props.room.loadMembersIfNeeded().then(() => {
-            const me = this.props.room.getMember(MatrixClientPeg.safeGet().getSafeUserId()) ?? undefined;
-            this.setState({ me });
-        });
+        // Share the room's roster hydration with the timeline and member panel.
+        void this.props.memberListStore.ensureMembersLoaded(this.props.room.roomId).then(
+            () => {
+                const me = this.props.room.getMember(MatrixClientPeg.safeGet().getSafeUserId()) ?? undefined;
+                this.setState({ me });
+            },
+            (error: unknown) => logger.warn("Unable to load the composer's member", error),
+        );
     }
 
     public componentWillUnmount(): void {
@@ -711,6 +721,7 @@ export class MessageComposer extends React.Component<IProps, IState> {
                         replyToEvent={this.props.replyToEvent}
                         permalinkCreator={this.props.permalinkCreator}
                     />
+                    {canSendMessages && SettingsStore.getValue("feature_desktop_shell") && <DesktopAttachmentTray />}
                     <div className="mx_MessageComposer_row">
                         {leftIcon}
                         {canSendMessages && SettingsStore.getValue("feature_desktop_shell") && (
@@ -758,9 +769,12 @@ export class MessageComposer extends React.Component<IProps, IState> {
 
 const MessageComposerWithMatrixClient = withMatrixClientHOC(MessageComposer);
 
-export default function MessageComposerWrapper(props: Omit<IProps, "mxClient" | "urlPreviewVm">): JSX.Element {
+export default function MessageComposerWrapper(
+    props: Omit<IProps, "mxClient" | "urlPreviewVm" | "memberListStore">,
+): JSX.Element {
     const { showUrlPreview } = useScopedRoomContext("showUrlPreview");
     const client = useMatrixClientContext();
+    const { memberListStore } = useContext(SDKContext);
     const urlPreviewVm = useCreateAutoDisposedViewModel(
         () =>
             new MessageComposerUrlPreviewViewModel({
@@ -775,5 +789,5 @@ export default function MessageComposerWrapper(props: Omit<IProps, "mxClient" | 
         urlPreviewVm.updateUrlPreviewVisible(showUrlPreview);
     }, [urlPreviewVm, showUrlPreview]);
 
-    return <MessageComposerWithMatrixClient {...props} urlPreviewVm={urlPreviewVm} />;
+    return <MessageComposerWithMatrixClient {...props} urlPreviewVm={urlPreviewVm} memberListStore={memberListStore} />;
 }

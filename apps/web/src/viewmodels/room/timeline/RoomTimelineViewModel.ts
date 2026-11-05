@@ -35,6 +35,7 @@ import type {
 import { haveRendererForEvent, pickFactory } from "../../../events/EventTileFactory";
 import shouldHideEvent from "../../../shouldHideEvent";
 import SettingsStore from "../../../settings/SettingsStore";
+import { SlidingSyncManager } from "../../../SlidingSyncManager";
 import { clearRoomNotification } from "../../../utils/notifications";
 import { findLastSuccessfulWeSent } from "./event-tile/EventTileReceiptState";
 import {
@@ -79,31 +80,9 @@ const PAGINATE_SIZE = 100;
 const INITIAL_SIZE = 100;
 
 /**
- * How many messages we try to gather before showing the timeline for the first time. Enough to
- * more than fill any realistic window, so the list is long enough to scroll straight away.
- *
- * This matters more than it looks. The view keeps the reader's place by adjusting the scroll
- * position to cancel out whatever was added or removed — but a list shorter than the window
- * cannot be scrolled, so there is no scroll position to adjust and that trick does nothing.
- * Rows are then placed by layout alone, and anything loading in around them shoves them about.
- *
- * It bites hardest when we are holding a particular message in place — opening a permalink, or
- * returning to where someone left off. A permalink has to fill both above and below its target,
- * and letting those batches arrive progressively would shift the target around as each one lands,
- * which is precisely the message the reader came to see. Gathering them before we show anything
- * costs a slightly slower first paint, and we take that trade deliberately.
- *
- * Starting at the newest message suffers a milder version: today the rows are laid out from the
- * top, so older history arriving above pushes everything down.
- *
- * The intended fix for that second case (not built yet) is to lay the rows out from the bottom
- * instead whenever we are at the live end and there is still history above us. Older messages
- * then grow upwards into the empty space, and the newest message — the one being read — never
- * moves, however few messages are loaded. Note this only applies while more history exists:
- * once the start of the room is loaded there is nothing left to grow into, and laying out from
- * the top is the right thing to do, as the timeline does today.
- *
- * Once that lands, this constant only matters for the anchored loads.
+ * Fill anchored loads before placing their target so a short list does not shift the reader.
+ * Live loads can show cached messages immediately: the view bottom-aligns a short live list
+ * while older messages arrive, keeping the newest message in place.
  */
 const MIN_INITIAL_EVENTS = 40;
 
@@ -236,6 +215,10 @@ export class RoomTimelineViewModel
     /** Set while a {@link load} is running; see {@link scheduleRebuild}. */
     private loading = false;
 
+    /** Avoid racing native initial history expansion with a separate messages request. */
+    private initialTimelinePending = false;
+    private backwardAfterInitialTimeline = false;
+
     /**
      * In-flight backward pagination chain, or null when idle.
      *
@@ -275,6 +258,13 @@ export class RoomTimelineViewModel
      * showing or hiding one never has to touch this list.
      */
     private baseItems: TimelineItem[] = [];
+
+    /** Keep a summary's identity when history is added on either side. */
+    private readonly membershipGroupKeys = new WeakMap<MatrixEvent, string>();
+    private membershipGroupSequence = 0;
+
+    /** A permalink or saved position must remain an individually addressable event row. */
+    private navigationEventId: string | null = null;
 
     /** Whether the leading (backward) pagination spinner is currently shown. */
     private backwardSpinnerVisible = false;
@@ -427,7 +417,7 @@ export class RoomTimelineViewModel
             loadTarget = savedEventId ? { kind: "restore", eventId: savedEventId } : { kind: "live" };
         }
 
-        void this.load(loadTarget);
+        void this.loadInitialTimeline(loadTarget);
 
         // Listen for new events so live messages appear.
         this.disposables.trackListener(
@@ -755,8 +745,38 @@ export class RoomTimelineViewModel
         debug(`[TimelineVM] freezeReadMarkerForSession — frozen=${this.frozenMarkerEventId}`);
     }
 
+    /** Publish cached rows immediately, then incorporate native history before requesting more. */
+    private async loadInitialTimeline(target: LoadTarget): Promise<void> {
+        const preparation =
+            target.kind === "live"
+                ? SlidingSyncManager.instance.initialTimelinePreparation(this.opts.client, this.opts.room.roomId)
+                : undefined;
+        this.initialTimelinePending = preparation !== undefined;
+        const initialLoad = this.load(target);
+        if (!preparation) return initialLoad;
+        let expanded = false;
+        try {
+            [, expanded] = await Promise.all([initialLoad, preparation]);
+        } catch (error) {
+            await initialLoad;
+            logger.warn("Native timeline preparation failed; allowing history pagination", error);
+        }
+        this.initialTimelinePending = false;
+        const deferredBackward = this.backwardAfterInitialTimeline;
+        this.backwardAfterInitialTimeline = false;
+        if (this.isDisposed) return;
+        // Expanded native history is prepended to the SDK cache, outside the existing window.
+        // Reload only the initial live view; preserve a reader's navigation or scroll position.
+        if (expanded && this.navigationEventId === null && (!this.lastBottomEventId || this.isAtBottom)) {
+            await this.load({ kind: "live" });
+        } else if (deferredBackward) {
+            this.triggerBackwardPaginate();
+        }
+    }
+
     private async load(target: LoadTarget): Promise<void> {
         this.loading = true;
+        this.navigationEventId = target.kind === "live" ? null : target.eventId;
         debug(
             `[TimelineVM] load() start — kind=${target.kind}${target.kind !== "live" ? ` eventId=${target.eventId}` : ""}`,
         );
@@ -765,9 +785,17 @@ export class RoomTimelineViewModel
         try {
             await this.timelineWindow.load(sdkLoadTarget, INITIAL_SIZE);
             if (this.isDisposed) return;
-            // Gather enough messages to fill the window before we show anything. Only a permalink
-            // needs messages on both sides of its target; see fillInitialWindow.
-            await this.fillInitialWindow(target.kind === "permalink" ? sdkLoadTarget : undefined);
+            // Cached live messages should not wait for history. Anchored loads still fill before
+            // placement; a live window with no visible events must first look for something to show.
+            if (
+                target.kind !== "live" ||
+                (!this.initialTimelinePending && this.renderableEventCount(undefined, Direction.Backward) === 0)
+            ) {
+                await this.fillInitialWindow(
+                    target.kind === "permalink" ? sdkLoadTarget : undefined,
+                    target.kind === "live" ? 1 : MIN_INITIAL_EVENTS,
+                );
+            }
             if (this.isDisposed) return;
             const windowEvents = this.timelineWindow.getEvents();
             debug(
@@ -826,17 +854,22 @@ export class RoomTimelineViewModel
             this.forwardSpinnerVisible = false;
             this.republish(`load(${target.kind})-done`, {
                 atLiveEnd: !this.timelineWindow.canPaginate(Direction.Forward),
+                // Keep this for the session, including when the final short history page arrives,
+                // so exhausting older history cannot move the messages back to the top.
+                alignToBottom: target.kind === "live" && this.timelineWindow.canPaginate(Direction.Backward),
                 pendingAnchor,
                 highlightedEventId: target.kind === "permalink" ? target.eventId : null,
                 canJumpToReadMarker: this.computeCanJumpToReadMarker(items),
             });
 
-            // If all events in the initial window were filtered (items empty) but more
-            // content exists ahead, the view won't fire onEndReached on an empty list.
-            // Proactively forward-paginate to find visible events.
-            if (items.length === 0 && this.timelineWindow.canPaginate(Direction.Forward)) {
-                debug(`[TimelineVM] load() — items empty with more content ahead, auto-triggering forward paginate`);
-                this.triggerForwardPaginate();
+            // An empty list cannot report either scroll edge. Search toward live content first,
+            // or older history when we are already at the live end, instead of waiting forever.
+            if (items.length === 0) {
+                if (this.timelineWindow.canPaginate(Direction.Forward)) {
+                    this.triggerForwardPaginate();
+                } else if (this.timelineWindow.canPaginate(Direction.Backward)) {
+                    this.triggerBackwardPaginate();
+                }
             }
         } catch (e) {
             logger.error(`[TimelineVM] load() error`, e);
@@ -849,9 +882,9 @@ export class RoomTimelineViewModel
     }
 
     /**
-     * Fetches extra messages so the first thing the reader sees is longer than the window and
-     * can be scrolled — see {@link MIN_INITIAL_EVENTS} for why that matters. All of this happens
-     * before anything is shown.
+     * Fetches enough messages to place an anchored load, or the first visible event for an
+     * empty live load. This happens before publishing; live history beyond that first event
+     * loads progressively after the view reveals the timeline.
      *
      * Which way we fetch depends on where we are starting:
      *  - **Opening a permalink** (`centreOn` set): the message has to sit in the middle, so it
@@ -862,13 +895,13 @@ export class RoomTimelineViewModel
      *
      * Usually this costs nothing: opening a permalink already fetches the messages around it,
      * and we only go to the server when there is genuinely nothing loaded on that side. Each
-     * direction gets a couple of attempts at most, so a room that keeps returning events we
-     * do not display cannot hold up the first paint — we show what we have, and the reader's
-     * first scroll fetches more in the normal way.
+     * direction gets a couple of attempts at most, with one server request per attempt. The
+     * SDK otherwise retries empty pages internally, multiplying our limit by ten. A room that
+     * returns duplicate or hidden events should show what we have before loading more on scroll.
      */
-    private async fillInitialWindow(centreOn: string | undefined): Promise<void> {
+    private async fillInitialWindow(centreOn: string | undefined, minimumEvents: number): Promise<void> {
         const MAX_FILL_REQUESTS_PER_DIRECTION = 2;
-        const perDirectionTarget = centreOn ? Math.ceil(MIN_INITIAL_EVENTS / 2) : MIN_INITIAL_EVENTS;
+        const perDirectionTarget = centreOn ? Math.ceil(minimumEvents / 2) : minimumEvents;
 
         for (const direction of [Direction.Backward, Direction.Forward]) {
             // Unanchored loads only need history above the bottom-anchored view.
@@ -882,7 +915,7 @@ export class RoomTimelineViewModel
             ) {
                 requests++;
                 const before = this.timelineWindow.getEvents().length;
-                await this.timelineWindow.paginate(direction, PAGINATE_SIZE);
+                await this.timelineWindow.paginate(direction, PAGINATE_SIZE, true, 1);
                 if (this.isDisposed) return;
                 debug(
                     `[TimelineVM] fillInitialWindow — paginate(${direction === Direction.Backward ? "backward" : "forward"}) ` +
@@ -999,7 +1032,12 @@ export class RoomTimelineViewModel
     private bottomConfirmedEventId(items: readonly TimelineItem[]): string | null {
         for (let i = this.visibleEndArrayIndex; i >= this.visibleStartArrayIndex; i--) {
             const item = items[i];
-            if (item?.kind === "event" && !this.opts.room.hasPendingEvent(item.key)) return item.key;
+            if (!item) continue;
+            const events = this.itemEvents(item);
+            for (let j = events.length - 1; j >= 0; j--) {
+                const id = events[j].getId();
+                if (id && !this.opts.room.hasPendingEvent(id)) return id;
+            }
         }
         return null;
     }
@@ -1215,6 +1253,10 @@ export class RoomTimelineViewModel
      * {@link backwardRerunRequested} for why it cannot just be dropped.
      */
     private triggerBackwardPaginate(): void {
+        if (this.initialTimelinePending) {
+            this.backwardAfterInitialTimeline = true;
+            return;
+        }
         if (this.backwardPaginateChain) {
             // Remember it rather than dropping it; see backwardRerunRequested.
             this.backwardRerunRequested = true;
@@ -1338,12 +1380,14 @@ export class RoomTimelineViewModel
     private commitItems(rebuilt: TimelineItem[]): number {
         const oldEventKeys = new Set<string>();
         for (const item of this.baseItems) {
-            if (item.kind === "event") oldEventKeys.add(item.key);
+            for (const event of this.itemEvents(item)) oldEventKeys.add(event.getId()!);
         }
 
         let newlyShown = 0;
         for (const item of rebuilt) {
-            if (item.kind === "event" && !oldEventKeys.has(item.key)) newlyShown++;
+            for (const event of this.itemEvents(item)) {
+                if (!oldEventKeys.has(event.getId()!)) newlyShown++;
+            }
         }
 
         this.baseItems = rebuilt;
@@ -1459,7 +1503,7 @@ export class RoomTimelineViewModel
                 if (this.isDisposed) return;
 
                 const eventsBefore = new Set(this.timelineWindow.getEvents());
-                const hasMore = await this.timelineWindow.paginate(direction, PAGINATE_SIZE);
+                const hasMore = await this.timelineWindow.paginate(direction, PAGINATE_SIZE, true, 1);
                 if (this.isDisposed) return;
                 const eventsAfter = this.timelineWindow.getEvents();
 
@@ -1493,7 +1537,9 @@ export class RoomTimelineViewModel
                     });
                 }
 
-                if (newlyShown > 0 || !hasMore) break;
+                // With one SDK request per batch, false can mean an empty or duplicate page,
+                // even when its continuation token still points to more history.
+                if (newlyShown > 0 || !this.timelineWindow.canPaginate(direction)) break;
                 emptyBatches++;
             }
 
@@ -1584,7 +1630,7 @@ export class RoomTimelineViewModel
     private shownEventTest(): (event: MatrixEvent) => boolean {
         const shownEventIds = new Set<string>();
         for (const item of this.baseItems) {
-            if (item.kind === "event") shownEventIds.add(item.key);
+            for (const event of this.itemEvents(item)) shownEventIds.add(event.getId()!);
         }
         return (event) => shownEventIds.has(event.getId()!);
     }
@@ -1686,7 +1732,69 @@ export class RoomTimelineViewModel
                 `filtered=${filteredCount}`,
         );
 
-        return items;
+        return this.compactMembershipItems(items);
+    }
+
+    /** The real events represented by a row, also used for receipts and saved positions. */
+    private itemEvents(item: TimelineItem): readonly MatrixEvent[] {
+        if (item.kind === "event") return [item.event as MatrixEvent];
+        if (item.kind === "event-group") return item.events as MatrixEvent[];
+        return [];
+    }
+
+    /** Collapse membership runs without hiding exact navigation or read-marker targets. */
+    private compactMembershipItems(items: TimelineItem[]): TimelineItem[] {
+        const result: TimelineItem[] = [];
+        const usedKeys = new Set<string>();
+        let run: Extract<TimelineItem, { kind: "event" }>[] = [];
+        const flush = (): void => {
+            if (run.length < 3) {
+                result.push(...run);
+            } else {
+                const events = run.map((item) => item.event as MatrixEvent);
+                // Remember every member so trimming away the original first event does not
+                // remount the summary. A split may reuse its old key only once in this list.
+                const keyedEvent = events.find((event) => {
+                    const key = this.membershipGroupKeys.get(event);
+                    return key !== undefined && !usedKeys.has(key);
+                });
+                const key = keyedEvent
+                    ? this.membershipGroupKeys.get(keyedEvent)!
+                    : `membership-summary-${run[0].key}-${this.membershipGroupSequence++}`;
+                usedKeys.add(key);
+                for (const event of events) this.membershipGroupKeys.set(event, key);
+                result.push({ kind: "event-group", key, events });
+            }
+            run = [];
+        };
+        const protectedIds = new Set([
+            this.navigationEventId,
+            this.frozenMarkerEventId,
+            this.snapshot.current.highlightedEventId,
+            this.snapshot.current.pendingAnchor?.targetKey,
+        ]);
+        for (const item of items) {
+            if (
+                item.kind === "event" &&
+                !protectedIds.has(item.key) &&
+                (item.event as MatrixEvent).isState() &&
+                (item.event as MatrixEvent).getType() === EventType.RoomMember
+            ) {
+                if (
+                    run.length > 0 &&
+                    new Date((run[0].event as MatrixEvent).getTs()).toDateString() !==
+                        new Date((item.event as MatrixEvent).getTs()).toDateString()
+                ) {
+                    flush();
+                }
+                run.push(item);
+            } else {
+                flush();
+                result.push(item);
+            }
+        }
+        flush();
+        return result;
     }
 
     /**

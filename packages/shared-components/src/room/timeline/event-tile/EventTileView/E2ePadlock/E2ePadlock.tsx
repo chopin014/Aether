@@ -67,6 +67,7 @@ export function E2ePadlock({ icon, title, className }: Readonly<E2ePadlockProps>
         <Tooltip label={title} isTriggerInteractive={true}>
             <div
                 data-testid="e2e-padlock"
+                data-e2e-icon={icon}
                 className={classNames(styles.e2ePadlock, iconClasses[icon], className)}
                 role="img"
                 // This is only tab indexed to act as a tooltip trigger

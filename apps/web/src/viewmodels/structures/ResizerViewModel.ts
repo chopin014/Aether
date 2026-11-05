@@ -22,9 +22,14 @@ import { SettingLevel } from "../../settings/SettingLevel";
 import { AutoCollapse } from "./auto-collapse/AutoCollapse";
 import { type CallStore } from "../../stores/CallStore";
 
+/** The desktop shell always keeps its channel list beside the server rail, so its left panel never collapses. */
+function canCollapse(): boolean {
+    return !SettingsStore.getValue("feature_desktop_shell");
+}
+
 function getInitialState(): ResizerViewSnapshot {
     const shouldStartCollapsed =
-        SettingsStore.getValue("RoomList.isPanelCollapsed") || AutoCollapse.shouldStartCollapsed();
+        canCollapse() && (SettingsStore.getValue("RoomList.isPanelCollapsed") || AutoCollapse.shouldStartCollapsed());
     if (shouldStartCollapsed) {
         return {
             isCollapsed: true,
@@ -73,6 +78,7 @@ export class ResizerViewModel
             new AutoCollapse(
                 this.onSeparatorClick,
                 () => {
+                    if (!canCollapse()) return;
                     this.panelHandle?.collapse();
                     this.snapshot.merge({ isCollapsed: true });
                 },

@@ -29,12 +29,16 @@ import { PillCompletion } from "./Components";
 import { UserStatusIconViewModel } from "../viewmodels/status/UserStatusIconViewModel";
 import AutocompleteProvider from "./AutocompleteProvider";
 import { _t } from "../languageHandler";
+import SettingsStore from "../settings/SettingsStore";
 import { makeUserPermalink } from "../utils/permalinks/Permalinks";
 import { type ICompletion, type ISelectionRange } from "./Autocompleter";
 import MemberAvatar from "../components/views/avatars/MemberAvatar";
 import { type TimelineRenderingType } from "../contexts/RoomContext";
 
 const USER_REGEX = /\B@\S*/g;
+
+/** How many people a lone "@" lists in the desktop shell, most recent speakers first. */
+const LONE_AT_LIMIT = 30;
 
 // used when you hit 'tab' - we allow some separator chars at the beginning
 // to allow you to tab-complete /mat into /(matthew)
@@ -121,11 +125,19 @@ export default class UserProvider extends AutocompleteProvider {
         const { command, range } = this.getCurrentCommand(rawQuery, selection, force);
 
         const fullMatch = command?.[0];
-        // Don't search if the query is a single "@"
-        if (fullMatch && fullMatch !== "@") {
+        const desktopShell = SettingsStore.getValue("feature_desktop_shell");
+        // The desktop shell lists everyone as soon as "@" is typed, as Discord does; elsewhere a lone "@" waits for
+        // a letter before searching.
+        const listEveryone = desktopShell && fullMatch === "@";
+        if (fullMatch && (fullMatch !== "@" || listEveryone)) {
             // Don't include the '@' in our search query - it's only used as a way to trigger completion
             const query = fullMatch.startsWith("@") ? fullMatch.substring(1) : fullMatch;
-            return this.matcher.match(query, limit).map((user) => {
+            const users = listEveryone
+                ? (this.users ?? []).slice(0, limit > 0 ? Math.min(limit, LONE_AT_LIMIT) : LONE_AT_LIMIT)
+                : this.matcher.match(query, limit);
+            // A mention at the start of a message is followed by a space, not ": ", in the desktop shell.
+            const leadingSuffix = desktopShell ? " " : ": ";
+            return users.map((user) => {
                 const description = user.userId;
                 const displayName = user.name || user.userId || "";
                 return {
@@ -134,7 +146,7 @@ export default class UserProvider extends AutocompleteProvider {
                     completion: user.rawDisplayName,
                     completionId: user.userId,
                     type: "user",
-                    suffix: selection.beginning && range!.start === 0 ? ": " : " ",
+                    suffix: selection.beginning && range!.start === 0 ? leadingSuffix : " ",
                     href: makeUserPermalink(user.userId),
                     getUserStatus: () => this.getStatusViewModel(user.userId).getSnapshot().status,
                     component: (

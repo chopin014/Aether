@@ -1,8 +1,7 @@
 diff --git a/src/matrixrtc/RTCEncryptionManager.ts b/src/matrixrtc/RTCEncryptionManager.ts
-index f2c46a15c2bc79172c3e90b02157c1c09c5a2109..62957811f487d55f67625f69319148be35157747 100644
 --- a/src/matrixrtc/RTCEncryptionManager.ts
 +++ b/src/matrixrtc/RTCEncryptionManager.ts
-@@ -228,12 +228,20 @@ export class RTCEncryptionManager implements IEncryptionManager {
+@@ -228,12 +228,20 @@
          keyIndex: number,
          membership: CallMembershipIdentityParts,
      ): void {
@@ -29,3 +28,318 @@ index f2c46a15c2bc79172c3e90b02157c1c09c5a2109..62957811f487d55f67625f69319148be
          if (!fullMembership) {
              this.logger?.info(
                  `No matching RTC membership for key from ${membership.userId}:${membership.deviceId}, delaying key addition`,
+diff --git a/src/client.ts b/src/client.ts
+--- a/src/client.ts
++++ b/src/client.ts
+@@ -507,6 +507,12 @@
+      */
+     initialSyncLimit?: number;
+ 
++    /** Fresh push rules fetched alongside local startup; consumed once before processing sync events. */
++    initialPushRules?: IPushRules;
++
++    /** Pending fresh push rules, awaited once before processing sync events so stored data can load meanwhile. */
++    initialPushRulesPromise?: Promise<IPushRules | undefined>;
++
+     /**
+      * True to put `archived=true</code> on the <code>/initialSync` request. Default: false.
+      */
+diff --git a/src/models/room.ts b/src/models/room.ts
+--- a/src/models/room.ts
++++ b/src/models/room.ts
+@@ -3117,6 +3117,23 @@
+         // List of extra events to check for being parents of any relations encountered
+         const neighbouringEvents = [...events];
+ 
++        // Relations whose parent is not in this batch need it fetched before they can be classified. Start those
++        // fetches together rather than one per loop iteration: a busy room can otherwise hold sync processing for
++        // seconds of sequential round trips. Events are still classified and added in their original order.
++        const parentFetches = new Map<string, Promise<Partial<IEvent>>>();
++        if (!fromCache) {
++            for (const event of events) {
++                const parentId = event.relationEventId;
++                if (!parentId || parentFetches.has(parentId) || !event.isRelation()) continue;
++                const { shouldLiveInRoom, shouldLiveInThread } = this.eventShouldLiveIn(event, events, threadRoots);
++                if (shouldLiveInRoom || shouldLiveInThread) continue;
++                const fetch = fetchRelationParent(this.client, this.roomId, parentId);
++                // Awaited below when the event is reached; avoid an unhandled rejection meanwhile.
++                fetch.catch(() => {});
++                parentFetches.set(parentId, fetch);
++            }
++        }
++
+         for (const event of events) {
+             // TODO: We should have a filter to say "only add state event types X Y Z to the timeline".
+             this.processLiveEvent(event);
+@@ -3141,7 +3158,8 @@
+             if (!fromCache && !shouldLiveInThread && !shouldLiveInRoom && event.isRelation()) {
+                 try {
+                     const parentEvent = new MatrixEvent(
+-                        await this.client.fetchRoomEvent(this.roomId, event.relationEventId!),
++                        await (parentFetches.get(event.relationEventId!) ??
++                            fetchRelationParent(this.client, this.roomId, event.relationEventId!)),
+                     );
+                     neighbouringEvents.push(parentEvent);
+                     if (parentEvent.threadRootId) {
+@@ -4085,3 +4103,25 @@
+         }
+     }
+ }
++
++// Missing relation parents are fetched ahead of ingestion, so bound how many run at once across all rooms of a
++// client. Waiters are served in order, so the earliest events of each batch get their parents first.
++const RELATION_PARENT_FETCH_LIMIT = 6;
++const relationParentFetches = new WeakMap<MatrixClient, { active: number; waiting: Array<() => void> }>();
++
++function fetchRelationParent(client: MatrixClient, roomId: string, eventId: string): Promise<Partial<IEvent>> {
++    let slots = relationParentFetches.get(client);
++    if (!slots) relationParentFetches.set(client, (slots = { active: 0, waiting: [] }));
++    const run = async (): Promise<Partial<IEvent>> => {
++        slots.active++;
++        try {
++            return await client.fetchRoomEvent(roomId, eventId);
++        } finally {
++            slots.active--;
++            slots.waiting.shift()?.();
++        }
++    };
++    if (slots.active < RELATION_PARENT_FETCH_LIMIT) return run();
++    return new Promise<void>((resolve) => slots.waiting.push(resolve)).then(run);
++}
++
+diff --git a/src/sync.ts b/src/sync.ts
+--- a/src/sync.ts
++++ b/src/sync.ts
+@@ -605,7 +605,13 @@
+     private getPushRules = async (): Promise<void> => {
+         try {
+             this.syncOpts.logger.debug("Getting push rules...");
+-            const result = await this.client.getPushRules();
++            const initialPushRules = this.opts.initialPushRules;
++            const initialPushRulesPromise = this.opts.initialPushRulesPromise;
++            delete this.opts.initialPushRules;
++            delete this.opts.initialPushRulesPromise;
++            // A prefetch that failed resolves to undefined, so the rules are fetched (and retried) here as usual.
++            const result =
++                initialPushRules ?? (await initialPushRulesPromise) ?? (await this.client.getPushRules());
+             this.syncOpts.logger.debug("Got push rules");
+ 
+             this.client.pushRules = result;
+@@ -853,10 +859,10 @@
+             this.syncOpts.logger.error("Error processing cached sync", e);
+         }
+ 
+-        // Don't emit a prepared if we've bailed because the store is invalid:
++        // Don't emit a prepared after stopping or if we've bailed because the store is invalid:
+         // in this case the client will not be usable until stopped & restarted
+         // so this would be useless and misleading.
+-        if (!this.storeIsInvalid) {
++        if (this.running && !this.storeIsInvalid) {
+             this.updateSyncState(SyncState.Prepared, syncEventData);
+         }
+     }
+@@ -1267,9 +1273,30 @@
+             }),
+         );
+ 
+-        // Handle joins
++        // Yield between cached room starts without serializing their asynchronous crypto and injection work.
++        let batchStart = Promise.resolve();
+         await Promise.all(
+-            joinRooms.map(async (joinObj) => {
++            joinRooms.map(async (joinObj, index) => {
++                if (syncEventData.fromCache) {
++                    if (index > 0 && index % 8 === 0) {
++                        batchStart = batchStart.then(() => {
++                            if (!this.running) return;
++                            // Posted messages yield without the delay imposed on nested timers.
++                            return new Promise<void>((resolve) => {
++                                const { port1, port2 } = new MessageChannel();
++                                port1.onmessage = () => {
++                                    port1.close();
++                                    port2.close();
++                                    resolve();
++                                };
++                                port2.postMessage(null);
++                            });
++                        });
++                    }
++                    await batchStart;
++                    if (!this.running) return;
++                }
++
+                 const room = joinObj.room;
+                 const stateEvents = this.mapSyncEventsFormat(joinObj.state, room);
+                 const stateAfterEvents = this.mapSyncEventsFormat(joinObj["org.matrix.msc4222.state_after"], room);
+@@ -1520,6 +1547,8 @@
+                 room.decryptCriticalEvents();
+             }),
+         );
++
++        if (syncEventData.fromCache && !this.running) return;
+ 
+         // Handle leaves (e.g. kicked rooms)
+         await Promise.all(
+diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
+--- a/src/sliding-sync-sdk.ts
++++ b/src/sliding-sync-sdk.ts
+@@ -428,6 +428,7 @@
+     private syncStateData?: ISyncStateData;
+     private lastPos: string | null = null;
+     private failCount = 0;
++    private stopped = false;
+     private notifEvents: MatrixEvent[] = []; // accumulator of sync events in the current sync response
+ 
+     public constructor(
+@@ -991,12 +992,23 @@
+     public async sync(): Promise<void> {
+         this.syncOpts.logger.debug("Sliding sync init loop");
+ 
+-        //   1) We need to get push rules so we can check if events should bing as we get
+-        //      them from /sync.
+-        while (!this.client.isGuest()) {
++        // Fetch the first response alongside push rules, but keep notification and crypto
++        // processing behind the rule gate.
++        await this.slidingSync.start(this.preparePushRules());
++    }
++
++    private async preparePushRules(): Promise<void> {
++        while (!this.stopped && !this.client.isGuest()) {
+             try {
+                 this.syncOpts.logger.debug("Getting push rules...");
+-                const result = await this.client.getPushRules();
++                const initialPushRules = this.opts.initialPushRules;
++                const initialPushRulesPromise = this.opts.initialPushRulesPromise;
++                delete this.opts.initialPushRules;
++                delete this.opts.initialPushRulesPromise;
++                let result = initialPushRules ?? (await initialPushRulesPromise);
++                if (this.stopped) return;
++                result ??= await this.client.getPushRules();
++                if (this.stopped) return;
+                 this.syncOpts.logger.debug("Got push rules");
+                 this.client.pushRules = result;
+                 break;
+@@ -1007,9 +1019,6 @@
+                 }
+             }
+         }
+-
+-        // start syncing
+-        await this.slidingSync.start();
+     }
+ 
+     /**
+@@ -1017,6 +1026,7 @@
+      */
+     public stop(): void {
+         this.syncOpts.logger.debug("SyncApi.stop");
++        this.stopped = true;
+         this.slidingSync.stop();
+     }
+ 
+diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
+--- a/src/sliding-sync.ts
++++ b/src/sliding-sync.ts
+@@ -317,6 +317,7 @@
+     private lists: Map<string, SlidingList>;
+     private listModifiedCount = 0;
+     private terminated = false;
++    private readonly stopped = Promise.withResolvers<void>();
+     // flag set when resend() is called because we cannot rely on detecting AbortError in JS SDK :(
+     private needsResend = false;
+     // map of extension name to req/resp handler
+@@ -578,6 +579,7 @@
+      */
+     public stop(): void {
+         this.terminated = true;
++        this.stopped.resolve();
+         this.abortController?.abort();
+         // remove all listeners so things can be GC'd
+         this.removeAllListeners(SlidingSyncEvent.Lifecycle);
+@@ -600,9 +602,21 @@
+ 
+     /**
+      * Start syncing with the server. Blocks until stopped.
++     * @param processingReady - Optional startup gate. Requests can run before it resolves,
++     * but no response state, lifecycle listeners or extensions are processed until it does.
++     * Rejection stops the sync without processing the response.
+      */
+-    public async start(): Promise<void> {
++    public async start(processingReady?: Promise<void>): Promise<void> {
+         this.abortController = new AbortController();
++        // Attach the rejection handler immediately, even if the first HTTP request is still pending.
++        let ready = processingReady?.then(
++            () => true,
++            (error) => {
++                logger.error("SlidingSync: response processing startup failed", error);
++                this.stop();
++                return false;
++            },
++        );
+ 
+         let currentPos: string | undefined;
+         while (!this.terminated) {
+@@ -620,6 +634,7 @@
+                     clientTimeout: this.timeoutMS + BUFFER_PERIOD_MS,
+                     extensions: await this.getExtensionRequest(currentPos === undefined),
+                 };
++                if (this.terminated) return;
+                 // check if we are (un)subscribing to a room and modify request this one time for it
+                 const newSubscriptions = difference(this.desiredRoomSubscriptions, this.confirmedRoomSubscriptions);
+                 const unsubscriptions = difference(this.confirmedRoomSubscriptions, this.desiredRoomSubscriptions);
+@@ -639,6 +654,12 @@
+                 }
+                 this.pendingReq = this.client.slidingSync(reqBody, this.proxyBaseUrl, this.abortController.signal);
+                 resp = await this.pendingReq;
++                if (ready) {
++                    const canProcess = await Promise.race([ready, this.stopped.promise.then(() => false)]);
++                    if (!canProcess || this.terminated) return;
++                    ready = undefined;
++                }
++                if (this.terminated) return;
+                 currentPos = resp.pos;
+                 // update what we think we're subscribed to.
+                 for (const roomId of newSubscriptions) {
+diff --git a/src/http-api/logging.ts b/src/http-api/logging.ts
+--- a/src/http-api/logging.ts
++++ b/src/http-api/logging.ts
+@@ -16,7 +16,7 @@
+ 
+ /**
+  * Produce a version of the given URL which is safe to write to logs, by redacting the values of any query parameters,
+- * as they may contain secrets.
++ * as they may contain secrets, and delayed event IDs, which let anyone holding them restart, cancel or send the event.
+  *
+  * @internal
+  * @param url - the URL to sanitize.
+@@ -38,7 +38,8 @@
+         const sanitizedQsString = sanitizedQs.toString();
+         const sanitizedQsUrlPiece = sanitizedQsString ? `?${sanitizedQsString}` : "";
+ 
+-        return asUrl.origin + asUrl.pathname + sanitizedQsUrlPiece;
++        const sanitizedPath = asUrl.pathname.replace(/(\/delayed_events\/)[^/]+/g, "$1xxx");
++        return asUrl.origin + sanitizedPath + sanitizedQsUrlPiece;
+     } catch {
+         // defensive coding for malformed url
+         return "??";
+diff --git a/src/http-api/errors.ts b/src/http-api/errors.ts
+--- a/src/http-api/errors.ts
++++ b/src/http-api/errors.ts
+@@ -20,6 +20,7 @@
+ import { type MatrixEvent } from "../models/event.ts";
+ import { NamespacedValue } from "../NamespacedValue.ts";
+ import { hasRequiredStringProperty, isRecord } from "../@types/type-guards.ts";
++import { sanitizeUrlForLogs } from "./logging.ts";
+ 
+ interface IErrorJson extends Partial<IUsageLimit> {
+     [key: string]: any; // extensible
+@@ -123,7 +124,8 @@
+             message = `[${httpStatus}] ${message}`;
+         }
+         if (url) {
+-            message = `${message} (${url})`;
++            // Error messages end up in logs, so the URL in them is sanitized like any other logged URL.
++            message = `${message} (${sanitizeUrlForLogs(url)})`;
+         }
+         super(`MatrixError: ${message}`, httpStatus, httpHeaders);
+         this.errcode = errorJson.errcode;

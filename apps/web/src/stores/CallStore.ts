@@ -8,7 +8,7 @@ Please see LICENSE files in the repository root for full details.
 
 import { logger } from "matrix-js-sdk/src/logger";
 import { type MatrixRTCSession, MatrixRTCSessionManagerEvents, type Transport } from "matrix-js-sdk/src/matrixrtc";
-import { ClientEvent, type EmptyObject, type Room } from "matrix-js-sdk/src/matrix";
+import { ClientEvent, type EmptyObject, type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
 
 import defaultDispatcher from "../dispatcher/dispatcher";
 import { UPDATE_EVENT } from "./AsyncStore";
@@ -254,12 +254,20 @@ export class CallStore extends AsyncStoreWithClient<EmptyObject> {
     };
 
     public getConfiguredRTCTransports(): Transport[] {
-        const rtcTransports = this.matrixClient?.cachedRtcTransports.get();
+        return CallStore.configuredRTCTransports(this.matrixClient);
+    }
+
+    /**
+     * The MatrixRTC transports an account's homeserver offers: its transports endpoint, else its client `.well-known`
+     * when those lookups are enabled. Empty for no client, or while neither is known yet.
+     */
+    public static configuredRTCTransports(client: MatrixClient | null | undefined): Transport[] {
+        const rtcTransports = client?.cachedRtcTransports.get();
         const enableClientWellKnownLookups = SdkConfig.get("enable_client_well_known_lookups");
         if (rtcTransports || !enableClientWellKnownLookups) {
             return rtcTransports ?? [];
         }
-        const wellKnown = this.matrixClient?.getClientWellKnown();
+        const wellKnown = client?.getClientWellKnown();
         const foci = wellKnown?.["org.matrix.msc4143.rtc_foci"];
         if (foci !== undefined) {
             if (Array.isArray(foci)) return foci; // Contents assumed to be valid Transports

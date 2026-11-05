@@ -479,6 +479,15 @@ export class VideoBodyViewModel
         this.props.onPreviewClick?.();
     };
 
+    /**
+     * Starts fetching and decrypting the video as soon as the person presses play. The video element's own play
+     * event can't be relied on for this: a source that is still the empty placeholder may already have failed to
+     * load, and the browser then refuses to play without firing the event.
+     */
+    public requestPlayback = (): void => {
+        void this.onPlay();
+    };
+
     public onPlay = async (): Promise<void> => {
         if (this.hasContentUrl() || this.state.fetchingData || this.state.error !== null) {
             return;

@@ -106,6 +106,68 @@ function renderTimeline(vm: TimelineViewModel): RenderResult {
 }
 
 describe("<TimelineView />", () => {
+    it("reports painted viewport rows after reveal without including overscan rows", async () => {
+        const { vm } = makeFakeVm({ items: eventItems(30) });
+        const painted = vi.fn();
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView vm={vm} renderItem={renderItem} onItemsPainted={painted} />
+            </div>,
+        );
+        expect(painted).not.toHaveBeenCalled();
+        await waitFor(() => expect(painted).toHaveBeenCalled());
+        const items: TimelineItem[] = painted.mock.calls.at(-1)![0];
+        expect(items.length).toBeGreaterThan(0);
+        expect(items.length).toBeLessThan(30);
+        const scroller = screen.getByTestId("timeline-scroller");
+        expect(scroller).toHaveStyle({ visibility: "visible" });
+        const viewport = scroller.getBoundingClientRect();
+        for (const item of items) {
+            const row = screen.getByTestId(`row-${item.key}`).getBoundingClientRect();
+            expect(row.bottom).toBeGreaterThan(viewport.top);
+            expect(row.top).toBeLessThan(viewport.bottom);
+        }
+    });
+
+    it("does not report painted rows after unmounting before placement", async () => {
+        const { vm } = makeFakeVm();
+        const painted = vi.fn();
+        const { unmount } = render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView vm={vm} renderItem={renderItem} onItemsPainted={painted} />
+            </div>,
+        );
+        unmount();
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        expect(painted).not.toHaveBeenCalled();
+    });
+
+    it("reveals a short bottom-aligned list without waiting for the placement timeout", async () => {
+        const { vm, actions, update } = makeFakeVm();
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView
+                    vm={vm}
+                    renderItem={(item) => (
+                        <div data-testid={`row-${item.key}`} style={{ height: 30 }}>
+                            {item.key}
+                        </div>
+                    )}
+                />
+            </div>,
+        );
+        update({ items: eventItems(8), alignToBottom: true, pendingAnchor: { targetKey: "evt-7", align: "end" } });
+        // Shrinking below the estimate until the list fits in the viewport can leave the
+        // virtualizer's cached offset above zero even though the browser clamps scrollTop.
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 500 });
+        const scroller = screen.getByTestId("timeline-scroller");
+        expect(scroller.scrollTop).toBe(0);
+        expect(screen.getByTestId("row-evt-7").getBoundingClientRect().bottom).toBeCloseTo(
+            scroller.getBoundingClientRect().bottom,
+            0,
+        );
+    });
+
     it("renders each item via the renderItem callback", async () => {
         const { vm } = makeFakeVm({ items: eventItems(5) });
         renderTimeline(vm);
@@ -113,6 +175,61 @@ describe("<TimelineView />", () => {
         expect(await screen.findByTestId("row-evt-0")).toBeInTheDocument();
         expect(screen.getByTestId("row-evt-4")).toBeInTheDocument();
     });
+
+    it.each(["end", "center", "start"] as const)(
+        "starts near a delayed %s anchor and settles using measured variable row heights",
+        async (align) => {
+            const { vm, actions, update } = makeFakeVm();
+            const rendered: number[] = [];
+            actions.onAnchorReached.mockImplementation(() => update({ pendingAnchor: null }));
+            render(
+                <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                    <TimelineView
+                        vm={vm}
+                        renderItem={(item) => {
+                            const index = Number(item.key.slice("evt-".length));
+                            rendered.push(index);
+                            return (
+                                <div data-testid={`row-${item.key}`} style={{ height: ROW_HEIGHT + (index % 5) * 7 }}>
+                                    {item.key}
+                                </div>
+                            );
+                        }}
+                    />
+                </div>,
+            );
+            expect(rendered).toEqual([]);
+            const index = align === "end" ? 49 : 35;
+            update({
+                items: eventItems(50),
+                pendingAnchor: { targetKey: `evt-${index}`, align },
+                atLiveEnd: align === "end",
+            });
+            // The first mounted range is near the requested message, with normal overscan.
+            expect(rendered[0]).toBeGreaterThan(0);
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalledTimes(1), { timeout: 5000 });
+            const scroller = screen.getByTestId("timeline-scroller");
+            const row = screen.getByTestId(`row-evt-${index}`);
+            await waitFor(() => {
+                const viewport = scroller.getBoundingClientRect();
+                const target = row.getBoundingClientRect();
+                const actual =
+                    align === "start"
+                        ? target.top
+                        : align === "center"
+                          ? (target.top + target.bottom) / 2
+                          : target.bottom;
+                const expected =
+                    align === "start"
+                        ? viewport.top
+                        : align === "center"
+                          ? (viewport.top + viewport.bottom) / 2
+                          : viewport.bottom;
+                expect(actual).toBeCloseTo(expected, 0);
+            });
+            expect(scroller).toHaveStyle({ visibility: "visible" });
+        },
+    );
 
     it("stays hidden behind the cover then reveals after the anchor settles", async () => {
         // A list taller than the viewport so there is a real scroll offset to settle on.
@@ -126,6 +243,76 @@ describe("<TimelineView />", () => {
 
         await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalledTimes(1), { timeout: 5000 });
         await waitFor(() => expect(scroller).toHaveStyle({ visibility: "visible" }));
+    });
+
+    it("reveals measured tall rows without synchronous row height reads", async () => {
+        const { vm, actions, update } = makeFakeVm();
+        const heightReads = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get");
+        let initialGeometry: { top: number; bottom: number }[] = [];
+        let initialTargetCenter = 0;
+        let initialViewportCenter = 0;
+        try {
+            actions.onAnchorReached.mockImplementation(() => {
+                const scroller = screen.getByTestId("timeline-scroller");
+                initialGeometry = Array.from(scroller.querySelectorAll("[data-index]"), (element) => {
+                    const { top, bottom } = element.getBoundingClientRect();
+                    return { top, bottom };
+                });
+                const target = screen.getByTestId("row-evt-35").getBoundingClientRect();
+                const viewport = scroller.getBoundingClientRect();
+                initialTargetCenter = (target.top + target.bottom) / 2;
+                initialViewportCenter = (viewport.top + viewport.bottom) / 2;
+                update({ pendingAnchor: null });
+            });
+            render(
+                <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                    <TimelineView
+                        vm={vm}
+                        renderItem={(item) => (
+                            <div
+                                data-testid={`row-${item.key}`}
+                                style={{ height: 170 + (Number(item.key.slice("evt-".length)) % 3) * 110 }}
+                            >
+                                {item.key}
+                            </div>
+                        )}
+                    />
+                </div>,
+            );
+            update({ items: eventItems(50), pendingAnchor: { targetKey: "evt-35", align: "center" } });
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalledTimes(1), { timeout: 5000 });
+
+            expect(initialGeometry.length).toBeGreaterThan(1);
+            for (let index = 1; index < initialGeometry.length; index++) {
+                expect(initialGeometry[index].top).toBeCloseTo(initialGeometry[index - 1].bottom, 0);
+            }
+            expect(initialTargetCenter).toBeCloseTo(initialViewportCenter, 0);
+            expect(
+                heightReads.mock.contexts.filter(
+                    (element) => element instanceof HTMLElement && element.classList.contains("mx_TimelineView_tile"),
+                ),
+            ).toEqual([]);
+        } finally {
+            heightReads.mockRestore();
+        }
+    });
+
+    it("uses synchronous measurements when ResizeObserver is unavailable", async () => {
+        vi.stubGlobal("ResizeObserver", undefined);
+        try {
+            const { vm, actions } = makeFakeVm({ items: eventItems(30) });
+            renderTimeline(vm);
+
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalledTimes(1), { timeout: 5000 });
+            const scroller = screen.getByTestId("timeline-scroller");
+            expect(scroller).toHaveStyle({ visibility: "visible" });
+            expect(screen.getByTestId("row-evt-29").getBoundingClientRect().bottom).toBeCloseTo(
+                scroller.getBoundingClientRect().bottom,
+                0,
+            );
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 
     it("reports the visible range and at-bottom state once live", async () => {
@@ -167,6 +354,114 @@ describe("<TimelineView />", () => {
         expect(actions.onJumpToLive).toHaveBeenCalledTimes(1);
         // The View hands the VM its imperative scroll handle.
         expect(actions.onJumpToLive.mock.calls[0][0]).toBeTypeOf("function");
+    });
+
+    it("holds the newest message in place as a short live list grows past the viewport", async () => {
+        const { vm, actions, update } = makeFakeVm({ items: eventItems(2, 20), alignToBottom: true });
+        renderTimeline(vm);
+        const scroller = screen.getByTestId("timeline-scroller");
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+        await waitFor(() => expect(scroller).toHaveStyle({ visibility: "visible" }));
+        const newest = screen.getByTestId("row-evt-21");
+        const bottom = (): number => newest.getBoundingClientRect().bottom;
+        const viewportBottom = scroller.getBoundingClientRect().bottom;
+        await waitFor(() => expect(bottom()).toBeCloseTo(viewportBottom, 0));
+
+        // Retain the placement even if the bounded SDK window no longer reaches the live end.
+        update({ atLiveEnd: false });
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        expect(bottom()).toBeCloseTo(viewportBottom, 0);
+
+        // First prepend still fits; the next crosses from an unscrollable to a scrollable list.
+        for (const count of [5, 22]) {
+            update({ items: eventItems(count, 22 - count) });
+            await waitFor(() => expect(screen.getByTestId("row-evt-21")).toBeInTheDocument());
+            for (let frame = 0; frame < 5; frame++) {
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+                expect(bottom()).toBeCloseTo(viewportBottom, 0);
+            }
+        }
+    });
+
+    it("remeasures a cached row when it mounts again with a different height", async () => {
+        const { vm, actions } = makeFakeVm({ items: eventItems(70) });
+        let latestHeight = ROW_HEIGHT;
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView
+                    vm={vm}
+                    renderItem={(item) => (
+                        <div
+                            data-testid={`row-${item.key}`}
+                            style={{ height: item.key === "evt-69" ? latestHeight : ROW_HEIGHT }}
+                        >
+                            {item.key}
+                        </div>
+                    )}
+                />
+            </div>,
+        );
+        const scroller = screen.getByTestId("timeline-scroller");
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+        // Let the initial programmatic scroll retire before the reader scrolls away.
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        scroller.scrollTop = 0;
+        await waitFor(() => expect(screen.queryByTestId("row-evt-69")).not.toBeInTheDocument());
+
+        latestHeight = 390;
+        scroller.scrollTop = scroller.scrollHeight;
+
+        await waitFor(() => {
+            const latest = screen.getByTestId("row-evt-69").getBoundingClientRect();
+            expect(latest.height).toBe(latestHeight);
+            expect(latest.bottom).toBeCloseTo(scroller.getBoundingClientRect().bottom, 0);
+        });
+    });
+
+    it("keeps the latest message at the bottom while a membership summary expands and collapses", async () => {
+        const group: TimelineItem = { key: "members", kind: "event-group", events: [null, null, null] };
+        const { vm, actions } = makeFakeVm({
+            items: [...eventItems(2), group, ...eventItems(2, 2)],
+            alignToBottom: true,
+        });
+        const Summary = (): React.JSX.Element => {
+            const [expanded, setExpanded] = React.useState(false);
+            return (
+                <div style={{ height: expanded ? 500 : ROW_HEIGHT }}>
+                    <button onClick={() => setExpanded(!expanded)}>{expanded ? "Collapse" : "Expand"}</button>
+                </div>
+            );
+        };
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView
+                    vm={vm}
+                    renderItem={(item) => (item.kind === "event-group" ? <Summary /> : renderItem(item))}
+                />
+            </div>,
+        );
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled());
+        const latestBottom = (): number => screen.getByTestId("row-evt-3").getBoundingClientRect().bottom;
+        const viewportBottom = (): number => screen.getByTestId("timeline-scroller").getBoundingClientRect().bottom;
+        await userEvent.click(screen.getByRole("button", { name: "Expand" }));
+        await waitFor(() => expect(latestBottom()).toBeCloseTo(viewportBottom(), 0));
+        // The toggle can scroll out of view on expansion; collapse through the rendered button.
+        act(() => screen.getByRole("button", { name: "Collapse" }).click());
+        await waitFor(() => expect(latestBottom()).toBeCloseTo(viewportBottom(), 0));
+    });
+
+    it("keeps short anchored lists at the top", async () => {
+        const { vm, actions } = makeFakeVm({
+            items: eventItems(2),
+            pendingAnchor: { targetKey: "evt-0", align: "center" },
+            alignToBottom: false,
+        });
+        renderTimeline(vm);
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+        expect(screen.getByTestId("row-evt-0").getBoundingClientRect().top).toBeCloseTo(
+            screen.getByTestId("timeline-scroller").getBoundingClientRect().top,
+            0,
+        );
     });
 
     describe("when the viewport changes height", () => {

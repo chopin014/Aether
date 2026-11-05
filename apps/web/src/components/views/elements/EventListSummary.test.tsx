@@ -145,6 +145,25 @@ describe("EventListSummary", function () {
         vi.spyOn(languageSettings, "getUserLanguage").mockReturnValue("en-GB");
     });
 
+    it.each([undefined, "div"] as const)("preserves expansion when rendered as %s", (as) => {
+        const events = generateEvents([
+            { userId: "@alice:server.org", membership: KnownMembership.Join },
+            { userId: "@bob:server.org", membership: KnownMembership.Join },
+            { userId: "@carol:server.org", membership: KnownMembership.Join },
+        ]);
+        const { container, getByRole, queryAllByText } = renderComponent({
+            as,
+            events,
+            children: generateTiles(events),
+        });
+        expect(container.querySelector(".mx_GenericEventListSummary")?.tagName).toBe(as === "div" ? "DIV" : "LI");
+        expect(queryAllByText("Expanded membership")).toHaveLength(0);
+        fireEvent.click(getByRole("button", { name: "Expand" }));
+        expect(queryAllByText("Expanded membership")).toHaveLength(3);
+        fireEvent.click(getByRole("button", { name: "Collapse" }));
+        expect(queryAllByText("Expanded membership")).toHaveLength(0);
+    });
+
     afterEach(() => {
         for (const spy of spiesToRestore.splice(0)) {
             spy.mockRestore();

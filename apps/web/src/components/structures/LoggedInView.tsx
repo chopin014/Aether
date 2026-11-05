@@ -8,6 +8,8 @@ Please see LICENSE files in the repository root for full details.
 
 import { DesktopAccountDockContainer } from "../views/menus/UserMenuContainer";
 import { prepareElementCall } from "../views/voip/prepareElementCall";
+import { migrateToAns } from "../../audio/desktop/DesktopVoiceProfiles";
+import { deferRoomEntryWork, deferUntilAccountSync } from "../../performance/RoomEntryReady";
 import { DesktopProfileHost } from "../views/desktop/DesktopProfileHost";
 
 import React, { type ClipboardEvent } from "react";
@@ -25,6 +27,7 @@ import {
     ProfileKeyMSC4175Timezone,
 } from "matrix-js-sdk/src/matrix";
 import { type MatrixCall } from "matrix-js-sdk/src/webrtc/call";
+import { logger } from "matrix-js-sdk/src/logger";
 import classNames from "classnames";
 import { GroupView, SeparatorView, Panel, LeftResizablePanelView } from "@element-hq/web-shared-components";
 
@@ -131,6 +134,9 @@ class LoggedInView extends React.Component<IProps, IState> {
 
     private resizerViewModel?: ResizerViewModel;
     private cancelCallPreparation?: () => void;
+    private cancelCallEntryWait?: () => void;
+    private cancelCallSyncWait?: () => void;
+    private pendingCallIdle?: () => void;
     private readonly desktopShellEnabled = SettingsStore.getValue("feature_desktop_shell");
 
     public static contextType = SDKContext;
@@ -158,11 +164,20 @@ class LoggedInView extends React.Component<IProps, IState> {
     public componentDidMount(): void {
         if (this.desktopShellEnabled) {
             document.body.classList.add("mx_DesktopShell");
+            // Device settings only; runs once per device and before any call prepares its microphone.
+            void migrateToAns().catch((error: unknown) => logger.warn("Could not move voice settings to ANS", error));
             if (
                 SettingsStore.getValue("feature_element_call_react") &&
                 !SettingsStore.getValue("Developer.elementCallMockComponent")
             ) {
-                this.cancelCallPreparation = prepareElementCall();
+                this.cancelCallPreparation = prepareElementCall(this._matrixClient, (start) => {
+                    this.pendingCallIdle = start;
+                    this.scheduleCallIdle();
+                    return () => {
+                        this.cancelCallEntryWait?.();
+                        this.cancelCallSyncWait?.();
+                    };
+                });
             }
         }
         document.addEventListener("keydown", this.onNativeKeyDown, false);
@@ -242,7 +257,28 @@ class LoggedInView extends React.Component<IProps, IState> {
         }
     };
 
+    private scheduleCallIdle(): void {
+        this.cancelCallEntryWait?.();
+        this.cancelCallSyncWait?.();
+        const destination = this.props.currentRoomId || this.context.roomViewStore.getRoomId() || undefined;
+        // The room-entry callback can run synchronously, so each wait keeps its own cancellation handle.
+        this.cancelCallEntryWait = deferRoomEntryWork(this._matrixClient, destination, () => {
+            // A Space preview has no conversation to paint, so also keep the large call module out of account
+            // startup and first joins. Explicit call intent still prepares immediately.
+            this.cancelCallSyncWait = deferUntilAccountSync(this._matrixClient, () => {
+                const start = this.pendingCallIdle;
+                this.pendingCallIdle = undefined;
+                start?.();
+            });
+        });
+    }
+
+    public componentDidUpdate(previousProps: IProps): void {
+        if (this.pendingCallIdle && previousProps.currentRoomId !== this.props.currentRoomId) this.scheduleCallIdle();
+    }
+
     public componentWillUnmount(): void {
+        this.pendingCallIdle = undefined;
         this.cancelCallPreparation?.();
         if (this.desktopShellEnabled) document.body.classList.remove("mx_DesktopShell");
         document.removeEventListener("keydown", this.onNativeKeyDown, false);
@@ -724,6 +760,8 @@ class LoggedInView extends React.Component<IProps, IState> {
                         <LeftResizablePanelView
                             vm={resizerViewModel}
                             className="mx_LeftPanel_panel"
+                            // The desktop shell always shows its channel list, beside the server rail.
+                            collapsible={!this.desktopShellEnabled}
                             minSize="200px"
                             maxSize="370px"
                             defaultSize={this.desktopShellEnabled ? "310px" : "370px"}

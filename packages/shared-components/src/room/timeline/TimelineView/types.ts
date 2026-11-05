@@ -11,7 +11,7 @@ import type { ViewModel } from "../../../core/viewmodel/ViewModel";
 // ─── Timeline item: one renderable row ─────────────────────────────
 
 /** Discriminated union of every row kind the timeline can render. */
-export type TimelineItemKind = "event" | "date-separator" | "read-marker" | "loading" | "gap";
+export type TimelineItemKind = "event" | "event-group" | "date-separator" | "read-marker" | "loading" | "gap";
 
 /**
  * Opaque type representing an event object from the parent application
@@ -36,6 +36,14 @@ export interface EventTimelineItem {
      * the server. Absent once the server has it, and for other people's messages.
      */
     sendState?: EventSendState;
+}
+
+/** Consecutive membership events represented by an expandable summary row. */
+export interface EventGroupTimelineItem {
+    key: string;
+    kind: "event-group";
+    /** Included events in timeline order; the application supplies their summary renderer. */
+    events: TimelineEvent[];
 }
 
 /** The send states a tile draws differently. */
@@ -64,6 +72,7 @@ export interface GapTimelineItem {
 
 export type TimelineItem =
     | EventTimelineItem
+    | EventGroupTimelineItem
     | DateSeparatorTimelineItem
     | ReadMarkerTimelineItem
     | LoadingTimelineItem
@@ -112,6 +121,9 @@ export interface TimelineViewSnapshot {
      * viewing the live end of the room.
      */
     atLiveEnd: boolean;
+
+    /** Bottom-align a short live list while older history loads. Defaults to false. */
+    alignToBottom?: boolean;
 
     /**
      * Placement target for the current load. The View scrolls it into place on mount
@@ -213,4 +225,6 @@ export interface TimelineViewProps {
      * The shared container calls this for every visible item.
      */
     renderItem: (item: TimelineItem) => ReactNode;
+    /** Called after positioned rows intersecting the timeline viewport have had a chance to paint. */
+    onItemsPainted?: (items: TimelineItem[]) => void;
 }

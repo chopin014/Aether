@@ -797,9 +797,13 @@ export class UnwrappedEventTile extends React.Component<EventTileProps, IState> 
         });
     };
 
-    private createMessageTimestampProps(ts: number): MessageTimestampViewModelProps {
+    private createMessageTimestampProps(ts: number, isInfo: boolean): MessageTimestampViewModelProps {
         return {
             showRelative: this.context.timelineRenderingType === TimelineRenderingType.ThreadsList,
+            // The desktop shell heads each group of messages with when it was sent, including the day once it is
+            // no longer today. The time beside a later message in the group, and in the narrow column of a room
+            // change, stays short.
+            showSentDay: SettingsStore.getValue("feature_desktop_shell") && !this.props.continuation && !isInfo,
             showTwelveHour: this.props.isTwelveHour,
             ts,
             receivedTs: getLateEventInfo(this.props.mxEvent)?.received_ts,
@@ -1036,7 +1040,7 @@ export class UnwrappedEventTile extends React.Component<EventTileProps, IState> 
         // Timestamp slots.
         const ts = eventTileRenderState.timestamp.value;
 
-        const messageTimestampProps = this.createMessageTimestampProps(ts);
+        const messageTimestampProps = this.createMessageTimestampProps(ts, !!eventTileRenderState.root.state.info);
         const linkedMessageTimestampProps = this.createLinkedMessageTimestampProps(messageTimestampProps);
 
         const plainTimestamp = eventTileRenderState.timestamp.displayState.showRealTimestamp ? (

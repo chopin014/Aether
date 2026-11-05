@@ -8,6 +8,7 @@ Please see LICENSE files in the repository root for full details.
 
 import { type Room, type RoomMember } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
+import { logger } from "matrix-js-sdk/src/logger";
 
 import SettingsStore from "../settings/SettingsStore";
 import { type SDKContextClass } from "../contexts/SDKContextClass";
@@ -23,8 +24,9 @@ const SORT_REGEX = /[\x21-\x2F\x3A-\x40\x5B-\x60\x7B-\x7E]+/g;
 export class MemberListStore {
     // cache of Display Name -> name to sort based on. This strips out special symbols like @.
     private readonly sortNames = new Map<string, string>();
-    // list of room IDs that have been lazy loaded
-    private readonly loadedRooms = new Set<string>();
+    // Room identity keeps membership caches separate across sessions and room replacements.
+    private readonly loadedRooms = new WeakSet<Room>();
+    private readonly loadingRooms = new WeakMap<Room, Promise<void>>();
 
     private collator?: Intl.Collator;
 
@@ -34,11 +36,13 @@ export class MemberListStore {
      * Load the member list. Call this whenever the list may have changed.
      * @param roomId The room to load the member list in
      * @param searchQuery Optional search query to filter the list.
-     * @returns A list of filtered and sorted room members, grouped by membership.
+     * @param isCurrent Whether this consumer still needs the result after shared hydration.
+     * @returns Filtered and sorted members, or empty groups when the consumer is obsolete.
      */
     public async loadMemberList(
         roomId: string,
         searchQuery?: string,
+        isCurrent?: () => boolean,
     ): Promise<Record<"joined" | "invited", RoomMember[]>> {
         if (!this.stores.client) {
             return {
@@ -46,34 +50,59 @@ export class MemberListStore {
                 invited: [],
             };
         }
+        const members = await this.loadMembers(roomId, isCurrent);
+        if (isCurrent?.() === false) return { joined: [], invited: [] };
         const language = SettingsStore.getValue("language");
         this.collator = new Intl.Collator(language, { sensitivity: "base", ignorePunctuation: false });
-        const members = await this.loadMembers(roomId);
         // Filter then sort as it's more efficient than sorting tons of members we will just filter out later.
         // Also sort each group, as there's no point comparing invited/joined users when they aren't in the same list!
         const membersByMembership = this.filterMembers(members, searchQuery);
-        membersByMembership.joined.sort((a: RoomMember, b: RoomMember) => {
-            return this.sortMembers(a, b);
-        });
-        membersByMembership.invited.sort((a: RoomMember, b: RoomMember) => {
-            return this.sortMembers(a, b);
-        });
+        const showPresence = this.isPresenceEnabled();
+        const compare = (a: RoomMember, b: RoomMember): number => this.sortMembers(a, b, showPresence);
+        membersByMembership.joined.sort(compare);
+        membersByMembership.invited.sort(compare);
         return {
             joined: membersByMembership.joined,
             invited: membersByMembership.invited,
         };
     }
 
-    private async loadMembers(roomId: string): Promise<Array<RoomMember>> {
-        const room = this.stores.client!.getRoom(roomId);
-        if (!room) {
-            return [];
+    /**
+     * Hydrate a room's complete membership without filtering or sorting it.
+     * All roster consumers share the same in-flight request and SDK import.
+     */
+    public async ensureMembersLoaded(roomId: string): Promise<void> {
+        const room = this.stores.client?.getRoom(roomId);
+        if (!room) return;
+        let loading = this.loadingRooms.get(room);
+        if (!loading) {
+            loading = this.loadMembersIfNeeded(room);
+            this.loadingRooms.set(room, loading);
         }
+        try {
+            await loading;
+        } finally {
+            if (this.loadingRooms.get(room) === loading) this.loadingRooms.delete(room);
+        }
+    }
 
-        if (this.loadedRooms.has(roomId) || !(await this.isLazyLoadingEnabled(roomId))) {
-            // nice and easy, we must already have all the members so just return them.
-            return this.loadMembersInRoom(room);
+    private async loadMembers(roomId: string, isCurrent?: () => boolean): Promise<Array<RoomMember>> {
+        const room = this.stores.client!.getRoom(roomId);
+        if (!room) return [];
+        try {
+            await this.ensureMembersLoaded(roomId);
+        } catch (error) {
+            // Keep known members usable while a later refresh retries the complete roster.
+            logger.warn("Unable to load the complete member list", error);
         }
+        // Hydration belongs to every consumer; only this request's enumeration can be discarded.
+        if (isCurrent?.() === false) return [];
+        return this.loadMembersInRoom(room);
+    }
+
+    private async loadMembersIfNeeded(room: Room): Promise<void> {
+        const roomId = room.roomId;
+        if (this.loadedRooms.has(room) || !(await this.isLazyLoadingEnabled(roomId))) return;
         // lazy loading is enabled. There are two kinds of lazy loading:
         // - With storage: most members are in indexedDB, we just need a small delta via /members.
         //   Valid for normal sync in normal windows.
@@ -83,21 +112,21 @@ export class MemberListStore {
             // pull straight from the server. Don't use a since token as we don't have earlier deltas
             // accumulated.
             room.currentState.markOutOfBandMembersStarted();
-            const response = await this.stores.client!.members(roomId, undefined, KnownMembership.Leave);
-            const memberEvents = response.chunk.map(this.stores.client!.getEventMapper());
-            room.currentState.setOutOfBandMembers(memberEvents);
+            try {
+                const response = await this.stores.client!.members(roomId, undefined, KnownMembership.Leave);
+                const memberEvents = response.chunk.map(this.stores.client!.getEventMapper());
+                room.currentState.setOutOfBandMembers(memberEvents);
+            } catch (error) {
+                room.currentState.markOutOfBandMembersFailed();
+                throw error;
+            }
         } else {
             // load using traditional lazy loading
-            try {
-                await room.loadMembersIfNeeded();
-            } catch {
-                /* already logged in RoomView */
-            }
+            await room.loadMembersIfNeeded();
         }
         // remember that we have loaded the members so we don't hit /members all the time. We
         // will forget this on refresh which is fine as we only store the data in-memory.
-        this.loadedRooms.add(roomId);
-        return this.loadMembersInRoom(room);
+        this.loadedRooms.add(room);
     }
 
     private loadMembersInRoom(room: Room): Array<RoomMember> {
@@ -189,7 +218,7 @@ export class MemberListStore {
      * @param memberB
      * @returns Negative if A comes before B, 0 if A and B are equivalent, Positive is A comes after B.
      */
-    private sortMembers(memberA: RoomMember, memberB: RoomMember): number {
+    private sortMembers(memberA: RoomMember, memberB: RoomMember, showPresence: boolean): number {
         // order by presence, with "active now" first.
         // ...and then by power level
         // ...and then by last active
@@ -202,8 +231,6 @@ export class MemberListStore {
         if (!userA && !userB) return 0;
         if (userA && !userB) return -1;
         if (!userA && userB) return 1;
-
-        const showPresence = this.isPresenceEnabled();
 
         // First by presence
         if (showPresence) {

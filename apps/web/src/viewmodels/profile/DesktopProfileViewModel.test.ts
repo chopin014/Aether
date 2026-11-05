@@ -132,6 +132,42 @@ describe("DesktopProfileViewModel", () => {
         });
     });
 
+    describe("avatar preview", () => {
+        const nameplate = "https://example.org/_matrix/client/v1/media/download/example.org/nameplate";
+        const preview = "https://example.org/_matrix/client/v1/media/thumbnail/example.org/avatar?width=30&height=30";
+        const legacy = "https://example.org/_matrix/media/v3/thumbnail/example.org/avatar?width=30&height=30";
+
+        it("offers the clicked avatar only when the person has an avatar", () => {
+            expect(create({ avatarPreviewUrls: [preview] }).getSnapshot().avatarPreviewUrl).toBeUndefined();
+            member.getMxcAvatarUrl = () => "mxc://example.org/avatar";
+            const snapshot = create({ avatarPreviewUrls: [preview] }).getSnapshot();
+            expect(snapshot.avatarPreviewUrl).toBe(preview);
+            expect(snapshot.avatarUrl).toBeDefined();
+            expect(snapshot.avatarUrl).not.toBe(preview);
+        });
+
+        it("picks the image of the current avatar among others in the clicked element", () => {
+            member.getMxcAvatarUrl = () => "mxc://example.org/avatar";
+            expect(create({ avatarPreviewUrls: [nameplate, legacy] }).getSnapshot().avatarPreviewUrl).toBe(legacy);
+            expect(create({ avatarPreviewUrls: [nameplate] }).getSnapshot().avatarPreviewUrl).toBeUndefined();
+            const lookalike = "https://example.org/_matrix/client/v1/media/thumbnail/other.org/avatar";
+            expect(
+                create({ avatarPreviewUrls: [lookalike, "not a url"] }).getSnapshot().avatarPreviewUrl,
+            ).toBeUndefined();
+        });
+
+        it("drops an older avatar's preview, including after the avatar changes", () => {
+            member.getMxcAvatarUrl = () => "mxc://example.org/newer";
+            expect(create({ avatarPreviewUrls: [preview] }).getSnapshot().avatarPreviewUrl).toBeUndefined();
+            member.getMxcAvatarUrl = () => "mxc://example.org/avatar";
+            const vm = create({ avatarPreviewUrls: [preview] });
+            expect(vm.getSnapshot().avatarPreviewUrl).toBe(preview);
+            member.getMxcAvatarUrl = () => "mxc://example.org/newer";
+            client.emit(UserEvent.LastPresenceTs, user.events.presence!, user);
+            expect(vm.getSnapshot().avatarPreviewUrl).toBeUndefined();
+        });
+    });
+
     it("omits presence the server never reported and follows later updates", () => {
         delete user.events.presence;
         user.presence = "offline";

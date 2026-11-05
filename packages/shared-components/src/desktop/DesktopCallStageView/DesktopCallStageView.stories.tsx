@@ -186,6 +186,29 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Connected: Story = {};
+/** Odd and even populations exercise sizing and centered incomplete rows. */
+const population = (count: number): Story => ({
+    args: {
+        participantCount: count,
+        participants: Array.from({ length: count }, (_, i) => ({
+            ...participants[i % participants.length],
+            id: `person-${i}`,
+            userId: `@person-${i}:example.org`,
+            displayName: ["chopin", "LiTz", "Damian", "Alice", "Bob", "Cherry", "Sam", "River", "Alex"][i],
+            initialLetter: String(i + 1),
+            local: i === 0,
+            speaking: i === 2,
+        })),
+    },
+});
+export const ThreeParticipants: Story = population(3);
+export const FourParticipants: Story = population(4);
+export const FiveParticipants: Story = population(5);
+export const SixParticipants: Story = population(6);
+export const SevenParticipants: Story = population(7);
+export const EightParticipants: Story = population(8);
+export const NineParticipants: Story = population(9);
+
 export const Conversation: Story = { args: { presentation: "conversation" } };
 /** Ringing Bob: his avatar waits faded and pulsing beside ours until he joins. */
 export const ConversationRinging: Story = {

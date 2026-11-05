@@ -7,7 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@test-utils";
+import { act, render, screen } from "@test-utils";
 import userEvent from "@testing-library/user-event";
 
 import {
@@ -56,6 +56,41 @@ describe("DesktopProfilePopoutView", () => {
         expect(screen.getByText("@robin:example.org")).toBeVisible();
         expect(screen.getByRole("list", { name: "Roles" })).toHaveTextContent("Moderator");
         expect(screen.getByRole("img", { name: "Online" })).toBeInTheDocument();
+    });
+
+    it("shows the already loaded preview until the larger avatar has loaded", async () => {
+        const loads: Array<() => void> = [];
+        const RealImage = window.Image;
+        // Each preload image reports loading when the test says so.
+        vi.stubGlobal(
+            "Image",
+            class {
+                public onload: (() => void) | null = null;
+                public set src(_value: string) {
+                    loads.push(() => this.onload?.());
+                }
+            },
+        );
+        try {
+            render(
+                <DesktopProfilePopoutView
+                    vm={makeVm({ avatarUrl: "https://hs/large", avatarPreviewUrl: "https://hs/small" })}
+                />,
+            );
+            const avatar = (): string | null | undefined =>
+                document.querySelector("[class*=avatar] img, img")?.getAttribute("src");
+            expect(avatar()).toBe("https://hs/small");
+            await act(async () => loads.forEach((load) => load()));
+            expect(avatar()).toBe("https://hs/large");
+        } finally {
+            vi.stubGlobal("Image", RealImage);
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it("uses the avatar directly when there is no preview", () => {
+        render(<DesktopProfilePopoutView vm={makeVm({ avatarUrl: "https://hs/large" })} />);
+        expect(document.querySelector("img")?.getAttribute("src")).toBe("https://hs/large");
     });
 
     it("omits the presence badge and role list when neither is known", () => {

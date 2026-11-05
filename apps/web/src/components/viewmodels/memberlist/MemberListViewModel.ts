@@ -173,9 +173,10 @@ export function useMemberListViewModel(roomId: string): MemberListViewState {
                     const { joined: joinedSdk, invited: invitedSdk } = await sdkContext.memberListStore.loadMemberList(
                         roomId,
                         searchQuery,
+                        () => sequence === loadSequence.current,
                     );
-                    const threePidInvited = getPending3PidInvites(room, searchQuery);
                     if (sequence !== loadSequence.current) return;
+                    const threePidInvited = getPending3PidInvites(room, searchQuery);
 
                     const newMemberMap = new Map<string, MemberWithSeparator>();
 

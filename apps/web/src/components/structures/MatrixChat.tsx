@@ -62,7 +62,7 @@ import AutoDiscoveryUtils from "../../utils/AutoDiscoveryUtils";
 import { calculateRoomVia, makeRoomPermalink } from "../../utils/permalinks/Permalinks";
 import ThemeWatcher, { ThemeWatcherEvent } from "../../settings/watchers/ThemeWatcher";
 import { FontWatcher } from "../../settings/watchers/FontWatcher";
-import { storeRoomAliasInCache } from "../../RoomAliasCache";
+import { getCachedRoomIdForAlias, storeRoomAliasInCache } from "../../RoomAliasCache";
 import ToastStore from "../../stores/ToastStore";
 import * as StorageManager from "../../utils/StorageManager";
 import type LoggedInViewType from "./LoggedInView";
@@ -100,6 +100,7 @@ import ErrorBoundary from "../views/elements/ErrorBoundary";
 import VerificationRequestToast from "../views/toasts/VerificationRequestToast";
 import PerformanceMonitor, { PerformanceEntryNames } from "../../performance";
 import { markStartup } from "../../performance/StartupTimings";
+import { prefetchAliasPreview } from "../../performance/AliasRoomSummary";
 import UIStore, { UI_EVENTS } from "../../stores/UIStore";
 import SoftLogout from "./auth/SoftLogout";
 import { initSentry } from "../../sentry";
@@ -887,6 +888,7 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
                 this.onLoggedOut();
                 break;
             case Action.WillStartClient:
+                this.prefetchInitialAlias();
                 this.setState({ ready: false }, () => {
                     // if the client is about to start, we are, by definition, not ready.
                     // Set ready to false now, then it'll be set to true when the sync
@@ -1031,10 +1033,15 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
             logger.log(`Switching to room id ${roomInfo.room_id} at event ${roomInfo.event_id}`);
         }
 
-        // Wait for the first sync to complete so that if a room does have an alias,
-        // it would have been retrieved.
+        // A public preview or alias resolution does not need account-wide room discovery, so an unknown room can
+        // open once the client is running. Known rooms wait for the first sync to populate their contents.
         if (!this.firstSyncComplete) {
-            await this.firstSyncPromise.promise;
+            const client = MatrixClientPeg.safeGet();
+            const unknownDestination =
+                Boolean(roomInfo.room_alias || roomInfo.room_id) && !client.getRoom(roomInfo.room_id);
+            const canOpenPreview = client.clientRunning && unknownDestination;
+            if (canOpenPreview && (await this.shouldForceVerification())) return;
+            if (!canOpenPreview) await this.firstSyncPromise.promise;
         }
 
         let presentedId = roomInfo.room_alias || roomInfo.room_id!;
@@ -1614,6 +1621,22 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
      * Called just before the matrix client is started
      * (useful for setting listeners)
      */
+    /**
+     * Start resolving the alias of a room link the app was opened with, before storage, crypto and sync are ready.
+     * Uses the same alias boundary as showScreen: the room part ends at the first slash after its domain.
+     */
+    private prefetchInitialAlias(): void {
+        const screen = this.screenAfterLogin?.screen;
+        const client = MatrixClientPeg.get();
+        if (!client || !screen?.startsWith("room/#")) return;
+        const room = screen.substring(5);
+        const domainOffset = room.indexOf(":") + 1;
+        if (!domainOffset) return;
+        const slash = room.substring(domainOffset).indexOf("/");
+        const alias = slash > -1 ? room.substring(0, domainOffset + slash) : room;
+        if (!getCachedRoomIdForAlias(alias)) prefetchAliasPreview(client, alias);
+    }
+
     private onWillStartClient(): void {
         // Reset the 'have completed first sync' flag,
         // since we're about to start the client and therefore about to do the first sync
@@ -1866,18 +1889,18 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
         // If the view is something else, that probably means it's a login or registration view; we handle that in
         // `postLoginSetup`.
         if (this.state.view === Views.PENDING_CLIENT_START) {
-            // Wait for the first sync to complete before showing the logged-in view: otherwise we render
-            // LoggedInView/HomePage against an empty store, with no loading indicator, while /sync is still
-            // in flight.
-            if (!this.firstSyncComplete) {
-                await this.firstSyncPromise.promise;
-            }
-
             if (shouldForceVerification) {
                 this.setStateForNewView({ view: Views.COMPLETE_SECURITY });
-            } else {
-                this.onShowPostLoginScreen();
+                return;
             }
+
+            // An explicit room route can show its public join preview before the stores are populated. Anything
+            // else waits for the first sync, so the logged-in view never renders against an empty store.
+            const hasExplicitRoomRoute = /^room\/[!#]/.test(this.screenAfterLogin?.screen ?? "");
+            if (!this.firstSyncComplete && !(cli.clientRunning && hasExplicitRoomRoute)) {
+                await this.firstSyncPromise.promise;
+            }
+            this.onShowPostLoginScreen();
         }
     }
 

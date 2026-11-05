@@ -17,6 +17,8 @@ export interface EventPresentation {
     layout: EventLayout;
     /** Spacing density used within the layout. */
     density: EventDensity;
+    /** In the desktop message style, the space above each new group of messages, in pixels. */
+    groupSpacing?: number;
 }
 
 /** Default event presentation used when no provider is present. */

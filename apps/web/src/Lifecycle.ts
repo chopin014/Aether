@@ -26,6 +26,7 @@ import EventIndexPeg from "./indexing/EventIndexPeg";
 import { createMatrixClient, createClientWithCreds, type IMatrixClientCreds } from "./utils/createMatrixClient";
 import UserActivity from "./UserActivity";
 import Presence from "./Presence";
+import { RichProfileStore } from "./profile/RichProfileStore";
 import { AetherPresenceService } from "./presence/AetherPresenceService";
 import dis from "./dispatcher/dispatcher";
 import DMRoomMap from "./utils/DMRoomMap";
@@ -1312,6 +1313,8 @@ export function stopMatrixClient(unsetClient = true): void {
     EventIndexPeg.stop();
     const cli = MatrixClientPeg.get();
     if (cli) {
+        // Before stopping, so profile lookups finishing later cannot write this account's data back.
+        RichProfileStore.endSession(cli);
         cli.stopClient();
         cli.removeAllListeners();
 

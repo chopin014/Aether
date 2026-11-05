@@ -38,11 +38,18 @@ body.mx_DesktopShell {
     --mx-desktop-search-button-padding: 0 8px;
     --mx-desktop-search-button-size: 32px;
     --mx-desktop-search-background: var(--cpd-color-bg-subtle-primary);
-    /* Direct messages carry a profile avatar; channels a 24px symbol. Both keep 2px between rows. */
+    /*
+     * Direct messages carry a profile avatar; channels a 24px symbol on a 32px row. Each row has 1px above and below,
+     * so neighbouring rows sit 2px apart and a list reads as one block.
+     */
     --mx-desktop-room-content-height: 42px;
-    --mx-desktop-channel-content-height: 34px;
-    --mx-desktop-channel-row-gap: 2px;
-    --mx-desktop-category-padding: 14px;
+    --mx-desktop-channel-content-height: 32px;
+    --mx-desktop-channel-row-gap: 1px;
+    /*
+     * A category keeps clear of the list above it and sits close to its own channels, so each heading reads as
+     * belonging to what follows it rather than floating between two lists.
+     */
+    --mx-desktop-category-padding: 16px 0 2px;
     --mx-desktop-category-inner-padding: 2px 8px 2px 4px;
     --mx-desktop-room-margin: 8px;
     --mx-desktop-room-radius: 6px;
@@ -69,6 +76,32 @@ body.mx_DesktopShell {
         margin: 0;
         border: 0;
         background: transparent;
+    }
+
+    /*
+     * Dialogs drop Compound's glass frame. Its translucent band and outline kept their own corners: a square rim
+     * around the rounded profile card, which draws its own surface, and light wedges in the corners of dialogs whose
+     * inner rounding differed. A dialog is one surface here, its corners following the frame's.
+     */
+    .mx_Dialog_wrapper:not(.mx_Dialog_lightbox, .mx_Dialog_spinner) .mx_Dialog_border {
+        padding: 0;
+        outline: none;
+        background: none;
+        backdrop-filter: none;
+        border-radius: 12px;
+
+        > .mx_Dialog {
+            border-radius: inherit;
+        }
+    }
+
+    /* Without the glass, a dialog keeps a hairline edge and lifts off the page with a soft shadow. */
+    .mx_Dialog_wrapper:not(.mx_Dialog_lightbox, .mx_Dialog_spinner, .mx_Dialog_desktopProfile)
+        .mx_Dialog_border
+        > .mx_Dialog {
+        box-shadow:
+            0 0 0 1px var(--cpd-color-border-interactive-secondary),
+            0 16px 40px rgb(0 0 0 / 40%);
     }
 
     /* Keep the desktop frame visible around the captured settings modal. */
@@ -777,6 +810,198 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
     }
 
     /*
+     * A collapsed run of room changes reads as one line of text with its toggle right after it, rather than the
+     * toggle floating at the far edge of the timeline, away from what it opens.
+     */
+    .mx_GenericEventListSummary[data-layout="group"] {
+        &[data-expanded="false"] {
+            display: flex;
+            align-items: center;
+
+            > .mx_EventTile_line {
+                flex: 0 1 auto;
+                min-width: 0;
+            }
+        }
+
+        .mx_GenericEventListSummary_toggle {
+            order: 1;
+            float: none;
+            flex: none;
+            margin-inline: var(--cpd-space-2x) 0;
+            padding: 0;
+            color: var(--cpd-color-text-action-accent);
+            font: var(--cpd-font-body-sm-medium);
+            text-decoration: none;
+
+            &:hover,
+            &:focus-visible {
+                text-decoration: underline;
+            }
+        }
+
+        &[data-expanded="true"] .mx_GenericEventListSummary_toggle {
+            margin-inline-start: var(--cpd-space-16x);
+        }
+    }
+
+    /*
+     * In compact messages the text flows around the time and name, so its later lines return under the name. Text
+     * bodies clip their overflow to trap stacked marks, and `hidden` would make each a box that sits beside the name
+     * instead; `clip` traps the marks without that.
+     */
+    &.mx_MatrixChat_useCompactLayout .mx_EventTile_line :is(.mx_MTextBody, .mx_EventTile_body),
+    .mx_MatrixChat_useCompactLayout .mx_EventTile_line :is(.mx_MTextBody, .mx_EventTile_body) {
+        overflow: clip;
+    }
+
+    /*
+     * The day between messages is a quiet label on a faint rule: small, semibold and muted, so it marks the change
+     * of day without competing with the messages around it.
+     */
+    .mx_TimelineSeparator {
+        margin-block: var(--cpd-space-4x) var(--cpd-space-1x);
+        font: var(--cpd-font-body-xs-semibold);
+        color: var(--cpd-color-text-secondary);
+
+        > hr {
+            border-bottom-color: var(--cpd-color-border-interactive-secondary);
+        }
+
+        /* The label between the two halves of the rule. */
+        > :not(hr) {
+            padding-inline: var(--cpd-space-2x);
+        }
+    }
+
+    /*
+     * Pictures sent together (see GalleryGrouper): the first is an ordinary message, and the rest fill a grid as wide
+     * as a picture under it, cropped to squares when they share a row.
+     */
+    .mx_DesktopGallery {
+        list-style: none;
+        padding-block: var(--cpd-space-1x) var(--cpd-space-0-5x);
+    }
+
+    .mx_DesktopGallery_list {
+        display: grid;
+        grid-template-columns: repeat(var(--mx-desktop-gallery-columns, 1), minmax(0, 1fr));
+        gap: var(--cpd-space-1x);
+        /* The message text's column, and the width of a picture at the normal size. */
+        width: min(324px, calc(100% - 64px - 96px));
+        margin: 0 0 0 64px;
+        padding: 0;
+        list-style: none;
+
+        > .mx_EventTile {
+            min-width: 0;
+            margin: 0;
+            padding: 0;
+            background: none;
+            box-shadow: none;
+        }
+
+        .mx_EventTile_line {
+            padding: 0;
+            margin: 0;
+        }
+
+        /* Each picture is part of one message: no time or read receipts of its own in the grid. */
+        [data-testid="event-tile-slot-timestamp"],
+        [data-testid="event-tile-slot-receipt"] {
+            display: none;
+        }
+
+        /* The frame's inline size comes from the picture's own dimensions; in the grid the cell decides. */
+        .mx_ImageBody,
+        .mx_ImageBody_container {
+            width: 100% !important; /* Overrides the inline size from the media info */
+            max-width: none !important; /* Overrides the inline size from the media info */
+            max-height: none !important; /* Overrides the inline size from the media info */
+        }
+
+        .mx_ImageBody_container {
+            border-radius: var(--cpd-space-2x);
+            overflow: hidden;
+        }
+
+        &:not([data-columns="1"]) {
+            .mx_ImageBody_container {
+                aspect-ratio: 1 !important; /* Overrides the picture's own aspect ratio to crop it square */
+            }
+
+            .mx_ImageBody_image {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+            }
+        }
+    }
+
+    /* Text sent with files reads first, above them, as a message that carries attachments. */
+    .mx_EventTile_captioned {
+        display: flex;
+        flex-direction: column;
+        gap: var(--cpd-space-1x);
+
+        > :last-child {
+            order: -1;
+        }
+    }
+
+    /*
+     * Mentions read as accent text on a soft accent wash, filling with the accent on hover, as in Discord. The text
+     * colour is the readable accent pulled towards the body text, so it stays legible on the wash in every theme.
+     */
+    .mx_Pill.mx_Pill_desktopMention,
+    .mx_BasicMessageComposer .mx_BasicMessageComposer_input span:is(.mx_UserPill, .mx_RoomPill, .mx_SpacePill) {
+        --mx-desktop-mention-text: color-mix(
+            in srgb,
+            var(--cpd-color-text-action-accent) 75%,
+            var(--cpd-color-text-primary)
+        );
+        --mx-desktop-mention-background: color-mix(in srgb, var(--cpd-color-bg-accent-rest) 28%, transparent);
+
+        display: inline;
+        padding: 0 2px;
+        border-radius: 3px;
+        line-height: inherit;
+        vertical-align: baseline;
+        font-weight: var(--cpd-font-weight-medium);
+        color: var(--mx-desktop-mention-text) !important; /* To override .markdown-body */
+        background-color: var(--mx-desktop-mention-background) !important; /* To override .markdown-body */
+        transition:
+            background-color 80ms ease-out,
+            color 80ms ease-out;
+    }
+
+    a.mx_Pill.mx_Pill_desktopMention:is(:hover, :focus-visible) {
+        color: var(--cpd-color-text-on-solid-primary) !important; /* To override .markdown-body */
+        background-color: var(--cpd-color-bg-accent-rest) !important; /* To override .markdown-body */
+    }
+
+    /* @room and keywords aren't links, so they keep the wash on hover. */
+    .mx_Pill.mx_Pill_desktopMention.mx_AtRoomPill:hover {
+        color: var(--mx-desktop-mention-text) !important; /* To override .markdown-body */
+        background-color: var(--mx-desktop-mention-background) !important; /* To override .markdown-body */
+    }
+
+    /* In the composer the avatar slot carries the mention's sigil instead. */
+    .mx_BasicMessageComposer .mx_BasicMessageComposer_input span.mx_UserPill::before {
+        all: unset;
+        content: "@";
+    }
+
+    .mx_BasicMessageComposer .mx_BasicMessageComposer_input span:is(.mx_RoomPill, .mx_SpacePill)::before {
+        all: unset;
+        content: "#";
+    }
+
+    .mx_BasicMessageComposer .mx_BasicMessageComposer_input span:is(.mx_UserPill, .mx_RoomPill, .mx_SpacePill):hover {
+        background-color: var(--mx-desktop-mention-background) !important; /* To override the base composer rule */
+    }
+
+    /*
      * Attachments in the timeline become Aether media cards: a soft accent wash, a rounded tile for the
      * file icon and an accent play button and progress. Composer previews keep Element's style.
      */
@@ -814,9 +1039,23 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
     }
 
     .mx_EventTile :is(.mx_MAudioBody, .mx_MVoiceMessageBody) .mx_MediaBody {
-        /* The seek bar paints with these Compound greys; scoped here they take the accent. */
-        --cpd-color-gray-600: var(--cpd-color-border-interactive-secondary);
-        --cpd-color-gray-800: var(--cpd-color-bg-accent-rest);
+        /*
+         * The seek bar and the unplayed waveform paint with these Compound greys. The border colour they used to
+         * take is a faint tint in most themes, so the waveform all but vanished; the muted text colour stays
+         * readable on every surface. Played bars take the accent colour meant for text, which keeps its contrast
+         * where the accent fill would not.
+         */
+        --cpd-color-gray-600: color-mix(in srgb, var(--cpd-color-text-secondary) 55%, transparent);
+        --cpd-color-gray-800: var(--cpd-color-text-action-accent);
+
+        border: 1px solid var(--cpd-color-border-interactive-secondary);
+        color: var(--cpd-color-text-primary);
+
+        .mx_Clock {
+            color: var(--cpd-color-text-secondary);
+            font: var(--cpd-font-body-sm-medium);
+            font-variant-numeric: tabular-nums;
+        }
 
         button[aria-label] {
             /* Compound's icon button colours its icon from these. */
@@ -846,8 +1085,12 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
             }
         }
 
-        .mx_Waveform_bar_100pct {
-            background-color: var(--cpd-color-bg-accent-rest);
+        .mx_Waveform .mx_Waveform_bar {
+            background-color: var(--cpd-color-gray-600);
+
+            &.mx_Waveform_bar_100pct {
+                background-color: var(--cpd-color-gray-800);
+            }
         }
     }
 
@@ -942,6 +1185,8 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
         }
 
         .mx_DesktopShell_attachment {
+            /* First in the row, ahead of the encryption icon that precedes it in the markup. */
+            order: -1;
             width: 32px;
             height: 32px;
             padding: 4px;
@@ -949,14 +1194,76 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
             margin-inline-end: 12px;
         }
 
+        /*
+         * The room's encryption state sits in the row, between the attachment button and the text, centred on the
+         * row instead of floating over the button's corner.
+         */
         .mx_MessageComposer_e2eIconWrapper {
-            inset-inline-start: 40px;
-            inset-block-start: 4px;
-            z-index: 1;
+            position: static;
+            flex: none;
+            display: flex;
+            align-items: center;
+            align-self: center;
+            width: 16px;
+            height: 16px;
+            margin: 0 8px 0 -4px;
         }
 
         .mx_MessageComposer_input textarea {
             background: transparent;
+        }
+
+        /*
+         * A change to someone's identity heads the composer box as a strip across its top: tinted, with the text in
+         * the body colour so it stays readable, and a compact action at its end.
+         */
+        .mx_UserIdentityWarning {
+            --mx-desktop-identity-tint: var(--cpd-color-icon-warning-primary, var(--cpd-color-yellow-900));
+
+            margin: 0 -12px;
+            padding: 8px 12px;
+            border-block-end: 1px solid var(--cpd-color-border-interactive-secondary);
+            border-start-start-radius: 8px;
+            border-start-end-radius: 8px;
+            background: color-mix(in srgb, var(--mx-desktop-identity-tint) 10%, transparent);
+
+            &.critical {
+                --mx-desktop-identity-tint: var(--cpd-color-icon-critical-primary);
+            }
+
+            /* The strip's own edge replaces the separator above it. */
+            > :not(.mx_UserIdentityWarning_row) {
+                display: none;
+            }
+
+            .mx_UserIdentityWarning_row {
+                gap: 12px;
+
+                .mx_BaseAvatar {
+                    --cpd-avatar-size: 24px;
+
+                    flex: none;
+                    margin: 0;
+                }
+
+                .mx_UserIdentityWarning_main {
+                    margin: 0;
+                    font: var(--cpd-font-body-sm-regular);
+                    color: var(--cpd-color-text-primary);
+
+                    &.critical {
+                        color: var(--cpd-color-text-critical-primary);
+                    }
+                }
+
+                > button {
+                    flex: none;
+                    min-height: 32px;
+                    padding-block: 4px;
+                    padding-inline: 12px;
+                    font: var(--cpd-font-body-sm-semibold);
+                }
+            }
         }
     }
 

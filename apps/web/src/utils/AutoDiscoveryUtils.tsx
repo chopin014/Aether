@@ -184,12 +184,41 @@ export default class AutoDiscoveryUtils {
             };
         }
 
+        return AutoDiscoveryUtils.validateServerConfigWithWellKnown(
+            wellknownConfig,
+            new URL(homeserverUrl).hostname,
+            syntaxOnly,
+            true,
+        );
+    }
+
+    /** Validate configured endpoints while independently discovering authentication metadata. */
+    public static async validateServerConfigWithWellKnown(
+        wellknownConfig: IClientWellKnown,
+        serverName?: string,
+        syntaxOnly = false,
+        isSynthetic = false,
+    ): Promise<ValidatedServerConfig> {
+        // With a static URL, liveliness and authentication metadata are independent requests.
+        // Match discovery's URL normalization before making the unauthenticated metadata request.
+        let authentication: Promise<{ metadata?: ValidatedAuthMetadata; error?: Error }> | undefined;
+        try {
+            const target = new URL(wellknownConfig["m.homeserver"]?.base_url ?? "");
+            if (target.hostname && (target.protocol === "https:" || target.protocol === "http:")) {
+                authentication = AutoDiscoveryUtils.discoverAuthentication(`${target.origin}${target.pathname}`);
+            }
+        } catch {
+            // Discovery below retains the existing invalid-URL error policy.
+        }
         const result = await AutoDiscovery.fromDiscoveryConfig(wellknownConfig);
 
-        const url = new URL(homeserverUrl);
-        const serverName = url.hostname;
-
-        return AutoDiscoveryUtils.buildValidatedConfigFromDiscovery(serverName, result, syntaxOnly, true);
+        return AutoDiscoveryUtils.buildValidatedConfigFromDiscovery(
+            serverName,
+            result,
+            syntaxOnly,
+            isSynthetic,
+            authentication,
+        );
     }
 
     /**
@@ -209,6 +238,7 @@ export default class AutoDiscoveryUtils {
      * @param {*} discoveryResult The AutoDiscovery result.
      * @param {boolean} syntaxOnly If true, errors relating to liveliness of the servers will not be raised.
      * @param {boolean} isSynthetic If true, then the discoveryResult was synthesised locally.
+     * @param authentication An optional metadata request already started for this homeserver.
      * @returns {Promise<ValidatedServerConfig>} Resolves to the validated configuration.
      */
     public static async buildValidatedConfigFromDiscovery(
@@ -216,6 +246,7 @@ export default class AutoDiscoveryUtils {
         discoveryResult?: ClientConfig,
         syntaxOnly = false,
         isSynthetic = false,
+        authentication?: Promise<{ metadata?: ValidatedAuthMetadata; error?: Error }>,
     ): Promise<ValidatedServerConfig> {
         if (!discoveryResult?.["m.homeserver"]) {
             // This shouldn't happen without major misconfiguration, so we'll log a bit of information
@@ -289,18 +320,8 @@ export default class AutoDiscoveryUtils {
 
         // This isn't inherently auto-discovery but used to be in an earlier incarnation of the MSC,
         // and shuttling the data together makes a lot of sense
-        let delegatedAuthentication: ValidatedAuthMetadata | undefined;
-        let delegatedAuthenticationError: Error | undefined;
-        try {
-            const tempClient = new MatrixClient({ baseUrl: preferredHomeserverUrl });
-            delegatedAuthentication = await tempClient.getAuthMetadata();
-        } catch (e) {
-            if (e instanceof MatrixError && e.httpStatus === 404 && e.errcode === "M_UNRECOGNIZED") {
-                // 404 M_UNRECOGNIZED means the server does not support OIDC
-            } else {
-                delegatedAuthenticationError = e as Error;
-            }
-        }
+        const { metadata: delegatedAuthentication, error: delegatedAuthenticationError } = await (authentication ??
+            AutoDiscoveryUtils.discoverAuthentication(preferredHomeserverUrl));
 
         return {
             hsUrl: preferredHomeserverUrl,
@@ -312,5 +333,19 @@ export default class AutoDiscoveryUtils {
             isNameResolvable: !isSynthetic,
             delegatedAuthentication,
         } as ValidatedServerConfig;
+    }
+
+    private static async discoverAuthentication(
+        homeserverUrl: string,
+    ): Promise<{ metadata?: ValidatedAuthMetadata; error?: Error }> {
+        try {
+            const tempClient = new MatrixClient({ baseUrl: homeserverUrl });
+            return { metadata: await tempClient.getAuthMetadata() };
+        } catch (error) {
+            if (error instanceof MatrixError && error.httpStatus === 404 && error.errcode === "M_UNRECOGNIZED") {
+                return {};
+            }
+            return { error: error as Error };
+        }
     }
 }

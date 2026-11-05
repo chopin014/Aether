@@ -8,7 +8,8 @@ Please see LICENSE in the repository root for full details.
 import type * as ElementCallComponent from "@element-hq/element-call-component";
 
 import { ElementCall } from "../../../models/Call";
-import { CallStore } from "../../../stores/CallStore";
+import { elementCallOpenIdTokens } from "./ElementCallOpenIdToken";
+import { callServiceUrlFor } from "./ElementCallService";
 
 let loaded: Promise<{ default: typeof ElementCallComponent.ElementCall }> | undefined;
 
@@ -19,9 +20,10 @@ export function loadElementCallComponent(): Promise<{ default: typeof ElementCal
         import(/* webpackChunkName: "element-call-component" */ "./ElementCallComponent.css"),
     ])
         .then(async ([module]) => {
-            await module.initializeElementCall(
-                ElementCall.getConfigOptions(CallStore.instance.getConfiguredRTCTransports()),
-            );
+            // The call service is asked of the joining account, not fixed here for the first account to load this.
+            module.setElementCallServiceUrl(callServiceUrlFor);
+            module.setElementCallOpenIdTokens(elementCallOpenIdTokens);
+            await module.initializeElementCall(ElementCall.getConfigOptions());
             return { default: module.ElementCall };
         })
         .catch((error: unknown) => {

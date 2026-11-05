@@ -43,6 +43,41 @@ describe("UserProvider", () => {
         ]);
     });
 
+    describe("in the desktop shell", () => {
+        const desktopShell = (): void => {
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name): any => name === "feature_desktop_shell");
+        };
+
+        it("lists everyone in the room for a lone @", async () => {
+            desktopShell();
+            const client = stubClient();
+            const room = mkRoom(client, "!room:e.com");
+            const members = ["@alice:e.com", "@bob:e.com", "@carol:e.com"].map((id) => mkRoomMember(room.roomId, id));
+            room.getJoinedMembers.mockReturnValue(members);
+
+            const completions = await new UserProvider(room).getCompletions("@", { beginning: true, start: 0, end: 1 });
+
+            expect(completions.map((completion) => completion.completionId)).toEqual(
+                expect.arrayContaining(["@alice:e.com", "@bob:e.com", "@carol:e.com"]),
+            );
+        });
+
+        it("follows a mention at the start of a message with a space, not a colon", async () => {
+            desktopShell();
+            const client = stubClient();
+            const room = mkRoom(client, "!room:e.com");
+            room.getJoinedMembers.mockReturnValue([mkRoomMember(room.roomId, "@alice:e.com")]);
+
+            const [completion] = await new UserProvider(room).getCompletions("@ali", {
+                beginning: true,
+                start: 0,
+                end: 4,
+            });
+
+            expect(completion.suffix).toBe(" ");
+        });
+    });
+
     describe("getUserStatus", () => {
         const setUpRoomWithAlice = () => {
             const client = vi.mocked(stubClient());

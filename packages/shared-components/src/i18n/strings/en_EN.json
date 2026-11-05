@@ -50,6 +50,13 @@
         "threads": "Threads"
     },
     "composer": {
+        "attachments": {
+            "label": {
+                "one": "%(count)s file to send",
+                "other": "%(count)s files to send"
+            },
+            "remove": "Remove %(name)s"
+        },
         "url_preview": {
             "clear_all": "Clear all",
             "collapse": "Collapse URL previews",
@@ -253,6 +260,15 @@
             "record": "Record keybind",
             "recording": "Press a key · Esc to cancel",
             "title": "Keybinds"
+        },
+        "message_display": {
+            "compact": "Compact",
+            "compact_description": "Time, name and message share one line, so more of the conversation fits.",
+            "cozy": "Cozy",
+            "cozy_description": "Each group of messages starts with the sender's avatar and name.",
+            "group_spacing": "Space between message groups",
+            "group_spacing_value": "%(size)spx",
+            "title": "Message display"
         },
         "profile": {
             "board": "Board",
@@ -653,9 +669,9 @@
             "microphone_test": "Microphone test",
             "microphone_test_hint": "Your call is temporarily deafened while testing. Use headphones to avoid feedback.",
             "mute": "Mute",
-            "noise_suppression_description": "Reduce background noise with Aether’s on-device speech model. Try speaking while typing or clapping.",
+            "noise_suppression_description": "ANS removes the noise around you with Aether’s on-device speech model. Try speaking while typing or clapping.",
             "noise_suppression_local": "Audio is processed on this device.",
-            "noise_suppression_title": "Advanced noise suppression",
+            "noise_suppression_title": "ANS (Aether Noise Suppression)",
             "occupied_for": "People have been here for %(duration)s",
             "outbound_loss": "Sent packet loss",
             "output_device": "Output device",
@@ -705,13 +721,12 @@
             "mode_push_to_talk": "Push to talk",
             "mode_voice_activity": "Voice activity",
             "noise_suppression": "Noise suppression",
-            "noise_suppression_description": "Reduces background noise from your microphone. Enhanced uses a speech model that runs on this device, so your audio is not sent anywhere to be cleaned.",
-            "noise_suppression_enhanced": "Enhanced",
-            "noise_suppression_failed": "Enhanced noise suppression could not run, so your microphone is sent without it.",
+            "noise_suppression_description": "Reduces background noise from your microphone. ANS uses a speech model that runs on this device, so your audio is not sent anywhere to be cleaned.",
+            "noise_suppression_enhanced": "ANS (Aether Noise Suppression)",
+            "noise_suppression_failed": "ANS could not run, so your microphone is sent without it.",
             "noise_suppression_none": "None",
-            "noise_suppression_overloaded": "Enhanced noise suppression was turned off because this computer could not keep up with it.",
+            "noise_suppression_overloaded": "ANS was turned off because this computer could not keep up with it.",
             "noise_suppression_standard": "Standard",
-            "noise_suppression_strength": "Suppression strength",
             "notifications_description": "Turn sounds for new messages and incoming calls on or off.",
             "notifications_title": "Notifications",
             "open_help": "Help & About",
@@ -727,7 +742,7 @@
             "profile_studio": "Studio",
             "profile_studio_description": "Raw audio: no noise suppression, echo cancellation or automatic gain, and the microphone is always open.",
             "profile_voice_isolation": "Voice Isolation",
-            "profile_voice_isolation_description": "Just your voice: let Aether remove the noise around you.",
+            "profile_voice_isolation_description": "Just your voice: ANS removes the noise around you.",
             "ptt_clear": "Clear keybind",
             "ptt_focus_note": "Manage keybinds in Keyboard settings to check whether this shortcut works across applications.",
             "ptt_needs_key": "Assign a key to speak. Your microphone stays closed until a key is assigned.",
@@ -1059,7 +1074,8 @@
             "ongoing": {
                 "common": {
                     "call_started_by": "%(startedByDisplayName)s started a call",
-                    "join_button": "Join"
+                    "join_button": "Join",
+                    "ongoing": "Ongoing"
                 },
                 "dm": {
                     "call_started": "Call started",
@@ -1070,6 +1086,7 @@
                         "one": "%(count)s joined",
                         "other": "%(count)s joined"
                     },
+                    "started_group_call": "<b>%(name)s</b> started a group call.",
                     "title": "Group call in progress"
                 }
             },
@@ -1136,6 +1153,16 @@
             "view_file": "View file",
             "view_image": "View image",
             "view_video": "View video"
+        },
+        "video_player": {
+            "exit_full_screen": "Exit full screen",
+            "full_screen": "Full screen",
+            "mute": "Mute",
+            "pause": "Pause",
+            "play": "Play",
+            "seek": "Seek",
+            "unmute": "Unmute",
+            "volume": "Volume"
         }
     },
     "user_menu": {

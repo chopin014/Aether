@@ -1,0 +1,26 @@
+diff --git a/src/transport/PostmessageTransport.ts b/src/transport/PostmessageTransport.ts
+--- a/src/transport/PostmessageTransport.ts
++++ b/src/transport/PostmessageTransport.ts
+@@ -82,7 +82,8 @@
+     }
+ 
+     private sendInternal(message: IWidgetApiRequest | IWidgetApiResponse): void {
+-        console.log(`[PostmessageTransport] Sending object to ${this.targetOrigin}: `, message);
++        // Widget payloads can contain credentials and delayed-event capabilities.
++        console.log("[PostmessageTransport] Sending action:", message.action);
+         this.transportWindow.postMessage(message, this.targetOrigin);
+     }
+ 
+diff --git a/lib/transport/PostmessageTransport.js b/lib/transport/PostmessageTransport.js
+--- a/lib/transport/PostmessageTransport.js
++++ b/lib/transport/PostmessageTransport.js
+@@ -108,7 +108,8 @@
+   }, {
+     key: "sendInternal",
+     value: function sendInternal(message) {
+-      console.log("[PostmessageTransport] Sending object to ".concat(this.targetOrigin, ": "), message);
++      // Widget payloads can contain credentials and delayed-event capabilities.
++      console.log("[PostmessageTransport] Sending action:", message.action);
+       this.transportWindow.postMessage(message, this.targetOrigin);
+     }
+   }, {

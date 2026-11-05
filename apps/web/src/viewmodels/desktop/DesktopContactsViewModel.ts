@@ -44,6 +44,7 @@ export class DesktopContactsViewModel
     implements DesktopContactsViewModelInterface
 {
     private allContacts: DesktopContact[] = [];
+    private refreshQueued = false;
 
     public constructor(props: Props) {
         super(props, { tab: "online", query: "", contacts: [], onlineContacts: [], pendingCount: 0, busyIds: [] });
@@ -58,14 +59,24 @@ export class DesktopContactsViewModel
             UserEvent.DisplayName,
             UserEvent.AvatarUrl,
         ]) {
-            this.disposables.trackListener(props.client, event, this.refresh);
+            this.disposables.trackListener(props.client, event, this.queueRefresh);
         }
         this.disposables.trackListener(props.client, ClientEvent.Event, this.onPresenceEvent);
         this.refresh();
     }
 
     private onPresenceEvent = (event: unknown): void => {
-        if (event instanceof MatrixEvent && event.getType() === "m.presence") this.refresh();
+        if (event instanceof MatrixEvent && event.getType() === "m.presence") this.queueRefresh();
+    };
+
+    private queueRefresh = (): void => {
+        if (this.refreshQueued || this.isDisposed) return;
+        this.refreshQueued = true;
+        // Membership imports emit a name event per member. Rebuild once after the batch.
+        queueMicrotask(() => {
+            this.refreshQueued = false;
+            if (!this.isDisposed) this.refresh();
+        });
     };
 
     private contactFor = (userId: string, room?: Room): DesktopContact => {

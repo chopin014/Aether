@@ -1,0 +1,104 @@
+/*
+ * Copyright 2026 Gabriel
+ *
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE in the repository root for full details.
+ */
+
+/* Shares its geometry with the finished-call rows (tombstone/common.module.css), so the two line up. */
+.row {
+    min-height: var(--cpd-space-6x);
+    width: 100%;
+    padding-block: var(--cpd-space-1x);
+    box-sizing: border-box;
+}
+
+/* Centred on the row like the text and button beside it, which the join button makes taller than one line. */
+.iconFrame {
+    position: relative;
+    display: flex;
+    flex-shrink: 0;
+    align-self: center;
+}
+
+.icon {
+    color: var(--cpd-color-icon-success-primary);
+}
+
+.text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: var(--cpd-space-2x);
+    font: var(--cpd-font-body-md-regular);
+    color: var(--cpd-color-text-secondary);
+    overflow-wrap: anywhere;
+}
+
+.title strong {
+    font-weight: var(--cpd-font-weight-semibold);
+    color: var(--cpd-color-text-primary);
+}
+
+.live {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cpd-space-1-5x);
+    font: var(--cpd-font-body-xs-semibold);
+    color: var(--cpd-color-text-success-primary);
+    white-space: nowrap;
+}
+
+/*
+ * The dot breathes while the call is live. It stays within its own box: a ring around the icon would reach past the
+ * row, where the message body clips it into a square.
+ */
+.liveDot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentcolor;
+    animation: ongoingCallPulse 1.6s ease-in-out infinite;
+}
+
+.duration {
+    font: var(--cpd-font-body-xs-regular);
+    font-variant-numeric: tabular-nums;
+    color: var(--cpd-color-text-secondary);
+}
+
+.detail {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cpd-space-1-5x);
+    font: var(--cpd-font-body-xs-regular);
+}
+
+/* A compact button, so a live call row stays close to the height of the history rows around it. */
+.join {
+    flex-shrink: 0;
+    min-block-size: 0;
+    padding-block: var(--cpd-space-1x);
+    padding-inline: var(--cpd-space-2-5x, 10px) var(--cpd-space-3x);
+    gap: var(--cpd-space-1-5x);
+    font: var(--cpd-font-body-sm-semibold);
+
+    svg {
+        width: var(--cpd-space-4x);
+        height: var(--cpd-space-4x);
+    }
+}
+
+@keyframes ongoingCallPulse {
+    50% {
+        opacity: 0.35;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .liveDot {
+        animation: none;
+    }
+}

@@ -1,0 +1,138 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+/* A row of cards above the text, separated from it by a hairline, that scrolls sideways when it fills. */
+.tray {
+    display: flex;
+    gap: var(--cpd-space-3x);
+    margin: 0;
+    padding: var(--cpd-space-3x) 0 var(--cpd-space-3x);
+    overflow-x: auto;
+    list-style: none;
+    border-block-end: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    scrollbar-width: thin;
+}
+
+.card {
+    position: relative;
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: var(--cpd-space-2x);
+    width: calc(var(--cpd-space-16x) * 2.5);
+    padding: var(--cpd-space-2x);
+    box-sizing: border-box;
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-canvas-default);
+}
+
+/* Every preview shares one frame, so a row of mixed files stays even. */
+.media,
+.videoFrame,
+.iconFrame {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    border-radius: var(--cpd-space-1-5x);
+}
+
+.media {
+    object-fit: cover;
+    background: var(--cpd-color-bg-subtle-secondary);
+}
+
+.videoFrame {
+    position: relative;
+    overflow: hidden;
+    background: #000000;
+}
+
+.videoBadge {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    width: var(--cpd-space-8x);
+    height: var(--cpd-space-8x);
+    padding: var(--cpd-space-1-5x);
+    box-sizing: border-box;
+    border-radius: 50%;
+    background: rgb(0 0 0 / 55%);
+    color: #ffffff;
+    transform: translate(-50%, -50%);
+}
+
+.iconFrame {
+    display: grid;
+    place-items: center;
+    background: color-mix(in srgb, var(--cpd-color-bg-accent-rest) 14%, var(--cpd-color-bg-subtle-secondary));
+}
+
+.icon {
+    width: var(--cpd-space-10x);
+    height: var(--cpd-space-10x);
+    color: var(--cpd-color-icon-accent-primary);
+}
+
+.details {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.name {
+    overflow: hidden;
+    font: var(--cpd-font-body-sm-medium);
+    color: var(--cpd-color-text-primary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.size {
+    font: var(--cpd-font-body-xs-regular);
+    color: var(--cpd-color-text-secondary);
+}
+
+/* Shown on hover or focus, at the card's top corner, over the preview. */
+.remove {
+    position: absolute;
+    inset: var(--cpd-space-1x) var(--cpd-space-1x) auto auto;
+    display: grid;
+    place-items: center;
+    width: var(--cpd-space-8x);
+    height: var(--cpd-space-8x);
+    padding: 0;
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-1-5x);
+    background: var(--cpd-color-bg-canvas-default);
+    color: var(--cpd-color-icon-critical-primary);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 100ms ease-out;
+
+    svg {
+        width: var(--cpd-space-5x);
+        height: var(--cpd-space-5x);
+    }
+
+    &:hover {
+        background: var(--cpd-color-bg-critical-subtle);
+    }
+
+    &:focus-visible {
+        outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+        outline-offset: var(--cpd-border-width-1);
+    }
+}
+
+.card:is(:hover, :focus-within) .remove {
+    opacity: 1;
+}
+
+@media (hover: none) {
+    .remove {
+        opacity: 1;
+    }
+}

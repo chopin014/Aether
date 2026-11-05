@@ -37,7 +37,7 @@ exports[`SpaceHierarchy > <SpaceHierarchy /> > renders 1`] = `
     <h4
       class="mx_SpaceHierarchy_listHeader_header"
     >
-      Rooms and spaces
+      Rooms and servers
     </h4>
     <div
       class="mx_SpaceHierarchy_listHeader_buttons"
@@ -65,7 +65,7 @@ exports[`SpaceHierarchy > <SpaceHierarchy /> > renders 1`] = `
     </div>
   </div>
   <ul
-    aria-label="Space"
+    aria-label="Server"
     class="mx_SpaceHierarchy_list"
     role="tree"
   >
@@ -622,7 +622,7 @@ exports[`SpaceHierarchy > <SpaceHierarchy /> > should not render cycles 1`] = `
     <h4
       class="mx_SpaceHierarchy_listHeader_header"
     >
-      Rooms and spaces
+      Rooms and servers
     </h4>
     <div
       class="mx_SpaceHierarchy_listHeader_buttons"
@@ -650,7 +650,7 @@ exports[`SpaceHierarchy > <SpaceHierarchy /> > should not render cycles 1`] = `
     </div>
   </div>
   <ul
-    aria-label="Space"
+    aria-label="Server"
     class="mx_SpaceHierarchy_list"
     role="tree"
   >

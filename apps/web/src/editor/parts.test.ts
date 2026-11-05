@@ -8,10 +8,11 @@ Please see LICENSE files in the repository root for full details.
 
 // @vitest-environment happy-dom
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 
 import { EmojiPart, PlainPart } from "./parts";
 import { createPartCreator } from "./__mocks__";
+import SettingsStore from "../settings/SettingsStore";
 
 describe("editor/parts", () => {
     describe("appendUntilRejected", () => {
@@ -34,5 +35,21 @@ describe("editor/parts", () => {
         const pc = createPartCreator();
         const part = pc.roomPill("#room:server");
         expect(() => part.toDOMNode()).not.toThrow();
+    });
+});
+
+describe("createMentionParts", () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it("never follows a mention with a colon in the desktop shell", () => {
+        vi.spyOn(SettingsStore, "getValue").mockImplementation(
+            (name): any => name === "feature_desktop_shell" || name === "MessageComposerInput.insertTrailingColon",
+        );
+
+        const [, postfix] = createPartCreator().createMentionParts(true, "Alice", "@alice:e.com");
+
+        expect(postfix.text).toBe(" ");
     });
 });

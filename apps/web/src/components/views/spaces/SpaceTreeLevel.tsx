@@ -50,6 +50,7 @@ import { useRovingTabIndex } from "../../../accessibility/RovingTabIndex";
 import { KeyBindingAction } from "../../../accessibility/KeyboardShortcuts";
 import { SDKContext } from "../../../contexts/SDKContext.ts";
 import { useSettingValue } from "../../../hooks/useSettings";
+import SettingsStore from "../../../settings/SettingsStore";
 import { useSpaceVoiceActivity } from "../../../hooks/useSpaceVoiceActivity";
 
 type ButtonProps<T extends keyof HTMLElementTagNameMap> = Omit<
@@ -257,6 +258,9 @@ export class SpaceItem extends React.PureComponent<IItemProps, IItemState> {
     };
 
     private get childSpaces(): Room[] {
+        // The desktop rail is flat, one icon per server: a subspace's rooms show in its parent's channel list, and
+        // nesting would add an expander that pushes the icon out of line with the rest of the rail.
+        if (SettingsStore.getValue("feature_desktop_shell")) return [];
         return this.context.spaceStore
             .getChildSpaces(this.props.space.roomId)
             .filter((s) => !this.props.parents?.has(s.roomId));

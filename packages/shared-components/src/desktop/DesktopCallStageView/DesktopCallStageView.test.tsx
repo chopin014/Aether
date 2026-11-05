@@ -247,6 +247,53 @@ describe("DesktopCallStageView", () => {
         expect(screen.getByRole("img", { name: "Alice" })).toBeVisible();
     });
 
+    it.each([2, 3, 4, 5, 6, 7, 8, 9, 12])("fits and centers %i equal tiles with compact rows", async (count) => {
+        const vm = new TestCallStageViewModel({
+            participants: Array.from({ length: count }, (_, i) => makeParticipant({ id: `person-${i}` })),
+        });
+        const { container, rerender } = render(
+            <div style={{ "width": 1200, "height": 760, "--cpd-space-3x": "12px" } as React.CSSProperties}>
+                <DesktopCallStageView vm={vm} />
+            </div>,
+        );
+        const checkLayout = (): void => {
+            const tiles = screen.getAllByTestId("videoTile").map((tile) => tile.getBoundingClientRect());
+            const grid = container.querySelector<HTMLElement>("[data-count]")!;
+            const bounds = grid.getBoundingClientRect();
+            const gap = parseFloat(getComputedStyle(grid).gap);
+            const rows = new Map<number, DOMRect[]>();
+            for (const tile of tiles) {
+                expect(tile.width).toBeGreaterThan(0);
+                expect(tile.width).toBeCloseTo(tiles[0].width, 0);
+                expect(tile.width / tile.height).toBeCloseTo(16 / 9, 1);
+                expect(tile.left).toBeGreaterThanOrEqual(bounds.left - 1);
+                expect(tile.right).toBeLessThanOrEqual(bounds.right + 1);
+                expect(tile.top).toBeGreaterThanOrEqual(bounds.top - 1);
+                expect(tile.bottom).toBeLessThanOrEqual(bounds.bottom + 1);
+                const row = rows.get(tile.top) ?? [];
+                row.push(tile);
+                rows.set(tile.top, row);
+            }
+            const orderedRows = [...rows.values()];
+            for (const [index, row] of orderedRows.entries()) {
+                expect((row[0].left + row.at(-1)!.right) / 2).toBeCloseTo((bounds.left + bounds.right) / 2, 0);
+                if (index > 0) {
+                    expect(row[0].top - orderedRows[index - 1][0].bottom).toBeCloseTo(gap, 0);
+                }
+            }
+            expect((tiles[0].top + tiles.at(-1)!.bottom) / 2).toBeCloseTo((bounds.top + bounds.bottom) / 2, 0);
+        };
+        await waitFor(checkLayout);
+        rerender(
+            <div style={{ "width": 360, "height": 640, "--cpd-space-3x": "12px" } as React.CSSProperties}>
+                <DesktopCallStageView vm={vm} />
+            </div>,
+        );
+        await waitFor(checkLayout);
+        act(() => vm.updateSnapshot({ participants: vm.getSnapshot().participants.slice(0, 2) }));
+        await waitFor(checkLayout);
+    });
+
     it("uses profile colours, decorations, effects and name styles on participant tiles", () => {
         const tile = makeParticipant({
             appearance: {
@@ -349,28 +396,23 @@ describe("DesktopCallStageView", () => {
         expect(vm.joinCall).toHaveBeenCalledTimes(1);
     });
 
-    it("renders participant encryptionStatus warning and critical badges for missing or invalid keys", () => {
-        const vm = new TestCallStageViewModel({
-            participants: [
-                makeParticipant({
-                    id: "p-missing",
-                    displayName: "MissingKeyUser",
-                    encryptionStatus: "key_missing",
-                }),
-                makeParticipant({
-                    id: "p-invalid",
-                    displayName: "InvalidKeyUser",
-                    encryptionStatus: "key_invalid",
-                }),
-            ],
-        });
-
-        const { container } = render(<DesktopCallStageView vm={vm} />);
-        const tiles = screen.getAllByTestId("videoTile");
-        expect(tiles).toHaveLength(2);
-        expect(container.querySelectorAll('[data-tone="warning"]')).toHaveLength(1);
-        expect(container.querySelectorAll('[data-tone="critical"]')).toHaveLength(1);
-    });
+    it.each(["okay", "connecting", "key_missing", "key_invalid", "password_invalid"] as const)(
+        "omits encryption badges from participants and screen shares with status %s",
+        (encryptionStatus) => {
+            const vm = new TestCallStageViewModel({
+                participants: [makeParticipant({ encryptionStatus, audioEnabled: false })],
+                screenShares: [makeScreenShare({ encryptionStatus })],
+            });
+            const { container } = render(<DesktopCallStageView vm={vm} />);
+            expect(screen.getByTestId("videoTile")).toBeInTheDocument();
+            expect(screen.getByTestId("call-tile-screenshare-@bob:example.org")).toBeInTheDocument();
+            expect(container.querySelector('[data-testid^="encryption-badge-"]')).not.toBeInTheDocument();
+            expect(screen.queryByLabelText("Negotiating encryption keys...")).not.toBeInTheDocument();
+            expect(screen.queryByLabelText("Waiting for encryption key")).not.toBeInTheDocument();
+            expect(screen.queryByLabelText("Decryption failed (invalid encryption key)")).not.toBeInTheDocument();
+            expect(screen.getByLabelText("Microphone muted")).toBeInTheDocument();
+        },
+    );
 
     it("keeps video attachment mounted without detaching/reattaching across speaking state updates", () => {
         const videoHandle: DesktopCallStageVideoAttachment = {

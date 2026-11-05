@@ -8,13 +8,24 @@ Please see LICENSE files in the repository root for full details.
 
 // @vitest-environment happy-dom
 
-import { vi, describe, it, expect, beforeEach, afterEach, type Mock, type MockedObject } from "vitest";
-import React, { createRef, type RefObject } from "react";
+import {
+    vi,
+    describe,
+    it,
+    expect,
+    beforeEach,
+    afterEach,
+    type Mock,
+    type MockedObject,
+    type MockInstance,
+} from "vitest";
+import React, { createRef, type RefObject, type ReactElement } from "react";
 import {
     EventTimeline,
     EventType,
     type IEvent,
     JoinRule,
+    RoomType,
     type MatrixClient,
     MatrixError,
     MatrixEvent,
@@ -39,6 +50,7 @@ import {
     mkThirdPartyInviteEvent,
     mockPlatformPeg,
     setupAsyncStoreWithClient,
+    resetAsyncStoreWithClient,
     stubClient,
     TestSDKContext,
     unmockPlatformPeg,
@@ -77,6 +89,9 @@ import { TimelineRenderingType } from "../../contexts/RoomContext";
 import { ModuleApi } from "../../modules/Api";
 import MatrixClientBackedController from "../../settings/controllers/MatrixClientBackedController.ts";
 import { type ComposerInsertPayload, ComposerType } from "../../dispatcher/payloads/ComposerInsertPayload.ts";
+import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
+import { ElementCall } from "../../models/Call";
+import { ScopedRoomContextProvider } from "../../contexts/ScopedRoomContext";
 
 // Used by group calls
 vi.spyOn(MediaDeviceHandler, "getDevices").mockResolvedValue({
@@ -225,6 +240,44 @@ describe("RoomView", () => {
         return ref.current!;
     };
 
+    it.each([true, false])(
+        "keeps a known joined room and composer hidden before readiness with encryption %s",
+        async (encrypted) => {
+            cli.clientRunning = true;
+            cli.isInitialSyncComplete.mockReturnValue(false);
+            vi.spyOn(cli, "getCrypto").mockReturnValue(crypto);
+            vi.spyOn(crypto, "isEncryptionEnabledInRoom").mockResolvedValue(encrypted);
+            vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+            const instance = await getRoomViewInstance();
+            expect(instance.state.room).toBe(room);
+            expect(instance.state.matrixClientIsReady).toBe(false);
+            expect(document.querySelector(".mx_RoomView_messagePanel")).toBeNull();
+            expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+            expect(screen.queryByRole("button", { name: "Join the discussion" })).not.toBeInTheDocument();
+        },
+    );
+
+    it("defers automatic public roster hydration until first conversation paint", async () => {
+        cli.hasLazyLoadMembersEnabled.mockReturnValue(true);
+        vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+        const load = vi.spyOn(stores.memberListStore, "ensureMembersLoaded").mockResolvedValue(undefined);
+        await mountRoomView(undefined, { hideHeader: true, hideComposer: true });
+        expect(load).not.toHaveBeenCalled();
+        act(() => notifyRoomEntryReady(cli, room.roomId));
+        await waitFor(() => expect(load).toHaveBeenCalledWith(room.roomId));
+    });
+
+    it("cancels automatic public roster hydration when leaving before first paint", async () => {
+        cli.hasLazyLoadMembersEnabled.mockReturnValue(true);
+        vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+        const load = vi.spyOn(stores.memberListStore, "ensureMembersLoaded").mockResolvedValue(undefined);
+        const { unmount } = await mountRoomView(undefined, { hideHeader: true, hideComposer: true });
+        unmount();
+        act(() => notifyRoomEntryReady(cli, room.roomId));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(load).not.toHaveBeenCalled();
+    });
+
     it("clears an old permalink when returning to the live timeline", async () => {
         const view = await getRoomViewInstance();
         const eventId = "$old-permalink";
@@ -364,6 +417,30 @@ describe("RoomView", () => {
         // Check that the pinned message banner is not rendered
         await expect(screen.findByTestId("pinned-message-banner")).rejects.toThrow();
         expect(asFragment()).toMatchSnapshot();
+    });
+
+    it("shares native sliding-sync roster hydration with the member list instead of importing cached members", async () => {
+        await mountRoomView();
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+            name === "feature_simplified_sliding_sync" ? true : getValue(name, ...args),
+        );
+        cli.hasLazyLoadMembersEnabled.mockReturnValue(true);
+        vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+        const cachedHydration = vi.spyOn(room, "loadMembersIfNeeded");
+        const response = Promise.withResolvers<Awaited<ReturnType<MatrixClient["members"]>>>();
+        cli.members = vi.fn().mockReturnValue(response.promise);
+        act(() => {
+            cli.emit(RoomEvent.MyMembership, room, KnownMembership.Join, KnownMembership.Leave);
+        });
+        const memberList = stores.memberListStore.loadMemberList(room.roomId);
+        await waitFor(() => expect(cli.members).toHaveBeenCalledTimes(1));
+        await act(async () => {
+            response.resolve({ chunk: [] });
+            await memberList;
+        });
+        expect(cachedHydration).not.toHaveBeenCalled();
+        expect(cli.members).toHaveBeenCalledTimes(1);
     });
 
     describe("desktop pinned messages", () => {
@@ -764,11 +841,21 @@ describe("RoomView", () => {
     });
 
     describe("video rooms", () => {
+        let startCall: MockInstance<ElementCall["start"]>;
+
         beforeEach(async () => {
+            // These tests exercise room layout; happy-dom cannot complete the widget handshake.
+            startCall = vi.spyOn(ElementCall.prototype, "start").mockResolvedValue(null);
             await setupAsyncStoreWithClient(CallStore.instance, MatrixClientPeg.safeGet());
             // Make it a video room
             room.isElementVideoRoom = () => true;
             await SettingsStore.setValue("feature_video_rooms", null, SettingLevel.DEVICE, true);
+        });
+
+        afterEach(async () => {
+            cleanup();
+            await resetAsyncStoreWithClient(CallStore.instance);
+            startCall.mockRestore();
         });
 
         it("normally doesn't open the chat panel", async () => {
@@ -812,9 +899,19 @@ describe("RoomView", () => {
     });
 
     describe("group calls", () => {
+        let startCall: MockInstance<ElementCall["start"]>;
+
         beforeEach(async () => {
+            // Widget transport lifecycle is covered by the call tests, not these room layout fixtures.
+            startCall = vi.spyOn(ElementCall.prototype, "start").mockResolvedValue(null);
             await setupAsyncStoreWithClient(CallStore.instance, MatrixClientPeg.safeGet());
             vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+        });
+
+        afterEach(async () => {
+            cleanup();
+            await resetAsyncStoreWithClient(CallStore.instance);
+            startCall.mockRestore();
         });
 
         it("keeps the desktop conversation timeline and composer beneath its call", async () => {
@@ -1061,6 +1158,270 @@ describe("RoomView", () => {
             rooms.delete(room.roomId);
         });
 
+        describe("public Space previews", () => {
+            beforeEach(() => {
+                cli.clientRunning = true;
+                cli.isInitialSyncComplete.mockReturnValue(false);
+                cli.getRoomSummary.mockResolvedValue({
+                    room_id: room.roomId,
+                    room_type: RoomType.Space,
+                    join_rule: JoinRule.Public,
+                    membership: KnownMembership.Leave,
+                    world_readable: true,
+                    guest_can_join: true,
+                    num_joined_members: 10000,
+                });
+                vi.spyOn(cli, "getRoomHierarchy").mockResolvedValue({
+                    rooms: [
+                        {
+                            room_id: room.roomId,
+                            room_type: RoomType.Space,
+                            name: "Public community",
+                            children_state: [
+                                {
+                                    type: EventType.SpaceChild,
+                                    state_key: "!public-child:example.org",
+                                    content: { via: ["example.org"] },
+                                    sender: "@alice:example.org",
+                                    origin_server_ts: 1,
+                                },
+                            ],
+                            world_readable: true,
+                            guest_can_join: true,
+                            num_joined_members: 10000,
+                            join_rule: JoinRule.Public,
+                        },
+                        {
+                            room_id: "!public-child:example.org",
+                            name: "Public text channel",
+                            children_state: [],
+                            world_readable: true,
+                            guest_can_join: true,
+                            num_joined_members: 10000,
+                            join_rule: JoinRule.Public,
+                        },
+                    ],
+                });
+            });
+
+            it("prefetches and browses a public hierarchy before Join without storing a joined room", async () => {
+                const instance = await getRoomViewInstance();
+                expect(await screen.findByText("Public text channel")).toBeInTheDocument();
+                // The hierarchy styles and scrolling depend on the same layout as the joined Space overview.
+                const overview = screen.getByRole("main");
+                expect(overview).toHaveClass("mx_SpaceRoomView");
+                expect(screen.getByRole("tree").closest(".mx_SpaceRoomView_landing")).toBe(
+                    overview.querySelector(".mx_MainSplit > .mx_SpaceRoomView_landing"),
+                );
+                expect(screen.getByRole("button", { name: "Join the discussion" })).toBeInTheDocument();
+                // Hierarchy Join errors must reach this room's store before the normal room view exists.
+                const preview = instance.render() as ReactElement<{ roomViewStore: typeof stores.roomViewStore }>;
+                expect(preview.type).toBe(ScopedRoomContextProvider);
+                expect(preview.props.roomViewStore).toBe(stores.roomViewStore);
+                expect(cli.getRoomHierarchy).toHaveBeenCalledTimes(1);
+                expect(cli.joinRoom).not.toHaveBeenCalled();
+                expect(cli.getRoom(room.roomId)).toBeNull();
+                expect(instance.state.room).toBeUndefined();
+                expect(instance.state.previewSpace?.getMyMembership()).not.toBe(KnownMembership.Join);
+                expect(instance.state.matrixClientIsReady).toBe(false);
+                expect(cli.peekInRoom).not.toHaveBeenCalled();
+                expect(screen.queryByRole("textbox", { name: "Message" })).not.toBeInTheDocument();
+            });
+
+            it("keeps browsing after HTTP join acknowledgement while canonical membership is pending", async () => {
+                const instance = await getRoomViewInstance();
+                await screen.findByText("Public text channel");
+                await act(async () => {
+                    await instance["onAction"]({
+                        action: Action.JoinRoomReady,
+                        roomId: "!another:example.org",
+                    });
+                });
+                expect(screen.getByRole("button", { name: "Join the discussion" })).toBeInTheDocument();
+                await act(async () => {
+                    await instance["onAction"]({ action: Action.JoinRoomReady, roomId: room.roomId });
+                });
+                expect(screen.queryByRole("button", { name: "Join the discussion" })).not.toBeInTheDocument();
+                expect(screen.getByText("Public text channel")).toBeInTheDocument();
+                expect(cli.getRoom(room.roomId)).toBeNull();
+                expect(instance.state.room).toBeUndefined();
+                expect(instance.state.matrixClientIsReady).toBe(false);
+                expect(document.querySelector(".mx_RoomView_messagePanel")).toBeNull();
+            });
+
+            it("retains the Join prompt and hierarchy when the join request fails", async () => {
+                const instance = await getRoomViewInstance();
+                await screen.findByText("Public text channel");
+                await act(async () => {
+                    await instance["onAction"]({
+                        action: Action.JoinRoomError,
+                        roomId: room.roomId,
+                        err: new MatrixError({ errcode: "M_FORBIDDEN", error: "Join refused" }),
+                    });
+                });
+                expect(screen.getByRole("button", { name: "Join the discussion" })).toBeInTheDocument();
+                expect(screen.getByText("Public text channel")).toBeInTheDocument();
+                expect(instance.state.previewSpaceJoinAcknowledged).toBeUndefined();
+                expect(cli.getRoom(room.roomId)).toBeNull();
+            });
+
+            it("starts the hierarchy alongside an unresolved summary and ignores both after unmount", async () => {
+                const pending = Promise.withResolvers<Awaited<ReturnType<MatrixClient["getRoomSummary"]>>>();
+                cli.getRoomSummary.mockReturnValue(pending.promise);
+                const view = await mountRoomView();
+                view.unmount();
+                pending.resolve({
+                    room_id: room.roomId,
+                    room_type: RoomType.Space,
+                    join_rule: JoinRule.Public,
+                    membership: KnownMembership.Leave,
+                    world_readable: true,
+                    guest_can_join: true,
+                    num_joined_members: 10000,
+                });
+                await flushPromises();
+                expect(cli.getRoomHierarchy).toHaveBeenCalledOnce();
+                expect(cli.getRoom(room.roomId)).toBeNull();
+            });
+
+            it("shows the overview from a hierarchy that resolves before the summary", async () => {
+                const pending = Promise.withResolvers<Awaited<ReturnType<MatrixClient["getRoomSummary"]>>>();
+                cli.getRoomSummary.mockReturnValue(pending.promise);
+                const instance = await getRoomViewInstance();
+                await flushPromises();
+                expect(cli.getRoomHierarchy).toHaveBeenCalledOnce();
+                // The overview is already loaded, so the summary only has to confirm the room type.
+                pending.resolve({
+                    room_id: room.roomId,
+                    room_type: RoomType.Space,
+                    join_rule: JoinRule.Public,
+                    membership: KnownMembership.Leave,
+                    world_readable: true,
+                    guest_can_join: true,
+                    num_joined_members: 10000,
+                });
+                expect(await screen.findByText("Public text channel")).toBeInTheDocument();
+                expect(cli.getRoomHierarchy).toHaveBeenCalledOnce();
+                expect(instance.state.previewSpace?.roomId).toBe(room.roomId);
+            });
+
+            it("opens a listed public child as a Join prompt before its summary arrives", async () => {
+                const instance = await getRoomViewInstance();
+                await screen.findByText("Public text channel");
+                const childId = "!public-child:example.org";
+                const childSummary = Promise.withResolvers<Awaited<ReturnType<MatrixClient["getRoomSummary"]>>>();
+                cli.getRoomSummary.mockReturnValue(childSummary.promise);
+                vi.spyOn(stores.roomViewStore, "getRoomId").mockReturnValue(childId);
+                // The child summary never resolves here: the prompt must not depend on it. React has not yet
+                // applied the new room ID when the seeded prompt is shown.
+                await act(async () => {
+                    instance.setState({ roomId: childId, previewSpace: undefined, roomSummary: undefined });
+                    void instance["setupRoom"](undefined, childId, true);
+                    await flushPromises();
+                });
+                expect(instance.state.roomSummary).toMatchObject({ room_id: childId, name: "Public text channel" });
+                expect(instance.state.peekAndSummaryLoading).toBe(false);
+                expect(stores.roomViewStore.getRoomSummary()?.join_rule).toBe(JoinRule.Public);
+                expect(cli.peekInRoom).not.toHaveBeenCalled();
+                // A child that is not a Space does not start another hierarchy request.
+                expect(cli.getRoomHierarchy).toHaveBeenCalledOnce();
+                childSummary.resolve({
+                    room_id: childId,
+                    join_rule: JoinRule.Public,
+                    membership: KnownMembership.Leave,
+                    world_readable: false,
+                    guest_can_join: false,
+                    num_joined_members: 10000,
+                    encryption: "m.megolm.v1.aes-sha2",
+                });
+                await act(flushPromises);
+                expect(instance.state.roomSummary?.encryption).toBe("m.megolm.v1.aes-sha2");
+            });
+
+            it("does not show a restricted Space hierarchy from its summary", async () => {
+                cli.getRoomSummary.mockResolvedValue({
+                    room_id: room.roomId,
+                    room_type: RoomType.Space,
+                    join_rule: JoinRule.Restricted,
+                    membership: KnownMembership.Leave,
+                    world_readable: false,
+                    guest_can_join: false,
+                    num_joined_members: 10000,
+                });
+                const instance = await getRoomViewInstance();
+                expect(instance.state.previewSpace).toBeUndefined();
+            });
+        });
+
+        it("resolves an alias and offers Join from its summary while initial sync is stalled", async () => {
+            cli.clientRunning = true;
+            cli.isInitialSyncComplete.mockReturnValue(false);
+            const alias = `#${room.roomId.slice(1)}`;
+            cli.getRoomIdForAlias.mockResolvedValue({ room_id: room.roomId, servers: ["example.org"] });
+            cli.getRoomSummary.mockResolvedValue({
+                room_id: room.roomId,
+                membership: KnownMembership.Leave,
+                world_readable: true,
+                guest_can_join: true,
+                num_joined_members: 10000,
+            });
+            await stores.roomViewStore.viewRoom({
+                action: Action.ViewRoom,
+                room_alias: alias,
+                metricsTrigger: undefined,
+            });
+            await flushPromises();
+            const instance = await getRoomViewInstance();
+            expect(cli.getRoomIdForAlias).toHaveBeenCalledWith(alias);
+            // The summary was requested by alias alongside the lookup, so no second request is made by ID.
+            expect(cli.getRoomSummary).toHaveBeenCalledExactlyOnceWith(alias, undefined);
+            expect(screen.getByRole("button", { name: "Join the discussion" })).toBeInTheDocument();
+            expect(cli.peekInRoom).not.toHaveBeenCalled();
+            expect(instance.state.matrixClientIsReady).toBe(false);
+            expect(cli.isInitialSyncComplete()).toBe(false);
+        });
+
+        it("fetches the summary by ID when the alias summary describes another room", async () => {
+            cli.clientRunning = true;
+            const alias = `#moved-${room.roomId.slice(1)}`;
+            cli.getRoomIdForAlias.mockResolvedValue({ room_id: room.roomId, servers: ["example.org"] });
+            cli.getRoomSummary.mockImplementation(async (address) => ({
+                room_id: address === alias ? "!previous:example.org" : room.roomId,
+                membership: KnownMembership.Leave,
+                world_readable: false,
+                guest_can_join: false,
+                num_joined_members: 10,
+            }));
+            await stores.roomViewStore.viewRoom({
+                action: Action.ViewRoom,
+                room_alias: alias,
+                metricsTrigger: undefined,
+            });
+            await flushPromises();
+            const instance = await getRoomViewInstance();
+            await act(flushPromises);
+            expect(cli.getRoomSummary).toHaveBeenNthCalledWith(2, room.roomId, ["example.org"]);
+            expect(instance.state.roomSummary?.room_id).toBe(room.roomId);
+        });
+
+        it("keeps a joined summary loading until its joined room becomes ready", async () => {
+            cli.clientRunning = true;
+            cli.isInitialSyncComplete.mockReturnValue(false);
+            cli.getRoomSummary.mockResolvedValue({
+                room_id: room.roomId,
+                membership: KnownMembership.Join,
+                world_readable: true,
+                guest_can_join: true,
+                num_joined_members: 10000,
+            });
+            const instance = await getRoomViewInstance();
+            expect(cli.getRoomSummary).toHaveBeenCalledWith(room.roomId, []);
+            expect(screen.queryByRole("button", { name: "Join the discussion" })).not.toBeInTheDocument();
+            expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+            expect(cli.peekInRoom).not.toHaveBeenCalled();
+            expect(instance.state.matrixClientIsReady).toBe(false);
+        });
+
         it("peeks into a world readable room", async () => {
             cli.getRoomSummary.mockResolvedValue({
                 room_id: room.roomId,
@@ -1076,6 +1437,83 @@ describe("RoomView", () => {
             expect(instance.state.room).toBe(room);
             expect(instance.state.isPeeking).toBe(true);
             expect(instance.state.peekAndSummaryLoading).toBe(false);
+        });
+
+        it("keeps Join interactive while optional public history is pending and after it fails", async () => {
+            const pending = Promise.withResolvers<Room>();
+            cli.getRoomSummary.mockResolvedValue({
+                room_id: room.roomId,
+                membership: KnownMembership.Leave,
+                world_readable: true,
+                guest_can_join: true,
+                num_joined_members: 10000,
+            });
+            cli.peekInRoom.mockReturnValue(pending.promise);
+            const instance = await getRoomViewInstance();
+            expect(cli.peekInRoom).toHaveBeenCalledWith(room.roomId);
+            expect(instance.state.isPeeking).toBe(true);
+            expect(instance.state.peekAndSummaryLoading).toBe(false);
+            expect(screen.getByRole("button", { name: "Join the discussion" })).toBeEnabled();
+            expect(document.querySelector(".mx_RoomView_messagePanel")).toBeNull();
+            expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+
+            const dispatch = vi.spyOn(defaultDispatcher, "dispatch").mockImplementation(() => {});
+            try {
+                await act(async () => {
+                    fireEvent.click(screen.getByRole("button", { name: "Join the discussion" }));
+                });
+                expect(dispatch).toHaveBeenCalledWith(
+                    expect.objectContaining({ action: Action.JoinRoom, roomId: room.roomId }),
+                );
+            } finally {
+                dispatch.mockRestore();
+            }
+
+            await act(async () => {
+                pending.reject(new MatrixError({ errcode: "M_FORBIDDEN" }));
+            });
+            expect(instance.state.isPeeking).toBe(false);
+            expect(screen.getByRole("button", { name: "Join the discussion" })).toBeEnabled();
+            expect(instance.state.room).toBeUndefined();
+            expect(cli.getRoom(room.roomId)).toBeNull();
+        });
+
+        it("keeps an already joined summary loading while its room preview is pending", async () => {
+            cli.getRoomSummary.mockResolvedValue({
+                room_id: room.roomId,
+                membership: KnownMembership.Join,
+                world_readable: true,
+                guest_can_join: true,
+                num_joined_members: 10000,
+            });
+            cli.peekInRoom.mockReturnValue(new Promise(() => {}));
+            const instance = await getRoomViewInstance();
+            expect(instance.state.peekAndSummaryLoading).toBe(true);
+            expect(screen.queryByRole("button", { name: "Join the discussion" })).not.toBeInTheDocument();
+            expect(document.querySelector(".mx_RoomView_messagePanel")).toBeNull();
+        });
+
+        it("keeps the early Join prompt available when account readiness starts optional history", async () => {
+            cli.clientRunning = true;
+            cli.isInitialSyncComplete.mockReturnValue(false);
+            cli.getRoomSummary.mockResolvedValue({
+                room_id: room.roomId,
+                membership: KnownMembership.Leave,
+                world_readable: true,
+                guest_can_join: true,
+                num_joined_members: 10000,
+            });
+            cli.peekInRoom.mockReturnValue(new Promise(() => {}));
+            const instance = await getRoomViewInstance();
+            expect(screen.getByRole("button", { name: "Join the discussion" })).toBeEnabled();
+            expect(cli.peekInRoom).not.toHaveBeenCalled();
+            cli.isInitialSyncComplete.mockReturnValue(true);
+            await act(async () => {
+                await instance["onAction"]({ action: "MatrixActions.sync" });
+            });
+            expect(cli.peekInRoom).toHaveBeenCalledWith(room.roomId);
+            expect(screen.getByRole("button", { name: "Join the discussion" })).toBeEnabled();
+            expect(document.querySelector(".mx_RoomView_messagePanel")).toBeNull();
         });
 
         it("shows the join prompt when peeking fails", async () => {
