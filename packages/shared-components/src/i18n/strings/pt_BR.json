@@ -495,7 +495,7 @@
             "noise_suppression_failed": "Não foi possível executar o ANS, então o áudio do microfone está sendo enviado sem ele.",
             "noise_suppression_none": "Nenhuma",
             "noise_suppression_overloaded": "O ANS foi desativado porque este computador não conseguiu processá-lo a tempo.",
-            "noise_suppression_standard": "Visível para membros do espaço",
+            "noise_suppression_standard": "Padrão",
             "profile_voice_isolation": "Isolamento de voz",
             "profile_voice_isolation_description": "Só a sua voz: o ANS remove o ruído ao seu redor.",
             "voice_detection": "Detecção avançada de voz",
