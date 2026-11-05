@@ -21,9 +21,9 @@ export interface DenoiserExports {
 export const DENOISER_SAMPLE_RATE = 48000;
 
 /**
- * Allow speech when background noise is louder than the speaker, while rejecting brief noise transients.
- * This is a local SNR estimate, not a calibrated probability that speech is present. The native denoiser
- * separately runs its learned masks throughout the SNR range, so it does not hard-mute low-SNR speech.
+ * The model's speech score is at or above this when someone is speaking, including under noise louder than the
+ * speaker. The model's score head was refitted to detect speech, with its decision point placed here (see
+ * `native/aether-denoiser/model/README.md`); it only steers the gate, never the denoising itself.
  */
 const SPEECH_SNR_DB = -8;
 /** Speech must last this many frames in a row (10 ms each), so a single loud frame cannot open the gate. */
@@ -72,7 +72,7 @@ export class Denoiser {
         this.readyLength = this.frameLength;
     }
 
-    /** How far the latest frame's speech stands above its noise, in dB, from -15 to 35. */
+    /** The latest frame's speech score, from -15 to 35: -8 or more means speech. */
     public get speechSnrDb(): number {
         return this._speechSnrDb;
     }

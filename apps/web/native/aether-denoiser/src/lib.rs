@@ -15,15 +15,20 @@ pub extern "C" fn denoiser_alloc(len: usize) -> *mut f32 {
     Box::leak(vec![0f32; len].into_boxed_slice()).as_mut_ptr()
 }
 
+/// DeepFilterNet3 with Aether's weight edits; see `model/README.md`.
+static MODEL: &[u8] = include_bytes!("../model/DeepFilterNet3_aether.tar.gz");
+
 /// Loads the built-in model at 48 kHz, mono. Noise is reduced by at most `atten_lim_db`; 100 or more is unlimited.
 #[no_mangle]
 pub extern "C" fn denoiser_create(atten_lim_db: f32) -> *mut DfTract {
-    // Apply both learned decoders throughout the model's [-15, 35] dB SNR range. The estimate
-    // can mistake noise for clean speech or hard-mute quiet syllables, bypassing useful learned output.
+    // Apply both learned decoders on every frame. The thresholds compare against the model's `lsnr` output, which
+    // in this model is a speech-presence score that always stays inside (-15, 35), so no frame is hard-muted or
+    // left unprocessed.
     let params = RuntimeParams::default_with_ch(1)
         .with_atten_lim(atten_lim_db)
         .with_thresholds(-15., 35., 35.);
-    let df = DfTract::new(DfParams::default(), &params).expect("could not load DeepFilterNet");
+    let model = DfParams::from_bytes(MODEL).expect("could not read the DeepFilterNet model");
+    let df = DfTract::new(model, &params).expect("could not load DeepFilterNet");
     Box::into_raw(Box::new(df))
 }
 
@@ -43,8 +48,8 @@ pub unsafe extern "C" fn denoiser_set_atten_lim(st: *mut DfTract, atten_lim_db: 
     (*st).set_atten_lim(atten_lim_db)
 }
 
-/// Denoises one frame. The output is delayed by the model's look-ahead, while the returned estimate of how far
-/// speech stands above the noise, in dB, describes the newest input: it leads the output by about 30 ms.
+/// Denoises one frame. The output is delayed by the model's look-ahead, while the returned speech score describes
+/// the newest input: it leads the output by about 30 ms. The score is -8 or more when someone is speaking.
 ///
 /// # Safety
 /// `st` must come from [`denoiser_create`]; `input` and `output` must each hold a frame and must not overlap.

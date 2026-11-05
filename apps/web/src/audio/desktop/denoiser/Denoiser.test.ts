@@ -52,6 +52,22 @@ function noise(length: number, levelDb: number, seed = 1): Float32Array {
     });
 }
 
+/** Repeatable pink noise (power falling 3 dB per octave) at the given level, from Paul Kellet's filter. */
+function pinkNoise(length: number, level: number, seed = 3): Float32Array {
+    const white = noise(length, 0, seed);
+    let b0 = 0;
+    let b1 = 0;
+    let b2 = 0;
+    const pink = white.map((w) => {
+        b0 = 0.99765 * b0 + w * 0.099046;
+        b1 = 0.963 * b1 + w * 0.2965164;
+        b2 = 0.57 * b2 + w * 1.0526913;
+        return b0 + b1 + b2 + w * 0.1848;
+    });
+    const scale = 10 ** ((level - levelDb(pink)) / 20);
+    return pink.map((sample) => sample * scale);
+}
+
 function mix(...signals: Float32Array[]): Float32Array {
     return Float32Array.from({ length: signals[0].length }, (_, i) => signals.reduce((sum, s) => sum + s[i], 0));
 }
@@ -194,6 +210,26 @@ describe("Denoiser", { timeout: 30000 }, () => {
         }
         // Bypassing the learned output damaged this otherwise easy, high-SNR utterance.
         expect(dot / Math.sqrt(referencePower * outputPower)).toBeGreaterThan(0.97);
+    });
+
+    it("does not take broadband noise for speech", () => {
+        // The model's original SNR head scored pink noise as speech on most frames, holding the gate open.
+        const { speech: detected } = run(createDenoiser(), pinkNoise(RATE * 3, -40));
+        expect(detected.slice(detected.length / 3).filter(Boolean).length).toBe(0);
+    });
+
+    it("recognises a word after silence before its start reaches the output", () => {
+        const input = mix(new Float32Array(RATE + speech.length).fill(0), noise(RATE + speech.length, -70));
+        input.set(mix(speech, noise(speech.length, -70, 5)), RATE);
+        const { speech: detected } = run(createDenoiser(), input);
+        const blockMs = (128 / RATE) * 1000;
+        const loudest = levelDb(speech);
+        const onsetBlock =
+            RATE / 128 + speech.findIndex((_, i) => levelDb(speech.subarray(i, i + 128)) > loudest - 15) / 128;
+        // The speech decision describes the newest input and leads the output by 40 ms.
+        const firstDetected = detected.findIndex(Boolean);
+        expect(firstDetected).toBeGreaterThan(RATE / 128 - 1);
+        expect((firstDetected - onsetBlock) * blockMs).toBeLessThan(50);
     });
 
     it("removes claps and does not take them for speech", () => {
