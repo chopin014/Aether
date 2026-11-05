@@ -76,9 +76,7 @@ separately, while the desktop updater checks stable releases only. Prerelease bu
 testing; they do not opt users into preview updates. Stable releases publish `latest.yml` for Windows and
 `latest-linux.yml` for Linux. Linux automatic updates are supported for the AppImage build. Keep the AppImage in a
 folder the user can write to so Aether can replace it during an update. Releases exclude `.deb` and `.tar.gz` files;
-any custom builds using those formats must be replaced manually. Follow the
-[AppImage setup instructions](install.md#linux-appimage-setup) to install at a stable, version-free path so updates
-do not invalidate launchers or symlinks.
+any custom builds using those formats must be replaced manually.
 
 The first updater-enabled build must be installed manually by users who already have an older Aether build. After that
 one upgrade, the app can find published stable releases through GitHub. Windows installers install per-user to avoid
