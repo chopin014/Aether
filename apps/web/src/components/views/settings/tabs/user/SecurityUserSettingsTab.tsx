@@ -172,7 +172,7 @@ export default class SecurityUserSettingsTab extends React.Component<EmptyObject
             });
     };
 
-    private manageInvites = async (accept: boolean): Promise<void> => {
+    private rejectAllInvites = async (): Promise<void> => {
         this.setState({
             managingInvites: true,
         });
@@ -180,14 +180,12 @@ export default class SecurityUserSettingsTab extends React.Component<EmptyObject
         // iterate with a normal for loop in order to retry on action failure
         const invitedRoomIdsValues = Array.from(this.state.invitedRoomIds);
 
-        // Execute all acceptances/rejections sequentially
+        // Reject the invites one at a time
         const cli = MatrixClientPeg.safeGet();
-        const action = accept ? cli.joinRoom.bind(cli) : cli.leave.bind(cli);
         for (let i = 0; i < invitedRoomIdsValues.length; i++) {
             const roomId = invitedRoomIdsValues[i];
 
-            // Accept/reject invite
-            await action(roomId).then(
+            await cli.leave(roomId).then(
                 () => {
                     // No error, update invited rooms button
                     this.removeInvitedRoom(roomId);
@@ -214,12 +212,8 @@ export default class SecurityUserSettingsTab extends React.Component<EmptyObject
         });
     };
 
-    private onAcceptAllInvitesClicked = (): void => {
-        void this.manageInvites(true);
-    };
-
     private onRejectAllInvitesClicked = (): void => {
-        void this.manageInvites(false);
+        void this.rejectAllInvites();
     };
 
     private renderIgnoredUsers(): JSX.Element {
@@ -266,13 +260,6 @@ export default class SecurityUserSettingsTab extends React.Component<EmptyObject
         return (
             <SettingsSubsection heading={_t("settings|security|bulk_options_section")}>
                 <div className="mx_SecurityUserSettingsTab_bulkOptions">
-                    <AccessibleButton
-                        onClick={this.onAcceptAllInvitesClicked}
-                        kind="primary_outline"
-                        disabled={this.state.managingInvites}
-                    >
-                        {_t("settings|security|bulk_options_accept_all_invites", { invitedRooms: invitedRoomIds.size })}
-                    </AccessibleButton>
                     <AccessibleButton
                         onClick={this.onRejectAllInvitesClicked}
                         kind="danger_outline"

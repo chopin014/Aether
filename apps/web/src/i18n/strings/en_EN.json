@@ -2974,7 +2974,6 @@
         "replace_plain_emoji": "Automatically replace plain text Emoji",
         "security": {
             "analytics_description": "Share anonymous data to help us identify issues. Nothing personal. No third parties.",
-            "bulk_options_accept_all_invites": "Accept all %(invitedRooms)s invites",
             "bulk_options_reject_all_invites": "Reject all %(invitedRooms)s invites",
             "bulk_options_section": "Bulk options",
             "dehydrated_device_description": "The offline device feature allows you to receive encrypted messages even when you are not logged in to any devices",
