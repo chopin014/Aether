@@ -57,5 +57,19 @@ describe("buildMenuTemplate", () => {
             helpSubmenu[0].click!(menu.items.at(-1)!, undefined, new Event("click") as KeyboardEvent);
             expect(shell.openExternal).toHaveBeenCalledWith("https://i.need.help");
         });
+
+        const viewSubmenu = (menu: Menu): MenuItemConstructorOptions[] =>
+            menu.items.find((item) => item.label === "view_menu|view")!
+                .submenu as unknown as MenuItemConstructorOptions[];
+
+        it("leaves the developer tools out by default", () => {
+            const roles = viewSubmenu(buildMenuTemplate()).map((item) => item.role);
+            expect(roles).not.toContain("toggleDevTools");
+        });
+
+        it("offers the developer tools when they are allowed", () => {
+            const roles = viewSubmenu(buildMenuTemplate(true)).map((item) => item.role);
+            expect(roles).toContain("toggleDevTools");
+        });
     });
 });

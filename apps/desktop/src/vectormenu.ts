@@ -13,7 +13,12 @@ import { getConfig } from "./config.js";
 
 const isMac = process.platform === "darwin";
 
-export function buildMenuTemplate(): Menu {
+/**
+ * Builds the application menu.
+ * @param allowDevTools Whether the View menu offers the developer tools. Release builds leave them out: whoever opens
+ *  them can read the session's access token, so a stranger only needs to talk someone into pasting a script there.
+ */
+export function buildMenuTemplate(allowDevTools = false): Menu {
     // Menu template from http://electron.atom.io/docs/api/menu/, edited
     const template: Array<MenuItemConstructorOptions | MenuItem> = [
         {
@@ -103,10 +108,14 @@ export function buildMenuTemplate(): Menu {
                     role: "togglefullscreen",
                     label: _t("view_menu|toggle_full_screen"),
                 },
-                {
-                    role: "toggleDevTools",
-                    label: _t("view_menu|toggle_developer_tools"),
-                },
+                ...(allowDevTools
+                    ? [
+                          {
+                              role: "toggleDevTools" as const,
+                              label: _t("view_menu|toggle_developer_tools"),
+                          },
+                      ]
+                    : []),
             ],
         },
         {
