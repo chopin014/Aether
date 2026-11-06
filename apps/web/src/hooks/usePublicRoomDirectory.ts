@@ -35,7 +35,8 @@ export interface IPublicRoomsOpts {
 let thirdParty: Protocols;
 
 const NSFW_KEYWORD = "nsfw";
-const cheapNsfwFilter = (room: IPublicRoomsChunkRoom): boolean =>
+/** Whether a directory row looks safe for work, judged by its name and topic. */
+export const cheapNsfwFilter = (room: IPublicRoomsChunkRoom): boolean =>
     !room.name?.toLocaleLowerCase().includes(NSFW_KEYWORD) && !room.topic?.toLocaleLowerCase().includes(NSFW_KEYWORD);
 
 export const usePublicRoomDirectory = (): {
