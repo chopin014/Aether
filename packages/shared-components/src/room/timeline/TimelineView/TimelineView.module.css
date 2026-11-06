@@ -60,11 +60,30 @@
     list-style: none;
 }
 
-/* Holds the spinner shown in the middle of the panel while the timeline is still hidden. */
+/* Holds the spinner shown in the middle of the panel while the timeline is still hidden. Placing loaded messages
+   usually takes a frame or two, so the spinner only fades in if it takes longer: a room that opens quickly never
+   flashes one. */
 .cover {
     position: absolute;
     inset: 0;
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+.cover > * {
+    opacity: 0;
+    animation: coverSpinnerIn 200ms ease-out 400ms forwards;
+}
+
+@keyframes coverSpinnerIn {
+    to {
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cover > * {
+        animation-duration: 1ms;
+    }
 }
