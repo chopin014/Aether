@@ -237,6 +237,9 @@ describe("SoundboardViewModel", () => {
         listener(data(packet), "@bob:example.org");
         listener(data(packet), "@bob:example.org");
         expect(SoundboardAudio.prototype.play).toHaveBeenCalledOnce();
+        // The sender's clock may run ahead of ours; live call data is still played.
+        listener(data({ ...packet, id: "ahead", ts: Date.now() + 5_000 }), "@bob:example.org");
+        expect(SoundboardAudio.prototype.play).toHaveBeenCalledTimes(2);
         Object.assign(call, { soundboardTransport: null });
         call.emit(CallEvent.SoundboardTransport);
         expect(unsubscribe).toHaveBeenCalledOnce();

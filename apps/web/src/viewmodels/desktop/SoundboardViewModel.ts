@@ -420,6 +420,12 @@ export class SoundboardViewModel extends BaseViewModel<SoundboardViewSnapshot, P
         const id = event.getId();
         const sender = event.getSender();
         const now = Date.now();
+        const ts = event.getTs();
+        // Call data is live-only, so it has no history to filter; its timestamp comes from the sender's clock,
+        // which may differ from ours. Matrix events carry the homeserver's time and may be replayed history.
+        const fresh = fromTransport
+            ? Math.abs(now - ts) <= 15_000
+            : ts >= this.startedAt && now - ts <= 10_000 && ts <= now + 2000;
         if (
             this.isDisposed ||
             event.getType() !== SOUNDBOARD_PLAY ||
@@ -428,9 +434,7 @@ export class SoundboardViewModel extends BaseViewModel<SoundboardViewSnapshot, P
             event.getRoomId() !== this.props.call.roomId ||
             !sender ||
             (!fromTransport && sender === this.props.client.getUserId()) ||
-            event.getTs() < this.startedAt ||
-            now - event.getTs() > 10_000 ||
-            event.getTs() > now + 2000 ||
+            !fresh ||
             ![...this.props.call.participants.keys()].some((member) => member.userId === sender)
         )
             return;
