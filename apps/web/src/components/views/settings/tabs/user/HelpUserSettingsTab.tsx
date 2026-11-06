@@ -21,6 +21,8 @@ import { SettingsSection } from "../../shared/SettingsSection";
 import { SettingsSubsection, SettingsSubsectionText } from "../../shared/SettingsSubsection";
 import ExternalLink from "../../../elements/ExternalLink";
 import MatrixClientContext from "../../../../../contexts/MatrixClientContext";
+import Modal from "../../../../../Modal";
+import QuestionDialog from "../../../dialogs/QuestionDialog";
 import { BugReportDialogButton } from "../../../elements/BugReportDialogButton";
 
 interface IState {
@@ -69,8 +71,17 @@ export default class HelpUserSettingsTab extends React.Component<EmptyObject, IS
         };
     }
 
-    private onClearCacheAndReload = (): void => {
+    private onClearCacheAndReload = async (): Promise<void> => {
         if (!PlatformPeg.get()) return;
+
+        const { finished } = Modal.createDialog(QuestionDialog, {
+            title: _t("setting|help_about|clear_cache_confirm_title"),
+            description: _t("setting|help_about|clear_cache_confirm_description", { brand: SdkConfig.get().brand }),
+            button: _t("setting|help_about|clear_cache_reload"),
+            danger: true,
+        });
+        const [confirmed] = await finished;
+        if (!confirmed) return;
 
         // Dev note: please keep this log line, it's useful when troubleshooting a MatrixClient suddenly
         // stopping in the middle of the logs.
@@ -255,7 +266,7 @@ export default class HelpUserSettingsTab extends React.Component<EmptyObject, IS
                 <SettingsSection>
                     {bugReportingSection}
                     <SettingsSubsection heading={_t("common|faq")} description={faqText} />
-                    <SettingsSubsection heading={_t("setting|help_about|versions")}>
+                    <SettingsSubsection heading={_t("setting|help_about|versions")} card>
                         <SettingsSubsectionText>
                             <CopyableText getTextToCopy={this.getVersionTextToCopy}>
                                 {appVersion}
@@ -268,7 +279,7 @@ export default class HelpUserSettingsTab extends React.Component<EmptyObject, IS
                     </SettingsSubsection>
                     {this.renderLegal()}
                     {this.renderCredits()}
-                    <SettingsSubsection heading={_t("common|advanced")}>
+                    <SettingsSubsection heading={_t("setting|help_about|troubleshooting")} card>
                         <SettingsSubsectionText>
                             {_t(
                                 "setting|help_about|homeserver",
@@ -293,20 +304,11 @@ export default class HelpUserSettingsTab extends React.Component<EmptyObject, IS
                                 )}
                             </SettingsSubsectionText>
                         )}
-                        <SettingsSubsectionText>
-                            <details>
-                                <summary className="mx_HelpUserSettingsTab_accessTokenDetails">
-                                    {_t("common|access_token")}
-                                </summary>
-                                <strong>{_t("setting|help_about|access_token_detail")}</strong>
-                                <CopyableText getTextToCopy={() => this.context.getAccessToken()}>
-                                    {this.context.getAccessToken()}
-                                </CopyableText>
-                            </details>
-                        </SettingsSubsectionText>
-                        <AccessibleButton onClick={this.onClearCacheAndReload} kind="danger_outline">
-                            {_t("setting|help_about|clear_cache_reload")}
-                        </AccessibleButton>
+                        <div>
+                            <AccessibleButton onClick={this.onClearCacheAndReload} kind="danger_outline">
+                                {_t("setting|help_about|clear_cache_reload")}
+                            </AccessibleButton>
+                        </div>
                     </SettingsSubsection>
                 </SettingsSection>
             </SettingsTab>

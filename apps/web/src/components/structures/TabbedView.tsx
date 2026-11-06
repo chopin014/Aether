@@ -8,7 +8,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import React, { type JSX } from "react";
+import React, { type JSX, type ReactNode } from "react";
 import classNames from "classnames";
 import { AutoHideScrollbar } from "@element-hq/web-shared-components";
 
@@ -39,6 +39,9 @@ export class Tab<T extends string> {
      * @param {string} screenName The screen name to report to Posthog.
      * @param {string} labelClassName Additional class to add to the tab label.
      * @param {TabAnchor[]} anchors Links to sections of the tab, listed under its label while it is open.
+     * @param {string} group The untranslated heading of the group the tab belongs to. Neighbouring tabs with the
+     *     same group are listed together under one heading.
+     * @param {string} description The untranslated line under the tab's title, when the view shows page headers.
      */
     public constructor(
         public readonly id: T,
@@ -48,6 +51,8 @@ export class Tab<T extends string> {
         public readonly screenName?: ScreenName,
         public readonly labelClassName?: string,
         public readonly anchors?: TabAnchor[],
+        public readonly group?: TranslationKey,
+        public readonly description?: TranslationKey,
     ) {}
 }
 
@@ -70,13 +75,15 @@ export enum TabLocation {
 
 interface ITabPanelProps<T extends string> {
     tab: Tab<T>;
+    /** Whether the page starts with the tab's title and description. */
+    pageHeader?: boolean;
 }
 
 function domIDForTabID(tabId: string): string {
     return `mx_tabpanel_${tabId}`;
 }
 
-function TabPanel<T extends string>({ tab }: ITabPanelProps<T>): JSX.Element {
+function TabPanel<T extends string>({ tab, pageHeader }: ITabPanelProps<T>): JSX.Element {
     return (
         <div
             className="mx_TabbedView_tabPanel"
@@ -85,6 +92,12 @@ function TabPanel<T extends string>({ tab }: ITabPanelProps<T>): JSX.Element {
             aria-labelledby={`${domIDForTabID(tab.id)}_label`}
         >
             <AutoHideScrollbar className="mx_AutoHideScrollbar mx_TabbedView_tabPanelContent">
+                {pageHeader && (
+                    <header className="mx_TabbedView_pageHeader">
+                        <h2 className="mx_TabbedView_pageTitle">{_t(tab.label)}</h2>
+                        {tab.description && <p className="mx_TabbedView_pageDescription">{_t(tab.description)}</p>}
+                    </header>
+                )}
                 {tab.body}
             </AutoHideScrollbar>
         </div>
@@ -202,6 +215,14 @@ interface IProps<T extends string> {
      * Default: false.
      */
     responsive?: boolean;
+    /** Shown above the tab list, such as a search field. Only for tabs on the left. */
+    sidebarHeader?: ReactNode;
+    /** Shown below the tab list. Only for tabs on the left. */
+    sidebarFooter?: ReactNode;
+    /** Hides the labels of tabs this returns false for. The open tab's page stays shown. */
+    isTabListed?: (tab: Tab<T>) => boolean;
+    /** Whether each page starts with its tab's title and description. */
+    pageHeaders?: boolean;
 }
 
 /**
@@ -217,8 +238,14 @@ export default function TabbedView<T extends string>(props: IProps<T>): JSX.Elem
 
     const windowWidth = useWindowWidth();
 
-    const labels = props.tabs.map((tab) => (
+    const listed = props.isTabListed ? props.tabs.filter(props.isTabListed) : props.tabs;
+    const labels = listed.map((tab, index) => (
         <React.Fragment key={"tab_label_" + tab.id}>
+            {tab.group && tab.group !== listed[index - 1]?.group && (
+                <li role="presentation" className="mx_TabbedView_tabGroup">
+                    {_t(tab.group)}
+                </li>
+            )}
             <TabLabel
                 tab={tab}
                 isActive={tab.id === props.activeTabId}
@@ -230,7 +257,7 @@ export default function TabbedView<T extends string>(props: IProps<T>): JSX.Elem
         </React.Fragment>
     ));
     const tab = getTabById(props.activeTabId);
-    const panel = tab ? <TabPanel tab={tab} /> : null;
+    const panel = tab ? <TabPanel tab={tab} pageHeader={props.pageHeaders} /> : null;
 
     const tabbedViewClasses = classNames({
         mx_TabbedView: true,
@@ -241,26 +268,38 @@ export default function TabbedView<T extends string>(props: IProps<T>): JSX.Elem
 
     const screenName = tab?.screenName ?? props.screenName;
 
+    const tabList = (
+        <RovingTabIndexProvider
+            handleLoop
+            handleHomeEnd
+            handleLeftRight={tabLocation == TabLocation.TOP}
+            handleUpDown={tabLocation == TabLocation.LEFT}
+        >
+            {({ onKeyDownHandler }) => (
+                <ul
+                    className="mx_TabbedView_tabLabels"
+                    role="tablist"
+                    aria-orientation={tabLocation == TabLocation.LEFT ? "vertical" : "horizontal"}
+                    onKeyDown={onKeyDownHandler}
+                >
+                    {labels}
+                </ul>
+            )}
+        </RovingTabIndexProvider>
+    );
+
     return (
         <div className={tabbedViewClasses}>
             {screenName && <PosthogScreenTracker screenName={screenName} />}
-            <RovingTabIndexProvider
-                handleLoop
-                handleHomeEnd
-                handleLeftRight={tabLocation == TabLocation.TOP}
-                handleUpDown={tabLocation == TabLocation.LEFT}
-            >
-                {({ onKeyDownHandler }) => (
-                    <ul
-                        className="mx_TabbedView_tabLabels"
-                        role="tablist"
-                        aria-orientation={tabLocation == TabLocation.LEFT ? "vertical" : "horizontal"}
-                        onKeyDown={onKeyDownHandler}
-                    >
-                        {labels}
-                    </ul>
-                )}
-            </RovingTabIndexProvider>
+            {props.sidebarHeader || props.sidebarFooter ? (
+                <div className="mx_TabbedView_sidebar">
+                    {props.sidebarHeader}
+                    {tabList}
+                    {props.sidebarFooter}
+                </div>
+            ) : (
+                tabList
+            )}
             {panel}
         </div>
     );

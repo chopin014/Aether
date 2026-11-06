@@ -34,6 +34,9 @@ import { SettingsSubsection, SettingsSubsectionText } from "../../shared/Setting
 import { useOwnDevices } from "../../devices/useOwnDevices";
 import { DiscoverySettings } from "../../discovery/DiscoverySettings";
 import SetIntegrationManager from "../../SetIntegrationManager";
+import { MediaPreviewAccountSettings } from "./MediaPreviewAccountSettings";
+import { InviteRulesAccountSetting } from "./InviteRulesAccountSettings";
+import { PresenceSettings } from "./PresenceSettings";
 
 interface IIgnoredUserProps {
     userId: string;
@@ -172,7 +175,7 @@ export default class SecurityUserSettingsTab extends React.Component<EmptyObject
             });
     };
 
-    private manageInvites = async (accept: boolean): Promise<void> => {
+    private rejectAllInvites = async (): Promise<void> => {
         this.setState({
             managingInvites: true,
         });
@@ -180,14 +183,12 @@ export default class SecurityUserSettingsTab extends React.Component<EmptyObject
         // iterate with a normal for loop in order to retry on action failure
         const invitedRoomIdsValues = Array.from(this.state.invitedRoomIds);
 
-        // Execute all acceptances/rejections sequentially
+        // Reject the invites one at a time
         const cli = MatrixClientPeg.safeGet();
-        const action = accept ? cli.joinRoom.bind(cli) : cli.leave.bind(cli);
         for (let i = 0; i < invitedRoomIdsValues.length; i++) {
             const roomId = invitedRoomIdsValues[i];
 
-            // Accept/reject invite
-            await action(roomId).then(
+            await cli.leave(roomId).then(
                 () => {
                     // No error, update invited rooms button
                     this.removeInvitedRoom(roomId);
@@ -214,12 +215,8 @@ export default class SecurityUserSettingsTab extends React.Component<EmptyObject
         });
     };
 
-    private onAcceptAllInvitesClicked = (): void => {
-        void this.manageInvites(true);
-    };
-
     private onRejectAllInvitesClicked = (): void => {
-        void this.manageInvites(false);
+        void this.rejectAllInvites();
     };
 
     private renderIgnoredUsers(): JSX.Element {
@@ -266,13 +263,6 @@ export default class SecurityUserSettingsTab extends React.Component<EmptyObject
         return (
             <SettingsSubsection heading={_t("settings|security|bulk_options_section")}>
                 <div className="mx_SecurityUserSettingsTab_bulkOptions">
-                    <AccessibleButton
-                        onClick={this.onAcceptAllInvitesClicked}
-                        kind="primary_outline"
-                        disabled={this.state.managingInvites}
-                    >
-                        {_t("settings|security|bulk_options_accept_all_invites", { invitedRooms: invitedRoomIds.size })}
-                    </AccessibleButton>
                     <AccessibleButton
                         onClick={this.onRejectAllInvitesClicked}
                         kind="danger_outline"
@@ -339,19 +329,14 @@ export default class SecurityUserSettingsTab extends React.Component<EmptyObject
             );
         }
 
-        let advancedSection;
+        let peopleSection;
         if (SettingsStore.getValue(UIFeature.AdvancedSettings)) {
-            const ignoreUsersPanel = this.renderIgnoredUsers();
-            const invitesPanel = this.renderManageInvites();
-            // only show the section if there's something to show
-            if (ignoreUsersPanel || invitesPanel) {
-                advancedSection = (
-                    <SettingsSection heading={_t("common|advanced")}>
-                        {ignoreUsersPanel}
-                        {invitesPanel}
-                    </SettingsSection>
-                );
-            }
+            peopleSection = (
+                <SettingsSection>
+                    {this.renderIgnoredUsers()}
+                    {this.renderManageInvites()}
+                </SettingsSection>
+            );
         }
 
         let discoverySection;
@@ -372,13 +357,23 @@ export default class SecurityUserSettingsTab extends React.Component<EmptyObject
         return (
             <SettingsTab>
                 {warning}
-                <SetIntegrationManager />
+                <SettingsSection>
+                    <SettingsSubsection heading={_t("common|moderation_and_safety")} card>
+                        <MediaPreviewAccountSettings />
+                        <InviteRulesAccountSetting />
+                    </SettingsSubsection>
+                    <PresenceSettings />
+                    <SettingsSubsection heading={_t("settings|preferences|room_directory_heading")} formWrap card>
+                        <SettingsFlag name="SpotlightSearch.showNsfwPublicRooms" level={SettingLevel.ACCOUNT} />
+                    </SettingsSubsection>
+                </SettingsSection>
+                {peopleSection}
                 <SettingsSection heading={_t("settings|security|encryption_section")}>
                     {secureBackup}
                     {eventIndex}
                 </SettingsSection>
+                <SetIntegrationManager />
                 {privacySection}
-                {advancedSection}
             </SettingsTab>
         );
     }

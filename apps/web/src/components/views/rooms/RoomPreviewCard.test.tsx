@@ -65,28 +65,15 @@ describe("RoomPreviewCard", () => {
         await act(() => Promise.resolve()); // Allow effects to settle
     };
 
-    it("shows a beta pill on Jitsi video room invites", async () => {
-        vi.spyOn(room, "getType").mockReturnValue(RoomType.ElementVideo);
+    it.each([
+        ["Jitsi", RoomType.ElementVideo, ["feature_video_rooms"]],
+        ["Element", RoomType.UnstableCall, ["feature_video_rooms", "feature_element_call_video_rooms"]],
+    ])("doesn't mark %s video room invites as a beta", async (_name, type, features) => {
+        vi.spyOn(room, "getType").mockReturnValue(type);
         vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Invite);
-        enabledFeatures = ["feature_video_rooms"];
+        enabledFeatures = features;
 
         await renderPreview();
-        expect(screen.getByRole("button", { name: /beta/i })).toBeVisible();
-    });
-
-    it("shows a beta pill on Element video room invites", async () => {
-        vi.spyOn(room, "getType").mockReturnValue(RoomType.UnstableCall);
-        vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Invite);
-        enabledFeatures = ["feature_video_rooms", "feature_element_call_video_rooms"];
-
-        await renderPreview();
-        expect(screen.getByRole("button", { name: /beta/i })).toBeVisible();
-    });
-
-    it("doesn't show a beta pill on normal invites", async () => {
-        vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Invite);
-
-        await renderPreview();
-        expect(screen.queryByRole("button", { name: /beta/i })).toBeNull();
+        expect(screen.queryByText("Beta")).toBeNull();
     });
 });

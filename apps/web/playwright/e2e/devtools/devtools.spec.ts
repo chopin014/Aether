@@ -6,6 +6,7 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import { test, expect } from "../../element-web-test";
+import { SettingLevel } from "../../../src/settings/SettingLevel";
 
 test.describe("Devtools", () => {
     test.use({
@@ -13,6 +14,8 @@ test.describe("Devtools", () => {
     });
 
     test("should render the devtools", { tag: "@screenshot" }, async ({ page, homeserver, user, app, axe }) => {
+        // /devtools is only offered once developer mode is on.
+        await app.settings.setValue("developerMode", null, SettingLevel.ACCOUNT, true);
         await app.client.createRoom({ name: "Test Room" });
         await app.viewRoomByName("Test Room");
 

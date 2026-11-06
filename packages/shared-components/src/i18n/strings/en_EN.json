@@ -70,6 +70,37 @@
         }
     },
     "desktop": {
+        "account": {
+            "access_heading": "Password and access",
+            "add": "Add",
+            "change": "Change",
+            "copied": "Copied",
+            "copy": "Copy",
+            "danger_heading": "Danger zone",
+            "deactivate": "Deactivate account",
+            "deactivate_button": "Deactivate…",
+            "deactivate_description": "Permanent. You lose access to this account and its messages.",
+            "deactivate_managed_description": "Permanent. Done on your account provider's site (%(host)s).",
+            "display_name": "Display name",
+            "done": "Done",
+            "edit_profile": "Edit profile",
+            "email": "Email",
+            "email_none": "No email added",
+            "manage": "Manage",
+            "manage_account": "Manage account",
+            "password": "Password",
+            "password_change_description": "Change the password you sign in with",
+            "password_managed": "Managed by your account provider (%(host)s)",
+            "password_unavailable": "Your server does not allow changing it here",
+            "profile_label": "Your profile",
+            "sessions": "Signed-in devices",
+            "sessions_count": {
+                "one": "%(count)s active session · review any you don't recognise",
+                "other": "%(count)s active sessions · review any you don't recognise"
+            },
+            "sessions_description": "Review where your account is signed in",
+            "username": "Username"
+        },
         "call_stage": {
             "allow_devices": "Allow microphone access",
             "bitrate_auto": "Auto",
@@ -667,6 +698,11 @@
         },
         "server_voice_activity": {
             "people": "In voice: %(names)s"
+        },
+        "settings_sidebar": {
+            "edit_profile": "Edit profile",
+            "search_label": "Search settings",
+            "search_placeholder": "Search settings"
         },
         "share_picker": {
             "applications": "Application window",

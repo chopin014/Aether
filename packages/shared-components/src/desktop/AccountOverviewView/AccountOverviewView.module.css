@@ -1,0 +1,146 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.view {
+    /* The card is a little lighter than the page it sits on; the avatar's ring uses the same colour. */
+    --account-card-surface: color-mix(
+        in srgb,
+        var(--cpd-color-text-primary) 4%,
+        var(--account-page-surface, var(--cpd-color-bg-subtle-primary))
+    );
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-6x);
+    color: var(--cpd-color-text-primary);
+}
+
+.view section {
+    display: flex;
+    flex-direction: column;
+}
+
+.card {
+    --desktop-profile-surface: var(--account-card-surface);
+    overflow: hidden;
+    background: var(--account-card-surface);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-3x);
+}
+
+.critical {
+    border-color: var(--cpd-color-border-critical-subtle);
+}
+
+.view .caption {
+    margin: 0 0 var(--cpd-space-2x) var(--cpd-space-1x);
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-xs-semibold);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.view .captionCritical {
+    color: var(--cpd-color-text-critical-primary);
+}
+
+/* The name and ID sit beside the avatar, which hangs below the banner. */
+.identity {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-4x);
+    min-height: var(--cpd-space-10x);
+    margin-block-start: calc(-1 * var(--cpd-space-10x));
+    padding: 0 var(--cpd-space-4x) var(--cpd-space-4x) calc(80px + var(--cpd-space-10x) + var(--cpd-space-4x));
+}
+
+.names {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.displayName,
+.userId {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.userId,
+.mono {
+    color: var(--cpd-color-text-secondary);
+    font-family: var(--cpd-font-family-mono);
+}
+
+.row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-3x);
+    padding: var(--cpd-space-4x);
+    border-block-start: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+}
+
+.card > .row:first-child,
+.card > .rowButton:first-child {
+    border-block-start: 0;
+}
+
+.rowMain {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-4x);
+}
+
+.rowText {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: var(--cpd-space-0-5x);
+    min-width: 0;
+}
+
+.rowLabel {
+    color: var(--cpd-color-text-primary);
+}
+
+.rowValue {
+    overflow-wrap: anywhere;
+    color: var(--cpd-color-text-secondary);
+}
+
+.rowEditor:empty {
+    display: none;
+}
+
+.rowButton {
+    width: 100%;
+    margin: 0;
+    background: none;
+    border-inline: 0;
+    border-block-end: 0;
+    color: inherit;
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+}
+
+.rowButton:hover {
+    background: var(--cpd-color-bg-subtle-secondary);
+}
+
+.rowButton:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: calc(-1 * var(--cpd-border-width-2));
+}
+
+.chevron {
+    flex: none;
+    width: var(--cpd-space-5x);
+    height: var(--cpd-space-5x);
+    color: var(--cpd-color-icon-secondary);
+}

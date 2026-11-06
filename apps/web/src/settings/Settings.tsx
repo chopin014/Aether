@@ -63,7 +63,6 @@ import {
 } from "../stores/room-list-v3/section.ts";
 import { type NotificationSound } from "../Notifier.ts";
 import type { VoiceUserPreference } from "../audio/desktop/VoiceUserPreferences.ts";
-import VideoRoomsBetaImage from "../../res/img/betas/video_rooms.png";
 
 export const defaultWatchManager = new WatchManager();
 
@@ -111,21 +110,6 @@ export enum LabGroup {
 export enum Features {
     NotificationSettings2 = "feature_notification_settings2",
 }
-
-export const labGroupNames: Record<LabGroup, TranslationKey> = {
-    [LabGroup.Messaging]: _td("labs|group_messaging"),
-    [LabGroup.Profile]: _td("labs|group_profile"),
-    [LabGroup.Spaces]: _td("labs|group_spaces"),
-    [LabGroup.Widgets]: _td("labs|group_widgets"),
-    [LabGroup.Rooms]: _td("labs|group_rooms"),
-    [LabGroup.Threads]: _td("labs|group_threads"),
-    [LabGroup.VoiceAndVideo]: _td("labs|group_voip"),
-    [LabGroup.Moderation]: _td("labs|group_moderation"),
-    [LabGroup.Encryption]: _td("labs|group_encryption"),
-    [LabGroup.Experimental]: _td("labs|group_experimental"),
-    [LabGroup.Developer]: _td("labs|group_developer"),
-    [LabGroup.Ui]: _td("labs|group_ui"),
-};
 
 export type SettingValueType = JsonDocument | JsonValue | Record<string, unknown> | Record<string, unknown>[];
 
@@ -434,39 +418,13 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
         isFeature: true,
         labsGroup: LabGroup.VoiceAndVideo,
         displayName: _td("labs|video_rooms"),
-        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS_WITH_CONFIG,
-        default: false,
+        // Voice and video channels are part of the app. The config wins over a value saved on the device, so
+        // someone who left the old beta still gets them.
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS_WITH_CONFIG_PRIORITISED,
+        supportedLevelsAreOrdered: true,
+        default: true,
         // Reload to ensure that the left panel etc. get remounted
         controller: new ReloadOnChangeController(),
-        betaInfo: {
-            title: _td("labs|video_rooms"),
-            caption: () => (
-                <>
-                    <p>
-                        {_t("labs|video_rooms_a_new_way_to_chat", {
-                            brand: SdkConfig.get().brand,
-                        })}
-                    </p>
-                    <p>
-                        {_t("labs|video_rooms_always_on_voip_channels", {
-                            brand: SdkConfig.get().brand,
-                        })}
-                    </p>
-                </>
-            ),
-            faq: () => (
-                <>
-                    <h4>{_t("labs|video_rooms_faq1_question")}</h4>
-                    <p>{_t("labs|video_rooms_faq1_answer")}</p>
-                    <h4>{_t("labs|video_rooms_faq2_question")}</h4>
-                    <p>{_t("labs|video_rooms_faq2_answer")}</p>
-                </>
-            ),
-            feedbackLabel: "video-room-feedback",
-            feedbackSubheading: _td("labs|video_rooms_feedbackSubheading"),
-            image: VideoRoomsBetaImage,
-            requiresRefresh: true,
-        },
     },
     [Features.NotificationSettings2]: {
         isFeature: true,

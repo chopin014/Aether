@@ -40,6 +40,7 @@ import { getBuildConfig } from "./build-config.js";
 import { getAsarPath } from "./asar.js";
 import { getIconPath } from "./icon.js";
 import { getArgs } from "./args.js";
+import { devToolsAllowed } from "./devtools-policy.js";
 import { type ConfigOptions, loadConfig } from "./config.js";
 import { setupGlobalShortcuts } from "./global-shortcuts/setupGlobalShortcuts.js";
 import { getDesktopShellTitleBarOptions } from "./desktop-shell-titlebar.js";
@@ -240,7 +241,10 @@ app.on("ready", async () => {
     // Set up i18n before loading storage as we need translations for dialogs
     global.appLocalization = new AppLocalization({
         languages: app.getPreferredSystemLanguages(),
-        components: [(): void => tray.initApplicationMenu(), (): void => Menu.setApplicationMenu(buildMenuTemplate())],
+        components: [
+            (): void => tray.initApplicationMenu(),
+            (): void => Menu.setApplicationMenu(buildMenuTemplate(devToolsAllowed(args, app.isPackaged))),
+        ],
         store,
     });
 
@@ -279,6 +283,7 @@ app.on("ready", async () => {
             // The app's scripts only change with an update, so cache their compiled code from the first launch
             // instead of waiting for V8 to see them run several times.
             v8CacheOptions: "bypassHeatCheck",
+            devTools: devToolsAllowed(args, app.isPackaged),
         },
     });
     updater.desktopUpdater.attachRenderer(global.mainWindow.webContents);

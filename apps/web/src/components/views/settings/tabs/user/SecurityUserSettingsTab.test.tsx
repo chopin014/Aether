@@ -8,7 +8,7 @@ Please see LICENSE files in the repository root for full details.
 
 // @vitest-environment happy-dom
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen } from "test-utils-rtl";
 import {
     getMockClientWithEventEmitter,
@@ -68,6 +68,36 @@ describe("<SecurityUserSettingsTab />", () => {
         expect(container).toMatchSnapshot();
     });
 
+    describe("pending invites", () => {
+        const leave = vi.fn().mockResolvedValue({});
+        const joinRoom = vi.fn();
+
+        beforeEach(() => {
+            const invitedRoom = {
+                roomId: "!invited:server.org",
+                hasMembershipState: () => true,
+                isSpaceRoom: () => false,
+            };
+            mockClient.getRooms.mockReturnValue([invitedRoom] as any);
+            mockClient.leave = leave;
+            mockClient.joinRoom = joinRoom;
+        });
+
+        afterEach(() => {
+            mockClient.getRooms.mockReturnValue([]);
+        });
+
+        it("offers to reject every invite but never to accept them all", async () => {
+            render(getComponent());
+
+            expect(screen.queryByRole("button", { name: /Accept all/ })).not.toBeInTheDocument();
+            await userEvent.click(screen.getByRole("button", { name: "Reject all 1 invites" }));
+
+            expect(leave).toHaveBeenCalledWith("!invited:server.org");
+            expect(joinRoom).not.toHaveBeenCalled();
+        });
+    });
+
     it("renders ignored users", () => {
         getIgnoredUsers.mockReturnValue(["@bob:example.org"]);
         const { getByRole } = render(getComponent());
@@ -94,12 +124,15 @@ describe("<SecurityUserSettingsTab />", () => {
     });
 
     it("does not render privacy header if 3pid features are disabled", async () => {
-        vi.spyOn(SettingsStore, "getValue").mockImplementation((key: any): any => {
+        const original = SettingsStore.getValue;
+        const spy = vi.spyOn(SettingsStore, "getValue").mockImplementation((key: any, ...rest: any[]): any => {
             if (key === UIFeature.ThirdPartyID) return false;
+            return original(key, ...rest);
         });
 
         render(getComponent());
 
         expect(screen.queryByRole("heading", { name: "Privacy" })).toBeNull();
+        spy.mockRestore();
     });
 });

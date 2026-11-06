@@ -457,7 +457,6 @@
         "spaceinvaders_message": "sends space invaders"
     },
     "common": {
-        "access_token": "Access Token",
         "accessibility": "Accessibility",
         "advanced": "Advanced",
         "all_chats": "All Chats",
@@ -536,7 +535,6 @@
         "orphan_rooms": "Other rooms",
         "password": "Password",
         "people": "People",
-        "preferences": "Preferences",
         "presence": "Presence",
         "preview_message": "Hey you. You're the best!",
         "privacy": "Privacy",
@@ -1442,7 +1440,6 @@
     },
     "failed_load_async_component": "Unable to load! Check your network connectivity and try again.",
     "feedback": {
-        "can_contact_label": "You may contact me if you have any follow up questions",
         "comment_label": "Comment",
         "existing_issue_link": "Please view <existingIssuesLink>existing bugs on Github</existingIssuesLink> first. No match? <newIssueLink>Start a new one</newIssueLink>.",
         "may_contact_label": "You may contact me if you want to follow up or to let me test out upcoming ideas",
@@ -1694,17 +1691,11 @@
     },
     "labs": {
         "ask_to_join": "Enable ask to join",
-        "beta_description": "What's next for %(brand)s? Labs are the best way to get things early, test out new features and help shape them before they actually launch.",
-        "beta_feature": "This is a beta feature",
-        "beta_feedback_leave_button": "To leave the beta, visit your settings.",
-        "beta_feedback_title": "%(featureName)s Beta feedback",
-        "beta_section": "Upcoming features",
         "bridge_state": "Show info about bridges in room settings",
         "bridge_state_channel": "Channel: <channelLink/>",
         "bridge_state_creator": "This bridge was provisioned by <user />.",
         "bridge_state_manager": "This bridge is managed by <user />.",
         "bridge_state_workspace": "Workspace: <networkLink/>",
-        "click_for_info": "More info",
         "config_only": "Your account provider must enable this in config.json.",
         "currently_experimental": "Currently experimental.",
         "desktop_shell": "Desktop layout",
@@ -1717,8 +1708,6 @@
         "encrypted_state_events_description": "Enables experimental support for encrypting state events, which hides metadata such as room names and topics from the server. This metadata will also be hidden from people joining rooms later, and people whose clients do not support MSC4362.",
         "exclude_insecure_devices": "Exclude insecure devices when sending/receiving messages",
         "exclude_insecure_devices_description": "When this mode is enabled, encrypted messages will not be shared with unverified devices, and messages from unverified devices will be shown as an error. Note that if you enable this mode, you may be unable to communicate with users who have not verified their devices.",
-        "experimental_description": "Feeling experimental? Try out our latest ideas in development. These features are not finalised; they may be unstable, may change, or may be dropped altogether. <a>Learn more</a>.",
-        "experimental_section": "Early previews",
         "extended_profiles_msc_support": "Requires your server to support MSC4133",
         "feature_element_call_react": "Render Element Call as a React component instead of a widget",
         "feature_matrixrtc_slots": "Require open MatrixRTC slots for Element Call calls",
@@ -1734,26 +1723,10 @@
             "required_msc_support": "Requires MSC4429 (Profile Updates for Legacy Sync)"
         },
         "feature_wysiwyg_composer_description": "Use rich text instead of Markdown in the message composer.",
-        "group_developer": "Developer",
-        "group_encryption": "Encryption",
-        "group_experimental": "Experimental",
-        "group_messaging": "Messaging",
-        "group_moderation": "Moderation",
-        "group_profile": "Profile",
-        "group_rooms": "Rooms",
-        "group_spaces": "Servers",
-        "group_threads": "Threads",
-        "group_ui": "User interface",
-        "group_voip": "Voice & Video",
-        "group_widgets": "Widgets",
         "hidebold": "Hide notification dot (only display counters badges)",
-        "join_beta": "Join the beta",
-        "join_beta_reload": "Joining the beta will reload %(brand)s.",
         "jump_to_date": "Scroll to date (adds /jumptodate and date headers)",
         "jump_to_date_msc_support": "Requires your server to support MSC3030",
         "latex_maths": "Render LaTeX maths in messages",
-        "leave_beta": "Leave the beta",
-        "leave_beta_reload": "Leaving the beta will reload %(brand)s.",
         "location_share_live": "Live Location Sharing",
         "location_share_live_description": "Temporary implementation. Locations persist in room history.",
         "login_with_qr": "Log in with QR code",
@@ -1774,14 +1747,6 @@
         "url_preview_bundle": "URL Preview Bundle (MSC4095)",
         "url_preview_bundle_description": "Sends URL previews bundled with the message content",
         "video_rooms": "Video rooms",
-        "video_rooms_a_new_way_to_chat": "A new way to chat over voice and video in %(brand)s.",
-        "video_rooms_always_on_voip_channels": "Video rooms are always-on VoIP channels embedded within a room in %(brand)s.",
-        "video_rooms_beta": "Video rooms are a beta feature",
-        "video_rooms_faq1_answer": "Use the “+” button in the room section of the left panel.",
-        "video_rooms_faq1_question": "How can I create a video room?",
-        "video_rooms_faq2_answer": "Yes, the chat timeline is displayed alongside the video.",
-        "video_rooms_faq2_question": "Can I use text chat alongside the video call?",
-        "video_rooms_feedbackSubheading": "Thank you for trying the beta, please go into as much detail as you can so we can improve it.",
         "wysiwyg_composer": "Rich text editor"
     },
     "labs_mjolnir": {
@@ -2659,8 +2624,9 @@
     },
     "setting": {
         "help_about": {
-            "access_token_detail": "Your access token gives full access to your account. Do not share it with anyone.",
             "brand_version": "%(brand)s version:",
+            "clear_cache_confirm_description": "%(brand)s will download your conversations again. Nothing is removed from your account.",
+            "clear_cache_confirm_title": "Clear cache and reload?",
             "clear_cache_reload": "Clear cache and reload",
             "crypto_version": "Crypto version:",
             "dialog_title": "<strong>Settings:</strong> Help & About",
@@ -2668,13 +2634,15 @@
             "homeserver": "Account provider is <code>%(homeserverUrl)s</code>",
             "identity_server": "Identity server is <code>%(identityServerUrl)s</code>",
             "title": "Help & About",
+            "troubleshooting": "Troubleshooting",
             "versions": "Versions"
         }
     },
     "settings": {
         "account": {
             "dialog_title": "<strong>Settings:</strong> Account",
-            "title": "Account"
+            "title": "Account",
+            "nav_title": "My account"
         },
         "activityIsUnread": "Consider all new activity as an unread message",
         "all_rooms_home": "Show all rooms in Home",
@@ -2703,6 +2671,10 @@
         "autoplay_gifs": "Autoplay GIFs",
         "autoplay_videos": "Autoplay videos",
         "big_emoji": "Enable big emoji in chat",
+        "chat": {
+            "dialog_title": "<strong>Settings:</strong> Chat",
+            "title": "Chat"
+        },
         "code_block_expand_default": "Expand code blocks by default",
         "code_block_line_numbers": "Show line numbers in code blocks",
         "disable_historical_profile": "Show current profile picture and name for users in message history",
@@ -2786,8 +2758,6 @@
             "title": "Encryption"
         },
         "general": {
-            "account_management_section": "Account management",
-            "account_section": "Account",
             "add_email_dialog_title": "Add Email Address",
             "add_email_failed_verification": "Failed to verify email address: make sure you clicked the link in the email",
             "add_email_instructions": "We've sent you an email to verify your address. Please follow the instructions there and then select the button below.",
@@ -2808,6 +2778,7 @@
             "avatar_upload_error_title": "Avatar image could not be uploaded",
             "confirm_adding_email_body": "Select the button below to confirm adding this email address.",
             "confirm_adding_email_title": "Confirm adding email",
+            "danger_zone": "Danger zone",
             "deactivate_confirm_body": "Are you sure you want to deactivate your account? This is irreversible.",
             "deactivate_confirm_body_sso": "Confirm your account deactivation by using Single Sign On to prove your identity.",
             "deactivate_confirm_content": "Confirm that you would like to deactivate your account. If you proceed:",
@@ -2874,6 +2845,11 @@
             "unable_to_load_msisdns": "Unable to load phone numbers",
             "username": "Username"
         },
+        "groups": {
+            "about": "About",
+            "account": "User settings",
+            "app": "App settings"
+        },
         "inline_url_previews_default": "Enable previews",
         "inline_url_previews_encrypted": "Enable previews in encrypted rooms",
         "inline_url_previews_encrypted_bundled_only": "Only show bundled previews in encrypted rooms",
@@ -2930,11 +2906,12 @@
             "dialog_title": "<strong>Settings:</strong> Keyboard",
             "title": "Keyboard"
         },
-        "labs": {
-            "dialog_title": "<strong>Settings:</strong> Labs"
-        },
         "labs_mjolnir": {
             "dialog_title": "<strong>Settings:</strong> Ignored Users"
+        },
+        "language_time": {
+            "dialog_title": "<strong>Settings:</strong> Language & time",
+            "title": "Language & time"
         },
         "media_preview": {
             "hide_avatars": "Hide avatars of room and inviter",
@@ -3011,12 +2988,9 @@
             "compact_modern": "Use a more compact 'Modern' layout",
             "composer_heading": "Composer",
             "default_timezone": "Browser default (%(timezone)s)",
-            "dialog_title": "<strong>Settings:</strong> Preferences",
             "enable_content_protection": "Enable content protection",
             "enable_hardware_acceleration": "Enable hardware acceleration",
             "enable_tray_icon": "Show tray icon and minimise window to it on close",
-            "keyboard_heading": "Keyboard shortcuts",
-            "keyboard_view_shortcuts_button": "To view all keyboard shortcuts, <a>click here</a>.",
             "link_previews_description": "Shows information about links underneath messages",
             "link_previews_heading": "Link previews",
             "media_heading": "Images, GIFs and videos",
@@ -3041,7 +3015,6 @@
         "replace_plain_emoji": "Automatically replace plain text Emoji",
         "security": {
             "analytics_description": "Share anonymous data to help us identify issues. Nothing personal. No third parties.",
-            "bulk_options_accept_all_invites": "Accept all %(invitedRooms)s invites",
             "bulk_options_reject_all_invites": "Reject all %(invitedRooms)s invites",
             "bulk_options_section": "Bulk options",
             "dehydrated_device_description": "The offline device feature allows you to receive encrypted messages even when you are not logged in to any devices",
@@ -3080,7 +3053,8 @@
             "tokenizer_mode_language": "Language-based",
             "tokenizer_mode_language_description": "Single language support based on your UI language. Only works with some languages (English, German, etc.).",
             "tokenizer_mode_ngram": "N-gram",
-            "tokenizer_mode_ngram_description": "Supports all languages including those without word boundaries. Works with mixed languages."
+            "tokenizer_mode_ngram_description": "Supports all languages including those without word boundaries. Works with mixed languages.",
+            "nav_title": "Privacy & security"
         },
         "send_read_receipts": "Send read receipts",
         "send_read_receipts_unsupported": "Your server doesn't support disabling sending read receipts.",
@@ -3199,7 +3173,6 @@
         "show_typing_notifications": "Show typing notifications",
         "showbold": "Show all activity in the room list (dots or number of unread messages)",
         "sidebar": {
-            "dialog_title": "<strong>Settings:</strong> Sidebar",
             "metaspaces_home_all_rooms": "Show all rooms",
             "metaspaces_home_all_rooms_description": "Show all your rooms in Home, even if they're in a server.",
             "metaspaces_home_description": "Home is useful for getting an overview of everything.",
@@ -3209,14 +3182,20 @@
             "metaspaces_video_rooms": "Video rooms and conferences",
             "metaspaces_video_rooms_description": "Group all private video rooms and conferences.",
             "metaspaces_video_rooms_description_invite_extension": "In conferences you can invite people outside of matrix.",
-            "spaces_explainer": "Servers are ways to group rooms and people. Alongside the servers you're in, you can use some pre-built ones too.",
-            "title": "Sidebar"
+            "spaces_explainer": "Servers are ways to group rooms and people. Alongside the servers you're in, you can use some pre-built ones too."
         },
         "start_automatically": {
             "disabled": "No",
             "enabled": "Yes",
             "label": "Open %(brand)s when you log in to your computer",
             "minimised": "Minimised"
+        },
+        "system": {
+            "advanced_description": "Delays in milliseconds. Most people never need to change these.",
+            "dialog_title": "<strong>Settings:</strong> System",
+            "performance_heading": "Performance and privacy",
+            "title": "System",
+            "desktop_title": "Desktop app"
         },
         "tac_only_notifications": "In the Other threads tab, only show notifications",
         "use_12_hour_format": "Show timestamps in 12 hour format (e.g. 2:30pm)",
@@ -3254,7 +3233,39 @@
             "voice_section": "Voice settings"
         },
         "warn_quit": "Warn before quitting",
-        "warning": "<w>WARNING:</w> <description/>"
+        "warning": "<w>WARNING:</w> <description/>",
+        "sign_out": "Sign out",
+        "search_empty": "No settings match your search",
+        "pages": {
+            "account_description": "Your name, your sign-in and how you get into your account.",
+            "account_keywords": "name username email password deactivate account sign out",
+            "profile_description": "How others see you: picture, banner, bio and name style.",
+            "profile_keywords": "avatar picture photo banner bio pronouns status nameplate",
+            "security_description": "Who can reach you and what others can see.",
+            "security_keywords": "privacy invites read receipts typing blocked ignored users media nsfw analytics integrations",
+            "encryption_description": "Recovery and keys for your encrypted messages.",
+            "encryption_keywords": "recovery key backup reset identity",
+            "sessions_description": "Everywhere your account is signed in.",
+            "sessions_keywords": "devices sessions sign out qr",
+            "appearance_description": "Theme, colours, font size and message layout.",
+            "appearance_keywords": "theme dark light colour font size compact",
+            "chat_description": "How messages look and how you write them.",
+            "chat_keywords": "timeline messages composer markdown emoji gif video links previews code room list servers",
+            "voice_description": "Microphone, speakers, camera and noise suppression.",
+            "voice_keywords": "microphone speaker camera noise suppression push to talk echo sounds",
+            "notifications_description": "When and how you get notified.",
+            "notifications_keywords": "sounds alerts mentions keywords desktop email",
+            "keyboard_description": "Shortcuts and call keybinds.",
+            "keyboard_keywords": "shortcuts keybinds push to talk mute deafen ctrl f",
+            "language_description": "The app's language, your time zone and how times are shown.",
+            "language_keywords": "language spell check timezone 12 hour timestamps",
+            "system_description": "Startup, tray and performance.",
+            "system_keywords": "startup tray menu bar hardware acceleration screenshot autocomplete delay",
+            "updates_description": "The installed version and new releases.",
+            "updates_keywords": "update version download restart",
+            "help_description": "Version, help and troubleshooting.",
+            "help_keywords": "help faq version bug report cache homeserver credits legal"
+        }
     },
     "share": {
         "link_copied": "Link copied",

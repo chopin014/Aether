@@ -34,79 +34,442 @@ exports[`<SecurityUserSettingsTab /> > renders security section 1`] = `
     <div
       class="mx_SettingsTab_sections"
     >
-      <form
-        class="_root mx_SetIntegrationManager"
-        data-testid="mx_SetIntegrationManager"
+      <div
+        class="mx_SettingsSection"
       >
         <div
-          class="mx_SettingsFlag"
+          class="mx_SettingsSection_subSections"
         >
           <div
-            class="mx_SetIntegrationManager_heading_manager"
-          >
-            <h2
-              class="mx_Heading_h3"
-            >
-              Manage integrations
-            </h2>
-            <h3
-              class="mx_Heading_h4"
-              id="mx_SetIntegrationManager_ManagerName"
-            >
-              (scalar.vector.im)
-            </h3>
-          </div>
-        </div>
-        <div
-          class="mx_SettingsSubsection_text"
-          id="mx_SetIntegrationManager_BodyText"
-        >
-          <span>
-            Use an integration manager 
-            <strong>
-              (scalar.vector.im)
-            </strong>
-             to manage bots, widgets, and sticker packs.
-          </span>
-        </div>
-        <div
-          class="mx_SettingsSubsection_text"
-        >
-          Integration managers receive configuration data, and can modify widgets, send room invites, and set power levels on your behalf.
-        </div>
-        <div
-          class="_inline-field"
-        >
-          <div
-            class="_inline-field-control"
+            class="mx_SettingsSubsection"
           >
             <div
-              class="_container"
+              class="mx_SettingsSubsectionHeading"
             >
-              <input
-                checked=""
-                class="_input"
-                id="react-use-id-1"
-                role="switch"
-                type="checkbox"
-              />
-              <div
-                class="_ui"
-              />
+              <h2
+                class="mx_Heading_h4 mx_SettingsSubsectionHeading_heading"
+              >
+                Moderation and safety
+              </h2>
+            </div>
+            <div
+              class="mx_SettingsSubsection_content mx_SettingsSubsection_card"
+            >
+              <form
+                class="_root mx_MediaPreviewAccountSetting_Form"
+              >
+                <div
+                  class="_inline-field"
+                >
+                  <div
+                    class="_inline-field-control"
+                  >
+                    <div
+                      class="_container"
+                    >
+                      <input
+                        class="_input"
+                        id="react-use-id-1"
+                        role="switch"
+                        type="checkbox"
+                      />
+                      <div
+                        class="_ui"
+                      />
+                    </div>
+                  </div>
+                  <div
+                    class="_inline-field-body"
+                  >
+                    <label
+                      class="_label"
+                      for="react-use-id-1"
+                    >
+                      Hide avatars of room and inviter
+                    </label>
+                  </div>
+                </div>
+                <div
+                  aria-label="Show media in timeline"
+                  class="_field"
+                  id="mx_media_previews"
+                  role="radiogroup"
+                >
+                  <label
+                    class="_label"
+                    for="radix-react-use-id-2"
+                  >
+                    Show media in timeline
+                  </label>
+                  <span
+                    class="_message _help-message mx_MediaPreviewAccountSetting_RadioHelp"
+                    id="radix-react-use-id-3"
+                  >
+                    Hidden media can always be shown by selecting it
+                  </span>
+                  <div
+                    class="_inline-field mx_MediaPreviewAccountSetting_Radio"
+                  >
+                    <div
+                      class="_inline-field-control"
+                    >
+                      <div
+                        class="_container"
+                      >
+                        <input
+                          class="_input"
+                          id="mx_media_previews_off"
+                          type="radio"
+                        />
+                        <div
+                          class="_ui"
+                        />
+                      </div>
+                    </div>
+                    <div
+                      class="_inline-field-body"
+                    >
+                      <label
+                        class="_label"
+                        for="mx_media_previews_off"
+                      >
+                        Always hide
+                      </label>
+                    </div>
+                  </div>
+                  <div
+                    class="_inline-field mx_MediaPreviewAccountSetting_Radio"
+                  >
+                    <div
+                      class="_inline-field-control"
+                    >
+                      <div
+                        class="_container"
+                      >
+                        <input
+                          class="_input"
+                          id="mx_media_previews_private"
+                          type="radio"
+                        />
+                        <div
+                          class="_ui"
+                        />
+                      </div>
+                    </div>
+                    <div
+                      class="_inline-field-body"
+                    >
+                      <label
+                        class="_label"
+                        for="mx_media_previews_private"
+                      >
+                        In private rooms
+                      </label>
+                    </div>
+                  </div>
+                  <div
+                    class="_inline-field mx_MediaPreviewAccountSetting_Radio"
+                  >
+                    <div
+                      class="_inline-field-control"
+                    >
+                      <div
+                        class="_container"
+                      >
+                        <input
+                          checked=""
+                          class="_input"
+                          id="mx_media_previews_on"
+                          type="radio"
+                        />
+                        <div
+                          class="_ui"
+                        />
+                      </div>
+                    </div>
+                    <div
+                      class="_inline-field-body"
+                    >
+                      <label
+                        class="_label"
+                        for="mx_media_previews_on"
+                      >
+                        Always show
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </form>
+              <form
+                class="_root mx_MediaPreviewAccountSetting_Form"
+              >
+                <div
+                  class="_inline-field mx_MediaPreviewAccountSetting_ToggleSwitch"
+                >
+                  <div
+                    class="_inline-field-control"
+                  >
+                    <div
+                      class="_container"
+                    >
+                      <input
+                        checked=""
+                        class="_input"
+                        disabled=""
+                        id="react-use-id-4"
+                        role="switch"
+                        type="checkbox"
+                      />
+                      <div
+                        class="_ui"
+                      />
+                    </div>
+                  </div>
+                  <div
+                    class="_inline-field-body"
+                  >
+                    <label
+                      class="_label"
+                      for="react-use-id-4"
+                    >
+                      Allow users to invite you to rooms
+                    </label>
+                    <span
+                      class="_message _help-message"
+                      id="radix-react-use-id-5"
+                    >
+                      Your account provider does not offer this feature.
+                    </span>
+                  </div>
+                </div>
+              </form>
             </div>
           </div>
-          <div
-            class="_inline-field-body"
+          <form
+            class="_root"
           >
-            <label
-              class="_label"
-              for="react-use-id-1"
+            <div
+              class="mx_SettingsSubsection"
             >
-              Enable the integration manager
-            </label>
+              <div
+                class="mx_SettingsSubsectionHeading"
+              >
+                <h2
+                  class="mx_Heading_h4 mx_SettingsSubsectionHeading_heading"
+                >
+                  Presence
+                </h2>
+              </div>
+              <div
+                class="mx_SettingsSubsection_description"
+              >
+                <div
+                  class="mx_SettingsSubsection_text"
+                >
+                  Share your activity and status with others.
+                </div>
+              </div>
+              <div
+                class="mx_SettingsSubsection_content mx_SettingsSubsection_card"
+              >
+                <div
+                  class="_inline-field"
+                >
+                  <div
+                    class="_inline-field-control"
+                  >
+                    <div
+                      class="_container"
+                    >
+                      <input
+                        checked=""
+                        class="_input"
+                        disabled=""
+                        id="mx_SettingsFlag_vY7Q4uEh9K38"
+                        role="switch"
+                        type="checkbox"
+                      />
+                      <div
+                        class="_ui"
+                      />
+                    </div>
+                  </div>
+                  <div
+                    class="_inline-field-body"
+                  >
+                    <label
+                      class="_label"
+                      for="mx_SettingsFlag_vY7Q4uEh9K38"
+                    >
+                      Send read receipts
+                    </label>
+                    <span
+                      class="_message _help-message"
+                      id="radix-react-use-id-6"
+                    >
+                      Your server doesn't support disabling sending read receipts.
+                    </span>
+                  </div>
+                </div>
+                <div
+                  class="_inline-field"
+                >
+                  <div
+                    class="_inline-field-control"
+                  >
+                    <div
+                      class="_container"
+                    >
+                      <input
+                        checked=""
+                        class="_input"
+                        disabled=""
+                        id="mx_SettingsFlag_QgU2PomxwKpa"
+                        role="switch"
+                        type="checkbox"
+                      />
+                      <div
+                        class="_ui"
+                      />
+                    </div>
+                  </div>
+                  <div
+                    class="_inline-field-body"
+                  >
+                    <label
+                      class="_label"
+                      for="mx_SettingsFlag_QgU2PomxwKpa"
+                    >
+                      Send typing notifications
+                    </label>
+                  </div>
+                </div>
+                <div
+                  class="_inline-field"
+                >
+                  <div
+                    class="_inline-field-control"
+                  >
+                    <div
+                      class="_container"
+                    >
+                      <input
+                        class="_input"
+                        disabled=""
+                        id="mx_SettingsFlag_6hpi3YEetmBG"
+                        role="switch"
+                        type="checkbox"
+                      />
+                      <div
+                        class="_ui"
+                      />
+                    </div>
+                  </div>
+                  <div
+                    class="_inline-field-body"
+                  >
+                    <label
+                      class="_label"
+                      for="mx_SettingsFlag_6hpi3YEetmBG"
+                    >
+                      Publish timezone on public profile
+                    </label>
+                    <span
+                      class="_message _help-message"
+                      id="radix-react-use-id-7"
+                    >
+                      Requires your server to support MSC4133
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </form>
+          <form
+            class="_root"
+          >
+            <div
+              class="mx_SettingsSubsection"
+            >
+              <div
+                class="mx_SettingsSubsectionHeading"
+              >
+                <h2
+                  class="mx_Heading_h4 mx_SettingsSubsectionHeading_heading"
+                >
+                  Room directory
+                </h2>
+              </div>
+              <div
+                class="mx_SettingsSubsection_content mx_SettingsSubsection_card"
+              >
+                <div
+                  class="_inline-field"
+                >
+                  <div
+                    class="_inline-field-control"
+                  >
+                    <div
+                      class="_container"
+                    >
+                      <input
+                        class="_input"
+                        disabled=""
+                        id="mx_SettingsFlag_4yVCeEefiPqp"
+                        role="switch"
+                        type="checkbox"
+                      />
+                      <div
+                        class="_ui"
+                      />
+                    </div>
+                  </div>
+                  <div
+                    class="_inline-field-body"
+                  >
+                    <label
+                      class="_label"
+                      for="mx_SettingsFlag_4yVCeEefiPqp"
+                    >
+                      Show NSFW content
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+      <div
+        class="mx_SettingsSection"
+      >
+        <div
+          class="mx_SettingsSection_subSections"
+        >
+          <div
+            class="mx_SettingsSubsection"
+          >
+            <div
+              class="mx_SettingsSubsectionHeading"
+            >
+              <h2
+                class="mx_Heading_h4 mx_SettingsSubsectionHeading_heading"
+              >
+                Ignored users
+              </h2>
+            </div>
+            <div
+              class="mx_SettingsSubsection_content"
+            >
+              <div
+                class="mx_SettingsSubsection_text"
+              >
+                You have no ignored users.
+              </div>
+            </div>
           </div>
         </div>
-      </form>
+      </div>
       <div
         class="mx_SettingsSection"
       >
@@ -168,6 +531,79 @@ exports[`<SecurityUserSettingsTab /> > renders security section 1`] = `
           </div>
         </div>
       </div>
+      <form
+        class="_root mx_SetIntegrationManager"
+        data-testid="mx_SetIntegrationManager"
+      >
+        <div
+          class="mx_SettingsFlag"
+        >
+          <div
+            class="mx_SetIntegrationManager_heading_manager"
+          >
+            <h2
+              class="mx_Heading_h3"
+            >
+              Manage integrations
+            </h2>
+            <h3
+              class="mx_Heading_h4"
+              id="mx_SetIntegrationManager_ManagerName"
+            >
+              (scalar.vector.im)
+            </h3>
+          </div>
+        </div>
+        <div
+          class="mx_SettingsSubsection_text"
+          id="mx_SetIntegrationManager_BodyText"
+        >
+          <span>
+            Use an integration manager 
+            <strong>
+              (scalar.vector.im)
+            </strong>
+             to manage bots, widgets, and sticker packs.
+          </span>
+        </div>
+        <div
+          class="mx_SettingsSubsection_text"
+        >
+          Integration managers receive configuration data, and can modify widgets, send room invites, and set power levels on your behalf.
+        </div>
+        <div
+          class="_inline-field"
+        >
+          <div
+            class="_inline-field-control"
+          >
+            <div
+              class="_container"
+            >
+              <input
+                checked=""
+                class="_input"
+                id="react-use-id-8"
+                role="switch"
+                type="checkbox"
+              />
+              <div
+                class="_ui"
+              />
+            </div>
+          </div>
+          <div
+            class="_inline-field-body"
+          >
+            <label
+              class="_label"
+              for="react-use-id-8"
+            >
+              Enable the integration manager
+            </label>
+          </div>
+        </div>
+      </form>
       <div
         class="mx_SettingsSection"
       >
@@ -223,7 +659,7 @@ exports[`<SecurityUserSettingsTab /> > renders security section 1`] = `
                     >
                       <label
                         class="_label"
-                        for="radix-react-use-id-2"
+                        for="radix-react-use-id-9"
                       >
                         Enter a new identity server
                       </label>
@@ -232,7 +668,7 @@ exports[`<SecurityUserSettingsTab /> > renders security section 1`] = `
                       >
                         <input
                           class="_control"
-                          id="radix-react-use-id-2"
+                          id="radix-react-use-id-9"
                           name="input"
                           placeholder=""
                           title=""
@@ -243,41 +679,6 @@ exports[`<SecurityUserSettingsTab /> > renders security section 1`] = `
                   </form>
                 </div>
               </fieldset>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div
-        class="mx_SettingsSection"
-      >
-        <h2
-          class="mx_Heading_h3"
-        >
-          Advanced
-        </h2>
-        <div
-          class="mx_SettingsSection_subSections"
-        >
-          <div
-            class="mx_SettingsSubsection"
-          >
-            <div
-              class="mx_SettingsSubsectionHeading"
-            >
-              <h3
-                class="mx_Heading_h4 mx_SettingsSubsectionHeading_heading"
-              >
-                Ignored users
-              </h3>
-            </div>
-            <div
-              class="mx_SettingsSubsection_content"
-            >
-              <div
-                class="mx_SettingsSubsection_text"
-              >
-                You have no ignored users.
-              </div>
             </div>
           </div>
         </div>

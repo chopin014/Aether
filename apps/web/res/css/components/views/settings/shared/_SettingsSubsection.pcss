@@ -71,3 +71,43 @@ Please see LICENSE files in the repository root for full details.
         min-width: 360px;
     }
 }
+
+/* A card of settings: one setting per row, with the switch or button at the end of the row. */
+.mx_SettingsSubsection_content.mx_SettingsSubsection_card {
+    gap: 0;
+    justify-items: stretch;
+    margin-top: var(--cpd-space-3x);
+    padding: 0 var(--cpd-space-4x);
+    box-sizing: border-box;
+    /* A faint lift over whatever the page is drawn on, in light and dark themes alike. */
+    background: color-mix(in srgb, var(--cpd-color-text-primary) 4%, transparent);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-3x);
+
+    > * {
+        margin: 0;
+        padding-block: var(--cpd-space-4x);
+    }
+
+    > * + * {
+        border-block-start: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    }
+
+    /* A form in a card is one row; its own controls stack inside it. */
+    > form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--cpd-space-4x);
+    }
+
+    /* Compound's toggles put the switch first; a card lists the label first and the switch at the end. */
+    > [class*="_inline-field_"],
+    > form > [class*="_inline-field_"] {
+        flex-direction: row-reverse;
+        gap: var(--cpd-space-6x);
+    }
+
+    &.mx_SettingsSubsection_card_critical {
+        border-color: var(--cpd-color-border-critical-subtle);
+    }
+}

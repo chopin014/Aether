@@ -31,7 +31,7 @@ test.describe("Account user settings tab", () => {
         await expect(uut).toMatchScreenshot("account.png");
 
         // Assert that the top heading is rendered
-        await expect(uut.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
+        await expect(uut.getByRole("heading", { name: "Password", exact: true })).toBeVisible();
 
         const profile = uut.locator(".mx_UserProfileSettings_profile");
         await profile.scrollIntoViewIfNeeded();

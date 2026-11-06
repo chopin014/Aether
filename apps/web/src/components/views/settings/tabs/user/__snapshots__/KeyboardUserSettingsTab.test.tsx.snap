@@ -14,6 +14,50 @@ exports[`KeyboardUserSettingsTab > renders list of keyboard shortcuts 1`] = `
         <div
           class="mx_SettingsSection_subSections"
         >
+          <form
+            class="_root"
+          >
+            <div
+              class="mx_SettingsSubsection"
+            >
+              <div
+                class="mx_SettingsSubsection_content mx_SettingsSubsection_noHeading mx_SettingsSubsection_card"
+              >
+                <div
+                  class="_inline-field"
+                >
+                  <div
+                    class="_inline-field-control"
+                  >
+                    <div
+                      class="_container"
+                    >
+                      <input
+                        class="_input"
+                        disabled=""
+                        id="mx_SettingsFlag_vY7Q4uEh9K38"
+                        role="switch"
+                        type="checkbox"
+                      />
+                      <div
+                        class="_ui"
+                      />
+                    </div>
+                  </div>
+                  <div
+                    class="_inline-field-body"
+                  >
+                    <label
+                      class="_label"
+                      for="mx_SettingsFlag_vY7Q4uEh9K38"
+                    >
+                      Use Ctrl + F to search timeline
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </form>
           <div
             class="mx_SettingsSubsection"
           >

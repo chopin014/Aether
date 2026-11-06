@@ -14,7 +14,6 @@ import { InfoSolidIcon, VideoCallSolidIcon } from "@vector-im/compound-design-to
 import { _t } from "../../../languageHandler";
 import defaultDispatcher from "../../../dispatcher/dispatcher";
 import { Action } from "../../../dispatcher/actions";
-import { UserTab } from "../dialogs/UserTab";
 import { EffectiveMembership, getEffectiveMembership } from "../../../utils/membership";
 import MatrixClientContext from "../../../contexts/MatrixClientContext";
 import { useDispatcher } from "../../../hooks/useDispatcher";
@@ -26,7 +25,6 @@ import RoomTopic from "../elements/RoomTopic";
 import RoomFacePile from "../elements/RoomFacePile";
 import RoomAvatar from "../avatars/RoomAvatar";
 import MemberAvatar from "../avatars/MemberAvatar";
-import { BetaPill } from "../beta/BetaCard";
 import RoomInfoLine from "./RoomInfoLine";
 import { isVideoRoom as calcIsVideoRoom } from "../../../utils/video-rooms";
 import { useRoomName } from "../../../hooks/useRoomName.ts";
@@ -57,12 +55,6 @@ const RoomPreviewCard: FC<IProps> = ({ room, onJoinButtonClicked, onRejectButton
     const cannotJoin =
         getEffectiveMembership(myMembership) === EffectiveMembership.Leave && joinRule !== JoinRule.Public;
     const name = useRoomName(room);
-
-    const viewLabs = (): void =>
-        defaultDispatcher.dispatch({
-            action: Action.ViewUserSettings,
-            initialTabId: UserTab.Labs,
-        });
 
     let inviterSection: JSX.Element | null = null;
     let joinButtons: JSX.Element;
@@ -157,7 +149,6 @@ const RoomPreviewCard: FC<IProps> = ({ room, onJoinButtonClicked, onRejectButton
                 <div className="mx_RoomPreviewCard_video">
                     <VideoCallSolidIcon />
                 </div>
-                <BetaPill onClick={viewLabs} tooltipTitle={_t("labs|video_rooms_beta")} />
             </>
         );
     } else if (room.isSpaceRoom()) {

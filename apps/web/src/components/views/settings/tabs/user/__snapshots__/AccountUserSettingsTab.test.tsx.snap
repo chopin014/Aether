@@ -180,32 +180,31 @@ exports[`<AccountUserSettingsTab /> > 3pids > should display 3pid email addresse
 
 exports[`<AccountUserSettingsTab /> > deactivate account > should render section when account deactivation feature is enabled 1`] = `
 <div
-  class="mx_SettingsSection"
+  class="mx_SettingsSubsection"
+  data-testid="account-management-section"
 >
-  <h2
-    class="mx_Heading_h3"
-  >
-    Deactivate Account
-  </h2>
   <div
-    class="mx_SettingsSection_subSections"
+    class="mx_SettingsSubsectionHeading"
+  >
+    <h2
+      class="mx_Heading_h4 mx_SettingsSubsectionHeading_heading"
+    >
+      Danger zone
+    </h2>
+  </div>
+  <div
+    class="mx_SettingsSubsection_content mx_SettingsSubsection_card mx_SettingsSubsection_card_critical"
   >
     <div
-      class="mx_SettingsSubsection"
-      data-testid="account-management-section"
+      class="_flex"
+      style="--mx-flex-display: flex; --mx-flex-direction: row; --mx-flex-align: center; --mx-flex-justify: space-between; --mx-flex-gap: var(--cpd-space-6x); --mx-flex-wrap: nowrap;"
     >
-      <div
-        class="mx_SettingsSubsectionHeading"
-      >
-        <h3
-          class="mx_Heading_h4 mx_SettingsSubsectionHeading_heading"
+      <div>
+        <p
+          class="_typography _font-body-md-semibold"
         >
-          Account management
-        </h3>
-      </div>
-      <div
-        class="mx_SettingsSubsection_description"
-      >
+          Deactivate Account
+        </p>
         <div
           class="mx_SettingsSubsection_text"
         >
@@ -213,15 +212,11 @@ exports[`<AccountUserSettingsTab /> > deactivate account > should render section
         </div>
       </div>
       <div
-        class="mx_SettingsSubsection_content"
+        class="mx_AccessibleButton mx_AccessibleButton_hasKind mx_AccessibleButton_kind_danger_outline"
+        role="button"
+        tabindex="0"
       >
-        <div
-          class="mx_AccessibleButton mx_AccessibleButton_hasKind mx_AccessibleButton_kind_danger"
-          role="button"
-          tabindex="0"
-        >
-          Deactivate Account
-        </div>
+        Deactivate Account
       </div>
     </div>
   </div>

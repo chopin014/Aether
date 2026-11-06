@@ -457,7 +457,6 @@
         "spaceinvaders_message": "envia os invasores do espaço"
     },
     "common": {
-        "access_token": "Símbolo de acesso",
         "accessibility": "Acessibilidade",
         "advanced": "Avançado",
         "all_chats": "Todos os bate-papos",
@@ -534,7 +533,6 @@
         "orphan_rooms": "Outras salas",
         "password": "Senha",
         "people": "Pessoas",
-        "preferences": "Preferências",
         "presence": "Presença",
         "preview_message": "Ei, você aí. Você é incrível!",
         "privacy": "Privacidade",
@@ -1259,7 +1257,6 @@
     },
     "failed_load_async_component": "Não foi possível carregar! Verifique sua conexão de rede e tente novamente.",
     "feedback": {
-        "can_contact_label": "Vocês podem me contactar se tiverem quaisquer perguntas subsequentes",
         "comment_label": "Comentário",
         "existing_issue_link": "Por favor, consulte os <existingIssuesLink> erros conhecidos no Github </existingIssuesLink> antes de enviar o seu. Se ninguém tiver mencionado o seu erro, <newIssueLink> informe-nos sobre um erro novo </newIssueLink>.",
         "may_contact_label": "Você pode entrar em contato comigo se quiser acompanhar ou me deixar testar as próximas ideias",
@@ -1507,47 +1504,23 @@
     },
     "labs": {
         "ask_to_join": "Habilitar pedir para participar",
-        "beta_description": "O que vem por aí no %(brand)s? Os laboratórios são a melhor maneira de obter informações antecipadas, testar novos recursos e ajudar a moldá-los antes do lançamento.",
-        "beta_feature": "Este é um recurso beta",
-        "beta_feedback_leave_button": "Para sair do beta, vá nas suas configurações.",
-        "beta_feedback_title": "Comentários beta para %(featureName)s",
-        "beta_section": "Próximos recursos",
         "bridge_state": "Exibir informações sobre integrações nas configurações das salas",
         "bridge_state_channel": "Canal: <channelLink/>",
         "bridge_state_creator": "Esta integração foi disponibilizada por <user />.",
         "bridge_state_manager": "Esta integração é desenvolvida por <user />.",
         "bridge_state_workspace": "Espaço de trabalho: <networkLink/>",
-        "click_for_info": "Clique para mais informações",
         "currently_experimental": "Atualmente experimental.",
         "dynamic_room_predecessors": "Predecessores de salas dinâmicas",
         "dynamic_room_predecessors_description": "Habilitar MSC3946 (para dar suporte a arquivos de chat para quem chegar mais tarde)",
         "element_call_video_rooms": "Salas de vídeo Element Call",
         "exclude_insecure_devices": "Excluir dispositivos inseguros ao enviar/receber mensagens",
         "exclude_insecure_devices_description": "Quando esse modo estiver ativado, as mensagens criptografadas não serão compartilhadas com dispositivos não verificados e as mensagens de dispositivos não verificados serão mostradas como um erro. Observe que, se você ativar esse modo, talvez não consiga se comunicar com usuários que não verificaram seus dispositivos.",
-        "experimental_description": "Está se sentindo experimental? Experimente nossas últimas ideias em desenvolvimento. Esses recursos não estão finalizados; eles podem ser instáveis, podem mudar ou podem ser descartados completamente.<a> Saiba mais</a> .",
-        "experimental_section": "Pré-visualizações antecipadas",
         "extended_profiles_msc_support": "Requer que seu servidor ofereça suporte ao MSC4133",
         "feature_wysiwyg_composer_description": "Use rich text em vez de Markdown no compositor de mensagens.",
-        "group_developer": "Desenvolvedor",
-        "group_encryption": "Criptografia",
-        "group_experimental": "Experimental",
-        "group_messaging": "Mensagens",
-        "group_moderation": "Moderação",
-        "group_profile": "Perfil",
-        "group_rooms": "Salas",
-        "group_spaces": "Espaços",
-        "group_threads": "Tópicos",
-        "group_ui": "Interface do usuário",
-        "group_voip": "Voz e vídeo",
-        "group_widgets": "Widgets",
         "hidebold": "Ocultar ponto de notificação (exibir somente emblemas de contadores)",
-        "join_beta": "Participe da versão beta",
-        "join_beta_reload": "Aderir à versão beta irá recarregar %(brand)s.",
         "jump_to_date": "Ir para a data (adiciona cabeçalhos /jumptodate e pular para a data)",
         "jump_to_date_msc_support": "Requer que seu servidor suporte MSC3030",
         "latex_maths": "Renderizar fórmulas matemáticas LaTeX em mensagens",
-        "leave_beta": "Sair da versão beta",
-        "leave_beta_reload": "Sair da versão beta irá recarregar %(brand)s.",
         "location_share_live": "Compartilhamento de localização ao vivo",
         "location_share_live_description": "Implementação temporária. As localizações persistem no histórico da sala.",
         "mjolnir": "Novas formas de ignorar as pessoas",
@@ -1564,14 +1537,6 @@
         "sliding_sync_server_no_support": "Seu servidor não tem suporte",
         "unrealiable_e2e": "Não confiável em salas criptografadas",
         "video_rooms": "Salas de vídeo",
-        "video_rooms_a_new_way_to_chat": "Uma nova maneira de conversar por voz e vídeo em %(brand)s .",
-        "video_rooms_always_on_voip_channels": "As salas de vídeo são canais VoIP sempre ativos incorporados em uma sala em %(brand)s .",
-        "video_rooms_beta": "As salas de vídeo são um recurso beta",
-        "video_rooms_faq1_answer": "Use o botão “+” na seção da sala do painel esquerdo.",
-        "video_rooms_faq1_question": "Como posso criar uma sala de vídeo?",
-        "video_rooms_faq2_answer": "Sim, a linha do tempo do chat é exibida ao lado do vídeo.",
-        "video_rooms_faq2_question": "Posso usar o chat de texto junto com a videochamada?",
-        "video_rooms_feedbackSubheading": "Obrigado por experimentar a versão beta. Forneça o máximo de detalhes que você puder para que possamos aprimorá-la.",
         "wysiwyg_composer": "Editor de texto rico",
         "config_only": "O provedor da sua conta precisa ativar este recurso no config.json.",
         "desktop_shell": "Layout para computador",
@@ -2462,7 +2427,6 @@
     },
     "setting": {
         "help_about": {
-            "access_token_detail": "Seu token de acesso dá acesso total à sua conta. Não o compartilhe com ninguém.",
             "brand_version": "versão do %(brand)s:",
             "clear_cache_reload": "Limpar cache e recarregar",
             "crypto_version": "Versão Crypto:",
@@ -2471,13 +2435,17 @@
             "homeserver": "O servidor doméstico é <code>%(homeserverUrl)s</code>",
             "identity_server": "O servidor de identidade é <code>%(identityServerUrl)s</code>",
             "title": "Ajuda e sobre",
-            "versions": "Versões"
+            "versions": "Versões",
+            "troubleshooting": "Solução de problemas",
+            "clear_cache_confirm_title": "Limpar cache e recarregar?",
+            "clear_cache_confirm_description": "O %(brand)s vai baixar suas conversas de novo. Nada é removido da sua conta."
         }
     },
     "settings": {
         "account": {
             "dialog_title": "<strong>Configurações:</strong> Conta",
-            "title": "Conta"
+            "title": "Conta",
+            "nav_title": "Minha conta"
         },
         "all_rooms_home": "Mostrar todas as salas no Início",
         "all_rooms_home_description": "Todas as salas que você estiver presente aparecerão no Início.",
@@ -2588,8 +2556,6 @@
             "title": "Criptografia"
         },
         "general": {
-            "account_management_section": "Gerenciamento da Conta",
-            "account_section": "Conta",
             "add_email_dialog_title": "Adicionar endereço de e-mail",
             "add_email_failed_verification": "Falha ao confirmar o endereço de e-mail: certifique-se de clicar no link do e-mail",
             "add_email_instructions": "Enviamos um e-mail para você confirmar seu endereço. Por favor, siga as instruções e clique no botão abaixo.",
@@ -2674,7 +2640,8 @@
             "spell_check_locale_placeholder": "Escolha um local",
             "unable_to_load_emails": "Não é possível carregar endereços de e-mail",
             "unable_to_load_msisdns": "Não é possível carregar números de telefone",
-            "username": "Nome de usuário"
+            "username": "Nome de usuário",
+            "danger_zone": "Zona de perigo"
         },
         "inline_url_previews_default": "Ativar, por padrão, a visualização de resumo de links",
         "insert_trailing_colon_mentions": "Insira dois pontos à direita após o usuário mencionar no início de uma mensagem",
@@ -2727,9 +2694,6 @@
         "keyboard": {
             "dialog_title": "<strong>Configurações:</strong> Teclado",
             "title": "Teclado"
-        },
-        "labs": {
-            "dialog_title": "<strong>Configurações:</strong> Labs"
         },
         "labs_mjolnir": {
             "dialog_title": "<strong>Configurações:</strong> Usuários ignorados"
@@ -2809,12 +2773,9 @@
             "compact_modern": "Usar um layout \"moderno\" mais compacto",
             "composer_heading": "Campo de texto",
             "default_timezone": "Navegador padrão (%(timezone)s)",
-            "dialog_title": "<strong>Configurações:</strong> Preferências",
             "enable_content_protection": "Habilitar a proteção de conteúdo",
             "enable_hardware_acceleration": "Habilitar aceleração de hardware",
             "enable_tray_icon": "Mostrar o ícone da bandeja e minimizar a janela ao fechar",
-            "keyboard_heading": "Teclas de atalho do teclado",
-            "keyboard_view_shortcuts_button": "Para ver todos os atalhos do teclado, <a>clique aqui</a>.",
             "media_heading": "Imagens, GIFs e vídeos",
             "presence_description": "Compartilhe sua atividade e status com outras pessoas.",
             "publish_timezone": "Publique o fuso horário no perfil público",
@@ -2835,7 +2796,6 @@
         "replace_plain_emoji": "Substituir automaticamente os emojis em texto",
         "security": {
             "analytics_description": "Compartilhe dados anônimos para nos ajudar a identificar problemas. Nada pessoal. Sem terceiros.",
-            "bulk_options_accept_all_invites": "Aceite todos os convites de %(invitedRooms)s",
             "bulk_options_reject_all_invites": "Recusar todos os %(invitedRooms)s convites",
             "bulk_options_section": "Opções em massa",
             "dehydrated_device_description": "O recurso de dispositivo offline permite que você receba mensagens criptografadas mesmo quando você não está conectado a nenhum dispositivo",
@@ -2874,7 +2834,8 @@
             "tokenizer_mode_language": "Baseado no idioma",
             "tokenizer_mode_language_description": "Suporte a um único idioma, de acordo com o idioma da interface. Funciona apenas com alguns idiomas (inglês, alemão etc.).",
             "tokenizer_mode_ngram": "N-grama",
-            "tokenizer_mode_ngram_description": "Oferece suporte a todos os idiomas, inclusive os que não usam separação entre palavras. Funciona com vários idiomas juntos."
+            "tokenizer_mode_ngram_description": "Oferece suporte a todos os idiomas, inclusive os que não usam separação entre palavras. Funciona com vários idiomas juntos.",
+            "nav_title": "Privacidade e segurança"
         },
         "send_read_receipts": "Enviar confirmações de leitura",
         "send_read_receipts_unsupported": "Seu servidor não suporta a desativação do envio de confirmações de leitura.",
@@ -2990,7 +2951,6 @@
         "show_typing_notifications": "Mostrar quando alguém estiver digitando",
         "showbold": "Mostrar todas as atividades na lista de salas (pontos ou número de mensagens não lidas)",
         "sidebar": {
-            "dialog_title": "<strong>Configurações:</strong> Barra lateral",
             "metaspaces_home_all_rooms": "Mostrar todas as salas",
             "metaspaces_home_all_rooms_description": "Mostre todas as suas salas no Início, mesmo que elas estejam em um espaço.",
             "metaspaces_home_description": "A página inicial é útil para obter uma visão geral de tudo.",
@@ -3000,8 +2960,7 @@
             "metaspaces_video_rooms": "Salas de vídeo e conferências",
             "metaspaces_video_rooms_description": "Agrupar todas as salas de vídeo e conferências privadas.",
             "metaspaces_video_rooms_description_invite_extension": "Nas conferências, você pode convidar pessoas fora da Matrix.",
-            "spaces_explainer": "Os espaços são formas de agrupar salas e pessoas. Além dos espaços em que você está, você também pode usar alguns pré-construídos.",
-            "title": "Barra lateral"
+            "spaces_explainer": "Os espaços são formas de agrupar salas e pessoas. Além dos espaços em que você está, você também pode usar alguns pré-construídos."
         },
         "start_automatically": {
             "disabled": "Não",
@@ -3056,6 +3015,58 @@
         "inline_url_previews_encrypted_bundled_only": "Mostrar apenas pré-visualizações agrupadas em salas criptografadas",
         "show_people_sections": "Mostrar Pessoas como uma seção",
         "show_sections": "Mostrar seções",
+        "groups": {
+            "account": "Configurações de usuário",
+            "app": "Configurações do aplicativo",
+            "about": "Sobre"
+        },
+        "chat": {
+            "title": "Chat",
+            "dialog_title": "<strong>Configurações:</strong> Chat"
+        },
+        "language_time": {
+            "title": "Idioma e horário",
+            "dialog_title": "<strong>Configurações:</strong> Idioma e horário"
+        },
+        "system": {
+            "title": "Sistema",
+            "dialog_title": "<strong>Configurações:</strong> Sistema",
+            "performance_heading": "Desempenho e privacidade",
+            "advanced_description": "Atrasos em milissegundos. A maioria das pessoas nunca precisa mudar isso.",
+            "desktop_title": "Aplicativo para desktop"
+        },
+        "sign_out": "Sair",
+        "search_empty": "Nenhuma configuração corresponde à busca",
+        "pages": {
+            "account_description": "Seu nome, seu login e como entrar na sua conta.",
+            "account_keywords": "nome usuário e-mail email senha desativar conta sair",
+            "profile_description": "Como os outros te veem: foto, banner, bio e estilo do nome.",
+            "profile_keywords": "avatar foto imagem banner bio pronomes status placa",
+            "security_description": "Quem pode falar com você e o que os outros veem.",
+            "security_keywords": "privacidade convites recibos de leitura digitando bloqueados ignorados mídia nsfw análises integrações",
+            "encryption_description": "Recuperação e chaves das suas mensagens criptografadas.",
+            "encryption_keywords": "recuperação chave backup redefinir identidade",
+            "sessions_description": "Todos os lugares onde sua conta está conectada.",
+            "sessions_keywords": "dispositivos sessões sair qr",
+            "appearance_description": "Tema, cores, tamanho da fonte e layout das mensagens.",
+            "appearance_keywords": "tema escuro claro cor fonte tamanho compacto",
+            "chat_description": "Como as mensagens aparecem e como você escreve.",
+            "chat_keywords": "linha do tempo mensagens escrita markdown emoji gif vídeo links prévias código lista de salas servidores",
+            "voice_description": "Microfone, alto-falantes, câmera e supressão de ruído.",
+            "voice_keywords": "microfone alto-falante câmera ruído supressão apertar para falar eco sons",
+            "notifications_description": "Quando e como você é avisado.",
+            "notifications_keywords": "sons alertas menções palavras-chave e-mail",
+            "keyboard_description": "Atalhos e teclas de chamada.",
+            "keyboard_keywords": "atalhos teclas apertar para falar silenciar ensurdecer ctrl f",
+            "language_description": "Idioma do aplicativo, fuso horário e formato das horas.",
+            "language_keywords": "idioma ortografia fuso horário 12 horas",
+            "system_description": "Inicialização, bandeja e desempenho.",
+            "system_keywords": "inicialização bandeja barra de menu aceleração de hardware captura de tela atraso",
+            "updates_description": "A versão instalada e novas versões.",
+            "updates_keywords": "atualização versão baixar reiniciar",
+            "help_description": "Versão, ajuda e solução de problemas.",
+            "help_keywords": "ajuda faq versão relatar bug cache servidor créditos"
+        },
         "join_all_channels": "Entrar em todos os canais de servidores pequenos",
         "join_all_channels_description": "Ao entrar em um servidor com até 10 canais, entra em todos de uma vez. Servidores maiores sempre deixam você escolher."
     },

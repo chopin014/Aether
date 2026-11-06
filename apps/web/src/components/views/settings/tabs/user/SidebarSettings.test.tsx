@@ -13,14 +13,14 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "test-utils-rtl";
 import { flushPromises } from "test-utils";
 
-import SidebarUserSettingsTab from "./SidebarUserSettingsTab";
+import { SidebarSettings } from "./SidebarSettings";
 import PosthogTrackers from "../../../../../PosthogTrackers";
 import SettingsStore from "../../../../../settings/SettingsStore";
 import { MetaSpace } from "../../../../../stores/spaces";
 import { SettingLevel } from "../../../../../settings/SettingLevel";
 import SdkConfig from "../../../../../SdkConfig";
 
-describe("<SidebarUserSettingsTab />", () => {
+describe("<SidebarSettings />", () => {
     beforeEach(() => {
         vi.spyOn(PosthogTrackers, "trackInteraction").mockClear();
         vi.spyOn(SettingsStore, "getValue").mockRestore();
@@ -33,7 +33,7 @@ describe("<SidebarUserSettingsTab />", () => {
         const spySettingsStore = vi.spyOn(SettingsStore, "getValue").mockImplementation((setting) => {
             return setting === "feature_video_rooms" ? true : originalGetValue(setting);
         });
-        const { container } = render(<SidebarUserSettingsTab />);
+        const { container } = render(<SidebarSettings />);
         expect(container).toMatchSnapshot();
         spySettingsStore.mockRestore();
         spy.mockRestore();
@@ -43,7 +43,7 @@ describe("<SidebarUserSettingsTab />", () => {
         const spySettingsStore = vi.spyOn(SettingsStore, "getValue").mockImplementation((setting) => {
             return setting === "feature_video_rooms" ? true : originalGetValue(setting);
         });
-        const { container } = render(<SidebarUserSettingsTab />);
+        const { container } = render(<SidebarSettings />);
         expect(container).toMatchSnapshot();
         spySettingsStore.mockRestore();
     });
@@ -58,7 +58,7 @@ describe("<SidebarUserSettingsTab />", () => {
             }
             return false;
         });
-        render(<SidebarUserSettingsTab />);
+        render(<SidebarSettings />);
 
         fireEvent.click(screen.getByTestId("mx_SidebarUserSettingsTab_homeAllRoomsCheckbox"));
 
@@ -83,7 +83,7 @@ describe("<SidebarUserSettingsTab />", () => {
             }
             return false;
         });
-        render(<SidebarUserSettingsTab />);
+        render(<SidebarSettings />);
 
         expect(screen.getByTestId("mx_SidebarUserSettingsTab_homeAllRoomsCheckbox")).toBeDisabled();
     });

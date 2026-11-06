@@ -1,0 +1,97 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-3x);
+    padding-block-end: var(--cpd-space-2x);
+}
+
+.user {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-3x);
+    min-width: 0;
+    padding: var(--cpd-space-2x);
+    background: none;
+    border: 0;
+    border-radius: var(--cpd-space-2x);
+    color: var(--cpd-color-text-primary);
+    text-align: start;
+    cursor: pointer;
+}
+
+.user:hover {
+    background: var(--cpd-color-bg-subtle-secondary);
+}
+
+.user:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+}
+
+.userText {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.editProfile {
+    display: inline-flex;
+    align-items: center;
+    color: var(--cpd-color-text-secondary);
+}
+
+.chevron {
+    width: var(--cpd-space-4x);
+    height: var(--cpd-space-4x);
+}
+
+.search {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-2x);
+    padding: 0 var(--cpd-space-3x);
+    background: var(--cpd-color-bg-subtle-secondary);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-2x);
+    cursor: text;
+}
+
+.search:focus-within {
+    border-color: var(--cpd-color-border-focused);
+}
+
+.searchIcon {
+    flex: none;
+    width: var(--cpd-space-4x);
+    height: var(--cpd-space-4x);
+    color: var(--cpd-color-icon-secondary);
+}
+
+.searchInput {
+    flex: 1;
+    min-width: 0;
+    height: var(--cpd-space-9x);
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    border: 0;
+    outline: none;
+    color: var(--cpd-color-text-primary);
+    font: var(--cpd-font-body-sm-regular);
+}
+
+.searchInput::placeholder {
+    color: var(--cpd-color-text-secondary);
+}

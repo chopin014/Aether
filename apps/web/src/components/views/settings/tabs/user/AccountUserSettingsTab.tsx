@@ -9,6 +9,8 @@ Please see LICENSE files in the repository root for full details.
 
 import React, { type JSX, useCallback, useContext, useEffect } from "react";
 import { HTTPError } from "matrix-js-sdk/src/matrix";
+import { Text } from "@vector-im/compound-web";
+import { Flex } from "@element-hq/web-shared-components";
 import { logger } from "matrix-js-sdk/src/logger";
 
 import { UserFriendlyError, _t } from "../../../../../languageHandler";
@@ -25,6 +27,7 @@ import { SettingsSection } from "../../shared/SettingsSection";
 import { SettingsSubsection, SettingsSubsectionText } from "../../shared/SettingsSubsection";
 import { UserPersonalInfoSettings } from "../../UserPersonalInfoSettings";
 import { SDKContext } from "../../../../../contexts/SDKContext.ts";
+import { DesktopAccountOverviewSettings } from "./DesktopAccountOverviewSettings";
 
 interface IProps {
     closeSettingsFn: () => void;
@@ -49,11 +52,7 @@ const AccountSection: React.FC<AccountSectionProps> = ({
 
     return (
         <SettingsSection>
-            <SettingsSubsection
-                heading={_t("settings|general|account_section")}
-                stretchContent
-                data-testid="accountSection"
-            >
+            <SettingsSubsection heading={_t("common|password")} stretchContent data-testid="accountSection">
                 <SettingsSubsectionText>{_t("settings|general|password_change_section")}</SettingsSubsectionText>
                 <ChangePassword
                     rowClassName=""
@@ -70,17 +69,24 @@ interface ManagementSectionProps {
     onDeactivateClicked: () => void;
 }
 
+/** The danger zone: actions on the account that cannot be undone, kept apart at the bottom of the page. */
 const ManagementSection: React.FC<ManagementSectionProps> = ({ onDeactivateClicked }) => {
     return (
-        <SettingsSection heading={_t("settings|general|deactivate_section")}>
+        <SettingsSection>
             <SettingsSubsection
-                heading={_t("settings|general|account_management_section")}
+                heading={_t("settings|general|danger_zone")}
                 data-testid="account-management-section"
-                description={_t("settings|general|deactivate_warning")}
+                card="critical"
             >
-                <AccessibleButton onClick={onDeactivateClicked} kind="danger">
-                    {_t("settings|general|deactivate_section")}
-                </AccessibleButton>
+                <Flex align="center" justify="space-between" gap="var(--cpd-space-6x)">
+                    <div>
+                        <Text weight="semibold">{_t("settings|general|deactivate_section")}</Text>
+                        <SettingsSubsectionText>{_t("settings|general|deactivate_warning")}</SettingsSubsectionText>
+                    </div>
+                    <AccessibleButton onClick={onDeactivateClicked} kind="danger_outline">
+                        {_t("settings|general|deactivate_section")}
+                    </AccessibleButton>
+                </Flex>
             </SettingsSubsection>
         </SettingsSection>
     );
@@ -176,8 +182,26 @@ const AccountUserSettingsTab: React.FC<IProps> = ({ closeSettingsFn, startCustom
 
     let accountManagementSection: JSX.Element | undefined;
     const isAccountManagedExternally = Boolean(externalAccountManagementUrl);
-    if (SettingsStore.getValue(UIFeature.Deactivate) && !isAccountManagedExternally) {
+    const canDeactivate = SettingsStore.getValue(UIFeature.Deactivate) && !isAccountManagedExternally;
+    if (canDeactivate) {
         accountManagementSection = <ManagementSection onDeactivateClicked={onDeactivateClicked} />;
+    }
+
+    // The desktop shell shows the account as one overview: profile card, sign-in and the danger zone.
+    if (SettingsStore.getValue("feature_desktop_shell")) {
+        return (
+            <SettingsTab data-testid="mx_AccountUserSettingsTab">
+                <DesktopAccountOverviewSettings
+                    externalAccountManagementUrl={externalAccountManagementUrl}
+                    canChangePassword={canChangePassword}
+                    canMake3pidChanges={canMake3pidChanges}
+                    canDeactivate={canDeactivate}
+                    onDeactivate={onDeactivateClicked}
+                    onPasswordChanged={onPasswordChanged}
+                    onPasswordChangeError={onPasswordChangeError}
+                />
+            </SettingsTab>
+        );
     }
 
     return (

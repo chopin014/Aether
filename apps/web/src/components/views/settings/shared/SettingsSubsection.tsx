@@ -29,6 +29,12 @@ export interface SettingsSubsectionProps extends HTMLAttributes<HTMLDivElement> 
      * Wrap in a Form Root component, for compatibility with compound components.
      */
     formWrap?: boolean;
+
+    /**
+     * Show the content as a card, one setting per row with a line between rows. "critical" marks the card as holding
+     * actions that cannot be undone.
+     */
+    card?: boolean | "critical";
 }
 
 export const SettingsSubsectionText: React.FC<HTMLAttributes<HTMLDivElement>> = ({ children, ...rest }) => (
@@ -44,6 +50,7 @@ export const SettingsSubsection: React.FC<SettingsSubsectionProps> = ({
     stretchContent,
     legacy = true,
     formWrap,
+    card,
     ...rest
 }) => {
     const level = useContext(HeadingLevelContext);
@@ -71,6 +78,8 @@ export const SettingsSubsection: React.FC<SettingsSubsectionProps> = ({
                         mx_SettingsSubsection_contentStretch: !!stretchContent,
                         mx_SettingsSubsection_noHeading: !heading && !description,
                         mx_SettingsSubsection_content_newUi: !legacy,
+                        mx_SettingsSubsection_card: !!card,
+                        mx_SettingsSubsection_card_critical: card === "critical",
                     })}
                 >
                     {children}

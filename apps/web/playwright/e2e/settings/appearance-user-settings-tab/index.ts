@@ -141,6 +141,8 @@ class Helpers {
      * order to render its tool list, and that no other dialog is currently open.
      */
     private async openCustomThemesDevtool(): Promise<Locator> {
+        // /devtools is only offered once developer mode is on.
+        await this.app.settings.setValue("developerMode", null, SettingLevel.ACCOUNT, true);
         const composer = this.app.getComposer().locator("[contenteditable]");
         await composer.fill("/devtools");
         await composer.press("Enter");
