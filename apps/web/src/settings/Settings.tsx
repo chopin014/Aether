@@ -111,21 +111,6 @@ export enum Features {
     NotificationSettings2 = "feature_notification_settings2",
 }
 
-export const labGroupNames: Record<LabGroup, TranslationKey> = {
-    [LabGroup.Messaging]: _td("labs|group_messaging"),
-    [LabGroup.Profile]: _td("labs|group_profile"),
-    [LabGroup.Spaces]: _td("labs|group_spaces"),
-    [LabGroup.Widgets]: _td("labs|group_widgets"),
-    [LabGroup.Rooms]: _td("labs|group_rooms"),
-    [LabGroup.Threads]: _td("labs|group_threads"),
-    [LabGroup.VoiceAndVideo]: _td("labs|group_voip"),
-    [LabGroup.Moderation]: _td("labs|group_moderation"),
-    [LabGroup.Encryption]: _td("labs|group_encryption"),
-    [LabGroup.Experimental]: _td("labs|group_experimental"),
-    [LabGroup.Developer]: _td("labs|group_developer"),
-    [LabGroup.Ui]: _td("labs|group_ui"),
-};
-
 export type SettingValueType = JsonDocument | JsonValue | Record<string, unknown> | Record<string, unknown>[];
 
 export interface IBaseSetting<T extends SettingValueType = SettingValueType> {

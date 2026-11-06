@@ -17,7 +17,6 @@ export enum UserTab {
     Voice = "USER_VOICE_TAB",
     Security = "USER_SECURITY_TAB",
     Encryption = "USER_ENCRYPTION_TAB",
-    Labs = "USER_LABS_TAB",
     Mjolnir = "USER_MJOLNIR_TAB",
     Help = "USER_HELP_TAB",
     SessionManager = "USER_SESSION_MANAGER_TAB",

@@ -21,7 +21,6 @@ import KeyIcon from "@vector-im/compound-design-tokens/assets/web/icons/key";
 import SidebarIcon from "@vector-im/compound-design-tokens/assets/web/icons/sidebar";
 import MicOnIcon from "@vector-im/compound-design-tokens/assets/web/icons/mic-on";
 import LockIcon from "@vector-im/compound-design-tokens/assets/web/icons/lock";
-import LabsIcon from "@vector-im/compound-design-tokens/assets/web/icons/labs";
 import BlockIcon from "@vector-im/compound-design-tokens/assets/web/icons/block";
 import HelpIcon from "@vector-im/compound-design-tokens/assets/web/icons/help";
 import DownloadIcon from "@vector-im/compound-design-tokens/assets/web/icons/download";
@@ -37,8 +36,6 @@ import { UserSettingsNavigationContext } from "../../../contexts/UserSettingsNav
 import { _t, _td } from "../../../languageHandler";
 import AccountUserSettingsTab from "../settings/tabs/user/AccountUserSettingsTab";
 import { DesktopProfileEditorSettings } from "../settings/tabs/user/DesktopProfileEditorSettings";
-import SettingsStore from "../../../settings/SettingsStore";
-import LabsUserSettingsTab, { showLabsFlags } from "../settings/tabs/user/LabsUserSettingsTab";
 import AppearanceUserSettingsTab from "../settings/tabs/user/AppearanceUserSettingsTab";
 import SecurityUserSettingsTab from "../settings/tabs/user/SecurityUserSettingsTab";
 import NotificationUserSettingsTab from "../settings/tabs/user/NotificationUserSettingsTab";
@@ -104,8 +101,6 @@ function titleForTabID(tabId: UserTab): React.ReactNode {
             return _t("settings|security|dialog_title", undefined, subs);
         case UserTab.Encryption:
             return _t("settings|encryption|dialog_title", undefined, subs);
-        case UserTab.Labs:
-            return _t("settings|labs|dialog_title", undefined, subs);
         case UserTab.Mjolnir:
             return _t("settings|labs_mjolnir|dialog_title", undefined, subs);
         case UserTab.Help:
@@ -266,11 +261,6 @@ export default function UserSettingsDialog(props: IProps): JSX.Element {
             ),
         );
 
-        if (showLabsFlags() || SettingsStore.getFeatureSettingNames().some((k) => SettingsStore.getBetaInfo(k))) {
-            tabs.push(
-                new Tab(UserTab.Labs, _td("common|labs"), <LabsIcon />, <LabsUserSettingsTab />, "UserSettingsLabs"),
-            );
-        }
         if (mjolnirEnabled) {
             tabs.push(
                 new Tab(

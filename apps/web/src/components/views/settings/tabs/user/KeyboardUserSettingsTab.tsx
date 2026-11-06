@@ -26,15 +26,14 @@ import { SettingsSection } from "../../shared/SettingsSection";
 import { SettingsSubsection } from "../../shared/SettingsSubsection";
 import SettingsStore from "../../../../../settings/SettingsStore";
 import { DesktopKeybindsSettings } from "./DesktopKeybindsSettings";
-import { showLabsFlags } from "./LabsUserSettingsTab";
 
 interface IKeyboardShortcutRowProps {
     name: KeyBindingAction;
 }
 
-// Filter out the labs section if labs aren't enabled.
+// Labs features cannot be turned on, so their shortcuts are never listed.
 const visibleCategories = (Object.entries(CATEGORIES) as [CategoryName, ICategory][]).filter(
-    ([categoryName]) => categoryName !== CategoryName.LABS || showLabsFlags(),
+    ([categoryName]) => categoryName !== CategoryName.LABS,
 );
 
 const KeyboardShortcutRow: React.FC<IKeyboardShortcutRowProps> = ({ name }) => {

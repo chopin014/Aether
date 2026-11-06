@@ -204,16 +204,6 @@ describe("<UserSettingsDialog />", () => {
         expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Settings: Security & Privacy");
     });
 
-    it("renders with labs tab selected", () => {
-        SdkConfig.add({
-            show_labs_settings: true,
-        });
-        const { container } = render(getComponent({ initialTabId: UserTab.Labs }));
-
-        expect(getActiveTabLabel(container)).toEqual("Labs");
-        expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Settings: Labs");
-    });
-
     it("renders with mjolnir tab selected", () => {
         mockSettingsStore.getValue.mockImplementation((settingName): any => settingName === "feature_mjolnir");
         const { container } = render(getComponent({ initialTabId: UserTab.Mjolnir }));
@@ -228,24 +218,16 @@ describe("<UserSettingsDialog />", () => {
         expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Settings: Help & About");
     });
 
-    it("renders labs tab when show_labs_settings is enabled in config", () => {
+    it("never renders a labs tab, even when the config asks for one or a feature is in beta", () => {
         SdkConfig.add({
             show_labs_settings: true,
         });
-        const { getByTestId } = render(getComponent());
-        expect(getByTestId(`settings-tab-${UserTab.Labs}`)).toBeTruthy();
-    });
-
-    it("renders labs tab when some feature is in beta", () => {
         mockSettingsStore.getFeatureSettingNames.mockReturnValue([
             "feature_beta_setting",
-            "feature_just_normal_labs",
         ] as unknown[] as FeatureSettingKey[]);
-        mockSettingsStore.getBetaInfo.mockImplementation((settingName: any) =>
-            settingName === "feature_beta_setting" ? ({} as any) : undefined,
-        );
-        const { getByTestId } = render(getComponent());
-        expect(getByTestId(`settings-tab-${UserTab.Labs}`)).toBeTruthy();
+        mockSettingsStore.getBetaInfo.mockReturnValue({} as any);
+        render(getComponent());
+        expect(screen.queryByRole("tab", { name: "Labs" })).not.toBeInTheDocument();
     });
 
     it("watches settings", async () => {
