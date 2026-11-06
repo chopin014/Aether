@@ -436,13 +436,15 @@ test(
                                 if (sender.track?.id === screenTrackId) {
                                     const settings = sender.track.getSettings();
                                     return (
+                                        sender.track.contentHint === "detail" &&
+                                        sender.getParameters().degradationPreference === "maintain-framerate" &&
                                         settings.frameRate! <= 15 &&
                                         settings.height! <= 720 &&
                                         sender
                                             .getParameters()
                                             .encodings.every(
                                                 (encoding) =>
-                                                    encoding.maxFramerate! <= 15 && encoding.maxBitrate! <= 5_000_000,
+                                                    encoding.maxFramerate! <= 15 && encoding.maxBitrate! <= 20_000_000,
                                             )
                                     );
                                 }
@@ -459,7 +461,7 @@ test(
             for (let i = 0; i < 5; ++i) await streamVolume.press("ArrowRight");
             await expect.poll(() => playbackGains(bobPage)).toMatchObject({ microphone: [1], stream: [0.05] });
             await bobPage.keyboard.press("Escape");
-            await bobPage.getByRole("button", { name: "Audio options for Alice", exact: true }).click();
+            await bobPage.getByRole("button", { name: "Options for Alice", exact: true }).click();
             const microphoneVolume = bobPage.getByRole("slider", { name: "Volume for Alice", exact: true });
             await microphoneVolume.press("Home");
             for (let i = 0; i < 8; ++i) await microphoneVolume.press("ArrowRight");

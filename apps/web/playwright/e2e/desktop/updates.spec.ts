@@ -163,3 +163,34 @@ test("recovers from errors and explains manual updates for unsupported installs"
     );
     await expect(dialog.getByRole("button", { name: "Check for updates" })).toHaveCount(0);
 });
+
+test("keeps update actions above persisted widgets and below dialogs", async ({ page }) => {
+    // Persisted calls and widgets share this isolated host outside #matrixchat.
+    await page.evaluate(() => {
+        const surface = document.createElement("div");
+        surface.style.cssText = "position:fixed;inset:0;background:black;z-index:101";
+        surface.setAttribute("aria-label", "Persisted call surface");
+        document.getElementById("mx_PersistedElement_container")!.appendChild(surface);
+    });
+    await setUpdateState(page, { status: "ready", currentVersion: "0.1.0", version: "0.1.1", percent: 100 });
+    const later = page.getByRole("button", { name: "Later", exact: true, includeHidden: true });
+    // A trial click checks real hit testing without dismissing the toast.
+    await later.click({ trial: true });
+    await page.getByRole("button", { name: "Restart to update", exact: true }).click({ trial: true });
+
+    // Remove the synthetic call surface to reach the settings trigger beneath it.
+    await page.getByLabel("Persisted call surface").evaluate((element) => element.remove());
+    const dialog = await openUpdates(page);
+    const box = await later.boundingBox();
+    expect(box).not.toBeNull();
+    const coveringElementIsDialog = await page.evaluate(
+        ({ x, y }) => {
+            return !!document.elementFromPoint(x, y)?.closest(".mx_Dialog_wrapper");
+        },
+        { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 },
+    );
+    expect(coveringElementIsDialog).toBe(true);
+    await expect(dialog.getByRole("button", { name: "Restart to update", exact: true })).toBeEnabled();
+    await page.keyboard.press("Escape");
+    await later.click();
+});

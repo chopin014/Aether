@@ -11,9 +11,11 @@ Please see LICENSE files in the repository root for full details.
 // Squirrel on windows starts the app with various flags as hooks to tell us when we've been installed/uninstalled etc.
 import "./squirrelhooks.js";
 import { setupDesktopAudio, selectPortalDesktopAudio } from "./desktop-audio.js";
+import { configureMediaAcceleration, mediaRelaunchCommand } from "./mediaAcceleration.js";
 
 import { app, BrowserWindow, Menu, dialog, type Input, type Event, session, protocol, desktopCapturer } from "electron";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import windowStateKeeper from "electron-window-state";
 import { URL, fileURLToPath } from "node:url";
 
@@ -140,6 +142,15 @@ const store = Store.initialize(args.storageMode); // must be called before any a
 if (store.get("disableHardwareAcceleration")) {
     console.log("Disabling hardware acceleration.");
     app.disableHardwareAcceleration();
+} else if (
+    configureMediaAcceleration(app.commandLine, process.platform, app.isPackaged ? process.resourcesPath : undefined)
+) {
+    console.log("Relaunching to apply the media acceleration environment.");
+    // app.relaunch() does not pass environment changes to the new instance, so start it directly.
+    const relaunch = mediaRelaunchCommand(process.argv, process.execPath, process.env.APPIMAGE);
+    app.releaseSingleInstanceLock();
+    spawn(relaunch.execPath, relaunch.args, { env: process.env, detached: true, stdio: "ignore" }).unref();
+    app.exit();
 }
 
 app.on("ready", async () => {

@@ -163,6 +163,27 @@ describe("DesktopVoiceControlsView", () => {
         render(<DesktopVoiceConnectionView vm={makeVm({ roomName: "Lounge", screenShareAvailable: false })} />);
         expect(screen.queryByRole("button", { name: "Share your screen" })).not.toBeInTheDocument();
     });
+    it("names the channel's server after the channel", () => {
+        render(<DesktopVoiceConnectionView vm={makeVm({ roomName: "Lounge", spaceName: "Terra" })} />);
+        expect(screen.getByText("Lounge / Terra")).toBeVisible();
+        expect(screen.getByRole("button", { name: "Voice Connected Lounge / Terra" })).toBeVisible();
+    });
+
+    it.each([
+        ["connected", "good", "2", false],
+        ["connected", "poor", "1", false],
+        ["connected", "bad", "0", false],
+        ["reconnecting", "good", "2", true],
+    ] as const)("draws the %s/%s signal with %s strong waves", (state, quality, waves, pending) => {
+        const base = makeVm().getSnapshot().connection;
+        render(
+            <DesktopVoiceConnectionView vm={makeVm({ roomName: "Lounge", connection: { ...base, state, quality } })} />,
+        );
+        const icon = screen.getByRole("button", { name: "Connection" }).querySelector("svg");
+        expect(icon).toHaveAttribute("data-waves", waves);
+        expect(icon?.hasAttribute("data-pending")).toBe(pending);
+    });
+
     it("omits a disconnected call and displays actionable errors", () => {
         const { unmount } = render(<DesktopVoiceConnectionView vm={makeVm()} />);
         expect(screen.queryByText("Voice Connected")).not.toBeInTheDocument();
@@ -289,10 +310,23 @@ describe("DesktopVoiceControlsView", () => {
     });
 
     it("dismisses on an outside click and exposes a close button", async () => {
-        const vm = makeVm({ roomName: "Lounge", panel: "connection" });
+        const vm = makeVm({ roomName: "Lounge", panel: "noise" });
         render(<DesktopVoiceConnectionView vm={vm} />);
         await userEvent.click(screen.getByRole("button", { name: "Close" }));
         expect(vm.setPanel).toHaveBeenCalledWith(null);
+        vm.setPanel.mockClear();
+        fireEvent.pointerDown(document.body);
+        expect(vm.setPanel).toHaveBeenCalledWith(null);
+    });
+
+    it("titles the connection panel as a tab and closes it from outside or with Escape", async () => {
+        const vm = makeVm({ roomName: "Lounge", panel: "connection" });
+        render(<DesktopVoiceConnectionView vm={vm} />);
+        const dialog = screen.getByRole("dialog", { name: "Connection" });
+        expect(within(dialog).queryByRole("button", { name: "Close" })).not.toBeInTheDocument();
+        await userEvent.keyboard("{Escape}");
+        expect(vm.setPanel).toHaveBeenCalledWith(null);
+        expect(screen.getByRole("button", { name: "Connection" })).toHaveFocus();
         vm.setPanel.mockClear();
         fireEvent.pointerDown(document.body);
         expect(vm.setPanel).toHaveBeenCalledWith(null);
@@ -330,6 +364,7 @@ it("opens the full dock soundboard and plays a sound", async () => {
             suggested: [{ id: "quack", name: "Quack", emoji: "🦆", libraryId: "builtin" }],
             volume: 80,
             busy: false,
+            muted: false,
             uploadLibraryId: "",
             uploadName: "",
             uploadEmoji: "🔊",

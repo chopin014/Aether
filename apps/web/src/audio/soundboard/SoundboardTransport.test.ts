@@ -121,6 +121,18 @@ describe("soundboard call data adapter", () => {
         expect(replacement.listenerCount("dataReceived")).toBe(0);
     });
 
+    it("marks decrypted call data as encrypted, since LiveKit senders leave its encryption type unset", () => {
+        // Without this, every encrypted packet arrives marked as plaintext and the adapter drops it in encrypted calls.
+        const start = source.indexOf('else if (n.value?.case === "encryptedPacket") {');
+        const end = source.indexOf("this.emit(Y.DataPacketReceived, n, Pu.NONE)", start);
+        expect(start).toBeGreaterThan(-1);
+        expect(end).toBeGreaterThan(start);
+        const decrypted = source.slice(start, end);
+        expect(decrypted).toContain("this.emit(Y.DataPacketReceived, t, Pu.GCM)");
+        expect(decrypted).not.toContain("n.value.value.encryptionType");
+        expect(source).toContain("encryptionType: Pu.GCM, encryptedValue: n.payload,");
+    });
+
     it("uses the existing call keys with LiveKit's encryption option for both media and data", () => {
         const start = source.indexOf("function W4(");
         const end = source.indexOf("\n//#endregion", start);

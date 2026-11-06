@@ -31,7 +31,7 @@ export interface DesktopContact {
     userId: string;
     name: string;
     avatarUrl?: string;
-    presence: "online" | "unavailable" | "offline" | "unknown";
+    presence: "online" | "unavailable" | "offline";
     roomId?: string;
     invited?: boolean;
     blocked?: boolean;
@@ -102,7 +102,6 @@ export function DesktopContactsView({ vm }: { vm: DesktopContactsViewModel }): J
         online: _t("desktop|contacts|online"),
         unavailable: _t("desktop|contacts|unavailable"),
         offline: _t("desktop|contacts|offline"),
-        unknown: _t("presence_controls|unknown"),
     };
     return (
         <main className={styles.root} data-desktop-contacts>
@@ -171,7 +170,7 @@ export function DesktopContactsView({ vm }: { vm: DesktopContactsViewModel }): J
                                                 size="32px"
                                                 type="round"
                                             />
-                                            {!contact.invited && !contact.blocked && contact.presence !== "unknown" && (
+                                            {!contact.invited && !contact.blocked && (
                                                 <span className={styles.presence} data-presence={contact.presence}>
                                                     <PresenceGlyph status={contact.presence} />
                                                 </span>

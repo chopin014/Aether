@@ -1334,6 +1334,32 @@ describe("ElementCall with the React component embedding", () => {
             expect(call.connectionStats).toEqual(measured);
         });
 
+        it("keeps a join in progress while the component's call session has not started", () => {
+            const states: string[] = [];
+            call.on(CallEvent.ConnectionStats, (stats) => states.push(stats.state));
+            call.setComponentHandle({} as ElementCallHandle);
+            // Before joining, the component reports its idle session as disconnected.
+            call.handleConnectionStats(emptyCallConnectionStats("disconnected"));
+            call.handleJoined();
+            call.handleConnectionStats(emptyCallConnectionStats("disconnected"));
+            expect(call.connectionStats).toEqual(emptyCallConnectionStats("connecting"));
+            call.handleConnectionStats(measured);
+            expect(states).toEqual(["connecting", "disconnected", "connecting", "connected"]);
+            // Once media has connected, a disconnected report is a real loss of the connection.
+            call.handleConnectionStats(emptyCallConnectionStats("disconnected"));
+            expect(call.connectionStats).toEqual(emptyCallConnectionStats("disconnected"));
+        });
+
+        it("treats a new join after hanging up as connecting again", () => {
+            call.setComponentHandle({} as ElementCallHandle);
+            call.handleJoined();
+            call.handleConnectionStats(measured);
+            call.handleHangup();
+            call.handleJoined();
+            call.handleConnectionStats(emptyCallConnectionStats("disconnected"));
+            expect(call.connectionStats).toEqual(emptyCallConnectionStats("connecting"));
+        });
+
         it("validates reports, copies history and only publishes changes", () => {
             const changed = vi.fn();
             call.on(CallEvent.ConnectionStats, changed);

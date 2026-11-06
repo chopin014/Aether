@@ -16,7 +16,7 @@ import { useCreateAutoDisposedViewModel } from "@element-hq/web-shared-component
 import { Room, type MatrixClient, type RoomMember } from "matrix-js-sdk/src/matrix";
 import { stubClient } from "test-utils";
 
-import { DesktopVoiceControlsViewModel } from "./DesktopVoiceControlsViewModel";
+import { DesktopVoiceControlsViewModel, PARTICIPANT_LEAVE_GRACE_MS } from "./DesktopVoiceControlsViewModel";
 import { Call, CallEvent, ElementCall, NO_SCREEN_SHARE } from "../../models/Call";
 import { emptyCallConnectionStats } from "../../models/CallConnectionStats";
 import { CallStoreEvent } from "../../stores/CallStore";
@@ -164,6 +164,23 @@ describe("DesktopVoiceControlsViewModel", () => {
         await leaving;
         expect(vm.getSnapshot().roomName).toBeUndefined();
         expect(store.connectedCalls.size).toBe(0);
+    });
+
+    it("names the server the call's channel belongs to, skipping spaces it cannot name", async () => {
+        vm.dispose();
+        const space = new Room("!server:example.org", client, client.getSafeUserId());
+        space.name = "Terra";
+        vi.mocked(client.getRoom).mockImplementation((roomId) =>
+            roomId === space.roomId ? space : roomId === call.roomId ? new Room(call.roomId, client, "") : null,
+        );
+        const getKnownParents = vi.fn(() => new Set(["!unknown:example.org", space.roomId]));
+        vm = new DesktopVoiceControlsViewModel({ client, callStore: store, spaceStore: { getKnownParents } });
+        expect(vm.getSnapshot().spaceName).toBeUndefined();
+        await connect();
+        expect(getKnownParents).toHaveBeenCalledWith(call.roomId);
+        expect(vm.getSnapshot().spaceName).toBe("Terra");
+        await vm.disconnect();
+        expect(vm.getSnapshot().spaceName).toBeUndefined();
     });
 
     it("restores the dock and reports a rejected disconnect", async () => {
@@ -389,19 +406,81 @@ describe("DesktopVoiceControlsViewModel", () => {
             new Map([[me, devices]]),
         );
         expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("userJoined");
-        call.emit(
-            CallEvent.Participants,
-            new Map([[me, devices]]),
-            new Map([
-                [me, devices],
-                [alice, devices],
-            ]),
-        );
-        expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("userLeft");
+        vi.useFakeTimers();
+        try {
+            call.emit(
+                CallEvent.Participants,
+                new Map([[me, devices]]),
+                new Map([
+                    [me, devices],
+                    [alice, devices],
+                ]),
+            );
+            expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("userJoined");
+            vi.advanceTimersByTime(PARTICIPANT_LEAVE_GRACE_MS);
+            expect(playDesktopVoiceSound).toHaveBeenLastCalledWith("userLeft");
+        } finally {
+            vi.useRealTimers();
+        }
         // A second device of the same person is not a new person.
         vi.mocked(playDesktopVoiceSound).mockClear();
         call.emit(CallEvent.Participants, new Map([[alice, new Set(["A", "B"])]]), new Map([[alice, new Set(["A"])]]));
         expect(playDesktopVoiceSound).not.toHaveBeenCalled();
+    });
+    it("stays silent when somebody drops out briefly and comes back", async () => {
+        await connect();
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        const alice = { userId: "@alice:example.org" } as RoomMember;
+        const present = new Map([[alice, new Set(["A"])]]);
+        vi.useFakeTimers();
+        try {
+            // A membership renewal or rejoin removes Alice for a moment, as the call sees it.
+            call.emit(CallEvent.Participants, new Map(), present);
+            vi.advanceTimersByTime(PARTICIPANT_LEAVE_GRACE_MS - 1);
+            call.emit(CallEvent.Participants, present, new Map());
+            vi.advanceTimersByTime(PARTICIPANT_LEAVE_GRACE_MS * 2);
+            expect(playDesktopVoiceSound).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+    it("plays one leave cue when several people leave together", async () => {
+        await connect();
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        const alice = { userId: "@alice:example.org" } as RoomMember;
+        const bob = { userId: "@bob:example.org" } as RoomMember;
+        vi.useFakeTimers();
+        try {
+            call.emit(
+                CallEvent.Participants,
+                new Map([[bob, new Set(["B"])]]),
+                new Map([
+                    [alice, new Set(["A"])],
+                    [bob, new Set(["B"])],
+                ]),
+            );
+            vi.advanceTimersByTime(1000);
+            call.emit(CallEvent.Participants, new Map(), new Map([[bob, new Set(["B"])]]));
+            vi.advanceTimersByTime(PARTICIPANT_LEAVE_GRACE_MS * 2);
+            expect(playDesktopVoiceSound).toHaveBeenCalledTimes(1);
+            expect(playDesktopVoiceSound).toHaveBeenCalledWith("userLeft");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+    it("drops pending leave cues when the call ends", async () => {
+        await connect();
+        vi.mocked(playDesktopVoiceSound).mockClear();
+        const alice = { userId: "@alice:example.org" } as RoomMember;
+        vi.useFakeTimers();
+        try {
+            call.emit(CallEvent.Participants, new Map(), new Map([[alice, new Set(["A"])]]));
+            vm.dispose();
+            vi.advanceTimersByTime(PARTICIPANT_LEAVE_GRACE_MS * 2);
+            expect(playDesktopVoiceSound).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
     });
     it("keeps participant changes silent while deafened", async () => {
         await connect();
@@ -661,11 +740,27 @@ describe("DesktopVoiceControlsViewModel", () => {
             expect(vm.getSnapshot().error).toBe("The device could not be changed. Please try again.");
         });
 
-        it("saves microphone and speaker volumes within 0–100%", async () => {
-            await vm.setMicrophoneVolume(64.4);
+        it("saves the microphone within 0–100% and the speaker up to 200%", async () => {
+            await vm.setMicrophoneVolume(140);
             await vm.setSpeakerVolume(140);
+            expect(preferences.get("desktopMicrophoneVolume")).toBe(100);
+            expect(preferences.get("desktopSpeakerVolume")).toBe(140);
+            await vm.setMicrophoneVolume(64.4);
+            await vm.setSpeakerVolume(260);
             expect(preferences.get("desktopMicrophoneVolume")).toBe(64);
-            expect(preferences.get("desktopSpeakerVolume")).toBe(100);
+            expect(preferences.get("desktopSpeakerVolume")).toBe(200);
+        });
+
+        it("mutes and deafens when another surface asks through the dispatcher", async () => {
+            const toggleMicrophone = vi.spyOn(vm, "toggleMicrophone").mockResolvedValue();
+            const toggleDeafened = vi.spyOn(vm, "toggleDeafened").mockResolvedValue();
+            defaultDispatcher.dispatch({ action: Action.ToggleDesktopMicrophone }, true);
+            defaultDispatcher.dispatch({ action: Action.ToggleDesktopDeafen }, true);
+            expect(toggleMicrophone).toHaveBeenCalledOnce();
+            expect(toggleDeafened).toHaveBeenCalledOnce();
+            vm.dispose();
+            defaultDispatcher.dispatch({ action: Action.ToggleDesktopMicrophone }, true);
+            expect(toggleMicrophone).toHaveBeenCalledOnce();
         });
 
         it("keeps a device menu open across joining a call, unlike the call's own panels", async () => {

@@ -183,9 +183,22 @@ details:not([open]) > .libraryName > :last-child {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.play:hover,
+.play:hover:enabled,
 .tileActions button:hover {
     background: var(--cpd-color-bg-action-tertiary-hovered);
+}
+.play:disabled {
+    color: var(--cpd-color-text-disabled);
+    cursor: not-allowed;
+}
+.play:disabled .emoji {
+    opacity: 0.5;
+}
+.mutedHint {
+    margin: 0;
+    padding: var(--cpd-space-2x) var(--cpd-space-3x);
+    color: var(--cpd-color-text-secondary);
+    border-bottom: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
 }
 .root button:focus-visible,
 .root summary:focus-visible,

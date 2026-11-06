@@ -12,10 +12,16 @@ import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
+// Exercise the dependency patch itself, so stale installed copies cannot hide regressions.
 const source = readFileSync(
-    path.join(path.dirname(require.resolve("@element-hq/element-call-component")), "aether-screen-share.js"),
+    new URL("../../../../../patches/@element-hq__element-call-component.patch", import.meta.url),
     "utf8",
-);
+)
+    .split("diff --git a/dist/element-call.js")[0]
+    .split("\n")
+    .filter((line) => line.startsWith("+") && !line.startsWith("+++"))
+    .map((line) => line.slice(1))
+    .join("\n");
 type Quality = { resolutionHeight: number; frameRate: number; maxBitrate: number; includeSystemAudio: boolean };
 type Controller = {
     setEnabled(enabled: boolean, quality?: Partial<Quality>): Promise<void>;
@@ -24,19 +30,27 @@ type Controller = {
     dispose(): Promise<void>;
 };
 const helpers = runInNewContext(
-    `${source.replaceAll("export ", "")}; ({ aetherResolveScreenShareQuality, aetherCreateScreenShareController, aetherConstrainScreenSenders, aetherHasLiveScreenShareAudio })`,
+    `${source.replaceAll("export ", "")}; ({ aetherResolveScreenShareQuality, aetherCreateScreenShareController, aetherConstrainScreenSenders, aetherHasLiveScreenShareAudio, aetherChooseScreenCodec })`,
 ) as {
+    aetherChooseScreenCodec(track: unknown, quality: Quality, participant: unknown): Promise<string>;
     aetherHasLiveScreenShareAudio(reference: unknown): boolean;
     aetherResolveScreenShareQuality(policy: unknown, raw: unknown): Quality;
     aetherCreateScreenShareController(options: unknown): Controller;
     aetherConstrainScreenSenders(track: unknown, quality: Quality): Promise<void>;
 };
 
-function fixture() {
+function fixture(runtime = helpers) {
     const mediaStreamTrack = { applyConstraints: vi.fn().mockResolvedValue(undefined), addEventListener: vi.fn() };
     const sender = {
         getParameters: vi.fn(() => ({ encodings: [{ maxBitrate: 9_000_000 }, { maxBitrate: 200_000 }] })),
-        setParameters: vi.fn().mockResolvedValue(undefined),
+        setParameters: vi
+            .fn<
+                (parameters: {
+                    encodings: { maxBitrate: number; maxFramerate?: number }[];
+                    degradationPreference?: RTCDegradationPreference;
+                }) => Promise<void>
+            >()
+            .mockResolvedValue(undefined),
     };
     const track = { source: "screen", mediaStreamTrack, sender, stop: vi.fn() };
     const audio = { source: "audio", stop: vi.fn(), mute: vi.fn(), unmute: vi.fn() };
@@ -52,7 +66,7 @@ function fixture() {
         unpublishTrack: vi.fn(async (item: typeof track) => publications.delete(item.source)),
     };
     const commit = vi.fn();
-    const controller = helpers.aetherCreateScreenShareController({
+    const controller = runtime.aetherCreateScreenShareController({
         participant,
         policy: { max_resolution: 900, max_framerate: 24, max_bitrate: 2_000_000 },
         quality: { resolutionHeight: 1080, frameRate: 30, maxBitrate: null, includeSystemAudio: false },
@@ -75,12 +89,13 @@ describe("Element Call screen capture publication boundary", () => {
             participant.publishTrack.mock.invocationCallOrder[0],
         );
         expect(sender.setParameters).toHaveBeenCalledWith({
+            degradationPreference: "maintain-framerate",
             encodings: [
-                { maxBitrate: 2_000_000, maxFramerate: 24 },
+                { maxBitrate: 1_800_000, maxFramerate: 24 },
                 { maxBitrate: 200_000, maxFramerate: 24 },
             ],
         });
-        expect(participant.publishTrack.mock.calls[0][1]).toMatchObject({ simulcast: false, backupCodec: false });
+        expect(participant.publishTrack.mock.calls[0][1]).toMatchObject({ simulcast: true, backupCodec: false });
         expect(commit).toHaveBeenCalledWith({
             resolutionHeight: 900,
             frameRate: 24,
@@ -256,9 +271,10 @@ describe("Element Call screen capture publication boundary", () => {
             { resolutionHeight: 720, frameRate: 15, maxBitrate: 1_500_000, includeSystemAudio: false },
         );
         expect(backup.setParameters).toHaveBeenCalledWith({
+            degradationPreference: "maintain-framerate",
             encodings: [
-                { maxBitrate: 1_500_000, maxFramerate: 15 },
-                { maxBitrate: 200_000, maxFramerate: 15 },
+                { maxBitrate: 1_350_000, maxFramerate: 15 },
+                { maxBitrate: 150_000, maxFramerate: 15 },
             ],
         });
     });
@@ -322,7 +338,7 @@ describe("Element Call screen capture publication boundary", () => {
                     resolutionHeight: -10,
                 },
             ),
-        ).toEqual({ resolutionHeight: 1080, frameRate: 30, maxBitrate: 5_000_000, includeSystemAudio: false });
+        ).toEqual({ resolutionHeight: 1080, frameRate: 30, maxBitrate: 20_000_000, includeSystemAudio: false });
     });
     it("allows the primary sender bitrate to rise after a reduction while preserving lower layer limits", async () => {
         const { controller, sender } = fixture();
@@ -333,9 +349,9 @@ describe("Element Call screen capture publication boundary", () => {
         });
         await controller.setEnabled(true);
         await controller.update({ maxBitrate: 1_500_000 });
-        expect(parameters.encodings[0].maxBitrate).toBe(1_500_000);
+        expect(parameters.encodings[0].maxBitrate).toBe(1_350_000);
         await controller.update({ maxBitrate: 2_000_000 });
-        expect(parameters.encodings.map((encoding) => encoding.maxBitrate)).toEqual([2_000_000, 200_000]);
+        expect(parameters.encodings.map((encoding) => encoding.maxBitrate)).toEqual([1_800_000, 200_000]);
     });
 
     it("uses the native picker's latest quality before the first publication when capture resolves late", async () => {
@@ -357,7 +373,7 @@ describe("Element Call screen capture publication boundary", () => {
             frameRate: { max: 15 },
         });
         expect(participant.publishTrack.mock.calls[0][1]).toMatchObject({
-            screenShareEncoding: { maxBitrate: 1_500_000, maxFramerate: 15 },
+            screenShareEncoding: { maxBitrate: 1_350_000, maxFramerate: 15 },
         });
     });
 
@@ -432,4 +448,165 @@ describe("Element Call screen capture publication boundary", () => {
             { screenShareEncoding: { maxBitrate: 4_000_000, maxFramerate: 25 }, videoCodec: "vp9" },
         );
     });
+});
+
+/** Run the patched controller against platform capability results without requiring a GPU in unit tests. */
+function hardwareRuntime(
+    encodingInfo = vi.fn(),
+    codecs: { mimeType: string; sdpFmtpLine?: string }[] = [{ mimeType: "video/AV1" }, { mimeType: "video/H264" }],
+) {
+    return runInNewContext(
+        `${source.replaceAll("export ", "")}; ({ aetherChooseScreenCodec, aetherCreateScreenShareController })`,
+        {
+            navigator: { mediaCapabilities: { encodingInfo } },
+            RTCRtpSender: {
+                getCapabilities: () => ({ codecs }),
+            },
+        },
+    ) as typeof helpers;
+}
+
+describe("screen-share hardware codec selection", () => {
+    it.each([
+        ["av1", true, true],
+        ["h264", false, true],
+        ["vp8", false, false],
+    ])("selects %s from actual WebRTC hardware capabilities", async (expected, av1, h264) => {
+        const encodingInfo = vi.fn(async ({ video }: { video: { contentType: string } }) => ({
+            supported: true,
+            smooth: true,
+            powerEfficient: video.contentType === "video/av1" ? av1 : h264,
+        }));
+        const runtime = hardwareRuntime(encodingInfo);
+        const { controller, participant, mediaStreamTrack } = fixture(runtime);
+        await controller.setEnabled(true);
+        expect(participant.publishTrack).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                videoCodec: expected,
+                degradationPreference: "maintain-framerate",
+                simulcast: expected !== "av1",
+                scalabilityMode: expected === "av1" ? "L1T3" : "L1T1",
+                screenShareSimulcastLayers: [
+                    expect.objectContaining({ encoding: { maxBitrate: 200_000, maxFramerate: 24 } }),
+                ],
+            }),
+        );
+        expect(mediaStreamTrack).toHaveProperty("contentHint", "motion");
+        expect(encodingInfo.mock.calls[0][0]).toMatchObject({ type: "webrtc", video: { framerate: 24 } });
+    });
+
+    it("falls back to software if capability probing rejects", async () => {
+        const { controller, participant } = fixture(
+            hardwareRuntime(vi.fn().mockRejectedValue(new Error("Unavailable"))),
+        );
+        await controller.setEnabled(true);
+        expect(participant.publishTrack).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ videoCodec: "vp8" }),
+        );
+    });
+
+    it("does not choose a hardware codec the SFU disallows", async () => {
+        const encodingInfo = vi.fn().mockResolvedValue({ supported: true, smooth: true, powerEfficient: true });
+        const runtime = hardwareRuntime(encodingInfo);
+        const { track } = fixture();
+        expect(
+            await runtime.aetherChooseScreenCodec(
+                track,
+                { resolutionHeight: 1080, frameRate: 30, maxBitrate: 20_000_000, includeSystemAudio: false },
+                { enabledPublishVideoCodecs: [{ mime: "video/VP8" }] },
+            ),
+        ).toBe("vp8");
+        expect(encodingInfo).not.toHaveBeenCalled();
+    });
+
+    it("keeps encrypted sharing on hardware H.264 while the bundled cryptor cannot encrypt AV1", async () => {
+        const encodingInfo = vi.fn().mockResolvedValue({ supported: true, smooth: true, powerEfficient: true });
+        const runtime = hardwareRuntime(encodingInfo);
+        const { track } = fixture();
+        expect(
+            await runtime.aetherChooseScreenCodec(
+                track,
+                { resolutionHeight: 720, frameRate: 30, maxBitrate: 20_000_000, includeSystemAudio: false },
+                { isE2EEEnabled: true },
+            ),
+        ).toBe("h264");
+        expect(encodingInfo).toHaveBeenCalledOnce();
+        expect(encodingInfo).toHaveBeenCalledWith(
+            expect.objectContaining({
+                video: expect.objectContaining({ contentType: "video/h264" }),
+            }),
+        );
+    });
+
+    it("tries hardware H.264 before VP8 when AV1 fails during publication", async () => {
+        const runtime = hardwareRuntime(
+            vi.fn().mockResolvedValue({ supported: true, smooth: true, powerEfficient: true }),
+        );
+        const { controller, participant } = fixture(runtime);
+        participant.publishTrack.mockRejectedValueOnce(new Error("Encoder initialization failed"));
+        await controller.setEnabled(true);
+        expect(
+            participant.publishTrack.mock.calls.map(([, options]) => (options as { videoCodec: string }).videoCodec),
+        ).toEqual(["av1", "h264"]);
+        expect(participant.publishTrack.mock.calls[1][1]).toMatchObject({ simulcast: true, scalabilityMode: "L1T1" });
+    });
+
+    it("uses VP8 only after both hardware codecs fail publication", async () => {
+        const runtime = hardwareRuntime(
+            vi.fn().mockResolvedValue({ supported: true, smooth: true, powerEfficient: true }),
+        );
+        const { controller, participant } = fixture(runtime);
+        participant.publishTrack.mockRejectedValueOnce(new Error("AV1 failed"));
+        participant.publishTrack.mockRejectedValueOnce(new Error("H264 failed"));
+        await controller.setEnabled(true);
+        expect(
+            participant.publishTrack.mock.calls.map(([, options]) => (options as { videoCodec: string }).videoCodec),
+        ).toEqual(["av1", "h264", "vp8"]);
+    });
+
+    it("probes RTP profiles so bare H.264 MIME support cannot hide a usable GPU encoder", async () => {
+        const fmtp = "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f";
+        const encodingInfo = vi.fn(async ({ video }: { video: { contentType: string } }) => ({
+            supported: true,
+            smooth: true,
+            powerEfficient: video.contentType.includes("packetization-mode=1"),
+        }));
+        const runtime = hardwareRuntime(encodingInfo, [{ mimeType: "video/H264", sdpFmtpLine: fmtp }]);
+        const { controller, participant } = fixture(runtime);
+        await controller.setEnabled(true);
+        expect(participant.publishTrack).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ videoCodec: "h264" }),
+        );
+        expect(encodingInfo).toHaveBeenCalledWith(
+            expect.objectContaining({ video: expect.objectContaining({ contentType: `video/h264;${fmtp}` }) }),
+        );
+    });
+});
+
+it("updates the content hint and keeps all simulcast layers at the requested frame rate", async () => {
+    const { controller, mediaStreamTrack, sender } = fixture();
+    await controller.setEnabled(true);
+    expect(mediaStreamTrack).toHaveProperty("contentHint", "motion");
+    await controller.update({ frameRate: 15 });
+    expect(mediaStreamTrack).toHaveProperty("contentHint", "detail");
+    const parameters = sender.setParameters.mock.lastCall![0];
+    expect(parameters.degradationPreference).toBe("maintain-framerate");
+    expect(parameters.encodings.every((encoding) => encoding.maxFramerate === 15)).toBe(true);
+    expect(parameters.encodings.reduce((sum, encoding) => sum + encoding.maxBitrate, 0)).toBe(2_000_000);
+});
+
+it("does not publish after sharing is cancelled during a hardware capability probe", async () => {
+    let resolveProbe!: (value: unknown) => void;
+    const runtime = hardwareRuntime(vi.fn(() => new Promise((resolve) => (resolveProbe = resolve))));
+    const { controller, participant, track } = fixture(runtime);
+    const start = controller.setEnabled(true);
+    await vi.waitFor(() => expect(resolveProbe).toBeTypeOf("function"));
+    const stop = controller.setEnabled(false);
+    resolveProbe({ supported: true, smooth: true, powerEfficient: true });
+    await Promise.all([start, stop]);
+    expect(participant.publishTrack).not.toHaveBeenCalled();
+    expect(track.stop).toHaveBeenCalled();
 });

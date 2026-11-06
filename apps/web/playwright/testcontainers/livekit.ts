@@ -20,10 +20,11 @@ const SIGNALLING_PORT = 7880;
 /**
  * Media ports. Published 1:1 (same number on the host) because the SFU advertises these port numbers in its
  * ICE candidates. Deliberately not LiveKit's defaults (7881/7882) so a locally running Element Call dev
- * backend does not collide with the tests.
+ * backend does not collide with the tests. Set `LIVEKIT_TCP_PORT` and `LIVEKIT_UDP_PORT` to run call tests
+ * from several checkouts at once.
  */
-export const LIVEKIT_TCP_PORT = 7891;
-export const LIVEKIT_UDP_PORT = 7892;
+export const LIVEKIT_TCP_PORT = Number(process.env.LIVEKIT_TCP_PORT ?? 7891);
+export const LIVEKIT_UDP_PORT = Number(process.env.LIVEKIT_UDP_PORT ?? 7892);
 
 /**
  * Hostname under which the SFU's signalling port is reachable from both the browser and other containers:

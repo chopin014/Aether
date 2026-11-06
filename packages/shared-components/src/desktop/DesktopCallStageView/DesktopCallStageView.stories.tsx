@@ -38,8 +38,6 @@ const actions: DesktopCallStageViewActions = {
     setOpenTileMenuId: fn(),
     setSpotlightTileId: fn(),
     setLayoutMode: fn(),
-    setParticipantMicrophoneVolume: fn(),
-    toggleParticipantMicrophoneMuted: fn(),
     setScreenShareAudioVolume: fn(),
     toggleScreenShareAudioMuted: fn(),
     openInviteDialog: fn(),
@@ -104,6 +102,8 @@ const snapshot: DesktopCallStageViewSnapshot = {
     localHandRaised: false,
     ringing: null,
     callees: [],
+    lobbyParticipants: [],
+    participantMenu: null,
     canShareSystemAudio: true,
 };
 const participants: DesktopCallStageViewSnapshot["participants"] = [
@@ -124,9 +124,7 @@ const participants: DesktopCallStageViewSnapshot["participants"] = [
         handRaisedAt: null,
         reactionEmoji: null,
         video: null,
-        hasVolumeControl: false,
-        microphoneVolumePercent: 100,
-        microphoneMuted: false,
+        locallyMuted: false,
     },
     {
         id: "bob",
@@ -145,9 +143,7 @@ const participants: DesktopCallStageViewSnapshot["participants"] = [
         handRaisedAt: null,
         reactionEmoji: null,
         video: null,
-        hasVolumeControl: true,
-        microphoneVolumePercent: 80,
-        microphoneMuted: false,
+        locallyMuted: false,
     },
 ];
 
@@ -232,6 +228,24 @@ export const ConversationMuted: Story = {
 export const AloneInChannel: Story = { args: { participants: participants.slice(0, 1), participantCount: 1 } };
 export const Lobby: Story = {
     args: { phase: "lobby", connected: false, participants: [], needsDevicePermissions: true },
+};
+/** The lobby previews who is already talking, as Discord's voice channels do. */
+export const LobbyWithPeople: Story = {
+    args: {
+        phase: "lobby",
+        connected: false,
+        participants: [],
+        participantCount: 5,
+        lobbyParticipants: ["Insect", "Jay", "nicha", "WW", "LiTz"].map((name) => ({
+            userId: `@${name.toLowerCase()}:example.org`,
+            displayName: name,
+            initialLetter: name[0].toUpperCase(),
+        })),
+    },
+};
+/** Bob is muted for this user only, which his tile marks. */
+export const MutedByYou: Story = {
+    args: { participants: [participants[0], { ...participants[1], speaking: false, locallyMuted: true }] },
 };
 export const Reconnecting: Story = { args: { phase: "reconnecting", connected: false, reconnecting: true } };
 export const Error: Story = {

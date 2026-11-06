@@ -343,3 +343,29 @@ diff --git a/src/http-api/errors.ts b/src/http-api/errors.ts
          }
          super(`MatrixError: ${message}`, httpStatus, httpHeaders);
          this.errcode = errorJson.errcode;
+diff --git a/src/matrixrtc/MembershipManager.ts b/src/matrixrtc/MembershipManager.ts
+--- a/src/matrixrtc/MembershipManager.ts
++++ b/src/matrixrtc/MembershipManager.ts
+@@ -47,6 +47,7 @@ import {
+ } from "./membershipData/index.ts";
+ import { computeSlotId } from "./utils.ts";
+ import { deepCompare } from "../utils.ts";
++import { secureRandomString } from "../randomstring.ts";
+ 
+ /* MembershipActionTypes:
+ On Join:  ───────────────────┐   ┌───────────────(1)───────────┐
+@@ -756,7 +757,13 @@ export class MembershipManager
+     protected clientSendLeaveMembership: () => Promise<ISendEventResponse> = () => this.clientSendMembership({});
+ 
+     private async sendJoinEvent(): Promise<ActionUpdate> {
+-        const myMembership = this.makeMyMembership(this.membershipEventExpiryMs);
++        const myMembership = {
++            ...this.makeMyMembership(this.membershipEventExpiryMs),
++            // Aether: a homeserver keeps the current state event when we send one with identical content. Re-joining
++            // after our membership expired locally would then leave the old, expired event in place, and we would
++            // re-join forever while everyone else sees us gone. A fresh value per join makes every join a new event.
++            "io.aether.join_id": secureRandomString(16),
++        };
+         return await this.clientSendMembership(myMembership)
+             .then(() => {
+                 this.setAndEmitProbablyLeft(false);
