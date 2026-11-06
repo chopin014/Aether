@@ -100,7 +100,8 @@ async function openUpdates(page: Page): Promise<Locator> {
     await page.getByRole("button", { name: "All settings", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("tab", { name: "Updates", exact: true }).click();
-    await expect(dialog.getByRole("heading", { name: "Updates", level: 2, exact: true })).toBeVisible();
+    // The settings page header also says "Updates", so look for the updates section itself.
+    await expect(dialog.getByRole("region", { name: "Updates", exact: true })).toBeVisible();
     return dialog;
 }
 
