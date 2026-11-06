@@ -147,7 +147,7 @@ describe("<AccountUserSettingsTab />", () => {
             );
             render(getComponent());
 
-            expect(screen.getByText("Deactivate Account", { selector: "h2" }).parentElement!).toMatchSnapshot();
+            expect(screen.getByTestId("account-management-section")).toMatchSnapshot();
         });
         it("should display the deactivate account dialog when clicked", async () => {
             vi.spyOn(SettingsStore, "getValue").mockImplementation(

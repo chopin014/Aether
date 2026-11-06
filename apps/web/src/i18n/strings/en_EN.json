@@ -2730,8 +2730,6 @@
             "title": "Encryption"
         },
         "general": {
-            "account_management_section": "Account management",
-            "account_section": "Account",
             "add_email_dialog_title": "Add Email Address",
             "add_email_failed_verification": "Failed to verify email address: make sure you clicked the link in the email",
             "add_email_instructions": "We've sent you an email to verify your address. Please follow the instructions there and then select the button below.",
@@ -2752,6 +2750,7 @@
             "avatar_upload_error_title": "Avatar image could not be uploaded",
             "confirm_adding_email_body": "Select the button below to confirm adding this email address.",
             "confirm_adding_email_title": "Confirm adding email",
+            "danger_zone": "Danger zone",
             "deactivate_confirm_body": "Are you sure you want to deactivate your account? This is irreversible.",
             "deactivate_confirm_body_sso": "Confirm your account deactivation by using Single Sign On to prove your identity.",
             "deactivate_confirm_content": "Confirm that you would like to deactivate your account. If you proceed:",

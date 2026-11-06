@@ -2555,8 +2555,6 @@
             "title": "Criptografia"
         },
         "general": {
-            "account_management_section": "Gerenciamento da Conta",
-            "account_section": "Conta",
             "add_email_dialog_title": "Adicionar endereço de e-mail",
             "add_email_failed_verification": "Falha ao confirmar o endereço de e-mail: certifique-se de clicar no link do e-mail",
             "add_email_instructions": "Enviamos um e-mail para você confirmar seu endereço. Por favor, siga as instruções e clique no botão abaixo.",
@@ -2641,7 +2639,8 @@
             "spell_check_locale_placeholder": "Escolha um local",
             "unable_to_load_emails": "Não é possível carregar endereços de e-mail",
             "unable_to_load_msisdns": "Não é possível carregar números de telefone",
-            "username": "Nome de usuário"
+            "username": "Nome de usuário",
+            "danger_zone": "Zona de perigo"
         },
         "inline_url_previews_default": "Ativar, por padrão, a visualização de resumo de links",
         "insert_trailing_colon_mentions": "Insira dois pontos à direita após o usuário mencionar no início de uma mensagem",
