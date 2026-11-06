@@ -127,6 +127,8 @@ export * from "./desktop/DesktopRoomSettingsView";
 export * from "./desktop/ColorThemeView";
 export * from "./desktop/MessageDisplayView";
 export * from "./desktop/DesktopUpdatesView";
+export * from "./desktop/AccountOverviewView";
+export * from "./desktop/SettingsSidebarHeaderView";
 
 export * from "./presence/PresenceGlyph";
 export * from "./presence/PresenceMenuView";

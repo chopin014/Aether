@@ -1031,6 +1031,42 @@
             "group_spacing": "Espaço entre grupos de mensagens",
             "group_spacing_value": "%(size)spx",
             "title": "Exibição das mensagens"
+        },
+        "account": {
+            "profile_label": "Seu perfil",
+            "edit_profile": "Editar perfil",
+            "display_name": "Nome de exibição",
+            "username": "Nome de usuário",
+            "copy": "Copiar",
+            "copied": "Copiado",
+            "email": "E-mail",
+            "email_none": "Nenhum e-mail adicionado",
+            "add": "Adicionar",
+            "manage": "Gerenciar",
+            "done": "Concluir",
+            "access_heading": "Senha e acesso",
+            "password": "Senha",
+            "password_managed": "Gerenciada pelo seu provedor de conta (%(host)s)",
+            "password_change_description": "Troque a senha que você usa para entrar",
+            "password_unavailable": "Seu servidor não permite trocá-la aqui",
+            "manage_account": "Gerenciar conta",
+            "change": "Alterar",
+            "sessions": "Dispositivos conectados",
+            "sessions_description": "Revise onde sua conta está conectada",
+            "sessions_count": {
+                "one": "%(count)s sessão ativa · revise as que você não reconhece",
+                "other": "%(count)s sessões ativas · revise as que você não reconhece"
+            },
+            "danger_heading": "Zona de perigo",
+            "deactivate": "Desativar conta",
+            "deactivate_description": "Permanente. Você perde o acesso a esta conta e às mensagens.",
+            "deactivate_button": "Desativar…",
+            "deactivate_managed_description": "Permanente. Feito no site do seu provedor de conta (%(host)s)."
+        },
+        "settings_sidebar": {
+            "edit_profile": "Editar perfil",
+            "search_placeholder": "Buscar configurações",
+            "search_label": "Buscar configurações"
         }
     },
     "threads": {
