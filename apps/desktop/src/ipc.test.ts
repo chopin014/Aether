@@ -6,7 +6,7 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import { expect, describe, it, beforeEach, afterEach, vi } from "vitest";
-import { app, desktopCapturer, nativeImage, TouchBar } from "electron";
+import { app, desktopCapturer, nativeImage, powerMonitor, TouchBar } from "electron";
 
 import { getConfig } from "./config.js";
 import { consumeDisplayMediaCallback } from "./displayMediaCallback.js";
@@ -42,6 +42,7 @@ vi.mock("electron", () => ({
             ipcHandlers[channel] = cb;
         }),
     },
+    powerMonitor: { getSystemIdleTime: vi.fn(() => 42) },
     powerSaveBlocker: { isStarted: vi.fn(), start: vi.fn(), stop: vi.fn() },
     TouchBar: class {
         static TouchBarPopover = class {};
@@ -383,5 +384,14 @@ describe("system language IPC", () => {
         await callIpc("getSystemLanguages");
         expect(app.getPreferredSystemLanguages).toHaveBeenCalled();
         expect(send).toHaveBeenCalledWith("ipcReply", { id: 1, reply: ["pt-BR", "en-US"] });
+    });
+});
+
+describe("system idle time IPC", () => {
+    it("should return the seconds since the last input anywhere on the computer", async () => {
+        global.mainWindow = { webContents: { send } } as unknown as Electron.BrowserWindow;
+        await callIpc("getSystemIdleTime");
+        expect(powerMonitor.getSystemIdleTime).toHaveBeenCalled();
+        expect(send).toHaveBeenCalledWith("ipcReply", { id: 1, reply: 42 });
     });
 });

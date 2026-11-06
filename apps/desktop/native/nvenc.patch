@@ -1,0 +1,365 @@
+diff --git a/src/driver/picture.rs b/src/driver/picture.rs
+index 8c97831..07297b5 100644
+--- a/src/driver/picture.rs
++++ b/src/driver/picture.rs
+@@ -216,38 +216,19 @@ pub unsafe extern "C" fn end_picture(
+             .as_mut()
+             .ok_or(DriverError::OperationFailed("no NVENC session — GPU init failed"))?;
+ 
+-        // Chromium's WebRTC RateController publishes a fresh target
+-        // bitrate and framerate on every frame via VAEncMiscParameter.
+-        // We parse them into `misc_bitrate` / `misc_fps` above, but we
+-        // deliberately do NOT pipe them into NvEncReconfigureEncoder:
+-        // the values drift by a few bps/fps on every tick, and even
+-        // "soft" reconfigures (force_idr=false, resetEncoder=0) appear
+-        // to disturb NVENC's internal rate-control state enough that
+-        // Chromium's VaapiVideoEncodeAccelerator stops producing valid
+-        // output dimensions after ~4 frames. An earlier well-tested
+-        // revision of this driver (pre-4d44688) ignored these buffers
+-        // entirely and that is empirically what WebRTC tolerates best.
+-        // Re-enable this only when we can verify NVENC accepts a
+-        // continuous stream of per-frame rc deltas without degrading.
+-        let _ = misc_bitrate;
+-        let _ = misc_fps;
+-
+-        if let Some(sps_bytes) = seq_bytes.as_deref() {
+-            if let Some(sps_view) = h264::parse_sps(sps_bytes) {
+-                let profile = h264_profile_from_config(&pools, cctx.config)
+-                    .unwrap_or(H264Profile::Main);
+-                let new_cfg = build_cfg_from_sps(&sps_view, profile, session.config());
+-                if new_cfg != *session.config() {
+-                    // SPS-driven changes (profile/dimensions/level) need a
+-                    // decoder resync — force IDR on the next frame.
+-                    if session.reconfigure(new_cfg, true).is_err() {
+-                        crate::logging::info(
+-                            ctx,
+-                            "end_picture: NvEncReconfigureEncoder failed; keeping previous config",
+-                        );
+-                    }
+-                }
+-            }
++        let previous = *session.config();
++        let mut next = seq_bytes.as_deref().and_then(h264::parse_sps)
++            .map(|sps| build_cfg_from_sps(&sps,
++                h264_profile_from_config(&pools, cctx.config).unwrap_or(H264Profile::Main),
++                &previous))
++            .unwrap_or(previous);
++        next = crate::nvenc::h264_config::update_rate_control(next, previous, misc_bitrate, session.rate_change_allowed());
++        (next.fps_num, next.fps_den) = crate::nvenc::h264_config::update_frame_rate(
++            (next.fps_num, next.fps_den), misc_fps, session.started(), session.rate_change_allowed());
++        let force_idr = next.width != previous.width || next.height != previous.height
++            || next.profile != previous.profile;
++        if next != previous {
++            session.reconfigure(next, force_idr)?;
+         }
+ 
+         // Lazy-register the render target if this is the first time we see
+@@ -368,7 +349,7 @@ pub unsafe extern "C" fn end_picture(
+                                 }
+                             }
+                         }
+-                        backing.extend_from_slice(&bitstream.data);
++                        backing.extend_from_slice(&h264::normalize_annex_b(&bitstream.data));
+                         // libva headers shipped in this tree do not expose
+                         // VA_CODED_BUF_STATUS_PICTURE_TYPE_I — upstream
+                         // encoders typically set only size/buf and leave
+@@ -421,9 +402,7 @@ fn build_cfg_from_sps(
+         out.fps_num = sps.fps;
+         out.fps_den = 1;
+     }
+-    if sps.idr_period > 0 {
+-        out.gop_length = sps.idr_period;
+-    }
++    // NVENC cannot change the GOP structure after initialization. The client can still request an IDR per picture.
+     if sps.width > 0 && sps.height > 0 {
+         out.width = sps.width;
+         out.height = sps.height;
+diff --git a/src/h264/mod.rs b/src/h264/mod.rs
+index 07ddd73..37b8d7d 100644
+--- a/src/h264/mod.rs
++++ b/src/h264/mod.rs
+@@ -76,8 +76,8 @@ pub fn parse_sps(bytes: &[u8]) -> Option<EncoderConfig> {
+         idr_period: sps.intra_idr_period,
+         fps,
+         max_num_ref_frames: sps.max_num_ref_frames,
+-        width: (sps.picture_width_in_mbs as u32) * 16,
+-        height: (sps.picture_height_in_mbs as u32) * 16,
++        width: ((sps.picture_width_in_mbs as u32) * 16).saturating_sub(if sps.frame_cropping_flag != 0 { sps.frame_crop_left_offset.saturating_add(sps.frame_crop_right_offset).saturating_mul(2) } else { 0 }),
++        height: ((sps.picture_height_in_mbs as u32) * 16).saturating_sub(if sps.frame_cropping_flag != 0 { sps.frame_crop_top_offset.saturating_add(sps.frame_crop_bottom_offset).saturating_mul(2) } else { 0 }),
+         level_idc: sps.level_idc,
+     })
+ }
+@@ -122,6 +122,24 @@ mod tests {
+         }
+     }
+ 
++    #[test]
++    fn sps_respects_visible_frame_crop() {
++        let mut sps = fresh_sps();
++        sps.picture_width_in_mbs = 40;
++        sps.picture_height_in_mbs = 23;
++        sps.frame_cropping_flag = 1;
++        sps.frame_crop_bottom_offset = 4;
++        let cfg = parse_sps(bytes_of(&*sps)).unwrap();
++        assert_eq!((cfg.width, cfg.height), (640, 360));
++    }
++
++    #[test]
++    fn annex_b_headers_survive_rtp_normalization() {
++        let mixed = [0, 0, 0, 1, 0x67, 0x42, 0, 0, 1, 0x68, 0x11, 0, 0, 1, 0x65, 0xff];
++        assert_eq!(normalize_annex_b(&mixed),
++            [0, 0, 0, 1, 0x67, 0x42, 0, 0, 0, 1, 0x68, 0x11, 0, 0, 0, 1, 0x65, 0xff]);
++    }
++
+     #[test]
+     fn sps_extracts_bitrate_fps_and_dimensions() {
+         let mut sps = fresh_sps();
+@@ -186,3 +204,18 @@ mod tests {
+         assert_eq!(p.coded_buf, 0x1234_5678);
+     }
+ }
++
++/// Use the four-byte Annex-B delimiters reconstructed by WebRTC's RTP depacketizer.
++/// AES-GCM authenticates the clear NAL header, so delimiter normalization must happen before encryption.
++pub fn normalize_annex_b(data: &[u8]) -> Vec<u8> {
++    let mut out = Vec::with_capacity(data.len() + 8);
++    let mut index = 0;
++    while index < data.len() {
++        if data[index..].starts_with(&[0, 0, 0, 1]) {
++            out.extend_from_slice(&[0, 0, 0, 1]); index += 4;
++        } else if data[index..].starts_with(&[0, 0, 1]) {
++            out.extend_from_slice(&[0, 0, 0, 1]); index += 3;
++        } else { out.push(data[index]); index += 1; }
++    }
++    out
++}
+diff --git a/src/ids.rs b/src/ids.rs
+index 0159e85..c2f7583 100644
+--- a/src/ids.rs
++++ b/src/ids.rs
+@@ -37,7 +37,7 @@ new_key_type! {
+ /// almost always mismatch the version of any recycled slot.
+ #[inline]
+ pub fn key_to_id<K: Key>(k: K) -> u32 {
+-    (k.data().as_ffi() & 0xFFFF_FFFF) as u32
++    ((k.data().as_ffi() & 0x7FFF_FFFF) as u32) | 0x8000_0000
+ }
+ 
+ #[inline]
+@@ -61,7 +61,7 @@ pub trait ContainsKey<K: Key> {
+ impl<K: Key, V> ContainsKey<K> for DenseSlotMap<K, V> {
+     fn find_by_low_bits(&self, id: u32) -> Option<K> {
+         self.keys()
+-            .find(|k| (k.data().as_ffi() & 0xFFFF_FFFF) as u32 == id)
++            .find(|k| (k.data().as_ffi() & 0x7FFF_FFFF) as u32 == (id & 0x7FFF_FFFF))
+     }
+ }
+ 
+diff --git a/src/nvenc/h264_config.rs b/src/nvenc/h264_config.rs
+index d9a6193..107f083 100644
+--- a/src/nvenc/h264_config.rs
++++ b/src/nvenc/h264_config.rs
+@@ -75,6 +75,43 @@ impl EncoderConfig {
+     }
+ }
+ 
++/// Smallest relative bitrate change, in percent, that is worth an NVENC reconfigure.
++pub const RATE_CHANGE_THRESHOLD_PERCENT: u32 = 10;
++
++/// Apply WebRTC's target bitrate while keeping the configured frame rate.
++///
++/// Every reconfigure resets part of NVENC's rate control, so small estimator changes and changes arriving before
++/// `allow_bitrate_change` permits another one keep the previous bitrate.
++pub fn update_rate_control(mut next: EncoderConfig, previous: EncoderConfig, bitrate: Option<u32>,
++    allow_bitrate_change: bool) -> EncoderConfig {
++    next.bitrate_bps = previous.bitrate_bps;
++    next.fps_num = previous.fps_num;
++    next.fps_den = previous.fps_den;
++    if let Some(bitrate) = bitrate.filter(|value| *value > 0) {
++        let threshold = (previous.bitrate_bps / 100 * RATE_CHANGE_THRESHOLD_PERCENT).max(1);
++        if allow_bitrate_change && bitrate.abs_diff(previous.bitrate_bps) >= threshold {
++            next.bitrate_bps = bitrate;
++        }
++    }
++    next
++}
++
++/// Choose the frame rate NVENC budgets bits for.
++///
++/// The first picture carries the stream's frame rate. Afterwards WebRTC reports a per-frame estimate that swings
++/// widely, so only a clear increase is followed; this covers a layer that started while the estimate was still low
++/// without reconfiguring NVENC for every dip.
++pub fn update_frame_rate(previous: (u32, u32), reported: Option<(u32, u32)>, started: bool,
++    allow_change: bool) -> (u32, u32) {
++    let Some((num, den)) = reported.filter(|(num, den)| *num > 0 && *den > 0) else { return previous };
++    if !started {
++        return (num, den);
++    }
++    // Compare num/den > 1.1 * previous_num/previous_den without floating point.
++    let increased = u64::from(num) * u64::from(previous.1) * 10 > u64::from(previous.0) * u64::from(den) * 11;
++    if allow_change && increased { (num, den) } else { previous }
++}
++
+ /// Per-frame VBV-буфер у бітах: `bitrate / fps`. Округлення — floor
+ /// (ніколи не overshoot-имо buffer — це безпечно для CBR pacing-у).
+ #[inline]
+@@ -193,6 +230,7 @@ pub fn apply_config(preset_cfg: &mut nv::NV_ENC_CONFIG, cfg: &EncoderConfig) {
+ 
+     // --- VUI: BT.709 limited range ---
+     let vui = &mut h264.h264VUIParameters;
++    vui.bitstreamRestrictionFlag = 1;
+     vui.videoSignalTypePresentFlag = 1;
+     vui.videoFormat = nv::NV_ENC_VUI_VIDEO_FORMAT::NV_ENC_VUI_VIDEO_FORMAT_UNSPECIFIED;
+     vui.videoFullRangeFlag = 0;
+@@ -231,6 +269,38 @@ mod tests {
+         }
+     }
+ 
++    #[test]
++    fn dynamic_bitrate_changes_keep_fps_and_ignore_estimator_jitter() {
++        let previous = default_1080p60_cbr();
++        let mut sps = previous;
++        sps.bitrate_bps += previous.bitrate_bps / 20;
++        sps.fps_num = 17;
++        let stable = update_rate_control(sps, previous, Some(sps.bitrate_bps), true);
++        assert_eq!(stable, previous);
++        let reduced = update_rate_control(previous, previous, Some(1_000_000), true);
++        assert_eq!(reduced.bitrate_bps, 1_000_000);
++        assert_eq!((reduced.fps_num, reduced.fps_den), (previous.fps_num, previous.fps_den));
++        let restored = update_rate_control(reduced, reduced, Some(5_000_000), true);
++        assert_eq!(restored.bitrate_bps, 5_000_000);
++        assert_eq!((restored.width, restored.height), (1920, 1080));
++    }
++
++    #[test]
++    fn frame_rate_follows_first_picture_then_only_clear_increases() {
++        assert_eq!(update_frame_rate((60, 1), Some((30, 1)), false, false), (30, 1));
++        assert_eq!(update_frame_rate((30, 1), Some((12, 1)), true, true), (30, 1));
++        assert_eq!(update_frame_rate((30, 1), Some((32, 1)), true, true), (30, 1));
++        assert_eq!(update_frame_rate((8, 1), Some((30, 1)), true, false), (8, 1));
++        assert_eq!(update_frame_rate((8, 1), Some((30, 1)), true, true), (30, 1));
++        assert_eq!(update_frame_rate((30, 1), None, true, true), (30, 1));
++    }
++
++    #[test]
++    fn bitrate_changes_wait_until_allowed() {
++        let previous = default_1080p60_cbr();
++        assert_eq!(update_rate_control(previous, previous, Some(1_000_000), false), previous);
++    }
++
+     #[test]
+     fn apply_config_cbr_1080p60_main() {
+         let mut cfg = zeroed_preset();
+@@ -251,6 +321,7 @@ mod tests {
+         assert_eq!(cfg.rcParams.vbvInitialDelay, 2_500_000);
+         // SAFETY: union set to h264 by apply_config.
+         let h264 = unsafe { &cfg.encodeCodecConfig.h264Config };
++        assert_eq!(h264.h264VUIParameters.bitstreamRestrictionFlag, 1);
+         assert_eq!(h264.sliceMode, 3);
+         assert_eq!(h264.sliceModeData, 1);
+         assert_eq!(h264.idrPeriod, 120);
+diff --git a/src/nvenc/session.rs b/src/nvenc/session.rs
+index 1ad813c..aff4c88 100644
+--- a/src/nvenc/session.rs
++++ b/src/nvenc/session.rs
+@@ -24,7 +24,7 @@
+ use crate::error::DriverError;
+ use crate::ids::SurfaceKey;
+ use crate::nvenc::h264_config::{self, EncoderConfig, H264Profile};
+-use crate::nvenc::preset::{NvencPreset, PresetChoice, Tuning};
++use crate::nvenc::preset::{NvencPreset, PresetChoice};
+ use core::ffi::c_void;
+ use nvidia_video_codec_sdk::safe::{ENCODE_API, EncodeAPI};
+ use nvidia_video_codec_sdk::sys::nvEncodeAPI as nv;
+@@ -100,6 +100,10 @@ pub struct NvencSession {
+     /// always sees output in submission order even if NVENC buffered N
+     /// earlier frames.
+     pending_outputs: std::collections::VecDeque<CodedBitstream>,
++    /// When the bitrate or frame rate was last reconfigured, used to space out rate-control resets.
++    last_rate_change: Option<std::time::Instant>,
++    /// Whether at least one picture has been submitted.
++    started: bool,
+ }
+ 
+ // SAFETY: the NVENC encoder handle is an opaque driver resource; all access
+@@ -108,6 +112,9 @@ pub struct NvencSession {
+ // Rust borrow checker keeps the external synchronisation honest.
+ unsafe impl Send for NvencSession {}
+ 
++/// Minimum time between bitrate reconfigures. WebRTC's bandwidth estimate changes faster than this.
++const RATE_CHANGE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
++
+ impl NvencSession {
+     /// Build a session. Requires a live CUDA context.
+     ///
+@@ -229,6 +236,8 @@ impl NvencSession {
+             pool,
+             next_slot: 0,
+             pending_outputs: std::collections::VecDeque::new(),
++            last_rate_change: None,
++            started: false,
+         })
+     }
+ 
+@@ -379,6 +388,7 @@ impl NvencSession {
+             Err(_) => return Err(DriverError::OperationFailed("ENCODE_API unavailable")),
+         };
+ 
++        self.started = true;
+         // Phase 1 — non-blocking drain of already-ready Pending slots.
+         self.drain_pending_non_blocking(api);
+ 
+@@ -656,10 +666,25 @@ impl NvencSession {
+         if status != nv::NVENCSTATUS::NV_ENC_SUCCESS {
+             return Err(DriverError::OperationFailed("NvEncReconfigureEncoder"));
+         }
++        if new_cfg.bitrate_bps != self.config.bitrate_bps
++            || (new_cfg.fps_num, new_cfg.fps_den) != (self.config.fps_num, self.config.fps_den)
++        {
++            self.last_rate_change = Some(std::time::Instant::now());
++        }
+         self.config = new_cfg;
+         Ok(())
+     }
+ 
++    /// Whether at least one picture has been submitted to this session.
++    pub fn started(&self) -> bool {
++        self.started
++    }
++
++    /// Whether enough time has passed since the last rate reconfigure to apply another one.
++    pub fn rate_change_allowed(&self) -> bool {
++        self.last_rate_change.is_none_or(|at| at.elapsed() >= RATE_CHANGE_INTERVAL)
++    }
++
+     /// Read the current encoder config (for change-detection on SPS replay).
+     #[inline]
+     pub fn config(&self) -> &EncoderConfig {
+@@ -824,10 +849,8 @@ fn map_preset_choice(cfg: EncoderConfig) -> (nv::GUID, nv::NV_ENC_TUNING_INFO) {
+         NvencPreset::P4 => nv::NV_ENC_PRESET_P4_GUID,
+         NvencPreset::P5 => nv::NV_ENC_PRESET_P5_GUID,
+     };
+-    let tuning = match choice.tuning {
+-        Tuning::UltraLowLatency => nv::NV_ENC_TUNING_INFO::NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY,
+-        Tuning::LowLatency => nv::NV_ENC_TUNING_INFO::NV_ENC_TUNING_INFO_LOW_LATENCY,
+-    };
++    // Chromium waits for each VA coded buffer before submitting more input. Never queue lookahead frames.
++    let tuning = nv::NV_ENC_TUNING_INFO::NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY;
+     (guid, tuning)
+ }
+ 
+@@ -848,12 +871,12 @@ mod tests {
+     // Pure-logic helpers we can test without a GPU.
+ 
+     #[test]
+-    fn map_preset_choice_p4_for_5mbps_60fps() {
++    fn preset_keeps_realtime_output_at_initial_bitrate() {
+         let cfg = EncoderConfig::default_for(1920, 1080, H264Profile::Main);
+         let (_guid, tuning) = map_preset_choice(cfg);
+         assert_eq!(
+             tuning,
+-            nv::NV_ENC_TUNING_INFO::NV_ENC_TUNING_INFO_LOW_LATENCY
++            nv::NV_ENC_TUNING_INFO::NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY
+         );
+     }
+ 

@@ -18,6 +18,7 @@ import { Action } from "../../dispatcher/actions";
 import SdkConfig from "../../SdkConfig";
 import SettingsStore from "../../settings/SettingsStore";
 import { presencePreferenceKey, readPresencePreference } from "../../utils/presencePreference";
+import { type PresenceHints } from "./PresenceHints";
 
 const flush = async () => {
     await Promise.resolve();
@@ -270,5 +271,117 @@ describe("PresenceViewModel", () => {
         await vm.setPreference("online");
         expect(seen).toHaveLength(3);
         expect(vm.getDesired()).toBe(SetPresence.Online);
+    });
+
+    describe("with presence hints", () => {
+        let inCall: boolean;
+        let callListeners: Set<() => void>;
+        let systemIdle: number | null;
+        let hints: PresenceHints;
+        const setInCall = async (value: boolean) => {
+            inCall = value;
+            for (const listener of callListeners) listener();
+            await flush();
+        };
+        beforeEach(() => {
+            inCall = false;
+            callListeners = new Set();
+            systemIdle = null;
+            hints = {
+                isInCall: () => inCall,
+                watchCalls: (listener) => {
+                    callListeners.add(listener);
+                    return () => callListeners.delete(listener);
+                },
+                getSystemIdleTime: vi.fn(async () => systemIdle),
+            };
+        });
+
+        it("should stay Online for as long as a call is connected", async () => {
+            inCall = true;
+            vm.start(hints);
+            await flush();
+            await vi.advanceTimersByTimeAsync(30 * 60 * 1000);
+            expect(vm.getDesired()).toBe(SetPresence.Online);
+            expect(client.setSyncPresence).not.toHaveBeenCalledWith(SetPresence.Unavailable);
+        });
+
+        it("should return to Online when a call connects while Away and idle again after it ends", async () => {
+            vm.start(hints);
+            await vi.advanceTimersByTimeAsync(3 * 60 * 1000);
+            expect(vm.getDesired()).toBe(SetPresence.Unavailable);
+            await setInCall(true);
+            expect(vm.getDesired()).toBe(SetPresence.Online);
+            expect(client.setSyncPresence).toHaveBeenLastCalledWith(SetPresence.Online);
+            await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+            expect(vm.getDesired()).toBe(SetPresence.Online);
+            await setInCall(false);
+            await vi.advanceTimersByTimeAsync(3 * 60 * 1000 - 1);
+            expect(vm.getDesired()).toBe(SetPresence.Online);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(vm.getDesired()).toBe(SetPresence.Unavailable);
+        });
+
+        it("should not change a manual choice when a call starts", async () => {
+            vm.start(hints);
+            await flush();
+            await vm.setPreference("unavailable");
+            expect(vm.getDesired()).toBe(SetPresence.Unavailable);
+            await setInCall(true);
+            expect(vm.getDesired()).toBe(SetPresence.Unavailable);
+        });
+
+        it("should count input in other apps and only go Away once the whole computer is idle", async () => {
+            vm.start(hints);
+            await flush();
+            systemIdle = 20 * 1000;
+            await vi.advanceTimersByTimeAsync(3 * 60 * 1000);
+            expect(vm.getDesired()).toBe(SetPresence.Online);
+            // The next look happens once the computer itself could have been idle for the full period.
+            systemIdle = 3 * 60 * 1000;
+            await vi.advanceTimersByTimeAsync(3 * 60 * 1000 - 20 * 1000 - 1);
+            expect(vm.getDesired()).toBe(SetPresence.Online);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(vm.getDesired()).toBe(SetPresence.Unavailable);
+            expect(client.setSyncPresence).toHaveBeenLastCalledWith(SetPresence.Unavailable);
+        });
+
+        it("should end automatic Away when input returns in another app", async () => {
+            systemIdle = 10 * 60 * 1000;
+            vm.start(hints);
+            await vi.advanceTimersByTimeAsync(3 * 60 * 1000);
+            expect(vm.getDesired()).toBe(SetPresence.Unavailable);
+            await vi.advanceTimersByTimeAsync(15 * 1000);
+            expect(vm.getDesired()).toBe(SetPresence.Unavailable);
+            systemIdle = 2 * 1000;
+            await vi.advanceTimersByTimeAsync(15 * 1000);
+            expect(vm.getDesired()).toBe(SetPresence.Online);
+            expect(client.setSyncPresence).toHaveBeenLastCalledWith(SetPresence.Online);
+        });
+
+        it("should ignore a system idle answer that arrives after newer activity", async () => {
+            const pending = Promise.withResolvers<number | null>();
+            vi.mocked(hints.getSystemIdleTime).mockReturnValueOnce(pending.promise);
+            vm.start(hints);
+            await vi.advanceTimersByTimeAsync(3 * 60 * 1000);
+            await activity();
+            pending.resolve(10 * 60 * 1000);
+            await flush();
+            expect(vm.getDesired()).toBe(SetPresence.Online);
+        });
+
+        it("should fall back to this window's input when system idle time cannot be read", async () => {
+            vi.mocked(hints.getSystemIdleTime).mockRejectedValue(new Error("no bridge"));
+            vm.start(hints);
+            await vi.advanceTimersByTimeAsync(3 * 60 * 1000);
+            expect(vm.getDesired()).toBe(SetPresence.Unavailable);
+        });
+
+        it("should stop watching calls when disposed", async () => {
+            vm.start(hints);
+            expect(callListeners.size).toBe(1);
+            vm.dispose();
+            expect(callListeners.size).toBe(0);
+        });
     });
 });

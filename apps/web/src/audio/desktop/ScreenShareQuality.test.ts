@@ -50,7 +50,7 @@ describe("screen-share quality policy", () => {
         expect(getScreenSharePolicyLimits()).toEqual({
             maxResolutionHeight: 1080,
             maxFrameRate: 30,
-            maxBitrate: 5_000_000,
+            maxBitrate: 20_000_000,
         });
         expect(resolveScreenShareQuality({ resolutionHeight: -1, frameRate: Number.NaN, maxBitrate: -1 })).toEqual({
             resolutionHeight: 1080,
