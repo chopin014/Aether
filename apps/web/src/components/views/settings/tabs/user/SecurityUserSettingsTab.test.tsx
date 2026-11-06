@@ -124,12 +124,15 @@ describe("<SecurityUserSettingsTab />", () => {
     });
 
     it("does not render privacy header if 3pid features are disabled", async () => {
-        vi.spyOn(SettingsStore, "getValue").mockImplementation((key: any): any => {
+        const original = SettingsStore.getValue;
+        const spy = vi.spyOn(SettingsStore, "getValue").mockImplementation((key: any, ...rest: any[]): any => {
             if (key === UIFeature.ThirdPartyID) return false;
+            return original(key, ...rest);
         });
 
         render(getComponent());
 
         expect(screen.queryByRole("heading", { name: "Privacy" })).toBeNull();
+        spy.mockRestore();
     });
 });

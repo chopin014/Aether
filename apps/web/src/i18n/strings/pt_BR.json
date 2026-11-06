@@ -533,7 +533,6 @@
         "orphan_rooms": "Outras salas",
         "password": "Senha",
         "people": "Pessoas",
-        "preferences": "Preferências",
         "presence": "Presença",
         "preview_message": "Ei, você aí. Você é incrível!",
         "privacy": "Privacidade",
@@ -2771,12 +2770,9 @@
             "compact_modern": "Usar um layout \"moderno\" mais compacto",
             "composer_heading": "Campo de texto",
             "default_timezone": "Navegador padrão (%(timezone)s)",
-            "dialog_title": "<strong>Configurações:</strong> Preferências",
             "enable_content_protection": "Habilitar a proteção de conteúdo",
             "enable_hardware_acceleration": "Habilitar aceleração de hardware",
             "enable_tray_icon": "Mostrar o ícone da bandeja e minimizar a janela ao fechar",
-            "keyboard_heading": "Teclas de atalho do teclado",
-            "keyboard_view_shortcuts_button": "Para ver todos os atalhos do teclado, <a>clique aqui</a>.",
             "media_heading": "Imagens, GIFs e vídeos",
             "presence_description": "Compartilhe sua atividade e status com outras pessoas.",
             "publish_timezone": "Publique o fuso horário no perfil público",
@@ -2951,7 +2947,6 @@
         "show_typing_notifications": "Mostrar quando alguém estiver digitando",
         "showbold": "Mostrar todas as atividades na lista de salas (pontos ou número de mensagens não lidas)",
         "sidebar": {
-            "dialog_title": "<strong>Configurações:</strong> Barra lateral",
             "metaspaces_home_all_rooms": "Mostrar todas as salas",
             "metaspaces_home_all_rooms_description": "Mostre todas as suas salas no Início, mesmo que elas estejam em um espaço.",
             "metaspaces_home_description": "A página inicial é útil para obter uma visão geral de tudo.",
@@ -2961,8 +2956,7 @@
             "metaspaces_video_rooms": "Salas de vídeo e conferências",
             "metaspaces_video_rooms_description": "Agrupar todas as salas de vídeo e conferências privadas.",
             "metaspaces_video_rooms_description_invite_extension": "Nas conferências, você pode convidar pessoas fora da Matrix.",
-            "spaces_explainer": "Os espaços são formas de agrupar salas e pessoas. Além dos espaços em que você está, você também pode usar alguns pré-construídos.",
-            "title": "Barra lateral"
+            "spaces_explainer": "Os espaços são formas de agrupar salas e pessoas. Além dos espaços em que você está, você também pode usar alguns pré-construídos."
         },
         "start_automatically": {
             "disabled": "Não",
@@ -3016,7 +3010,26 @@
         "inline_url_previews_encrypted": "Ativar pré-visualizações em salas criptografadas",
         "inline_url_previews_encrypted_bundled_only": "Mostrar apenas pré-visualizações agrupadas em salas criptografadas",
         "show_people_sections": "Mostrar Pessoas como uma seção",
-        "show_sections": "Mostrar seções"
+        "show_sections": "Mostrar seções",
+        "groups": {
+            "account": "Configurações de usuário",
+            "app": "Configurações do aplicativo",
+            "about": "Sobre"
+        },
+        "chat": {
+            "title": "Chat",
+            "dialog_title": "<strong>Configurações:</strong> Chat"
+        },
+        "language_time": {
+            "title": "Idioma e horário",
+            "dialog_title": "<strong>Configurações:</strong> Idioma e horário"
+        },
+        "system": {
+            "title": "Sistema",
+            "dialog_title": "<strong>Configurações:</strong> Sistema",
+            "performance_heading": "Desempenho e privacidade",
+            "advanced_description": "Atrasos em milissegundos. A maioria das pessoas nunca precisa mudar isso."
+        }
     },
     "share": {
         "link_copied": "Link copiado",

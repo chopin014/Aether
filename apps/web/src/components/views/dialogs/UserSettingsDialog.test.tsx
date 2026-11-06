@@ -167,11 +167,21 @@ describe("<UserSettingsDialog />", () => {
         expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Settings: Notifications");
     });
 
-    it("renders with preferences tab selected", () => {
-        const { container } = render(getComponent({ initialTabId: UserTab.Preferences }));
+    it.each([
+        [UserTab.Chat, "Chat"],
+        [UserTab.LanguageAndTime, "Language & time"],
+        [UserTab.System, "System"],
+    ])("renders with the %s tab selected", (tabId, label) => {
+        const { container } = render(getComponent({ initialTabId: tabId }));
 
-        expect(getActiveTabLabel(container)).toEqual("Preferences");
-        expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Settings: Preferences");
+        expect(getActiveTabLabel(container)).toEqual(label);
+        expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(`Settings: ${label}`);
+    });
+
+    it("lists the tabs under user, app and about headings", () => {
+        const { container } = render(getComponent());
+        const headings = [...container.querySelectorAll(".mx_TabbedView_tabGroup")].map((h) => h.textContent);
+        expect(headings).toEqual(["User settings", "App settings", "About"]);
     });
 
     it("renders with keyboard tab selected", () => {
@@ -179,13 +189,6 @@ describe("<UserSettingsDialog />", () => {
 
         expect(getActiveTabLabel(container)).toEqual("Keyboard");
         expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Settings: Keyboard");
-    });
-
-    it("renders with sidebar tab selected", () => {
-        const { container } = render(getComponent({ initialTabId: UserTab.Sidebar }));
-
-        expect(getActiveTabLabel(container)).toEqual("Sidebar");
-        expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Settings: Sidebar");
     });
 
     it("renders with voip tab selected", () => {

@@ -535,7 +535,6 @@
         "orphan_rooms": "Other rooms",
         "password": "Password",
         "people": "People",
-        "preferences": "Preferences",
         "presence": "Presence",
         "preview_message": "Hey you. You're the best!",
         "privacy": "Privacy",
@@ -2641,6 +2640,10 @@
         "autoplay_gifs": "Autoplay GIFs",
         "autoplay_videos": "Autoplay videos",
         "big_emoji": "Enable big emoji in chat",
+        "chat": {
+            "dialog_title": "<strong>Settings:</strong> Chat",
+            "title": "Chat"
+        },
         "code_block_expand_default": "Expand code blocks by default",
         "code_block_line_numbers": "Show line numbers in code blocks",
         "disable_historical_profile": "Show current profile picture and name for users in message history",
@@ -2812,6 +2815,11 @@
             "unable_to_load_msisdns": "Unable to load phone numbers",
             "username": "Username"
         },
+        "groups": {
+            "about": "About",
+            "account": "User settings",
+            "app": "App settings"
+        },
         "inline_url_previews_default": "Enable previews",
         "inline_url_previews_encrypted": "Enable previews in encrypted rooms",
         "inline_url_previews_encrypted_bundled_only": "Only show bundled previews in encrypted rooms",
@@ -2868,6 +2876,10 @@
         },
         "labs_mjolnir": {
             "dialog_title": "<strong>Settings:</strong> Ignored Users"
+        },
+        "language_time": {
+            "dialog_title": "<strong>Settings:</strong> Language & time",
+            "title": "Language & time"
         },
         "media_preview": {
             "hide_avatars": "Hide avatars of room and inviter",
@@ -2944,12 +2956,9 @@
             "compact_modern": "Use a more compact 'Modern' layout",
             "composer_heading": "Composer",
             "default_timezone": "Browser default (%(timezone)s)",
-            "dialog_title": "<strong>Settings:</strong> Preferences",
             "enable_content_protection": "Enable content protection",
             "enable_hardware_acceleration": "Enable hardware acceleration",
             "enable_tray_icon": "Show tray icon and minimise window to it on close",
-            "keyboard_heading": "Keyboard shortcuts",
-            "keyboard_view_shortcuts_button": "To view all keyboard shortcuts, <a>click here</a>.",
             "link_previews_description": "Shows information about links underneath messages",
             "link_previews_heading": "Link previews",
             "media_heading": "Images, GIFs and videos",
@@ -3131,7 +3140,6 @@
         "show_typing_notifications": "Show typing notifications",
         "showbold": "Show all activity in the room list (dots or number of unread messages)",
         "sidebar": {
-            "dialog_title": "<strong>Settings:</strong> Sidebar",
             "metaspaces_home_all_rooms": "Show all rooms",
             "metaspaces_home_all_rooms_description": "Show all your rooms in Home, even if they're in a server.",
             "metaspaces_home_description": "Home is useful for getting an overview of everything.",
@@ -3141,14 +3149,19 @@
             "metaspaces_video_rooms": "Video rooms and conferences",
             "metaspaces_video_rooms_description": "Group all private video rooms and conferences.",
             "metaspaces_video_rooms_description_invite_extension": "In conferences you can invite people outside of matrix.",
-            "spaces_explainer": "Servers are ways to group rooms and people. Alongside the servers you're in, you can use some pre-built ones too.",
-            "title": "Sidebar"
+            "spaces_explainer": "Servers are ways to group rooms and people. Alongside the servers you're in, you can use some pre-built ones too."
         },
         "start_automatically": {
             "disabled": "No",
             "enabled": "Yes",
             "label": "Open %(brand)s when you log in to your computer",
             "minimised": "Minimised"
+        },
+        "system": {
+            "advanced_description": "Delays in milliseconds. Most people never need to change these.",
+            "dialog_title": "<strong>Settings:</strong> System",
+            "performance_heading": "Performance and privacy",
+            "title": "System"
         },
         "tac_only_notifications": "In the Other threads tab, only show notifications",
         "use_12_hour_format": "Show timestamps in 12 hour format (e.g. 2:30pm)",

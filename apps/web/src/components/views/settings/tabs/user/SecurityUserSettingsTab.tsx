@@ -34,6 +34,9 @@ import { SettingsSubsection, SettingsSubsectionText } from "../../shared/Setting
 import { useOwnDevices } from "../../devices/useOwnDevices";
 import { DiscoverySettings } from "../../discovery/DiscoverySettings";
 import SetIntegrationManager from "../../SetIntegrationManager";
+import { MediaPreviewAccountSettings } from "./MediaPreviewAccountSettings";
+import { InviteRulesAccountSetting } from "./InviteRulesAccountSettings";
+import { PresenceSettings } from "./PresenceSettings";
 
 interface IIgnoredUserProps {
     userId: string;
@@ -326,19 +329,14 @@ export default class SecurityUserSettingsTab extends React.Component<EmptyObject
             );
         }
 
-        let advancedSection;
+        let peopleSection;
         if (SettingsStore.getValue(UIFeature.AdvancedSettings)) {
-            const ignoreUsersPanel = this.renderIgnoredUsers();
-            const invitesPanel = this.renderManageInvites();
-            // only show the section if there's something to show
-            if (ignoreUsersPanel || invitesPanel) {
-                advancedSection = (
-                    <SettingsSection heading={_t("common|advanced")}>
-                        {ignoreUsersPanel}
-                        {invitesPanel}
-                    </SettingsSection>
-                );
-            }
+            peopleSection = (
+                <SettingsSection>
+                    {this.renderIgnoredUsers()}
+                    {this.renderManageInvites()}
+                </SettingsSection>
+            );
         }
 
         let discoverySection;
@@ -359,13 +357,23 @@ export default class SecurityUserSettingsTab extends React.Component<EmptyObject
         return (
             <SettingsTab>
                 {warning}
-                <SetIntegrationManager />
+                <SettingsSection>
+                    <SettingsSubsection heading={_t("common|moderation_and_safety")} legacy={false}>
+                        <MediaPreviewAccountSettings />
+                        <InviteRulesAccountSetting />
+                    </SettingsSubsection>
+                    <PresenceSettings />
+                    <SettingsSubsection heading={_t("settings|preferences|room_directory_heading")} formWrap card>
+                        <SettingsFlag name="SpotlightSearch.showNsfwPublicRooms" level={SettingLevel.ACCOUNT} />
+                    </SettingsSubsection>
+                </SettingsSection>
+                {peopleSection}
                 <SettingsSection heading={_t("settings|security|encryption_section")}>
                     {secureBackup}
                     {eventIndex}
                 </SettingsSection>
+                <SetIntegrationManager />
                 {privacySection}
-                {advancedSection}
             </SettingsTab>
         );
     }

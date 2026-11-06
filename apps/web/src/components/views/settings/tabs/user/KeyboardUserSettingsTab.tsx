@@ -24,6 +24,8 @@ import { KeyboardShortcut } from "../../KeyboardShortcut";
 import SettingsTab from "../SettingsTab";
 import { SettingsSection } from "../../shared/SettingsSection";
 import { SettingsSubsection } from "../../shared/SettingsSubsection";
+import SettingsFlag from "../../../elements/SettingsFlag";
+import { SettingLevel } from "../../../../../settings/SettingLevel";
 import SettingsStore from "../../../../../settings/SettingsStore";
 import { DesktopKeybindsSettings } from "./DesktopKeybindsSettings";
 
@@ -73,6 +75,9 @@ const KeyboardUserSettingsTab: React.FC = () => {
         <SettingsTab>
             <SettingsSection>
                 {SettingsStore.getValue("feature_desktop_shell") && <DesktopKeybindsSettings />}
+                <SettingsSubsection formWrap card>
+                    <SettingsFlag name="ctrlFForSearch" level={SettingLevel.ACCOUNT} />
+                </SettingsSubsection>
                 {visibleCategories.map(([categoryName, category]) => {
                     return (
                         <KeyboardShortcutSection key={categoryName} categoryName={categoryName} category={category} />

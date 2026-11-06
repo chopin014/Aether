@@ -15,10 +15,11 @@ import EditIcon from "@vector-im/compound-design-tokens/assets/web/icons/edit";
 import DevicesIcon from "@vector-im/compound-design-tokens/assets/web/icons/devices";
 import VisibilityOnIcon from "@vector-im/compound-design-tokens/assets/web/icons/visibility-on";
 import NotificationsIcon from "@vector-im/compound-design-tokens/assets/web/icons/notifications";
-import PreferencesIcon from "@vector-im/compound-design-tokens/assets/web/icons/preferences";
+import ChatIcon from "@vector-im/compound-design-tokens/assets/web/icons/chat";
+import GlobeIcon from "@vector-im/compound-design-tokens/assets/web/icons/public";
+import ComputerIcon from "@vector-im/compound-design-tokens/assets/web/icons/computer";
 import KeyboardIcon from "@vector-im/compound-design-tokens/assets/web/icons/keyboard";
 import KeyIcon from "@vector-im/compound-design-tokens/assets/web/icons/key";
-import SidebarIcon from "@vector-im/compound-design-tokens/assets/web/icons/sidebar";
 import MicOnIcon from "@vector-im/compound-design-tokens/assets/web/icons/mic-on";
 import LockIcon from "@vector-im/compound-design-tokens/assets/web/icons/lock";
 import BlockIcon from "@vector-im/compound-design-tokens/assets/web/icons/block";
@@ -32,6 +33,7 @@ import {
 } from "@element-hq/web-shared-components";
 
 import TabbedView, { Tab, type TabAnchor, useActiveTabWithDefault } from "../../structures/TabbedView";
+import { type ScreenName } from "../../../PosthogTrackers";
 import { UserSettingsNavigationContext } from "../../../contexts/UserSettingsNavigationContext";
 import { _t, _td } from "../../../languageHandler";
 import AccountUserSettingsTab from "../settings/tabs/user/AccountUserSettingsTab";
@@ -39,13 +41,14 @@ import { DesktopProfileEditorSettings } from "../settings/tabs/user/DesktopProfi
 import AppearanceUserSettingsTab from "../settings/tabs/user/AppearanceUserSettingsTab";
 import SecurityUserSettingsTab from "../settings/tabs/user/SecurityUserSettingsTab";
 import NotificationUserSettingsTab from "../settings/tabs/user/NotificationUserSettingsTab";
-import PreferencesUserSettingsTab from "../settings/tabs/user/PreferencesUserSettingsTab";
+import { ChatUserSettingsTab } from "../settings/tabs/user/ChatUserSettingsTab";
+import { LanguageTimeUserSettingsTab } from "../settings/tabs/user/LanguageTimeUserSettingsTab";
+import { SystemUserSettingsTab } from "../settings/tabs/user/SystemUserSettingsTab";
 import VoiceUserSettingsTab from "../settings/tabs/user/VoiceUserSettingsTab";
 import HelpUserSettingsTab from "../settings/tabs/user/HelpUserSettingsTab";
 import MjolnirUserSettingsTab from "../settings/tabs/user/MjolnirUserSettingsTab";
 import { UIFeature } from "../../../settings/UIFeature";
 import BaseDialog from "./BaseDialog";
-import SidebarUserSettingsTab from "../settings/tabs/user/SidebarUserSettingsTab";
 import KeyboardUserSettingsTab from "../settings/tabs/user/KeyboardUserSettingsTab";
 import SessionManagerTab from "../settings/tabs/user/SessionManagerTab";
 import { UserTab } from "./UserTab";
@@ -89,12 +92,14 @@ function titleForTabID(tabId: UserTab): React.ReactNode {
             return _t("settings|appearance|dialog_title", undefined, subs);
         case UserTab.Notifications:
             return _t("settings|notifications|dialog_title", undefined, subs);
-        case UserTab.Preferences:
-            return _t("settings|preferences|dialog_title", undefined, subs);
+        case UserTab.Chat:
+            return _t("settings|chat|dialog_title", undefined, subs);
+        case UserTab.LanguageAndTime:
+            return _t("settings|language_time|dialog_title", undefined, subs);
+        case UserTab.System:
+            return _t("settings|system|dialog_title", undefined, subs);
         case UserTab.Keyboard:
             return _t("settings|keyboard|dialog_title", undefined, subs);
-        case UserTab.Sidebar:
-            return _t("settings|sidebar|dialog_title", undefined, subs);
         case UserTab.Voice:
             return _t("settings|voip|dialog_title", undefined, subs);
         case UserTab.Security:
@@ -151,146 +156,138 @@ export default function UserSettingsDialog(props: IProps): JSX.Element {
 
     const getTabs = (): NonEmptyArray<Tab<UserTab>> => {
         const tabs: Tab<UserTab>[] = [];
+        // Tabs are grouped by what people come to change: their account, how the app behaves, and the app itself.
+        const add = (
+            id: UserTab,
+            label: TranslationKey,
+            icon: JSX.Element,
+            body: JSX.Element,
+            group: TranslationKey,
+            screenName?: ScreenName,
+            labelClassName?: string,
+            anchors?: TabAnchor[],
+        ): void => {
+            tabs.push(new Tab(id, label, icon, body, screenName, labelClassName, anchors, group));
+        };
 
-        tabs.push(
-            new Tab(
-                UserTab.Account,
-                _td("settings|account|title"),
-                <UserProfileIcon />,
-                <AccountUserSettingsTab closeSettingsFn={props.onFinished} startCustomStatus={startCustomStatus} />,
-                "UserSettingsGeneral",
-            ),
+        const accountGroup = _td("settings|groups|account");
+        add(
+            UserTab.Account,
+            _td("settings|account|title"),
+            <UserProfileIcon />,
+            <AccountUserSettingsTab closeSettingsFn={props.onFinished} startCustomStatus={startCustomStatus} />,
+            accountGroup,
+            "UserSettingsGeneral",
         );
         if (desktopShell) {
-            tabs.push(
-                new Tab(
-                    UserTab.Profile,
-                    _td("settings|profile_appearance|title"),
-                    <EditIcon />,
-                    <DesktopProfileEditorSettings />,
-                ),
+            add(
+                UserTab.Profile,
+                _td("settings|profile_appearance|title"),
+                <EditIcon />,
+                <DesktopProfileEditorSettings />,
+                accountGroup,
             );
         }
-        tabs.push(
-            new Tab(
-                UserTab.SessionManager,
-                _td("settings|sessions|title"),
-                <DevicesIcon />,
-                <SessionManagerTab showMsc4108QrCode={showMsc4108QrCode} />,
-                undefined,
-            ),
+        add(
+            UserTab.Security,
+            _td("room_settings|security|title"),
+            <LockIcon />,
+            <SecurityUserSettingsTab />,
+            accountGroup,
+            "UserSettingsSecurityPrivacy",
         );
-        tabs.push(
-            new Tab(
-                UserTab.Appearance,
-                _td("common|appearance"),
-                <VisibilityOnIcon />,
-                <AppearanceUserSettingsTab />,
-                "UserSettingsAppearance",
-            ),
+        add(
+            UserTab.Encryption,
+            _td("settings|encryption|title"),
+            <KeyIcon />,
+            <EncryptionUserSettingsTab initialState={initialEncryptionState} />,
+            accountGroup,
+            "UserSettingsEncryption",
+            showSetupRecoveryIndicator ? "mx_SettingsDialog_tabLabelsAlert" : undefined,
         );
-        tabs.push(
-            new Tab(
-                UserTab.Notifications,
-                _td("notifications|enable_prompt_toast_title"),
-                <NotificationsIcon />,
-                <NotificationUserSettingsTab />,
-                "UserSettingsNotifications",
-            ),
+        add(
+            UserTab.SessionManager,
+            _td("settings|sessions|title"),
+            <DevicesIcon />,
+            <SessionManagerTab showMsc4108QrCode={showMsc4108QrCode} />,
+            accountGroup,
         );
-        tabs.push(
-            new Tab(
-                UserTab.Preferences,
-                _td("common|preferences"),
-                <PreferencesIcon />,
-                <PreferencesUserSettingsTab />,
-                "UserSettingsPreferences",
-            ),
-        );
-        tabs.push(
-            new Tab(
-                UserTab.Keyboard,
-                _td("settings|keyboard|title"),
-                <KeyboardIcon />,
-                <KeyboardUserSettingsTab />,
-                "UserSettingsKeyboard",
-            ),
-        );
-        tabs.push(
-            new Tab(
-                UserTab.Sidebar,
-                _td("settings|sidebar|title"),
-                <SidebarIcon />,
-                <SidebarUserSettingsTab />,
-                "UserSettingsSidebar",
-            ),
-        );
-
-        if (voipEnabled) {
-            tabs.push(
-                new Tab(
-                    UserTab.Voice,
-                    _td("settings|voip|title"),
-                    <MicOnIcon />,
-                    <VoiceUserSettingsTab />,
-                    "UserSettingsVoiceVideo",
-                    undefined,
-                    desktopShell ? VOICE_VIDEO_ANCHORS : undefined,
-                ),
-            );
-        }
-
-        tabs.push(
-            new Tab(
-                UserTab.Security,
-                _td("room_settings|security|title"),
-                <LockIcon />,
-                <SecurityUserSettingsTab />,
-                "UserSettingsSecurityPrivacy",
-            ),
-        );
-
-        tabs.push(
-            new Tab(
-                UserTab.Encryption,
-                _td("settings|encryption|title"),
-                <KeyIcon />,
-                <EncryptionUserSettingsTab initialState={initialEncryptionState} />,
-                "UserSettingsEncryption",
-                showSetupRecoveryIndicator ? "mx_SettingsDialog_tabLabelsAlert" : undefined,
-            ),
-        );
-
         if (mjolnirEnabled) {
-            tabs.push(
-                new Tab(
-                    UserTab.Mjolnir,
-                    _td("labs_mjolnir|title"),
-                    <BlockIcon />,
-                    <MjolnirUserSettingsTab />,
-                    "UserSettingMjolnir",
-                ),
+            add(
+                UserTab.Mjolnir,
+                _td("labs_mjolnir|title"),
+                <BlockIcon />,
+                <MjolnirUserSettingsTab />,
+                accountGroup,
+                "UserSettingMjolnir",
             );
         }
+
+        const appGroup = _td("settings|groups|app");
+        add(
+            UserTab.Appearance,
+            _td("common|appearance"),
+            <VisibilityOnIcon />,
+            <AppearanceUserSettingsTab />,
+            appGroup,
+            "UserSettingsAppearance",
+        );
+        add(UserTab.Chat, _td("settings|chat|title"), <ChatIcon />, <ChatUserSettingsTab />, appGroup);
+        if (voipEnabled) {
+            add(
+                UserTab.Voice,
+                _td("settings|voip|title"),
+                <MicOnIcon />,
+                <VoiceUserSettingsTab />,
+                appGroup,
+                "UserSettingsVoiceVideo",
+                undefined,
+                desktopShell ? VOICE_VIDEO_ANCHORS : undefined,
+            );
+        }
+        add(
+            UserTab.Notifications,
+            _td("notifications|enable_prompt_toast_title"),
+            <NotificationsIcon />,
+            <NotificationUserSettingsTab />,
+            appGroup,
+            "UserSettingsNotifications",
+        );
+        add(
+            UserTab.Keyboard,
+            _td("settings|keyboard|title"),
+            <KeyboardIcon />,
+            <KeyboardUserSettingsTab />,
+            appGroup,
+            "UserSettingsKeyboard",
+        );
+        add(
+            UserTab.LanguageAndTime,
+            _td("settings|language_time|title"),
+            <GlobeIcon />,
+            <LanguageTimeUserSettingsTab />,
+            appGroup,
+        );
+        add(UserTab.System, _td("settings|system|title"), <ComputerIcon />, <SystemUserSettingsTab />, appGroup);
+
+        const aboutGroup = _td("settings|groups|about");
         if (window.electron) {
-            tabs.push(
-                new Tab(
-                    UserTab.Updates,
-                    _td("desktop|updates|nav_title"),
-                    <DownloadIcon />,
-                    <DesktopUpdatesSettings />,
-                    "UserSettings",
-                ),
+            add(
+                UserTab.Updates,
+                _td("desktop|updates|nav_title"),
+                <DownloadIcon />,
+                <DesktopUpdatesSettings />,
+                aboutGroup,
+                "UserSettings",
             );
         }
-        tabs.push(
-            new Tab(
-                UserTab.Help,
-                _td("setting|help_about|title"),
-                <HelpIcon />,
-                <HelpUserSettingsTab />,
-                "UserSettingsHelpAbout",
-            ),
+        add(
+            UserTab.Help,
+            _td("setting|help_about|title"),
+            <HelpIcon />,
+            <HelpUserSettingsTab />,
+            aboutGroup,
+            "UserSettingsHelpAbout",
         );
 
         return tabs as NonEmptyArray<Tab<UserTab>>;
