@@ -17,7 +17,7 @@ import {
     type DesktopCallStageViewModel as DesktopCallStageViewModelInterface,
     type DesktopCallStageViewSnapshot,
 } from "@element-hq/web-shared-components";
-import { ClientEvent, KnownMembership, type MatrixClient } from "matrix-js-sdk/src/matrix";
+import { ClientEvent, KnownMembership, type MatrixClient, type RoomMember } from "matrix-js-sdk/src/matrix";
 import { isVideoRoom } from "../../utils/video-rooms";
 import { mediaFromMxc } from "../../customisations/Media";
 
@@ -44,6 +44,12 @@ import { RichProfileStore } from "../../profile/RichProfileStore";
 import { appearanceFromRichProfile } from "../../profile/richProfileView";
 
 import { SoundboardViewModel } from "./SoundboardViewModel";
+import { VoiceUserMenuViewModel } from "./VoiceUserMenuViewModel";
+import {
+    MAX_USER_VOLUME,
+    VoiceUserPreferences,
+    VoiceUserPreferencesEvent,
+} from "../../audio/desktop/VoiceUserPreferences";
 import { DesktopCallRingtone } from "../../audio/DesktopCallRingtone";
 
 /** The existing call engine and Matrix client shown by the desktop stage. */
@@ -54,7 +60,7 @@ export interface DesktopCallStageViewModelProps {
 }
 
 const clampVolumePercent = (percent: number): number =>
-    Number.isFinite(percent) ? Math.max(0, Math.min(100, Math.round(percent))) : 100;
+    Number.isFinite(percent) ? Math.max(0, Math.min(MAX_USER_VOLUME * 100, Math.round(percent))) : 100;
 
 const mapParticipantTile = (
     client: MatrixClient,
@@ -68,7 +74,9 @@ const mapParticipantTile = (
         SettingsStore.getValue("showProfileAppearance") && !client.isUserIgnored(item.userId)
             ? RichProfileStore.forClient(client).get(item.userId)
             : undefined;
-    const vol = item.microphoneVolume;
+    // What this user chose for the person on this device: their volume, a mute and a hidden camera.
+    const preference = item.local ? undefined : VoiceUserPreferences.instance.get(item.userId);
+    const videoHidden = preference?.videoDisabled ?? false;
     return {
         id: item.id,
         userId: item.userId,
@@ -80,7 +88,7 @@ const mapParticipantTile = (
         speaking: item.speaking,
         soundboardPlaying: soundboardUsers?.has(item.userId) || undefined,
         audioEnabled: item.audioEnabled,
-        videoEnabled: item.videoEnabled,
+        videoEnabled: item.videoEnabled && !videoHidden,
         deafened: item.deafened,
         mirror: item.mirror,
         waitingForMedia: item.waitingForMedia,
@@ -88,10 +96,8 @@ const mapParticipantTile = (
         encryptionStatus: item.encryptionStatus,
         handRaisedAt: item.handRaisedAt,
         reactionEmoji: item.reactionEmoji,
-        video: item.video,
-        hasVolumeControl: !item.local && vol !== null,
-        microphoneVolumePercent: vol ? clampVolumePercent(vol.volume * 100) : 100,
-        microphoneMuted: vol ? vol.muted : false,
+        video: videoHidden ? null : item.video,
+        locallyMuted: preference?.muted ?? false,
     };
 };
 
@@ -153,13 +159,28 @@ const ringingCallees = (
         });
 };
 
+/** Everyone already in the call, shown in the lobby before the user joins. */
+const lobbyParticipants = (client: MatrixClient, members: Iterable<RoomMember>): DesktopCallStageCallee[] =>
+    [...members]
+        .map((member) => {
+            const mxc = member.getMxcAvatarUrl();
+            return {
+                userId: member.userId,
+                displayName: member.name,
+                avatarUrl: mxc ? (mediaFromMxc(mxc, client).getSquareThumbnailHttp(96) ?? undefined) : undefined,
+                initialLetter: getInitialLetter(member.name || member.userId) || "?",
+            };
+        })
+        .sort((a, b) => a.displayName.localeCompare(b.displayName) || a.userId.localeCompare(b.userId));
+
 /** Adapts the retained call engine to Aether's stage, device controls, and independent audio gains. */
 export class DesktopCallStageViewModel
     extends BaseViewModel<DesktopCallStageViewSnapshot, DesktopCallStageViewModelProps>
     implements DesktopCallStageViewModelInterface
 {
     private bridge: AetherCallPresentationBridge;
-    private readonly participantVolumes = new Map<string, AetherMediaVolumeController>();
+    /** Microphone playback of each remote person, by user ID; someone in the call twice has two. */
+    private readonly participantVolumes = new Map<string, AetherMediaVolumeController[]>();
     private readonly screenShareVolumes = new Map<string, AetherMediaVolumeController>();
     private readonly profileSubscriptions = new Map<string, () => void>();
     private deviceChangeGeneration = 0;
@@ -216,6 +237,8 @@ export class DesktopCallStageViewModel
             ),
             ringing: state.ringing,
             callees: ringingCallees(props.client, props.call.roomId, state.ringing, state.participants),
+            lobbyParticipants: lobbyParticipants(props.client, props.call.participants.keys()),
+            participantMenu: null,
             canShareSystemAudio: !window.electron || !!window.electron.desktopAudio,
         });
         const soundboard = SoundboardViewModel.acquire({ client: props.client, call: props.call });
@@ -223,6 +246,7 @@ export class DesktopCallStageViewModel
         this.snapshot.merge({ soundboard: soundboard.vm });
         this.bridge = props.bridge;
         this.syncVolumeMaps(state.participants, state.screenShares);
+        this.applyUserPreferences();
         this.syncProfiles();
         this.disposables.track(() => {
             for (const unsubscribe of this.profileSubscriptions.values()) unsubscribe();
@@ -264,6 +288,14 @@ export class DesktopCallStageViewModel
             this.disposables.track(() => document.removeEventListener("fullscreenchange", onFullscreenChange));
         }
 
+        this.disposables.trackListener(
+            VoiceUserPreferences.instance,
+            VoiceUserPreferencesEvent.Changed,
+            this.onUserPreferencesChanged,
+        );
+        this.disposables.trackListener(props.call, CallEvent.Participants, this.onCallParticipantsChanged);
+        this.disposables.track(() => this.closeParticipantMenu());
+
         this.disposables.trackListener(props.call, CallEvent.SoundboardUsers, () => {
             this.snapshot.merge({
                 participants: this.bridge.state.participants.map((p) =>
@@ -304,6 +336,7 @@ export class DesktopCallStageViewModel
         this.syncProfiles();
         this.updateRingtone();
         this.syncVolumeMaps(state.participants, state.screenShares);
+        this.applyUserPreferences();
 
         let { layoutMode, spotlightTileId } = this.snapshot.current;
         if (previousShareCount === 0 && state.screenShares.length > 0) {
@@ -391,7 +424,11 @@ export class DesktopCallStageViewModel
     ): void {
         this.participantVolumes.clear();
         for (const p of participants) {
-            if (p.microphoneVolume) this.participantVolumes.set(p.id, p.microphoneVolume);
+            if (p.microphoneVolume)
+                this.participantVolumes.set(p.userId, [
+                    ...(this.participantVolumes.get(p.userId) ?? []),
+                    p.microphoneVolume,
+                ]);
         }
         this.screenShareVolumes.clear();
         for (const s of screenShares) {
@@ -582,11 +619,22 @@ export class DesktopCallStageViewModel
 
     public setActiveMenu = (menu: DesktopCallStageViewSnapshot["activeMenu"]): void => {
         if (menu !== null) void this.refreshDevices();
-        this.snapshot.merge({ activeMenu: menu, openTileMenuId: null });
+        this.closeParticipantMenu();
+        this.snapshot.merge({ activeMenu: menu, openTileMenuId: null, participantMenu: null });
     };
 
+    /** Opens a tile's menu: a person's full menu, or the volume of a screen share's audio. */
     public setOpenTileMenuId = (tileId: string | null): void => {
-        this.snapshot.merge({ openTileMenuId: tileId, activeMenu: null });
+        this.closeParticipantMenu();
+        const participant = this.snapshot.current.participants.find((p) => p.id === tileId);
+        if (participant) {
+            this.participantMenu = new VoiceUserMenuViewModel({
+                client: this.props.client,
+                userId: participant.userId,
+                room: this.props.client.getRoom(this.props.call.roomId) ?? undefined,
+            });
+        }
+        this.snapshot.merge({ openTileMenuId: tileId, activeMenu: null, participantMenu: this.participantMenu });
     };
 
     public setSpotlightTileId = (tileId: string | null): void => {
@@ -607,28 +655,42 @@ export class DesktopCallStageViewModel
         this.snapshot.merge({ layoutMode: mode, spotlightTileId: nextSpotlight });
     };
 
-    public setParticipantMicrophoneVolume = (tileId: string, volumePercent: number): void => {
-        const ctrl = this.participantVolumes.get(tileId);
-        if (!ctrl) return;
-        const clamped = clampVolumePercent(volumePercent);
-        ctrl.setVolume(clamped / 100);
+    /**
+     * Plays each remote person as this user chose on this device. The engine rebuilds its controllers on every
+     * change, so this only touches one whose volume differs, and settles once they match.
+     */
+    private applyUserPreferences(): void {
+        for (const [userId, controllers] of this.participantVolumes) {
+            const volume = VoiceUserPreferences.instance.effectiveVolume(userId);
+            for (const controller of controllers) {
+                if (Math.abs(controller.volume - volume) > 0.001) controller.setVolume(volume);
+            }
+        }
+    }
+
+    private readonly onUserPreferencesChanged = (): void => {
+        if (this.isDisposed) return;
+        this.applyUserPreferences();
         this.snapshot.merge({
-            participants: this.snapshot.current.participants.map((p) =>
-                p.id === tileId ? { ...p, microphoneVolumePercent: clamped, microphoneMuted: clamped === 0 } : p,
+            participants: this.bridge.state.participants.map((p) =>
+                mapParticipantTile(this.props.client, p, this.props.call.soundboardUserIds),
             ),
         });
     };
 
-    public toggleParticipantMicrophoneMuted = (tileId: string): void => {
-        const ctrl = this.participantVolumes.get(tileId);
-        if (!ctrl) return;
-        ctrl.toggleMuted();
+    private readonly onCallParticipantsChanged = (): void => {
+        if (this.isDisposed) return;
         this.snapshot.merge({
-            participants: this.snapshot.current.participants.map((p) =>
-                p.id === tileId ? { ...p, microphoneMuted: !p.microphoneMuted } : p,
-            ),
+            lobbyParticipants: lobbyParticipants(this.props.client, this.props.call.participants.keys()),
         });
     };
+
+    private participantMenu: VoiceUserMenuViewModel | null = null;
+
+    private closeParticipantMenu(): void {
+        this.participantMenu?.dispose();
+        this.participantMenu = null;
+    }
 
     public setScreenShareAudioVolume = (tileId: string, volumePercent: number): void => {
         const ctrl = this.screenShareVolumes.get(tileId);
