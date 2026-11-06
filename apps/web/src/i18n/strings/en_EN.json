@@ -1719,13 +1719,6 @@
         "url_preview_bundle": "URL Preview Bundle (MSC4095)",
         "url_preview_bundle_description": "Sends URL previews bundled with the message content",
         "video_rooms": "Video rooms",
-        "video_rooms_a_new_way_to_chat": "A new way to chat over voice and video in %(brand)s.",
-        "video_rooms_always_on_voip_channels": "Video rooms are always-on VoIP channels embedded within a room in %(brand)s.",
-        "video_rooms_faq1_answer": "Use the “+” button in the room section of the left panel.",
-        "video_rooms_faq1_question": "How can I create a video room?",
-        "video_rooms_faq2_answer": "Yes, the chat timeline is displayed alongside the video.",
-        "video_rooms_faq2_question": "Can I use text chat alongside the video call?",
-        "video_rooms_feedbackSubheading": "Thank you for trying the beta, please go into as much detail as you can so we can improve it.",
         "wysiwyg_composer": "Rich text editor"
     },
     "labs_mjolnir": {
