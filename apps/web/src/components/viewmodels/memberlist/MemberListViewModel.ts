@@ -35,6 +35,7 @@ import SettingsStore from "../../../settings/SettingsStore";
 import { AetherPresenceService } from "../../../presence/AetherPresenceService";
 import { AetherPresenceStoreEvent } from "../../../presence/AetherPresenceStore";
 import { mergePresence, type PresenceSource } from "../../../presence/mergedPresence";
+import { toMergedPresenceState } from "../../../presence/useMergedPresence";
 import { type PresenceState } from "../../../models/rooms/PresenceState";
 import { useMatrixClientContext } from "../../../contexts/MatrixClientContext";
 import { SDKContext } from "../../../contexts/SDKContext";
@@ -95,12 +96,14 @@ export function sdkRoomMemberToRoomMember(member: SdkRoomMember): Member {
     if (local) {
         presenceState = local.state;
         presenceSource = local.source;
-    } else if ((!presenceState || !serverPresenceUsable) && SettingsStore.getValue("feature_desktop_shell")) {
-        // Another Aether client's own report. Seen activity is not used here: it must not place anyone in the
-        // Online or Offline groups, so the tile adds it separately.
+    } else if (SettingsStore.getValue("feature_desktop_shell")) {
+        // Another Aether client's own report, merged with server presence the same way the presence dot does.
+        // Seen activity is not used here: it must not place anyone in the Online or Offline groups, so the tile adds
+        // it separately.
         const signal = AetherPresenceService.instance.store?.getSignal(member.userId);
-        const merged = signal ? mergePresence({ aether: signal, now: Date.now() }) : null;
-        if (merged) {
+        const server = serverPresenceUsable ? toMergedPresenceState(presenceState) : undefined;
+        const merged = signal ? mergePresence({ server, aether: signal, now: Date.now() }) : null;
+        if (merged && merged.source !== "server") {
             presenceState = merged.state;
             presenceSource = merged.source;
             presenceLabel = merged.label;
