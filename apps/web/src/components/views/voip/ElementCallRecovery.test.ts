@@ -28,11 +28,12 @@ function helpers(): {
     ) => Watcher;
     aetherCanAutoReconnect: (error: object) => boolean;
     aetherAutoReconnectDelay: (roomId: string, error: object) => number | null;
+    aetherMembershipExpiryHeadroomMs: (expiryMs: number | undefined) => number | undefined;
 } {
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     return new Function(
-        `${source.slice(start, end)}; return { aetherWatchLivekitState, aetherAutoReconnectDelay, aetherCanAutoReconnect };`,
+        `${source.slice(start, end)}; return { aetherWatchLivekitState, aetherAutoReconnectDelay, aetherCanAutoReconnect, aetherMembershipExpiryHeadroomMs };`,
     )();
 }
 
@@ -182,5 +183,22 @@ describe("automatic rejoin error classification", () => {
             expect(aetherCanAutoReconnect({ code })).toBe(false);
         }
         expect(aetherCanAutoReconnect({ code: "SFU_ERROR", category: "CONFIGURATION_ISSUE" })).toBe(false);
+    });
+});
+
+describe("call membership renewal", () => {
+    it("renews well before memberships expire", () => {
+        const { aetherMembershipExpiryHeadroomMs } = helpers();
+        // Aether's five minute memberships are renewed after three minutes, not five seconds before they expire.
+        expect(aetherMembershipExpiryHeadroomMs(5 * 60_000)).toBe(2 * 60_000);
+        expect(aetherMembershipExpiryHeadroomMs(60_000)).toBe(30_000);
+        expect(aetherMembershipExpiryHeadroomMs(4 * 60 * 60_000)).toBe(2 * 60_000);
+        expect(aetherMembershipExpiryHeadroomMs(undefined)).toBeUndefined();
+    });
+
+    it("passes the headroom to the membership manager", () => {
+        expect(source).toMatch(
+            /membershipEventExpiryHeadroomMs: aetherMembershipExpiryHeadroomMs\(l\.membership_event_expiry_ms\)/,
+        );
     });
 });
