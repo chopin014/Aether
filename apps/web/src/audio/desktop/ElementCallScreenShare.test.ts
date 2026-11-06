@@ -451,13 +451,16 @@ describe("Element Call screen capture publication boundary", () => {
 });
 
 /** Run the patched controller against platform capability results without requiring a GPU in unit tests. */
-function hardwareRuntime(encodingInfo = vi.fn()) {
+function hardwareRuntime(
+    encodingInfo = vi.fn(),
+    codecs: { mimeType: string; sdpFmtpLine?: string }[] = [{ mimeType: "video/AV1" }, { mimeType: "video/H264" }],
+) {
     return runInNewContext(
         `${source.replaceAll("export ", "")}; ({ aetherChooseScreenCodec, aetherCreateScreenShareController })`,
         {
             navigator: { mediaCapabilities: { encodingInfo } },
             RTCRtpSender: {
-                getCapabilities: () => ({ codecs: [{ mimeType: "video/AV1" }, { mimeType: "video/H264" }] }),
+                getCapabilities: () => ({ codecs }),
             },
         },
     ) as typeof helpers;
@@ -518,7 +521,26 @@ describe("screen-share hardware codec selection", () => {
         expect(encodingInfo).not.toHaveBeenCalled();
     });
 
-    it("retries VP8 when the hardware encoder fails during publication", async () => {
+    it("keeps encrypted sharing on hardware H.264 while the bundled cryptor cannot encrypt AV1", async () => {
+        const encodingInfo = vi.fn().mockResolvedValue({ supported: true, smooth: true, powerEfficient: true });
+        const runtime = hardwareRuntime(encodingInfo);
+        const { track } = fixture();
+        expect(
+            await runtime.aetherChooseScreenCodec(
+                track,
+                { resolutionHeight: 720, frameRate: 30, maxBitrate: 20_000_000, includeSystemAudio: false },
+                { isE2EEEnabled: true },
+            ),
+        ).toBe("h264");
+        expect(encodingInfo).toHaveBeenCalledOnce();
+        expect(encodingInfo).toHaveBeenCalledWith(
+            expect.objectContaining({
+                video: expect.objectContaining({ contentType: "video/h264" }),
+            }),
+        );
+    });
+
+    it("tries hardware H.264 before VP8 when AV1 fails during publication", async () => {
         const runtime = hardwareRuntime(
             vi.fn().mockResolvedValue({ supported: true, smooth: true, powerEfficient: true }),
         );
@@ -527,8 +549,40 @@ describe("screen-share hardware codec selection", () => {
         await controller.setEnabled(true);
         expect(
             participant.publishTrack.mock.calls.map(([, options]) => (options as { videoCodec: string }).videoCodec),
-        ).toEqual(["av1", "vp8"]);
+        ).toEqual(["av1", "h264"]);
         expect(participant.publishTrack.mock.calls[1][1]).toMatchObject({ simulcast: true, scalabilityMode: "L1T1" });
+    });
+
+    it("uses VP8 only after both hardware codecs fail publication", async () => {
+        const runtime = hardwareRuntime(
+            vi.fn().mockResolvedValue({ supported: true, smooth: true, powerEfficient: true }),
+        );
+        const { controller, participant } = fixture(runtime);
+        participant.publishTrack.mockRejectedValueOnce(new Error("AV1 failed"));
+        participant.publishTrack.mockRejectedValueOnce(new Error("H264 failed"));
+        await controller.setEnabled(true);
+        expect(
+            participant.publishTrack.mock.calls.map(([, options]) => (options as { videoCodec: string }).videoCodec),
+        ).toEqual(["av1", "h264", "vp8"]);
+    });
+
+    it("probes RTP profiles so bare H.264 MIME support cannot hide a usable GPU encoder", async () => {
+        const fmtp = "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f";
+        const encodingInfo = vi.fn(async ({ video }: { video: { contentType: string } }) => ({
+            supported: true,
+            smooth: true,
+            powerEfficient: video.contentType.includes("packetization-mode=1"),
+        }));
+        const runtime = hardwareRuntime(encodingInfo, [{ mimeType: "video/H264", sdpFmtpLine: fmtp }]);
+        const { controller, participant } = fixture(runtime);
+        await controller.setEnabled(true);
+        expect(participant.publishTrack).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ videoCodec: "h264" }),
+        );
+        expect(encodingInfo).toHaveBeenCalledWith(
+            expect.objectContaining({ video: expect.objectContaining({ contentType: `video/h264;${fmtp}` }) }),
+        );
     });
 });
 
