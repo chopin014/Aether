@@ -263,6 +263,24 @@ index e597a18..3b698af 100644
 +++ b/dist/element-call.js
 @@ -0,0 +1,1 @@
 +import { aetherResolveScreenShareQuality, aetherCreateScreenShareController, aetherHasLiveScreenShareAudio } from "./aether-screen-share.js";
+@@ -16247,7 +16248,7 @@
+ 						participantIdentity: n.participantIdentity,
+ 						participantSid: n.participantSid
+ 					});
+-					t.value?.case === "user" && kb(t, t.value.value), this.emit(Y.DataPacketReceived, t, n.value.value.encryptionType);
++					t.value?.case === "user" && kb(t, t.value.value), this.emit(Y.DataPacketReceived, t, Pu.GCM); /* Aether: senders never fill in encryption_type, so report what was actually decrypted. */
+ 				} else n.value?.case === "user" && kb(n, n.value.value), this.emit(Y.DataPacketReceived, n, Pu.NONE);
+ 			} finally {
+ 				t();
+@@ -16789,7 +16790,7 @@
+ 					e.value = {
+ 						case: "encryptedPacket",
+ 						value: new Xu({
+-							encryptedValue: n.payload,
++							encryptionType: Pu.GCM, encryptedValue: n.payload,
+ 							iv: n.iv,
+ 							keyIndex: n.keyIndex
+ 						})
 @@ -37062,11 +37063,12 @@ var fX = qi.createInstance(), pX = /* @__PURE__ */ function(e) {
  async function kX(e, t, n, r, i, a) {
  	let o;
