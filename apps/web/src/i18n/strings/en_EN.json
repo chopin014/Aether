@@ -839,6 +839,14 @@
             "error_rate_limit": "Your homeserver asked to slow down. Try again in a moment.",
             "error_too_large": "Your profile is larger than your homeserver allows. Remove some links or board items."
         },
+        "promote_peer": {
+            "phrase_many": {
+                "one": "I want to make this person as powerful as me",
+                "other": "I want to make these %(count)s people as powerful as me"
+            },
+            "phrase_one": "I want to make %(name)s as powerful as me",
+            "title": "Give the same power as you?"
+        },
         "share_picker": {
             "title": "Share your screen"
         },
@@ -4057,7 +4065,6 @@
         "kick_button_space_everything": "Remove them from everything I'm able to",
         "kick_space_specific": "Remove them from specific things I'm able to",
         "kick_space_warning": "They'll still be able to access whatever you're not an admin of.",
-        "promote_warning": "You will not be able to undo this change as you are promoting the user to have the same power level as yourself.",
         "redact": {
             "confirm_button": {
                 "one": "Remove 1 message",

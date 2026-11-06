@@ -1031,6 +1031,20 @@
             "group_spacing": "Espaço entre grupos de mensagens",
             "group_spacing_value": "%(size)spx",
             "title": "Exibição das mensagens"
+        },
+        "promote_peer": {
+            "can_change_roles": "Poderá mudar o cargo de qualquer pessoa, inclusive o seu.",
+            "can_delete": "Poderá excluir canais e remover qualquer pessoa, inclusive você.",
+            "confirm": "Dar o mesmo poder",
+            "description_channel": "%(who)s terá o mesmo poder que você no canal %(room)s.",
+            "description_server": "%(who)s terá o mesmo poder que você em %(room)s.",
+            "irreversible": "Não dá para desfazer: ninguém pode reduzir o poder de quem está no mesmo nível.",
+            "no_paste": "Digite você mesmo — colar está desativado.",
+            "people": {
+                "one": "%(count)s pessoa",
+                "other": "%(count)s pessoas"
+            },
+            "type_to_confirm": "Para confirmar, digite esta frase:"
         }
     },
     "threads": {

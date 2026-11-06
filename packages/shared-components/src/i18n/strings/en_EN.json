@@ -432,6 +432,20 @@
             "unsaved": "Careful, you have unsaved changes.",
             "unsupported": "Your homeserver does not support custom profile fields, so these options are not available. You can still change your name and avatar under Account."
         },
+        "promote_peer": {
+            "can_change_roles": "They can change anyone's role, including yours.",
+            "can_delete": "They can delete channels and remove anyone, including you.",
+            "confirm": "Give the same power",
+            "description_channel": "%(who)s will get the same power as you in the channel %(room)s.",
+            "description_server": "%(who)s will get the same power as you in %(room)s.",
+            "irreversible": "You cannot take this back: nobody can lower the power of someone at their own level.",
+            "no_paste": "Type it yourself — pasting is turned off.",
+            "people": {
+                "one": "%(count)s person",
+                "other": "%(count)s people"
+            },
+            "type_to_confirm": "To confirm, type this sentence:"
+        },
         "search": {
             "box": {
                 "clear": "Clear search",

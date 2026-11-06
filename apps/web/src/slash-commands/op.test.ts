@@ -15,7 +15,13 @@ import { describe, it, expect, vi } from "vitest";
 import { setUpCommandTest } from "./__mocks__";
 import { warnSelfDemote } from "../components/views/right_panel/UserInfo";
 
+import { confirmPeerPromotion } from "../utils/room/confirmPeerPromotion";
+
 vi.mock("../components/views/right_panel/UserInfo");
+vi.mock("../utils/room/confirmPeerPromotion", async (importOriginal) => {
+    const original = await importOriginal<typeof import("../utils/room/confirmPeerPromotion")>();
+    return { confirmPeerPromotion: vi.fn(original.confirmPeerPromotion) };
+});
 
 describe("/op", () => {
     const roomId = "!room:example.com";
@@ -49,9 +55,24 @@ describe("/op", () => {
         const { client, command, room } = setUpCommandTest(roomId, "/op");
         const member = new RoomMember(roomId, "@user:server");
         member.membership = KnownMembership.Join;
-        room.getMember = () => member;
-        command.run(client, roomId, null, member.userId);
+        const me = new RoomMember(roomId, client.getSafeUserId());
+        me.powerLevel = 100;
+        room.getMember = (userId) => (userId === me.userId ? me : member);
+        await command.run(client, roomId, null, member.userId).promise;
         expect(client.setPowerLevel).toHaveBeenCalledWith(roomId, member.userId, 50);
+    });
+
+    it("should ask before giving someone the user's own level", async () => {
+        const { client, command, room } = setUpCommandTest(roomId, "/op");
+        const member = new RoomMember(roomId, "@user:server");
+        member.membership = KnownMembership.Join;
+        const me = new RoomMember(roomId, client.getSafeUserId());
+        me.powerLevel = 100;
+        room.getMember = (userId) => (userId === me.userId ? me : member);
+        vi.mocked(confirmPeerPromotion).mockResolvedValueOnce(false);
+        await command.run(client, roomId, null, `${member.userId} 100`).promise;
+        expect(confirmPeerPromotion).toHaveBeenCalledWith(client, room, [member.userId], 100);
+        expect(client.setPowerLevel).not.toHaveBeenCalled();
     });
 });
 
