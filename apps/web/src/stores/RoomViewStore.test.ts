@@ -463,6 +463,31 @@ describe("RoomViewStore", function () {
         expect(roomViewStore.getRoomId()).toBeNull();
     });
 
+    it("removes the roomId when the desktop shell opens Discover", async () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const settings = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        try {
+            dis.dispatch({ action: Action.ViewRoom, room_id: roomId });
+            await untilDispatch(Action.ActiveRoomChanged, dis);
+
+            dis.dispatch({ action: Action.ViewDiscover });
+            await untilEmission(roomViewStore, UPDATE_EVENT);
+            expect(roomViewStore.getRoomId()).toBeNull();
+        } finally {
+            settings.mockRestore();
+        }
+    });
+
+    it("keeps the room when Discover opens as a dialog outside the desktop shell", async () => {
+        dis.dispatch({ action: Action.ViewRoom, room_id: roomId });
+        await untilDispatch(Action.ActiveRoomChanged, dis);
+
+        dis.dispatch({ action: Action.ViewDiscover }, true);
+        expect(roomViewStore.getRoomId()).toEqual(roomId);
+    });
+
     it("when viewing a call without a broadcast, it should not raise an error", async () => {
         const call = { presented: false } as Call;
         const getCallSpy = vi.spyOn(CallStore.instance, "getCall").mockReturnValue(call);

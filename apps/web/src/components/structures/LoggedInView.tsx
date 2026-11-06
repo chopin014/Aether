@@ -30,7 +30,13 @@ import {
 import { type MatrixCall } from "matrix-js-sdk/src/webrtc/call";
 import { logger } from "matrix-js-sdk/src/logger";
 import classNames from "classnames";
-import { GroupView, SeparatorView, Panel, LeftResizablePanelView } from "@element-hq/web-shared-components";
+import {
+    DiscoverNavigationView,
+    GroupView,
+    SeparatorView,
+    Panel,
+    LeftResizablePanelView,
+} from "@element-hq/web-shared-components";
 
 import { isOnlyCtrlOrCmdKeyEvent, Key } from "../../Keyboard";
 import PageTypes from "../../PageTypes";
@@ -75,6 +81,10 @@ import { ModuleApi } from "../../modules/Api.ts";
 import { SDKContext } from "../../contexts/SDKContext.ts";
 import { RoomListCollapsedProvider } from "../../contexts/RoomListCollapsedContext";
 import { ResizerViewModel } from "../../viewmodels/structures/ResizerViewModel.ts";
+import { DiscoverViewModel } from "../../viewmodels/discover/DiscoverViewModel";
+import { DiscoverPage } from "./DiscoverPage";
+import { PageTypeContext } from "../../contexts/PageTypeContext";
+import { promptForDirectoryServer } from "../views/directory/NetworkDropdown";
 
 // We need to fetch each pinned message individually (if we don't already have it)
 // so each pinned message may trigger a request. Limit the number per room for sanity.
@@ -135,6 +145,8 @@ class LoggedInView extends React.Component<IProps, IState> {
     protected timezoneProfileUpdateRef?: string[];
 
     private resizerViewModel?: ResizerViewModel;
+    /** Shared by the Discover page and its sidebar, and kept between visits so the listing survives. */
+    private readonly discoverViewModel?: DiscoverViewModel;
     private cancelCallPreparation?: () => void;
     private cancelCallEntryWait?: () => void;
     private cancelCallSyncWait?: () => void;
@@ -161,6 +173,15 @@ class LoggedInView extends React.Component<IProps, IState> {
         void MediaDeviceHandler.loadDevices();
 
         this._roomView = React.createRef();
+
+        // Created up front so the model hears the first request to open Discover. It loads nothing until shown.
+        if (this.desktopShellEnabled) {
+            this.discoverViewModel = new DiscoverViewModel({
+                client: this._matrixClient,
+                promptForServer: promptForDirectoryServer,
+                spaceStore: context.spaceStore,
+            });
+        }
     }
 
     public componentDidMount(): void {
@@ -294,6 +315,7 @@ class LoggedInView extends React.Component<IProps, IState> {
         SettingsStore.unwatchSetting(this.backgroundImageWatcherRef);
         this.timezoneProfileUpdateRef?.forEach((s) => SettingsStore.unwatchSetting(s));
         this.disposeResizerViewModel();
+        this.discoverViewModel?.dispose();
     }
 
     private onCallState = (): void => {
@@ -701,6 +723,10 @@ class LoggedInView extends React.Component<IProps, IState> {
                 pageElement = <HomePage justRegistered={this.props.justRegistered} />;
                 break;
 
+            case PageTypes.Discover:
+                if (this.discoverViewModel) pageElement = <DiscoverPage vm={this.discoverViewModel} />;
+                break;
+
             case PageTypes.UserView:
                 if (!!this.props.currentUserId) {
                     pageElement = (
@@ -741,7 +767,11 @@ class LoggedInView extends React.Component<IProps, IState> {
                 <div className={leftPanelWrapperClasses}>
                     {!moduleRenderer && (
                         <div className="mx_LeftPanel_wrapper--user">
-                            <LeftPanel isMinimized={false} resizeNotifier={this.context.resizeNotifier} />
+                            {this.props.page_type === PageTypes.Discover && this.discoverViewModel ? (
+                                <DiscoverNavigationView vm={this.discoverViewModel} />
+                            ) : (
+                                <LeftPanel isMinimized={false} resizeNotifier={this.context.resizeNotifier} />
+                            )}
                         </div>
                     )}
                 </div>
@@ -797,7 +827,9 @@ class LoggedInView extends React.Component<IProps, IState> {
                     className={wrapperClasses}
                     aria-hidden={this.props.hideToSRUsers}
                 >
-                    <div className={bodyClasses}>{content}</div>
+                    <div className={bodyClasses}>
+                        <PageTypeContext.Provider value={this.props.page_type}>{content}</PageTypeContext.Provider>
+                    </div>
                 </div>
                 {this.desktopShellEnabled && <DesktopProfileHost />}
                 {this.desktopShellEnabled && <DesktopIncomingCallHost />}

@@ -69,6 +69,28 @@ const validServer = withValidation<undefined, { error?: unknown }>({
     memoize: true,
 });
 
+/**
+ * Asks for a server whose room directory can be browsed, checking that it answers.
+ * @returns The server name, or undefined if the dialog was cancelled.
+ */
+export async function promptForDirectoryServer(): Promise<string | undefined> {
+    const { finished } = Modal.createDialog(
+        TextInputDialog,
+        {
+            title: _t("spotlight|public_rooms|network_dropdown_add_dialog_title"),
+            description: _t("spotlight|public_rooms|network_dropdown_add_dialog_description"),
+            button: _t("action|add"),
+            hasCancel: false,
+            placeholder: _t("spotlight|public_rooms|network_dropdown_add_dialog_placeholder"),
+            validator: validServer,
+            fixedWidth: false,
+        },
+        "mx_NetworkDropdown_dialog",
+    );
+    const [ok, server] = await finished;
+    return ok && server ? server : undefined;
+}
+
 function useSettingsValueWithSetter<S extends SettingKey>(
     settingName: S,
     level: SettingLevel,
@@ -207,27 +229,11 @@ export const NetworkDropdown: React.FC<IProps> = ({ protocols, config, setConfig
                     key="add-server"
                     onClick={async (): Promise<void> => {
                         closeMenu();
-                        const { finished } = Modal.createDialog(
-                            TextInputDialog,
-                            {
-                                title: _t("spotlight|public_rooms|network_dropdown_add_dialog_title"),
-                                description: _t("spotlight|public_rooms|network_dropdown_add_dialog_description"),
-                                button: _t("action|add"),
-                                hasCancel: false,
-                                placeholder: _t("spotlight|public_rooms|network_dropdown_add_dialog_placeholder"),
-                                validator: validServer,
-                                fixedWidth: false,
-                            },
-                            "mx_NetworkDropdown_dialog",
-                        );
-
-                        const [ok, newServer] = await finished;
-                        if (!ok) return;
-
-                        if (!allServers.includes(newServer!)) {
-                            setUserDefinedServers([...userDefinedServers, newServer!]);
+                        const newServer = await promptForDirectoryServer();
+                        if (newServer && !allServers.includes(newServer)) {
+                            setUserDefinedServers([...userDefinedServers, newServer]);
                             setConfig({
-                                roomServer: newServer!,
+                                roomServer: newServer,
                             });
                         }
                     }}

@@ -118,6 +118,7 @@ export * from "./core/viewmodel";
 export * from "./desktop/DesktopAccountDockView";
 
 export * from "./desktop/DesktopContactsView";
+export * from "./desktop/DiscoverView";
 
 export * from "./desktop/DesktopVoiceControlsView";
 export * from "./desktop/DesktopVoiceVideoSettingsView";

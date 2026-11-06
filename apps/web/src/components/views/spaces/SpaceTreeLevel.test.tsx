@@ -21,6 +21,8 @@ import { MetaSpace, type SpaceKey } from "../../../stores/spaces";
 import { StaticNotificationState } from "../../../stores/notifications/StaticNotificationState";
 import { NotificationLevel } from "../../../stores/notifications/NotificationLevel";
 import { SDKContextClass } from "../../../contexts/SDKContextClass";
+import { PageTypeContext } from "../../../contexts/PageTypeContext";
+import PageType from "../../../PageTypes";
 
 vi.mock("../../../stores/spaces/SpaceStore", async () => {
     const EventEmitter = (await vi.importActual("events")).EventEmitter as typeof import("events").EventEmitter;
@@ -115,6 +117,24 @@ describe("SpaceButton", () => {
             expect(dispatchSpy).not.toHaveBeenCalled();
             // Re-activating the metaspace is a no-op
             expect(SDKContextClass.instance.spaceStore.setActiveSpace).toHaveBeenCalledWith(MetaSpace.Home);
+        });
+
+        it("returns to the active metaspace from the Discover page", () => {
+            const { container } = render(
+                <PageTypeContext.Provider value={PageType.Discover}>
+                    <SpaceButton
+                        spaceKey={MetaSpace.Home}
+                        selected={false}
+                        label="Home"
+                        data-testid="create-space-button"
+                        size="32px"
+                    />
+                </PageTypeContext.Provider>,
+                clientAndSDKContextRenderOptions(cli, SDKContextClass.instance),
+            );
+
+            fireEvent.click(getByTestId(container, "create-space-button"));
+            expect(SDKContextClass.instance.spaceStore.setActiveSpace).toHaveBeenCalledWith(MetaSpace.Home, true, true);
         });
 
         it("should render notificationState if one is provided", () => {
