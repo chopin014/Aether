@@ -31,9 +31,18 @@ import defaultDispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 import { RichProfileStore } from "../../profile/RichProfileStore";
 import * as RoomInvite from "../../RoomInvite";
+import { VoiceUserPreferences, VoiceUserPreferencesEvent } from "../../audio/desktop/VoiceUserPreferences";
+import { VoiceUserMenuViewModel } from "./VoiceUserMenuViewModel";
 
 vi.mock("../../profile/RichProfileStore", () => ({
     RichProfileStore: { forClient: vi.fn(() => ({ get: vi.fn(), subscribe: vi.fn(() => vi.fn()), request: vi.fn() })) },
+}));
+
+vi.mock("./VoiceUserMenuViewModel", () => ({
+    VoiceUserMenuViewModel: vi.fn(function (this: Record<string, unknown>, props: unknown) {
+        this.props = props;
+        this.dispose = vi.fn();
+    }),
 }));
 
 vi.mock("./SoundboardViewModel", () => ({
@@ -138,6 +147,7 @@ describe("DesktopCallStageViewModel", () => {
 
     const mockCall = Object.assign(new EventEmitter(), {
         soundboardUserIds: new Set<string>(),
+        participants: new Map(),
         roomId: "!voice:example.org",
         setLocalLeavePending: vi.fn(),
         disconnect: vi.fn().mockResolvedValue(undefined),
@@ -313,40 +323,112 @@ describe("DesktopCallStageViewModel", () => {
         expect(vm.getSnapshot().deviceError).toBeNull();
     });
 
-    it("toggles mute optimistically even when the bridge controller snapshot has not refreshed", () => {
-        const controller = { volume: 0.6, muted: false, setVolume: vi.fn(), toggleMuted: vi.fn() };
+    it("plays each remote person as this user chose for them on this device, up to 200%", () => {
+        const preferences = VoiceUserPreferences.instance;
+        let chosen = { volume: 1.5, muted: false, soundboardMuted: false, videoDisabled: false };
+        vi.spyOn(preferences, "get").mockImplementation(() => chosen);
+        vi.spyOn(preferences, "effectiveVolume").mockImplementation(() => (chosen.muted ? 0 : chosen.volume));
+        const controller = createVolumeController(1, false);
+        const video: AetherVideoAttachmentHandle = { attach: vi.fn(), detach: vi.fn() };
+        const bob: AetherParticipantMediaItem = {
+            id: "bob",
+            userId: "@bob:example.org",
+            displayName: "Bob",
+            local: false,
+            speaking: false,
+            audioEnabled: true,
+            videoEnabled: true,
+            deafened: false,
+            mirror: false,
+            waitingForMedia: false,
+            unencryptedWarning: false,
+            encryptionStatus: "okay",
+            handRaisedAt: null,
+            reactionEmoji: null,
+            video,
+            microphoneVolume: controller,
+        };
         const vm = new DesktopCallStageViewModel({
             client: mockClient,
             call: mockCall,
-            bridge: createBridge({
-                participants: [
-                    {
-                        id: "bob",
-                        userId: "@bob:example.org",
-                        displayName: "Bob",
-                        local: false,
-                        speaking: false,
-                        audioEnabled: true,
-                        videoEnabled: false,
-                        deafened: false,
-                        mirror: false,
-                        waitingForMedia: false,
-                        unencryptedWarning: false,
-                        encryptionStatus: "okay",
-                        handRaisedAt: null,
-                        reactionEmoji: null,
-                        video: null,
-                        microphoneVolume: controller,
-                    },
-                ],
-            }),
+            bridge: createBridge({ participants: [bob] }),
         });
-        vm.toggleParticipantMicrophoneMuted("bob");
-        expect(vm.getSnapshot().participants[0].microphoneMuted).toBe(true);
-        vm.toggleParticipantMicrophoneMuted("bob");
-        expect(vm.getSnapshot().participants[0].microphoneMuted).toBe(false);
-        vm.setParticipantMicrophoneVolume("bob", Number.NaN);
-        expect(controller.setVolume).toHaveBeenCalledWith(1);
+        expect(controller.setVolume).toHaveBeenCalledExactlyOnceWith(1.5);
+
+        // A rebuilt bridge that already plays the chosen volume is left alone.
+        vm.setBridge(createBridge({ participants: [{ ...bob }] }));
+        expect(controller.setVolume).toHaveBeenCalledOnce();
+        expect(vm.getSnapshot().participants[0]).toMatchObject({ locallyMuted: false, videoEnabled: true, video });
+
+        chosen = { ...chosen, muted: true, videoDisabled: true };
+        preferences.emit(VoiceUserPreferencesEvent.Changed);
+        expect(controller.setVolume).toHaveBeenLastCalledWith(0);
+        expect(vm.getSnapshot().participants[0]).toMatchObject({
+            locallyMuted: true,
+            videoEnabled: false,
+            video: null,
+        });
+
+        vm.dispose();
+        chosen = { ...chosen, muted: false };
+        preferences.emit(VoiceUserPreferencesEvent.Changed);
+        expect(controller.setVolume).toHaveBeenCalledTimes(2);
+    });
+
+    it("opens a person's menu for their tile and closes it with other menus", () => {
+        const bob = {
+            id: "p-bob",
+            userId: "@bob:example.org",
+            displayName: "Bob",
+            local: false,
+            speaking: false,
+            audioEnabled: true,
+            videoEnabled: false,
+            deafened: false,
+            mirror: false,
+            waitingForMedia: false,
+            unencryptedWarning: false,
+            encryptionStatus: "okay" as const,
+            handRaisedAt: null,
+            reactionEmoji: null,
+            video: null,
+            microphoneVolume: null,
+        };
+        const vm = new DesktopCallStageViewModel({
+            client: mockClient,
+            call: mockCall,
+            bridge: createBridge({ participants: [bob] }),
+        });
+        vm.setOpenTileMenuId("p-bob");
+        const menu = vm.getSnapshot().participantMenu as unknown as { props: { userId: string }; dispose: () => void };
+        expect(vi.mocked(VoiceUserMenuViewModel)).toHaveBeenLastCalledWith(
+            expect.objectContaining({ userId: "@bob:example.org" }),
+        );
+        expect(menu.props.userId).toBe("@bob:example.org");
+        expect(vm.getSnapshot().openTileMenuId).toBe("p-bob");
+
+        vm.setActiveMenu("mic");
+        expect(menu.dispose).toHaveBeenCalledOnce();
+        expect(vm.getSnapshot().participantMenu).toBeNull();
+
+        // A screen share's tile keeps its own volume popover rather than a person's menu.
+        vm.setOpenTileMenuId("s-bob");
+        expect(vm.getSnapshot().participantMenu).toBeNull();
+        vm.dispose();
+    });
+
+    it("previews the people already in the call in the lobby", () => {
+        const member = (userId: string, name: string): unknown => ({ userId, name, getMxcAvatarUrl: () => null });
+        const participants = mockCall.participants as Map<unknown, Set<string>>;
+        participants.set(member("@zed:example.org", "Zed"), new Set(["A"]));
+        const vm = new DesktopCallStageViewModel({ client: mockClient, call: mockCall, bridge: createBridge() });
+        expect(vm.getSnapshot().lobbyParticipants).toEqual([
+            { userId: "@zed:example.org", displayName: "Zed", avatarUrl: undefined, initialLetter: "Z" },
+        ]);
+        participants.set(member("@amy:example.org", "Amy"), new Set(["B"]));
+        mockCall.emit(CallEvent.Participants, mockCall.participants, new Map());
+        expect(vm.getSnapshot().lobbyParticipants.map((person) => person.displayName)).toEqual(["Amy", "Zed"]);
+        participants.clear();
         vm.dispose();
     });
 
@@ -467,16 +549,16 @@ describe("DesktopCallStageViewModel", () => {
         expect(streamVol.setVolume).toHaveBeenCalledWith(0.35);
         expect(micVol.setVolume).not.toHaveBeenCalled();
         expect(vm.getSnapshot().screenShares[0].streamAudioVolumePercent).toBe(35);
-        expect(vm.getSnapshot().participants[0].microphoneVolumePercent).toBe(100);
 
         vm.toggleScreenShareAudioMuted("s-bob");
         expect(streamVol.toggleMuted).toHaveBeenCalledTimes(1);
         expect(micVol.toggleMuted).not.toHaveBeenCalled();
 
-        vm.setParticipantMicrophoneVolume("p-bob", 60);
-        expect(micVol.setVolume).toHaveBeenCalledWith(0.6);
-        expect(vm.getSnapshot().participants[0].microphoneVolumePercent).toBe(60);
-        expect(vm.getSnapshot().screenShares[0].streamAudioVolumePercent).toBe(35);
+        // A stream can also be played louder than it arrives, up to twice as loud.
+        vm.setScreenShareAudioVolume("s-bob", 250);
+        expect(streamVol.setVolume).toHaveBeenLastCalledWith(2);
+        expect(vm.getSnapshot().screenShares[0].streamAudioVolumePercent).toBe(200);
+        expect(micVol.setVolume).not.toHaveBeenCalled();
 
         vm.dispose();
     });

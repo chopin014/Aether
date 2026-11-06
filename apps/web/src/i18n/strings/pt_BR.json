@@ -4365,6 +4365,9 @@
             "error": "Não foi possível entrar em nenhum dos canais. Verifique sua conexão e tente novamente.",
             "partial_error": "Não foi possível entrar em %(names)s. Tente novamente ou pule esses canais por enquanto.",
             "title": "Escolha seus canais"
+        },
+        "voice_user_menu": {
+            "invite_failed_title": "Não foi possível convidar para o servidor"
         }
     },
     "create_section_dialog": {

@@ -146,6 +146,42 @@ Please see LICENSE in the repository root for full details.
     cursor: not-allowed;
     opacity: 0.5;
 }
+/* The value floats above the knob's centre, which travels one knob width less than the track. */
+.sliderValue {
+    position: absolute;
+    bottom: calc(100% + var(--cpd-space-1-5x));
+    left: calc(var(--fraction) * (100% - var(--knob-size)) + var(--knob-size) / 2);
+    transform: translateX(-50%);
+    padding: var(--cpd-space-1x) var(--cpd-space-2x);
+    border-radius: var(--cpd-space-1-5x);
+    background: var(--cpd-color-bg-subtle-primary);
+    color: var(--cpd-color-text-primary);
+    font: var(--cpd-font-body-xs-semibold);
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 100ms ease-out;
+    z-index: 1;
+}
+.slider[data-active="true"] .sliderValue {
+    opacity: 1;
+}
+.sliderMark {
+    position: absolute;
+    top: 50%;
+    left: calc(var(--mark) * (100% - var(--knob-size)) + var(--knob-size) / 2);
+    width: 2px;
+    height: var(--cpd-space-3x);
+    transform: translate(-50%, -50%);
+    border-radius: 1px;
+    background: color-mix(in srgb, var(--cpd-color-text-primary) 40%, transparent);
+    pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+    .sliderValue {
+        transition: none;
+    }
+}
 /* The input sensitivity draws its own track under the knob: dim held-back and sent zones, lit up to the level. */
 .sensitivitySlider {
     --track-height: var(--cpd-space-2x);
