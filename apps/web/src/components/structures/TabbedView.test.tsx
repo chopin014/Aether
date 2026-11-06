@@ -148,4 +148,52 @@ describe("<TabbedView />", () => {
             expect(getAllByRole("tab")).toHaveLength(1);
         });
     });
+
+    describe("sidebar and page headers", () => {
+        it("puts the sidebar header and footer around the tab list", () => {
+            const { container } = render(
+                <TabbedView
+                    {...defaultProps}
+                    activeTabId="GENERAL"
+                    sidebarHeader={<input aria-label="Search" />}
+                    sidebarFooter={<button>Sign out</button>}
+                />,
+            );
+            const sidebar = container.querySelector(".mx_TabbedView_sidebar")!;
+            expect([...sidebar.children].map((child) => child.tagName)).toEqual(["INPUT", "UL", "BUTTON"]);
+        });
+
+        it("hides the labels of unlisted tabs but keeps the open page", () => {
+            const { container, getAllByRole } = render(
+                <TabbedView {...defaultProps} activeTabId="GENERAL" isTabListed={(tab) => tab.id === "LABS"} />,
+            );
+            expect(getAllByRole("tab")).toHaveLength(1);
+            expect(getActiveTabBody(container)?.textContent).toBe("general");
+        });
+
+        it("starts each page with its title and description when asked", () => {
+            const described = new Tab(
+                "GENERAL",
+                "common|general",
+                null,
+                <div>body</div>,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                "common|appearance",
+            );
+            const { container } = render(
+                <TabbedView {...defaultProps} tabs={[described]} activeTabId="GENERAL" pageHeaders />,
+            );
+            const header = container.querySelector(".mx_TabbedView_pageHeader")!;
+            expect(header.querySelector("h2")).toHaveTextContent("General");
+            expect(header.querySelector("p")).toHaveTextContent("Appearance");
+        });
+
+        it("leaves page headers out by default", () => {
+            const { container } = render(getComponent());
+            expect(container.querySelector(".mx_TabbedView_pageHeader")).toBeNull();
+        });
+    });
 });
