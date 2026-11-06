@@ -39,6 +39,7 @@ import createRoom, {
     waitForRoomEncryption,
 } from "./createRoom";
 import { ElementCallMemberEventType } from "./call-types";
+import { VOICE_STATE_EVENT_TYPE } from "./utils/call/publishedVoiceState";
 import DMRoomMap from "./utils/DMRoomMap";
 import { PreferredRoomVersions } from "./utils/PreferredRoomVersions";
 import SdkConfig from "./SdkConfig";
@@ -352,14 +353,14 @@ describe("createRoom", () => {
 
         await createRoom(client, { roomType: RoomType.UnstableCall });
 
-        const callMemberPower =
-            client.createRoom.mock.calls[0][0].power_level_content_override?.events?.[ElementCallMemberEventType.name];
+        const events = client.createRoom.mock.calls[0][0].power_level_content_override?.events;
 
         // and should have actually set it up
         expect(createCallSpy).toHaveBeenCalled();
 
-        // All members should be able to update their connected devices
-        expect(callMemberPower).toEqual(0);
+        // All members should be able to update their connected devices, and say whether they are muted
+        expect(events?.[ElementCallMemberEventType.name]).toEqual(0);
+        expect(events?.[VOICE_STATE_EVENT_TYPE]).toEqual(0);
     });
 
     it("doesn't create calls in non-video-rooms", async () => {

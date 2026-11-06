@@ -68,6 +68,7 @@ import {
 } from "@element-hq/element-call-component/api";
 
 import { playDesktopVoiceSound } from "../audio/DesktopVoiceSounds";
+import { VoiceStatePublisher } from "./VoiceStatePublisher";
 import type { SoundboardTransport } from "../audio/soundboard/SoundboardTransport";
 
 export type { CallConnectionStats } from "./CallConnectionStats";
@@ -1157,7 +1158,11 @@ export class ElementCall extends Call {
         this.session.on(MatrixRTCSessionEvent.MembershipsChanged, this.onMembershipChanged);
         this.client.matrixRTC.on(MatrixRTCSessionManagerEvents.SessionEnded, this.checkDestroy);
         this.updateParticipants();
+        // Voice channels list who is in them, muted and deafened included, for people who have not joined.
+        if (isVideoRoom(this.room)) this.voiceStatePublisher = new VoiceStatePublisher(this, this.room, client);
     }
+
+    private voiceStatePublisher?: VoiceStatePublisher;
 
     public static get(room: Room, voiceOnly?: boolean): ElementCall | null {
         const apps = WidgetStore.instance.getApps(room.roomId);
@@ -1364,6 +1369,7 @@ export class ElementCall extends Call {
         WidgetStore.instance.removeVirtualWidget(this.widget.id, this.widget.roomId);
         this.session.off(MatrixRTCSessionEvent.MembershipsChanged, this.onMembershipChanged);
         this.client.matrixRTC.off(MatrixRTCSessionManagerEvents.SessionEnded, this.checkDestroy);
+        this.voiceStatePublisher?.dispose();
 
         clearTimeout(this.terminationTimer);
         this.terminationTimer = undefined;
