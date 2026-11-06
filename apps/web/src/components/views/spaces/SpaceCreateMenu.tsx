@@ -45,6 +45,7 @@ import defaultDispatcher from "../../../dispatcher/dispatcher";
 import { Action } from "../../../dispatcher/actions";
 import { Filter } from "../dialogs/spotlight/Filter";
 import { type OpenSpotlightPayload } from "../../../dispatcher/payloads/OpenSpotlightPayload.ts";
+import { type ViewDiscoverPayload } from "../../../dispatcher/payloads/ViewDiscoverPayload.ts";
 import { useSettingValue } from "../../../hooks/useSettings.ts";
 import { UIFeature } from "../../../settings/UIFeature.ts";
 import SpacePillButton from "../../structures/SpacePillButton.tsx";
@@ -202,6 +203,7 @@ const SpaceCreateMenu: React.FC<{
 }> = ({ onFinished }) => {
     const cli = useMatrixClientContext();
     const settingAllowPublicSpaces = useSettingValue(UIFeature.AllowCreatingPublicSpaces);
+    const desktopShell = useSettingValue("feature_desktop_shell");
     const [visibility, setVisibility] = useState<Visibility | null>(
         settingAllowPublicSpaces === false ? Visibility.Private : null,
     );
@@ -260,6 +262,11 @@ const SpaceCreateMenu: React.FC<{
     };
 
     const onSearchClick = (): void => {
+        if (desktopShell) {
+            defaultDispatcher.dispatch<ViewDiscoverPayload>({ action: Action.ViewDiscover, section: "spaces" });
+            onFinished();
+            return;
+        }
         defaultDispatcher.dispatch<OpenSpotlightPayload>({
             action: Action.OpenSpotlight,
             initialFilter: Filter.PublicSpaces,

@@ -16,6 +16,8 @@ import { RoomMember, EventType } from "matrix-js-sdk/src/matrix";
 import { getMockClientWithEventEmitter, makeRoomWithStateEvents, mkEvent } from "test-utils";
 
 import MatrixClientContext from "../../../contexts/MatrixClientContext";
+import Modal from "../../../Modal";
+import { PromoteToPeerDialog } from "../dialogs/PromoteToPeerDialog";
 import {
     AddPrivilegedUsers,
     getUserIdsFromCompletions,
@@ -53,13 +55,14 @@ describe("<AddPrivilegedUsers />", () => {
     const mockClient = getMockClientWithEventEmitter({
         // `makeRoomWithStateEvents` only work's if `getRoom` is present.
         getRoom: vi.fn(),
+        getUserId: vi.fn().mockReturnValue("@me:host.local"),
         setPowerLevel: vi.fn(),
     });
 
     const room = makeRoomWithStateEvents([], { roomId: "room_id", mockClient: mockClient });
     room.getMember = (userId: string) => {
         const member = new RoomMember("room_id", userId);
-        member.powerLevel = 0;
+        member.powerLevel = userId === "@me:host.local" ? 100 : 0;
 
         return member;
     };
@@ -110,11 +113,11 @@ describe("<AddPrivilegedUsers />", () => {
         expect((getByTestId("power-level-option-100") as HTMLOptionElement).selected).toBeFalsy();
 
         const powerLevelSelect = getByTestId("power-level-select-element");
-        await userEvent.selectOptions(powerLevelSelect, "100");
+        await userEvent.selectOptions(powerLevelSelect, "50");
 
         expect((getByTestId("power-level-option-0") as HTMLOptionElement).selected).toBeFalsy();
-        expect((getByTestId("power-level-option-50") as HTMLOptionElement).selected).toBeFalsy();
-        expect((getByTestId("power-level-option-100") as HTMLOptionElement).selected).toBeTruthy();
+        expect((getByTestId("power-level-option-50") as HTMLOptionElement).selected).toBeTruthy();
+        expect((getByTestId("power-level-option-100") as HTMLOptionElement).selected).toBeFalsy();
 
         // The submit button should be enabled now.
         expect(submitButton).toBeEnabled();
@@ -137,6 +140,40 @@ describe("<AddPrivilegedUsers />", () => {
         expect((getByTestId("power-level-option-0") as HTMLOptionElement).selected).toBeTruthy();
         expect((getByTestId("power-level-option-50") as HTMLOptionElement).selected).toBeFalsy();
         expect((getByTestId("power-level-option-100") as HTMLOptionElement).selected).toBeFalsy();
+    });
+
+    it("asks for a typed confirmation before giving people the user's own level", async () => {
+        const createDialog = vi
+            .spyOn(Modal, "createDialog")
+            .mockReturnValue({ finished: Promise.resolve([false]) } as unknown as ReturnType<
+                typeof Modal.createDialog
+            >);
+        mockClient.setPowerLevel.mockClear();
+        const { getByTestId } = render(getComponent());
+        const autocompleteInput = getByTestId("autocomplete-input");
+        await act(async () => {
+            fireEvent.focus(autocompleteInput);
+            fireEvent.change(autocompleteInput, { target: { value: "u" } });
+            await waitFor(() => expect(provider.prototype.getCompletions).toHaveBeenCalled());
+        });
+        act(() => {
+            fireEvent.mouseDown(getByTestId("autocomplete-suggestion-item-@user_1:host.local"));
+        });
+        await userEvent.selectOptions(getByTestId("power-level-select-element"), "100");
+        const submitButton = getByTestId("add-privileged-users-submit-button");
+        act(() => {
+            fireEvent.submit(submitButton);
+        });
+
+        await waitFor(() =>
+            expect(createDialog).toHaveBeenCalledWith(PromoteToPeerDialog, {
+                room,
+                userIds: ["@user_1:host.local"],
+            }),
+        );
+        await waitFor(() => expect(submitButton).toBeEnabled());
+        expect(mockClient.setPowerLevel).not.toHaveBeenCalled();
+        createDialog.mockRestore();
     });
 
     it("getUserIdsFromCompletions() should map completions to user id's", () => {

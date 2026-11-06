@@ -14,6 +14,7 @@ import { type MatrixClient, type Room, type RoomMember } from "matrix-js-sdk/src
 import { _td, UserFriendlyError } from "../languageHandler";
 import { EffectiveMembership, getEffectiveMembership } from "../utils/membership";
 import { warnSelfDemote } from "../components/views/right_panel/UserInfo";
+import { confirmPeerPromotion } from "../utils/room/confirmPeerPromotion";
 import { TimelineRenderingType } from "../contexts/RoomContext";
 import { canAffectPowerlevels, success, reject } from "./utils";
 import { CommandCategories, type RunResult } from "./interface";
@@ -24,6 +25,11 @@ const updatePowerLevel = async (room: Room, member: RoomMember, powerLevel: numb
     if (member.userId === room.client.getUserId() && (powerLevel === undefined || member.powerLevel > powerLevel)) {
         const ok = await warnSelfDemote(room.isSpaceRoom());
         if (!ok) return; // Nothing to do
+    } else if (
+        powerLevel !== undefined &&
+        !(await confirmPeerPromotion(room.client, room, [member.userId], powerLevel))
+    ) {
+        return;
     }
     return room.client.setPowerLevel(room.roomId, member.userId, powerLevel);
 };

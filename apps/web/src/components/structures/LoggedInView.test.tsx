@@ -11,7 +11,7 @@ Please see LICENSE files in the repository root for full details.
 
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import React from "react";
-import { act, render, fireEvent, waitFor, type RenderResult } from "test-utils-rtl";
+import { act, render, fireEvent, screen, waitFor, type RenderResult } from "test-utils-rtl";
 import {
     ConditionKind,
     EventType,
@@ -38,6 +38,7 @@ import {
 } from "test-utils";
 
 import LoggedInView from "./LoggedInView";
+import PageType from "../../PageTypes";
 import { prepareElementCall } from "../views/voip/prepareElementCall";
 import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
 
@@ -261,6 +262,21 @@ describe("<LoggedInView />", () => {
             expect(container.querySelector(".mx_DesktopShell_titlebar")).toBeNull();
             unmount();
             expect(document.body).not.toHaveClass("mx_DesktopShell");
+        });
+
+        it("shows Discover with its sidebar in place of the room list, loading the directory once", async () => {
+            await SettingsStore.setValue("feature_desktop_shell", null, SettingLevel.DEVICE, true);
+            mockClient.publicRooms = vi.fn().mockResolvedValue({ chunk: [] });
+            const { rerender, unmount } = getComponent({ page_type: PageType.Discover });
+            expect(await screen.findByRole("heading", { name: "Find your community" })).toBeInTheDocument();
+            expect(screen.getByRole("navigation", { name: "Discover" })).toBeInTheDocument();
+            await waitFor(() => expect(mockClient.publicRooms).toHaveBeenCalledOnce());
+
+            rerender(<LoggedInView {...defaultProps} page_type={PageType.HomePage} />);
+            expect(screen.queryByRole("navigation", { name: "Discover" })).not.toBeInTheDocument();
+            rerender(<LoggedInView {...defaultProps} page_type={PageType.Discover} />);
+            expect(mockClient.publicRooms).toHaveBeenCalledOnce();
+            unmount();
         });
 
         it("preserves the original layout when the feature is disabled", () => {

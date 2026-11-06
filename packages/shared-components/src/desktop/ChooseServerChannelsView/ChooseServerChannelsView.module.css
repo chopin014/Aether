@@ -1,0 +1,116 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.content {
+    display: grid;
+    gap: var(--cpd-space-4x);
+}
+
+.content p {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.header {
+    display: grid;
+    gap: var(--cpd-space-2x);
+    text-align: center;
+}
+
+.title {
+    margin: 0;
+}
+
+.secondary {
+    color: var(--cpd-color-text-secondary);
+}
+
+.toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--cpd-space-3x);
+}
+
+.scroller {
+    display: grid;
+    gap: var(--cpd-space-4x);
+    max-block-size: calc(var(--cpd-space-10x) * 9);
+    overflow-y: auto;
+}
+
+.group {
+    display: grid;
+    gap: var(--cpd-space-1x);
+}
+
+.groupTitle {
+    margin: 0;
+    color: var(--cpd-color-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.list {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.row {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-3x);
+    padding: var(--cpd-space-2x) var(--cpd-space-2x);
+    border-radius: var(--cpd-space-2x);
+    cursor: pointer;
+}
+
+.row:hover {
+    background: var(--cpd-color-bg-subtle-secondary);
+}
+
+.icon {
+    flex-shrink: 0;
+    inline-size: var(--cpd-space-5x);
+    block-size: var(--cpd-space-5x);
+    color: var(--cpd-color-icon-secondary);
+}
+
+.text {
+    display: grid;
+    flex: 1;
+    min-inline-size: 0;
+}
+
+.name,
+.topic {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.topic,
+.members {
+    color: var(--cpd-color-text-secondary);
+}
+
+.members {
+    flex-shrink: 0;
+}
+
+.error {
+    color: var(--cpd-color-text-critical-primary);
+}
+
+.footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--cpd-space-3x);
+}

@@ -53,6 +53,11 @@ export enum Action {
     ViewRoomDirectory = "view_room_directory",
 
     /**
+     * Opens the Discover page for public Spaces and rooms. Should be used with ViewDiscoverPayload.
+     */
+    ViewDiscover = "view_discover",
+
+    /**
      * Fires when viewing room by room_alias fails to find room
      */
     ViewRoomError = "view_room_error",

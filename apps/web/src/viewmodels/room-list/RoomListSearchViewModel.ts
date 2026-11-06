@@ -17,6 +17,7 @@ import { _t } from "../../languageHandler";
 import { ALTERNATE_KEY_NAME } from "../../accessibility/KeyboardShortcuts";
 import { shouldShowComponent } from "../../customisations/helpers/UIComponents";
 import { UIComponent } from "../../settings/UIFeature";
+import SettingsStore from "../../settings/SettingsStore";
 import { MetaSpace } from "../../stores/spaces";
 import { Action } from "../../dispatcher/actions";
 import PosthogTrackers from "../../PosthogTrackers";
@@ -54,7 +55,11 @@ export class RoomListSearchViewModel
         activeSpace: string,
         supportsPstn: boolean,
     ): RoomListSearchViewSnapshot => {
-        const displayExploreButton = activeSpace === MetaSpace.Home && shouldShowComponent(UIComponent.ExploreRooms);
+        // The desktop shell has one place for public Spaces and rooms: Discover, on the Space bar.
+        const displayExploreButton =
+            activeSpace === MetaSpace.Home &&
+            shouldShowComponent(UIComponent.ExploreRooms) &&
+            !SettingsStore.getValue("feature_desktop_shell");
         const searchShortcut = IS_MAC ? "⌘ K" : _t(ALTERNATE_KEY_NAME[Key.CONTROL]) + " K";
         return {
             displayExploreButton,

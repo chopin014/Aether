@@ -349,6 +349,7 @@ describe("<RoomListItemMoreOptionsMenu />", () => {
             canEditChannel: true,
             canCreateChannel: false,
             canDeleteChannel: false,
+            canLeave: true,
         });
         const getChannelMenu = vi.fn(() => channelMenu as unknown as ChannelMenuViewModel);
         const TestComponent = (): JSX.Element => {

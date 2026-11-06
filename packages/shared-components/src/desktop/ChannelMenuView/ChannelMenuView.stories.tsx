@@ -61,6 +61,7 @@ const meta = {
         canEditChannel: true,
         canCreateChannel: true,
         canDeleteChannel: true,
+        canLeave: false,
     },
 } satisfies Meta<typeof MenuStory>;
 export default meta;
