@@ -180,6 +180,10 @@ describe("MicrophoneTest", () => {
         vi.mocked(SettingsStore.getValue).mockImplementation((name) => changed[name] as never);
         test.update();
         expect(audio.volume).toBeCloseTo(0.1);
+        // An element plays at most at full volume, so a boosted speaker plays the test at full volume.
+        changed.desktopSpeakerVolume = 180;
+        test.update();
+        expect(audio.volume).toBe(1);
     });
 
     it("closes everything it opened when stopped", async () => {

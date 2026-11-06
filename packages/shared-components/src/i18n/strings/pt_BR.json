@@ -660,13 +660,10 @@
             "more_camera_options": "Mais opções de câmera",
             "more_microphone_options": "Mais opções de microfone",
             "mute_microphone": "Silenciar microfone",
-            "mute_participant": "Silenciar %(name)s",
             "mute_stream_audio": "Silenciar áudio da transmissão de %(name)s",
             "no_camera_found": "Nenhuma câmera encontrada",
             "output_device_title": "Dispositivo de saída",
-            "participant_audio_options": "Opções de áudio de %(name)s",
             "participant_tile_aria": "Participante %(name)s",
-            "participant_volume_slider_aria": "Volume de %(name)s",
             "popout_call": "Destacar chamada",
             "ready_to_join": "Pronto para entrar",
             "reconnecting": "Reconectando...",
@@ -692,9 +689,7 @@
             "turn_on_camera": "Ativar câmera",
             "unencrypted_media_warning": "Mídia sem criptografia de ponta a ponta",
             "unmute_microphone": "Ativar microfone",
-            "unmute_participant": "Ativar som de %(name)s",
             "unmute_stream_audio": "Ativar áudio da transmissão de %(name)s",
-            "user_volume_title": "Volume do usuário",
             "voice_connected": "Conectado por voz",
             "waiting_for_media": "Conectando mídia...",
             "your_stream_suffix": "%(name)s (Sua transmissão)",
@@ -711,7 +706,16 @@
             "device_permission_error": "Não foi possível acessar os dispositivos: %(message)s",
             "video_only_capture": "Esta captura de tela compartilha apenas vídeo.",
             "reactions": "Reações",
-            "calling_user": "Chamando %(name)s"
+            "calling_user": "Chamando %(name)s",
+            "participant_options": "Opções de %(name)s",
+            "muted_by_you_badge": "Silenciado por você",
+            "lobby_more": "+%(number)s",
+            "lobby_in_voice_one": "%(name)s está em voz",
+            "lobby_in_voice_two": "%(first)s e %(second)s estão em voz",
+            "lobby_in_voice_many": {
+                "one": "%(first)s, %(second)s e mais %(count)s pessoa estão em voz",
+                "other": "%(first)s, %(second)s e mais %(count)s pessoas estão em voz"
+            }
         },
         "share_picker": {
             "title": "Compartilhar sua tela",
@@ -989,6 +993,7 @@
             "emoji": "Emoji",
             "frequently_used": "Usados com frequência",
             "library": "Biblioteca de sons",
+            "muted_hint": "Ative seu microfone para tocar sons para todos.",
             "name": "Nome do som",
             "no_results": "Nenhum som encontrado. Tente outra pesquisa.",
             "preview": "Ouvir %(name)s",
@@ -1082,6 +1087,27 @@
             "section_spaces_description": "Comunidades com vários canais",
             "title": "Descobrir",
             "your_server": "Seu servidor"
+        },
+        "voice_user_menu": {
+            "copy_user_id": "Copiar ID do usuário",
+            "deafen": "Desativar áudio",
+            "disable_video": "Desativar vídeo",
+            "edit_profile": "Editar perfil",
+            "ignore": "Ignorar",
+            "invite_to_server": "Convidar para o servidor",
+            "mention": "Mencionar",
+            "message": "Mensagem",
+            "mute": "Silenciar",
+            "mute_microphone": "Silenciar",
+            "mute_soundboard": "Silenciar efeitos sonoros",
+            "profile": "Perfil",
+            "roles": "Cargos",
+            "start_call": "Iniciar chamada",
+            "title": "Opções de %(name)s",
+            "unignore": "Parar de ignorar",
+            "user_volume": "Volume do usuário",
+            "user_volume_for": "Volume de %(name)s",
+            "verify": "Verificar"
         }
     },
     "threads": {

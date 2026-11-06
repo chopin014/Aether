@@ -384,11 +384,12 @@ test("delivers repeated sounds over the encrypted call connection without Matrix
     browser,
     homeserver,
     config,
-}) => {
+}, testInfo) => {
     test.setTimeout(180_000);
     for (const message of ["Verify this device", "Notifications"]) await rejectToastIfExists(page, message);
     await closeReleaseAnnouncementIfExists(page, "Introducing Sections");
-    const bob = await homeserver.registerUser("bob-soundboard", "password", "Bob");
+    // The homeserver is shared across repeats, so each run needs its own Bob.
+    const bob = await homeserver.registerUser(`bob-soundboard-${testInfo.repeatEachIndex}`, "password", "Bob");
     const bobContext = await browser.newContext({
         baseURL: new URL(page.url()).origin,
         permissions: ["microphone", "camera"],
@@ -419,10 +420,14 @@ test("delivers repeated sounds over the encrypted call connection without Matrix
         await homeserver.csApi.request("POST", `/v3/join/${roomId}`, bob.accessToken, {});
         await homeserver.csApi.request("POST", `/v3/join/${spaceId}`, bob.accessToken, {});
         await expect
-            .poll(() => bobApp.client.evaluate((client, id) => client.getRoom(id)?.getMyMembership(), spaceId))
+            .poll(() => bobApp.client.evaluate((client, id) => client.getRoom(id)?.getMyMembership(), spaceId), {
+                timeout: 15_000,
+            })
             .toBe("join");
         await expect
-            .poll(() => bobApp.client.evaluate((client, id) => client.getRoom(id)?.getMyMembership(), roomId))
+            .poll(() => bobApp.client.evaluate((client, id) => client.getRoom(id)?.getMyMembership(), roomId), {
+                timeout: 15_000,
+            })
             .toBe("join");
         await app.viewSpaceByName("Soundboard test");
         await bobApp.viewSpaceByName("Soundboard test");
@@ -448,7 +453,30 @@ test("delivers repeated sounds over the encrypted call connection without Matrix
                 return play.call(this);
             };
         });
+        // Rate-limit every Matrix room send, so sounds can only arrive over the call connection, and record any
+        // soundboard request either client tries to send through Matrix. Other room events (such as the call
+        // notification) are encrypted here, so their URLs cannot be told apart from a soundboard fallback.
         let sends = 0;
+        for (const memberApp of [app, bobApp])
+            await memberApp.client.evaluate((client) => {
+                const types: string[] = [];
+                Object.defineProperty(window, "__matrixSoundboardSends", { value: types });
+                const sendEvent = client.sendEvent.bind(client) as (...args: unknown[]) => unknown;
+                client.sendEvent = ((...args: unknown[]) => {
+                    if (args.includes("io.aether.soundboard.play")) types.push(String(args[0]));
+                    return sendEvent(...args);
+                }) as typeof client.sendEvent;
+            });
+        const matrixSoundboardSends = async (): Promise<string[]> =>
+            (
+                await Promise.all(
+                    [page, bobPage].map((memberPage) =>
+                        memberPage.evaluate(
+                            () => (window as Window & { __matrixSoundboardSends?: string[] }).__matrixSoundboardSends!,
+                        ),
+                    ),
+                )
+            ).flat();
         for (const memberPage of [page, bobPage])
             await memberPage.route(/\/rooms\/[^/]+\/send\//, async (route) => {
                 sends++;
@@ -457,6 +485,25 @@ test("delivers repeated sounds over the encrypted call connection without Matrix
                     json: { errcode: "M_LIMIT_EXCEEDED", error: "Too Many Requests", retry_after_ms: 10000 },
                 });
             });
+        // Record whether a sound request ever leaves Alice readable: in an encrypted room, LiveKit must encrypt it.
+        await page.evaluate(() => {
+            const leaks: string[] = [];
+            Object.defineProperty(window, "__plaintextSounds", { value: leaks });
+            const send = RTCDataChannel.prototype.send;
+            RTCDataChannel.prototype.send = function (
+                this: RTCDataChannel,
+                data: string | Blob | ArrayBuffer | ArrayBufferView,
+            ) {
+                const text =
+                    typeof data === "string"
+                        ? data
+                        : data instanceof ArrayBuffer || ArrayBuffer.isView(data)
+                          ? new TextDecoder().decode(data)
+                          : "";
+                if (text.includes("io.aether.soundboard.play")) leaks.push(text);
+                Reflect.apply(send, this, [data]);
+            } as typeof send;
+        });
         const picker = page.getByRole("dialog", { name: "Soundboard", exact: true });
         const clicked = Date.now();
         await picker.getByRole("button", { name: "Airhorn", exact: true }).first().click();
@@ -480,9 +527,9 @@ test("delivers repeated sounds over the encrypted call connection without Matrix
         expect(clips[0].source).toBe(clips[2].source);
         expect(clips[1].source).not.toBe(clips[0].source);
         console.log(
-            `Remote soundboard media started ${clips[0].time - clicked} ms after clicking; Matrix sends: ${sends}`,
+            `Remote soundboard media started ${clips[0].time - clicked} ms after clicking; Matrix room sends: ${sends}`,
         );
-        expect(sends).toBe(0);
+        expect(await matrixSoundboardSends()).toEqual([]);
         for (const memberPage of [page, bobPage]) {
             await expect
                 .poll(
@@ -496,6 +543,73 @@ test("delivers repeated sounds over the encrypted call connection without Matrix
         }
         await expect(picker.getByRole("alert")).toHaveCount(0);
         await expect(bobPage.getByRole("dialog", { name: "Soundboard" }).getByRole("alert")).toHaveCount(0);
+        expect(
+            await page.evaluate(() => (window as Window & { __plaintextSounds?: string[] }).__plaintextSounds!),
+        ).toEqual([]);
+
+        // A muted microphone can only preview sounds.
+        const dock = page.getByRole("group", { name: "User menu" });
+        await dock.getByRole("button", { name: "Mute", exact: true }).click();
+        await expect(dock.getByRole("button", { name: "Unmute", exact: true })).toBeVisible();
+        if (!(await picker.isVisible())) await dock.getByRole("button", { name: "Soundboard", exact: true }).click();
+        await expect(picker.getByRole("status")).toHaveText("Unmute your microphone to play sounds for everyone.");
+        await expect(picker.getByRole("button", { name: "Quack", exact: true }).first()).toBeDisabled();
+
+        // Listeners also ignore a muted person's requests, so older clients cannot play sounds while muted.
+        const aliceMuted = () =>
+            bobPage.evaluate(
+                (userId) =>
+                    [
+                        ...(
+                            window as unknown as {
+                                mxSdkContext: {
+                                    callStore: {
+                                        connectedCalls: Set<{ voiceStates: ReadonlyMap<string, { muted: boolean }> }>;
+                                    };
+                                };
+                            }
+                        ).mxSdkContext.callStore.connectedCalls,
+                    ][0]?.voiceStates.get(userId)?.muted,
+                user.userId,
+            );
+        const sendQuack = (id: string) =>
+            page.evaluate(async (id) => {
+                const [call] = (
+                    window as unknown as {
+                        mxSdkContext: {
+                            callStore: {
+                                connectedCalls: Set<{
+                                    soundboardTransport: { send(payload: Uint8Array): Promise<void> } | null;
+                                }>;
+                            };
+                        };
+                    }
+                ).mxSdkContext.callStore.connectedCalls;
+                await call.soundboardTransport!.send(
+                    new TextEncoder().encode(
+                        JSON.stringify({
+                            type: "io.aether.soundboard.play",
+                            id,
+                            ts: Date.now(),
+                            content: { library_id: "builtin", sound_id: "quack" },
+                        }),
+                    ),
+                );
+            }, id);
+        await expect.poll(aliceMuted, { timeout: 15_000 }).toBe(true);
+        await sendQuack("while-muted");
+        await dock.getByRole("button", { name: "Unmute", exact: true }).click();
+        await expect.poll(aliceMuted, { timeout: 15_000 }).toBe(false);
+        await sendQuack("after-unmuting");
+        // Call data arrives in order, so the sound sent while muted would have been played before this one.
+        await expect.poll(async () => (await received()).length).toBe(4);
+        // Built sounds are named by content hash, so identify the clip by its bytes.
+        const played = await bobPage.evaluate(
+            async (source) => Array.from(new Uint8Array(await (await fetch(source)).arrayBuffer())),
+            (await received())[3].source,
+        );
+        expect(Buffer.from(played).equals(await readFile("res/media/aether/soundboard-quack.wav"))).toBe(true);
+        expect(await matrixSoundboardSends()).toEqual([]);
     } finally {
         await bobContext.close();
     }

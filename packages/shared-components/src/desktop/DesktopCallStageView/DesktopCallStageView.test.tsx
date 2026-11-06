@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@test-utils";
 
 import type { SoundboardViewSnapshot } from "../SoundboardView";
+import type { VoiceUserMenuViewModel, VoiceUserMenuViewSnapshot } from "../VoiceUserMenuView";
 import { BaseViewModel, MockViewModel } from "../../core/viewmodel";
 import {
     DesktopCallStageView,
@@ -53,8 +54,6 @@ class TestCallStageViewModel
     public setLayoutMode = vi.fn((mode: DesktopCallStageViewSnapshot["layoutMode"]) =>
         this.snapshot.merge({ layoutMode: mode }),
     );
-    public setParticipantMicrophoneVolume = vi.fn();
-    public toggleParticipantMicrophoneMuted = vi.fn();
     public setScreenShareAudioVolume = vi.fn();
     public toggleScreenShareAudioMuted = vi.fn();
     public openInviteDialog = vi.fn();
@@ -111,6 +110,8 @@ class TestCallStageViewModel
                 localHandRaised: false,
                 ringing: null,
                 callees: [],
+                lobbyParticipants: [],
+                participantMenu: null,
                 canShareSystemAudio: true,
                 ...overrides,
             },
@@ -140,11 +141,48 @@ function makeParticipant(overrides: Partial<DesktopCallStageParticipantTile> = {
         handRaisedAt: null,
         reactionEmoji: null,
         video: null,
-        hasVolumeControl: true,
-        microphoneVolumePercent: 100,
-        microphoneMuted: false,
+        locallyMuted: false,
         ...overrides,
     };
+}
+
+function makeMenu(): VoiceUserMenuViewModel & { setVolume: ReturnType<typeof vi.fn> } {
+    const snapshot: VoiceUserMenuViewSnapshot = {
+        userId: "@alice:example.org",
+        displayName: "Alice",
+        isSelf: false,
+        canMention: true,
+        canMessage: true,
+        canCall: false,
+        volumePercent: 100,
+        muted: false,
+        soundboardMuted: false,
+        videoDisabled: false,
+        microphoneMuted: false,
+        deafened: false,
+        canVerify: false,
+        isIgnored: false,
+        inviteServers: [],
+        roles: [],
+    };
+    return Object.assign(new MockViewModel(snapshot), {
+        viewProfile: vi.fn(),
+        mention: vi.fn(),
+        message: vi.fn(),
+        startCall: vi.fn(),
+        setVolume: vi.fn(),
+        toggleMuted: vi.fn(),
+        toggleSoundboardMuted: vi.fn(),
+        toggleVideoDisabled: vi.fn(),
+        toggleMicrophoneMuted: vi.fn(),
+        toggleDeafened: vi.fn(),
+        editProfile: vi.fn(),
+        verify: vi.fn(),
+        inviteToServer: vi.fn(),
+        copyUserId: vi.fn(),
+        toggleIgnore: vi.fn(),
+        setRole: vi.fn(),
+    });
 }
 
 function makeScreenShare(overrides: Partial<DesktopCallStageScreenShareTile> = {}): DesktopCallStageScreenShareTile {
@@ -338,7 +376,6 @@ describe("DesktopCallStageView", () => {
         expect(slider.parentElement).toHaveTextContent("80");
         fireEvent.change(slider, { target: { value: "37" } });
         expect(vm.setScreenShareAudioVolume).toHaveBeenCalledWith(makeScreenShare().id, 37);
-        expect(vm.setParticipantMicrophoneVolume).not.toHaveBeenCalled();
     });
 
     it("keeps a muted stream's speaker visible outside hover and shows its level as zero", () => {
@@ -480,7 +517,7 @@ describe("DesktopCallStageView", () => {
         const slider = screen.getByRole("slider");
         fireEvent.change(slider, { target: { value: "45" } });
         expect(vm.setScreenShareAudioVolume).toHaveBeenCalledWith("s-bob", 45);
-        expect(vm.setParticipantMicrophoneVolume).not.toHaveBeenCalled();
+        expect(slider).toHaveAttribute("max", "200");
     });
     it("reports device failures with a dismiss action and preserves supported call actions", () => {
         const vm = new TestCallStageViewModel({ deviceError: "Microphone disconnected" });
@@ -570,22 +607,59 @@ describe("DesktopCallStageView", () => {
         expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
-    it("keeps keyboard focus in a participant slider while playback values change", () => {
+    it("opens a person's full menu from their options button and from a right click", () => {
         const participant = makeParticipant();
         const vm = new TestCallStageViewModel({ participants: [participant] });
         render(<DesktopCallStageView vm={vm} />);
-        const trigger = screen.getByRole("button", { name: "Audio options for Alice" });
+        const trigger = screen.getByRole("button", { name: "Options for Alice" });
+        trigger.focus();
         fireEvent.click(trigger);
+        expect(vm.setOpenTileMenuId).toHaveBeenLastCalledWith("user-1");
+        fireEvent.contextMenu(screen.getByRole("button", { name: "Participant Alice" }), { clientX: 40, clientY: 50 });
+        expect(vm.setOpenTileMenuId).toHaveBeenCalledTimes(2);
+
+        const menu = makeMenu();
+        act(() => vm.updateSnapshot({ openTileMenuId: "user-1", participantMenu: menu }));
         const slider = screen.getByRole("slider", { name: "Volume for Alice" });
-        slider.focus();
-        fireEvent.change(slider, { target: { value: "32" } });
-        expect(vm.setParticipantMicrophoneVolume).toHaveBeenCalledWith("user-1", 32);
-        act(() => vm.updateSnapshot({ participants: [{ ...participant, microphoneVolumePercent: 32 }] }));
-        expect(slider).toHaveFocus();
-        fireEvent.click(screen.getByRole("button", { name: "Mute Alice" }));
-        expect(vm.toggleParticipantMicrophoneMuted).toHaveBeenCalledWith("user-1");
-        fireEvent.keyDown(document, { key: "Escape" });
-        expect(trigger).toHaveFocus();
+        expect(slider).toHaveAttribute("max", "200");
+        fireEvent.change(slider, { target: { value: "150" } });
+        expect(menu.setVolume).toHaveBeenCalledWith(150);
+
+        // The options button closes the menu it opened instead of reopening it.
+        fireEvent.pointerDown(trigger);
+        fireEvent.click(trigger);
+        expect(vm.setOpenTileMenuId).toHaveBeenLastCalledWith(null);
+    });
+
+    it("marks a person muted for this user only", () => {
+        const vm = new TestCallStageViewModel({ participants: [makeParticipant({ locallyMuted: true })] });
+        render(<DesktopCallStageView vm={vm} />);
+        expect(screen.getByLabelText("Muted by you")).toBeInTheDocument();
+    });
+
+    it("previews who is already in the call in the lobby", () => {
+        const people = ["Insect", "Jay", "nicha", "WW", "LiTz"].map((name) => ({
+            userId: `@${name}:example.org`,
+            displayName: name,
+            initialLetter: name[0],
+        }));
+        const vm = new TestCallStageViewModel({ phase: "lobby", connected: false, lobbyParticipants: people });
+        render(<DesktopCallStageView vm={vm} />);
+        expect(screen.getByTestId("call-lobby-backdrop")).toBeInTheDocument();
+        expect(screen.getAllByTestId("lobby-participant")).toHaveLength(3);
+        expect(screen.getByText("+2")).toBeInTheDocument();
+        expect(screen.getByText("Insect, Jay and 3 others are in voice")).toBeInTheDocument();
+
+        act(() => vm.updateSnapshot({ lobbyParticipants: people.slice(0, 2) }));
+        expect(screen.getAllByTestId("lobby-participant")).toHaveLength(2);
+        expect(screen.getByText("Insect and Jay are in voice")).toBeInTheDocument();
+
+        act(() => vm.updateSnapshot({ lobbyParticipants: people.slice(0, 1) }));
+        expect(screen.getByText("Insect is in voice")).toBeInTheDocument();
+
+        act(() => vm.updateSnapshot({ lobbyParticipants: [], participantCount: 0 }));
+        expect(screen.queryByTestId("lobby-participant")).toBeNull();
+        expect(screen.getByText("No one else is in this voice channel yet.")).toBeInTheDocument();
     });
 
     it("applies quality choices and starts or stops sharing through the same menu", () => {
@@ -731,6 +805,7 @@ it("opens the soundboard directly from the in-call toolbar", () => {
             suggested: [{ id: "quack", name: "Quack", emoji: "🦆", libraryId: "builtin" }],
             volume: 80,
             busy: false,
+            muted: false,
             uploadLibraryId: "",
             uploadName: "",
             uploadEmoji: "🔊",

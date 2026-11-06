@@ -143,6 +143,11 @@ describe("DesktopVoiceVideoSettingsViewModel", () => {
         await vm.setSpeakerVolume(70);
         expect(SettingsStore.setValue).toHaveBeenCalledWith("desktopMicrophoneVolume", null, SettingLevel.DEVICE, 30);
         expect(vm.getSnapshot()).toMatchObject({ microphoneVolume: 30, speakerVolume: 70 });
+        // The speaker may play calls up to twice as loud as they arrive.
+        await vm.setSpeakerVolume(180);
+        expect(SettingsStore.setValue).toHaveBeenCalledWith("desktopSpeakerVolume", null, SettingLevel.DEVICE, 180);
+        await vm.setSpeakerVolume(400);
+        expect(SettingsStore.setValue).toHaveBeenCalledWith("desktopSpeakerVolume", null, SettingLevel.DEVICE, 200);
     });
 
     describe("input profiles", () => {

@@ -14,7 +14,7 @@ import { MockViewModel } from "../../core/viewmodel";
 import { SoundboardView, type SoundboardViewSnapshot } from "./SoundboardView";
 
 const sound = { id: "quack", name: "Quack", emoji: "🦆", libraryId: "space" };
-function makeVm() {
+function makeVm(overrides: Partial<SoundboardViewSnapshot> = {}) {
     return Object.assign(
         new MockViewModel<SoundboardViewSnapshot>({
             query: "",
@@ -30,9 +30,11 @@ function makeVm() {
             suggested: [sound],
             volume: 80,
             busy: false,
+            muted: false,
             uploadLibraryId: "space",
             uploadName: "",
             uploadEmoji: "🔊",
+            ...overrides,
         }),
         {
             open: vi.fn(),
@@ -66,6 +68,14 @@ describe("SoundboardView", () => {
         expect(screen.queryByText("Suggested sounds")).not.toBeInTheDocument();
         await userEvent.click(screen.getAllByRole("button", { name: "Quack" })[0]);
         expect(vm.play).toHaveBeenCalledWith(sound);
+    });
+    it("only allows previews while muted and explains why", async () => {
+        const vm = makeVm({ muted: true });
+        render(<SoundboardView vm={vm} />);
+        expect(screen.getByRole("status")).toHaveTextContent("Unmute your microphone to play sounds for everyone.");
+        for (const button of screen.getAllByRole("button", { name: "Quack" })) expect(button).toBeDisabled();
+        await userEvent.click(screen.getAllByRole("button", { name: "Preview Quack" })[0]);
+        expect(vm.play).toHaveBeenCalledExactlyOnceWith(sound, true);
     });
     it("uses server avatars in the rail and section heading without hiding other libraries", () => {
         const vm = makeVm();
