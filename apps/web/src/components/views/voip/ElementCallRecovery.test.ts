@@ -25,20 +25,25 @@ function helpers(): {
         isStopped: () => boolean,
         connectionLost: (reason: string) => unknown,
         publish: (state: unknown) => void,
+        onStable?: () => void,
     ) => Watcher;
     aetherCanAutoReconnect: (error: object) => boolean;
-    aetherAutoReconnectDelay: (roomId: string, error: object) => number | null;
+    aetherAutoReconnectDelay: (roomId: string, error: object) => { delay: number; quiet: boolean };
+    aetherConnectionHeld: (roomId: string) => void;
     aetherMembershipExpiryHeadroomMs: (expiryMs: number | undefined) => number | undefined;
 } {
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     return new Function(
-        `${source.slice(start, end)}; return { aetherWatchLivekitState, aetherAutoReconnectDelay, aetherCanAutoReconnect, aetherMembershipExpiryHeadroomMs };`,
+        `${source.slice(start, end)}; return { aetherWatchLivekitState, aetherAutoReconnectDelay, aetherConnectionHeld, aetherCanAutoReconnect, aetherMembershipExpiryHeadroomMs };`,
     )();
 }
 
 /** Watches LiveKit states the way a connection does, recording what it reports. */
-function watch(isStopped = (): boolean => false): { watcher: Watcher; published: unknown[]; reasons: string[] } {
+function watch(
+    isStopped = (): boolean => false,
+    onStable?: () => void,
+): { watcher: Watcher; published: unknown[]; reasons: string[] } {
     const published: unknown[] = [];
     const reasons: string[] = [];
     const watcher = helpers().aetherWatchLivekitState(
@@ -48,6 +53,7 @@ function watch(isStopped = (): boolean => false): { watcher: Watcher; published:
             return "lost";
         },
         (state) => published.push(state),
+        onStable,
     );
     return { watcher, published, reasons };
 }
@@ -123,33 +129,47 @@ describe("Element Call connection recovery", () => {
         }
     });
 
-    it("rejoins automatically with growing delays, then leaves it to the person", () => {
+    it("reports a connection that has stayed up, so a later loss starts the rejoin schedule over", () => {
+        vi.useFakeTimers();
+        try {
+            const onStable = vi.fn();
+            const { watcher } = watch(() => false, onStable);
+            watcher.update("connected");
+            vi.advanceTimersByTime(20_000);
+            // A connection that drops before it has held does not count.
+            watcher.update("reconnecting");
+            watcher.update("connected");
+            vi.advanceTimersByTime(29_999);
+            expect(onStable).not.toHaveBeenCalled();
+            vi.advanceTimersByTime(1);
+            expect(onStable).toHaveBeenCalledOnce();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("rejoins quickly at first, then keeps retrying while showing the connection error", () => {
         const { aetherAutoReconnectDelay } = helpers();
-        const delays = Array.from({ length: 7 }, () => aetherAutoReconnectDelay("!room", {}));
-        expect(delays).toEqual([1000, 2000, 5000, 10000, 20000, 30000, null]);
+        const plans = Array.from({ length: 8 }, () => aetherAutoReconnectDelay("!room", {}));
+        expect(plans.map((plan) => plan.delay)).toEqual([1000, 2000, 5000, 10000, 20000, 30000, 30000, 30000]);
+        expect(plans.map((plan) => plan.quiet)).toEqual([true, true, true, true, true, true, false, false]);
         // Another room has its own attempts.
-        expect(aetherAutoReconnectDelay("!other", {})).toBe(1000);
+        expect(aetherAutoReconnectDelay("!other", {}).delay).toBe(1000);
     });
 
     it("counts each lost connection once, even when it is scheduled again", () => {
         const { aetherAutoReconnectDelay } = helpers();
         const error = {};
-        expect(aetherAutoReconnectDelay("!room", error)).toBe(1000);
-        expect(aetherAutoReconnectDelay("!room", error)).toBe(1000);
-        expect(aetherAutoReconnectDelay("!room", {})).toBe(2000);
+        expect(aetherAutoReconnectDelay("!room", error).delay).toBe(1000);
+        expect(aetherAutoReconnectDelay("!room", error).delay).toBe(1000);
+        expect(aetherAutoReconnectDelay("!room", {}).delay).toBe(2000);
     });
 
-    it("allows automatic rejoins again once earlier attempts are old", () => {
-        vi.useFakeTimers();
-        try {
-            const { aetherAutoReconnectDelay } = helpers();
-            for (let i = 0; i < 6; i++) aetherAutoReconnectDelay("!room", {});
-            expect(aetherAutoReconnectDelay("!room", {})).toBeNull();
-            vi.advanceTimersByTime(180_000);
-            expect(aetherAutoReconnectDelay("!room", {})).toBe(1000);
-        } finally {
-            vi.useRealTimers();
-        }
+    it("starts the rejoin schedule over once the connection holds", () => {
+        const { aetherAutoReconnectDelay, aetherConnectionHeld } = helpers();
+        for (let i = 0; i < 8; i++) aetherAutoReconnectDelay("!room", {});
+        aetherConnectionHeld("!room");
+        expect(aetherAutoReconnectDelay("!room", {})).toEqual({ delay: 1000, quiet: true });
     });
 });
 
