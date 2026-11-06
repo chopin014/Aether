@@ -645,6 +645,69 @@ describe("TimelinePanel", () => {
         });
     });
 
+    describe("when sync replaces every timeline", () => {
+        /** The mounted panel's scroll panel, whose position the tests set. */
+        const scrollPanelOf = (panel: TimelinePanel): ScrollPanel =>
+            (panel as unknown as { messagePanel: React.RefObject<{ scrollPanel: React.RefObject<ScrollPanel> }> })
+                .messagePanel.current!.scrollPanel.current!;
+
+        it("follows on at the newest messages, and reloads a scrolled-up reader's window when they jump back", async () => {
+            const [client, room, events] = setupTestData();
+            const props = getProps(room, events);
+            const ref = React.createRef<TimelinePanel>();
+            const load = vi.spyOn(TimelineWindow.prototype, "load");
+            const dom = render(
+                <TimelinePanel {...props} ref={ref} />,
+                clientAndSDKContextRenderOptions(client, sdkContext),
+            );
+            await waitFor(() => expectEvents(dom.container, events));
+            const atBottom = vi.spyOn(scrollPanelOf(ref.current!), "isAtBottom").mockReturnValue(true);
+            expect(load).toHaveBeenCalledTimes(1);
+
+            // A reader at the bottom follows on to the new live timeline.
+            await act(async () => {
+                client.emit(RoomEvent.TimelineReset, room, props.timelineSet, true);
+            });
+            expect(load).toHaveBeenCalledTimes(2);
+            await waitFor(() => expect(ref.current!.isAtEndOfLiveTimeline()).toBe(true));
+
+            // A reader looking at older messages keeps their place, but is no longer at the live end.
+            vi.spyOn(scrollPanelOf(ref.current!), "isAtBottom").mockReturnValue(false);
+            await act(async () => {
+                client.emit(RoomEvent.TimelineReset, room, props.timelineSet, true);
+            });
+            expect(load).toHaveBeenCalledTimes(2);
+            vi.spyOn(scrollPanelOf(ref.current!), "isAtBottom").mockReturnValue(true);
+            expect(ref.current!.isAtEndOfLiveTimeline()).toBe(false);
+
+            // Jumping to the latest messages reloads rather than scrolling the cut-off window.
+            await act(async () => {
+                ref.current!.jumpToLiveTimeline();
+            });
+            expect(load).toHaveBeenCalledTimes(3);
+            await waitFor(() => expect(ref.current!.isAtEndOfLiveTimeline()).toBe(true));
+            load.mockRestore();
+            atBottom.mockRestore();
+        });
+
+        it("keeps a scrolled-up reader's window when the old timeline can still lead to new messages", async () => {
+            const [client, room, events] = setupTestData();
+            const props = getProps(room, events);
+            const ref = React.createRef<TimelinePanel>();
+            const dom = render(
+                <TimelinePanel {...props} ref={ref} />,
+                clientAndSDKContextRenderOptions(client, sdkContext),
+            );
+            await waitFor(() => expectEvents(dom.container, events));
+            vi.spyOn(scrollPanelOf(ref.current!), "isAtBottom").mockReturnValue(false);
+            await act(async () => {
+                client.emit(RoomEvent.TimelineReset, room, props.timelineSet, false);
+            });
+            vi.spyOn(scrollPanelOf(ref.current!), "isAtBottom").mockReturnValue(true);
+            expect(ref.current!.isAtEndOfLiveTimeline()).toBe(true);
+        });
+    });
+
     describe("when a thread updates", () => {
         let client: MatrixClient;
         let room: Room;

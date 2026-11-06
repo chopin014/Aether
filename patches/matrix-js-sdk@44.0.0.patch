@@ -171,15 +171,15 @@ diff --git a/src/sync.ts b/src/sync.ts
                  const room = joinObj.room;
                  const stateEvents = this.mapSyncEventsFormat(joinObj.state, room);
                  const stateAfterEvents = this.mapSyncEventsFormat(joinObj["org.matrix.msc4222.state_after"], room);
-@@ -1520,6 +1547,8 @@
-                 room.decryptCriticalEvents();
+@@ -1521,6 +1548,8 @@
              }),
          );
-+
-+        if (syncEventData.fromCache && !this.running) return;
  
++        if (syncEventData.fromCache && !this.running) return;
++
          // Handle leaves (e.g. kicked rooms)
          await Promise.all(
+             leaveRooms.map(async (leaveObj) => {
 diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 --- a/src/sliding-sync-sdk.ts
 +++ b/src/sliding-sync-sdk.ts
@@ -191,7 +191,52 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      private notifEvents: MatrixEvent[] = []; // accumulator of sync events in the current sync response
  
      public constructor(
-@@ -991,12 +992,23 @@
+@@ -669,6 +670,7 @@
+         // necessarily set `initial` in the latter case, so without checking `expanded_timeline` the older events would
+         // be appended after the newer ones we already have.
+         const expandedTimeline = roomData.expanded_timeline || roomData.unstable_expanded_timeline;
++        const liveEventCountBefore = room.getLiveTimeline().getEvents().length;
+         if (roomData.limited || roomData.initial || expandedTimeline) {
+             // we should not know about any of these timeline entries if this is a genuinely new room.
+             // If we do, then we've effectively done scrollback.
+@@ -703,10 +705,19 @@
+                     newEvents.unshift(recvEvent);
+                 }
+             }
+-            timelineEvents = newEvents;
+-            if (oldEvents.length > 0) {
+-                // old events are scrollback, insert them now
+-                room.addEventsToTimeline(oldEvents, true, false, room.getLiveTimeline(), roomData.prev_batch);
++            if (roomData.limited && !seenKnownEvent && liveEventCountBefore > 0 && timelineEvents.length > 0) {
++                // The server skipped events between what we have and what it sent: none of the new events are
++                // known. Appending them would hide that gap, and the back-pagination token would point inside it.
++                // Start a new live timeline from the new events instead, as /sync v2 does for a limited timeline.
++                // There is no forward token for the old one, so every timeline is reset.
++                room.resetLiveTimeline(roomData.prev_batch ?? undefined, undefined);
++                client.resetNotifTimelineSet();
++            } else {
++                timelineEvents = newEvents;
++                if (oldEvents.length > 0) {
++                    // old events are scrollback, insert them now
++                    room.addEventsToTimeline(oldEvents, true, false, room.getLiveTimeline(), roomData.prev_batch);
++                }
+             }
+         }
+ 
+@@ -750,9 +761,11 @@
+             return;
+         }
+ 
+-        if (roomData.limited) {
++        if (roomData.limited && liveEventCountBefore === 0) {
+             // set the back-pagination token. Do this *before* adding any
+             // events so that clients can start back-paginating.
++            // A timeline that already had events keeps its own token: either it continues it, or it was reset above
++            // with this token.
+             room.getLiveTimeline().setPaginationToken(roomData.prev_batch ?? null, EventTimeline.BACKWARDS);
+         }
+ 
+@@ -991,12 +1004,23 @@
      public async sync(): Promise<void> {
          this.syncOpts.logger.debug("Sliding sync init loop");
  
@@ -219,7 +264,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                  this.syncOpts.logger.debug("Got push rules");
                  this.client.pushRules = result;
                  break;
-@@ -1007,9 +1019,6 @@
+@@ -1007,9 +1031,6 @@
                  }
              }
          }
@@ -229,7 +274,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      /**
-@@ -1017,6 +1026,7 @@
+@@ -1017,6 +1038,7 @@
       */
      public stop(): void {
          this.syncOpts.logger.debug("SyncApi.stop");
@@ -240,15 +285,54 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 --- a/src/sliding-sync.ts
 +++ b/src/sliding-sync.ts
-@@ -317,6 +317,7 @@
+@@ -19,7 +19,7 @@
+ import { type IRoomEvent, type IStateEvent } from "./sync-accumulator.ts";
+ import { TypedEventEmitter } from "./models/typed-event-emitter.ts";
+ import { sleep } from "./utils.ts";
+-import { type HTTPError } from "./http-api/index.ts";
++import { type HTTPError, type MatrixError, safeGetRetryAfterMs } from "./http-api/index.ts";
+ 
+ // /sync requests allow you to set a timeout= but the request may continue
+ // beyond that and wedge forever, so we need to track how long we are willing
+@@ -317,8 +317,12 @@
      private lists: Map<string, SlidingList>;
      private listModifiedCount = 0;
      private terminated = false;
 +    private readonly stopped = Promise.withResolvers<void>();
      // flag set when resend() is called because we cannot rely on detecting AbortError in JS SDK :(
      private needsResend = false;
++    // Set when the next request differs from the last one the server answered. Such a request asks for an
++    // immediate response: the server has new rooms or subscriptions to report, or must say it has none.
++    private requestChanged = true;
      // map of extension name to req/resp handler
-@@ -578,6 +579,7 @@
+     private extensions: Record<string, Extension<any, any>> = {};
+ 
+@@ -465,6 +469,16 @@
+         return new Set(Array.from(this.desiredRoomSubscriptions));
+     }
+ 
++    /**
++     * Whether the server has answered a request carrying this room's current subscription. A room missing
++     * from that answer is one the server will not send, for example because the user cannot see it.
++     * @param roomId - The subscribed room.
++     * @returns True once the subscription, in its current form, has been acknowledged by a response.
++     */
++    public isRoomSubscriptionConfirmed(roomId: string): boolean {
++        return this.confirmedRoomSubscriptions.has(roomId);
++    }
++
+     /**
+      * Modify the room subscriptions for the sync API. Calling this function will interrupt the
+      * /sync request to resend new subscriptions. If the /sync stream has not started, this will
+@@ -569,6 +583,7 @@
+      */
+     public resend(): void {
+         this.needsResend = true;
++        this.requestChanged = true;
+         this.abortController?.abort();
+         this.abortController = new AbortController();
+     }
+@@ -578,12 +593,21 @@
       */
      public stop(): void {
          this.terminated = true;
@@ -256,7 +340,21 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
          this.abortController?.abort();
          // remove all listeners so things can be GC'd
          this.removeAllListeners(SlidingSyncEvent.Lifecycle);
-@@ -600,9 +602,21 @@
+         this.removeAllListeners(SlidingSyncEvent.RoomData);
+     }
+ 
++    /**
++     * Wait before the next request, returning early if the connection is stopped meanwhile.
++     * @param ms - How long to wait.
++     */
++    private async sleepUnlessStopped(ms: number): Promise<void> {
++        await Promise.race([sleep(ms), this.stopped.promise]);
++    }
++
+     /**
+      * Re-setup this connection e.g in the event of an expired session.
+      */
+@@ -600,15 +624,41 @@
  
      /**
       * Start syncing with the server. Blocks until stopped.
@@ -278,17 +376,46 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 +        );
  
          let currentPos: string | undefined;
++        // Consecutive rejected requests, other than for an expired connection, to back off between fresh starts.
++        let rejectedRequests = 0;
          while (!this.terminated) {
-@@ -620,6 +634,7 @@
-                     clientTimeout: this.timeoutMS + BUFFER_PERIOD_MS,
-                     extensions: await this.getExtensionRequest(currentPos === undefined),
-                 };
+-            this.needsResend = false;
++            let changed = false;
++            // Only an error from a request that went out can be one we caused by aborting it.
++            let requestSent = false;
+             let resp: MSC3575SlidingSyncResponse | undefined;
+             try {
++                // Preparing extensions can wait. Lists and subscriptions changed meanwhile are read below, with
++                // nothing else waited on before the request is sent, so they always get the answer they need.
++                const extensions = await this.getExtensionRequest(currentPos === undefined);
 +                if (this.terminated) return;
++                this.needsResend = false;
++                // A changed request is answered immediately, so new subscriptions and list ranges never wait
++                // out a long poll, and a room the server will not send is known to be absent straight away.
++                changed = this.requestChanged || currentPos === undefined;
++                this.requestChanged = false;
++                const timeoutMS = changed ? 0 : this.timeoutMS;
+                 const reqLists: Record<string, MSC3575List> = {};
+                 this.lists.forEach((l: SlidingList, key: string) => {
+                     reqLists[key] = l.getList(true);
+@@ -616,9 +666,9 @@
+                 const reqBody: MSC3575SlidingSyncRequest = {
+                     lists: reqLists,
+                     pos: currentPos,
+-                    timeout: this.timeoutMS,
+-                    clientTimeout: this.timeoutMS + BUFFER_PERIOD_MS,
+-                    extensions: await this.getExtensionRequest(currentPos === undefined),
++                    timeout: timeoutMS,
++                    clientTimeout: timeoutMS + BUFFER_PERIOD_MS,
++                    extensions,
+                 };
                  // check if we are (un)subscribing to a room and modify request this one time for it
                  const newSubscriptions = difference(this.desiredRoomSubscriptions, this.confirmedRoomSubscriptions);
-                 const unsubscriptions = difference(this.confirmedRoomSubscriptions, this.desiredRoomSubscriptions);
-@@ -639,6 +654,12 @@
+@@ -637,8 +687,15 @@
+                         reqBody.room_subscriptions[roomId] = sub;
+                     }
                  }
++                requestSent = true;
                  this.pendingReq = this.client.slidingSync(reqBody, this.proxyBaseUrl, this.abortController.signal);
                  resp = await this.pendingReq;
 +                if (ready) {
@@ -300,6 +427,57 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  currentPos = resp.pos;
                  // update what we think we're subscribed to.
                  for (const roomId of newSubscriptions) {
+@@ -664,25 +721,43 @@
+                 });
+                 this.invokeLifecycleListeners(SlidingSyncState.RequestFinished, resp);
+             } catch (err) {
+-                if ((<HTTPError>err).httpStatus) {
++                // The server never answered this request, so whatever it changed still needs an immediate answer.
++                if (changed) this.requestChanged = true;
++                const httpStatus = (<HTTPError>err).httpStatus;
++                if (httpStatus) {
+                     this.invokeLifecycleListeners(SlidingSyncState.RequestFinished, null, <Error>err);
+-                    if ((<HTTPError>err).httpStatus === 400) {
+-                        // session probably expired TODO: assign an errcode
+-                        // so drop state and re-request
++                    if (httpStatus === 400) {
++                        // The server forgot this connection (M_UNKNOWN_POS) or rejected the request. Either way,
++                        // start the connection afresh; keep the desired lists and subscriptions.
+                         this.resetup();
+                         currentPos = undefined;
+-                        await sleep(50); // in case the 400 was for something else; don't tightloop
++                        const errcode = (<MatrixError>err).errcode;
++                        if (errcode === "M_UNKNOWN_POS") {
++                            rejectedRequests = 0;
++                            continue;
++                        }
++                        // A request the server keeps rejecting must not spin: back off up to 30 seconds.
++                        rejectedRequests += 1;
++                        logger.warn(`SlidingSync: request rejected (${errcode ?? "no errcode"}), starting afresh`);
++                        await this.sleepUnlessStopped(Math.min(30_000, 500 * 2 ** (rejectedRequests - 1)));
++                        continue;
++                    }
++                    if (httpStatus === 429) {
++                        logger.warn("SlidingSync: rate limited, waiting before the next request");
++                        const retryAfterMs = safeGetRetryAfterMs(err, 5000);
++                        await this.sleepUnlessStopped(Math.min(60_000, Math.max(1000, retryAfterMs)));
+                         continue;
+                     } // else fallthrough to generic error handling
+-                } else if (this.needsResend || (<Error>err).name === "AbortError") {
++                } else if (requestSent && (this.needsResend || (<Error>err).name === "AbortError")) {
+                     continue; // don't sleep as we caused this error by abort()ing the request.
+                 }
+                 logger.error(err);
+-                await sleep(5000);
++                await this.sleepUnlessStopped(5000);
+             }
+             if (!resp) {
+                 continue;
+             }
++            rejectedRequests = 0;
+             await this.onPreExtensionsResponse(resp.extensions);
+ 
+             // oxlint-disable-next-line guard-for-in
 diff --git a/src/http-api/logging.ts b/src/http-api/logging.ts
 --- a/src/http-api/logging.ts
 +++ b/src/http-api/logging.ts
@@ -346,7 +524,7 @@ diff --git a/src/http-api/errors.ts b/src/http-api/errors.ts
 diff --git a/src/matrixrtc/MembershipManager.ts b/src/matrixrtc/MembershipManager.ts
 --- a/src/matrixrtc/MembershipManager.ts
 +++ b/src/matrixrtc/MembershipManager.ts
-@@ -47,6 +47,7 @@ import {
+@@ -47,6 +47,7 @@
  } from "./membershipData/index.ts";
  import { computeSlotId } from "./utils.ts";
  import { deepCompare } from "../utils.ts";
@@ -354,7 +532,7 @@ diff --git a/src/matrixrtc/MembershipManager.ts b/src/matrixrtc/MembershipManage
  
  /* MembershipActionTypes:
  On Join:  ───────────────────┐   ┌───────────────(1)───────────┐
-@@ -756,7 +757,13 @@ export class MembershipManager
+@@ -756,7 +757,13 @@
      protected clientSendLeaveMembership: () => Promise<ISendEventResponse> = () => this.clientSendMembership({});
  
      private async sendJoinEvent(): Promise<ActionUpdate> {

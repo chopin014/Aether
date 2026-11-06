@@ -486,7 +486,15 @@ export class RoomViewStore extends EventEmitter {
                 });
                 // set this room as the room subscription. We need to await for it as this will fetch
                 // all room state for this room, which is required before we get the state below.
-                await this.stores.slidingSyncManager.setRoomVisible(payload.room_id);
+                const visibility = await this.stores.slidingSyncManager.setRoomVisible(payload.room_id);
+                // Someone opened another room while this one was loading, or the client was replaced: going on
+                // would take them back here.
+                if (viewRequest !== this.viewRequest || visibility === "replaced") return;
+                if (visibility !== "known") {
+                    // The server did not send the room, or not yet. The room view shows what it can, such as a
+                    // join preview, and switches to the room if it arrives later.
+                    logger.info(`Opening ${payload.room_id} without its sliding sync data: ${visibility}`);
+                }
 
                 // Re-fire the payload: we won't re-process it because the prev room ID == payload room ID now
                 this.dis.dispatch({

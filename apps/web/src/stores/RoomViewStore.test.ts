@@ -906,7 +906,7 @@ describe("RoomViewStore", function () {
         });
 
         it("subscribes to the room", async () => {
-            const setRoomVisible = vi.spyOn(slidingSyncManager, "setRoomVisible").mockReturnValue(Promise.resolve());
+            const setRoomVisible = vi.spyOn(slidingSyncManager, "setRoomVisible").mockResolvedValue("known");
             const subscribedRoomId = "!sub1:localhost";
             dis.dispatch({ action: Action.ViewRoom, room_id: subscribedRoomId });
             await untilDispatch(Action.ActiveRoomChanged, dis);
@@ -918,7 +918,7 @@ describe("RoomViewStore", function () {
         // although that was before the complexity was removed with similified mode. I've removed the complexity but kept the
         // test anyway.
         it("doesn't get stuck in a loop if you view rooms quickly", async () => {
-            const setRoomVisible = vi.spyOn(slidingSyncManager, "setRoomVisible").mockReturnValue(Promise.resolve());
+            const setRoomVisible = vi.spyOn(slidingSyncManager, "setRoomVisible").mockResolvedValue("known");
             const subscribedRoomId = "!sub1:localhost";
             const subscribedRoomId2 = "!sub2:localhost";
             dis.dispatch({ action: Action.ViewRoom, room_id: subscribedRoomId }, true);
@@ -934,6 +934,41 @@ describe("RoomViewStore", function () {
                     throw new Error(`i=${i} got ${setRoomVisible.mock.calls[i]} want ${v}`);
                 }
             });
+        });
+
+        it.each(["timeout", "replaced", "known"] as const)(
+            "does not return to a room that finished loading (%s) after another room was opened",
+            async (outcome) => {
+                const slow = Promise.withResolvers<"known" | "absent" | "timeout" | "replaced">();
+                vi.spyOn(slidingSyncManager, "setRoomVisible").mockImplementation((id) =>
+                    id === "!slow:localhost" ? slow.promise : Promise.resolve("known"),
+                );
+                dis.dispatch({ action: Action.ViewRoom, room_id: "!slow:localhost" }, true);
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                dis.dispatch({ action: Action.ViewRoom, room_id: "!fast:localhost" }, true);
+                await untilDispatch(Action.ActiveRoomChanged, dis);
+                expect(roomViewStore.getRoomId()).toBe("!fast:localhost");
+                slow.resolve(outcome);
+                await new Promise((resolve) => setTimeout(resolve, 10));
+                expect(roomViewStore.getRoomId()).toBe("!fast:localhost");
+            },
+        );
+
+        it("opens a room the server did not send, so the room view can offer to join it", async () => {
+            vi.spyOn(slidingSyncManager, "setRoomVisible").mockResolvedValue("absent");
+            dis.dispatch({ action: Action.ViewRoom, room_id: "!missing:localhost" });
+            await untilDispatch(Action.ActiveRoomChanged, dis);
+            expect(roomViewStore.getRoomId()).toBe("!missing:localhost");
+            await vi.waitFor(() => expect(roomViewStore.isRoomLoading()).toBe(false));
+        });
+
+        it("does not open a room when the client was replaced while it loaded", async () => {
+            vi.spyOn(slidingSyncManager, "setRoomVisible").mockResolvedValue("replaced");
+            const dispatch = vi.spyOn(dis, "dispatch");
+            dis.dispatch({ action: Action.ViewRoom, room_id: "!gone:localhost" }, true);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            const viewRooms = dispatch.mock.calls.filter(([payload]) => payload.action === Action.ViewRoom);
+            expect(viewRooms).toHaveLength(1);
         });
     });
 
