@@ -243,8 +243,21 @@
     }
 }
 
+/*
+ * Hovering rolls the status up and out while the account ID rises in from below. Visibility follows the fade, so
+ * only the line that shows is read out.
+ */
+.secondaryLine > :is(.dockStatus, .dockMatrixId) {
+    transition:
+        transform 260ms cubic-bezier(0.34, 1.4, 0.64, 1),
+        opacity 180ms ease-out,
+        visibility 260ms;
+}
+
 .dockMatrixId {
     visibility: hidden;
+    opacity: 0;
+    transform: translateY(70%);
 }
 
 /* The dock's name and status read a touch larger than the body text around them. */
@@ -264,10 +277,14 @@
 .dockTrigger:focus-visible {
     .dockStatus {
         visibility: hidden;
+        opacity: 0;
+        transform: translateY(-70%);
     }
 
     .dockMatrixId {
         visibility: visible;
+        opacity: 1;
+        transform: none;
     }
 }
 
@@ -300,7 +317,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .dockTrigger .avatarWrapper::after {
+    .dockTrigger .avatarWrapper::after,
+    .secondaryLine > :is(.dockStatus, .dockMatrixId) {
         transition: none;
     }
 }
