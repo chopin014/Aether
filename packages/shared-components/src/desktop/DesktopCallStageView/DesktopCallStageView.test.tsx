@@ -717,6 +717,7 @@ it("opens the soundboard directly from the in-call toolbar", () => {
             suggested: [{ id: "quack", name: "Quack", emoji: "🦆", libraryId: "builtin" }],
             volume: 80,
             busy: false,
+            muted: false,
             uploadLibraryId: "",
             uploadName: "",
             uploadEmoji: "🔊",

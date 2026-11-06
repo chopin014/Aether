@@ -97,6 +97,7 @@ export class SoundboardViewModel extends BaseViewModel<SoundboardViewSnapshot, P
             uploadLibraryId: "",
             uploadName: "",
             uploadEmoji: "🔊",
+            muted: SoundboardViewModel.isMuted(props.call),
         });
         this.spaceStore = props.spaceStore ?? SDKContextClass.instance.spaceStore;
         this.disposables.track(() => this.audio.dispose());
@@ -115,13 +116,22 @@ export class SoundboardViewModel extends BaseViewModel<SoundboardViewSnapshot, P
         const watch = SettingsStore.watchSetting("desktopDeafened", null, () => {
             if (SettingsStore.getValue("desktopDeafened")) this.audio.stop();
             else this.refresh();
+            this.snapshot.merge({ muted: SoundboardViewModel.isMuted(props.call) });
         });
         this.disposables.track(() => SettingsStore.unwatchSetting(watch));
+        this.disposables.trackListener(props.call, CallEvent.DeviceMute, () =>
+            this.snapshot.merge({ muted: SoundboardViewModel.isMuted(props.call) }),
+        );
         this.disposables.trackListener(props.call, CallEvent.ConnectionState, () => {
             if (!props.call.connected) this.audio.stop();
             else this.refresh();
         });
         this.refresh();
+    }
+
+    /** Sounds go out as the user's voice does, so a muted or deafened microphone cannot send them. */
+    private static isMuted(call: ElementCall): boolean {
+        return call.deviceMuteState?.audio_enabled === false || !!SettingsStore.getValue("desktopDeafened");
     }
 
     private readonly refresh = (): void => {
@@ -272,7 +282,8 @@ export class SoundboardViewModel extends BaseViewModel<SoundboardViewSnapshot, P
             this.snapshot.current.busy ||
             this.isDisposed ||
             !this.props.call.connected ||
-            this.props.call.locallyLeaving
+            this.props.call.locallyLeaving ||
+            (!preview && SoundboardViewModel.isMuted(this.props.call))
         )
             return;
         this.snapshot.merge({ error: undefined });
@@ -435,7 +446,9 @@ export class SoundboardViewModel extends BaseViewModel<SoundboardViewSnapshot, P
             !sender ||
             (!fromTransport && sender === this.props.client.getUserId()) ||
             !fresh ||
-            ![...this.props.call.participants.keys()].some((member) => member.userId === sender)
+            ![...this.props.call.participants.keys()].some((member) => member.userId === sender) ||
+            // Clients that do not enforce mute themselves must not be able to play sounds while muted.
+            this.props.call.voiceStates.get(sender)?.muted
         )
             return;
         this.seen.add(id);
