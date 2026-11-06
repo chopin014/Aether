@@ -25,6 +25,9 @@ export interface ScreenShareQualityPreference {
     includeSystemAudio: boolean;
 }
 
+/** The loudest the speaker setting plays calls, as a percentage of the level they arrive at. */
+export const MAX_SPEAKER_VOLUME_PERCENT = 200;
+
 /** The settings the audio follows; a change to any of them is sent to the calls on screen. */
 const WATCHED_SETTINGS = [
     "webrtc_audioinput",

@@ -54,6 +54,8 @@ import { useDominantColour } from "../DesktopProfileIdentity/DesktopProfileIdent
 import { useCallStageWindow } from "./useCallStageWindow";
 import { useCallTileMotion } from "./useCallTileMotion";
 import { useCallGridLayout } from "./useCallGridLayout";
+import { VoiceUserMenuView, type VoiceUserMenuViewModel } from "../VoiceUserMenuView";
+import { MAX_PLAYBACK_VOLUME_PERCENT } from "../playbackVolume";
 import styles from "./DesktopCallStageView.module.css";
 
 /** Lifecycle phase displayed by the stage. */
@@ -128,9 +130,8 @@ export interface DesktopCallStageParticipantTile {
     readonly handRaisedAt: Date | null;
     readonly reactionEmoji: string | null;
     readonly video: DesktopCallStageVideoAttachment | null;
-    readonly hasVolumeControl: boolean;
-    readonly microphoneVolumePercent: number;
-    readonly microphoneMuted: boolean;
+    /** Whether this user muted the person for themselves only. */
+    readonly locallyMuted: boolean;
 }
 
 /** Someone a conversation call is ringing, who has not joined it yet. */
@@ -201,6 +202,10 @@ export interface DesktopCallStageViewSnapshot {
     readonly ringing: "ringing" | "decline" | "timeout" | null;
     /** People the call is ringing; empty once they join, decline or the ringing times out. */
     readonly callees: readonly DesktopCallStageCallee[];
+    /** Everyone already in the call, previewed in the lobby before the user joins. */
+    readonly lobbyParticipants: readonly DesktopCallStageCallee[];
+    /** The menu of the person whose tile menu is open, or null when none is. */
+    readonly participantMenu: VoiceUserMenuViewModel | null;
     /** Electron's current display-media callback supplies a video track only. */
     readonly canShareSystemAudio: boolean;
 }
@@ -228,8 +233,6 @@ export interface DesktopCallStageViewActions {
     setOpenTileMenuId(tileId: string | null): void;
     setSpotlightTileId(tileId: string | null): void;
     setLayoutMode(mode: DesktopCallStageLayoutMode): void;
-    setParticipantMicrophoneVolume(tileId: string, volumePercent: number): void;
-    toggleParticipantMicrophoneMuted(tileId: string): void;
     setScreenShareAudioVolume(tileId: string, volumePercent: number): void;
     toggleScreenShareAudioMuted(tileId: string): void;
     openInviteDialog(): void;
@@ -417,6 +420,76 @@ function ParticipantSurface({
     );
 }
 
+/** The most people the lobby previews; anyone beyond them is counted on the last tile. */
+const LOBBY_PREVIEW_LIMIT = 4;
+
+/** One person already in the call, as a small tile in their profile colour, like Discord's voice lobby. */
+function LobbyTile({ person }: { person: DesktopCallStageCallee }): JSX.Element {
+    const colour = useIdColorHash(person.userId);
+    const dominant = useDominantColour(person.avatarUrl, true);
+    return (
+        <div
+            className={styles.lobbyTile}
+            style={
+                {
+                    "--call-tile-colour": dominant ?? `var(--cpd-color-bg-decorative-${colour})`,
+                } as React.CSSProperties
+            }
+            title={person.displayName}
+            data-testid="lobby-participant"
+        >
+            <div className={styles.lobbyTileAvatar}>
+                {person.avatarUrl ? (
+                    <img src={person.avatarUrl} alt="" className={styles.avatarImage} />
+                ) : (
+                    <span>{person.initialLetter}</span>
+                )}
+            </div>
+        </div>
+    );
+}
+
+/** A small grid previewing who is already in the call. */
+function LobbyPreview({ people }: { people: readonly DesktopCallStageCallee[] }): JSX.Element {
+    const { translate: _t } = useI18n();
+    const overflow = people.length > LOBBY_PREVIEW_LIMIT;
+    const shown = overflow ? people.slice(0, LOBBY_PREVIEW_LIMIT - 1) : people;
+    return (
+        <div className={styles.lobbyPreview} data-count={Math.min(people.length, LOBBY_PREVIEW_LIMIT)}>
+            {shown.map((person) => (
+                <LobbyTile key={person.userId} person={person} />
+            ))}
+            {overflow && (
+                <div className={styles.lobbyTile} data-more="true">
+                    <span className={styles.lobbyMore}>
+                        {_t("desktop|call_stage|lobby_more", { number: people.length - shown.length })}
+                    </span>
+                </div>
+            )}
+        </div>
+    );
+}
+
+/** Who is in the call, by name, as Discord's lobby says it. */
+function lobbySummary(snapshot: DesktopCallStageViewSnapshot, _t: ReturnType<typeof useI18n>["translate"]): string {
+    const [first, second] = snapshot.lobbyParticipants;
+    const count = snapshot.lobbyParticipants.length;
+    if (count === 1) return _t("desktop|call_stage|lobby_in_voice_one", { name: first.displayName });
+    if (count === 2) {
+        return _t("desktop|call_stage|lobby_in_voice_two", { first: first.displayName, second: second.displayName });
+    }
+    if (count > 2) {
+        return _t("desktop|call_stage|lobby_in_voice_many", {
+            first: first.displayName,
+            second: second.displayName,
+            count: count - 2,
+        });
+    }
+    return snapshot.participantCount > 0
+        ? _t("desktop|call_stage|lobby_participants", { count: snapshot.participantCount })
+        : _t("desktop|call_stage|lobby_empty");
+}
+
 /** Aether call presentation. Media capture, publication and playback remain owned by the call engine. */
 export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Element {
     const { translate: _t } = useI18n();
@@ -432,6 +505,12 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
     const tileMenuTriggerRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
     const tileMenuAnchors = useRef<Map<string, RefObject<HTMLElement | null>>>(new Map());
     const [hoveredTileId, setHoveredTileId] = useState<string | null>(null);
+    const [participantMenuPoint, setParticipantMenuPoint] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+    /** Opens a person's menu at a point: the pointer for a right click, or below the tile's options button. */
+    const openParticipantMenu = (tileId: string, point: { x: number; y: number }): void => {
+        setParticipantMenuPoint(point);
+        vm.setOpenTileMenuId(tileId);
+    };
 
     const validValues = (values: readonly (number | null)[]): number[] =>
         [
@@ -646,7 +725,7 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                             <input
                                 type="range"
                                 min={0}
-                                max={100}
+                                max={MAX_PLAYBACK_VOLUME_PERCENT}
                                 step={1}
                                 value={tile.streamAudioMuted ? 0 : tile.streamAudioVolumePercent}
                                 aria-label={_t("desktop|call_stage|stream_volume_slider_aria", {
@@ -689,10 +768,14 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                                 <input
                                     type="range"
                                     min={0}
-                                    max={100}
+                                    max={MAX_PLAYBACK_VOLUME_PERCENT}
                                     step={1}
                                     className={styles.streamVolumeSlider}
-                                    style={{ "--stream-volume": `${streamVolumePercent}%` } as React.CSSProperties}
+                                    style={
+                                        {
+                                            "--stream-volume": `${(streamVolumePercent / MAX_PLAYBACK_VOLUME_PERCENT) * 100}%`,
+                                        } as React.CSSProperties
+                                    }
                                     value={streamVolumePercent}
                                     aria-label={_t("desktop|call_stage|stream_volume_slider_aria", {
                                         name: tile.displayName,
@@ -729,10 +812,8 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                             aria-label={_t("desktop|call_stage|participant_tile_aria", { name: tile.displayName })}
                             onClick={() => vm.setSpotlightTileId(isSpotlight ? null : tile.id)}
                             onContextMenu={(e) => {
-                                if (tile.hasVolumeControl) {
-                                    e.preventDefault();
-                                    vm.setOpenTileMenuId(isMenuOpen ? null : tile.id);
-                                }
+                                e.preventDefault();
+                                openParticipantMenu(tile.id, { x: e.clientX, y: e.clientY });
                             }}
                         />
                         {tile.video && tile.videoEnabled ? (
@@ -772,86 +853,30 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                         <div className={styles.tileTopBar}>
                             <div />
                             <div className={styles.tileActions}>
-                                {tile.hasVolumeControl && (
-                                    <button
-                                        ref={(el) => {
-                                            if (el) tileMenuTriggerRefs.current.set(tile.id, el);
-                                            else tileMenuTriggerRefs.current.delete(tile.id);
-                                        }}
-                                        type="button"
-                                        className={styles.tileActionBtn}
-                                        aria-label={_t("desktop|call_stage|participant_audio_options", {
-                                            name: tile.displayName,
-                                        })}
-                                        aria-expanded={isMenuOpen}
-                                        data-testid={`participant-volume-menu-btn-${tile.userId}`}
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            vm.setOpenTileMenuId(isMenuOpen ? null : tile.id);
-                                        }}
-                                    >
-                                        <OverflowHorizontalIcon />
-                                    </button>
-                                )}
+                                <button
+                                    type="button"
+                                    className={styles.tileActionBtn}
+                                    aria-label={_t("desktop|call_stage|participant_options", {
+                                        name: tile.displayName,
+                                    })}
+                                    aria-haspopup="menu"
+                                    aria-expanded={isMenuOpen}
+                                    data-testid={`participant-menu-btn-${tile.userId}`}
+                                    data-voice-user-menu-toggle=""
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (isMenuOpen) {
+                                            vm.setOpenTileMenuId(null);
+                                            return;
+                                        }
+                                        const rect = e.currentTarget.getBoundingClientRect();
+                                        openParticipantMenu(tile.id, { x: rect.left, y: rect.bottom + 4 });
+                                    }}
+                                >
+                                    <OverflowHorizontalIcon />
+                                </button>
                             </div>
                         </div>
-                        {isMenuOpen && tile.hasVolumeControl && (
-                            <StagePopover
-                                anchor={getTileTriggerRef(tile.id)}
-                                placement="below-end"
-                                ariaLabel={_t("desktop|call_stage|participant_audio_options", {
-                                    name: tile.displayName,
-                                })}
-                                testId={`participant-volume-popover-${tile.userId}`}
-                                className={styles.tileVolumePopover}
-                                onClose={() => vm.setOpenTileMenuId(null)}
-                            >
-                                <div className={styles.volumeRow}>
-                                    <Text size="xs" weight="semibold">
-                                        {_t("desktop|call_stage|user_volume_title")}
-                                    </Text>
-                                    <Text size="xs">
-                                        {tile.microphoneMuted ? "0%" : `${tile.microphoneVolumePercent}%`}
-                                    </Text>
-                                </div>
-                                <div className={styles.volumeSliderRow}>
-                                    <button
-                                        type="button"
-                                        className={styles.tileActionBtn}
-                                        aria-label={
-                                            tile.microphoneMuted
-                                                ? _t("desktop|call_stage|unmute_participant", {
-                                                      name: tile.displayName,
-                                                  })
-                                                : _t("desktop|call_stage|mute_participant", { name: tile.displayName })
-                                        }
-                                        data-testid={`participant-audio-mute-${tile.userId}`}
-                                        onClick={() => vm.toggleParticipantMicrophoneMuted(tile.id)}
-                                    >
-                                        {tile.microphoneMuted || tile.microphoneVolumePercent === 0 ? (
-                                            <VolumeOffIcon />
-                                        ) : (
-                                            <VolumeOnIcon />
-                                        )}
-                                    </button>
-                                    <input
-                                        type="range"
-                                        min={0}
-                                        max={100}
-                                        step={1}
-                                        value={tile.microphoneMuted ? 0 : tile.microphoneVolumePercent}
-                                        aria-label={_t("desktop|call_stage|participant_volume_slider_aria", {
-                                            name: tile.displayName,
-                                        })}
-                                        data-testid={`participant-volume-slider-${tile.userId}`}
-                                        className={styles.volumeSlider}
-                                        onChange={(e) =>
-                                            vm.setParticipantMicrophoneVolume(tile.id, Number(e.target.value))
-                                        }
-                                    />
-                                </div>
-                            </StagePopover>
-                        )}
                         <div className={styles.tileBottomBar}>
                             <div className={styles.nameBadge} data-testid="name_tag">
                                 <ProfileName className={styles.nameBadgeText} nameStyle={tile.appearance?.nameStyle}>
@@ -868,6 +893,15 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                                 )}
                             </div>
                             <div className={styles.statusIcons}>
+                                {tile.locallyMuted && (
+                                    <span
+                                        className={styles.statusIconBadge}
+                                        title={_t("desktop|call_stage|muted_by_you_badge")}
+                                        aria-label={_t("desktop|call_stage|muted_by_you_badge")}
+                                    >
+                                        <VolumeOffIcon />
+                                    </span>
+                                )}
                                 {!tile.audioEnabled && (
                                     <span
                                         className={styles.statusIconBadge}
@@ -923,6 +957,10 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
             data-testid="aether-call-stage"
         >
             {/* Preserve MatrixAudioRenderer + Ringing audio (validIdentities filtering, multiple rooms, global deafen/output) */}
+
+            {snapshot.phase === "lobby" && !snapshot.fatalError && (
+                <div className={styles.lobbyBackdrop} aria-hidden="true" data-testid="call-lobby-backdrop" />
+            )}
 
             {/* Top Header */}
             <header className={styles.header}>
@@ -1044,27 +1082,32 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                                 )}
                             </div>
                         )}
-                        <Text as="h3" size="lg" weight="semibold">
+                        {!snapshot.localVideoEnabled && snapshot.lobbyParticipants.length > 0 && (
+                            <LobbyPreview people={snapshot.lobbyParticipants} />
+                        )}
+                        <Text as="h3" size="lg" weight="semibold" className={styles.lobbyTitle}>
                             {snapshot.roomName}
                         </Text>
-                        <Text size="sm">
-                            {snapshot.participantCount > 0
-                                ? _t("desktop|call_stage|lobby_participants", { count: snapshot.participantCount })
-                                : _t("desktop|call_stage|lobby_empty")}
-                        </Text>
-                        {snapshot.needsDevicePermissions && (
-                            <button type="button" className={styles.headerButton} onClick={vm.requestDevicePermissions}>
-                                {_t("desktop|call_stage|allow_devices")}
+                        <Text size="sm">{lobbySummary(snapshot, _t)}</Text>
+                        <div className={styles.lobbyActions}>
+                            {snapshot.needsDevicePermissions && (
+                                <button
+                                    type="button"
+                                    className={styles.lobbySecondaryBtn}
+                                    onClick={vm.requestDevicePermissions}
+                                >
+                                    {_t("desktop|call_stage|allow_devices")}
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                className={styles.lobbyJoinBtn}
+                                data-testid="lobby_joinCall"
+                                onClick={vm.joinCall}
+                            >
+                                {_t("desktop|call_stage|join_voice_call")}
                             </button>
-                        )}
-                        <button
-                            type="button"
-                            className={styles.primaryActionBtn}
-                            data-testid="lobby_joinCall"
-                            onClick={vm.joinCall}
-                        >
-                            {_t("desktop|call_stage|join_voice_call")}
-                        </button>
+                        </div>
                     </div>
                 ) : hasSpotlight ? (
                     <>
@@ -1134,6 +1177,15 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                     </div>
                 )}
             </div>
+
+            {snapshot.participantMenu && (
+                <VoiceUserMenuView
+                    vm={snapshot.participantMenu}
+                    position={participantMenuPoint}
+                    ownerDocument={stageRef.current?.ownerDocument}
+                    onClose={() => vm.setOpenTileMenuId(null)}
+                />
+            )}
 
             {/* Bottom Control Bar */}
             {snapshot.phase !== "lobby" && snapshot.phase !== "ended" && (

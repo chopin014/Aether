@@ -10,7 +10,11 @@ import classNames from "classnames";
 import { useMergeRefs } from "react-merge-refs";
 import ThreadsIcon from "@vector-im/compound-design-tokens/assets/web/icons/threads-solid";
 import { Avatar } from "@vector-im/compound-web";
-import { HeadphonesOffSolidIcon, MicOffSolidIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
+import {
+    HeadphonesOffSolidIcon,
+    MicOffSolidIcon,
+    VolumeOffSolidIcon,
+} from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { Flex } from "../../../../core/utils/Flex";
 import { type NotificationDecorationData } from "./NotificationDecoration";
@@ -19,6 +23,7 @@ import { RoomListItemContent } from "./RoomListItemContent";
 import { type RoomNotifState } from "./RoomNotifs";
 import styles from "./RoomListItemView.module.css";
 import { type ChannelMenuViewModel } from "../../../../desktop/ChannelMenuView";
+import { VoiceUserMenuView, type VoiceUserMenuViewModel } from "../../../../desktop/VoiceUserMenuView";
 import { useViewModel, type ViewModel } from "../../../../core/viewmodel";
 import { type UserStatus } from "../../../../core/userStatus";
 import { _t } from "../../../../core/i18n/i18n";
@@ -113,6 +118,8 @@ export interface RoomListItemViewSnapshot {
         isSoundboardPlaying?: boolean;
         isMuted?: boolean;
         isDeafened?: boolean;
+        /** Whether this user muted the participant for themselves only. */
+        isLocallyMuted?: boolean;
     }[];
     /** When people started gathering in an occupied voice channel, in milliseconds since the epoch. */
     callStartedAt?: number;
@@ -146,6 +153,10 @@ export interface RoomListItemViewActions {
     onOpenActiveThread?: () => void;
     /** Open a voice participant's real Matrix profile. */
     onViewCallParticipant?: (userId: string) => void;
+    /** The menu for a voice participant, opened by right-clicking them. Only one is open at a time. */
+    openCallParticipantMenu?: (userId: string) => VoiceUserMenuViewModel;
+    /** Close the participant menu opened by {@link openCallParticipantMenu}. */
+    closeCallParticipantMenu?: () => void;
     /** Open the channel's settings, where its name, topic and icon are changed. */
     onEditChannel?: () => void;
     /**
@@ -227,14 +238,30 @@ function participantLabel({ name, isSpeaking, isMuted, isDeafened }: CallPartici
 }
 
 /** Show each active voice status at the end of the participant's row. */
-function ParticipantVoiceStatus({ muted, deafened }: { muted?: boolean; deafened?: boolean }): JSX.Element | null {
-    if (!muted && !deafened) return null;
+function ParticipantVoiceStatus({
+    muted,
+    deafened,
+    locallyMuted,
+}: {
+    muted?: boolean;
+    deafened?: boolean;
+    locallyMuted?: boolean;
+}): JSX.Element | null {
+    if (!muted && !deafened && !locallyMuted) return null;
     return (
         <span className={styles.participantVoiceStatus} aria-hidden="true">
+            {locallyMuted && <VolumeOffSolidIcon data-testid="participant-locally-muted" />}
             {muted && <MicOffSolidIcon data-testid="participant-muted" />}
             {deafened && <HeadphonesOffSolidIcon data-testid="participant-deafened" />}
         </span>
     );
+}
+
+/** Where a participant's menu opens: at the pointer, or below the row when the keyboard opened it. */
+function menuPosition(event: React.MouseEvent<HTMLElement>): { x: number; y: number } {
+    if (event.clientX !== 0 || event.clientY !== 0) return { x: event.clientX, y: event.clientY };
+    const rect = event.currentTarget.getBoundingClientRect();
+    return { x: rect.left + 16, y: rect.bottom };
 }
 
 /**
@@ -264,6 +291,15 @@ export const RoomListItemView = memo(function RoomListItemView({
     // focus too, which clutters selected/clicked rows. So we mark keyboard focus in JS (using the
     // browser's own :focus-visible determination) and keep it set until focus leaves the row entirely.
     const [keyboardActive, setKeyboardActive] = useState(false);
+    const [participantMenu, setParticipantMenu] = useState<{
+        vm: VoiceUserMenuViewModel;
+        position: { x: number; y: number };
+        userId: string;
+    } | null>(null);
+    const closeParticipantMenu = (): void => {
+        setParticipantMenu(null);
+        vm.closeCallParticipantMenu?.();
+    };
 
     useEffect(() => {
         if (isFocused) {
@@ -359,6 +395,20 @@ export const RoomListItemView = memo(function RoomListItemView({
                         type="button"
                         className={styles.callParticipant}
                         onClick={() => vm.onViewCallParticipant?.(participant.userId)}
+                        onContextMenu={(event) => {
+                            if (!vm.openCallParticipantMenu) return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setParticipantMenu({
+                                vm: vm.openCallParticipantMenu(participant.userId),
+                                position: menuPosition(event),
+                                userId: participant.userId,
+                            });
+                        }}
+                        aria-haspopup={vm.openCallParticipantMenu ? "menu" : undefined}
+                        aria-expanded={
+                            vm.openCallParticipantMenu ? participantMenu?.userId === participant.userId : undefined
+                        }
                         title={participant.name}
                         // Speaking state is folded into the name rather than announced through a live
                         // region, so screen readers only hear it when the participant is focused.
@@ -381,10 +431,21 @@ export const RoomListItemView = memo(function RoomListItemView({
                             />
                         </span>
                         <span className={styles.participantName}>{participant.name}</span>
-                        <ParticipantVoiceStatus muted={participant.isMuted} deafened={participant.isDeafened} />
+                        <ParticipantVoiceStatus
+                            muted={participant.isMuted}
+                            deafened={participant.isDeafened}
+                            locallyMuted={participant.isLocallyMuted}
+                        />
                     </button>
                 ))}
             </div>
+            {participantMenu && (
+                <VoiceUserMenuView
+                    vm={participantMenu.vm}
+                    position={participantMenu.position}
+                    onClose={closeParticipantMenu}
+                />
+            )}
         </div>
     );
 });
