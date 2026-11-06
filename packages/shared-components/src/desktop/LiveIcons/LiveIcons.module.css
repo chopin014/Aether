@@ -1,0 +1,580 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+/*
+ * Icons that act out what their button does when it is hovered or focused, like Discord's: the phone hangs up, the
+ * waveform is quietened, the popper pops. Each motion plays once per hover. Pressing any of them squishes the icon,
+ * and it springs back on release.
+ */
+
+.live {
+    --live-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    transition: scale 320ms var(--live-spring);
+}
+
+/* SVG parts move around points in the icon's own 24×24 grid unless a part says otherwise. */
+:where(.live) :is(g, path, line, rect, circle) {
+    transform-box: view-box;
+}
+
+/* --- Microphone, headphones and camera, with a slash drawn over them when they are off --- */
+
+.deviceIcon {
+    position: relative;
+    display: grid;
+    place-items: center;
+    /* A little larger than Compound's icons by default; a button can fit it to its own icons instead. */
+    width: var(--live-device-icon-size, calc(var(--cpd-space-5x) + var(--cpd-space-0-5x)));
+    height: var(--live-device-icon-size, calc(var(--cpd-space-5x) + var(--cpd-space-0-5x)));
+
+    > svg {
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+    }
+}
+
+.slash,
+.slashGap {
+    fill: none;
+    stroke-linecap: round;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+}
+
+.slash {
+    stroke: currentColor;
+    stroke-width: 2;
+}
+
+/* The gap the slash cuts out of the icon, wider than the slash so a thin line of background shows either side. */
+.slashGap {
+    stroke: black;
+    stroke-width: 5;
+}
+
+.deviceIcon[data-off="true"] :is(.slash, .slashGap) {
+    stroke-dashoffset: 0;
+}
+
+.deviceRipple {
+    position: absolute;
+    inset: calc(-1 * var(--cpd-space-1x));
+    border-radius: 50%;
+    border: var(--cpd-border-width-2) solid currentColor;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* --- Connection strength --- */
+
+.signal rect {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    transition: opacity 240ms ease-out;
+}
+
+/* Bars beyond the connection's strength stay faintly visible so the icon keeps its shape. */
+.signal[data-bars="0"] rect,
+.signal[data-bars="1"] rect:nth-of-type(n + 2),
+.signal[data-bars="2"] rect:nth-of-type(n + 3),
+.signal[data-bars="3"] rect:nth-of-type(4) {
+    opacity: 0.28;
+}
+
+/* --- Noise suppression --- */
+
+.noise line {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    transform-box: fill-box;
+    transform-origin: center;
+}
+
+/* --- Screen sharing and reactions draw their details as cut-outs, which move inside the mask --- */
+
+.shareArrow,
+.reactionFeature {
+    fill: none;
+    stroke: black;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.reactionEye {
+    fill: black;
+    transform-box: fill-box;
+    transform-origin: center;
+}
+
+/* --- Soundboard party popper --- */
+
+/* The gap is longer than the streamer so a hidden streamer leaves no round cap behind at its end. */
+.popperStreamer {
+    stroke-dasharray: 1 2;
+    stroke-dashoffset: 0;
+}
+
+.popperStar,
+.popperConfetti {
+    transform-box: fill-box;
+    transform-origin: center;
+}
+
+.popperConfetti {
+    opacity: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    /* Unmuting makes the icon bounce back; muting shakes it and sends a ring out from it. */
+    .deviceIcon[data-animate][data-off="true"] {
+        animation: live-device-mute 420ms cubic-bezier(0.36, 0.07, 0.19, 0.97);
+
+        /* The slash draws in from its top and leaves past its bottom, rather than retracing its way out. */
+        :is(.slash, .slashGap) {
+            animation: live-slash-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+        }
+
+        .deviceRipple {
+            animation: live-device-ripple 520ms ease-out;
+        }
+    }
+
+    .deviceIcon[data-animate][data-off="false"] {
+        animation: live-device-unmute 380ms var(--live-spring);
+
+        :is(.slash, .slashGap) {
+            animation: live-slash-out 220ms ease-in both;
+        }
+    }
+
+    /* A connection being made fills its bars one after another. */
+    .signal[data-pending] rect {
+        animation: live-signal-pending 1.2s ease-in-out infinite;
+    }
+
+    .signal[data-pending] rect:nth-of-type(2) {
+        animation-delay: 150ms;
+    }
+
+    .signal[data-pending] rect:nth-of-type(3) {
+        animation-delay: 300ms;
+    }
+
+    .signal[data-pending] rect:nth-of-type(4) {
+        animation-delay: 450ms;
+    }
+
+    /* Pressing squishes the icon; releasing lets it spring back. */
+    :is(button, [role="button"]):active:not(:disabled, [aria-disabled="true"]) .live {
+        scale: 0.82;
+        transition: scale 90ms ease-out;
+    }
+
+    :is(button, [role="button"]):is(:hover, :focus-visible):not(:disabled, [aria-disabled="true"]) {
+        /* The microphone sways as if spoken into, the headphones bob to a beat, and the camera looks around. */
+        .deviceIcon[data-device="microphone"] > svg {
+            transform-origin: 50% 90%;
+            animation: live-sway 560ms ease-in-out;
+        }
+
+        .deviceIcon[data-device="headphones"] > svg {
+            animation: live-bop 620ms ease-in-out;
+        }
+
+        .deviceIcon[data-device="camera"] > svg {
+            animation: live-look-around 640ms ease-in-out;
+        }
+
+        /* The bars dip and rise in a sweep, like a signal being found. */
+        .signal rect {
+            animation: live-signal-sweep 520ms var(--live-spring);
+        }
+
+        .signal rect:nth-of-type(2) {
+            animation-delay: 60ms;
+        }
+
+        .signal rect:nth-of-type(3) {
+            animation-delay: 120ms;
+        }
+
+        .signal rect:nth-of-type(4) {
+            animation-delay: 180ms;
+        }
+
+        /* The waveform jumps about as noise, then is pressed flat before settling. */
+        .noise line {
+            animation: live-noise 780ms ease-in-out;
+        }
+
+        .noise line:nth-of-type(1) {
+            --live-peak: 2.6;
+            --live-dip: 0.8;
+            --live-peak-2: 1.9;
+        }
+
+        .noise line:nth-of-type(2) {
+            --live-peak: 1.5;
+            --live-dip: 0.5;
+            --live-peak-2: 1.4;
+        }
+
+        .noise line:nth-of-type(3) {
+            --live-peak: 0.7;
+            --live-dip: 1.1;
+            --live-peak-2: 0.55;
+        }
+
+        .noise line:nth-of-type(4) {
+            --live-peak: 1.45;
+            --live-dip: 0.7;
+            --live-peak-2: 1.55;
+        }
+
+        .noise line:nth-of-type(5) {
+            --live-peak: 2.2;
+            --live-dip: 1.1;
+            --live-peak-2: 2.8;
+        }
+
+        /* The handset lifts, then is put down hard. */
+        .hangUp > path {
+            transform-origin: 12px 12px;
+            animation: live-hang-up 620ms ease-in-out;
+        }
+
+        /* The arrow flies up off the screen and a new one rises into place. */
+        .shareArrow {
+            animation: live-share 680ms cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        /* The face tilts, grins and winks. */
+        .reactionFace {
+            transform-origin: 12px 12px;
+            animation: live-tilt 640ms ease-in-out;
+        }
+
+        .reactionEye:nth-of-type(2) {
+            animation: live-wink 640ms ease-in-out;
+        }
+
+        .reactionFeature {
+            transform-origin: 12px 14px;
+            animation: live-grin 640ms var(--live-spring);
+        }
+
+        /* The popper kicks, its spark spins and the streamers and confetti burst out again. */
+        .popperCone {
+            transform-origin: 3px 21px;
+            animation: live-popper-kick 560ms ease-in-out;
+        }
+
+        .popperStar {
+            animation: live-popper-star 620ms var(--live-spring);
+        }
+
+        .popperStreamer {
+            animation: live-draw 460ms 120ms ease-out both;
+        }
+
+        .popperConfetti {
+            animation: live-confetti 720ms 140ms ease-out;
+        }
+
+        .popperConfetti:nth-of-type(1) {
+            --live-dx: 2px;
+            --live-dy: -9px;
+        }
+
+        .popperConfetti:nth-of-type(2) {
+            --live-dx: 7px;
+            --live-dy: -6px;
+            animation-delay: 190ms;
+        }
+
+        .popperConfetti:nth-of-type(3) {
+            --live-dx: 9px;
+            --live-dy: 0;
+            animation-delay: 230ms;
+        }
+    }
+}
+
+@keyframes live-slash-in {
+    from {
+        stroke-dashoffset: 1;
+    }
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+@keyframes live-slash-out {
+    from {
+        stroke-dashoffset: 0;
+    }
+    to {
+        stroke-dashoffset: -1;
+    }
+}
+
+@keyframes live-device-mute {
+    0% {
+        transform: rotate(0) scale(1);
+    }
+    20% {
+        transform: rotate(-14deg) scale(0.88);
+    }
+    45% {
+        transform: rotate(10deg) scale(1.04);
+    }
+    70% {
+        transform: rotate(-5deg) scale(1);
+    }
+    100% {
+        transform: rotate(0) scale(1);
+    }
+}
+
+@keyframes live-device-unmute {
+    0% {
+        transform: scale(1);
+    }
+    35% {
+        transform: scale(0.78);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+@keyframes live-device-ripple {
+    from {
+        opacity: 0.55;
+        transform: scale(0.6);
+    }
+    to {
+        opacity: 0;
+        transform: scale(1.5);
+    }
+}
+
+@keyframes live-sway {
+    0%,
+    100% {
+        transform: none;
+    }
+    25% {
+        transform: rotate(-12deg);
+    }
+    55% {
+        transform: rotate(9deg);
+    }
+    80% {
+        transform: rotate(-4deg);
+    }
+}
+
+@keyframes live-bop {
+    0%,
+    50%,
+    100% {
+        transform: none;
+    }
+    25% {
+        transform: translateY(-12%) rotate(-6deg) scale(1.05);
+    }
+    75% {
+        transform: translateY(-8%) rotate(5deg) scale(1.03);
+    }
+}
+
+@keyframes live-look-around {
+    0%,
+    100% {
+        transform: none;
+    }
+    28% {
+        transform: translateX(-8%) rotate(-10deg);
+    }
+    62% {
+        transform: translateX(7%) rotate(8deg);
+    }
+}
+
+@keyframes live-signal-pending {
+    0%,
+    100% {
+        opacity: 0.28;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+@keyframes live-signal-sweep {
+    0%,
+    100% {
+        transform: none;
+    }
+    35% {
+        transform: scaleY(0.5);
+    }
+    70% {
+        transform: scaleY(1.12);
+    }
+}
+
+@keyframes live-noise {
+    0%,
+    100% {
+        transform: none;
+    }
+    16% {
+        transform: scaleY(var(--live-peak));
+    }
+    32% {
+        transform: scaleY(var(--live-dip));
+    }
+    48% {
+        transform: scaleY(var(--live-peak-2));
+    }
+    70% {
+        transform: scaleY(0.4);
+    }
+}
+
+@keyframes live-hang-up {
+    0%,
+    100% {
+        transform: none;
+    }
+    24% {
+        transform: translateY(-2.5px) rotate(-14deg);
+    }
+    50% {
+        transform: translateY(1.8px) rotate(7deg);
+    }
+    68% {
+        transform: translateY(-0.6px) rotate(-3deg);
+    }
+    84% {
+        transform: translateY(0.3px) rotate(1deg);
+    }
+}
+
+@keyframes live-share {
+    0% {
+        transform: none;
+        opacity: 1;
+    }
+    38% {
+        transform: translateY(-6px);
+        opacity: 0;
+    }
+    39% {
+        transform: translateY(5px);
+        opacity: 0;
+    }
+    100% {
+        transform: none;
+        opacity: 1;
+    }
+}
+
+@keyframes live-tilt {
+    0%,
+    100% {
+        transform: none;
+    }
+    30% {
+        transform: rotate(-12deg) scale(1.06);
+    }
+    65% {
+        transform: rotate(7deg);
+    }
+}
+
+@keyframes live-wink {
+    0%,
+    25%,
+    75%,
+    100% {
+        transform: none;
+    }
+    40%,
+    60% {
+        transform: scaleY(0.15);
+    }
+}
+
+@keyframes live-grin {
+    0%,
+    100% {
+        transform: none;
+    }
+    45% {
+        transform: scale(1.2);
+    }
+}
+
+@keyframes live-popper-kick {
+    0%,
+    100% {
+        transform: none;
+    }
+    25% {
+        transform: rotate(-14deg);
+    }
+    55% {
+        transform: rotate(8deg);
+    }
+    80% {
+        transform: rotate(-3deg);
+    }
+}
+
+@keyframes live-popper-star {
+    0%,
+    100% {
+        transform: none;
+    }
+    30% {
+        transform: scale(0.3) rotate(-45deg);
+    }
+    65% {
+        transform: scale(1.4) rotate(20deg);
+    }
+}
+
+@keyframes live-draw {
+    from {
+        stroke-dashoffset: 1;
+    }
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+@keyframes live-confetti {
+    0% {
+        opacity: 0;
+        transform: scale(0.4);
+    }
+    20% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+        transform: translate(var(--live-dx), var(--live-dy)) scale(1);
+    }
+}

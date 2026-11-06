@@ -7,13 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import React, { type JSX, useCallback, useRef } from "react";
 import { IconButton, Text } from "@vector-im/compound-web";
-import {
-    AudioIcon,
-    ChevronDownIcon,
-    EndCallIcon,
-    ShareScreenSolidIcon,
-    VideoCallSolidIcon,
-} from "@vector-im/compound-design-tokens/assets/web/icons";
+import { ChevronDownIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { useViewModel, type ViewModel } from "../../core/viewmodel";
 import { useI18n } from "../../core/i18n/i18nContext";
@@ -21,7 +15,7 @@ import { VoicePopover } from "./VoicePopover";
 import { VoiceNoisePanel } from "./VoiceNoisePanel";
 import { VoiceConnectionPanel } from "./VoiceConnectionPanel";
 import { VoiceDevicePanel } from "./VoiceDevicePanel";
-import { AnimatedDeviceIcon } from "./AnimatedDeviceIcon";
+import { AnimatedDeviceIcon, HangUpIcon, NoiseSuppressionIcon, ScreenShareIcon, SignalIcon } from "../LiveIcons";
 import { type VoiceVideoDevice } from "../DesktopVoiceVideoSettingsView/DeviceSelect";
 import { SoundboardIcon, SoundboardView, type SoundboardViewModel } from "../SoundboardView";
 import styles from "./DesktopVoiceControlsView.module.css";
@@ -174,28 +168,15 @@ export function DesktopVoiceControlsView({ vm }: { vm: DesktopVoiceControlsViewM
     );
 }
 
-/**
- * Broadcast waves for the call's connection. Waves fade out as the connection degrades and pulse while it
- * connects, so its health shows without opening the details.
- */
-function SignalIcon({
+/** How many signal bars a call's connection lights, so its health shows without opening the details. */
+function signalBars({
     state,
     quality,
-}: Pick<DesktopVoiceControlsViewSnapshot["connection"], "state" | "quality">): JSX.Element {
-    const waves = state === "disconnected" || quality === "bad" || quality === "lost" ? 0 : quality === "poor" ? 1 : 2;
-    return (
-        <svg
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-            className={styles.signalIcon}
-            data-waves={waves}
-            data-pending={state === "connecting" || state === "reconnecting" ? true : undefined}
-        >
-            <circle cx="5.5" cy="18.5" r="2" />
-            <path d="M4.5 12.5a7 7 0 0 1 7 7" />
-            <path d="M4.5 6a13.5 13.5 0 0 1 13.5 13.5" />
-        </svg>
-    );
+}: Pick<DesktopVoiceControlsViewSnapshot["connection"], "state" | "quality">): 0 | 1 | 2 | 4 {
+    if (state === "disconnected" || quality === "lost") return 0;
+    if (quality === "bad") return 1;
+    if (quality === "poor") return 2;
+    return 4;
 }
 
 /**
@@ -259,7 +240,11 @@ export function DesktopVoiceConnectionView({ vm }: { vm: DesktopVoiceControlsVie
                             aria-expanded={panel === "connection"}
                             onClick={() => vm.setPanel(panel === "connection" ? null : "connection")}
                         >
-                            <SignalIcon state={connection.state} quality={connection.quality} />
+                            <SignalIcon
+                                className={styles.signalIcon}
+                                bars={signalBars(connection)}
+                                pending={connection.state === "connecting" || connection.state === "reconnecting"}
+                            />
                         </button>
                         <button
                             className={styles.callIdentity}
@@ -283,7 +268,7 @@ export function DesktopVoiceConnectionView({ vm }: { vm: DesktopVoiceControlsVie
                             data-enabled={noiseSuppression}
                             onClick={() => vm.setPanel(panel === "noise" ? null : "noise")}
                         >
-                            <AudioIcon />
+                            <NoiseSuppressionIcon />
                         </IconButton>
                         <IconButton
                             className={styles.hangUp}
@@ -291,7 +276,7 @@ export function DesktopVoiceConnectionView({ vm }: { vm: DesktopVoiceControlsVie
                             disabled={busy}
                             onClick={() => void vm.disconnect()}
                         >
-                            <EndCallIcon />
+                            <HangUpIcon />
                         </IconButton>
                     </div>
                     <div className={styles.mediaRow}>
@@ -301,7 +286,7 @@ export function DesktopVoiceConnectionView({ vm }: { vm: DesktopVoiceControlsVie
                             disabled={busy}
                             onClick={() => void vm.toggleVideo()}
                         >
-                            <VideoCallSolidIcon />
+                            <AnimatedDeviceIcon device="camera" off={false} />
                         </IconButton>
                         {screenShareAvailable && (
                             <IconButton
@@ -314,7 +299,7 @@ export function DesktopVoiceConnectionView({ vm }: { vm: DesktopVoiceControlsVie
                                 disabled={busy}
                                 onClick={() => void vm.toggleScreenShare()}
                             >
-                                <ShareScreenSolidIcon />
+                                <ScreenShareIcon />
                             </IconButton>
                         )}
                         {soundboard && (

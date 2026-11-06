@@ -170,17 +170,20 @@ describe("DesktopVoiceControlsView", () => {
     });
 
     it.each([
-        ["connected", "good", "2", false],
-        ["connected", "poor", "1", false],
-        ["connected", "bad", "0", false],
-        ["reconnecting", "good", "2", true],
-    ] as const)("draws the %s/%s signal with %s strong waves", (state, quality, waves, pending) => {
+        ["connected", "good", "4", false],
+        ["connected", "unknown", "4", false],
+        ["connected", "poor", "2", false],
+        ["connected", "bad", "1", false],
+        ["connected", "lost", "0", false],
+        ["disconnected", "good", "0", false],
+        ["reconnecting", "good", "4", true],
+    ] as const)("draws the %s/%s signal with %s lit bars", (state, quality, bars, pending) => {
         const base = makeVm().getSnapshot().connection;
         render(
             <DesktopVoiceConnectionView vm={makeVm({ roomName: "Lounge", connection: { ...base, state, quality } })} />,
         );
         const icon = screen.getByRole("button", { name: "Connection" }).querySelector("svg");
-        expect(icon).toHaveAttribute("data-waves", waves);
+        expect(icon).toHaveAttribute("data-bars", bars);
         expect(icon?.hasAttribute("data-pending")).toBe(pending);
     });
 
