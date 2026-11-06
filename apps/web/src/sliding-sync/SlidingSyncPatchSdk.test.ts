@@ -240,6 +240,30 @@ describe("sliding sync requests", () => {
         sync.stop();
     });
 
+    it("backs off when preparing extensions fails after a change, instead of retrying at once", async () => {
+        const failing = Promise.withResolvers<void>();
+        let prepared = 0;
+        const { sync, nextRequest } = setup({
+            name: () => "org.example.failing",
+            when: () => ExtensionState.PreProcess,
+            onRequest: async () => {
+                prepared++;
+                if (prepared === 1) return {};
+                if (prepared === 2) await failing.promise;
+                throw new Error("extension unavailable");
+            },
+            onResponse: async () => {},
+        });
+        (await nextRequest(1)).reply({ pos: "1" });
+        await vi.waitFor(() => expect(prepared).toBe(2));
+        // A change interrupts the wait while the extension is still being prepared, then preparation fails.
+        sync.modifyRoomSubscriptions(new Set([roomId]));
+        failing.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(prepared).toBe(2);
+        sync.stop();
+    });
+
     it("keeps asking for an immediate answer after a changed request fails", async () => {
         const { sync, nextRequest } = setup();
         (await nextRequest(1)).reply({ pos: "1" });

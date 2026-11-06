@@ -354,7 +354,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      /**
       * Re-setup this connection e.g in the event of an expired session.
       */
-@@ -600,15 +624,39 @@
+@@ -600,15 +624,41 @@
  
      /**
       * Start syncing with the server. Blocks until stopped.
@@ -381,6 +381,8 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
          while (!this.terminated) {
 -            this.needsResend = false;
 +            let changed = false;
++            // Only an error from a request that went out can be one we caused by aborting it.
++            let requestSent = false;
              let resp: MSC3575SlidingSyncResponse | undefined;
              try {
 +                // Preparing extensions can wait. Lists and subscriptions changed meanwhile are read below, with
@@ -396,7 +398,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  const reqLists: Record<string, MSC3575List> = {};
                  this.lists.forEach((l: SlidingList, key: string) => {
                      reqLists[key] = l.getList(true);
-@@ -616,9 +664,9 @@
+@@ -616,9 +666,9 @@
                  const reqBody: MSC3575SlidingSyncRequest = {
                      lists: reqLists,
                      pos: currentPos,
@@ -409,8 +411,11 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  };
                  // check if we are (un)subscribing to a room and modify request this one time for it
                  const newSubscriptions = difference(this.desiredRoomSubscriptions, this.confirmedRoomSubscriptions);
-@@ -639,6 +687,12 @@
+@@ -637,8 +687,15 @@
+                         reqBody.room_subscriptions[roomId] = sub;
+                     }
                  }
++                requestSent = true;
                  this.pendingReq = this.client.slidingSync(reqBody, this.proxyBaseUrl, this.abortController.signal);
                  resp = await this.pendingReq;
 +                if (ready) {
@@ -422,7 +427,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  currentPos = resp.pos;
                  // update what we think we're subscribed to.
                  for (const roomId of newSubscriptions) {
-@@ -664,25 +718,43 @@
+@@ -664,25 +721,43 @@
                  });
                  this.invokeLifecycleListeners(SlidingSyncState.RequestFinished, resp);
              } catch (err) {
@@ -458,7 +463,8 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 +                        await this.sleepUnlessStopped(Math.min(60_000, Math.max(1000, retryAfterMs)));
                          continue;
                      } // else fallthrough to generic error handling
-                 } else if (this.needsResend || (<Error>err).name === "AbortError") {
+-                } else if (this.needsResend || (<Error>err).name === "AbortError") {
++                } else if (requestSent && (this.needsResend || (<Error>err).name === "AbortError")) {
                      continue; // don't sleep as we caused this error by abort()ing the request.
                  }
                  logger.error(err);
