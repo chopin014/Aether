@@ -15,7 +15,7 @@ vi.mock("node:fs", () => ({ existsSync: vi.fn(), readFileSync: vi.fn(), readdirS
 
 describe("media acceleration", () => {
     beforeEach(() => {
-        vi.mocked(existsSync).mockReturnValue(false);
+        vi.mocked(existsSync).mockReset().mockReturnValue(false);
         vi.mocked(readdirSync).mockReset();
         vi.mocked(readFileSync).mockReset();
     });
@@ -32,9 +32,20 @@ describe("media acceleration", () => {
         );
     });
 
-    it.each(["win32", "darwin"] as const)("retains native platform defaults on %s", (platform) => {
-        const commandLine = { getSwitchValue: vi.fn(), appendSwitch: vi.fn() };
-        expect(configureMediaAcceleration(commandLine as unknown as CommandLine, platform)).toBe(false);
+    it("enables hardware H.264 Constrained Baseline and AV1 WebRTC encoding on Windows", () => {
+        const commandLine = { getSwitchValue: vi.fn(() => "ExistingFeature"), appendSwitch: vi.fn() };
+        expect(configureMediaAcceleration(commandLine as unknown as CommandLine, "win32")).toBe(false);
+        expect(commandLine.appendSwitch).toHaveBeenCalledTimes(1);
+        expect(commandLine.appendSwitch).toHaveBeenCalledWith(
+            "enable-features",
+            "ExistingFeature,PlatformH264CbpEncoding,WebRtcAV1HWEncode",
+        );
+        expect(existsSync).not.toHaveBeenCalled();
+    });
+
+    it("retains native platform defaults on macOS", () => {
+        const commandLine = { getSwitchValue: vi.fn(() => ""), appendSwitch: vi.fn() };
+        expect(configureMediaAcceleration(commandLine as unknown as CommandLine, "darwin")).toBe(false);
         expect(commandLine.appendSwitch).not.toHaveBeenCalled();
     });
 

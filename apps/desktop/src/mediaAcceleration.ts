@@ -17,7 +17,7 @@ const BRIDGE_DRIVER = "aether_nvenc";
 const RELAUNCH_SWITCH = "aether-media-relaunched";
 
 /**
- * Enable Chromium's supported Linux media accelerators before GPU initialization.
+ * Enable Chromium's hardware media encoders and decoders on Linux and Windows before GPU initialization.
  *
  * @returns Whether the app must relaunch before the GPU process can see the driver environment. Chromium forks the
  * GPU process from a helper that starts before this code runs, so environment changes made here only reach it in a
@@ -29,8 +29,16 @@ export function configureMediaAcceleration(
     resourcesPath?: string,
     env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-    if (platform !== "linux") return false;
     const features = new Set(commandLine.getSwitchValue("enable-features").split(",").filter(Boolean));
+    if (platform === "win32") {
+        // Chromium keeps these Media Foundation encoder paths behind flags on Windows. WebRTC negotiates H.264
+        // Constrained Baseline, so without the first one hardware-capable H.264 shares are encoded in software.
+        features.add("PlatformH264CbpEncoding");
+        features.add("WebRtcAV1HWEncode");
+        commandLine.appendSwitch("enable-features", [...features].join(","));
+        return false;
+    }
+    if (platform !== "linux") return false;
     features.add("AcceleratedVideoEncoder");
     features.add("AcceleratedVideoDecodeLinuxGL");
     const driverDirectory = resourcesPath
