@@ -4403,5 +4403,9 @@
         "tagline_element": "Mais velocidade e simplicidade.",
         "title_element": "Sinta-se no seu elemento",
         "title_generic": "Boas-vindas ao %(brand)s"
+    },
+    "image_crop": {
+        "error": "Não foi possível editar esta imagem. Tente de novo ou escolha outra.",
+        "title": "Editar imagem"
     }
 }

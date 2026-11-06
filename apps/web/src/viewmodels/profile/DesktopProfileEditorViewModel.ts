@@ -38,6 +38,7 @@ import { RichProfileStore } from "../../profile/RichProfileStore";
 import { nameStyleFromRichProfile } from "../../profile/richProfileView";
 import { spaceTagOptions } from "../../profile/spaceTag";
 import { clearAllUserStatus, setUserStatus } from "../../utils/userStatus";
+import { editImage, type ImageCropPurpose } from "../../components/views/dialogs/ImageCropDialog";
 
 /** Images a profile can use. Animated formats are shown from the original file, not a still thumbnail. */
 const ANIMATED_TYPES = new Set(["image/gif", "image/webp", "image/apng"]);
@@ -477,12 +478,16 @@ export class DesktopProfileEditorViewModel
         this.publish({ ...this.snapshot.current.draft, ...patch });
     };
 
+    /** Whether a file is an image the profile can use, saying why not when it is not. */
+    private checkImageType(file: File): boolean {
+        if (file.type.startsWith("image/") && file.type !== "image/svg+xml") return true;
+        this.snapshot.merge({ error: _t("desktop|profile_editor|error_image_type") });
+        return false;
+    }
+
     /** Accept an image, or say why not. */
     private takeImage(file: File): PendingImage | undefined {
-        if (!file.type.startsWith("image/") || file.type === "image/svg+xml") {
-            this.snapshot.merge({ error: _t("desktop|profile_editor|error_image_type") });
-            return undefined;
-        }
+        if (!this.checkImageType(file)) return undefined;
         if (file.size > MAX_IMAGE_BYTES) {
             this.snapshot.merge({ error: _t("desktop|profile_editor|error_image_size") });
             return undefined;
@@ -490,8 +495,16 @@ export class DesktopProfileEditorViewModel
         return { file, previewUrl: URL.createObjectURL(file) };
     }
 
-    public chooseAvatar = (file: File): void => {
-        const image = this.takeImage(file);
+    /** Let the person frame the image, then accept what they chose. Nothing comes back if they cancel. */
+    private async editAndTakeImage(file: File, purpose: ImageCropPurpose): Promise<PendingImage | undefined> {
+        if (!this.checkImageType(file)) return undefined;
+        const edited = await editImage(file, purpose);
+        if (!edited || this.isDisposed) return undefined;
+        return this.takeImage(edited);
+    }
+
+    public chooseAvatar = async (file: File): Promise<void> => {
+        const image = await this.editAndTakeImage(file, "avatar");
         if (!image) return;
         if (this.pendingAvatar) URL.revokeObjectURL(this.pendingAvatar.previewUrl);
         this.pendingAvatar = image;
@@ -505,8 +518,8 @@ export class DesktopProfileEditorViewModel
         this.publish(this.snapshot.current.draft);
     };
 
-    public chooseBanner = (file: File): void => {
-        const image = this.takeImage(file);
+    public chooseBanner = async (file: File): Promise<void> => {
+        const image = await this.editAndTakeImage(file, "banner");
         if (!image) return;
         if (this.pendingBanner) URL.revokeObjectURL(this.pendingBanner.previewUrl);
         this.pendingBanner = image;

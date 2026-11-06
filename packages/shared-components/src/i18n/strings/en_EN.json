@@ -304,6 +304,16 @@
             "history_note": "Previously received messages may remain on other clients and homeservers. Deletion does not erase every copy.",
             "room_list": "Channels and nested servers to delete"
         },
+        "image_crop": {
+            "animated": "Editing keeps only a still frame of an animated image.",
+            "apply": "Apply",
+            "keep_original": "Use original",
+            "position": "Image position",
+            "position_hint": "Drag or use the arrow keys to move the image. Press + or - to zoom.",
+            "reset": "Reset",
+            "rotate": "Rotate",
+            "zoom": "Zoom"
+        },
         "discover": {
             "add_server": "Add a server…",
             "categories": "Categories",

@@ -12,12 +12,17 @@ import { MatrixError, TypedEventEmitter, type MatrixClient } from "matrix-js-sdk
 import { DesktopProfileEditorViewModel } from "./DesktopProfileEditorViewModel";
 import { BANNER_FIELD, BIO_FIELD_MSC4440, RICH_PROFILE_FIELD, STATUS_FIELD } from "../../profile/richProfile";
 import { RichProfileStore } from "../../profile/RichProfileStore";
+import { editImage } from "../../components/views/dialogs/ImageCropDialog";
 
 vi.mock("../../customisations/Media", () => ({
     mediaFromMxc: (mxc: string) => ({
         srcHttp: `http://media/${mxc}`,
         getThumbnailOfSourceHttp: () => `http://thumb/${mxc}`,
     }),
+}));
+
+vi.mock("../../components/views/dialogs/ImageCropDialog", () => ({
+    editImage: vi.fn(async (file: File) => file),
 }));
 
 const ME = "@me:example.org";
@@ -266,7 +271,7 @@ describe("DesktopProfileEditorViewModel", () => {
         it("reset discards the draft and any chosen images", async () => {
             const vm = await ready(makeClient({ displayname: "Me" }));
             vm.update({ bio: "New" });
-            vm.chooseBanner(new File(["x"], "b.png", { type: "image/png" }));
+            await vm.chooseBanner(new File(["x"], "b.png", { type: "image/png" }));
             vm.reset();
             expect(vm.getSnapshot()).toMatchObject({ dirty: false, hasBanner: false, draft: { bio: "" } });
             expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview");
@@ -275,7 +280,7 @@ describe("DesktopProfileEditorViewModel", () => {
         it("previews a chosen image straight away and uploads nothing yet", async () => {
             const client = makeClient({});
             const vm = await ready(client);
-            vm.chooseBanner(new File(["x"], "b.png", { type: "image/png" }));
+            await vm.chooseBanner(new File(["x"], "b.png", { type: "image/png" }));
             expect(vm.getSnapshot().preview.appearance?.bannerUrl).toBe("blob:preview");
             expect(client.uploadContent).not.toHaveBeenCalled();
         });
@@ -285,7 +290,7 @@ describe("DesktopProfileEditorViewModel", () => {
             [new File(["x"], "notes.txt", { type: "text/plain" }), /PNG, JPEG/],
         ])("refuses an unsuitable file", async (file, message) => {
             const vm = await ready(makeClient({}));
-            vm.chooseBanner(file);
+            await vm.chooseBanner(file);
             expect(vm.getSnapshot().error).toMatch(message);
             expect(vm.getSnapshot().hasBanner).toBe(false);
         });
@@ -294,8 +299,33 @@ describe("DesktopProfileEditorViewModel", () => {
             const vm = await ready(makeClient({}));
             const huge = new File(["x"], "b.png", { type: "image/png" });
             Object.defineProperty(huge, "size", { value: 11 * 1024 * 1024 });
-            vm.chooseAvatar(huge);
+            await vm.chooseAvatar(huge);
             expect(vm.getSnapshot().error).toMatch(/10 MB/);
+        });
+
+        it("lets the person frame an avatar and a banner before using them", async () => {
+            const vm = await ready(makeClient({}));
+            const avatar = new File(["x"], "a.png", { type: "image/png" });
+            const banner = new File(["x"], "b.png", { type: "image/png" });
+            await vm.chooseAvatar(avatar);
+            await vm.chooseBanner(banner);
+            expect(editImage).toHaveBeenCalledWith(avatar, "avatar");
+            expect(editImage).toHaveBeenCalledWith(banner, "banner");
+            expect(vm.getSnapshot()).toMatchObject({ hasAvatar: true, hasBanner: true });
+        });
+
+        it("keeps the old image when the person cancels framing", async () => {
+            const vm = await ready(makeClient({}));
+            vi.mocked(editImage).mockResolvedValueOnce(undefined);
+            await vm.chooseAvatar(new File(["x"], "a.png", { type: "image/png" }));
+            expect(vm.getSnapshot()).toMatchObject({ hasAvatar: false, error: undefined });
+        });
+
+        it("refuses an unsuitable file before offering to frame it", async () => {
+            const vm = await ready(makeClient({}));
+            vi.mocked(editImage).mockClear();
+            await vm.chooseAvatar(new File(["x"], "evil.svg", { type: "image/svg+xml" }));
+            expect(editImage).not.toHaveBeenCalled();
         });
 
         it("flags an unusable link and will not save it", async () => {
@@ -364,7 +394,7 @@ describe("DesktopProfileEditorViewModel", () => {
         it("uploads a chosen banner and marks a GIF as animated", async () => {
             const client = makeClient({});
             const vm = await ready(client);
-            vm.chooseBanner(new File(["x"], "b.gif", { type: "image/gif" }));
+            await vm.chooseBanner(new File(["x"], "b.gif", { type: "image/gif" }));
             await vm.save();
             expect(client.uploadContent).toHaveBeenCalledTimes(1);
             expect(client.setExtendedProfileProperty).toHaveBeenCalledWith(BANNER_FIELD, "mxc://example.org/uploaded");
@@ -385,7 +415,7 @@ describe("DesktopProfileEditorViewModel", () => {
         it("marks an animated avatar so only that exact image plays", async () => {
             const client = makeClient({});
             const vm = await ready(client);
-            vm.chooseAvatar(new File(["x"], "a.gif", { type: "image/gif" }));
+            await vm.chooseAvatar(new File(["x"], "a.gif", { type: "image/gif" }));
             await vm.save();
             expect(client.setAvatarUrl).toHaveBeenCalledWith("mxc://example.org/uploaded");
             expect(client.setExtendedProfileProperty).toHaveBeenCalledWith(
@@ -418,7 +448,7 @@ describe("DesktopProfileEditorViewModel", () => {
                 .mockResolvedValue(undefined);
             const client = makeClient({}, { setExtendedProfileProperty });
             const vm = await ready(client);
-            vm.chooseBanner(new File(["x"], "b.png", { type: "image/png" }));
+            await vm.chooseBanner(new File(["x"], "b.png", { type: "image/png" }));
             vm.update({ bio: "Hello", decoration: "halo" });
             await vm.save();
             expect(vm.getSnapshot()).toMatchObject({ dirty: true, saving: false, draft: { bio: "Hello" } });
@@ -492,7 +522,7 @@ describe("DesktopProfileEditorViewModel", () => {
 
     it("releases image previews when the tab closes", async () => {
         const vm = await ready(makeClient({}));
-        vm.chooseBanner(new File(["x"], "b.png", { type: "image/png" }));
+        await vm.chooseBanner(new File(["x"], "b.png", { type: "image/png" }));
         vm.dispose();
         expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview");
     });

@@ -1047,6 +1047,16 @@
             "group_spacing_value": "%(size)spx",
             "title": "Exibição das mensagens"
         },
+        "image_crop": {
+            "animated": "Editar mantém apenas um quadro parado de uma imagem animada.",
+            "apply": "Aplicar",
+            "keep_original": "Usar original",
+            "position": "Posição da imagem",
+            "position_hint": "Arraste ou use as setas para mover a imagem. Pressione + ou - para ampliar.",
+            "reset": "Redefinir",
+            "rotate": "Girar",
+            "zoom": "Zoom"
+        },
         "promote_peer": {
             "can_change_roles": "Poderá mudar o cargo de qualquer pessoa, inclusive o seu.",
             "can_delete": "Poderá excluir canais e remover qualquer pessoa, inclusive você.",

@@ -151,6 +151,7 @@ export * from "./desktop/DesktopKeybindsView";
 
 export * from "./desktop/DeleteChannelView";
 export * from "./desktop/DeleteServerView";
+export * from "./desktop/ImageCropView";
 export * from "./desktop/PromoteToPeerView";
 export * from "./desktop/CreateServerView";
 export * from "./desktop/ChooseServerChannelsView";
