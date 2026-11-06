@@ -93,8 +93,16 @@ Please see LICENSE files in the repository root for full details.
         border-block-start: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
     }
 
+    /* A form in a card is one row; its own controls stack inside it. */
+    > form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--cpd-space-4x);
+    }
+
     /* Compound's toggles put the switch first; a card lists the label first and the switch at the end. */
-    > [class*="_inline-field_"] {
+    > [class*="_inline-field_"],
+    > form > [class*="_inline-field_"] {
         flex-direction: row-reverse;
         gap: var(--cpd-space-6x);
     }

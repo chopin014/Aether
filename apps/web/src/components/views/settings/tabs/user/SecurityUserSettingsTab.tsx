@@ -358,7 +358,7 @@ export default class SecurityUserSettingsTab extends React.Component<EmptyObject
             <SettingsTab>
                 {warning}
                 <SettingsSection>
-                    <SettingsSubsection heading={_t("common|moderation_and_safety")} legacy={false}>
+                    <SettingsSubsection heading={_t("common|moderation_and_safety")} card>
                         <MediaPreviewAccountSettings />
                         <InviteRulesAccountSetting />
                     </SettingsSubsection>

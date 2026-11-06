@@ -41,7 +41,7 @@ exports[`<SecurityUserSettingsTab /> > renders security section 1`] = `
           class="mx_SettingsSection_subSections"
         >
           <div
-            class="mx_SettingsSubsection mx_SettingsSubsection_newUi"
+            class="mx_SettingsSubsection"
           >
             <div
               class="mx_SettingsSubsectionHeading"
@@ -53,7 +53,7 @@ exports[`<SecurityUserSettingsTab /> > renders security section 1`] = `
               </h2>
             </div>
             <div
-              class="mx_SettingsSubsection_content mx_SettingsSubsection_content_newUi"
+              class="mx_SettingsSubsection_content mx_SettingsSubsection_card"
             >
               <form
                 class="_root mx_MediaPreviewAccountSetting_Form"
@@ -244,12 +244,6 @@ exports[`<SecurityUserSettingsTab /> > renders security section 1`] = `
                 </div>
               </form>
             </div>
-            <div
-              class="_separator"
-              data-kind="primary"
-              data-orientation="horizontal"
-              role="separator"
-            />
           </div>
           <form
             class="_root"
