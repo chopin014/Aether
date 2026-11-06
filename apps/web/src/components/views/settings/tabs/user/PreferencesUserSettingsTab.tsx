@@ -117,7 +117,7 @@ const SpellCheckSection: React.FC = () => {
 };
 
 export default class PreferencesUserSettingsTab extends React.Component<EmptyObject, IState> {
-    private static SPACES_SETTINGS: BooleanSettingKey[] = ["Spaces.allRoomsInHome"];
+    private static SPACES_SETTINGS: BooleanSettingKey[] = ["Spaces.allRoomsInHome", "Spaces.joinAllChannels"];
 
     private static KEYBINDINGS_SETTINGS: BooleanSettingKey[] = ["ctrlFForSearch"];
 

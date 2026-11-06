@@ -1070,6 +1070,30 @@
             "starter_channels": "Ele começa com um canal de texto geral e um canal de voz Geral.",
             "upload": "Enviar",
             "upload_icon": "Enviar ícone do servidor"
+        },
+        "choose_channels": {
+            "description": {
+                "one": "%(server)s tem %(count)s canal. Escolha os que você quer; dá para ver os outros depois na visão geral do servidor.",
+                "other": "%(server)s tem %(count)s canais. Escolha os que você quer; dá para ver os outros depois na visão geral do servidor."
+            },
+            "join": {
+                "one": "Entrar em %(count)s canal",
+                "other": "Entrar em %(count)s canais"
+            },
+            "members": {
+                "one": "%(count)s membro",
+                "other": "%(count)s membros"
+            },
+            "select_all": "Selecionar todos",
+            "select_none": "Limpar",
+            "selected": {
+                "one": "%(count)s selecionado",
+                "other": "%(count)s selecionados"
+            },
+            "skip": "Pular por enquanto",
+            "text_channels": "Canais de texto",
+            "title": "Escolha seus canais",
+            "voice_channels": "Canais de voz"
         }
     },
     "threads": {

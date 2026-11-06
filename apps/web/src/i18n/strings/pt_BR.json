@@ -3055,7 +3055,9 @@
         "inline_url_previews_encrypted": "Ativar pré-visualizações em salas criptografadas",
         "inline_url_previews_encrypted_bundled_only": "Mostrar apenas pré-visualizações agrupadas em salas criptografadas",
         "show_people_sections": "Mostrar Pessoas como uma seção",
-        "show_sections": "Mostrar seções"
+        "show_sections": "Mostrar seções",
+        "join_all_channels": "Entrar em todos os canais de servidores pequenos",
+        "join_all_channels_description": "Ao entrar em um servidor com até 10 canais, entra em todos de uma vez. Servidores maiores sempre deixam você escolher."
     },
     "share": {
         "link_copied": "Link copiado",
@@ -4358,6 +4360,11 @@
             "invalid_invite": "Esse convite não parece válido. Cole o link de um servidor ou um endereço como #aether:matrix.org.",
             "text_channel_name": "geral",
             "voice_channel_name": "Geral"
+        },
+        "choose_channels": {
+            "error": "Não foi possível entrar em nenhum dos canais. Verifique sua conexão e tente novamente.",
+            "partial_error": "Não foi possível entrar em %(names)s. Tente novamente ou pule esses canais por enquanto.",
+            "title": "Escolha seus canais"
         }
     },
     "create_section_dialog": {

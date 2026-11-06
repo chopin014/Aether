@@ -642,7 +642,7 @@ export class RoomViewStore extends EventEmitter {
         };
         try {
             const cli = MatrixClientPeg.safeGet();
-            await retry<Room, MatrixError>(
+            const joinedRoom = await retry<Room, MatrixError>(
                 () => cli.joinRoom(address, joinOpts),
                 NUM_JOIN_RETRY,
                 (err) => {
@@ -659,6 +659,14 @@ export class RoomViewStore extends EventEmitter {
                 roomId,
                 metricsTrigger: payload.metricsTrigger,
             });
+
+            if (SettingsStore.getValue("feature_desktop_shell")) {
+                // Joining a server also joins its channels, as on Discord. Loaded lazily: the flow opens dialogs
+                // whose view models depend on this store.
+                void import("../utils/servers/joinServer")
+                    .then(({ onServerJoined }) => onServerJoined(cli, joinedRoom.roomId))
+                    .catch((error) => logger.warn("Could not join the channels of a joined server", error));
+            }
         } catch (err) {
             logger.error("Error thrown while handling joinRoom", err);
             this.dis.dispatch<JoinRoomErrorPayload>({

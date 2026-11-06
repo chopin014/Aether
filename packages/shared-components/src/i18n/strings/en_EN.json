@@ -190,6 +190,30 @@
             "title": "Channel actions",
             "unmute": "Unmute channel"
         },
+        "choose_channels": {
+            "description": {
+                "one": "%(server)s has %(count)s channel. Choose the ones you want; you can browse the rest later from the server's overview.",
+                "other": "%(server)s has %(count)s channels. Choose the ones you want; you can browse the rest later from the server's overview."
+            },
+            "join": {
+                "one": "Join %(count)s channel",
+                "other": "Join %(count)s channels"
+            },
+            "members": {
+                "one": "%(count)s member",
+                "other": "%(count)s members"
+            },
+            "select_all": "Select all",
+            "select_none": "Clear",
+            "selected": {
+                "one": "%(count)s selected",
+                "other": "%(count)s selected"
+            },
+            "skip": "Skip for now",
+            "text_channels": "Text channels",
+            "title": "Pick your channels",
+            "voice_channels": "Voice channels"
+        },
         "color_theme": {
             "aether_dark": "Dark",
             "aether_light": "Light",

@@ -782,6 +782,11 @@
             "title": "Channel settings",
             "voice": "Voice"
         },
+        "choose_channels": {
+            "error": "None of the channels could be joined. Check your connection and try again.",
+            "partial_error": "Could not join %(names)s. Try again or skip them for now.",
+            "title": "Pick your channels"
+        },
         "contacts": {
             "action_failed": "That action could not be completed. Please try again.",
             "offline": "desktop|contacts|offline",
@@ -2871,6 +2876,8 @@
         "invite_controls": {
             "default_label": "Allow users to invite you to rooms"
         },
+        "join_all_channels": "Join every channel of small servers",
+        "join_all_channels_description": "When you join a server with up to 10 channels, join them all at once. Larger servers always let you pick.",
         "jump_to_bottom_on_send": "Jump to the bottom of the timeline when you send a message",
         "key_backup": {
             "setup_secure_backup": {

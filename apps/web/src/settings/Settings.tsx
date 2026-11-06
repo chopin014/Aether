@@ -357,6 +357,7 @@ export interface Settings {
     "Widgets.pinned": IBaseSetting<{ [widgetId: string]: boolean }>;
     "Widgets.layout": IBaseSetting<ILayoutSettings | null>;
     "Spaces.allRoomsInHome": IBaseSetting<boolean>;
+    "Spaces.joinAllChannels": IBaseSetting<boolean>;
     "Spaces.enabledMetaSpaces": IBaseSetting<Partial<Record<MetaSpace, boolean>>>;
     "developerMode": IBaseSetting<boolean>;
     "debug_scroll_panel": IBaseSetting<boolean>;
@@ -1412,6 +1413,12 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
         description: _td("settings|all_rooms_home_description"),
         supportedLevels: LEVELS_ACCOUNT_SETTINGS,
         default: false,
+    },
+    "Spaces.joinAllChannels": {
+        displayName: _td("settings|join_all_channels"),
+        description: _td("settings|join_all_channels_description"),
+        supportedLevels: LEVELS_ACCOUNT_SETTINGS,
+        default: true,
     },
     "Spaces.enabledMetaSpaces": {
         supportedLevels: LEVELS_ACCOUNT_SETTINGS,
