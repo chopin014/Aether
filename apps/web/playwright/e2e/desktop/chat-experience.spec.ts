@@ -392,6 +392,20 @@ test("lays out pictures sent together as one gallery", async ({ page, app, bot }
     expect(Math.abs(left.y - right.y)).toBeLessThanOrEqual(1);
     expect(right.x).toBeGreaterThan(left.x + left.width - 1);
 
+    // A picture's actions start at its own edge and stay inside the timeline, though the bar is wider than the cell.
+    const leftTile = gallery.locator("[data-event-id]").first();
+    await leftTile.hover();
+    const bar = leftTile.getByRole("toolbar", { name: "Message Actions" });
+    await expect(bar).toBeVisible();
+    const [barBox, timelineBox] = await Promise.all([
+        bar.boundingBox(),
+        page.locator(".mx_RoomView_messagePanel").boundingBox(),
+    ]);
+    expect(Math.abs(barBox!.x - left.x)).toBeLessThanOrEqual(1);
+    expect(barBox!.x + barBox!.width).toBeLessThanOrEqual(timelineBox!.x + timelineBox!.width);
+    await capture(page.locator(".mx_RoomView_body"), testInfo, "timeline-gallery-actions.png");
+    await page.mouse.move(0, 0);
+
     await capture(page.locator(".mx_RoomView_body"), testInfo, "timeline-gallery.png");
 });
 
