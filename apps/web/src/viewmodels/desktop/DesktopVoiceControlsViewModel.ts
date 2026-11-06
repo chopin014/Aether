@@ -16,6 +16,8 @@ import { logger } from "matrix-js-sdk/src/logger";
 
 import { CallEvent, ElementCall } from "../../models/Call";
 import { type CallStore, CallStoreEvent } from "../../stores/CallStore";
+import type SpaceStore from "../../stores/spaces/SpaceStore";
+import { SDKContextClass } from "../../contexts/SDKContextClass";
 import SettingsStore from "../../settings/SettingsStore";
 import { SettingLevel } from "../../settings/SettingLevel";
 import defaultDispatcher from "../../dispatcher/dispatcher";
@@ -40,6 +42,8 @@ interface Props {
         on: (event: CallStoreEvent.ConnectedCalls, listener: () => void) => unknown;
         off: (event: CallStoreEvent.ConnectedCalls, listener: () => void) => unknown;
     };
+    /** Finds the server (space) a call's channel belongs to; defaults to the app's space store. */
+    spaceStore?: Pick<SpaceStore, "getKnownParents">;
 }
 
 /** Persistent desktop voice controls, using Element Call's device and audio-output host APIs. */
@@ -212,6 +216,7 @@ export class DesktopVoiceControlsViewModel
             screenShareAvailable: call?.screenShare.available ?? false,
             screenSharing: call?.screenShare.sharing ?? false,
             roomName: call ? (this.props.client.getRoom(call.roomId)?.name ?? call.roomId) : undefined,
+            spaceName: call ? this.getSpaceName(call.roomId) : undefined,
             noiseSuppression: processing.noiseSuppression !== null,
             connection: call?.connectionStats ?? {
                 state: call ? "connecting" : "disconnected",
@@ -223,6 +228,16 @@ export class DesktopVoiceControlsViewModel
             },
         });
     };
+
+    /** The name of the first joined space listing the channel, as Discord shows a voice channel's server. */
+    private getSpaceName(roomId: string): string | undefined {
+        const spaces = (this.props.spaceStore ?? SDKContextClass.instance.spaceStore).getKnownParents(roomId);
+        for (const spaceId of spaces) {
+            const name = this.props.client.getRoom(spaceId)?.name;
+            if (name) return name;
+        }
+        return undefined;
+    }
 
     /** Only the quick microphone test owns capture; closing its panel releases it immediately. */
     public setPanel = (panel: DesktopVoiceControlsViewSnapshot["panel"]): void => {

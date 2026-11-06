@@ -166,6 +166,23 @@ describe("DesktopVoiceControlsViewModel", () => {
         expect(store.connectedCalls.size).toBe(0);
     });
 
+    it("names the server the call's channel belongs to, skipping spaces it cannot name", async () => {
+        vm.dispose();
+        const space = new Room("!server:example.org", client, client.getSafeUserId());
+        space.name = "Terra";
+        vi.mocked(client.getRoom).mockImplementation((roomId) =>
+            roomId === space.roomId ? space : roomId === call.roomId ? new Room(call.roomId, client, "") : null,
+        );
+        const getKnownParents = vi.fn(() => new Set(["!unknown:example.org", space.roomId]));
+        vm = new DesktopVoiceControlsViewModel({ client, callStore: store, spaceStore: { getKnownParents } });
+        expect(vm.getSnapshot().spaceName).toBeUndefined();
+        await connect();
+        expect(getKnownParents).toHaveBeenCalledWith(call.roomId);
+        expect(vm.getSnapshot().spaceName).toBe("Terra");
+        await vm.disconnect();
+        expect(vm.getSnapshot().spaceName).toBeUndefined();
+    });
+
     it("restores the dock and reports a rejected disconnect", async () => {
         await connect();
         vi.mocked(call.disconnect).mockRejectedValue(new Error("Leave failed"));
