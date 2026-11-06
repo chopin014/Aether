@@ -15,6 +15,7 @@ import {
     NotificationCountType,
     ReceiptType,
     RoomStateEvent,
+    type EventTimelineSet,
     type IRoomTimelineData,
     type MatrixClient,
     type MatrixEvent,
@@ -23,6 +24,7 @@ import {
 } from "matrix-js-sdk/src/matrix";
 import { BaseViewModel } from "@element-hq/web-shared-components";
 import { logger } from "matrix-js-sdk/src/logger";
+import { KnownMembership } from "matrix-js-sdk/src/types";
 
 import type {
     EventSendState,
@@ -214,6 +216,16 @@ export class RoomTimelineViewModel
 
     /** Set while a {@link load} is running; see {@link scheduleRebuild}. */
     private loading = false;
+
+    /** Counts {@link load} calls, so a load overtaken by a newer one does not publish its stale window. */
+    private loadGeneration = 0;
+
+    /**
+     * Set when the SDK replaced the room's live timeline (after a gap in sync) while the reader was looking at older
+     * messages. The window then holds a timeline that no longer leads to new messages, so the live end has to be
+     * loaded afresh; see {@link onTimelineReset}.
+     */
+    private detachedFromLive = false;
 
     /** Avoid racing native initial history expansion with a separate messages request. */
     private initialTimelinePending = false;
@@ -450,6 +462,12 @@ export class RoomTimelineViewModel
         );
         // Other users' read receipts moving.
         this.disposables.trackListener(this.opts.room, RoomEvent.Receipt, this.onRoomReceipt);
+        // The SDK starting a new live timeline after a gap in sync. The room re-emits it from its timeline sets.
+        this.disposables.trackListener(
+            this.opts.room,
+            RoomEvent.TimelineReset,
+            this.onTimelineReset as (...args: unknown[]) => void,
+        );
         // Members loading or changing profile, whose receipts carry their avatar and name. Listened
         // for on the client, which re-emits it for whichever state object the room currently has.
         this.disposables.trackListener(
@@ -457,6 +475,27 @@ export class RoomTimelineViewModel
             RoomStateEvent.Update,
             this.onRoomStateUpdate as (...args: unknown[]) => void,
         );
+    }
+
+    /**
+     * The SDK started a new live timeline because sync skipped messages. A reader at the newest messages follows on
+     * to the new timeline; one reading older messages keeps their place, with the jump-to-latest button offered.
+     */
+    private onTimelineReset = (_room: Room | undefined, timelineSet: EventTimelineSet): void => {
+        if (this.isDisposed || timelineSet !== this.opts.room.getUnfilteredTimelineSet()) return;
+        const readingHistory = this.navigationEventId !== null || (this.lastBottomEventId !== null && !this.isAtBottom);
+        debug(`[TimelineVM] onTimelineReset — readingHistory=${readingHistory}`);
+        if (!readingHistory) {
+            void this.load({ kind: "live" });
+            return;
+        }
+        this.detachedFromLive = true;
+        this.mergeSnapshot({ atLiveEnd: false }, "timeline-reset");
+    };
+
+    /** Whether the window holds the newest messages of the room's live timeline. */
+    private windowReachesLive(): boolean {
+        return !this.detachedFromLive && !this.timelineWindow.canPaginate(Direction.Forward);
     }
 
     /** Someone's read receipt moved. Only the receipts change, so the rows are left alone. */
@@ -504,6 +543,19 @@ export class RoomTimelineViewModel
         if (this.isDisposed) return;
 
         debug(`[TimelineVM][onRoomTimeline] live event ${event.getId()} (${event.getType()})`);
+        if (this.detachedFromLive) {
+            // The window cannot reach the new live timeline. Count the message for the jump-to-latest button.
+            if (event.getSender() !== this.opts.client.getSafeUserId()) this.unreadMessageCount++;
+            this.mergeSnapshot(
+                {
+                    atLiveEnd: false,
+                    numUnreadMessages: this.unreadMessageCount,
+                    hasHighlights: this.opts.room.getUnreadNotificationCount(NotificationCountType.Highlight) > 0,
+                },
+                "live-event-detached",
+            );
+            return;
+        }
         // Extend the window by one so the new message is inside it, then rebuild.
         void this.timelineWindow
             .paginate(Direction.Forward, 1, false)
@@ -511,7 +563,7 @@ export class RoomTimelineViewModel
                 if (this.isDisposed) return;
                 const items = this.buildItems();
 
-                const atLiveEnd = !this.timelineWindow.canPaginate(Direction.Forward);
+                const atLiveEnd = this.windowReachesLive();
                 // Accumulate unread count only for messages from other users.
                 if (!this.isAtBottom && event.getSender() !== this.opts.client.getSafeUserId()) {
                     this.unreadMessageCount++;
@@ -688,7 +740,7 @@ export class RoomTimelineViewModel
             const rowCountBefore = this.snapshot.current.items.length;
             this.commitItems(this.buildItems());
             this.republish("local-echo", {
-                atLiveEnd: !this.timelineWindow.canPaginate(Direction.Forward),
+                atLiveEnd: this.windowReachesLive(),
                 canJumpToReadMarker: this.computeCanJumpToReadMarker(this.baseItems),
             });
             // A message taking its server id keeps its row, so the view reports no new range, yet
@@ -775,7 +827,11 @@ export class RoomTimelineViewModel
     }
 
     private async load(target: LoadTarget): Promise<void> {
+        const generation = ++this.loadGeneration;
+        const superseded = (): boolean => this.isDisposed || generation !== this.loadGeneration;
         this.loading = true;
+        // Every load builds its window from the timelines the room has now, which lead to the live end.
+        this.detachedFromLive = false;
         this.navigationEventId = target.kind === "live" ? null : target.eventId;
         debug(
             `[TimelineVM] load() start — kind=${target.kind}${target.kind !== "live" ? ` eventId=${target.eventId}` : ""}`,
@@ -784,7 +840,7 @@ export class RoomTimelineViewModel
 
         try {
             await this.timelineWindow.load(sdkLoadTarget, INITIAL_SIZE);
-            if (this.isDisposed) return;
+            if (superseded()) return;
             // Cached live messages should not wait for history. Anchored loads still fill before
             // placement; a live window with no visible events must first look for something to show.
             if (
@@ -796,7 +852,7 @@ export class RoomTimelineViewModel
                     target.kind === "live" ? 1 : MIN_INITIAL_EVENTS,
                 );
             }
-            if (this.isDisposed) return;
+            if (superseded()) return;
             const windowEvents = this.timelineWindow.getEvents();
             debug(
                 `[TimelineVM] load() window — ${windowEvents.length} events in window, ` +
@@ -853,7 +909,7 @@ export class RoomTimelineViewModel
             this.backwardSpinnerVisible = false;
             this.forwardSpinnerVisible = false;
             this.republish(`load(${target.kind})-done`, {
-                atLiveEnd: !this.timelineWindow.canPaginate(Direction.Forward),
+                atLiveEnd: this.windowReachesLive(),
                 // Keep this for the session, including when the final short history page arrives,
                 // so exhausting older history cannot move the messages back to the top.
                 alignToBottom: target.kind === "live" && this.timelineWindow.canPaginate(Direction.Backward),
@@ -872,12 +928,13 @@ export class RoomTimelineViewModel
                 }
             }
         } catch (e) {
+            if (superseded()) return;
             logger.error(`[TimelineVM] load() error`, e);
             this.backwardSpinnerVisible = false;
             this.forwardSpinnerVisible = false;
             this.republish(`load(${target.kind})-error`);
         } finally {
-            this.loading = false;
+            if (generation === this.loadGeneration) this.loading = false;
         }
     }
 
@@ -1065,6 +1122,8 @@ export class RoomTimelineViewModel
      */
     private sendAutoReadReceipt(): void {
         if (this.isDisposed) return;
+        // Someone previewing a room they have not joined cannot send receipts there.
+        if (this.opts.room.getMyMembership() !== KnownMembership.Join) return;
         const eventId = this.lastBottomEventId;
         if (!eventId || eventId === this.lastSentReceiptEventId) return;
 
@@ -1089,6 +1148,71 @@ export class RoomTimelineViewModel
             this.lastSentReceiptEventId = null; // allow retry
             logger.warn(`[TimelineVM] sendAutoReadReceipt — sendReadReceipt failed`, err);
         });
+    }
+
+    // ── Requests from the room view ──────────────────────────────────
+
+    /**
+     * Show the newest message, loading it first when the window does not hold it. Used when sending a message, by
+     * Escape, and by keyboard shortcuts.
+     */
+    public jumpToLive(): void {
+        this.unreadMessageCount = 0;
+        if (!this.snapshot.current.atLiveEnd) {
+            this.mergeSnapshot({ numUnreadMessages: 0, hasHighlights: false }, "jump-to-live-requested");
+            void this.load({ kind: "live" });
+            return;
+        }
+        const items = this.snapshot.current.items;
+        const last = items[items.length - 1];
+        this.mergeSnapshot(
+            {
+                numUnreadMessages: 0,
+                hasHighlights: false,
+                pendingAnchor: last ? { targetKey: last.key, align: "end" } : null,
+            },
+            "jump-to-live-requested",
+        );
+    }
+
+    /** Show the unread line, loading history around it when it is not in the window. */
+    public jumpToReadMarker(): void {
+        const marker = this.snapshot.current.items.find((item) => item.kind === "read-marker");
+        if (marker) {
+            this.mergeSnapshot({ pendingAnchor: { targetKey: marker.key, align: "center" } }, "jump-to-marker");
+        } else if (this.frozenMarkerEventId) {
+            void this.load({ kind: "permalink", eventId: this.frozenMarkerEventId });
+        }
+    }
+
+    /**
+     * Bring a loaded message into view if it is not visible, such as one someone starts editing. A message outside
+     * the window is left alone.
+     * @param eventId - The message.
+     */
+    public scrollToEventIfNeeded(eventId: string): void {
+        const items = this.snapshot.current.items;
+        const index = items.findIndex((item) => item.key === eventId);
+        if (index < 0) return;
+        if (index >= this.visibleStartArrayIndex && index <= this.visibleEndArrayIndex) return;
+        this.mergeSnapshot({ pendingAnchor: { targetKey: eventId, align: "center" } }, "scroll-to-event");
+    }
+
+    /** Send a read receipt for the last visible message now, such as when the window regains focus. */
+    public sendReadReceiptNow(): void {
+        if (this.readReceiptDebounceTimer !== null) clearTimeout(this.readReceiptDebounceTimer);
+        this.readReceiptDebounceTimer = null;
+        this.sendAutoReadReceipt();
+    }
+
+    /** Whether the reader is at the newest message of the live timeline. */
+    public get isAtLiveBottom(): boolean {
+        return this.snapshot.current.atLiveEnd && this.isAtBottom;
+    }
+
+    /** Whether the unread line is out of view, so offering to jump to it makes sense. */
+    public get canJumpToReadMarker(): boolean {
+        return this.snapshot.current.canJumpToReadMarker !== false;
     }
 
     // ── Overlay button actions ───────────────────────────────────────
@@ -1313,7 +1437,7 @@ export class RoomTimelineViewModel
 
         if (!this.timelineWindow.canPaginate(Direction.Forward)) {
             debug(`[TimelineVM] paginate(forward) skipped — canPaginate=false`);
-            if (!this.snapshot.current.atLiveEnd) {
+            if (!this.snapshot.current.atLiveEnd && !this.detachedFromLive) {
                 debug(`[TimelineVM] paginate(forward) — setting atLiveEnd=true`);
                 this.mergeSnapshot({ atLiveEnd: true }, "paginate(forward)-at-live-end");
             }
@@ -1438,7 +1562,7 @@ export class RoomTimelineViewModel
                 `(window→${this.timelineWindow.getEvents().length}), newlyShown=${newlyShown}`,
         );
         this.republish(`paginate(${dirLabel})-trim`, {
-            atLiveEnd: !this.timelineWindow.canPaginate(Direction.Forward),
+            atLiveEnd: this.windowReachesLive(),
             canJumpToReadMarker: this.computeCanJumpToReadMarker(this.baseItems),
         });
 
@@ -1528,7 +1652,7 @@ export class RoomTimelineViewModel
                     this.republish("paginate(backward)-batch", {
                         // Backward pagination can trim the newest messages away once the window is
                         // full, so re-check whether we are still at the live end.
-                        atLiveEnd: !this.timelineWindow.canPaginate(Direction.Forward),
+                        atLiveEnd: this.windowReachesLive(),
                         canJumpToReadMarker: this.computeCanJumpToReadMarker(rebuilt),
                     });
                 } else {
@@ -1546,12 +1670,12 @@ export class RoomTimelineViewModel
             if (isBackward) {
                 this.backwardSpinnerVisible = false;
                 this.republish("paginate(backward)-end", {
-                    atLiveEnd: !this.timelineWindow.canPaginate(Direction.Forward),
+                    atLiveEnd: this.windowReachesLive(),
                 });
             } else {
                 this.forwardSpinnerVisible = false;
                 this.republish("paginate(forward)-end", {
-                    atLiveEnd: !this.timelineWindow.canPaginate(Direction.Forward),
+                    atLiveEnd: this.windowReachesLive(),
                 });
             }
         } catch (e) {

@@ -101,6 +101,8 @@ describe("RoomTimelineViewModel", () => {
         vms = [];
         client = createTestClient();
         room = new Room(ROOM_ID, client, USER_ID, { pendingEventOrdering: PendingEventOrdering.Detached });
+        // Rooms with an open timeline are joined, except when previewing; see the read receipt tests.
+        room.updateMyMembership(KnownMembership.Join);
         vi.spyOn(client, "getRoom").mockReturnValue(room);
 
         // The only two settings the view model reads, at their real-world defaults. A test that
@@ -675,6 +677,128 @@ describe("RoomTimelineViewModel", () => {
         });
     });
 
+    describe("when sync replaces the live timeline", () => {
+        /** Add a message to the room's current live timeline, as sync does. The SDK announces it. */
+        const arrive = (event: MatrixEvent): void => {
+            room.getUnfilteredTimelineSet().addLiveEvent(event, { addToState: false });
+        };
+
+        it("follows a reader at the newest messages on to the new live timeline", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onAtBottomStateChange(true);
+
+            room.resetLiveTimeline("gap", undefined);
+            arrive(makeMessage("$c", { user: OTHER_USER_ID }));
+
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$c"]));
+            expect(vm.getSnapshot().atLiveEnd).toBe(true);
+        });
+
+        it("keeps a reader of older messages in place, counts new ones, and loads them on request", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, indexOfKey(vm.getSnapshot().items, "$a"));
+            vm.onAtBottomStateChange(false);
+
+            room.resetLiveTimeline("gap", undefined);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]);
+            expect(vm.getSnapshot().atLiveEnd).toBe(false);
+
+            arrive(makeMessage("$c", { user: OTHER_USER_ID }));
+            await vi.waitFor(() => expect(vm.getSnapshot().numUnreadMessages).toBe(1));
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]);
+            expect(vm.getSnapshot().atLiveEnd).toBe(false);
+
+            vm.jumpToLive();
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$c"]));
+            expect(vm.getSnapshot().atLiveEnd).toBe(true);
+            expect(vm.getSnapshot().numUnreadMessages).toBe(0);
+        });
+
+        it("ignores resets of other timeline sets", async () => {
+            seedTimeline([makeMessage("$a")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const items = vm.getSnapshot().items;
+            const thread = room.getUnfilteredTimelineSet();
+            room.emit(RoomEvent.TimelineReset, room, { ...thread } as any, true);
+            expect(vm.getSnapshot().items).toBe(items);
+        });
+    });
+
+    describe("requests from the room view", () => {
+        it("scrolls to the newest loaded message, or loads the live end first", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.jumpToLive();
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$b", align: "end" });
+            vm.onAnchorReached();
+            expect(vm.getSnapshot().pendingAnchor).toBeNull();
+        });
+
+        it("brings a loaded message into view only when it is not visible", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b"), makeMessage("$c")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const items = vm.getSnapshot().items;
+            vm.onVisibleRangeChanged(indexOfKey(items, "$b"), indexOfKey(items, "$c"));
+
+            vm.scrollToEventIfNeeded("$c");
+            vm.scrollToEventIfNeeded("$unknown");
+            expect(vm.getSnapshot().pendingAnchor).toBeNull();
+
+            vm.scrollToEventIfNeeded("$a");
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$a", align: "center" });
+        });
+
+        it("reports whether the reader is at the newest message", async () => {
+            seedTimeline([makeMessage("$a")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            expect(vm.isAtLiveBottom).toBe(false);
+            vm.onAtBottomStateChange(true);
+            expect(vm.isAtLiveBottom).toBe(true);
+            expect(vm.canJumpToReadMarker).toBe(false);
+        });
+
+        it("sends a receipt straight away when asked, such as when the window regains focus", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            vm.sendReadReceiptNow();
+            expect(client.sendReadReceipt).toHaveBeenCalledTimes(1);
+            expect(vi.mocked(client.sendReadReceipt).mock.calls[0][0]?.getId()).toBe("$b");
+        });
+
+        it("does not let an overtaken load replace a newer one", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = new RoomTimelineViewModel({ client, room, initialEventId: "$a" });
+            vms.push(vm);
+            const window = (vm as any).timelineWindow;
+            const realLoad = window.load.bind(window);
+            const permalink = Promise.withResolvers<void>();
+            vi.spyOn(window, "load").mockImplementation(async (eventId?: unknown, size?: unknown) => {
+                if (eventId === "$a") await permalink.promise;
+                return realLoad(eventId, size);
+            });
+            vm.start();
+            // The reader jumps to the latest messages before the permalink has loaded.
+            vm.jumpToLive();
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]));
+            expect(vm.getSnapshot().highlightedEventId).toBeNull();
+
+            permalink.resolve();
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            expect(vm.getSnapshot().highlightedEventId).toBeNull();
+            expect(vm.getSnapshot().pendingAnchor).not.toEqual({ targetKey: "$a", align: "center" });
+        });
+    });
+
     describe("pagination", () => {
         it("asks for older messages when the top of the list is reached", async () => {
             seedTimeline([makeMessage("$a")]);
@@ -1038,6 +1162,17 @@ describe("RoomTimelineViewModel", () => {
 
             await flushReceiptDebounce();
             expect(client.sendReadReceipt).toHaveBeenCalledWith(expect.anything(), ReceiptType.ReadPrivate);
+        });
+
+        it("does not send receipts in a room the user has not joined, such as one being previewed", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            room.updateMyMembership(KnownMembership.Leave);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            vm.sendReadReceiptNow();
+            await new Promise((r) => setTimeout(r, 700));
+            expect(client.sendReadReceipt).not.toHaveBeenCalled();
         });
 
         it("does not move the receipt backwards when the user scrolls up", async () => {
