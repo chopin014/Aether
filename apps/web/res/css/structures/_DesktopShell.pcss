@@ -220,6 +220,135 @@ body.mx_DesktopShell {
         }
     }
 
+    /*
+     * The settings search field draws its own frame; the dialog's legacy input styles would add a second one.
+     * Naming the dialog makes this rule outrank them.
+     */
+    .mx_Dialog .mx_UserSettingsDialog .mx_TabbedView_sidebar input[type="search"] {
+        margin: 0;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        font: var(--cpd-font-body-sm-regular);
+    }
+
+    /*
+     * User settings open straight onto the page: each page names itself, so the dialog's title bar is kept only for
+     * screen readers, and the sidebar carries the account, a search and signing out.
+     */
+    .mx_UserSettingsDialog {
+        > .mx_Dialog_header {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip-path: inset(50%);
+            border: 0;
+        }
+
+        .mx_Dialog_cancelButton {
+            z-index: 2;
+            border-radius: 50%;
+            outline: 1px solid var(--cpd-color-border-interactive-secondary);
+        }
+
+        .mx_TabbedView_tabsOnLeft {
+            inset: 0;
+
+            .mx_TabbedView_sidebar {
+                position: absolute;
+                inset: 16px auto 12px 12px;
+                width: calc(var(--mx-desktop-settings-sidebar) - 24px);
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                min-height: 0;
+            }
+
+            .mx_TabbedView_sidebar .mx_TabbedView_tabLabels {
+                position: static;
+                flex: 1;
+                width: auto;
+                min-height: 0;
+            }
+
+            .mx_TabbedView_tabPanelContent {
+                padding-block-start: 40px;
+            }
+        }
+
+        .mx_TabbedView_pageHeader {
+            max-width: 800px;
+            margin: 0 auto 24px;
+        }
+
+        /* The page sits in the middle of the space beside the sidebar, as one column. */
+        .mx_TabbedView .mx_SettingsTab {
+            margin-inline: auto;
+        }
+
+        .mx_TabbedView_pageTitle {
+            margin: 0;
+            font: var(--cpd-font-heading-md-semibold);
+        }
+
+        .mx_TabbedView_pageDescription {
+            margin: 4px 0 0;
+            color: var(--cpd-color-text-secondary);
+            font: var(--cpd-font-body-md-regular);
+        }
+
+        /* A card's heading is a small caption over it, so the page reads as one list of cards. */
+        .mx_SettingsSubsection:has(> .mx_SettingsSubsection_card) .mx_SettingsSubsectionHeading_heading {
+            margin-inline-start: 4px;
+            color: var(--cpd-color-text-secondary);
+            font: var(--cpd-font-body-xs-semibold);
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .mx_SettingsSubsection:has(> .mx_SettingsSubsection_card) .mx_SettingsSubsection_description {
+            margin: 2px 0 0 4px;
+            font: var(--cpd-font-body-sm-regular);
+        }
+
+        .mx_UserSettingsDialog_searchEmpty {
+            margin: 0;
+            padding: 8px;
+            color: var(--cpd-color-text-secondary);
+            font: var(--cpd-font-body-sm-regular);
+        }
+
+        .mx_UserSettingsDialog_signOut {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 36px;
+            padding: 6px 8px;
+            border: 0;
+            border-block-start: 1px solid var(--cpd-color-border-interactive-secondary);
+            border-radius: 0;
+            background: none;
+            color: var(--cpd-color-text-critical-primary);
+            font: var(--cpd-font-body-md-medium);
+            text-align: start;
+            cursor: pointer;
+
+            svg {
+                width: 20px;
+                height: 20px;
+            }
+
+            &:hover {
+                background: var(--cpd-color-bg-critical-subtle);
+            }
+
+            &:focus-visible {
+                outline: 2px solid var(--cpd-color-border-focused);
+            }
+        }
+    }
+
     .mx_RoomSettingsDialog_desktop {
         --mx-desktop-settings-sidebar: clamp(260px, 28vw, 360px);
         position: relative;
@@ -1484,6 +1613,15 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
 
         .mx_TabbedView_tabPanel {
             margin-inline-start: 60px;
+        }
+
+        /* Only the page icons fit; the account, search and sign out stay reachable from the pages themselves. */
+        .mx_TabbedView_sidebar {
+            width: 44px;
+
+            > :not(.mx_TabbedView_tabLabels) {
+                display: none;
+            }
         }
     }
 }

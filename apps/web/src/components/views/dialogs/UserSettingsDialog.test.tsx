@@ -11,6 +11,7 @@ Please see LICENSE files in the repository root for full details.
 import React, { type ReactElement } from "react";
 import { vi, describe, it, expect, beforeEach, type MockedObject } from "vitest";
 import { render, screen, waitFor } from "test-utils-rtl";
+import userEvent from "@testing-library/user-event";
 import { ClientEvent, MatrixEvent, type MatrixClient } from "matrix-js-sdk/src/matrix";
 import {
     getMockClientWithEventEmitter,
@@ -31,11 +32,15 @@ import UserSettingsDialog from "./UserSettingsDialog";
 import { UIFeature } from "../../../settings/UIFeature";
 import { SettingLevel } from "../../../settings/SettingLevel";
 import { type FeatureSettingKey } from "../../../settings/Settings.tsx";
+import defaultDispatcher from "../../../dispatcher/dispatcher";
 
 mockPlatformPeg({
     supportsSpellCheckSettings: vi.fn().mockReturnValue(false),
     getAppVersion: vi.fn().mockResolvedValue("1"),
 });
+
+// Signing out only asks first when keys are at risk, which these tests do not set up.
+vi.mock("./LogoutDialog", () => ({ default: vi.fn(), shouldShowLogoutDialog: vi.fn().mockResolvedValue(false) }));
 
 vi.mock("../../../settings/SettingsStore", () => ({
     default: {
@@ -281,6 +286,53 @@ describe("<UserSettingsDialog />", () => {
 
         await waitFor(() => {
             expect(container.querySelector(".mx_SettingsDialog_tabLabelsAlert")).not.toBeInTheDocument();
+        });
+    });
+
+    describe("in the desktop shell", () => {
+        beforeEach(() => {
+            mockSettingsStore.getValue.mockImplementation((name): any => name === "feature_desktop_shell");
+            mockClient.getThreePids = vi.fn().mockResolvedValue({ threepids: [] });
+        });
+
+        it("opens each page with its title and what it is for", () => {
+            render(getComponent({ initialTabId: UserTab.Chat }));
+            const header = document.querySelector(".mx_TabbedView_pageHeader")!;
+            expect(header).toHaveTextContent("Chat");
+            expect(header).toHaveTextContent("How messages look and how you write them.");
+        });
+
+        it("names the account and privacy pages for what they hold", () => {
+            render(getComponent());
+            expect(screen.getByRole("tab", { name: "My account" })).toBeInTheDocument();
+            expect(screen.getByRole("tab", { name: "Privacy & security" })).toBeInTheDocument();
+        });
+
+        it("filters the pages by what is on them and opens the first match on Enter", async () => {
+            render(getComponent());
+            const search = screen.getByRole("searchbox", { name: "Search settings" });
+
+            await userEvent.type(search, "timezone");
+            expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Language & time"]);
+            await userEvent.clear(search);
+            await userEvent.type(search, "password{Enter}");
+            expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["My account"]);
+            expect(screen.getByRole("tab", { name: "My account" })).toHaveAttribute("aria-selected", "true");
+        });
+
+        it("says when nothing matches the search", async () => {
+            render(getComponent());
+            await userEvent.type(screen.getByRole("searchbox", { name: "Search settings" }), "zzzz");
+            expect(screen.queryAllByRole("tab")).toHaveLength(0);
+            expect(screen.getByText("No settings match your search")).toBeInTheDocument();
+        });
+
+        it("signs out from the bottom of the sidebar", async () => {
+            const dispatch = vi.spyOn(defaultDispatcher, "dispatch");
+            render(getComponent());
+
+            await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+            await waitFor(() => expect(dispatch).toHaveBeenCalledWith({ action: "logout" }));
         });
     });
 });

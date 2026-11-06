@@ -2444,7 +2444,8 @@
     "settings": {
         "account": {
             "dialog_title": "<strong>Configurações:</strong> Conta",
-            "title": "Conta"
+            "title": "Conta",
+            "nav_title": "Minha conta"
         },
         "all_rooms_home": "Mostrar todas as salas no Início",
         "all_rooms_home_description": "Todas as salas que você estiver presente aparecerão no Início.",
@@ -2833,7 +2834,8 @@
             "tokenizer_mode_language": "Baseado no idioma",
             "tokenizer_mode_language_description": "Suporte a um único idioma, de acordo com o idioma da interface. Funciona apenas com alguns idiomas (inglês, alemão etc.).",
             "tokenizer_mode_ngram": "N-grama",
-            "tokenizer_mode_ngram_description": "Oferece suporte a todos os idiomas, inclusive os que não usam separação entre palavras. Funciona com vários idiomas juntos."
+            "tokenizer_mode_ngram_description": "Oferece suporte a todos os idiomas, inclusive os que não usam separação entre palavras. Funciona com vários idiomas juntos.",
+            "nav_title": "Privacidade e segurança"
         },
         "send_read_receipts": "Enviar confirmações de leitura",
         "send_read_receipts_unsupported": "Seu servidor não suporta a desativação do envio de confirmações de leitura.",
@@ -3030,7 +3032,40 @@
             "title": "Sistema",
             "dialog_title": "<strong>Configurações:</strong> Sistema",
             "performance_heading": "Desempenho e privacidade",
-            "advanced_description": "Atrasos em milissegundos. A maioria das pessoas nunca precisa mudar isso."
+            "advanced_description": "Atrasos em milissegundos. A maioria das pessoas nunca precisa mudar isso.",
+            "desktop_title": "Aplicativo para desktop"
+        },
+        "sign_out": "Sair",
+        "search_empty": "Nenhuma configuração corresponde à busca",
+        "pages": {
+            "account_description": "Seu nome, seu login e como entrar na sua conta.",
+            "account_keywords": "nome usuário e-mail email senha desativar conta sair",
+            "profile_description": "Como os outros te veem: foto, banner, bio e estilo do nome.",
+            "profile_keywords": "avatar foto imagem banner bio pronomes status placa",
+            "security_description": "Quem pode falar com você e o que os outros veem.",
+            "security_keywords": "privacidade convites recibos de leitura digitando bloqueados ignorados mídia nsfw análises integrações",
+            "encryption_description": "Recuperação e chaves das suas mensagens criptografadas.",
+            "encryption_keywords": "recuperação chave backup redefinir identidade",
+            "sessions_description": "Todos os lugares onde sua conta está conectada.",
+            "sessions_keywords": "dispositivos sessões sair qr",
+            "appearance_description": "Tema, cores, tamanho da fonte e layout das mensagens.",
+            "appearance_keywords": "tema escuro claro cor fonte tamanho compacto",
+            "chat_description": "Como as mensagens aparecem e como você escreve.",
+            "chat_keywords": "linha do tempo mensagens escrita markdown emoji gif vídeo links prévias código lista de salas servidores",
+            "voice_description": "Microfone, alto-falantes, câmera e supressão de ruído.",
+            "voice_keywords": "microfone alto-falante câmera ruído supressão apertar para falar eco sons",
+            "notifications_description": "Quando e como você é avisado.",
+            "notifications_keywords": "sons alertas menções palavras-chave e-mail",
+            "keyboard_description": "Atalhos e teclas de chamada.",
+            "keyboard_keywords": "atalhos teclas apertar para falar silenciar ensurdecer ctrl f",
+            "language_description": "Idioma do aplicativo, fuso horário e formato das horas.",
+            "language_keywords": "idioma ortografia fuso horário 12 horas",
+            "system_description": "Inicialização, bandeja e desempenho.",
+            "system_keywords": "inicialização bandeja barra de menu aceleração de hardware captura de tela atraso",
+            "updates_description": "A versão instalada e novas versões.",
+            "updates_keywords": "atualização versão baixar reiniciar",
+            "help_description": "Versão, ajuda e solução de problemas.",
+            "help_keywords": "ajuda faq versão relatar bug cache servidor créditos"
         }
     },
     "share": {

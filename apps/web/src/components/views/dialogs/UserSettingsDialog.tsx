@@ -25,9 +25,12 @@ import LockIcon from "@vector-im/compound-design-tokens/assets/web/icons/lock";
 import BlockIcon from "@vector-im/compound-design-tokens/assets/web/icons/block";
 import HelpIcon from "@vector-im/compound-design-tokens/assets/web/icons/help";
 import DownloadIcon from "@vector-im/compound-design-tokens/assets/web/icons/download";
+import SignOutIcon from "@vector-im/compound-design-tokens/assets/web/icons/sign-out";
 import {
+    SettingsSidebarHeaderView,
     ToastContext,
     useActiveToast,
+    useCreateAutoDisposedViewModel,
     desktopVoiceVideoSectionId,
     type DesktopVoiceVideoSection,
 } from "@element-hq/web-shared-components";
@@ -59,6 +62,12 @@ import { useSettingValue } from "../../../hooks/useSettings";
 import { NoChange, useEventEmitterAsyncState, type AsyncStateCallbackResult } from "../../../hooks/useEventEmitter";
 import { EncryptionUserSettingsTab, type State } from "../settings/tabs/user/EncryptionUserSettingsTab";
 import { DesktopUpdatesSettings } from "../settings/tabs/user/DesktopUpdatesSettings";
+import { SettingsSidebarHeaderViewModel } from "../../../viewmodels/settings/SettingsSidebarHeaderViewModel";
+import { OwnProfileStore } from "../../../stores/OwnProfileStore";
+import { useMatrixClientContext } from "../../../contexts/MatrixClientContext";
+import Modal from "../../../Modal";
+import LogoutDialog, { shouldShowLogoutDialog } from "./LogoutDialog";
+import defaultDispatcher from "../../../dispatcher/dispatcher";
 
 interface IProps {
     initialTabId?: UserTab;
@@ -115,6 +124,106 @@ function titleForTabID(tabId: UserTab): React.ReactNode {
     }
 }
 
+/** The line under each page's title, and words people might search for to find the page. */
+const PAGE_TEXT: Partial<Record<UserTab, { description: TranslationKey; keywords: TranslationKey }>> = {
+    [UserTab.Account]: {
+        description: _td("settings|pages|account_description"),
+        keywords: _td("settings|pages|account_keywords"),
+    },
+    [UserTab.Profile]: {
+        description: _td("settings|pages|profile_description"),
+        keywords: _td("settings|pages|profile_keywords"),
+    },
+    [UserTab.Security]: {
+        description: _td("settings|pages|security_description"),
+        keywords: _td("settings|pages|security_keywords"),
+    },
+    [UserTab.Encryption]: {
+        description: _td("settings|pages|encryption_description"),
+        keywords: _td("settings|pages|encryption_keywords"),
+    },
+    [UserTab.SessionManager]: {
+        description: _td("settings|pages|sessions_description"),
+        keywords: _td("settings|pages|sessions_keywords"),
+    },
+    [UserTab.Appearance]: {
+        description: _td("settings|pages|appearance_description"),
+        keywords: _td("settings|pages|appearance_keywords"),
+    },
+    [UserTab.Chat]: {
+        description: _td("settings|pages|chat_description"),
+        keywords: _td("settings|pages|chat_keywords"),
+    },
+    [UserTab.Voice]: {
+        description: _td("settings|pages|voice_description"),
+        keywords: _td("settings|pages|voice_keywords"),
+    },
+    [UserTab.Notifications]: {
+        description: _td("settings|pages|notifications_description"),
+        keywords: _td("settings|pages|notifications_keywords"),
+    },
+    [UserTab.Keyboard]: {
+        description: _td("settings|pages|keyboard_description"),
+        keywords: _td("settings|pages|keyboard_keywords"),
+    },
+    [UserTab.LanguageAndTime]: {
+        description: _td("settings|pages|language_description"),
+        keywords: _td("settings|pages|language_keywords"),
+    },
+    [UserTab.System]: {
+        description: _td("settings|pages|system_description"),
+        keywords: _td("settings|pages|system_keywords"),
+    },
+    [UserTab.Updates]: {
+        description: _td("settings|pages|updates_description"),
+        keywords: _td("settings|pages|updates_keywords"),
+    },
+    [UserTab.Help]: {
+        description: _td("settings|pages|help_description"),
+        keywords: _td("settings|pages|help_keywords"),
+    },
+};
+
+/** Lower-case text without accents, so "senha" finds "Senha" and "video" finds "vídeo". */
+function searchable(text: string): string {
+    return text
+        .normalize("NFD")
+        .replace(/\p{Diacritic}/gu, "")
+        .toLowerCase();
+}
+
+/** Whether every word of the search appears in the tab's name, group, description or keywords. */
+function tabMatches(tab: Tab<UserTab>, query: string): boolean {
+    const words = searchable(query).split(/\s+/).filter(Boolean);
+    if (!words.length) return true;
+    const page = PAGE_TEXT[tab.id];
+    const haystack = searchable(
+        [tab.label, tab.group, page?.description, page?.keywords]
+            .filter((key): key is TranslationKey => !!key)
+            .map((key) => _t(key))
+            .join(" "),
+    );
+    return words.every((word) => haystack.includes(word));
+}
+
+/** Signs out from the bottom of the settings sidebar, first offering to back up keys when that matters. */
+function SignOutItem(): JSX.Element {
+    const client = useMatrixClientContext();
+    const onClick = async (): Promise<void> => {
+        if (await shouldShowLogoutDialog(client)) {
+            Modal.createDialog(LogoutDialog);
+        } else {
+            defaultDispatcher.dispatch({ action: "logout" });
+        }
+    };
+    return (
+        <button type="button" className="mx_UserSettingsDialog_signOut" onClick={onClick}>
+            <SignOutIcon aria-hidden="true" />
+            {_t("settings|sign_out")}
+        </button>
+    );
+}
+
 /** The sections of the desktop Voice & Video page, which the sidebar links to. */
 const VOICE_VIDEO_ANCHORS: TabAnchor[] = (
     [
@@ -167,13 +276,15 @@ export default function UserSettingsDialog(props: IProps): JSX.Element {
             labelClassName?: string,
             anchors?: TabAnchor[],
         ): void => {
-            tabs.push(new Tab(id, label, icon, body, screenName, labelClassName, anchors, group));
+            tabs.push(
+                new Tab(id, label, icon, body, screenName, labelClassName, anchors, group, PAGE_TEXT[id]?.description),
+            );
         };
 
         const accountGroup = _td("settings|groups|account");
         add(
             UserTab.Account,
-            _td("settings|account|title"),
+            desktopShell ? _td("settings|account|nav_title") : _td("settings|account|title"),
             <UserProfileIcon />,
             <AccountUserSettingsTab closeSettingsFn={props.onFinished} startCustomStatus={startCustomStatus} />,
             accountGroup,
@@ -190,7 +301,7 @@ export default function UserSettingsDialog(props: IProps): JSX.Element {
         }
         add(
             UserTab.Security,
-            _td("room_settings|security|title"),
+            desktopShell ? _td("settings|security|nav_title") : _td("room_settings|security|title"),
             <LockIcon />,
             <SecurityUserSettingsTab />,
             accountGroup,
@@ -268,7 +379,13 @@ export default function UserSettingsDialog(props: IProps): JSX.Element {
             <LanguageTimeUserSettingsTab />,
             appGroup,
         );
-        add(UserTab.System, _td("settings|system|title"), <ComputerIcon />, <SystemUserSettingsTab />, appGroup);
+        add(
+            UserTab.System,
+            window.electron ? _td("settings|system|desktop_title") : _td("settings|system|title"),
+            <ComputerIcon />,
+            <SystemUserSettingsTab />,
+            appGroup,
+        );
 
         const aboutGroup = _td("settings|groups|about");
         if (window.electron) {
@@ -307,6 +424,27 @@ export default function UserSettingsDialog(props: IProps): JSX.Element {
     openTab.current = setActiveTabId;
     const navigate = React.useCallback((tab: UserTab) => openTab.current(tab), []);
 
+    // The desktop shell's sidebar searches the pages by their name, group and a few words for what is on them.
+    const [query, setQuery] = useState("");
+    const tabs = getTabs();
+    const isTabListed = (tab: Tab<UserTab>): boolean => tabMatches(tab, query);
+    const listedTabs = tabs.filter(isTabListed);
+    const latestListed = useRef(listedTabs);
+    latestListed.current = listedTabs;
+    const sidebarVm = useCreateAutoDisposedViewModel(
+        () =>
+            new SettingsSidebarHeaderViewModel({
+                client: props.sdkContext.client!,
+                ownProfileStore: OwnProfileStore.instance,
+                onQueryChange: setQuery,
+                onOpenFirstMatch: () => {
+                    const first = latestListed.current[0];
+                    if (first) openTab.current(first.id);
+                },
+                onEditProfile: () => openTab.current(UserTab.Profile),
+            }),
+    );
+
     return (
         // XXX: SDKContext is provided within the LoggedInView subtree.
         // Modals function outside the MatrixChat React tree, so sdkContext is reprovided here to simulate that.
@@ -322,13 +460,36 @@ export default function UserSettingsDialog(props: IProps): JSX.Element {
                         titleClass="mx_UserSettingsDialog_title"
                     >
                         <div className="mx_SettingsDialog_content">
-                            <TabbedView
-                                tabs={getTabs()}
-                                activeTabId={activeTabId}
-                                screenName="UserSettings"
-                                onChange={setActiveTabId}
-                                responsive={true}
-                            />
+                            {desktopShell ? (
+                                <TabbedView
+                                    tabs={tabs}
+                                    activeTabId={activeTabId}
+                                    screenName="UserSettings"
+                                    onChange={setActiveTabId}
+                                    responsive={true}
+                                    pageHeaders
+                                    isTabListed={isTabListed}
+                                    sidebarHeader={<SettingsSidebarHeaderView vm={sidebarVm} />}
+                                    sidebarFooter={
+                                        <>
+                                            {listedTabs.length === 0 && (
+                                                <p className="mx_UserSettingsDialog_searchEmpty">
+                                                    {_t("settings|search_empty")}
+                                                </p>
+                                            )}
+                                            <SignOutItem />
+                                        </>
+                                    }
+                                />
+                            ) : (
+                                <TabbedView
+                                    tabs={tabs}
+                                    activeTabId={activeTabId}
+                                    screenName="UserSettings"
+                                    onChange={setActiveTabId}
+                                    responsive={true}
+                                />
+                            )}
                         </div>
                         <div className="mx_SettingsDialog_toastContainer">
                             {activeToast && <Toast>{activeToast}</Toast>}
