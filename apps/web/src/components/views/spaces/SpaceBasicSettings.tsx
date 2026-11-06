@@ -13,6 +13,7 @@ import { _t } from "../../../languageHandler";
 import AccessibleButton from "../elements/AccessibleButton";
 import Field from "../elements/Field";
 import { chromeFileInputFix } from "../../../utils/BrowserWorkarounds";
+import { editImage } from "../dialogs/ImageCropDialog";
 
 interface IProps {
     avatarUrl?: string;
@@ -95,9 +96,10 @@ export const SpaceAvatar: React.FC<Pick<IProps, "avatarUrl" | "avatarDisabled" |
                 type="file"
                 ref={avatarUploadRef}
                 onClick={chromeFileInputFix}
-                onChange={(e) => {
+                onChange={async (e) => {
                     if (!e.target.files?.length) return;
-                    const file = e.target.files[0];
+                    const file = await editImage(e.target.files[0], "icon");
+                    if (!file) return;
                     setAvatar(file);
                     const reader = new FileReader();
                     reader.onload = (ev) => {

@@ -15,6 +15,9 @@ import userEvent from "@testing-library/user-event";
 import { stubClient } from "test-utils";
 
 import AvatarSetting from "./AvatarSetting";
+import { editImage } from "../dialogs/ImageCropDialog";
+
+vi.mock("../dialogs/ImageCropDialog", () => ({ editImage: vi.fn(async (file: File) => file) }));
 
 const BASE64_GIF = "R0lGODlhAQABAAAAACw=";
 const AVATAR_FILE = new File([Uint8Array.from(atob(BASE64_GIF), (c) => c.charCodeAt(0))], "avatar.gif", {
@@ -76,7 +79,28 @@ describe("<AvatarSetting />", () => {
         const fileInput = screen.getByAltText("Upload");
         await user.upload(fileInput, AVATAR_FILE);
 
+        expect(editImage).toHaveBeenCalledWith(AVATAR_FILE, "avatar");
         expect(onChange).toHaveBeenCalledWith(AVATAR_FILE);
+    });
+
+    it("uses the image as framed in the editor, and nothing when the editor is cancelled", async () => {
+        const onChange = vi.fn();
+        const user = userEvent.setup();
+        render(
+            <AvatarSetting
+                placeholderId="blee"
+                placeholderName="boo"
+                avatarAccessibleName="Avatar of Peter Fox"
+                onChange={onChange}
+            />,
+        );
+        const edited = new File(["y"], "avatar.png", { type: "image/png" });
+        vi.mocked(editImage).mockResolvedValueOnce(edited).mockResolvedValueOnce(undefined);
+
+        await user.upload(screen.getByAltText("Upload"), AVATAR_FILE);
+        expect(onChange).toHaveBeenCalledWith(edited);
+        await user.upload(screen.getByAltText("Upload"), AVATAR_FILE);
+        expect(onChange).toHaveBeenCalledOnce();
     });
 
     it("should noop when selecting no file", async () => {
