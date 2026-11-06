@@ -79,7 +79,8 @@ Please see LICENSE files in the repository root for full details.
     margin-top: var(--cpd-space-3x);
     padding: 0 var(--cpd-space-4x);
     box-sizing: border-box;
-    background: var(--cpd-color-bg-subtle-secondary);
+    /* A faint lift over whatever the page is drawn on, in light and dark themes alike. */
+    background: color-mix(in srgb, var(--cpd-color-text-primary) 4%, transparent);
     border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
     border-radius: var(--cpd-space-3x);
 

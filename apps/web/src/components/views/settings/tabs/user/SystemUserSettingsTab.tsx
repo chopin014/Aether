@@ -103,7 +103,6 @@ export function SystemUserSettingsTab(): JSX.Element {
                     heading={_t("common|advanced")}
                     description={_t("settings|system|advanced_description")}
                     formWrap
-                    card
                 >
                     <NumberSetting name="autocompleteDelay" label={_t("settings|preferences|autocomplete_delay")} />
                     <NumberSetting name="readMarkerInViewThresholdMs" label={_t("settings|preferences|rm_lifetime")} />

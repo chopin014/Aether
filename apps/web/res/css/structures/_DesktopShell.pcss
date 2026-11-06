@@ -191,6 +191,11 @@ body.mx_DesktopShell {
                 display: inline;
             }
 
+            .mx_TabbedView_tabGroup {
+                display: block;
+                padding-inline: 8px;
+            }
+
             .mx_TabbedView_tabPanel {
                 margin: 0 0 0 var(--mx-desktop-settings-sidebar);
                 min-width: 0;
@@ -205,6 +210,8 @@ body.mx_DesktopShell {
 
         .mx_TabbedView .mx_SettingsTab {
             min-width: 0;
+            /* Rows of settings stay readable on wide windows instead of stretching their switches far away. */
+            max-width: 800px;
             padding: 0 0 64px;
         }
 
@@ -1470,7 +1477,8 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
             width: 44px;
         }
 
-        .mx_TabbedView_tabLabel_text {
+        .mx_TabbedView_tabLabel_text,
+        .mx_TabbedView_tabGroup {
             display: none;
         }
 
