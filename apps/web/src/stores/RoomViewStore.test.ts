@@ -28,6 +28,7 @@ import {
 import { RoomViewStore } from "./RoomViewStore";
 import { Action } from "../dispatcher/actions";
 import SettingsStore from "../settings/SettingsStore";
+import { onServerJoined } from "../utils/servers/joinServer";
 import { SlidingSyncManager } from "../SlidingSyncManager";
 import { PosthogAnalytics } from "../PosthogAnalytics";
 import { TimelineRenderingType } from "../contexts/RoomContext";
@@ -56,6 +57,8 @@ import { confirmVoiceChannelSwitch } from "../components/views/voip/confirmVoice
 vi.mock("../components/views/voip/confirmVoiceChannelSwitch");
 
 vi.mock("../Modal");
+
+vi.mock("../utils/servers/joinServer", () => ({ onServerJoined: vi.fn().mockResolvedValue(undefined) }));
 
 // mock out the injected classes
 vi.mock("../PosthogAnalytics");
@@ -252,6 +255,27 @@ describe("RoomViewStore", function () {
         // Without servers, only the alias can locate the room over federation.
         expect(mockClient.joinRoom).toHaveBeenCalledWith(alias, { acceptSharedHistory: true, viaServers: [] });
         expect(roomViewStore.isJoining()).toBe(true);
+    });
+
+    it("joins a server's channels after joining it in the desktop shell", async () => {
+        const original = SettingsStore.getValue.bind(SettingsStore);
+        const settings = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : original(name, ...args)));
+        try {
+            dis.dispatch({ action: Action.ViewRoom, room_id: roomId, auto_join: true });
+            await untilDispatch(Action.JoinRoomReady, dis);
+            await vi.waitFor(() => expect(onServerJoined).toHaveBeenCalledWith(mockClient, roomId));
+        } finally {
+            settings.mockRestore();
+        }
+    });
+
+    it("leaves a joined room's channels alone outside the desktop shell", async () => {
+        dis.dispatch({ action: Action.ViewRoom, room_id: roomId, auto_join: true });
+        await untilDispatch(Action.JoinRoomReady, dis);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(onServerJoined).not.toHaveBeenCalled();
     });
 
     it("can auto-join a room", async () => {
@@ -461,6 +485,31 @@ describe("RoomViewStore", function () {
         dis.dispatch({ action: Action.ViewHomePage });
         await untilEmission(roomViewStore, UPDATE_EVENT);
         expect(roomViewStore.getRoomId()).toBeNull();
+    });
+
+    it("removes the roomId when the desktop shell opens Discover", async () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        const settings = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((name, ...args) => (name === "feature_desktop_shell" ? true : getValue(name, ...args)));
+        try {
+            dis.dispatch({ action: Action.ViewRoom, room_id: roomId });
+            await untilDispatch(Action.ActiveRoomChanged, dis);
+
+            dis.dispatch({ action: Action.ViewDiscover });
+            await untilEmission(roomViewStore, UPDATE_EVENT);
+            expect(roomViewStore.getRoomId()).toBeNull();
+        } finally {
+            settings.mockRestore();
+        }
+    });
+
+    it("keeps the room when Discover opens as a dialog outside the desktop shell", async () => {
+        dis.dispatch({ action: Action.ViewRoom, room_id: roomId });
+        await untilDispatch(Action.ActiveRoomChanged, dis);
+
+        dis.dispatch({ action: Action.ViewDiscover }, true);
+        expect(roomViewStore.getRoomId()).toEqual(roomId);
     });
 
     it("when viewing a call without a broadcast, it should not raise an error", async () => {

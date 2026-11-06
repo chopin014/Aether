@@ -49,7 +49,7 @@
         "coverage": "pnpm test:unit --coverage",
         "coverage:diff": "diff-cover --config-file ../../diff-cover.toml coverage/lcov.info",
         "sane-postinstall": "electron-builder install-app-deps",
-        "build:aether": "electron-builder --config aether-builder.ts --publish never"
+        "build:aether": "node scripts/build-nvenc.ts && electron-builder --config aether-builder.ts --publish never"
     },
     "dependencies": {
         "@homebridge/dbus-native": "0.7.9",

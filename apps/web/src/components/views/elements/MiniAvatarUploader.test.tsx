@@ -14,6 +14,9 @@ import userEvent from "@testing-library/user-event";
 import { stubClient, withClientContextRenderOptions } from "test-utils";
 
 import MiniAvatarUploader from "./MiniAvatarUploader";
+import { editImage } from "../dialogs/ImageCropDialog";
+
+vi.mock("../dialogs/ImageCropDialog", () => ({ editImage: vi.fn(async (file: File) => file) }));
 
 const BASE64_GIF = "R0lGODlhAQABAAAAACw=";
 const AVATAR_FILE = new File([Uint8Array.from(atob(BASE64_GIF), (c) => c.charCodeAt(0))], "avatar.gif", {
@@ -38,5 +41,25 @@ describe("<MiniAvatarUploader />", () => {
 
         expect(cli.uploadContent).toHaveBeenCalledWith(AVATAR_FILE);
         expect(setAvatarUrl).toHaveBeenCalledWith("mxc://example.com/1234");
+    });
+
+    it("uploads the image as framed in the editor, and nothing when the editor is cancelled", async () => {
+        const cli = stubClient();
+        vi.mocked(cli.uploadContent).mockResolvedValue({ content_uri: "mxc://example.com/1234" });
+        const setAvatarUrl = vi.fn();
+        const user = userEvent.setup();
+        const { container, findByLabelText } = render(
+            <MiniAvatarUploader hasAvatar={false} noAvatarLabel="Upload" setAvatarUrl={setAvatarUrl} isUserAvatar />,
+            withClientContextRenderOptions(cli),
+        );
+        await findByLabelText("Upload");
+        const edited = new File(["y"], "avatar.png", { type: "image/png" });
+        vi.mocked(editImage).mockResolvedValueOnce(edited).mockResolvedValueOnce(undefined);
+
+        await user.upload(container.querySelector("input")!, AVATAR_FILE);
+        expect(editImage).toHaveBeenCalledWith(AVATAR_FILE, "avatar");
+        expect(cli.uploadContent).toHaveBeenCalledWith(edited);
+        await user.upload(container.querySelector("input")!, AVATAR_FILE);
+        expect(cli.uploadContent).toHaveBeenCalledOnce();
     });
 });

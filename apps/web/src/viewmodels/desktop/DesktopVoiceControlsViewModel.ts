@@ -16,6 +16,8 @@ import { logger } from "matrix-js-sdk/src/logger";
 
 import { CallEvent, ElementCall } from "../../models/Call";
 import { type CallStore, CallStoreEvent } from "../../stores/CallStore";
+import type SpaceStore from "../../stores/spaces/SpaceStore";
+import { SDKContextClass } from "../../contexts/SDKContextClass";
 import SettingsStore from "../../settings/SettingsStore";
 import { SettingLevel } from "../../settings/SettingLevel";
 import defaultDispatcher from "../../dispatcher/dispatcher";
@@ -27,7 +29,7 @@ import { UserTab } from "../../components/views/dialogs/UserTab";
 
 import { DesktopShortcutManager } from "../../audio/desktop/DesktopShortcutManager";
 import { MicrophoneTest, mediaTestError } from "../../audio/desktop/MicrophoneTest";
-import { getMicrophoneGateConfig } from "../../audio/desktop/DesktopVoicePipeline";
+import { getMicrophoneGateConfig, MAX_SPEAKER_VOLUME_PERCENT } from "../../audio/desktop/DesktopVoicePipeline";
 import { customizeDesktopVoiceProfile } from "../../audio/desktop/DesktopVoiceProfiles";
 
 import { playDesktopVoiceSound } from "../../audio/DesktopVoiceSounds";
@@ -40,7 +42,15 @@ interface Props {
         on: (event: CallStoreEvent.ConnectedCalls, listener: () => void) => unknown;
         off: (event: CallStoreEvent.ConnectedCalls, listener: () => void) => unknown;
     };
+    /** Finds the server (space) a call's channel belongs to; defaults to the app's space store. */
+    spaceStore?: Pick<SpaceStore, "getKnownParents">;
 }
+
+/**
+ * How long somebody must stay out of the call before we play the leave cue. Memberships briefly disappear while a
+ * participant's client renews or re-sends its membership, or rejoins after a connection drop; those people never left.
+ */
+export const PARTICIPANT_LEAVE_GRACE_MS = 6000;
 
 /** Persistent desktop voice controls, using Element Call's device and audio-output host APIs. */
 export class DesktopVoiceControlsViewModel
@@ -51,6 +61,10 @@ export class DesktopVoiceControlsViewModel
     private call?: ElementCall;
     private wasVideoEnabled = false;
     private wasSharingScreen = false;
+    /** Other people currently in the call. */
+    private participantIds = new Set<string>();
+    /** People who dropped out of the call and have not yet been announced as leaving. */
+    private readonly pendingLeaves = new Map<string, number>();
     private pendingAction?: Promise<void>;
     private stopShortcuts?: () => void;
     private testGeneration = 0;
@@ -132,9 +146,17 @@ export class DesktopVoiceControlsViewModel
         this.disposables.track(() => this.call?.off(CallEvent.DeviceMute, this.onDeviceMute));
         this.disposables.track(() => this.call?.off(CallEvent.ScreenShare, this.onScreenShare));
         this.disposables.track(() => this.call?.off(CallEvent.Participants, this.onParticipants));
+        this.disposables.track(() => this.clearPendingLeaves());
         this.disposables.track(() => this.call?.off(CallEvent.SpeakingUsers, this.refresh));
         this.disposables.track(() => this.call?.off(CallEvent.SoundboardUsers, this.refresh));
         this.disposables.track(() => this.call?.off(CallEvent.ConnectionStats, this.refresh));
+        // Other surfaces, such as a participant's own menu, ask through the dispatcher so the sounds and the
+        // undeafen-on-unmute rule stay in one place.
+        const dispatcherRef = defaultDispatcher.register((payload) => {
+            if (payload.action === Action.ToggleDesktopMicrophone) void this.toggleMicrophone();
+            else if (payload.action === Action.ToggleDesktopDeafen) void this.toggleDeafened();
+        });
+        this.disposables.track(() => defaultDispatcher.unregister(dispatcherRef));
         this.onCallsChanged();
     }
 
@@ -212,6 +234,7 @@ export class DesktopVoiceControlsViewModel
             screenShareAvailable: call?.screenShare.available ?? false,
             screenSharing: call?.screenShare.sharing ?? false,
             roomName: call ? (this.props.client.getRoom(call.roomId)?.name ?? call.roomId) : undefined,
+            spaceName: call ? this.getSpaceName(call.roomId) : undefined,
             noiseSuppression: processing.noiseSuppression !== null,
             connection: call?.connectionStats ?? {
                 state: call ? "connecting" : "disconnected",
@@ -223,6 +246,16 @@ export class DesktopVoiceControlsViewModel
             },
         });
     };
+
+    /** The name of the first joined space listing the channel, as Discord shows a voice channel's server. */
+    private getSpaceName(roomId: string): string | undefined {
+        const spaces = (this.props.spaceStore ?? SDKContextClass.instance.spaceStore).getKnownParents(roomId);
+        for (const spaceId of spaces) {
+            const name = this.props.client.getRoom(spaceId)?.name;
+            if (name) return name;
+        }
+        return undefined;
+    }
 
     /** Only the quick microphone test owns capture; closing its panel releases it immediately. */
     public setPanel = (panel: DesktopVoiceControlsViewSnapshot["panel"]): void => {
@@ -284,11 +317,13 @@ export class DesktopVoiceControlsViewModel
         percent: number,
     ): Promise<void> {
         if (!Number.isFinite(percent)) return;
+        // The speaker can play the call louder than it arrives; the microphone is only ever turned down.
+        const max = setting === "desktopSpeakerVolume" ? MAX_SPEAKER_VOLUME_PERCENT : 100;
         await SettingsStore.setValue(
             setting,
             null,
             SettingLevel.DEVICE,
-            Math.max(0, Math.min(100, Math.round(percent))),
+            Math.max(0, Math.min(max, Math.round(percent))),
         );
     }
 
@@ -390,16 +425,54 @@ export class DesktopVoiceControlsViewModel
         previous: ReadonlyMap<RoomMember, unknown>,
     ): void => {
         this.refresh();
-        if (!this.call || this.call.locallyLeaving || this.snapshot.current.deafened) return;
         const ids = (members: ReadonlyMap<RoomMember, unknown>): Set<string> =>
             new Set(
                 [...members.keys()].map((member) => member.userId).filter((id) => id !== this.props.client.getUserId()),
             );
         const now = ids(participants);
         const before = ids(previous);
-        if ([...now].some((id) => !before.has(id))) void playDesktopVoiceSound("userJoined");
-        else if ([...before].some((id) => !now.has(id))) void playDesktopVoiceSound("userLeft");
+        this.participantIds = now;
+        if (!this.call || this.call.locallyLeaving || this.snapshot.current.deafened) {
+            this.clearPendingLeaves();
+            return;
+        }
+        let joined = false;
+        for (const id of now) {
+            if (before.has(id)) continue;
+            // Coming back before the leave was announced is not a join either.
+            if (this.pendingLeaves.has(id)) {
+                window.clearTimeout(this.pendingLeaves.get(id));
+                this.pendingLeaves.delete(id);
+            } else joined = true;
+        }
+        for (const id of before) {
+            if (now.has(id) || this.pendingLeaves.has(id)) continue;
+            this.pendingLeaves.set(
+                id,
+                window.setTimeout(() => this.announceLeave(id), PARTICIPANT_LEAVE_GRACE_MS),
+            );
+        }
+        if (joined) void playDesktopVoiceSound("userJoined");
     };
+
+    /** Plays the leave cue for somebody who is still gone once the grace period ends. */
+    private announceLeave(id: string): void {
+        this.pendingLeaves.delete(id);
+        if (this.participantIds.has(id) || !this.call || this.call.locallyLeaving) return;
+        if (this.snapshot.current.deafened) return;
+        // Several people leaving together get one cue.
+        for (const [other, timer] of this.pendingLeaves) {
+            if (this.participantIds.has(other)) continue;
+            window.clearTimeout(timer);
+            this.pendingLeaves.delete(other);
+        }
+        void playDesktopVoiceSound("userLeft");
+    }
+
+    private clearPendingLeaves(): void {
+        for (const timer of this.pendingLeaves.values()) window.clearTimeout(timer);
+        this.pendingLeaves.clear();
+    }
 
     private readonly onScreenShare = (): void => {
         this.refresh();
@@ -445,6 +518,8 @@ export class DesktopVoiceControlsViewModel
             this.call?.off(CallEvent.DeviceMute, this.onDeviceMute);
             this.call?.off(CallEvent.ScreenShare, this.onScreenShare);
             this.call?.off(CallEvent.Participants, this.onParticipants);
+            this.clearPendingLeaves();
+            this.participantIds = new Set();
             this.call?.off(CallEvent.SpeakingUsers, this.refresh);
             this.call?.off(CallEvent.SoundboardUsers, this.refresh);
             this.call?.off(CallEvent.ConnectionStats, this.refresh);

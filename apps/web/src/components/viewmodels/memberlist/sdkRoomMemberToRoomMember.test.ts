@@ -49,11 +49,23 @@ describe("sdkRoomMemberToRoomMember presence", () => {
         expect(result).toMatchObject({ presenceState: "unavailable", presenceSource: "aether" });
     });
 
-    it("keeps the server's presence where it is enabled", () => {
+    it("keeps the server's presence where it is enabled and at least as available as the signal", () => {
         SdkConfig.reset();
         const result = sdkRoomMemberToRoomMember(member).member!;
         expect(result.presenceState).toBe("online");
         expect(result.presenceSource).toBeUndefined();
+    });
+
+    it("uses a live Aether signal that is more available than the server's presence", () => {
+        SdkConfig.reset();
+        member.user!.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "unavailable" } }));
+        vi.spyOn(AetherPresenceService.instance, "store", "get").mockReturnValue({
+            getSignal: () => ({ presence: "online", lastSeen: Date.now(), expired: false }),
+        } as never);
+        expect(sdkRoomMemberToRoomMember(member).member).toMatchObject({
+            presenceState: "online",
+            presenceSource: "aether",
+        });
     });
 
     it.each([SetPresence.Online, SetPresence.Unavailable, SetPresence.Offline])(

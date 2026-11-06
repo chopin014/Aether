@@ -65,6 +65,8 @@ import { ChannelMenuViewModel } from "../desktop/ChannelMenuViewModel";
 import { prepareCallSoon } from "../../components/views/voip/prepareElementCall";
 import { getCallSessionStart } from "../../utils/call/callSessionStart";
 import { getPublishedVoiceState, VOICE_STATE_EVENT_TYPE } from "../../utils/call/publishedVoiceState";
+import { VoiceUserMenuViewModel } from "../desktop/VoiceUserMenuViewModel";
+import { VoiceUserPreferences, VoiceUserPreferencesEvent } from "../../audio/desktop/VoiceUserPreferences";
 
 /**
  * View section type without `isSelected` field
@@ -154,6 +156,13 @@ export class RoomListItemViewModel
 
         // Subscribe to call state changes
         this.disposables.trackListener(CallStore.instance, CallStoreEvent.Call, this.onCallStateChanged);
+        // A participant muted for this user only is marked in the channel's list.
+        this.disposables.trackListener(
+            VoiceUserPreferences.instance,
+            VoiceUserPreferencesEvent.Changed,
+            this.onVoiceActivityChanged,
+        );
+        this.disposables.track(() => this.closeCallParticipantMenu());
         this.disposables.track(() => this.callDisposables.dispose());
         // If there is an active call for this room, listen to participant changes
         this.listenToCallParticipants();
@@ -253,15 +262,22 @@ export class RoomListItemViewModel
     }
 
     /**
-     * Whether a call participant is talking, muted or deafened. While we are in the call it says so itself; from
-     * outside it, mute and deafen come from what the participant's devices have published to the room.
+     * Whether a call participant is talking, muted or deafened, and whether this user muted them for themselves.
+     * While we are in the call it says so itself; from outside it, mute and deafen come from what the participant's
+     * devices have published to the room.
      */
     private static voiceActivityOf(
         room: Room,
         call: Call | null | undefined,
         userId: string,
         deviceIds: Iterable<string> = [],
-    ): { isSpeaking: boolean; isSoundboardPlaying: boolean; isMuted: boolean; isDeafened: boolean } {
+    ): {
+        isSpeaking: boolean;
+        isSoundboardPlaying: boolean;
+        isMuted: boolean;
+        isDeafened: boolean;
+        isLocallyMuted: boolean;
+    } {
         const voiceState = call?.connected
             ? call.voiceStates.get(userId)
             : getPublishedVoiceState(room, userId, deviceIds);
@@ -270,6 +286,7 @@ export class RoomListItemViewModel
             isSoundboardPlaying: call?.soundboardUserIds?.has(userId) ?? false,
             isMuted: voiceState?.muted ?? false,
             isDeafened: voiceState?.deafened ?? false,
+            isLocallyMuted: VoiceUserPreferences.instance.get(userId).muted,
         };
     }
 
@@ -354,6 +371,24 @@ export class RoomListItemViewModel
     public onViewCallParticipant = (userId: string): void => {
         const member = this.props.room.getMember(userId);
         if (member) dispatcher.dispatch<ViewUserPayload>({ action: Action.ViewUser, member });
+    };
+
+    private callParticipantMenu?: VoiceUserMenuViewModel;
+
+    /** The right-click menu for a voice participant; opening another closes the previous one. */
+    public openCallParticipantMenu = (userId: string): VoiceUserMenuViewModel => {
+        this.closeCallParticipantMenu();
+        this.callParticipantMenu = new VoiceUserMenuViewModel({
+            client: this.props.client,
+            userId,
+            room: this.props.room,
+        });
+        return this.callParticipantMenu;
+    };
+
+    public closeCallParticipantMenu = (): void => {
+        this.callParticipantMenu?.dispose();
+        this.callParticipantMenu = undefined;
     };
 
     private onRoomChanged = (): void => {

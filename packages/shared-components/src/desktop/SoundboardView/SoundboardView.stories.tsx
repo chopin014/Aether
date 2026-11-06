@@ -63,6 +63,7 @@ const meta = {
         suggested: sounds,
         volume: 80,
         busy: false,
+        muted: false,
         uploadLibraryId: "space",
         uploadName: "",
         uploadEmoji: "🔊",
@@ -71,6 +72,9 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Default: Story = {};
+export const Muted: Story = {
+    args: { muted: true },
+};
 export const UploadError: Story = {
     args: { error: "Choose playable audio up to 10 seconds and 512 KB." },
 };

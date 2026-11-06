@@ -3055,7 +3055,9 @@
         "inline_url_previews_encrypted": "Ativar pré-visualizações em salas criptografadas",
         "inline_url_previews_encrypted_bundled_only": "Mostrar apenas pré-visualizações agrupadas em salas criptografadas",
         "show_people_sections": "Mostrar Pessoas como uma seção",
-        "show_sections": "Mostrar seções"
+        "show_sections": "Mostrar seções",
+        "join_all_channels": "Entrar em todos os canais de servidores pequenos",
+        "join_all_channels_description": "Ao entrar em um servidor com até 10 canais, entra em todos de uma vez. Servidores maiores sempre deixam você escolher."
     },
     "share": {
         "link_copied": "Link copiado",
@@ -4341,6 +4343,31 @@
             "save_failed": "Não foi possível salvar este som. Verifique sua conexão e suas permissões. Se o som tiver sido alterado ou removido, cancele e abra-o novamente.",
             "send_failed": "Não foi possível enviar este som para a chamada. Verifique sua conexão e tente novamente.",
             "upload_failed": "Não foi possível enviar este som. Verifique sua conexão e suas permissões na biblioteca e tente novamente."
+        },
+        "promote_peer": {
+            "phrase_many": {
+                "one": "Quero dar a esta pessoa o mesmo poder que eu",
+                "other": "Quero dar a estas %(count)s pessoas o mesmo poder que eu"
+            },
+            "phrase_one": "Quero dar a %(name)s o mesmo poder que eu",
+            "title": "Dar o mesmo poder que você?"
+        },
+        "create_server": {
+            "creating_channels": "Configurando os canais…",
+            "creating_server": "Criando seu servidor…",
+            "default_name": "Servidor de %(name)s",
+            "error": "Não foi possível criar seu servidor. Verifique sua conexão e tente novamente.",
+            "invalid_invite": "Esse convite não parece válido. Cole o link de um servidor ou um endereço como #aether:matrix.org.",
+            "text_channel_name": "geral",
+            "voice_channel_name": "Geral"
+        },
+        "choose_channels": {
+            "error": "Não foi possível entrar em nenhum dos canais. Verifique sua conexão e tente novamente.",
+            "partial_error": "Não foi possível entrar em %(names)s. Tente novamente ou pule esses canais por enquanto.",
+            "title": "Escolha seus canais"
+        },
+        "voice_user_menu": {
+            "invite_failed_title": "Não foi possível convidar para o servidor"
         }
     },
     "create_section_dialog": {
@@ -4376,5 +4403,9 @@
         "tagline_element": "Mais velocidade e simplicidade.",
         "title_element": "Sinta-se no seu elemento",
         "title_generic": "Boas-vindas ao %(brand)s"
+    },
+    "image_crop": {
+        "error": "Não foi possível editar esta imagem. Tente de novo ou escolha outra.",
+        "title": "Editar imagem"
     }
 }

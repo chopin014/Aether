@@ -12,6 +12,8 @@ import { composeStories } from "@storybook/react-vite";
 import { describe, it, expect, vi } from "vitest";
 
 import * as stories from "./RoomListItemView.stories";
+import { MockViewModel } from "../../../../core/viewmodel";
+import type { VoiceUserMenuViewSnapshot } from "../../../../desktop/VoiceUserMenuView";
 
 const {
     Default,
@@ -63,6 +65,73 @@ describe("<RoomListItemView />", () => {
         expect(group).toBeVisible();
         await user.click(screen.getByRole("button", { name: "Bob" }));
         expect(onProfile).toHaveBeenCalledWith("@bob:example.org");
+    });
+
+    it("opens a voice participant's menu on right click and marks people muted for this user", async () => {
+        const user = userEvent.setup();
+        const menu = Object.assign(
+            new MockViewModel<VoiceUserMenuViewSnapshot>({
+                userId: "@bob:example.org",
+                displayName: "Bob",
+                isSelf: false,
+                canMention: true,
+                canMessage: true,
+                canCall: false,
+                volumePercent: 100,
+                muted: true,
+                soundboardMuted: false,
+                videoDisabled: false,
+                microphoneMuted: false,
+                deafened: false,
+                canVerify: false,
+                isIgnored: false,
+                inviteServers: [],
+                roles: [],
+            }),
+            {
+                viewProfile: vi.fn(),
+                mention: vi.fn(),
+                message: vi.fn(),
+                startCall: vi.fn(),
+                setVolume: vi.fn(),
+                toggleMuted: vi.fn(),
+                toggleSoundboardMuted: vi.fn(),
+                toggleVideoDisabled: vi.fn(),
+                toggleMicrophoneMuted: vi.fn(),
+                toggleDeafened: vi.fn(),
+                editProfile: vi.fn(),
+                verify: vi.fn(),
+                inviteToServer: vi.fn(),
+                copyUserId: vi.fn(),
+                toggleIgnore: vi.fn(),
+                setRole: vi.fn(),
+            },
+        );
+        const openMenu = vi.fn(() => menu);
+        const closeMenu = vi.fn();
+        render(
+            <Default
+                channelKind="voice"
+                callParticipants={[
+                    { userId: "@alice:example.org", name: "Alice" },
+                    { userId: "@bob:example.org", name: "Bob", isLocallyMuted: true },
+                ]}
+                openCallParticipantMenu={openMenu}
+                closeCallParticipantMenu={closeMenu}
+            />,
+        );
+        const bob = screen.getByRole("button", { name: "Bob" });
+        expect(within(bob).getByTestId("participant-locally-muted")).toBeInTheDocument();
+        expect(bob).toHaveAttribute("aria-expanded", "false");
+
+        await user.pointer({ keys: "[MouseRight]", target: bob });
+        expect(openMenu).toHaveBeenCalledWith("@bob:example.org");
+        expect(screen.getByRole("menu", { name: "Options for Bob" })).toBeVisible();
+        expect(bob).toHaveAttribute("aria-expanded", "true");
+
+        await user.keyboard("{Escape}");
+        expect(closeMenu).toHaveBeenCalledOnce();
+        expect(screen.queryByRole("menu", { name: "Options for Bob" })).toBeNull();
     });
 
     it("shows how long an occupied voice channel has had people in it", async () => {

@@ -132,6 +132,25 @@ describe("ChannelMenuViewModel", () => {
             expect(vm.getSnapshot().topic).toBe("New");
         });
 
+        it("offers Leave only for rooms outside a server", () => {
+            expect(create().getSnapshot().canLeave).toBe(true);
+
+            spaceStore.activeSpaceRoom = space;
+            expect(create().getSnapshot().canLeave).toBe(false);
+
+            spaceStore.activeSpaceRoom = null;
+            room.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.SpaceParent,
+                    state_key: space.roomId,
+                    room_id: ROOM_ID,
+                    sender: USER_ID,
+                    content: { via: ["example.org"] },
+                }),
+            ]);
+            expect(create().getSnapshot().canLeave).toBe(false);
+        });
+
         it("leaves the Matrix extras to rooms with messages", () => {
             expect(create().getSnapshot().hasMessages).toBe(true);
             vi.spyOn(room, "isCallRoom").mockReturnValue(true);

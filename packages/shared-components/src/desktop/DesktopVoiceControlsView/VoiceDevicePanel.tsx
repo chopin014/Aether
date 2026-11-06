@@ -13,6 +13,7 @@ import { useViewModel } from "../../core/viewmodel";
 import { useI18n } from "../../core/i18n/i18nContext";
 import { DeviceSelect } from "../DesktopVoiceVideoSettingsView/DeviceSelect";
 import { RangeSlider } from "../DesktopVoiceVideoSettingsView/RangeSlider";
+import { MAX_PLAYBACK_VOLUME_PERCENT } from "../playbackVolume";
 import { type DesktopVoiceControlsViewModel } from "./DesktopVoiceControlsView";
 import styles from "./DesktopVoiceControlsView.module.css";
 
@@ -49,7 +50,8 @@ export function VoiceDevicePanel({ vm, kind }: VoiceDevicePanelProps): JSX.Eleme
                     label={input ? _t("desktop|voice|input_volume") : _t("desktop|voice|output_volume")}
                     value={volume}
                     min={0}
-                    max={100}
+                    max={input ? 100 : MAX_PLAYBACK_VOLUME_PERCENT}
+                    mark={input ? undefined : 100}
                     valueText={`${volume}%`}
                     onChange={(percent) =>
                         void (input ? vm.setMicrophoneVolume(percent) : vm.setSpeakerVolume(percent))

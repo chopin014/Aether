@@ -296,6 +296,16 @@
         "selected_hint": "Seu status selecionado neste dispositivo."
     },
     "desktop": {
+        "incoming_call": {
+            "accept": "Aceitar",
+            "accept_video": "Aceitar com vídeo",
+            "accept_voice": "Aceitar sem vídeo",
+            "decline": "Recusar",
+            "incoming": "Chamada recebida…",
+            "incoming_video": "Chamada de vídeo recebida…",
+            "label": "Chamada recebida de %(name)s",
+            "started_by": "%(name)s iniciou uma chamada"
+        },
         "threads": {
             "search": "Buscar tópicos",
             "load_error": "Não foi possível carregar os tópicos. Tente novamente.",
@@ -650,13 +660,10 @@
             "more_camera_options": "Mais opções de câmera",
             "more_microphone_options": "Mais opções de microfone",
             "mute_microphone": "Silenciar microfone",
-            "mute_participant": "Silenciar %(name)s",
             "mute_stream_audio": "Silenciar áudio da transmissão de %(name)s",
             "no_camera_found": "Nenhuma câmera encontrada",
             "output_device_title": "Dispositivo de saída",
-            "participant_audio_options": "Opções de áudio de %(name)s",
             "participant_tile_aria": "Participante %(name)s",
-            "participant_volume_slider_aria": "Volume de %(name)s",
             "popout_call": "Destacar chamada",
             "ready_to_join": "Pronto para entrar",
             "reconnecting": "Reconectando...",
@@ -682,9 +689,7 @@
             "turn_on_camera": "Ativar câmera",
             "unencrypted_media_warning": "Mídia sem criptografia de ponta a ponta",
             "unmute_microphone": "Ativar microfone",
-            "unmute_participant": "Ativar som de %(name)s",
             "unmute_stream_audio": "Ativar áudio da transmissão de %(name)s",
-            "user_volume_title": "Volume do usuário",
             "voice_connected": "Conectado por voz",
             "waiting_for_media": "Conectando mídia...",
             "your_stream_suffix": "%(name)s (Sua transmissão)",
@@ -701,7 +706,16 @@
             "device_permission_error": "Não foi possível acessar os dispositivos: %(message)s",
             "video_only_capture": "Esta captura de tela compartilha apenas vídeo.",
             "reactions": "Reações",
-            "calling_user": "Chamando %(name)s"
+            "calling_user": "Chamando %(name)s",
+            "participant_options": "Opções de %(name)s",
+            "muted_by_you_badge": "Silenciado por você",
+            "lobby_more": "+%(number)s",
+            "lobby_in_voice_one": "%(name)s está em voz",
+            "lobby_in_voice_two": "%(first)s e %(second)s estão em voz",
+            "lobby_in_voice_many": {
+                "one": "%(first)s, %(second)s e mais %(count)s pessoa estão em voz",
+                "other": "%(first)s, %(second)s e mais %(count)s pessoas estão em voz"
+            }
         },
         "share_picker": {
             "title": "Compartilhar sua tela",
@@ -979,6 +993,7 @@
             "emoji": "Emoji",
             "frequently_used": "Usados com frequência",
             "library": "Biblioteca de sons",
+            "muted_hint": "Ative seu microfone para tocar sons para todos.",
             "name": "Nome do som",
             "no_results": "Nenhum som encontrado. Tente outra pesquisa.",
             "preview": "Ouvir %(name)s",
@@ -1031,6 +1046,141 @@
             "group_spacing": "Espaço entre grupos de mensagens",
             "group_spacing_value": "%(size)spx",
             "title": "Exibição das mensagens"
+        },
+        "image_crop": {
+            "animated": "Editar mantém apenas um quadro parado de uma imagem animada.",
+            "apply": "Aplicar",
+            "keep_original": "Usar original",
+            "position": "Posição da imagem",
+            "position_hint": "Arraste ou use as setas para mover a imagem. Pressione + ou - para ampliar.",
+            "reset": "Redefinir",
+            "rotate": "Girar",
+            "zoom": "Zoom"
+        },
+        "promote_peer": {
+            "can_change_roles": "Poderá mudar o cargo de qualquer pessoa, inclusive o seu.",
+            "can_delete": "Poderá excluir canais e remover qualquer pessoa, inclusive você.",
+            "confirm": "Dar o mesmo poder",
+            "description_channel": "%(who)s terá o mesmo poder que você no canal %(room)s.",
+            "description_server": "%(who)s terá o mesmo poder que você em %(room)s.",
+            "irreversible": "Não dá para desfazer: ninguém pode reduzir o poder de quem está no mesmo nível.",
+            "no_paste": "Digite você mesmo — colar está desativado.",
+            "people": {
+                "one": "%(count)s pessoa",
+                "other": "%(count)s pessoas"
+            },
+            "type_to_confirm": "Para confirmar, digite esta frase:"
+        },
+        "create_server": {
+            "audience_community": "Para um clube ou comunidade",
+            "audience_community_description": "Qualquer pessoa com o link pode entrar, e o servidor aparece entre os servidores públicos.",
+            "audience_description": "Para ajudar na configuração, seu novo servidor é só para alguns amigos ou para uma comunidade maior?",
+            "audience_friends": "Para mim e meus amigos",
+            "audience_friends_description": "Só quem você convidar pode entrar.",
+            "audience_skip": "Não tem certeza? Você pode <skip>pular esta pergunta</skip> por enquanto.",
+            "audience_title": "Conte mais sobre o seu servidor",
+            "create_own": "Criar o meu",
+            "customise_description": "Deixe seu novo servidor com a sua cara dando um nome e um ícone a ele. Se quiser, é possível mudar depois.",
+            "customise_title": "Personalize o seu servidor",
+            "explore": "Explorar servidores públicos",
+            "have_invite": "Já tem um convite?",
+            "invite_examples": "Os convites são assim",
+            "invite_label": "Link de convite",
+            "join_description": "Insira um convite abaixo para entrar em um servidor existente.",
+            "join_server": "Entrar em um servidor",
+            "join_title": "Entrar em um servidor",
+            "name_label": "Nome do servidor",
+            "start_description": "Seu servidor é onde você e seus amigos se encontram. Crie o seu e comece a conversar.",
+            "start_title": "Crie seu servidor",
+            "starter_channels": "Ele começa com um canal de texto geral e um canal de voz Geral.",
+            "upload": "Enviar",
+            "upload_icon": "Enviar ícone do servidor"
+        },
+        "choose_channels": {
+            "description": {
+                "one": "%(server)s tem %(count)s canal. Escolha os que você quer; dá para ver os outros depois na visão geral do servidor.",
+                "other": "%(server)s tem %(count)s canais. Escolha os que você quer; dá para ver os outros depois na visão geral do servidor."
+            },
+            "join": {
+                "one": "Entrar em %(count)s canal",
+                "other": "Entrar em %(count)s canais"
+            },
+            "members": {
+                "one": "%(count)s membro",
+                "other": "%(count)s membros"
+            },
+            "select_all": "Selecionar todos",
+            "select_none": "Limpar",
+            "selected": {
+                "one": "%(count)s selecionado",
+                "other": "%(count)s selecionados"
+            },
+            "skip": "Pular por enquanto",
+            "text_channels": "Canais de texto",
+            "title": "Escolha seus canais",
+            "voice_channels": "Canais de voz"
+        },
+        "discover": {
+            "add_server": "Adicionar servidor…",
+            "categories": "Categorias",
+            "category_education": "Educação",
+            "category_entertainment": "Entretenimento",
+            "category_gaming": "Jogos",
+            "category_home": "Início",
+            "category_music": "Música",
+            "category_tech": "Ciência e Tecnologia",
+            "change_directory": "Diretório: %(server)s. Trocar diretório",
+            "directory": "Diretório",
+            "directory_hint": "Cada servidor mantém sua própria lista de comunidades públicas.",
+            "directory_note": "Públicos em %(server)s",
+            "empty_description": "Tente outras palavras, outra categoria ou outro diretório.",
+            "empty_query_title": "Nada encontrado para “%(query)s”",
+            "empty_title": "Nada por aqui ainda",
+            "error_description": "O servidor não respondeu. Verifique sua conexão ou escolha outro diretório.",
+            "error_title": "Não foi possível carregar %(server)s",
+            "hero_rooms_subtitle": "Comunidades de uma sala só, abertas a todos. Dê uma olhada antes de entrar.",
+            "hero_rooms_title": "Explore salas públicas",
+            "hero_spaces_subtitle": "Jogos, música, tecnologia e muito mais. Todo servidor aqui é público, então explore antes de entrar.",
+            "hero_spaces_title": "Encontre sua comunidade",
+            "joined": "Você entrou",
+            "load_more": "Mostrar mais",
+            "members": {
+                "one": "%(formattedCount)s membro",
+                "other": "%(formattedCount)s membros"
+            },
+            "popular_rooms": "Salas populares",
+            "popular_spaces": "Servidores populares",
+            "results_heading": "Resultados para “%(query)s”",
+            "retry": "Tentar novamente",
+            "search_rooms": "Buscar salas públicas",
+            "search_spaces": "Buscar servidores públicos",
+            "section_rooms": "Salas",
+            "section_rooms_description": "Comunidades de uma sala só",
+            "section_spaces": "Servidores",
+            "section_spaces_description": "Comunidades com vários canais",
+            "title": "Descobrir",
+            "your_server": "Seu servidor"
+        },
+        "voice_user_menu": {
+            "copy_user_id": "Copiar ID do usuário",
+            "deafen": "Desativar áudio",
+            "disable_video": "Desativar vídeo",
+            "edit_profile": "Editar perfil",
+            "ignore": "Ignorar",
+            "invite_to_server": "Convidar para o servidor",
+            "mention": "Mencionar",
+            "message": "Mensagem",
+            "mute": "Silenciar",
+            "mute_microphone": "Silenciar",
+            "mute_soundboard": "Silenciar efeitos sonoros",
+            "profile": "Perfil",
+            "roles": "Cargos",
+            "start_call": "Iniciar chamada",
+            "title": "Opções de %(name)s",
+            "unignore": "Parar de ignorar",
+            "user_volume": "Volume do usuário",
+            "user_volume_for": "Volume de %(name)s",
+            "verify": "Verificar"
         }
     },
     "threads": {

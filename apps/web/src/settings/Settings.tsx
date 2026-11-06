@@ -62,6 +62,7 @@ import {
     type SectionExpansionState,
 } from "../stores/room-list-v3/section.ts";
 import { type NotificationSound } from "../Notifier.ts";
+import type { VoiceUserPreference } from "../audio/desktop/VoiceUserPreferences.ts";
 import VideoRoomsBetaImage from "../../res/img/betas/video_rooms.png";
 
 export const defaultWatchManager = new WatchManager();
@@ -357,6 +358,7 @@ export interface Settings {
     "Widgets.pinned": IBaseSetting<{ [widgetId: string]: boolean }>;
     "Widgets.layout": IBaseSetting<ILayoutSettings | null>;
     "Spaces.allRoomsInHome": IBaseSetting<boolean>;
+    "Spaces.joinAllChannels": IBaseSetting<boolean>;
     "Spaces.enabledMetaSpaces": IBaseSetting<Partial<Record<MetaSpace, boolean>>>;
     "developerMode": IBaseSetting<boolean>;
     "debug_scroll_panel": IBaseSetting<boolean>;
@@ -369,6 +371,7 @@ export interface Settings {
     "desktopVoiceSoundToggles": IBaseSetting<Record<string, boolean>>;
     "desktopMicrophoneVolume": IBaseSetting<number>;
     "desktopSpeakerVolume": IBaseSetting<number>;
+    "desktopVoiceUserPreferences": IBaseSetting<Record<string, VoiceUserPreference>>;
     "desktopInputProfile": IBaseSetting<"voice_isolation" | "studio" | "custom">;
     "desktopAnsMigrated": IBaseSetting<boolean>;
     "desktopNoiseSuppression": IBaseSetting<"enhanced" | "standard" | "none">;
@@ -1413,6 +1416,12 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
         supportedLevels: LEVELS_ACCOUNT_SETTINGS,
         default: false,
     },
+    "Spaces.joinAllChannels": {
+        displayName: _td("settings|join_all_channels"),
+        description: _td("settings|join_all_channels_description"),
+        supportedLevels: LEVELS_ACCOUNT_SETTINGS,
+        default: true,
+    },
     "Spaces.enabledMetaSpaces": {
         supportedLevels: LEVELS_ACCOUNT_SETTINGS,
         default: {
@@ -1459,10 +1468,15 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
         default: 100,
     },
-    // Percent of the call volume that is played.
+    // Percent of the call volume that is played, up to 200.
     "desktopSpeakerVolume": {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
         default: 100,
+    },
+    // How each person is played in calls on this device, by Matrix user ID: their volume and what is muted.
+    "desktopVoiceUserPreferences": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS,
+        default: {},
     },
     // Voice isolation chooses the noise suppression, voice detection and sensitivity below by itself.
     "desktopInputProfile": {

@@ -222,9 +222,10 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
      * @param space which space to switch to.
      * @param contextSwitch whether to switch the user's context,
      * should not be done when the space switch is done implicitly due to another event like switching room.
+     * @param reopen switch even if the space is already active, to return to it from a page outside any space.
      */
-    public setActiveSpace(space: SpaceKey, contextSwitch = true): void {
-        if (!space || !this.matrixClient || space === this.activeSpace) return;
+    public setActiveSpace(space: SpaceKey, contextSwitch = true, reopen = false): void {
+        if (!space || !this.matrixClient || (space === this.activeSpace && !reopen)) return;
 
         let cliSpace: Room | null = null;
         if (ModuleApi.instance.extras.spacePanelItems.has(space)) {

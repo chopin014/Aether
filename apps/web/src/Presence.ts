@@ -13,6 +13,7 @@ import { type MatrixClient, type SetPresence } from "matrix-js-sdk/src/matrix";
 import { MatrixClientPeg } from "./MatrixClientPeg";
 import dis from "./dispatcher/dispatcher";
 import { PresenceViewModel } from "./viewmodels/presence/PresenceViewModel";
+import { type PresenceHints } from "./viewmodels/presence/PresenceHints";
 
 class Presence {
     private client?: MatrixClient;
@@ -28,9 +29,12 @@ class Presence {
         return this.model;
     }
 
-    /** Begin activity tracking after the SDK has started. */
-    public async start(): Promise<void> {
-        this.forClient(MatrixClientPeg.safeGet()).start();
+    /**
+     * Begin activity tracking after the SDK has started.
+     * @param hints - other signs that the user is present, such as being in a call or using another app
+     */
+    public async start(hints?: PresenceHints): Promise<void> {
+        this.forClient(MatrixClientPeg.safeGet()).start(hints);
     }
 
     /** Dispose account listeners and timers before logout or a client change. */

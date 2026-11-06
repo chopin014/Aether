@@ -27,6 +27,8 @@ import RolesRoomSettingsTab from "./RolesRoomSettingsTab";
 import { MatrixClientPeg } from "../../../../../MatrixClientPeg";
 import SdkConfig from "../../../../../SdkConfig";
 import { ElementCallEventType, ElementCallMemberEventType } from "../../../../../call-types";
+import Modal from "../../../../../Modal";
+import { PromoteToPeerDialog } from "../../../dialogs/PromoteToPeerDialog";
 
 describe("RolesRoomSettingsTab", () => {
     const userId = "@alice:server.org";
@@ -254,6 +256,44 @@ describe("RolesRoomSettingsTab", () => {
 
         deferred.reject("Error");
         await waitFor(() => expect(selector).toHaveValue("100"));
+    });
+
+    it("asks for a typed confirmation before giving someone the user's own level", async () => {
+        const createDialog = vi
+            .spyOn(Modal, "createDialog")
+            .mockReturnValue({ finished: Promise.resolve([false]) } as unknown as ReturnType<
+                typeof Modal.createDialog
+            >);
+        vi.mocked(cli.getRoom).mockReturnValue(room);
+        // @ts-ignore - mocked doesn't support overloads properly
+        vi.mocked(room.currentState.getStateEvents).mockImplementation((type, key) => {
+            if (key === undefined) return [] as MatrixEvent[];
+            if (type === "m.room.power_levels") {
+                return new MatrixEvent({
+                    sender: "@sender:server",
+                    room_id: roomId,
+                    type: "m.room.power_levels",
+                    state_key: "",
+                    content: { users: { [cli.getUserId()!]: 100, ["@bob:server"]: 50 } },
+                });
+            }
+            return null;
+        });
+        vi.mocked(room.currentState.mayClientSendStateEvent).mockReturnValue(true);
+        vi.mocked(room.getMember).mockReturnValue({ powerLevel: 100 } as any);
+        const { container } = await renderTab();
+
+        const selector = container.querySelector(`[placeholder="@bob:server"]`)!;
+        fireEvent.change(selector, { target: { value: "100" } });
+        const privilegedUsersSection = screen.getByRole("group", { name: "Privileged Users" });
+        await userEvent.click(getByRole(privilegedUsersSection, "button", { name: "Apply" }));
+
+        await waitFor(() =>
+            expect(createDialog).toHaveBeenCalledWith(PromoteToPeerDialog, { room, userIds: ["@bob:server"] }),
+        );
+        expect(cli.sendStateEvent).not.toHaveBeenCalled();
+        await waitFor(() => expect(selector).toHaveValue("50"));
+        createDialog.mockRestore();
     });
 
     it("should allow changing events power levels", async () => {

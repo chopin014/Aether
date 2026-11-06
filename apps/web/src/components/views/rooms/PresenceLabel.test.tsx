@@ -28,6 +28,19 @@ describe("<PresenceLabel/>", () => {
         `);
     });
 
+    it.each([undefined, "unknown", "unsupported"])("should render Offline for unknown presence %s", (presence) => {
+        const { getByText } = render(<PresenceLabel presenceState={presence} />);
+        expect(getByText("Offline")).toBeInTheDocument();
+    });
+
+    it.each([undefined, "unknown", "unsupported"])(
+        "should use the offline duration label for unknown presence %s",
+        (presence) => {
+            const { getByText } = render(<PresenceLabel presenceState={presence} activeAgo={120000} />);
+            expect(getByText("Offline for 2m")).toBeInTheDocument();
+        },
+    );
+
     it("should render 'Unreachable' for presence=unreachable", () => {
         const { asFragment } = render(<PresenceLabel presenceState="io.element.unreachable" />);
         expect(asFragment()).toMatchInlineSnapshot(`

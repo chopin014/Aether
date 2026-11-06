@@ -35,6 +35,8 @@ type RoomListItemProps = RoomListItemViewSnapshot &
 const RoomListItemWrapperImpl = ({
     onOpenActiveThread,
     onViewCallParticipant,
+    openCallParticipantMenu,
+    closeCallParticipantMenu,
     onOpenRoom,
     onIntentToOpen,
     onMarkAsRead,
@@ -59,6 +61,8 @@ const RoomListItemWrapperImpl = ({
     const vm = useMockedViewModel(rest, {
         onOpenActiveThread,
         onViewCallParticipant,
+        openCallParticipantMenu,
+        closeCallParticipantMenu,
         onOpenRoom,
         onIntentToOpen,
         onMarkAsRead,

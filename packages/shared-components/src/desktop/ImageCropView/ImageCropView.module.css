@@ -1,0 +1,166 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.editor {
+    --image-crop-gutter: var(--cpd-space-6x);
+    --track-height: var(--cpd-space-1x);
+    --knob-size: var(--cpd-space-4x);
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-4x);
+    inline-size: 560px;
+    max-inline-size: 100%;
+}
+
+/* The working area shows the whole picture, with everything outside the kept area dimmed. */
+.stage {
+    position: relative;
+    display: grid;
+    place-items: center;
+    block-size: 340px;
+    overflow: hidden;
+    container-type: size;
+    background: var(--cpd-color-bg-subtle-secondary);
+    border-radius: var(--cpd-space-2x);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+.stage:active {
+    cursor: grabbing;
+}
+.stage:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: var(--cpd-border-width-2);
+}
+
+.hint {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* The kept area: as large as the working area allows, at the result's proportions. */
+.frame {
+    --aspect: 1;
+    position: relative;
+    inline-size: min(100cqw - 2 * var(--image-crop-gutter), (100cqh - 2 * var(--image-crop-gutter)) * var(--aspect));
+    aspect-ratio: var(--aspect);
+}
+
+.imageBox {
+    position: absolute;
+    pointer-events: none;
+}
+
+.picture {
+    position: absolute;
+    display: block;
+    max-inline-size: none;
+    transform-origin: center;
+}
+
+.mask {
+    position: absolute;
+    inset: 0;
+    border: var(--cpd-border-width-2) solid var(--cpd-color-text-primary);
+    border-radius: var(--cpd-space-2x);
+    box-shadow: 0 0 0 100vmax color-mix(in srgb, var(--cpd-color-bg-canvas-default) 70%, transparent);
+    pointer-events: none;
+}
+.frame[data-shape="circle"] .mask {
+    border-radius: 50%;
+}
+.frame[data-shape="rounded"] .mask {
+    border-radius: 22%;
+}
+
+.tools,
+.zoom,
+.notice,
+.actions {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-3x);
+}
+.tools {
+    justify-content: space-between;
+}
+.zoom {
+    flex: 1;
+    max-inline-size: 320px;
+    margin-inline: auto;
+    color: var(--cpd-color-icon-secondary);
+}
+.zoomIcon {
+    flex-shrink: 0;
+    inline-size: var(--cpd-space-5x);
+    block-size: var(--cpd-space-5x);
+}
+
+.slider {
+    --position: 0%;
+    flex: 1;
+    min-inline-size: 0;
+    block-size: var(--knob-size);
+    margin: 0;
+    background: transparent;
+    appearance: none;
+    cursor: pointer;
+}
+.slider::-webkit-slider-runnable-track {
+    block-size: var(--track-height);
+    background: linear-gradient(
+        to right,
+        var(--cpd-color-bg-accent-rest) var(--position),
+        var(--cpd-color-border-interactive-secondary) var(--position)
+    );
+    border-radius: var(--cpd-space-1x);
+}
+.slider::-webkit-slider-thumb {
+    inline-size: var(--knob-size);
+    block-size: var(--knob-size);
+    margin-block-start: calc((var(--track-height) - var(--knob-size)) / 2);
+    background: var(--cpd-color-text-on-solid-primary);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-primary);
+    border-radius: 50%;
+    appearance: none;
+}
+.slider:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: var(--cpd-space-1x);
+    border-radius: var(--cpd-space-2x);
+}
+.slider:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.notice {
+    justify-content: space-between;
+    padding: var(--cpd-space-3x) var(--cpd-space-4x);
+    background: var(--cpd-color-bg-subtle-secondary);
+    border-radius: var(--cpd-space-2x);
+}
+.notice p,
+.error {
+    margin: 0;
+}
+.error {
+    color: var(--cpd-color-text-critical-primary);
+}
+
+.actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+.reset {
+    margin-inline-end: auto;
+}
