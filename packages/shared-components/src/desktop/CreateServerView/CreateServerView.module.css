@@ -1,0 +1,210 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.content {
+    display: grid;
+    gap: var(--cpd-space-4x);
+}
+
+.content p {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.header {
+    display: grid;
+    gap: var(--cpd-space-2x);
+    text-align: center;
+    padding-block-end: var(--cpd-space-2x);
+}
+
+.title {
+    margin: 0;
+    color: var(--cpd-color-text-primary);
+}
+
+.secondary {
+    color: var(--cpd-color-text-secondary);
+}
+
+.centred {
+    text-align: center;
+    color: var(--cpd-color-text-secondary);
+}
+
+.option {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-3x);
+    inline-size: 100%;
+    padding: var(--cpd-space-3x) var(--cpd-space-4x);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-canvas-default);
+    color: var(--cpd-color-text-primary);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+}
+
+.option:hover {
+    background: var(--cpd-color-bg-subtle-secondary);
+}
+
+.option:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: var(--cpd-border-width-1);
+}
+
+.optionIcon {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    inline-size: var(--cpd-space-10x);
+    block-size: var(--cpd-space-10x);
+    border-radius: 50%;
+    background: var(--cpd-color-bg-accent-rest);
+    color: var(--cpd-color-icon-on-solid-primary);
+}
+
+.optionIcon svg,
+.chevron {
+    inline-size: var(--cpd-space-6x);
+    block-size: var(--cpd-space-6x);
+}
+
+.optionText {
+    display: grid;
+    flex: 1;
+    gap: var(--cpd-space-0-5x);
+}
+
+.chevron {
+    flex-shrink: 0;
+    color: var(--cpd-color-icon-secondary);
+}
+
+.joinSection {
+    display: grid;
+    gap: var(--cpd-space-3x);
+    justify-items: stretch;
+    text-align: center;
+    padding-block-start: var(--cpd-space-2x);
+}
+
+.link {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--cpd-color-text-link-external);
+    font: inherit;
+    cursor: pointer;
+}
+
+.link:hover {
+    text-decoration: underline;
+}
+
+.avatarRow {
+    display: flex;
+    justify-content: center;
+}
+
+.avatar {
+    position: relative;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: var(--cpd-space-1x);
+    inline-size: calc(var(--cpd-space-10x) * 2);
+    block-size: calc(var(--cpd-space-10x) * 2);
+    padding: 0;
+    border: var(--cpd-border-width-2) dashed var(--cpd-color-border-interactive-primary);
+    border-radius: 50%;
+    background: transparent;
+    color: var(--cpd-color-text-secondary);
+    cursor: pointer;
+}
+
+.avatar:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: var(--cpd-border-width-2);
+}
+
+.avatar:disabled {
+    cursor: default;
+}
+
+.avatarIcon {
+    inline-size: var(--cpd-space-6x);
+    block-size: var(--cpd-space-6x);
+}
+
+.avatarImage {
+    position: absolute;
+    inset: 0;
+    inline-size: 100%;
+    block-size: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.avatarBadge {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-end: 0;
+    display: grid;
+    place-items: center;
+    inline-size: var(--cpd-space-6x);
+    block-size: var(--cpd-space-6x);
+    border-radius: 50%;
+    background: var(--cpd-color-bg-accent-rest);
+    color: var(--cpd-color-icon-on-solid-primary);
+}
+
+.avatarBadge svg {
+    inline-size: var(--cpd-space-4x);
+    block-size: var(--cpd-space-4x);
+}
+
+.field {
+    display: grid;
+    gap: var(--cpd-space-2x);
+}
+
+.required {
+    color: var(--cpd-color-text-critical-primary);
+}
+
+.examples {
+    display: grid;
+    gap: var(--cpd-space-1x);
+}
+
+.error {
+    color: var(--cpd-color-text-critical-primary);
+}
+
+.progress {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-2x);
+    min-block-size: var(--cpd-space-5x);
+    color: var(--cpd-color-text-secondary);
+}
+
+.progress:empty {
+    display: none;
+}
+
+.footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--cpd-space-3x);
+    padding-block-start: var(--cpd-space-2x);
+}

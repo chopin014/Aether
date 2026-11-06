@@ -1045,6 +1045,31 @@
                 "other": "%(count)s pessoas"
             },
             "type_to_confirm": "Para confirmar, digite esta frase:"
+        },
+        "create_server": {
+            "audience_community": "Para um clube ou comunidade",
+            "audience_community_description": "Qualquer pessoa com o link pode entrar, e o servidor aparece entre os servidores públicos.",
+            "audience_description": "Para ajudar na configuração, seu novo servidor é só para alguns amigos ou para uma comunidade maior?",
+            "audience_friends": "Para mim e meus amigos",
+            "audience_friends_description": "Só quem você convidar pode entrar.",
+            "audience_skip": "Não tem certeza? Você pode <skip>pular esta pergunta</skip> por enquanto.",
+            "audience_title": "Conte mais sobre o seu servidor",
+            "create_own": "Criar o meu",
+            "customise_description": "Deixe seu novo servidor com a sua cara dando um nome e um ícone a ele. Se quiser, é possível mudar depois.",
+            "customise_title": "Personalize o seu servidor",
+            "explore": "Explorar servidores públicos",
+            "have_invite": "Já tem um convite?",
+            "invite_examples": "Os convites são assim",
+            "invite_label": "Link de convite",
+            "join_description": "Insira um convite abaixo para entrar em um servidor existente.",
+            "join_server": "Entrar em um servidor",
+            "join_title": "Entrar em um servidor",
+            "name_label": "Nome do servidor",
+            "start_description": "Seu servidor é onde você e seus amigos se encontram. Crie o seu e comece a conversar.",
+            "start_title": "Crie seu servidor",
+            "starter_channels": "Ele começa com um canal de texto geral e um canal de voz Geral.",
+            "upload": "Enviar",
+            "upload_icon": "Enviar ícone do servidor"
         }
     },
     "threads": {

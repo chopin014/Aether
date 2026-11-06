@@ -787,6 +787,15 @@
             "offline": "desktop|contacts|offline",
             "online": "desktop|contacts|online"
         },
+        "create_server": {
+            "creating_channels": "Setting up channels…",
+            "creating_server": "Creating your server…",
+            "default_name": "%(name)s's server",
+            "error": "Your server could not be created. Check your connection and try again.",
+            "invalid_invite": "That invite doesn't look right. Paste a server link or an address like #aether:matrix.org.",
+            "text_channel_name": "general",
+            "voice_channel_name": "General"
+        },
         "delete_channel": {
             "checking": "Checking permissions…",
             "closing": "Closing the channel to new members…",

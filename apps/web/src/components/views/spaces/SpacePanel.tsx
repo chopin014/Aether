@@ -36,6 +36,8 @@ import {
 import { _t } from "../../../languageHandler";
 import { useContextMenu } from "../../structures/ContextMenu";
 import SpaceCreateMenu from "./SpaceCreateMenu";
+import { CreateServerDialog } from "../dialogs/CreateServerDialog";
+import Modal from "../../../Modal";
 import { SpaceButton, SpaceItem } from "./SpaceTreeLevel";
 import { useEventEmitter, useEventEmitterState } from "../../../hooks/useEventEmitter";
 import {
@@ -227,6 +229,7 @@ const CreateSpaceButton: React.FC<Pick<IInnerSpacePanelProps, "isPanelCollapsed"
     setPanelCollapsed,
 }) => {
     const [menuDisplayed, handle, openMenu, closeMenu] = useContextMenu<HTMLDivElement>();
+    const desktopShellEnabled = useSettingValue("feature_desktop_shell");
 
     useEffect(() => {
         if (!isPanelCollapsed && menuDisplayed) {
@@ -239,12 +242,15 @@ const CreateSpaceButton: React.FC<Pick<IInnerSpacePanelProps, "isPanelCollapsed"
         contextMenu = <SpaceCreateMenu onFinished={closeMenu} />;
     }
 
-    const onNewClick = menuDisplayed
-        ? closeMenu
-        : () => {
-              if (!isPanelCollapsed) setPanelCollapsed(true);
-              openMenu();
-          };
+    const onNewClick = desktopShellEnabled
+        ? // The desktop shell creates or joins servers in a Discord-style dialog.
+          () => Modal.createDialog(CreateServerDialog)
+        : menuDisplayed
+          ? closeMenu
+          : () => {
+                if (!isPanelCollapsed) setPanelCollapsed(true);
+                openMenu();
+            };
 
     return (
         <li

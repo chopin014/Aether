@@ -28,6 +28,8 @@ import UnwrappedSpacePanel from "./SpacePanel";
 import defaultDispatcher from "../../../dispatcher/dispatcher";
 import { Action } from "../../../dispatcher/actions";
 import { Filter } from "../dialogs/spotlight/Filter";
+import Modal from "../../../Modal";
+import { CreateServerDialog } from "../dialogs/CreateServerDialog";
 
 // DND test utilities based on
 // https://github.com/colinrobertbrooks/react-beautiful-dnd-test-utils/issues/18#issuecomment-1373388693
@@ -280,18 +282,15 @@ describe("<SpacePanel />", () => {
             }
         });
 
-        it("should retain the separate Create a server menu", () => {
-            const dispatch = vi.spyOn(defaultDispatcher, "dispatch");
+        it("should open the Discord-style server dialog instead of the old menu", () => {
+            const createDialog = vi.spyOn(Modal, "createDialog").mockReturnValue({} as never);
             try {
                 render(<SpacePanel />);
                 fireEvent.click(screen.getByRole("button", { name: "Create a server" }));
-                expect(screen.getByRole("heading", { name: "Create a server" })).toBeVisible();
-                expect(screen.getByRole("button", { name: /^Public/ })).toBeVisible();
-                expect(screen.getByRole("button", { name: /^Private/ })).toBeVisible();
-                expect(screen.getByRole("button", { name: "Discover public servers" })).toBeVisible();
-                expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ action: Action.OpenSpotlight }));
+                expect(createDialog).toHaveBeenCalledWith(CreateServerDialog);
+                expect(screen.queryByRole("button", { name: /^Public/ })).not.toBeInTheDocument();
             } finally {
-                dispatch.mockRestore();
+                createDialog.mockRestore();
             }
         });
 

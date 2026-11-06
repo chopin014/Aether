@@ -4349,6 +4349,15 @@
             },
             "phrase_one": "Quero dar a %(name)s o mesmo poder que eu",
             "title": "Dar o mesmo poder que você?"
+        },
+        "create_server": {
+            "creating_channels": "Configurando os canais…",
+            "creating_server": "Criando seu servidor…",
+            "default_name": "Servidor de %(name)s",
+            "error": "Não foi possível criar seu servidor. Verifique sua conexão e tente novamente.",
+            "invalid_invite": "Esse convite não parece válido. Cole o link de um servidor ou um endereço como #aether:matrix.org.",
+            "text_channel_name": "geral",
+            "voice_channel_name": "Geral"
         }
     },
     "create_section_dialog": {
