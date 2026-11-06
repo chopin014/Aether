@@ -89,6 +89,7 @@ const { vmSpies } = vi.hoisted(() => ({
     vmSpies: {
         setShowReadReceipts: vi.fn(),
         jumpToLive: vi.fn(),
+        showEvent: vi.fn(),
         jumpToReadMarker: vi.fn(),
         scrollToEventIfNeeded: vi.fn(),
         sendReadReceiptNow: vi.fn(),
@@ -106,6 +107,7 @@ vi.mock("../../viewmodels/room/timeline/RoomTimelineViewModel", () => ({
         }
         public setShowReadReceipts = vmSpies.setShowReadReceipts;
         public jumpToLive = vmSpies.jumpToLive;
+        public showEvent = vmSpies.showEvent;
         public jumpToReadMarker = vmSpies.jumpToReadMarker;
         public scrollToEventIfNeeded = vmSpies.scrollToEventIfNeeded;
         public sendReadReceiptNow = vmSpies.sendReadReceiptNow;
@@ -172,6 +174,7 @@ describe("<NewTimelinePanel />", () => {
         for (const spy of [
             vmSpies.setShowReadReceipts,
             vmSpies.jumpToLive,
+            vmSpies.showEvent,
             vmSpies.jumpToReadMarker,
             vmSpies.scrollToEventIfNeeded,
             vmSpies.sendReadReceiptNow,
@@ -384,6 +387,32 @@ describe("<NewTimelinePanel />", () => {
             expect(vmSpies.sendReadReceiptNow).toHaveBeenCalledTimes(1);
             // The panel remembers its own position, so the room view has none to save.
             expect(panel.getScrollState).toBeUndefined();
+        });
+
+        it("shows messages navigated to after opening, including the same one again", () => {
+            withItems([eventRow(event)]);
+            const scrolledIntoView = vi.fn();
+            const panel = (props: Partial<React.ComponentProps<typeof NewTimelinePanel>>): React.ReactElement => (
+                <MatrixClientContext.Provider value={client}>
+                    <SDKContext.Provider value={new TestSDKContext()}>
+                        <NewTimelinePanel room={room} onEventScrolledIntoView={scrolledIntoView} {...props} />
+                    </SDKContext.Provider>
+                </MatrixClientContext.Provider>
+            );
+            const { rerender } = render(panel({ highlightedEventId: "$first", eventScrollIntoView: true }));
+            // The view model opens at the first one itself.
+            expect(vmSpies.showEvent).not.toHaveBeenCalled();
+            expect(scrolledIntoView).toHaveBeenLastCalledWith("$first");
+
+            rerender(panel({ highlightedEventId: "$first", eventScrollIntoView: false }));
+            rerender(panel({ highlightedEventId: "$second", eventScrollIntoView: true }));
+            expect(vmSpies.showEvent).toHaveBeenLastCalledWith("$second");
+            rerender(panel({ highlightedEventId: "$second", eventScrollIntoView: false }));
+            expect(vmSpies.showEvent).toHaveBeenCalledTimes(1);
+
+            // Going to the same message again.
+            rerender(panel({ highlightedEventId: "$second", eventScrollIntoView: true }));
+            expect(vmSpies.showEvent).toHaveBeenCalledTimes(2);
         });
 
         it("scrolls a page at a time and jumps to either end from the keyboard", () => {

@@ -72,6 +72,13 @@ interface NewTimelinePanelProps {
     showReadReceipts?: boolean;
     /** Receives the panel's controls, which the room view uses for shortcuts, sending and editing. */
     panelRef?: Ref<RoomMessagePanel>;
+    /**
+     * Whether `highlightedEventId` still has to be brought into view. The room view sets it for each navigation
+     * to a message and clears it through `onEventScrolledIntoView`, so going to the same message again works.
+     */
+    eventScrollIntoView?: boolean;
+    /** Called once a navigation to `highlightedEventId` has been handled. */
+    onEventScrolledIntoView?: (eventId?: string) => void;
 }
 
 /** How far Page Up and Page Down move, as a share of the visible height, keeping some context on screen. */
@@ -202,6 +209,8 @@ export function NewTimelinePanel({
     editState,
     showReadReceipts = true,
     panelRef,
+    eventScrollIntoView,
+    onEventScrolledIntoView,
 }: Readonly<NewTimelinePanelProps>): JSX.Element {
     const client: MatrixClient = useMatrixClientContext();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -249,6 +258,19 @@ export function NewTimelinePanel({
         vm.start();
         // Disposal is handled by useCreateAutoDisposedViewModel; no cleanup needed here.
     }, [vm]);
+
+    // The highlighted message the panel opens with is the view model's starting point. Later navigations, from
+    // permalinks, replies, pinned messages or search in the room already open, are shown in place.
+    const lastNavigation = useRef({ eventId: highlightedEventId, scrollIntoView: eventScrollIntoView });
+    useEffect(() => {
+        const previous = lastNavigation.current;
+        lastNavigation.current = { eventId: highlightedEventId, scrollIntoView: eventScrollIntoView };
+        if (!highlightedEventId || eventScrollIntoView === false) return;
+        if (highlightedEventId !== previous.eventId || previous.scrollIntoView === false) {
+            vm.showEvent(highlightedEventId);
+        }
+        onEventScrolledIntoView?.(highlightedEventId);
+    }, [vm, highlightedEventId, eventScrollIntoView, onEventScrolledIntoView]);
 
     useImperativeHandle(
         panelRef,

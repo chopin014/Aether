@@ -1175,6 +1175,25 @@ export class RoomTimelineViewModel
         );
     }
 
+    /**
+     * Show a message and highlight it, such as one a permalink, a reply or a pinned message points at in the room
+     * already open. A message in the window is scrolled to; any other is loaded with the history around it.
+     * @param eventId - The message.
+     */
+    public showEvent(eventId: string): void {
+        if (this.isDisposed) return;
+        const loaded = this.snapshot.current.items.some((item) => item.key === eventId);
+        if (loaded) {
+            this.navigationEventId = eventId;
+            this.mergeSnapshot(
+                { highlightedEventId: eventId, pendingAnchor: { targetKey: eventId, align: "center" } },
+                "show-event",
+            );
+        } else {
+            void this.load({ kind: "permalink", eventId });
+        }
+    }
+
     /** Show the unread line, loading history around it when it is not in the window. */
     public jumpToReadMarker(): void {
         const marker = this.snapshot.current.items.find((item) => item.kind === "read-marker");

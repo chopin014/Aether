@@ -740,6 +740,21 @@ describe("RoomTimelineViewModel", () => {
             expect(vm.getSnapshot().pendingAnchor).toBeNull();
         });
 
+        it("shows and highlights a message in the open room, loading it when it is not in the window", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+
+            vm.showEvent("$a");
+            expect(vm.getSnapshot().highlightedEventId).toBe("$a");
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$a", align: "center" });
+
+            vm.onAnchorReached();
+            const load = vi.spyOn((vm as any).timelineWindow, "load").mockResolvedValue(undefined);
+            vm.showEvent("$elsewhere");
+            expect(load).toHaveBeenCalledWith("$elsewhere", expect.any(Number));
+        });
+
         it("brings a loaded message into view only when it is not visible", async () => {
             seedTimeline([makeMessage("$a"), makeMessage("$b"), makeMessage("$c")]);
             const vm = await createStartedViewModel();
