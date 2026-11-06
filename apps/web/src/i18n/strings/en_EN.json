@@ -457,7 +457,6 @@
         "spaceinvaders_message": "sends space invaders"
     },
     "common": {
-        "access_token": "Access Token",
         "accessibility": "Accessibility",
         "advanced": "Advanced",
         "all_chats": "All Chats",
@@ -2632,7 +2631,6 @@
     },
     "setting": {
         "help_about": {
-            "access_token_detail": "Your access token gives full access to your account. Do not share it with anyone.",
             "brand_version": "%(brand)s version:",
             "clear_cache_reload": "Clear cache and reload",
             "crypto_version": "Crypto version:",

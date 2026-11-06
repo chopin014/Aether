@@ -457,7 +457,6 @@
         "spaceinvaders_message": "envia os invasores do espaço"
     },
     "common": {
-        "access_token": "Símbolo de acesso",
         "accessibility": "Acessibilidade",
         "advanced": "Avançado",
         "all_chats": "Todos os bate-papos",
@@ -2462,7 +2461,6 @@
     },
     "setting": {
         "help_about": {
-            "access_token_detail": "Seu token de acesso dá acesso total à sua conta. Não o compartilhe com ninguém.",
             "brand_version": "versão do %(brand)s:",
             "clear_cache_reload": "Limpar cache e recarregar",
             "crypto_version": "Versão Crypto:",

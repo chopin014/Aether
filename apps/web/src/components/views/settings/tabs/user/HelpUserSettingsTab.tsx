@@ -293,17 +293,6 @@ export default class HelpUserSettingsTab extends React.Component<EmptyObject, IS
                                 )}
                             </SettingsSubsectionText>
                         )}
-                        <SettingsSubsectionText>
-                            <details>
-                                <summary className="mx_HelpUserSettingsTab_accessTokenDetails">
-                                    {_t("common|access_token")}
-                                </summary>
-                                <strong>{_t("setting|help_about|access_token_detail")}</strong>
-                                <CopyableText getTextToCopy={() => this.context.getAccessToken()}>
-                                    {this.context.getAccessToken()}
-                                </CopyableText>
-                            </details>
-                        </SettingsSubsectionText>
                         <AccessibleButton onClick={this.onClearCacheAndReload} kind="danger_outline">
                             {_t("setting|help_about|clear_cache_reload")}
                         </AccessibleButton>
