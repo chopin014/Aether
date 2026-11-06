@@ -1470,6 +1470,10 @@
         "url_field_label": "Enter a new identity server",
         "url_not_https": "Identity server URL must be HTTPS"
     },
+    "image_crop": {
+        "error": "This image could not be edited. Try again or pick another one.",
+        "title": "Edit image"
+    },
     "in_space": "In %(spaceName)s.",
     "in_space1_and_space2": "In servers %(space1Name)s and %(space2Name)s.",
     "in_space_and_n_other_spaces": {
