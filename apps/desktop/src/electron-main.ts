@@ -11,6 +11,7 @@ Please see LICENSE files in the repository root for full details.
 // Squirrel on windows starts the app with various flags as hooks to tell us when we've been installed/uninstalled etc.
 import "./squirrelhooks.js";
 import { setupDesktopAudio, selectPortalDesktopAudio } from "./desktop-audio.js";
+import { configureMediaAcceleration } from "./mediaAcceleration.js";
 
 import { app, BrowserWindow, Menu, dialog, type Input, type Event, session, protocol, desktopCapturer } from "electron";
 import path from "node:path";
@@ -140,6 +141,8 @@ const store = Store.initialize(args.storageMode); // must be called before any a
 if (store.get("disableHardwareAcceleration")) {
     console.log("Disabling hardware acceleration.");
     app.disableHardwareAcceleration();
+} else {
+    configureMediaAcceleration(app.commandLine, process.platform);
 }
 
 app.on("ready", async () => {
