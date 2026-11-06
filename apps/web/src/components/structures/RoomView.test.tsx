@@ -443,6 +443,18 @@ describe("RoomView", () => {
         expect(cli.members).toHaveBeenCalledTimes(1);
     });
 
+    it("leaves the jump-to-latest and unread buttons to the MVVM timeline, which draws its own", async () => {
+        const getValue = SettingsStore.getValue.bind(SettingsStore);
+        vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+            name === "feature_new_timeline" ? true : getValue(name, ...args),
+        );
+        vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+        const { container } = await mountRoomView();
+        await waitFor(() => expect(container.querySelector(".mx_NewTimelinePanel")).not.toBeNull());
+        expect(container.querySelector(".mx_JumpToBottomButton")).toBeNull();
+        expect(container.querySelector(".mx_TopUnreadMessagesBar")).toBeNull();
+    });
+
     describe("desktop pinned messages", () => {
         let desktopShell: boolean;
         let pinnedEvent: MatrixEvent;

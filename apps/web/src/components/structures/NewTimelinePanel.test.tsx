@@ -15,6 +15,7 @@ import type { TimelineItem } from "@element-hq/web-shared-components";
 import { createTestClient, mkMembership, mkMessage, TestSDKContext } from "test-utils";
 
 import { NewTimelinePanel } from "./NewTimelinePanel";
+import type { RoomMessagePanel } from "./RoomMessagePanel";
 import { Layout } from "../../settings/enums/Layout";
 import EditorStateTransfer from "../../utils/EditorStateTransfer";
 import MatrixClientContext from "../../contexts/MatrixClientContext";
@@ -50,7 +51,11 @@ vi.mock("@element-hq/web-shared-components", async () => {
             const items = vm.getSnapshot().items;
             rowsRendered.current = items;
             paintedItems.current = onItemsPainted;
-            return <div data-testid="timeline-stub">{items.map((item) => renderItem(item))}</div>;
+            return (
+                <div data-testid="timeline-scroller">
+                    <div data-testid="timeline-stub">{items.map((item) => renderItem(item))}</div>
+                </div>
+            );
         },
     };
 });
@@ -81,7 +86,17 @@ const { vmState } = vi.hoisted(() => ({
 }));
 
 const { vmSpies } = vi.hoisted(() => ({
-    vmSpies: { setShowReadReceipts: vi.fn(), constructorOpts: [] as Record<string, unknown>[] },
+    vmSpies: {
+        setShowReadReceipts: vi.fn(),
+        jumpToLive: vi.fn(),
+        jumpToReadMarker: vi.fn(),
+        scrollToEventIfNeeded: vi.fn(),
+        sendReadReceiptNow: vi.fn(),
+        onMarkAllAsRead: vi.fn(),
+        constructorOpts: [] as Record<string, unknown>[],
+        isAtLiveBottom: false,
+        canJumpToReadMarker: false,
+    },
 }));
 
 vi.mock("../../viewmodels/room/timeline/RoomTimelineViewModel", () => ({
@@ -90,6 +105,17 @@ vi.mock("../../viewmodels/room/timeline/RoomTimelineViewModel", () => ({
             vmSpies.constructorOpts.push(opts);
         }
         public setShowReadReceipts = vmSpies.setShowReadReceipts;
+        public jumpToLive = vmSpies.jumpToLive;
+        public jumpToReadMarker = vmSpies.jumpToReadMarker;
+        public scrollToEventIfNeeded = vmSpies.scrollToEventIfNeeded;
+        public sendReadReceiptNow = vmSpies.sendReadReceiptNow;
+        public onMarkAllAsRead = vmSpies.onMarkAllAsRead;
+        public get isAtLiveBottom(): boolean {
+            return vmSpies.isAtLiveBottom;
+        }
+        public get canJumpToReadMarker(): boolean {
+            return vmSpies.canJumpToReadMarker;
+        }
         public start = (): void => {};
         public dispose = (): void => {};
         public subscribe = (): (() => void) => (): void => {};
@@ -143,7 +169,18 @@ describe("<NewTimelinePanel />", () => {
         tileProps.current = [];
         rowsRendered.current = [];
         vmState.setRows([]);
-        vmSpies.setShowReadReceipts.mockReset();
+        for (const spy of [
+            vmSpies.setShowReadReceipts,
+            vmSpies.jumpToLive,
+            vmSpies.jumpToReadMarker,
+            vmSpies.scrollToEventIfNeeded,
+            vmSpies.sendReadReceiptNow,
+            vmSpies.onMarkAllAsRead,
+        ]) {
+            spy.mockReset();
+        }
+        vmSpies.isAtLiveBottom = false;
+        vmSpies.canJumpToReadMarker = false;
         vmSpies.constructorOpts = [];
         client = createTestClient();
         room = new Room(ROOM_ID, client, USER_ID, { pendingEventOrdering: PendingEventOrdering.Detached });
@@ -316,6 +353,59 @@ describe("<NewTimelinePanel />", () => {
         // Nothing has reacted, so there are no relations to find — but the lookup
         // has to reach the room without throwing.
         expect(getRelationsForEvent(event.getId()!, "m.annotation", "m.reaction")).toBeUndefined();
+    });
+
+    describe("controls for the room view", () => {
+        it("passes the room view's requests to the view model", () => {
+            withItems([eventRow(event)]);
+            const ref = React.createRef<RoomMessagePanel>();
+            renderPanel({ panelRef: ref });
+            const panel = ref.current!;
+
+            expect(panel.isAtEndOfLiveTimeline()).toBe(false);
+            expect(panel.canResetTimeline()).toBe(false);
+            vmSpies.isAtLiveBottom = true;
+            vmSpies.canJumpToReadMarker = true;
+            expect(panel.isAtEndOfLiveTimeline()).toBe(true);
+            expect(panel.canResetTimeline()).toBe(true);
+            expect(panel.canJumpToReadMarker()).toBe(true);
+
+            panel.jumpToLiveTimeline();
+            panel.jumpToReadMarker();
+            void panel.forgetReadMarker();
+            panel.scrollToEventIfNeeded("$edited");
+            panel.scrollToEventIfNeeded();
+            void panel.sendReadReceipts();
+            void panel.updateReadMarker();
+            expect(vmSpies.jumpToLive).toHaveBeenCalledTimes(1);
+            expect(vmSpies.jumpToReadMarker).toHaveBeenCalledTimes(1);
+            expect(vmSpies.onMarkAllAsRead).toHaveBeenCalledTimes(1);
+            expect(vmSpies.scrollToEventIfNeeded).toHaveBeenCalledExactlyOnceWith("$edited");
+            expect(vmSpies.sendReadReceiptNow).toHaveBeenCalledTimes(1);
+            // The panel remembers its own position, so the room view has none to save.
+            expect(panel.getScrollState).toBeUndefined();
+        });
+
+        it("scrolls a page at a time and jumps to either end from the keyboard", () => {
+            withItems([eventRow(event)]);
+            const ref = React.createRef<RoomMessagePanel>();
+            renderPanel({ panelRef: ref });
+            const scroller = screen.getByTestId("timeline-scroller");
+            Object.defineProperty(scroller, "clientHeight", { value: 500 });
+            scroller.scrollBy = vi.fn();
+            scroller.scrollTo = vi.fn();
+
+            ref.current!.handleScrollKey(new KeyboardEvent("keydown", { key: "PageUp" }));
+            expect(scroller.scrollBy).toHaveBeenLastCalledWith({ top: -450 });
+            ref.current!.handleScrollKey(new KeyboardEvent("keydown", { key: "PageDown" }));
+            expect(scroller.scrollBy).toHaveBeenLastCalledWith({ top: 450 });
+            ref.current!.handleScrollKey(new KeyboardEvent("keydown", { key: "Home", ctrlKey: true }));
+            expect(scroller.scrollTo).toHaveBeenCalledWith({ top: 0 });
+            ref.current!.handleScrollKey(new KeyboardEvent("keydown", { key: "End", ctrlKey: true }));
+            expect(vmSpies.jumpToLive).toHaveBeenCalledTimes(1);
+            ref.current!.handleScrollKey(new KeyboardEvent("keydown", { key: "a" }));
+            expect(scroller.scrollBy).toHaveBeenCalledTimes(2);
+        });
     });
 
     describe("read receipts", () => {

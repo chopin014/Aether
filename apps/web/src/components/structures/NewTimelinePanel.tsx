@@ -5,7 +5,16 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import React, { useCallback, useEffect, useRef, useState, type JSX, type ReactNode } from "react";
+import React, {
+    useCallback,
+    useEffect,
+    useImperativeHandle,
+    useRef,
+    useState,
+    type JSX,
+    type ReactNode,
+    type Ref,
+} from "react";
 import {
     TimelineView,
     useCreateAutoDisposedViewModel,
@@ -37,6 +46,9 @@ import type EditorStateTransfer from "../../utils/EditorStateTransfer";
 import { DateSeparatorWrapper } from "./DateSeparatorWrapper";
 import EventListSummary from "../views/elements/EventListSummary";
 import type { IReadReceiptPosition } from "../views/rooms/ReadReceiptMarker";
+import { getKeyBindingsManager } from "../../KeyBindingsManager";
+import { KeyBindingAction } from "../../accessibility/KeyboardShortcuts";
+import type { RoomMessagePanel } from "./RoomMessagePanel";
 
 interface NewTimelinePanelProps {
     room: Room;
@@ -58,7 +70,12 @@ interface NewTimelinePanelProps {
     editState?: EditorStateTransfer;
     /** Whether other users' read receipts are drawn beside messages (the `showReadReceipts` setting). */
     showReadReceipts?: boolean;
+    /** Receives the panel's controls, which the room view uses for shortcuts, sending and editing. */
+    panelRef?: Ref<RoomMessagePanel>;
 }
+
+/** How far Page Up and Page Down move, as a share of the visible height, keeping some context on screen. */
+const PAGE_SCROLL_FRACTION = 0.9;
 
 /** Everything a timeline row needs from the panel to draw itself. */
 interface RenderItemContext {
@@ -171,8 +188,8 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNo
 }
 
 /**
- * New MVVM-based timeline panel, rendered behind the `feature_new_timeline` Labs flag.
- * Uses the shared TimelineView from shared-components with a RoomTimelineViewModel.
+ * The MVVM room timeline: the shared TimelineView from shared-components with a RoomTimelineViewModel. Used
+ * unless `feature_new_timeline` is turned off.
  */
 export function NewTimelinePanel({
     room,
@@ -184,8 +201,10 @@ export function NewTimelinePanel({
     showReactions,
     editState,
     showReadReceipts = true,
+    panelRef,
 }: Readonly<NewTimelinePanelProps>): JSX.Element {
     const client: MatrixClient = useMatrixClientContext();
+    const containerRef = useRef<HTMLDivElement>(null);
     const [entryPainted, setEntryPainted] = useState(false);
     const onItemsPainted = useCallback(
         (items: TimelineItem[]): void => {
@@ -230,6 +249,47 @@ export function NewTimelinePanel({
         vm.start();
         // Disposal is handled by useCreateAutoDisposedViewModel; no cleanup needed here.
     }, [vm]);
+
+    useImperativeHandle(
+        panelRef,
+        (): RoomMessagePanel => ({
+            isAtEndOfLiveTimeline: () => vm.isAtLiveBottom,
+            // Like the old timeline: the SDK may replace the live timeline while the reader is at its end. The view
+            // model follows on to the new one, or keeps a reader of older messages where they are.
+            canResetTimeline: () => vm.isAtLiveBottom,
+            canJumpToReadMarker: () => vm.canJumpToReadMarker,
+            jumpToLiveTimeline: () => vm.jumpToLive(),
+            jumpToReadMarker: () => vm.jumpToReadMarker(),
+            forgetReadMarker: () => vm.onMarkAllAsRead(),
+            scrollToEventIfNeeded: (eventId?: string) => {
+                if (eventId) vm.scrollToEventIfNeeded(eventId);
+            },
+            handleScrollKey: (ev) => {
+                const scroller = containerRef.current?.querySelector<HTMLElement>("[data-testid='timeline-scroller']");
+                if (!scroller) return;
+                switch (getKeyBindingsManager().getRoomAction(ev)) {
+                    case KeyBindingAction.ScrollUp:
+                        scroller.scrollBy({ top: -scroller.clientHeight * PAGE_SCROLL_FRACTION });
+                        break;
+                    case KeyBindingAction.ScrollDown:
+                        scroller.scrollBy({ top: scroller.clientHeight * PAGE_SCROLL_FRACTION });
+                        break;
+                    case KeyBindingAction.JumpToFirstMessage:
+                        // Reaching the top loads older history, as scrolling there does.
+                        scroller.scrollTo({ top: 0 });
+                        break;
+                    case KeyBindingAction.JumpToLatestMessage:
+                        vm.jumpToLive();
+                        break;
+                }
+            },
+            sendReadReceipts: () => vm.sendReadReceiptNow(),
+            // The unread line stays where it was for the whole visit, as in Element X; the fully-read marker moves
+            // when the room is left, or at once when the reader marks the room as read.
+            updateReadMarker: () => {},
+        }),
+        [vm],
+    );
 
     // The setting can change while the room is open.
     useEffect(() => {
@@ -296,6 +356,7 @@ export function NewTimelinePanel({
 
     return (
         <div
+            ref={containerRef}
             className={classNames("mx_NewTimelinePanel mx_RoomView_messagePanel mx_RoomView_messageListWrapper", {
                 mx_NewTimelinePanel_hidden: hidden,
             })}

@@ -82,6 +82,7 @@ import { type IMatrixClientCreds } from "../../utils/createMatrixClient";
 import { useMatrixClientContext } from "../../contexts/MatrixClientContext";
 import ScrollPanel from "./ScrollPanel";
 import TimelinePanel from "./TimelinePanel";
+import type { RoomMessagePanel } from "./RoomMessagePanel";
 import { NewTimelinePanel } from "./NewTimelinePanel";
 import ErrorBoundary from "../views/elements/ErrorBoundary";
 import RoomPreviewBar from "../views/rooms/RoomPreviewBar";
@@ -459,7 +460,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     private roomView = createRef<HTMLDivElement>();
     private conversationCallStage = createRef<Resizable>();
     private searchResultsPanel = createRef<ScrollPanel>();
-    private messagePanel: TimelinePanel | null = null;
+    private messagePanel: RoomMessagePanel | null = null;
     private roomViewBody = createRef<HTMLDivElement>();
 
     private roomViewStore: RoomViewStore;
@@ -2150,7 +2151,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             return null;
         }
 
-        const scrollState = messagePanel.getScrollState();
+        const scrollState = messagePanel.getScrollState?.();
 
         // getScrollState on TimelinePanel *may* return null, so guard against that
         if (!scrollState || scrollState.stuckAtBottom) {
@@ -2188,7 +2189,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
      * We pass it down to the scroll panel.
      */
     public handleScrollKey = (ev: React.KeyboardEvent | KeyboardEvent): void => {
-        let panel: ScrollPanel | TimelinePanel | undefined;
+        let panel: ScrollPanel | RoomMessagePanel | undefined;
         if (this.searchResultsPanel.current) {
             panel = this.searchResultsPanel.current;
         } else if (this.messagePanel) {
@@ -2210,7 +2211,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
 
     // this has to be a proper method rather than an unnamed function,
     // otherwise react calls it with null on each update.
-    private gatherTimelinePanelRef = (r: TimelinePanel | null): void => {
+    private gatherTimelinePanelRef = (r: RoomMessagePanel | null): void => {
         this.messagePanel = r;
     };
 
@@ -2737,13 +2738,14 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
 
         let messagePanel: JSX.Element | undefined;
         if (!isRoomEncryptionLoading && SettingsStore.getValue("feature_new_timeline")) {
-            // New MVVM timeline behind the Labs flag. It manages its own scrolling, read
-            // receipts and read marker, so none of TimelinePanel's plumbing is mounted.
-            // The `messagePanel` ref stays null; every RoomView use of it is null-guarded.
+            // The MVVM timeline manages its own scrolling, read receipts and read marker, so none of
+            // TimelinePanel's plumbing is mounted. It still answers the room view's requests through
+            // `messagePanel`, so shortcuts, sending and editing behave as with the old timeline.
             messagePanel = (
                 <EventPresentationContextProvider layout={this.state.layout}>
                     <NewTimelinePanel
                         key={this.state.room.roomId}
+                        panelRef={this.gatherTimelinePanelRef}
                         room={this.state.room}
                         hidden={hideMessagePanel}
                         highlightedEventId={highlightedEventId}
@@ -2789,16 +2791,18 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             );
         }
 
+        // The MVVM timeline draws its own jump-to-unread and jump-to-latest buttons.
+        const timelineHasOwnOverlays = SettingsStore.getValue("feature_new_timeline");
         let topUnreadMessagesBar: JSX.Element | undefined;
         // Do not show TopUnreadMessagesBar if we have search results showing, it makes no sense
-        if (this.state.showTopUnreadMessagesBar && !this.state.search) {
+        if (!timelineHasOwnOverlays && this.state.showTopUnreadMessagesBar && !this.state.search) {
             topUnreadMessagesBar = (
                 <TopUnreadMessagesBar onScrollUpClick={this.jumpToReadMarker} onCloseClick={this.forgetReadMarker} />
             );
         }
         let jumpToBottom;
         // Do not show JumpToBottomButton if we have search results showing, it makes no sense
-        if (this.state.atEndOfLiveTimeline === false && !this.state.search) {
+        if (!timelineHasOwnOverlays && this.state.atEndOfLiveTimeline === false && !this.state.search) {
             jumpToBottom = (
                 <JumpToBottomButton
                     highlight={this.state.room.getUnreadNotificationCount(NotificationCountType.Highlight) > 0}
