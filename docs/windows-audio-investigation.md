@@ -146,8 +146,12 @@ An accidentally installed older scalar denoiser is ruled out for this capture.
 - Native snapshots found the renderer's AudioWorklet thread at priority 15. A later snapshot reported no explicit
   execution-speed throttling on that renderer or worklet. These snapshots do not establish their scheduling
   state during the cut.
-- A minimize/restore experiment was attempted, but computer-control interruptions prevented exporting a verified
-  matching visibility capture. Background throttling or occlusion remains untested.
+- A later 120-second minimize/restore capture recorded matching raw/context clocks and document visibility.
+  After discarding three seconds at each visibility transition, a hidden interval delivered 40.990 seconds of
+  raw input and advanced the context 40.643 seconds over 41.004 seconds of elapsed time. A visible interval
+  delivered 30.380 seconds of input and advanced the context 28.869 seconds over 30.380 seconds. Both remained
+  `running`, with no new raw drops or microphone underruns. Minimization alone did not reproduce the severe
+  one-third slowdown; this does not rule out interactions with a particular workload or occlusion state.
 - Decryption-key errors were observed separately in the console. Their timing was not correlated with the
   reported cuts, so they cannot yet explain the CPU-related symptom.
 - Windows Performance Recorder could not start CPU/Audio profiling: `0xc5585011`, failure to enable system
