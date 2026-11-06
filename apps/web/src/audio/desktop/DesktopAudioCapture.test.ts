@@ -18,9 +18,12 @@ function audioContext() {
     const createBuffer = vi.fn(() => ({ getChannelData: (channel: number) => output[channel], duration: 2 / 48000 }));
     const audio = { kind: "audio", contentHint: "", stop: vi.fn(), addEventListener: vi.fn() };
     const destination = { stream: { getAudioTracks: () => [audio] } };
+    const clockSource = { offset: { value: 0 }, connect: vi.fn(), start: vi.fn() };
     const context = {
         createBuffer,
         currentTime: 0,
+        destination: {},
+        createConstantSource: vi.fn(() => clockSource),
         createMediaStreamDestination: () => destination,
         resume: vi.fn(),
         close: vi.fn(),
@@ -32,7 +35,7 @@ function audioContext() {
             onended: null,
         })),
     };
-    return { context, output, audio };
+    return { context, output, audio, clockSource };
 }
 
 describe("DesktopAudioCapture", () => {
@@ -73,7 +76,7 @@ describe("DesktopAudioCapture", () => {
 
     it.each([true, false])("attaches only authorized audio (%s) and releases resources", async (authorized) => {
         vi.spyOn(SettingsStore, "getValue").mockReturnValue(true);
-        const { context, audio } = audioContext();
+        const { context, audio, clockSource } = audioContext();
         vi.stubGlobal(
             "AudioContext",
             vi.fn(function () {
@@ -101,6 +104,9 @@ describe("DesktopAudioCapture", () => {
         expect(getDisplayMedia).toHaveBeenCalledWith({ video: true, audio: false });
         if (authorized) {
             expect(stream.addTrack).toHaveBeenCalledWith(audio);
+            // Packets are scheduled against this context's clock, so it must stay on the audio device.
+            expect(clockSource.connect).toHaveBeenCalledWith(context.destination);
+            expect(clockSource.start).toHaveBeenCalledOnce();
             listener!({ sessionId: "stale" } as DesktopAudioPacket);
             expect(context.createBuffer).not.toHaveBeenCalled();
             listener!({
