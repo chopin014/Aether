@@ -2598,6 +2598,8 @@
     "setting": {
         "help_about": {
             "brand_version": "%(brand)s version:",
+            "clear_cache_confirm_description": "%(brand)s will download your conversations again. Nothing is removed from your account.",
+            "clear_cache_confirm_title": "Clear cache and reload?",
             "clear_cache_reload": "Clear cache and reload",
             "crypto_version": "Crypto version:",
             "dialog_title": "<strong>Settings:</strong> Help & About",
@@ -2605,6 +2607,7 @@
             "homeserver": "Account provider is <code>%(homeserverUrl)s</code>",
             "identity_server": "Identity server is <code>%(identityServerUrl)s</code>",
             "title": "Help & About",
+            "troubleshooting": "Troubleshooting",
             "versions": "Versions"
         }
     },

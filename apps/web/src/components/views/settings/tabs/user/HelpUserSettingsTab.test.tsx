@@ -9,12 +9,16 @@ Please see LICENSE in the repository root for full details.
 
 import React from "react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "test-utils-rtl";
+import { render, screen, waitFor } from "test-utils-rtl";
+import userEvent from "@testing-library/user-event";
 import { mockPlatformPeg, stubClient } from "test-utils";
 import { type MatrixClient } from "matrix-js-sdk/src/matrix";
 
 import HelpUserSettingsTab from "./HelpUserSettingsTab";
 import MatrixClientContext from "../../../../../contexts/MatrixClientContext";
+import Modal from "../../../../../Modal";
+import QuestionDialog from "../../../dialogs/QuestionDialog";
+import PlatformPeg from "../../../../../PlatformPeg";
 
 describe("<HelpUserSettingsTab />", () => {
     let client: MatrixClient;
@@ -47,5 +51,45 @@ describe("<HelpUserSettingsTab />", () => {
     it("shows the homeserver the account is on", () => {
         renderTab();
         expect(screen.getByText("https://matrix-client.example.org")).toBeInTheDocument();
+    });
+
+    describe("clear cache and reload", () => {
+        const confirm = (confirmed: boolean) =>
+            vi.spyOn(Modal, "createDialog").mockReturnValue({
+                finished: Promise.resolve([confirmed]),
+                close: vi.fn(),
+            } as any);
+
+        beforeEach(() => {
+            client.store.deleteAllData = vi.fn().mockResolvedValue(undefined);
+            client.stopClient = vi.fn();
+        });
+
+        it("asks before clearing anything", async () => {
+            const dialog = confirm(false);
+            renderTab();
+
+            await userEvent.click(screen.getByRole("button", { name: "Clear cache and reload" }));
+
+            expect(dialog).toHaveBeenCalledWith(
+                QuestionDialog,
+                expect.objectContaining({ title: "Clear cache and reload?", danger: true }),
+            );
+            expect(client.stopClient).not.toHaveBeenCalled();
+            expect(client.store.deleteAllData).not.toHaveBeenCalled();
+        });
+
+        it("clears the cache and reloads once confirmed", async () => {
+            confirm(true);
+            const reload = vi.fn();
+            PlatformPeg.get()!.reload = reload;
+            renderTab();
+
+            await userEvent.click(screen.getByRole("button", { name: "Clear cache and reload" }));
+
+            await waitFor(() => expect(reload).toHaveBeenCalled());
+            expect(client.stopClient).toHaveBeenCalled();
+            expect(client.store.deleteAllData).toHaveBeenCalled();
+        });
     });
 });

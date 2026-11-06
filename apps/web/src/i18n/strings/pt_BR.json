@@ -2435,7 +2435,10 @@
             "homeserver": "O servidor doméstico é <code>%(homeserverUrl)s</code>",
             "identity_server": "O servidor de identidade é <code>%(identityServerUrl)s</code>",
             "title": "Ajuda e sobre",
-            "versions": "Versões"
+            "versions": "Versões",
+            "troubleshooting": "Solução de problemas",
+            "clear_cache_confirm_title": "Limpar cache e recarregar?",
+            "clear_cache_confirm_description": "O %(brand)s vai baixar suas conversas de novo. Nada é removido da sua conta."
         }
     },
     "settings": {
