@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import { app, desktopCapturer, ipcMain, powerSaveBlocker, TouchBar, nativeImage } from "electron";
+import { app, desktopCapturer, ipcMain, powerMonitor, powerSaveBlocker, TouchBar, nativeImage } from "electron";
 
 import IpcMainEvent = Electron.IpcMainEvent;
 import { selectDesktopAudio } from "./desktop-audio.js";
@@ -82,6 +82,10 @@ ipcMain.on("ipcCall", async function (_ev: IpcMainEvent, payload) {
             break;
         case "getAppVersion":
             ret = app.getVersion();
+            break;
+        case "getSystemIdleTime":
+            // Seconds since the last keyboard or mouse input anywhere on the computer, not only in this window.
+            ret = powerMonitor.getSystemIdleTime();
             break;
         case "focusWindow":
             if (global.mainWindow.isMinimized()) {
