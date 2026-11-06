@@ -52,94 +52,75 @@ import {
 import { logger } from "matrix-js-sdk/src/logger";
 import { sleep } from "matrix-js-sdk/src/utils";
 
-import { JitsiCallMemberEventType } from "./call-types";
+import {
+    CATALOG_STATE,
+    ENCRYPTED_SUBSCRIPTION,
+    NAMED_SUBSCRIPTIONS,
+    RoomSubscriptionName,
+} from "./sliding-sync/roomStateProfiles";
+import { RoomSubscriptionLeases, type RoomSubscriptionLease } from "./sliding-sync/RoomSubscriptionLeases";
 
 // how long to long poll for
 const SLIDING_SYNC_TIMEOUT_MS = 20 * 1000;
 
-// Keep enough recent events to open a listed room before its focused subscription returns.
-// A single event is often a hidden membership update in large public rooms.
-const LIST_TIMELINE_LIMIT = 20;
+// Most rooms are listed with only their latest event: enough for the room list, and small enough to list every room
+// quickly. The rooms someone is most likely to open next get more, through the "recent" lists and subscriptions.
+const LIST_TIMELINE_LIMIT = 1;
 
-// Calls and widgets can outlive the recent timeline; request their current state explicitly.
-const CALL_STATE = [
-    [EventType.GroupCallPrefix, MSC3575_WILDCARD],
-    [EventType.GroupCallMemberPrefix, MSC3575_WILDCARD],
-    [EventType.RTCSlot, MSC3575_WILDCARD],
-    ["im.vector.modular.widgets", MSC3575_WILDCARD],
-    [JitsiCallMemberEventType, MSC3575_WILDCARD],
-];
+// The most recently active rooms are listed with enough history to open them before a subscription returns.
+const RECENT_TIMELINE_LIMIT = 20;
+const RECENT_ROOMS = 20;
 
-// The state events we will get for every single room/space/old room/etc
-// This list is only augmented when a direct room subscription is made. (e.g you view a room)
-const REQUIRED_STATE_LIST = [
-    ...CALL_STATE,
-    [EventType.RoomJoinRules, ""], // the public icon on the room list
-    [EventType.RoomAvatar, ""], // any room avatar
-    [EventType.RoomCanonicalAlias, ""], // for room name calculations
-    [EventType.RoomTombstone, ""], // lets JS SDK hide rooms which are dead
-    [EventType.RoomEncryption, ""], // lets rooms be configured for E2EE correctly
-    [EventType.RoomCreate, ""], // for isSpaceRoom checks
-    [EventType.SpaceChild, MSC3575_WILDCARD], // all space children
-    [EventType.SpaceParent, MSC3575_WILDCARD], // all space parents
-    [EventType.RoomMember, MSC3575_STATE_KEY_ME], // lets the client calculate that we are in fact in the room
-    [EventType.RoomMember, MSC3575_STATE_KEY_LAZY], // names and avatars for cached timeline senders
-];
+// Rooms are listed in batches of this size, after the first page of each list.
+const SPIDER_BATCH_SIZE = 100;
+const SPIDER_GAP_MS = 50;
 
-// the things to fetch when a user clicks on a room
-const DEFAULT_ROOM_SUBSCRIPTION_INFO = {
-    timeline_limit: 50,
-    // missing required_state which will change depending on the kind of room
-    include_old_rooms: {
-        timeline_limit: 0,
-        required_state: REQUIRED_STATE_LIST,
-    },
-};
-// lazy load room members so rooms like Matrix HQ don't take forever to load
-const UNENCRYPTED_SUBSCRIPTION_NAME = "unencrypted";
-const UNENCRYPTED_SUBSCRIPTION = {
-    required_state: [
-        ...CALL_STATE,
-        [EventType.RoomMember, MSC3575_STATE_KEY_ME], // except for m.room.members, get our own membership
-        [EventType.RoomMember, MSC3575_STATE_KEY_LAZY], // ...and lazy load the rest.
-    ],
-    ...DEFAULT_ROOM_SUBSCRIPTION_INFO,
-};
+// Changes to subscriptions nobody is waiting for are sent together, at most this often. Each change interrupts the
+// long poll, so pointing at rooms or switching Spaces quickly must not send a request each.
+const SUBSCRIPTION_BATCH_MS = 150;
 
-// we need all the room members in encrypted rooms because we need to know which users to encrypt
-// messages for.
-const ENCRYPTED_SUBSCRIPTION = {
-    required_state: [
-        [MSC3575_WILDCARD, MSC3575_WILDCARD], // all events
-    ],
-    ...DEFAULT_ROOM_SUBSCRIPTION_INFO,
-};
+// How long to wait for a room nobody has seen before letting the room view show what it can.
+const ROOM_DISCOVERY_TIMEOUT_MS = 10_000;
 
-// Fetch enough state to discover encryption and render the destination before loading its full roster.
-const BOOTSTRAP_SUBSCRIPTION_NAME = "bootstrap";
-const ENCRYPTED_SUBSCRIPTION_NAME = "encrypted";
-const EXPANDED_BOOTSTRAP_SUBSCRIPTION_NAME = "bootstrap-expanded";
-const BOOTSTRAP_SUBSCRIPTION = {
-    timeline_limit: 50,
-    required_state: [
-        ...REQUIRED_STATE_LIST,
-        [EventType.RoomName, ""],
-        [EventType.RoomTopic, ""],
-        [EventType.RoomPowerLevels, ""],
-        [EventType.RoomHistoryVisibility, ""],
-    ],
-};
+// The lists for the Space someone is looking at, so its channels appear before the whole account is listed.
+const ACTIVE_SPACE_LIST = "active_space";
+const ACTIVE_SPACE_RECENT_LIST = "active_space_recent";
+const ACTIVE_SPACE_RANGE = 200;
+
+/** How a room someone opened was found. */
+export type RoomVisibility =
+    /** The room is known and its subscription has been asked for. */
+    | "known"
+    /** The server answered without the room: the user cannot see it, or it does not exist. */
+    | "absent"
+    /** The server has not answered in time. The room may still arrive. */
+    | "timeout"
+    /** The client or connection was replaced while waiting. */
+    | "replaced";
 
 // the complete set of lists made in SSS. The manager will spider all of these lists depending
-// on the count for each one.
+// on the count for each one, except for the recent list which stays at its first page.
 const sssLists: Record<string, MSC3575List> = {
+    recent: {
+        ranges: [[0, RECENT_ROOMS - 1]],
+        timeline_limit: RECENT_TIMELINE_LIMIT,
+        required_state: CATALOG_STATE,
+        include_old_rooms: {
+            timeline_limit: 0,
+            required_state: CATALOG_STATE,
+        },
+        filters: {
+            is_invite: false,
+            not_room_types: ["m.space"],
+        },
+    },
     spaces: {
         ranges: [[0, 10]],
         timeline_limit: 0, // we don't care about the most recent message for spaces
-        required_state: REQUIRED_STATE_LIST,
+        required_state: CATALOG_STATE,
         include_old_rooms: {
             timeline_limit: 0,
-            required_state: REQUIRED_STATE_LIST,
+            required_state: CATALOG_STATE,
         },
         filters: {
             room_types: ["m.space"],
@@ -148,10 +129,10 @@ const sssLists: Record<string, MSC3575List> = {
     invites: {
         ranges: [[0, 10]],
         timeline_limit: 1, // most recent message display
-        required_state: REQUIRED_STATE_LIST,
+        required_state: CATALOG_STATE,
         include_old_rooms: {
             timeline_limit: 0,
-            required_state: REQUIRED_STATE_LIST,
+            required_state: CATALOG_STATE,
         },
         filters: {
             is_invite: true,
@@ -159,11 +140,11 @@ const sssLists: Record<string, MSC3575List> = {
     },
     favourites: {
         ranges: [[0, 10]],
-        timeline_limit: LIST_TIMELINE_LIMIT, // recent events for immediate room entry
-        required_state: REQUIRED_STATE_LIST,
+        timeline_limit: LIST_TIMELINE_LIMIT,
+        required_state: CATALOG_STATE,
         include_old_rooms: {
             timeline_limit: 0,
-            required_state: REQUIRED_STATE_LIST,
+            required_state: CATALOG_STATE,
         },
         filters: {
             tags: ["m.favourite"],
@@ -171,11 +152,11 @@ const sssLists: Record<string, MSC3575List> = {
     },
     dms: {
         ranges: [[0, 10]],
-        timeline_limit: LIST_TIMELINE_LIMIT, // recent events for immediate room entry
-        required_state: REQUIRED_STATE_LIST,
+        timeline_limit: LIST_TIMELINE_LIMIT,
+        required_state: CATALOG_STATE,
         include_old_rooms: {
             timeline_limit: 0,
-            required_state: REQUIRED_STATE_LIST,
+            required_state: CATALOG_STATE,
         },
         filters: {
             is_dm: true,
@@ -187,14 +168,17 @@ const sssLists: Record<string, MSC3575List> = {
     untagged: {
         // SSS will dupe suppress invites/dms from here, so we don't need "not dms, not invites"
         ranges: [[0, 10]],
-        timeline_limit: LIST_TIMELINE_LIMIT, // recent events for immediate room entry
-        required_state: REQUIRED_STATE_LIST,
+        timeline_limit: LIST_TIMELINE_LIMIT,
+        required_state: CATALOG_STATE,
         include_old_rooms: {
             timeline_limit: 0,
-            required_state: REQUIRED_STATE_LIST,
+            required_state: CATALOG_STATE,
         },
     },
 };
+
+/** Lists whose range stays at its first page while the others grow to every room. */
+const FIXED_LISTS = new Set(["recent"]);
 
 export type PartialSlidingSyncRequest = {
     filters?: MSC3575Filter;
@@ -207,6 +191,10 @@ export type PartialSlidingSyncRequest = {
  * of placeholders in lists, controls updating sliding window ranges, and controls which events
  * are pulled down when. The intention behind this manager is be the single place to look for sliding
  * sync options and code.
+ *
+ * Rooms are subscribed through leases: the room someone is viewing, the rooms of their calls, the Space they are
+ * looking at and the rooms they are about to open. Released rooms stay subscribed for a grace period and are then
+ * dropped, so the subscriptions of a long session stay bounded.
  */
 export class SlidingSyncManager {
     public static serverSupportsSlidingSync: boolean;
@@ -232,6 +220,22 @@ export class SlidingSyncManager {
     >();
     private cancelInitialPreparations?: () => void;
 
+    private leases = new RoomSubscriptionLeases(() => {});
+    private viewLease?: RoomSubscriptionLease;
+    private spaceLease?: RoomSubscriptionLease;
+    private readonly callLeases = new Map<string, RoomSubscriptionLease>();
+    // Rooms the crypto layer says are encrypted, even before their encryption state has arrived.
+    private readonly encryptedRooms = new Set<string>();
+    // Rooms we were told are Spaces before we have seen them.
+    private readonly expectedSpaces = new Set<string>();
+    // The subscription each subscribed room was last given.
+    private readonly appliedNames = new Map<string, RoomSubscriptionName>();
+    private flushQueued = false;
+    private flushTimer?: ReturnType<typeof setTimeout>;
+    // The Space whose lists are registered, and the Space asked for before the connection existed.
+    private activeSpaceKey?: string;
+    private pendingActiveSpace?: { spaceId: string; subspaceIds: string[] };
+
     private configureDefer = Promise.withResolvers<void>();
 
     public static get instance(): SlidingSyncManager {
@@ -244,6 +248,18 @@ export class SlidingSyncManager {
         for (const settle of this.roomWaiters) settle();
         this.client = client;
         this.bootstrapRooms.clear();
+        this.encryptedRooms.clear();
+        this.expectedSpaces.clear();
+        this.appliedNames.clear();
+        this.leases.dispose();
+        this.leases = new RoomSubscriptionLeases(this.scheduleFlush);
+        this.viewLease = undefined;
+        this.spaceLease = undefined;
+        this.callLeases.clear();
+        this.activeSpaceKey = undefined;
+        if (this.flushTimer !== undefined) clearTimeout(this.flushTimer);
+        this.flushTimer = undefined;
+        this.flushQueued = false;
         // create the set of lists we will use.
         const lists = new Map();
         for (const listName in sssLists) {
@@ -258,19 +274,18 @@ export class SlidingSyncManager {
         // by default use the encrypted subscription as that gets everything, which is a safer
         // default than potentially missing member events.
         this.slidingSync = new SlidingSync(proxyUrl, lists, ENCRYPTED_SUBSCRIPTION, client, SLIDING_SYNC_TIMEOUT_MS);
-        this.slidingSync.addCustomSubscription(UNENCRYPTED_SUBSCRIPTION_NAME, UNENCRYPTED_SUBSCRIPTION);
-        this.slidingSync.addCustomSubscription(ENCRYPTED_SUBSCRIPTION_NAME, ENCRYPTED_SUBSCRIPTION);
-        this.slidingSync.addCustomSubscription(BOOTSTRAP_SUBSCRIPTION_NAME, BOOTSTRAP_SUBSCRIPTION);
-        this.slidingSync.addCustomSubscription(EXPANDED_BOOTSTRAP_SUBSCRIPTION_NAME, {
-            ...BOOTSTRAP_SUBSCRIPTION,
-            timeline_limit: 100,
-        });
+        for (const [name, subscription] of NAMED_SUBSCRIPTIONS) {
+            this.slidingSync.addCustomSubscription(name, subscription);
+        }
         this.trackInitialTimelines(this.slidingSync);
         const ownedSync = this.slidingSync;
         // SlidingSync has no stopped event. Settle waits before our owned instance stops.
         const stop = ownedSync.stop.bind(ownedSync);
         ownedSync.stop = (): void => {
-            if (this.slidingSync === ownedSync) this.cancelInitialPreparations?.();
+            if (this.slidingSync === ownedSync) {
+                this.cancelInitialPreparations?.();
+                for (const settle of this.roomWaiters) settle();
+            }
             stop();
         };
         this.configureDefer.resolve();
@@ -306,8 +321,8 @@ export class SlidingSyncManager {
         this.initialTimelines.delete(roomId);
         if (preparation.phase === "expanding" && this.slidingSync) {
             const room = this.client?.getRoom(roomId);
-            if (room) this.upgradeDiscoveredRoom(this.slidingSync, room);
-            else this.slidingSync.useCustomSubscription(roomId, BOOTSTRAP_SUBSCRIPTION_NAME);
+            if (room) this.upgradeDiscoveredRoom(room);
+            else this.scheduleFlush(true);
         }
         preparation.resolve(expanded);
         if (this.initialTimelines.size === 0) this.cancelInitialPreparations?.();
@@ -363,7 +378,8 @@ export class SlidingSyncManager {
                 ) {
                     preparation.phase = "expanding";
                     preparation.received = false;
-                    slidingSync.useCustomSubscription(roomId, EXPANDED_BOOTSTRAP_SUBSCRIPTION_NAME);
+                    // The longer look back must reach the very next request, ahead of background lists.
+                    this.applySubscriptions(slidingSync);
                     // Native expansion must not indefinitely suppress ordinary history pagination.
                     preparation.timeout = setTimeout(() => this.settleInitialTimeline(roomId, false), 3000);
                     continue;
@@ -396,6 +412,70 @@ export class SlidingSyncManager {
             if (this.cancelInitialPreparations === cancel) this.cancelInitialPreparations = undefined;
         };
         this.cancelInitialPreparations = cancel;
+    }
+
+    /**
+     * Send subscription changes. Changes someone is waiting for go out with the next request; the rest are batched.
+     * @param urgent - True when someone has just opened a room or joined a call.
+     */
+    private scheduleFlush = (urgent: boolean): void => {
+        if (!this.slidingSync) return;
+        if (urgent) {
+            if (this.flushTimer !== undefined) clearTimeout(this.flushTimer);
+            this.flushTimer = undefined;
+            if (this.flushQueued) return;
+            this.flushQueued = true;
+            queueMicrotask(() => {
+                this.flushQueued = false;
+                if (this.slidingSync) this.applySubscriptions(this.slidingSync);
+            });
+            return;
+        }
+        if (this.flushQueued || this.flushTimer !== undefined) return;
+        this.flushTimer = setTimeout(() => {
+            this.flushTimer = undefined;
+            if (this.slidingSync) this.applySubscriptions(this.slidingSync);
+        }, SUBSCRIPTION_BATCH_MS);
+    };
+
+    /** The subscription a room should have, from what it is and why it is subscribed. */
+    private subscriptionNameFor(roomId: string): RoomSubscriptionName {
+        if (this.initialTimelines.get(roomId)?.phase === "expanding") return RoomSubscriptionName.ExpandedBootstrap;
+        const room = this.client?.getRoom(roomId);
+        if (this.expectedSpaces.has(roomId) || room?.isSpaceRoom()) return RoomSubscriptionName.Space;
+        if (!room || this.bootstrapRooms.has(roomId)) return RoomSubscriptionName.Bootstrap;
+        if (room.hasEncryptionStateEvent() || this.encryptedRooms.has(roomId)) return RoomSubscriptionName.Encrypted;
+        const purposes = this.leases.purposes(roomId);
+        if (purposes.has("view") || purposes.has("call") || purposes.has("space")) return RoomSubscriptionName.Room;
+        // A room that is only likely to be opened, or kept for its grace period, never loses history it was given:
+        // a smaller subscription would be sent again for nothing.
+        const applied = this.appliedNames.get(roomId);
+        if (applied && applied !== RoomSubscriptionName.Prefetch && applied !== RoomSubscriptionName.Space) {
+            return RoomSubscriptionName.Room;
+        }
+        return RoomSubscriptionName.Prefetch;
+    }
+
+    /** Bring the connection's room subscriptions in line with the leases, sending a request only if they changed. */
+    private applySubscriptions(slidingSync: SlidingSync): void {
+        if (this.slidingSync !== slidingSync) return;
+        const desired = new Set(this.leases.roomIds());
+        for (const roomId of this.bootstrapRooms) desired.add(roomId);
+        for (const roomId of this.initialTimelines.keys()) desired.add(roomId);
+        let changed = false;
+        for (const roomId of desired) {
+            const name = this.subscriptionNameFor(roomId);
+            if (this.appliedNames.get(roomId) === name) continue;
+            this.appliedNames.set(roomId, name);
+            slidingSync.useCustomSubscription(roomId, name);
+            changed = true;
+        }
+        for (const roomId of this.appliedNames.keys()) {
+            if (!desired.has(roomId)) this.appliedNames.delete(roomId);
+        }
+        const current = slidingSync.getRoomSubscriptions();
+        if (!changed && current.size === desired.size && [...desired].every((roomId) => current.has(roomId))) return;
+        slidingSync.modifyRoomSubscriptions(desired);
     }
 
     /**
@@ -459,71 +539,172 @@ export class SlidingSyncManager {
 
     /**
      * Announces that the user has chosen to view the given room and that room will now
-     * be displayed, so it should have more state loaded.
+     * be displayed, so it should have more state loaded. The previously viewed room is released, and stays
+     * subscribed for a grace period.
      * @param roomId The room to set visible
+     * @returns How the room was found. Waits for a room nobody has seen yet, until the server sends it, answers
+     * without it, or takes too long.
      */
-    public async setRoomVisible(roomId: string): Promise<void> {
+    public async setRoomVisible(roomId: string): Promise<RoomVisibility> {
         await this.configureDefer.promise;
         const client = this.client!;
         const slidingSync = this.slidingSync!;
-        const subscriptions = slidingSync.getRoomSubscriptions();
-        if (subscriptions.has(roomId)) return;
-
-        subscriptions.add(roomId);
+        if (this.viewLease?.roomId !== roomId) {
+            const previous = this.viewLease;
+            this.viewLease = this.leases.acquire(roomId, "view");
+            previous?.release();
+        }
 
         const room = client.getRoom(roomId);
+        if (room) {
+            // The crypto layer remembers encryption even if the room's state is incomplete or was removed.
+            if (!room.hasEncryptionStateEvent() && (await client.getCrypto()?.isEncryptionEnabledInRoom(roomId))) {
+                this.encryptedRooms.add(roomId);
+                this.scheduleFlush(true);
+            }
+            if (this.client !== client || this.slidingSync !== slidingSync) return "replaced";
+            logger.log("SlidingSync setRoomVisible:", roomId);
+            return "known"; // we have data already for this room, show immediately e.g it's in a list
+        }
+
         // Unknown rooms first fetch encryption metadata and lazy members, then upgrade once discovered.
-        let shouldLazyLoad = false;
-        if (room) {
-            // do not lazy load encrypted rooms as we need the entire member list.
-            shouldLazyLoad =
-                !room.hasEncryptionStateEvent() && !(await client.getCrypto()?.isEncryptionEnabledInRoom(roomId));
-        }
-        if (this.client !== client || this.slidingSync !== slidingSync) return;
-        logger.log("SlidingSync setRoomVisible:", roomId, "shouldLazyLoad:", shouldLazyLoad);
-        if (!room) {
-            this.beginInitialTimeline(roomId);
-            slidingSync.useCustomSubscription(roomId, BOOTSTRAP_SUBSCRIPTION_NAME);
-        } else if (shouldLazyLoad) {
-            // lazy load this room
-            slidingSync.useCustomSubscription(roomId, UNENCRYPTED_SUBSCRIPTION_NAME);
-        }
-        slidingSync.modifyRoomSubscriptions(subscriptions);
-        if (room) {
-            return; // we have data already for this room, show immediately e.g it's in a list
-        }
-        // wait until we know about this room. This may take a little while.
+        logger.log("SlidingSync setRoomVisible: waiting for", roomId);
+        this.beginInitialTimeline(roomId);
+        this.scheduleFlush(true);
+        return this.waitForRoom(client, slidingSync, roomId);
+    }
+
+    /**
+     * Wait until a room is known, the server answers a request carrying its subscription without it, or the wait
+     * times out.
+     */
+    private waitForRoom(client: MatrixClient, slidingSync: SlidingSync, roomId: string): Promise<RoomVisibility> {
         return new Promise((resolve) => {
-            const settle = (): void => {
-                client.off(ClientEvent.Room, waitForRoom);
-                this.roomWaiters.delete(settle);
-                resolve();
+            const settle = (outcome: RoomVisibility): void => {
+                client.off(ClientEvent.Room, onRoom);
+                slidingSync.off(SlidingSyncEvent.Lifecycle, onLifecycle);
+                clearTimeout(timer);
+                this.roomWaiters.delete(onReplaced);
+                resolve(outcome);
             };
-            const waitForRoom = (r: Room): void => {
+            const onReplaced = (): void => settle("replaced");
+            const onRoom = (r: Room): void => {
                 if (this.client !== client || this.slidingSync !== slidingSync) {
-                    settle();
+                    settle("replaced");
                     return;
                 }
                 if (r.roomId !== roomId) return;
-                this.upgradeDiscoveredRoom(slidingSync, r);
-                settle();
+                this.upgradeDiscoveredRoom(r);
+                settle("known");
             };
-            this.roomWaiters.add(settle);
-            client.on(ClientEvent.Room, waitForRoom);
+            const onLifecycle = (
+                state: SlidingSyncState,
+                response: MSC3575SlidingSyncResponse | null,
+                error?: Error,
+            ): void => {
+                if (state !== SlidingSyncState.Complete || !response || error) return;
+                if (client.getRoom(roomId)) {
+                    settle("known");
+                    return;
+                }
+                if (!slidingSync.isRoomSubscriptionConfirmed(roomId) || response.rooms?.[roomId]) return;
+                // The server has answered this subscription without the room. Stop asking for its history.
+                logger.log("SlidingSync setRoomVisible: the server did not send", roomId);
+                this.bootstrapRooms.delete(roomId);
+                this.settleInitialTimeline(roomId, false);
+                settle("absent");
+            };
+            this.roomWaiters.add(onReplaced);
+            client.on(ClientEvent.Room, onRoom);
+            slidingSync.on(SlidingSyncEvent.Lifecycle, onLifecycle);
+            const timer = setTimeout(() => {
+                logger.warn("SlidingSync setRoomVisible: timed out waiting for", roomId);
+                settle("timeout");
+            }, ROOM_DISCOVERY_TIMEOUT_MS);
+        });
+    }
+
+    /**
+     * Note that someone is likely to open a room soon, such as by pointing at it in the room list. Its history is
+     * fetched in the background, so it opens straight away. Does nothing without sliding sync.
+     * @param roomId - The room they may open.
+     */
+    public prefetchRoom(roomId: string): void {
+        if (!this.slidingSync || !roomId.startsWith("!")) return;
+        if (this.viewLease?.roomId === roomId) return;
+        this.leases.prefetch(roomId);
+    }
+
+    /**
+     * Keep the rooms of ongoing calls subscribed, so their state and chat stay current while someone reads other
+     * rooms. Rooms no longer in a call are released.
+     * @param roomIds - The rooms with a call this device is connected to.
+     */
+    public setCallRooms(roomIds: Iterable<string>): void {
+        if (!this.slidingSync) return;
+        const wanted = new Set(roomIds);
+        for (const [roomId, lease] of this.callLeases) {
+            if (wanted.has(roomId)) continue;
+            lease.release();
+            this.callLeases.delete(roomId);
+        }
+        for (const roomId of wanted) {
+            if (!this.callLeases.has(roomId)) this.callLeases.set(roomId, this.leases.acquire(roomId, "call"));
+        }
+    }
+
+    /**
+     * Load the Space someone is looking at first: its own state, and lists of its channels so they appear before the
+     * rest of the account is listed. The lists stay on the last Space when they go Home.
+     * @param spaceId - The Space, or null for Home and other views without one.
+     * @param subspaceIds - Joined Spaces inside it, whose channels it shows too.
+     */
+    public setActiveSpace(spaceId: string | null, subspaceIds: string[] = []): void {
+        const previous = this.spaceLease;
+        if (!spaceId?.startsWith("!")) {
+            this.spaceLease = undefined;
+            previous?.release();
+            return;
+        }
+        if (!this.slidingSync) {
+            this.pendingActiveSpace = { spaceId, subspaceIds };
+            return;
+        }
+        if (previous?.roomId !== spaceId) {
+            this.spaceLease = this.leases.acquire(spaceId, "space");
+            previous?.release();
+        }
+        this.setActiveSpaceLists(this.slidingSync, spaceId, subspaceIds);
+    }
+
+    private setActiveSpaceLists(slidingSync: SlidingSync, spaceId: string, subspaceIds: string[]): void {
+        const spaces = [spaceId, ...subspaceIds.filter((id) => id.startsWith("!") && id !== spaceId)];
+        const key = spaces.join("\n");
+        if (this.activeSpaceKey === key) return;
+        this.activeSpaceKey = key;
+        const filters: MSC3575Filter = { spaces, not_room_types: ["m.space"] };
+        // The channels someone is most likely to open first get their recent history.
+        slidingSync.setList(ACTIVE_SPACE_RECENT_LIST, {
+            ranges: [[0, 9]],
+            timeline_limit: RECENT_TIMELINE_LIMIT,
+            required_state: CATALOG_STATE,
+            filters,
+        });
+        slidingSync.setList(ACTIVE_SPACE_LIST, {
+            ranges: [[0, ACTIVE_SPACE_RANGE - 1]],
+            timeline_limit: LIST_TIMELINE_LIMIT,
+            required_state: CATALOG_STATE,
+            filters,
         });
     }
 
     /** Replace discovery state with the normal subscription once encryption state is known. */
-    private upgradeDiscoveredRoom(slidingSync: SlidingSync, room: Room): void {
+    private upgradeDiscoveredRoom(room: Room): void {
         const preparation = this.initialTimelines.get(room.roomId);
         if (preparation?.phase === "expanding" || (preparation?.phase === "initial" && preparation.needsExpansion))
             return;
         if (!this.bootstrapRooms.delete(room.roomId)) return;
-        slidingSync.useCustomSubscription(
-            room.roomId,
-            room.hasEncryptionStateEvent() ? ENCRYPTED_SUBSCRIPTION_NAME : UNENCRYPTED_SUBSCRIPTION_NAME,
-        );
-        slidingSync.modifyRoomSubscriptions(slidingSync.getRoomSubscriptions());
+        this.scheduleFlush(true);
     }
 
     /**
@@ -546,11 +727,16 @@ export class SlidingSyncManager {
 
         // copy the initial set of list names and ranges, we'll keep this map updated.
         const listToUpperBound = new Map(
-            Object.keys(sssLists).map((listName) => {
-                return [listName, slidingSync.getListParams(listName)?.ranges[0][1] ?? sssLists[listName].ranges[0][1]];
-            }),
+            Object.keys(sssLists)
+                .filter((listName) => !FIXED_LISTS.has(listName))
+                .map((listName) => {
+                    return [
+                        listName,
+                        slidingSync.getListParams(listName)?.ranges[0][1] ?? sssLists[listName].ranges[0][1],
+                    ];
+                }),
         );
-        console.log("startSpidering:", listToUpperBound);
+        logger.debug("startSpidering:", listToUpperBound);
 
         // listen for a response from the server. ANY 200 OK will do here, as we assume that it is ACKing
         // the request change we have sent out. TODO: this may not be true if you concurrently subscribe to a room :/
@@ -575,20 +761,22 @@ export class SlidingSyncManager {
             for (const roomId of this.bootstrapRooms) {
                 const room = this.client?.getRoom(roomId);
                 if (!room) continue;
-                this.upgradeDiscoveredRoom(slidingSync, room);
+                this.upgradeDiscoveredRoom(room);
             }
 
             if (bootstrap) {
                 bootstrap = false;
                 for (const [name, normal] of Object.entries(sssLists)) {
                     const current = slidingSync.getListParams(name) ?? normal;
-                    const upperBound = Math.max(current.ranges[0][1], normal.ranges[0][1]);
+                    const upperBound = FIXED_LISTS.has(name)
+                        ? normal.ranges[0][1]
+                        : Math.max(current.ranges[0][1], normal.ranges[0][1]);
                     slidingSync.setList(name, {
                         ...current,
                         ranges: [[0, upperBound]],
                         timeline_limit: normal.timeline_limit,
                     });
-                    listToUpperBound.set(name, upperBound);
+                    if (!FIXED_LISTS.has(name)) listToUpperBound.set(name, upperBound);
                 }
                 return;
             }
@@ -600,7 +788,7 @@ export class SlidingSyncManager {
                 if (currentUpperBound < totalCount - 1) {
                     // increment the upper bound
                     const newUpperBound = Math.min(currentUpperBound + batchSize, totalCount - 1);
-                    console.log(`startSpidering: ${listName} ${currentUpperBound} => ${newUpperBound}`);
+                    logger.debug(`startSpidering: ${listName} ${currentUpperBound} => ${newUpperBound}`);
                     listToUpperBound.set(listName, newUpperBound);
                     // make the next request. This will only send the request when this callback has finished, so if
                     // we set all the list ranges at once we will only send 1 new request.
@@ -635,23 +823,22 @@ export class SlidingSyncManager {
         const slidingSync = this.configure(client, client.baseUrl, initialRoomId);
         if (initialRoomId?.startsWith("!")) {
             this.beginInitialTimeline(initialRoomId);
-            slidingSync.useCustomSubscription(initialRoomId, BOOTSTRAP_SUBSCRIPTION_NAME);
-            slidingSync.modifyRoomSubscriptions(new Set([initialRoomId]));
+            // The room view takes its own lease once it opens; this keeps the destination until then.
+            this.leases.prefetch(initialRoomId);
         } else if (prefetch) {
-            const subscriptions = new Set<string>();
+            const hinted = new Set<string>();
             if (prefetch.roomId?.startsWith("!") && prefetch.roomId !== prefetch.spaceId) {
-                subscriptions.add(prefetch.roomId);
+                hinted.add(prefetch.roomId);
                 this.beginInitialTimeline(prefetch.roomId);
-                slidingSync.useCustomSubscription(prefetch.roomId, BOOTSTRAP_SUBSCRIPTION_NAME);
+                this.leases.prefetch(prefetch.roomId);
             }
             if (prefetch.spaceId?.startsWith("!")) {
-                subscriptions.add(prefetch.spaceId);
+                hinted.add(prefetch.spaceId);
                 // Spaces need their child graph and metadata, without conversation history.
-                const spaceSubscription = "space-bootstrap";
-                slidingSync.addCustomSubscription(spaceSubscription, { ...BOOTSTRAP_SUBSCRIPTION, timeline_limit: 0 });
-                slidingSync.useCustomSubscription(prefetch.spaceId, spaceSubscription);
+                this.expectedSpaces.add(prefetch.spaceId);
+                this.leases.prefetch(prefetch.spaceId);
+                this.setActiveSpaceLists(slidingSync, prefetch.spaceId, []);
             }
-            slidingSync.modifyRoomSubscriptions(subscriptions);
             // Saved hints may refer to rooms the account has since left. Drop absent hints
             // after the first response so they cannot keep background discovery pending.
             const onFirstResponse = (
@@ -662,19 +849,25 @@ export class SlidingSyncManager {
                 if (state !== SlidingSyncState.Complete || !response || error) return;
                 slidingSync.off(SlidingSyncEvent.Lifecycle, onFirstResponse);
                 if (this.slidingSync !== slidingSync) return;
-                const current = slidingSync.getRoomSubscriptions();
-                let removed = false;
-                for (const roomId of subscriptions) {
+                for (const roomId of hinted) {
                     if (response.rooms?.[roomId]) continue;
                     this.bootstrapRooms.delete(roomId);
-                    removed = current.delete(roomId) || removed;
+                    this.expectedSpaces.delete(roomId);
+                    this.leases.cancelPrefetch(roomId);
                 }
-                if (removed) slidingSync.modifyRoomSubscriptions(current);
+                this.applySubscriptions(slidingSync);
             };
             slidingSync.on(SlidingSyncEvent.Lifecycle, onFirstResponse);
         }
+        if (this.pendingActiveSpace) {
+            const { spaceId, subspaceIds } = this.pendingActiveSpace;
+            this.pendingActiveSpace = undefined;
+            this.setActiveSpace(spaceId, subspaceIds);
+        }
+        // The first request must carry the destination, so apply its subscription now rather than in a batch.
+        this.applySubscriptions(slidingSync);
         logger.info("Simplified Sliding Sync activated at", client.baseUrl);
-        void this.startSpidering(slidingSync, 50, 50, true); // 50 rooms at a time, 50ms apart
+        void this.startSpidering(slidingSync, SPIDER_BATCH_SIZE, SPIDER_GAP_MS, true);
         return slidingSync;
     }
 

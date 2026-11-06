@@ -18,6 +18,7 @@ import SettingsStore from "../settings/SettingsStore";
 import { SettingLevel } from "../settings/SettingLevel";
 import { Call, CallEvent, ConnectionState } from "../models/Call";
 import SdkConfig from "../SdkConfig.ts";
+import { SlidingSyncManager } from "../SlidingSyncManager";
 import { DesktopCallHandoff } from "../models/DesktopCallHandoff";
 import ToastStore from "./ToastStore";
 import { GenericToast } from "@element-hq/web-shared-components";
@@ -149,6 +150,8 @@ export class CallStore extends AsyncStoreWithClient<EmptyObject> {
         const prevValue = this._connectedCalls;
         this._connectedCalls = value;
         this.emit(CallStoreEvent.ConnectedCalls, value, prevValue);
+        // With sliding sync, keep each call's room subscribed while someone reads other rooms.
+        SlidingSyncManager.instance.setCallRooms([...value].map((call) => call.roomId));
 
         // The room IDs are persisted to settings so we can detect unclean disconnects
         void SettingsStore.setValue(

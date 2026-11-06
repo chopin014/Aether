@@ -906,7 +906,7 @@ describe("RoomViewStore", function () {
         });
 
         it("subscribes to the room", async () => {
-            const setRoomVisible = vi.spyOn(slidingSyncManager, "setRoomVisible").mockReturnValue(Promise.resolve());
+            const setRoomVisible = vi.spyOn(slidingSyncManager, "setRoomVisible").mockResolvedValue("known");
             const subscribedRoomId = "!sub1:localhost";
             dis.dispatch({ action: Action.ViewRoom, room_id: subscribedRoomId });
             await untilDispatch(Action.ActiveRoomChanged, dis);
@@ -918,7 +918,7 @@ describe("RoomViewStore", function () {
         // although that was before the complexity was removed with similified mode. I've removed the complexity but kept the
         // test anyway.
         it("doesn't get stuck in a loop if you view rooms quickly", async () => {
-            const setRoomVisible = vi.spyOn(slidingSyncManager, "setRoomVisible").mockReturnValue(Promise.resolve());
+            const setRoomVisible = vi.spyOn(slidingSyncManager, "setRoomVisible").mockResolvedValue("known");
             const subscribedRoomId = "!sub1:localhost";
             const subscribedRoomId2 = "!sub2:localhost";
             dis.dispatch({ action: Action.ViewRoom, room_id: subscribedRoomId }, true);

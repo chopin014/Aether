@@ -63,6 +63,7 @@ import { threadLabel } from "../threads/threadLabel";
 import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
 import { ChannelMenuViewModel } from "../desktop/ChannelMenuViewModel";
 import { prepareCallSoon } from "../../components/views/voip/prepareElementCall";
+import { SlidingSyncManager } from "../../SlidingSyncManager";
 import { getCallSessionStart } from "../../utils/call/callSessionStart";
 import { getPublishedVoiceState, VOICE_STATE_EVENT_TYPE } from "../../utils/call/publishedVoiceState";
 import { VoiceUserMenuViewModel } from "../desktop/VoiceUserMenuViewModel";
@@ -644,8 +645,12 @@ export class RoomListItemViewModel
         };
     }
 
-    /** Someone pointing at a voice channel is likely to join it, so make sure the call is ready to go. */
+    /**
+     * Someone pointing at or focusing a room is likely to open it: fetch its history in the background, and make sure
+     * a voice channel's call is ready to go.
+     */
     public onIntentToOpen = (): void => {
+        SlidingSyncManager.instance.prefetchRoom(this.props.room.roomId);
         if (this.snapshot.current.channelKind === "voice") prepareCallSoon();
     };
 
