@@ -13,8 +13,6 @@ import path from "node:path";
 
 // Only cues without a supplied recording are synthesized. Never overwrite the custom control recordings.
 const cues: Record<string, number[]> = {
-    "user-joined": [450, 675],
-    "user-left": [675, 450],
     "ptt-activate": [880],
     "ptt-deactivate": [660],
 };

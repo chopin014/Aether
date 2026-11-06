@@ -15,7 +15,8 @@ import { _td } from "../languageHandler";
 /**
  * Every cue Aether can play, in the order the settings list them. The first group has been there since the
  * voice controls were added; the second group is shown behind "Show more sounds".
- * Control cues use the custom Aether recordings; participant and push-to-talk cues are synthesized.
+ * Control cues use the custom Aether recordings, and other people joining or leaving reuse the join and leave
+ * recordings. Only the push-to-talk cues are synthesized.
  */
 export const DESKTOP_VOICE_SOUNDS = [
     { id: "mute", label: _td("desktop|voice_settings|sound_mute"), extra: false },
@@ -44,8 +45,8 @@ const sounds: Record<DesktopVoiceSound, string> = {
     undeafen: new URL("../../res/media/aether/undeafen.wav", import.meta.url).href,
     join: new URL("../../res/media/aether/join.wav", import.meta.url).href,
     leave: new URL("../../res/media/aether/leave.wav", import.meta.url).href,
-    userJoined: new URL("../../res/media/aether/user-joined.wav", import.meta.url).href,
-    userLeft: new URL("../../res/media/aether/user-left.wav", import.meta.url).href,
+    userJoined: new URL("../../res/media/aether/join.wav", import.meta.url).href,
+    userLeft: new URL("../../res/media/aether/leave.wav", import.meta.url).href,
     cameraOn: new URL("../../res/media/aether/camera-on.wav", import.meta.url).href,
     cameraOff: new URL("../../res/media/aether/camera-off.wav", import.meta.url).href,
     screenShareStart: new URL("../../res/media/aether/screen-share-start.wav", import.meta.url).href,
