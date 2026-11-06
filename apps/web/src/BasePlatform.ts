@@ -330,6 +330,14 @@ export default abstract class BasePlatform {
         return undefined;
     }
 
+    /**
+     * Milliseconds since the last keyboard or mouse input anywhere on the computer, including other apps.
+     * Null where the platform cannot tell, e.g. in a browser.
+     */
+    public async getSystemIdleTime(): Promise<number | null> {
+        return null;
+    }
+
     public setLanguage(preferredLangs: string[]): void | Promise<void> {}
 
     public setSpellCheckEnabled(enabled: boolean): void {}

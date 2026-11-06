@@ -11,6 +11,7 @@ import { prepareElementCall } from "../views/voip/prepareElementCall";
 import { migrateToAns } from "../../audio/desktop/DesktopVoiceProfiles";
 import { deferRoomEntryWork, deferUntilAccountSync } from "../../performance/RoomEntryReady";
 import { DesktopProfileHost } from "../views/desktop/DesktopProfileHost";
+import { DesktopIncomingCallHost } from "../views/desktop/DesktopIncomingCallHost";
 
 import React, { type ClipboardEvent } from "react";
 import {
@@ -62,6 +63,7 @@ import { OwnProfileStore } from "../../stores/OwnProfileStore";
 import { UPDATE_EVENT } from "../../stores/AsyncStore";
 import { RoomView } from "./RoomView";
 import ToastContainer from "./ToastContainer";
+import { ToastPortal } from "./ToastPortal";
 import UserView from "./UserView";
 import { mediaFromMxc } from "../../customisations/Media";
 import { UserTab } from "../views/dialogs/UserTab";
@@ -825,14 +827,17 @@ class LoggedInView extends React.Component<IProps, IState> {
                     className={wrapperClasses}
                     aria-hidden={this.props.hideToSRUsers}
                 >
-                    <ToastContainer />
                     <div className={bodyClasses}>
                         <PageTypeContext.Provider value={this.props.page_type}>{content}</PageTypeContext.Provider>
                     </div>
                 </div>
                 {this.desktopShellEnabled && <DesktopProfileHost />}
+                {this.desktopShellEnabled && <DesktopIncomingCallHost />}
                 <PipContainer />
-                <NonUrgentToastContainer />
+                <ToastPortal aria-hidden={this.props.hideToSRUsers}>
+                    <ToastContainer />
+                    <NonUrgentToastContainer />
+                </ToastPortal>
                 {audioFeedArraysForCalls}
             </MatrixClientContextProvider>
         );

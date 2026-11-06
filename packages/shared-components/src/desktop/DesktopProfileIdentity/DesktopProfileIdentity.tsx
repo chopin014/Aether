@@ -31,7 +31,7 @@ import {
 } from "../ProfileAppearance";
 import styles from "./DesktopProfileIdentity.module.css";
 
-/** Presence the server has actually reported; unknown presence is represented by omitting it. */
+/** Presence shown on a profile; the host maps unknown status to offline. */
 export type DesktopProfilePresence = "online" | "unavailable" | "offline";
 
 /** A Matrix power-level role shown where Discord shows server roles. */

@@ -472,6 +472,28 @@ describe("ElectronPlatform", () => {
         await expect(languages).resolves.toEqual(["pt-BR", "en-US"]);
     });
 
+    it("should read system idle time through the desktop bridge in milliseconds", async () => {
+        const platform = new ElectronPlatform();
+        mockElectron.send.mockClear();
+        const idle = platform.getSystemIdleTime();
+        const [channel, { id, name }] = mockElectron.send.mock.calls[0];
+        expect(channel).toBe("ipcCall");
+        expect(name).toBe("getSystemIdleTime");
+        const [, reply] = getElectronEventHandlerCall("ipcReply")!;
+        reply({}, { id, reply: 7 });
+        await expect(idle).resolves.toBe(7000);
+    });
+
+    it("should report unknown idle time when an older desktop host rejects the call", async () => {
+        const platform = new ElectronPlatform();
+        mockElectron.send.mockClear();
+        const idle = platform.getSystemIdleTime();
+        const [, { id }] = mockElectron.send.mock.calls[0];
+        const [, reply] = getElectronEventHandlerCall("ipcReply")!;
+        reply({}, { id, error: "Unknown IPC Call: getSystemIdleTime" });
+        await expect(idle).resolves.toBeNull();
+    });
+
     describe("spellcheck", () => {
         it("indicates support for spellcheck settings", () => {
             const platform = new ElectronPlatform();

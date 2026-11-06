@@ -292,6 +292,16 @@
             "title": "Discover",
             "your_server": "Your server"
         },
+        "incoming_call": {
+            "accept": "Accept",
+            "accept_video": "Accept with video",
+            "accept_voice": "Accept without video",
+            "decline": "Decline",
+            "incoming": "Incoming call…",
+            "incoming_video": "Incoming video call…",
+            "label": "Incoming call from %(name)s",
+            "started_by": "%(name)s started a call"
+        },
         "keybinds": {
             "clear_action": "Clear %(action)s keybind",
             "ptt_hint": "Push to talk uses the same key and release delay as Voice & Video. In push to talk mode, an unassigned key keeps your microphone closed.",
@@ -922,7 +932,6 @@
         "saving": "Updating…",
         "selected_hint": "Your selected status on this device.",
         "title": "Presence",
-        "unknown": "Status unknown",
         "unknown_hint": "Your selected status; server status unavailable."
     },
     "release_announcement": {

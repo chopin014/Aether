@@ -22,10 +22,32 @@ describe("mergePresence", () => {
         expect(mergePresence({ now: NOW })).toBeNull();
     });
 
-    it("lets real server presence win over everything", () => {
-        expect(
-            mergePresence({ server: "offline", aether: signal("online"), lastActive: NOW - 1000, now: NOW }),
-        ).toEqual({ state: "offline", source: "server" });
+    it("lets server presence win over activity and over Aether signals that are no more available", () => {
+        expect(mergePresence({ server: "unavailable", lastActive: NOW - 1000, now: NOW })).toEqual({
+            state: "unavailable",
+            source: "server",
+        });
+        expect(mergePresence({ server: "online", aether: signal("unavailable"), now: NOW })).toEqual({
+            state: "online",
+            source: "server",
+        });
+        // Invisible must not override a server that still says online.
+        expect(mergePresence({ server: "online", aether: signal("offline"), now: NOW })?.source).toBe("server");
+        expect(mergePresence({ server: "offline", aether: signal("online", 15 * MIN, true), now: NOW })).toEqual({
+            state: "offline",
+            source: "server",
+        });
+    });
+
+    it.each([
+        ["offline", "online"],
+        ["unavailable", "online"],
+        ["online", "busy"],
+    ] as const)("lets a live Aether signal override a less available server %s with %s", (server, aether) => {
+        expect(mergePresence({ server, aether: signal(aether), now: NOW })).toEqual({
+            state: aether,
+            source: "aether",
+        });
     });
 
     it("prefers an Aether signal over seen activity", () => {

@@ -168,13 +168,22 @@ describe("useMergedPresence", () => {
         expect(result.current).toMatchObject({ state: "offline", source: "activity" });
     });
 
-    it("lets real server presence win when the config allows it", () => {
+    it("lets server presence win over a signal that is no more available when the config allows it", () => {
+        const { result, client } = render();
+        const user = new User(BOB);
+        user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "online" } }));
+        vi.mocked(client.getUser).mockReturnValue(user);
+        sendSignal("unavailable");
+        expect(result.current).toMatchObject({ state: "online", source: "server" });
+    });
+
+    it("lets a live signal win over a server that still says the user is away", () => {
         const { result, client } = render();
         const user = new User(BOB);
         user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "unavailable" } }));
         vi.mocked(client.getUser).mockReturnValue(user);
         sendSignal("online");
-        expect(result.current).toMatchObject({ state: "unavailable", source: "server" });
+        expect(result.current).toMatchObject({ state: "online", source: "aether" });
     });
 
     it("ignores server presence where the config disables it", () => {
