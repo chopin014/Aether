@@ -73,6 +73,11 @@ export interface ChannelMenuViewSnapshot {
     canCreateChannel: boolean;
     /** Whether the user can close the channel and remove everyone. */
     canDeleteChannel: boolean;
+    /**
+     * Whether the menu offers to leave the channel. A server's channels leave this out: people leave the server
+     * instead, and leaving one channel stays in the channel's settings.
+     */
+    canLeave: boolean;
 }
 
 /** What choosing an entry in the channel menu does. */
@@ -330,15 +335,17 @@ export function ChannelMenuContent({ vm, showInfo = false }: ChannelMenuContentP
                 onClick={stop}
                 hideChevron
             />
-            <Separator />
-            <MenuItem
-                kind="critical"
-                Icon={LeaveIcon}
-                label={_t("desktop|channel_menu|leave")}
-                onSelect={vm.onLeave}
-                onClick={stop}
-                hideChevron
-            />
+            {(s.canLeave || s.canDeleteChannel) && <Separator />}
+            {s.canLeave && (
+                <MenuItem
+                    kind="critical"
+                    Icon={LeaveIcon}
+                    label={_t("desktop|channel_menu|leave")}
+                    onSelect={vm.onLeave}
+                    onClick={stop}
+                    hideChevron
+                />
+            )}
             {s.canDeleteChannel && (
                 <MenuItem
                     kind="critical"

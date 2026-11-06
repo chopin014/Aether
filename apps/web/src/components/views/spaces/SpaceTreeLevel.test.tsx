@@ -10,7 +10,8 @@ Please see LICENSE files in the repository root for full details.
 
 import { vi, describe, it, expect, afterEach } from "vitest";
 import React from "react";
-import { fireEvent, getByTestId, render } from "test-utils-rtl";
+import userEvent from "@testing-library/user-event";
+import { fireEvent, getByTestId, render, screen } from "test-utils-rtl";
 import { clientAndSDKContextRenderOptions, mkRoom, stubClient } from "test-utils";
 
 import DMRoomMap from "../../../utils/DMRoomMap";
@@ -21,6 +22,12 @@ import { MetaSpace, type SpaceKey } from "../../../stores/spaces";
 import { StaticNotificationState } from "../../../stores/notifications/StaticNotificationState";
 import { NotificationLevel } from "../../../stores/notifications/NotificationLevel";
 import { SDKContextClass } from "../../../contexts/SDKContextClass";
+import SettingsStore from "../../../settings/SettingsStore";
+import { useSpaceVoiceActivity } from "../../../hooks/useSpaceVoiceActivity";
+import { PageTypeContext } from "../../../contexts/PageTypeContext";
+import PageType from "../../../PageTypes";
+
+vi.mock("../../../hooks/useSpaceVoiceActivity", () => ({ useSpaceVoiceActivity: vi.fn().mockReturnValue([]) }));
 
 vi.mock("../../../stores/spaces/SpaceStore", async () => {
     const EventEmitter = (await vi.importActual("events")).EventEmitter as typeof import("events").EventEmitter;
@@ -81,6 +88,39 @@ describe("SpaceButton", () => {
         });
     });
 
+    it("shows a hover card with the server and the people in its voice channels", async () => {
+        const getValue = SettingsStore.getValue;
+        const getValueSpy = vi
+            .spyOn(SettingsStore, "getValue")
+            .mockImplementation((setting, ...args) =>
+                setting === "feature_desktop_shell" ? true : getValue.call(SettingsStore, setting, ...args),
+            );
+        vi.mocked(useSpaceVoiceActivity).mockReturnValue([
+            {
+                roomId: "!voice:example.org",
+                name: "Geral#1",
+                people: [{ userId: "@chopin:example.org", name: "chopin" }],
+            },
+        ]);
+        const { container } = render(
+            <SpaceButton
+                space={space}
+                selected={false}
+                label="Terra do boi gordo"
+                data-testid="space-button"
+                size="32px"
+                isNarrow
+            />,
+            clientAndSDKContextRenderOptions(cli, SDKContextClass.instance),
+        );
+
+        await userEvent.hover(getByTestId(container, "space-button"));
+        expect(await screen.findByLabelText("In voice: Geral#1: chopin")).toBeInTheDocument();
+        expect(document.querySelector("[data-server-hover-card]")).toHaveTextContent("Terra do boi gordo");
+        vi.mocked(useSpaceVoiceActivity).mockReturnValue([]);
+        getValueSpy.mockRestore();
+    });
+
     describe("metaspace", () => {
         it("activates the metaspace on click", () => {
             const { container } = render(
@@ -115,6 +155,24 @@ describe("SpaceButton", () => {
             expect(dispatchSpy).not.toHaveBeenCalled();
             // Re-activating the metaspace is a no-op
             expect(SDKContextClass.instance.spaceStore.setActiveSpace).toHaveBeenCalledWith(MetaSpace.Home);
+        });
+
+        it("returns to the active metaspace from the Discover page", () => {
+            const { container } = render(
+                <PageTypeContext.Provider value={PageType.Discover}>
+                    <SpaceButton
+                        spaceKey={MetaSpace.Home}
+                        selected={false}
+                        label="Home"
+                        data-testid="create-space-button"
+                        size="32px"
+                    />
+                </PageTypeContext.Provider>,
+                clientAndSDKContextRenderOptions(cli, SDKContextClass.instance),
+            );
+
+            fireEvent.click(getByTestId(container, "create-space-button"));
+            expect(SDKContextClass.instance.spaceStore.setActiveSpace).toHaveBeenCalledWith(MetaSpace.Home, true, true);
         });
 
         it("should render notificationState if one is provided", () => {

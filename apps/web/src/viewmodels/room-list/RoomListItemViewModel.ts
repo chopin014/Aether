@@ -63,6 +63,10 @@ import { threadLabel } from "../threads/threadLabel";
 import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
 import { ChannelMenuViewModel } from "../desktop/ChannelMenuViewModel";
 import { prepareCallSoon } from "../../components/views/voip/prepareElementCall";
+import { getCallSessionStart } from "../../utils/call/callSessionStart";
+import { getPublishedVoiceState, VOICE_STATE_EVENT_TYPE } from "../../utils/call/publishedVoiceState";
+import { VoiceUserMenuViewModel } from "../desktop/VoiceUserMenuViewModel";
+import { VoiceUserPreferences, VoiceUserPreferencesEvent } from "../../audio/desktop/VoiceUserPreferences";
 
 /**
  * View section type without `isSelected` field
@@ -152,6 +156,13 @@ export class RoomListItemViewModel
 
         // Subscribe to call state changes
         this.disposables.trackListener(CallStore.instance, CallStoreEvent.Call, this.onCallStateChanged);
+        // A participant muted for this user only is marked in the channel's list.
+        this.disposables.trackListener(
+            VoiceUserPreferences.instance,
+            VoiceUserPreferencesEvent.Changed,
+            this.onVoiceActivityChanged,
+        );
+        this.disposables.track(() => this.closeCallParticipantMenu());
         this.disposables.track(() => this.callDisposables.dispose());
         // If there is an active call for this room, listen to participant changes
         this.listenToCallParticipants();
@@ -231,35 +242,52 @@ export class RoomListItemViewModel
     private onVoiceActivityChanged = (): void => {
         const { callParticipants } = this.snapshot.current;
         if (!callParticipants) return;
+        const devices = RoomListItemViewModel.participantDevices(this.currentCall);
         this.snapshot.merge({
             callParticipants: callParticipants.map((member) => ({
                 ...member,
-                ...RoomListItemViewModel.voiceActivityOf(this.currentCall, member.userId),
+                ...RoomListItemViewModel.voiceActivityOf(
+                    this.props.room,
+                    this.currentCall,
+                    member.userId,
+                    devices.get(member.userId),
+                ),
             })),
         });
     };
 
-    /** Whether a call participant is talking, muted or deafened, as far as our own connection can tell. */
+    /** The devices each person has in a call, by user ID. */
+    private static participantDevices(call: Call | null | undefined): Map<string, ReadonlySet<string>> {
+        return new Map([...(call?.participants ?? [])].map(([member, devices]) => [member.userId, devices]));
+    }
+
+    /**
+     * Whether a call participant is talking, muted or deafened, and whether this user muted them for themselves.
+     * While we are in the call it says so itself; from outside it, mute and deafen come from what the participant's
+     * devices have published to the room.
+     */
     private static voiceActivityOf(
+        room: Room,
         call: Call | null | undefined,
         userId: string,
-    ): { isSpeaking: boolean; isSoundboardPlaying: boolean; isMuted: boolean; isDeafened: boolean } {
-        const voiceState = call?.voiceStates.get(userId);
+        deviceIds: Iterable<string> = [],
+    ): {
+        isSpeaking: boolean;
+        isSoundboardPlaying: boolean;
+        isMuted: boolean;
+        isDeafened: boolean;
+        isLocallyMuted: boolean;
+    } {
+        const voiceState = call?.connected
+            ? call.voiceStates.get(userId)
+            : getPublishedVoiceState(room, userId, deviceIds);
         return {
             isSpeaking: call?.speakingUserIds.has(userId) ?? false,
             isSoundboardPlaying: call?.soundboardUserIds?.has(userId) ?? false,
             isMuted: voiceState?.muted ?? false,
             isDeafened: voiceState?.deafened ?? false,
+            isLocallyMuted: VoiceUserPreferences.instance.get(userId).muted,
         };
-    }
-
-    /** When the earliest membership still in the room's call was created, so the channel can show how long it has been in use. */
-    private static callStartedAt(room: Room, client: MatrixClient): number | undefined {
-        const joined = client.matrixRTC
-            .getRoomSession(room)
-            .memberships.map((membership) => membership.createdTs())
-            .filter((ts) => ts > 0);
-        return joined.length ? Math.min(...joined) : undefined;
     }
 
     /**
@@ -345,6 +373,24 @@ export class RoomListItemViewModel
         if (member) dispatcher.dispatch<ViewUserPayload>({ action: Action.ViewUser, member });
     };
 
+    private callParticipantMenu?: VoiceUserMenuViewModel;
+
+    /** The right-click menu for a voice participant; opening another closes the previous one. */
+    public openCallParticipantMenu = (userId: string): VoiceUserMenuViewModel => {
+        this.closeCallParticipantMenu();
+        this.callParticipantMenu = new VoiceUserMenuViewModel({
+            client: this.props.client,
+            userId,
+            room: this.props.room,
+        });
+        return this.callParticipantMenu;
+    };
+
+    public closeCallParticipantMenu = (): void => {
+        this.callParticipantMenu?.dispose();
+        this.callParticipantMenu = undefined;
+    };
+
     private onRoomChanged = (): void => {
         this.updateItem();
     };
@@ -356,6 +402,7 @@ export class RoomListItemViewModel
         const [event] = args as [MatrixEvent];
         const type = event.getType();
         if (type === EventType.RoomAvatar || type === EventType.RoomPowerLevels) this.updateItem();
+        else if (type === VOICE_STATE_EVENT_TYPE) this.onVoiceActivityChanged();
     };
 
     private channelMenu?: ChannelMenuViewModel;
@@ -534,13 +581,13 @@ export class RoomListItemViewModel
                 : undefined;
         const callParticipants =
             channelKind === "voice"
-                ? [...(call?.participants.keys() ?? [])]
-                      .map((member) => {
+                ? [...(call?.participants ?? [])]
+                      .map(([member, devices]) => {
                           const mxc = member.getMxcAvatarUrl();
                           return {
                               userId: member.userId,
                               name: member.name,
-                              ...RoomListItemViewModel.voiceActivityOf(call, member.userId),
+                              ...RoomListItemViewModel.voiceActivityOf(room, call, member.userId, devices),
                               avatarUrl: mxc
                                   ? (mediaFromMxc(mxc).getThumbnailOfSourceHttp(48, 48, "crop") ?? undefined)
                                   : undefined,
@@ -583,7 +630,9 @@ export class RoomListItemViewModel
             channelIconUrl,
             canEditChannel,
             callParticipants,
-            callStartedAt: callParticipants?.length ? RoomListItemViewModel.callStartedAt(room, client) : undefined,
+            callStartedAt: callParticipants?.length
+                ? getCallSessionStart(room, client.matrixRTC.getRoomSession(room).memberships)
+                : undefined,
             canInvite,
             canCopyRoomLink,
             canMarkAsRead,

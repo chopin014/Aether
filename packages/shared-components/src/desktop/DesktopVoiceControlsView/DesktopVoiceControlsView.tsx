@@ -13,7 +13,6 @@ import {
     EndCallIcon,
     ShareScreenSolidIcon,
     VideoCallSolidIcon,
-    VolumeOnIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { useViewModel, type ViewModel } from "../../core/viewmodel";
@@ -76,6 +75,8 @@ export interface DesktopVoiceControlsViewSnapshot {
         history: readonly (number | null)[];
     };
     roomName?: string;
+    /** The server (space) the call's channel belongs to, shown after the channel's name. */
+    spaceName?: string;
     error?: string;
 }
 /** All controls affect the existing Element Call and host media preferences. */
@@ -174,12 +175,37 @@ export function DesktopVoiceControlsView({ vm }: { vm: DesktopVoiceControlsViewM
 }
 
 /**
+ * Broadcast waves for the call's connection. Waves fade out as the connection degrades and pulse while it
+ * connects, so its health shows without opening the details.
+ */
+function SignalIcon({
+    state,
+    quality,
+}: Pick<DesktopVoiceControlsViewSnapshot["connection"], "state" | "quality">): JSX.Element {
+    const waves = state === "disconnected" || quality === "bad" || quality === "lost" ? 0 : quality === "poor" ? 1 : 2;
+    return (
+        <svg
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            className={styles.signalIcon}
+            data-waves={waves}
+            data-pending={state === "connecting" || state === "reconnecting" ? true : undefined}
+        >
+            <circle cx="5.5" cy="18.5" r="2" />
+            <path d="M4.5 12.5a7 7 0 0 1 7 7" />
+            <path d="M4.5 6a13.5 13.5 0 0 1 13.5 13.5" />
+        </svg>
+    );
+}
+
+/**
  * The connected call above the account row: status and hang-up, then camera and screen sharing, so the
  * floating call window is only needed to watch a screen share.
  */
 export function DesktopVoiceConnectionView({ vm }: { vm: DesktopVoiceControlsViewModel }): JSX.Element | null {
     const {
         roomName,
+        spaceName,
         soundboard,
         busy,
         error,
@@ -218,6 +244,7 @@ export function DesktopVoiceConnectionView({ vm }: { vm: DesktopVoiceControlsVie
                   : connection.quality === "poor"
                     ? _t("desktop|voice|connection_poor")
                     : _t("desktop|voice|connected");
+    const location = spaceName ? `${roomName} / ${spaceName}` : (roomName ?? "");
     return (
         <div className={styles.connection} data-voice-connected={roomName ? true : undefined} data-tone={tone}>
             {roomName && (
@@ -232,23 +259,20 @@ export function DesktopVoiceConnectionView({ vm }: { vm: DesktopVoiceControlsVie
                             aria-expanded={panel === "connection"}
                             onClick={() => vm.setPanel(panel === "connection" ? null : "connection")}
                         >
-                            <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.signalIcon}>
-                                <rect x="3" y="15" width="4" height="6" rx="1" />
-                                <rect x="10" y="9" width="4" height="12" rx="1" />
-                                <rect x="17" y="3" width="4" height="18" rx="1" />
-                            </svg>
+                            <SignalIcon state={connection.state} quality={connection.quality} />
                         </button>
                         <button
                             className={styles.callIdentity}
                             type="button"
-                            aria-label={`${status} ${roomName}`}
+                            aria-label={`${status} ${location}`}
                             onClick={vm.showCall}
                         >
-                            <Text className={styles.connectedLabel} size="sm" weight="semibold">
-                                <VolumeOnIcon />
-                                <span role="status">{status}</span>
+                            <Text as="span" className={styles.connectedLabel} size="md" weight="medium" role="status">
+                                {status}
                             </Text>
-                            <Text size="xs">{roomName}</Text>
+                            <Text as="span" size="xs" className={styles.callLocation}>
+                                {location}
+                            </Text>
                         </button>
                         <IconButton
                             ref={noiseButton}
@@ -326,6 +350,8 @@ export function DesktopVoiceConnectionView({ vm }: { vm: DesktopVoiceControlsVie
                             : "desktop|voice|connection_details",
                     )}
                     onClose={closePanel}
+                    compact={panel === "connection"}
+                    tabTitle={panel === "connection"}
                 >
                     {panel === "noise" ? <VoiceNoisePanel vm={vm} /> : <VoiceConnectionPanel vm={vm} />}
                 </VoicePopover>

@@ -15,6 +15,7 @@ import { KnownMembership, type RoomPowerLevelsEventContent } from "matrix-js-sdk
 import { _t, _td } from "../../../../../languageHandler";
 import AccessibleButton from "../../../elements/AccessibleButton";
 import Modal from "../../../../../Modal";
+import { confirmPeerPromotion } from "../../../../../utils/room/confirmPeerPromotion";
 import ErrorDialog from "../../../dialogs/ErrorDialog";
 import PowerSelector from "../../../elements/PowerSelector";
 import SettingsFieldset from "../../SettingsFieldset";
@@ -228,6 +229,8 @@ export default class RolesRoomSettingsTab extends React.Component<IProps, RolesR
     private onUserPowerLevelChanged = async (value: number, powerLevelKey: string): Promise<void> => {
         const client = this.context;
         const room = this.props.room;
+        // Declining leaves the level unchanged; the selector falls back to the room's current value.
+        if (!(await confirmPeerPromotion(client, room, [powerLevelKey], value))) return;
         const plEvent = room.currentState.getStateEvents(EventType.RoomPowerLevels, "");
         let plContent = plEvent?.getContent<RoomPowerLevelsEventContent>() ?? {};
 

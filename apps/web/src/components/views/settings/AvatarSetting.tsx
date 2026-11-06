@@ -20,6 +20,7 @@ import AccessibleButton from "../elements/AccessibleButton";
 import BaseAvatar from "../avatars/BaseAvatar";
 import Modal from "../../../Modal.tsx";
 import ErrorDialog from "../dialogs/ErrorDialog.tsx";
+import { editImage } from "../dialogs/ImageCropDialog.tsx";
 
 interface MenuProps {
     trigger: ReactNode;
@@ -148,10 +149,11 @@ const AvatarSetting: React.FC<IProps> = ({
     }, [avatar]);
 
     const onFileChanged = useCallback(
-        (e: React.ChangeEvent<HTMLInputElement>) => {
+        async (e: React.ChangeEvent<HTMLInputElement>) => {
             const file = getFileChanged(e);
-            if (file) {
-                onChange?.(file);
+            const edited = file && (await editImage(file, "avatar"));
+            if (edited) {
+                onChange?.(edited);
             }
         },
         [onChange],

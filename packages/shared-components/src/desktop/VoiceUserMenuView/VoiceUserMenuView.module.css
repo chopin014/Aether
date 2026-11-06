@@ -1,0 +1,251 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.menu {
+    z-index: 1000;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    min-width: 220px;
+    max-width: 300px;
+    max-height: calc(100vh - 2 * var(--cpd-space-2x));
+    overflow-y: auto;
+    padding: var(--cpd-space-1-5x);
+    border-radius: var(--cpd-space-2x);
+    border: 1px solid color-mix(in srgb, var(--cpd-color-text-primary) 8%, transparent);
+    background: var(--cpd-color-bg-canvas-default);
+    color: var(--cpd-color-text-primary);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+    outline: none;
+    user-select: none;
+    animation: menuIn 90ms ease-out;
+}
+
+@keyframes menuIn {
+    from {
+        opacity: 0;
+        transform: scale(0.97);
+    }
+}
+
+.item {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-2x);
+    min-height: 32px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--cpd-space-1-5x) var(--cpd-space-2x);
+    border: 0;
+    border-radius: var(--cpd-space-1x);
+    background: transparent;
+    color: var(--cpd-color-text-primary);
+    font: var(--cpd-font-body-sm-medium);
+    text-align: start;
+    cursor: pointer;
+}
+
+.item:hover,
+.item:focus-visible,
+.item[data-open="true"] {
+    outline: none;
+    background: var(--cpd-color-bg-action-secondary-hovered);
+}
+
+.item[data-kind="critical"] {
+    color: var(--cpd-color-text-critical-primary);
+}
+
+.item[data-kind="critical"]:hover,
+.item[data-kind="critical"]:focus-visible {
+    background: var(--cpd-color-bg-critical-subtle);
+}
+
+.label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chevron {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    color: var(--cpd-color-icon-secondary);
+}
+
+/* Discord's checkbox: an empty rounded square, filled with the accent and a tick when on. */
+.checkbox {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    box-sizing: border-box;
+    border-radius: var(--cpd-space-1x);
+    border: 1.5px solid var(--cpd-color-icon-secondary);
+    color: var(--cpd-color-icon-on-solid-primary);
+}
+
+.item[aria-checked="true"] .checkbox {
+    border-color: var(--cpd-color-bg-accent-rest);
+    background: var(--cpd-color-bg-accent-rest);
+}
+
+.checkbox svg {
+    width: 14px;
+    height: 14px;
+}
+
+.separator {
+    flex: none;
+    border: 0;
+    height: 1px;
+    margin: var(--cpd-space-1x) var(--cpd-space-2x);
+    background: color-mix(in srgb, var(--cpd-color-text-primary) 10%, transparent);
+}
+
+.menu > .separator:first-child,
+.separator + .separator,
+.menu > .separator:last-child {
+    display: none;
+}
+
+.volume {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-2x);
+    padding: var(--cpd-space-2x) var(--cpd-space-2x) var(--cpd-space-1x);
+}
+
+.volumeTitle {
+    font: var(--cpd-font-body-sm-medium);
+    color: var(--cpd-color-text-primary);
+}
+
+/* The 0–200% slider: accent up to the knob, a notch at 100%, and the value floating above the knob. */
+.volumeSlider {
+    position: relative;
+    height: 20px;
+    display: flex;
+    align-items: center;
+}
+
+.volumeSlider input {
+    appearance: none;
+    width: 100%;
+    height: 20px;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+    position: relative;
+    z-index: 1;
+}
+
+.volumeSlider input:focus-visible {
+    outline: none;
+}
+
+.volumeSlider input::-webkit-slider-runnable-track {
+    height: 8px;
+    border-radius: 999px;
+    background: linear-gradient(
+        to right,
+        var(--cpd-color-bg-accent-rest) var(--position),
+        color-mix(in srgb, var(--cpd-color-text-primary) 18%, transparent) var(--position)
+    );
+}
+
+.volumeSlider input::-webkit-slider-thumb {
+    appearance: none;
+    width: 10px;
+    height: 24px;
+    margin-top: -8px;
+    border-radius: 3px;
+    background: var(--cpd-color-bg-canvas-default);
+    border: 1px solid color-mix(in srgb, var(--cpd-color-text-primary) 30%, transparent);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 30%);
+}
+
+.volumeSlider input:focus-visible::-webkit-slider-thumb {
+    outline: 2px solid var(--cpd-color-border-focused);
+    outline-offset: 1px;
+}
+
+.volumeSlider input::-moz-range-track {
+    height: 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--cpd-color-text-primary) 18%, transparent);
+}
+
+.volumeSlider input::-moz-range-progress {
+    height: 8px;
+    border-radius: 999px;
+    background: var(--cpd-color-bg-accent-rest);
+}
+
+.volumeSlider input::-moz-range-thumb {
+    width: 10px;
+    height: 24px;
+    border-radius: 3px;
+    background: var(--cpd-color-bg-canvas-default);
+    border: 1px solid color-mix(in srgb, var(--cpd-color-text-primary) 30%, transparent);
+}
+
+.volumeNotch {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 2px;
+    height: 14px;
+    transform: translate(-50%, -50%);
+    border-radius: 1px;
+    background: color-mix(in srgb, var(--cpd-color-text-primary) 40%, transparent);
+    pointer-events: none;
+}
+
+.volumeBubble {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    /* Follow the knob's centre, which travels 10px (its width) less than the track. */
+    left: calc(var(--fraction) * (100% - 10px) + 5px);
+    transform: translateX(-50%);
+    padding: var(--cpd-space-1x) var(--cpd-space-2x);
+    border-radius: var(--cpd-space-1-5x);
+    background: var(--cpd-color-bg-subtle-primary);
+    color: var(--cpd-color-text-primary);
+    font: var(--cpd-font-body-xs-semibold);
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 100ms ease-out;
+    z-index: 2;
+}
+
+.volumeSlider[data-active="true"] .volumeBubble {
+    opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .menu {
+        animation: none;
+    }
+
+    .volumeBubble {
+        transition: none;
+    }
+}
+
+@media (forced-colors: active) {
+    .item:hover,
+    .item:focus-visible {
+        outline: 1px solid Highlight;
+    }
+}

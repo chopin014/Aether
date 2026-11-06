@@ -21,6 +21,7 @@ import { useI18n } from "../../core/i18n/i18nContext";
 import { DeviceSelect, type VoiceVideoDevice } from "./DeviceSelect";
 import { LevelMeter } from "./LevelMeter";
 import { RangeSlider } from "./RangeSlider";
+import { MAX_PLAYBACK_VOLUME_PERCENT } from "../playbackVolume";
 import { Expander, ToggleRow } from "./Rows";
 import styles from "./DesktopVoiceVideoSettingsView.module.css";
 
@@ -291,6 +292,7 @@ export function DesktopVoiceVideoSettingsView({ vm }: { vm: DesktopVoiceVideoSet
                             min={0}
                             max={100}
                             valueText={`${snapshot.microphoneVolume}%`}
+                            showValue
                             onChange={vm.setMicrophoneVolume}
                         />
                     </div>
@@ -300,8 +302,10 @@ export function DesktopVoiceVideoSettingsView({ vm }: { vm: DesktopVoiceVideoSet
                             label={_t("desktop|voice_video|speaker_volume")}
                             value={snapshot.speakerVolume}
                             min={0}
-                            max={100}
+                            max={MAX_PLAYBACK_VOLUME_PERCENT}
                             valueText={`${snapshot.speakerVolume}%`}
+                            showValue
+                            mark={100}
                             onChange={vm.setSpeakerVolume}
                         />
                     </div>

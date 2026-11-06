@@ -99,6 +99,9 @@ export default {
             ignoreBinaries: [
                 // Used by the fetch-package script (optional)
                 "gpg",
+                // System tools the Linux NVENC driver build uses to patch and compile native code.
+                "patch",
+                "cc",
             ],
         },
         "modules": {

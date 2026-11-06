@@ -42,6 +42,7 @@ describe("<ChatUserSettingsTab />", () => {
             "Link previews",
             "Code blocks",
             "Room list",
+            "Servers",
             "Servers to show",
         ]);
     });
@@ -53,6 +54,11 @@ describe("<ChatUserSettingsTab />", () => {
         ).toBeInTheDocument();
         expect(screen.getByRole("switch", { name: "Enable Markdown" })).toBeInTheDocument();
         expect(screen.getByRole("switch", { name: "Autoplay GIFs" })).toBeInTheDocument();
+    });
+
+    it("offers joining every channel of small servers", () => {
+        renderTab();
+        expect(screen.getByRole("switch", { name: "Join every channel of small servers" })).toBeInTheDocument();
     });
 
     describe("bundled url previews only", () => {

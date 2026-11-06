@@ -919,6 +919,15 @@ describe("SpaceStore", () => {
             expect(store.activeSpace).toBe(MetaSpace.Home);
         });
 
+        it("switches to the active space again only when asked to reopen it", async () => {
+            fn.mockClear();
+            store.setActiveSpace(MetaSpace.Home);
+            expect(fn).not.toHaveBeenCalledWith(UPDATE_SELECTED_SPACE, MetaSpace.Home);
+
+            store.setActiveSpace(MetaSpace.Home, true, true);
+            expect(fn).toHaveBeenCalledWith(UPDATE_SELECTED_SPACE, MetaSpace.Home);
+        });
+
         it("switch to invited space", async () => {
             store.setActiveSpace(space3);
             expect(fn).toHaveBeenCalledWith(UPDATE_SELECTED_SPACE, space3);

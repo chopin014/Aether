@@ -27,10 +27,15 @@ export interface MergedPresence {
     label?: string;
 }
 
+/** How available each status says someone is, used when two live sources disagree. */
+const AVAILABILITY: Record<MergedPresenceState, number> = { offline: 0, unavailable: 1, online: 2, busy: 3 };
+
 /**
- * Combine the available evidence about one user. Real server presence always wins, then an Aether signal, then
- * what we last saw the user do. An Aether signal that has run out loses to activity seen after it was sent, since
- * that is newer information. With no evidence at all the result is null and no dot is shown.
+ * Combine the available evidence about one user. Server presence wins over everything except a live Aether signal
+ * that reports the user as more available: the homeserver lags behind over federation and can mark someone idle on
+ * its own timer while their Aether client is in use. A live Aether signal otherwise wins over what we last saw the
+ * user do. An Aether signal that has run out loses to activity seen after it was sent, since that is newer
+ * information. With no evidence at all the result is null and no dot is shown.
  */
 export function mergePresence(input: {
     server?: MergedPresenceState;
@@ -40,7 +45,12 @@ export function mergePresence(input: {
     now: number;
 }): MergedPresence | null {
     const { server, aether, lastActive, now } = input;
-    if (server) return { state: server, source: "server" };
+    if (server) {
+        if (aether && !aether.expired && AVAILABILITY[aether.presence] > AVAILABILITY[server]) {
+            return { state: aether.presence, source: "aether" };
+        }
+        return { state: server, source: "server" };
+    }
 
     const activityNewer = lastActive !== undefined && (!aether || lastActive > aether.lastSeen);
     if (aether && !(aether.expired && activityNewer)) {

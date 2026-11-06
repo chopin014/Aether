@@ -68,6 +68,7 @@ import {
 } from "@element-hq/element-call-component/api";
 
 import { playDesktopVoiceSound } from "../audio/DesktopVoiceSounds";
+import { VoiceStatePublisher } from "./VoiceStatePublisher";
 import type { SoundboardTransport } from "../audio/soundboard/SoundboardTransport";
 
 export type { CallConnectionStats } from "./CallConnectionStats";
@@ -798,6 +799,11 @@ export class ElementCall extends Call {
     private _connectionStats = emptyCallConnectionStats("disconnected");
     /** The join cue is held until media is really connected, so the sound matches when people can hear each other. */
     private joinCuePending = false;
+    /**
+     * Whether media has connected since the call was last joined. Until it has, the component's "disconnected"
+     * only means its call session has not started yet, not that a connection was lost.
+     */
+    private mediaConnectedSinceJoin = false;
 
     /** Real media transport health, separately from joining the Matrix call. */
     public get connectionStats(): CallConnectionStats {
@@ -806,7 +812,16 @@ export class ElementCall extends Call {
 
     /** Receives validated media measurements from the embedded call, without changing call membership. */
     public handleConnectionStats(stats: unknown): void {
-        if (this.destroyed || !isCallConnectionStats(stats)) return;
+        if (!isCallConnectionStats(stats)) return;
+        // The component notifies us that we joined before its call session starts, and reports that session as
+        // disconnected meanwhile. Keep showing the join as in progress rather than briefly reporting a lost call.
+        const joining = this.connected && !this.mediaConnectedSinceJoin && stats.state === "disconnected";
+        this.setConnectionStats(joining ? emptyCallConnectionStats("connecting") : stats);
+    }
+
+    private setConnectionStats(stats: CallConnectionStats): void {
+        if (this.destroyed) return;
+        if (stats.state === "connected") this.mediaConnectedSinceJoin = true;
         const previous = this._connectionStats;
         if (
             previous.state === stats.state &&
@@ -836,7 +851,8 @@ export class ElementCall extends Call {
      */
     public readonly setComponentHandle = (handle: ElementCallHandle | null): void => {
         if (handle !== this.componentHandle) {
-            this.handleConnectionStats(emptyCallConnectionStats(handle ? "connecting" : "disconnected"));
+            this.mediaConnectedSinceJoin = false;
+            this.setConnectionStats(emptyCallConnectionStats(handle ? "connecting" : "disconnected"));
         }
         this.componentHandle = handle;
         // The desktop shell's voice settings follow the component for as long as it is mounted.
@@ -1157,7 +1173,11 @@ export class ElementCall extends Call {
         this.session.on(MatrixRTCSessionEvent.MembershipsChanged, this.onMembershipChanged);
         this.client.matrixRTC.on(MatrixRTCSessionManagerEvents.SessionEnded, this.checkDestroy);
         this.updateParticipants();
+        // Voice channels list who is in them, muted and deafened included, for people who have not joined.
+        if (isVideoRoom(this.room)) this.voiceStatePublisher = new VoiceStatePublisher(this, this.room, client);
     }
+
+    private voiceStatePublisher?: VoiceStatePublisher;
 
     public static get(room: Room, voiceOnly?: boolean): ElementCall | null {
         const apps = WidgetStore.instance.getApps(room.roomId);
@@ -1342,7 +1362,7 @@ export class ElementCall extends Call {
         this.componentNeedsRestart = true;
         this._deviceMuteState = undefined;
         this.handleSoundboardTransport(null);
-        this.handleConnectionStats(emptyCallConnectionStats("disconnected"));
+        this.setConnectionStats(emptyCallConnectionStats("disconnected"));
         this.handleScreenShare(NO_SCREEN_SHARE);
         this.handleVoiceStates([]);
         super.close();
@@ -1356,7 +1376,7 @@ export class ElementCall extends Call {
         // close() above may re-enter here via checkDestroy while destroying
         if (this.destroyed) return;
         this.handleSoundboardTransport(null);
-        this.handleConnectionStats(emptyCallConnectionStats("disconnected"));
+        this.setConnectionStats(emptyCallConnectionStats("disconnected"));
         this.destroyed = true;
 
         this.componentHandle = null;
@@ -1364,6 +1384,7 @@ export class ElementCall extends Call {
         WidgetStore.instance.removeVirtualWidget(this.widget.id, this.widget.roomId);
         this.session.off(MatrixRTCSessionEvent.MembershipsChanged, this.onMembershipChanged);
         this.client.matrixRTC.off(MatrixRTCSessionManagerEvents.SessionEnded, this.checkDestroy);
+        this.voiceStatePublisher?.dispose();
 
         clearTimeout(this.terminationTimer);
         this.terminationTimer = undefined;
@@ -1423,9 +1444,9 @@ export class ElementCall extends Call {
         // Joining and requesting persistence are separate callbacks. Keep the mounted call alive
         // before connected listeners can navigate away, even if the persistence request is delayed.
         ActiveWidgetStore.instance.setWidgetPersistence(this.widget.id, this.widget.roomId, true);
-        if (!ElementCall.usesReactComponent) this.handleConnectionStats(emptyCallConnectionStats("connected"));
+        if (!ElementCall.usesReactComponent) this.setConnectionStats(emptyCallConnectionStats("connected"));
         else if (this.connectionStats.state === "disconnected")
-            this.handleConnectionStats(emptyCallConnectionStats("connecting"));
+            this.setConnectionStats(emptyCallConnectionStats("connecting"));
         this.setConnected();
     }
 
@@ -1445,7 +1466,8 @@ export class ElementCall extends Call {
         // Leaving before media ever connected played no join cue, so it gets no leave cue either.
         const heardJoin = !this.joinCuePending;
         this.joinCuePending = false;
-        this.handleConnectionStats(emptyCallConnectionStats("disconnected"));
+        this.mediaConnectedSinceJoin = false;
+        this.setConnectionStats(emptyCallConnectionStats("disconnected"));
         super.setDisconnected();
         if (wasConnected && heardJoin && SettingsStore.getValue("feature_desktop_shell")) {
             void playDesktopVoiceSound("leave");

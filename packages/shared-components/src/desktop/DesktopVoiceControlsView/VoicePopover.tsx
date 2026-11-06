@@ -23,6 +23,11 @@ interface VoicePopoverProps {
     compact?: boolean;
     /** A self-contained picker that provides its own heading and dimensions. */
     contentOnly?: boolean;
+    /**
+     * Shows the title as the panel's single selected tab, without a close button, as Discord's call popouts do.
+     * Escape and clicking outside still close it.
+     */
+    tabTitle?: boolean;
     children: ReactNode;
 }
 
@@ -33,6 +38,7 @@ export function VoicePopover({
     onClose,
     compact,
     contentOnly,
+    tabTitle,
     children,
 }: VoicePopoverProps): JSX.Element {
     const { translate: _t } = useI18n();
@@ -129,11 +135,11 @@ export function VoicePopover({
             )}
             style={{ left: position.left, top: position.top }}
         >
-            <div className={contentOnly ? styles.visuallyHidden : styles.panelHeader}>
+            <div className={contentOnly ? styles.visuallyHidden : tabTitle ? styles.tabHeader : styles.panelHeader}>
                 <Heading as="h2" size="sm" weight="semibold" id={titleId}>
                     {title}
                 </Heading>
-                {!contentOnly && (
+                {!contentOnly && !tabTitle && (
                     <IconButton tooltip={_t("action|close")} onClick={onClose}>
                         <CloseIcon />
                     </IconButton>

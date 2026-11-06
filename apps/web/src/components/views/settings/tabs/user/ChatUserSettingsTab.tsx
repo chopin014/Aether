@@ -110,6 +110,10 @@ export function ChatUserSettingsTab(): JSX.Element {
                     />
                 </SettingsSubsection>
 
+                <SettingsSubsection heading={_t("common|spaces")} formWrap card>
+                    <SettingsFlag name="Spaces.joinAllChannels" level={SettingLevel.ACCOUNT} />
+                </SettingsSubsection>
+
                 <SidebarSettings />
             </SettingsSection>
         </SettingsTab>

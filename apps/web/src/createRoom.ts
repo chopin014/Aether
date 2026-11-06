@@ -46,6 +46,7 @@ import { waitForMember } from "./utils/membership";
 import { doesRoomVersionSupport, PreferredRoomVersions } from "./utils/PreferredRoomVersions";
 import { MEGOLM_ENCRYPTION_ALGORITHM } from "./utils/crypto";
 import { ElementCallMemberEventType } from "./call-types";
+import { VOICE_STATE_EVENT_TYPE } from "./utils/call/publishedVoiceState";
 import { htmlSerializeFromMdIfNeeded } from "./editor/serialize";
 import { SDKContextClass } from "./contexts/SDKContextClass.ts";
 import SdkConfig from "./SdkConfig";
@@ -191,6 +192,8 @@ export default async function createRoom(client: MatrixClient, opts: IOpts): Pro
                     [opts.roomType === RoomType.ElementVideo
                         ? JitsiCall.MEMBER_EVENT_TYPE
                         : ElementCallMemberEventType.name]: 0,
+                    // Let everyone in the call say whether they are muted or deafened
+                    [VOICE_STATE_EVENT_TYPE]: 0,
                     // Ensure all but admins can't change widgets
                     // A previous version of the code prevented even administrators
                     // from changing this, but this is not possible now that room creators

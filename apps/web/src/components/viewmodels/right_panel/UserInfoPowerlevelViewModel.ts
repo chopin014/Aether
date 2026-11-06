@@ -4,7 +4,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only
 Please see LICENSE files in the repository root for full details.
 */
 
-import React, { useContext, useEffect, useState, useCallback } from "react";
+import { useContext, useEffect, useState, useCallback } from "react";
 import { logger } from "@sentry/browser";
 import { type RoomMember, type Room } from "matrix-js-sdk/src/matrix";
 
@@ -12,8 +12,8 @@ import MatrixClientContext from "../../../contexts/MatrixClientContext";
 import { _t } from "../../../languageHandler";
 import Modal from "../../../Modal";
 import ErrorDialog from "../../views/dialogs/ErrorDialog";
-import QuestionDialog from "../../views/dialogs/QuestionDialog";
 import { warnSelfDemote } from "../../views/right_panel/UserInfo";
+import { confirmPeerPromotion } from "../../../utils/room/confirmPeerPromotion";
 
 /**
  *
@@ -69,20 +69,11 @@ export const useUserInfoPowerlevelViewModel = (user: RoomMember, room: Room): Us
             const myUserId = cli.getUserId();
             const myPower = myUserId ? room.getMember(myUserId)?.powerLevel : undefined;
             if (myPower !== undefined && myPower <= powerLevel && myUserId !== target) {
-                const { finished } = Modal.createDialog(QuestionDialog, {
-                    title: _t("common|warning"),
-                    description: (
-                        <div>
-                            {_t("user_info|promote_warning")}
-                            <br />
-                            {_t("common|are_you_sure")}
-                        </div>
-                    ),
-                    button: _t("action|continue"),
-                });
-
-                const [confirmed] = await finished;
-                if (!confirmed) return;
+                // Nobody can lower someone at their own level, so this needs a typed confirmation.
+                if (!(await confirmPeerPromotion(cli, room, [target], powerLevel))) {
+                    setSelectedPowerLevel(user.powerLevel);
+                    return;
+                }
             } else if (myUserId === target && myPower !== undefined && myPower > powerLevel) {
                 // If we are changing our own PL it can only ever be decreasing, which we cannot reverse.
                 try {
@@ -94,7 +85,7 @@ export const useUserInfoPowerlevelViewModel = (user: RoomMember, room: Room): Us
 
             await applyPowerChange(roomId, target, powerLevel);
         },
-        [user.roomId, user.userId, cli, room],
+        [user.roomId, user.userId, user.powerLevel, cli, room],
     );
 
     const powerLevelEvent = room.currentState.getStateEvents("m.room.power_levels", "");

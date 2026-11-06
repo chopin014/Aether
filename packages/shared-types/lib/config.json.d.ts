@@ -132,7 +132,7 @@ export interface WebConfigJson {
                 max_resolution?: number;
                 /** Maximum publication frame rate. Defaults to 30. */
                 max_framerate?: number;
-                /** Maximum publication bitrate in bits per second. Defaults to 5,000,000. */
+                /** Maximum publication bitrate in bits per second. Defaults to 20,000,000. */
                 max_bitrate?: number;
             };
         };

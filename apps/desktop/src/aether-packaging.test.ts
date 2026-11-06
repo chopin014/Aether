@@ -153,6 +153,7 @@ describe("Aether distribution identity", () => {
         ]);
         expect(config.generateUpdatesFilesForAllChannels).toBe(true);
         expect(config.linux.target).toEqual(["AppImage"]);
+        expect(config.linux.extraResources).toContainEqual({ from: "native-dist", to: "native/nvenc" });
         expect(config.linux.maintainer).toBe("Aether contributors <156453220+chopin014@users.noreply.github.com>");
         expect(config.win.target).toEqual(["nsis"]);
         expect(config.win.forceCodeSigning).toBe(false);

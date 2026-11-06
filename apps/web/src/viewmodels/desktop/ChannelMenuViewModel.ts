@@ -125,6 +125,8 @@ export class ChannelMenuViewModel
             canEditChannel: room.currentState.maySendStateEvent(EventType.RoomName, userId),
             canCreateChannel: inActiveSpace && hasCreateRoomRights(client, activeSpace),
             canDeleteChannel: room.membersLoaded() && canDeleteChannel(room, activeSpace, userId),
+            // A server's channels are left by leaving the server; one-off leaving stays in the channel's settings.
+            canLeave: !inActiveSpace && room.currentState.getStateEvents(EventType.SpaceParent).length === 0,
         };
     }
 

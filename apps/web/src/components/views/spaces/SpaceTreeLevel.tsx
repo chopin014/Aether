@@ -29,6 +29,7 @@ import {
 } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import RoomAvatar from "../avatars/RoomAvatar";
+import { avatarUrlForRoom } from "../../../Avatar";
 import { type SpaceKey } from "../../../stores/spaces";
 import SpaceTreeLevelLayoutStore from "../../../stores/spaces/SpaceTreeLevelLayoutStore";
 import { NotificationBadge } from "../rooms/NotificationBadge/NotificationBadge";
@@ -52,6 +53,8 @@ import { SDKContext } from "../../../contexts/SDKContext.ts";
 import { useSettingValue } from "../../../hooks/useSettings";
 import SettingsStore from "../../../settings/SettingsStore";
 import { useSpaceVoiceActivity } from "../../../hooks/useSpaceVoiceActivity";
+import { PageTypeContext } from "../../../contexts/PageTypeContext";
+import PageType from "../../../PageTypes";
 
 type ButtonProps<T extends keyof HTMLElementTagNameMap> = Omit<
     AccessibleButtonProps<T>,
@@ -89,6 +92,7 @@ export const SpaceButton = <T extends keyof HTMLElementTagNameMap>({
     ...props
 }: ButtonProps<T>): JSX.Element => {
     const sdkContext = useContext(SDKContext);
+    const onDiscover = useContext(PageTypeContext) === PageType.Discover;
     const desktopShell = useSettingValue("feature_desktop_shell");
     // The desktop rail's tooltip also shows who is talking in the server's voice channels.
     const voiceActivity = useSpaceVoiceActivity(sdkContext, desktopShell && isNarrow ? space : undefined);
@@ -149,7 +153,10 @@ export const SpaceButton = <T extends keyof HTMLElementTagNameMap>({
         // space is set here because of the assignment condition of onClick
         defaultDispatcher.dispatch({ action: Action.ViewRoom, room_id: space!.roomId });
     const activateSpace = (): void => {
-        if (spaceKey) sdkContext.spaceStore.setActiveSpace(spaceKey);
+        // From Discover, the active Space is not on screen, so pressing it must still go back to it.
+        if (!spaceKey) return;
+        if (onDiscover) sdkContext.spaceStore.setActiveSpace(spaceKey, true, true);
+        else sdkContext.spaceStore.setActiveSpace(spaceKey);
     };
     const onClick = props.onClick ?? (selected && space ? viewSpaceHome : activateSpace);
 
@@ -164,7 +171,18 @@ export const SpaceButton = <T extends keyof HTMLElementTagNameMap>({
             })}
             aria-label={label}
             title={!isNarrow || menuDisplayed ? undefined : label}
-            caption={voiceActivity.length > 0 ? <ServerVoiceActivity channels={voiceActivity} /> : undefined}
+            caption={
+                space && voiceActivity.length > 0 ? (
+                    <ServerVoiceActivity
+                        server={{
+                            id: space.roomId,
+                            name: label,
+                            avatarUrl: avatarUrlForRoom(space, 48, 48, "crop") ?? undefined,
+                        }}
+                        channels={voiceActivity}
+                    />
+                ) : undefined
+            }
             onClick={onClick}
             onContextMenu={openMenu}
             ref={ref}

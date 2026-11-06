@@ -38,6 +38,7 @@ import {
 } from "../../audio/DesktopVoiceSounds";
 import { MicrophoneTest, mediaTestError } from "../../audio/desktop/MicrophoneTest";
 import { CameraTest } from "../../audio/desktop/CameraTest";
+import { MAX_SPEAKER_VOLUME_PERCENT } from "../../audio/desktop/DesktopVoicePipeline";
 import {
     customizeDesktopVoiceProfile,
     DESKTOP_VOICE_PROFILE_PRESETS,
@@ -341,7 +342,12 @@ export class DesktopVoiceVideoSettingsViewModel
 
     public setMicrophoneVolume = (percent: number): Promise<void> =>
         this.setSetting("desktopMicrophoneVolume", percent);
-    public setSpeakerVolume = (percent: number): Promise<void> => this.setSetting("desktopSpeakerVolume", percent);
+    /** The speaker may play calls up to twice as loud as they arrive. */
+    public setSpeakerVolume = (percent: number): Promise<void> =>
+        this.setSetting(
+            "desktopSpeakerVolume",
+            Number.isFinite(percent) ? Math.max(0, Math.min(MAX_SPEAKER_VOLUME_PERCENT, Math.round(percent))) : 100,
+        );
 
     /** Opens the newly chosen microphone, keeping playback as it was. */
     private async reopenMicrophone(): Promise<void> {
