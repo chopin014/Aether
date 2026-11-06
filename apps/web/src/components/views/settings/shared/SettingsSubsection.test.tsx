@@ -51,4 +51,24 @@ describe("<SettingsSubsection />", () => {
         const { container } = render(getComponent({ description }));
         expect(container).toMatchSnapshot();
     });
+
+    it("shows its content as a card when asked", () => {
+        const { container } = render(getComponent({ card: true }));
+        const content = container.querySelector(".mx_SettingsSubsection_content");
+        expect(content).toHaveClass("mx_SettingsSubsection_card");
+        expect(content).not.toHaveClass("mx_SettingsSubsection_card_critical");
+    });
+
+    it("marks a card of irreversible actions as critical", () => {
+        const { container } = render(getComponent({ card: "critical" }));
+        expect(container.querySelector(".mx_SettingsSubsection_content")).toHaveClass(
+            "mx_SettingsSubsection_card",
+            "mx_SettingsSubsection_card_critical",
+        );
+    });
+
+    it("is not a card by default", () => {
+        const { container } = render(getComponent());
+        expect(container.querySelector(".mx_SettingsSubsection_card")).toBeNull();
+    });
 });

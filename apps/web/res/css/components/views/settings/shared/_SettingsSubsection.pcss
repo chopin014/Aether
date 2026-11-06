@@ -71,3 +71,34 @@ Please see LICENSE files in the repository root for full details.
         min-width: 360px;
     }
 }
+
+/* A card of settings: one setting per row, with the switch or button at the end of the row. */
+.mx_SettingsSubsection_content.mx_SettingsSubsection_card {
+    gap: 0;
+    justify-items: stretch;
+    margin-top: var(--cpd-space-3x);
+    padding: 0 var(--cpd-space-4x);
+    box-sizing: border-box;
+    background: var(--cpd-color-bg-subtle-secondary);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    border-radius: var(--cpd-space-3x);
+
+    > * {
+        margin: 0;
+        padding-block: var(--cpd-space-4x);
+    }
+
+    > * + * {
+        border-block-start: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    }
+
+    /* Compound's toggles put the switch first; a card lists the label first and the switch at the end. */
+    > [class*="_inline-field_"] {
+        flex-direction: row-reverse;
+        gap: var(--cpd-space-6x);
+    }
+
+    &.mx_SettingsSubsection_card_critical {
+        border-color: var(--cpd-color-border-critical-subtle);
+    }
+}
