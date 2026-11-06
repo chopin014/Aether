@@ -12,6 +12,8 @@ enum PageType {
     HomePage = "home_page",
     RoomView = "room_view",
     UserView = "user_view",
+    /** Public Spaces and rooms from a room directory. */
+    Discover = "discover",
 }
 
 export default PageType;

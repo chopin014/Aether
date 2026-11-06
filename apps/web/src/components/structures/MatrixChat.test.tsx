@@ -52,6 +52,7 @@ import MatrixChat from "../../components/structures/MatrixChat";
 import * as StorageAccess from "../../utils/StorageAccess";
 import defaultDispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
+import PageType from "../../PageTypes";
 import { UserTab } from "../../components/views/dialogs/UserTab";
 import * as leaveRoomUtils from "../../utils/leave-behaviour";
 import { OAuthClientError } from "../../utils/oauth/error";
@@ -1024,6 +1025,30 @@ describe("<MatrixChat />", () => {
                 room_id: "!text:server.org",
                 metricsTrigger: undefined,
             });
+        });
+
+        it("lists public rooms on the desktop Discover page and opens it as a page", () => {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+                name === "feature_desktop_shell" ? true : getValue(name, ...args),
+            );
+            vi.mocked(defaultDispatcher.dispatch).mockImplementation(() => {});
+            const chat = new MatrixChat(defaultProps);
+            const setPage = vi.spyOn(chat as any, "setPage").mockImplementation(() => {});
+            const setView = vi.spyOn(chat as any, "setStateForNewView").mockImplementation(() => {});
+            vi.spyOn(chat as any, "notifyNewScreen").mockImplementation(() => {});
+
+            chat["onAction"]({ action: Action.ViewRoomDirectory, initialText: "linux" });
+            expect(defaultDispatcher.dispatch).toHaveBeenCalledWith({
+                action: Action.ViewDiscover,
+                section: "rooms",
+                query: "linux",
+            });
+
+            chat["onAction"]({ action: Action.ViewDiscover });
+            expect(setView).toHaveBeenCalledWith({ view: Views.LOGGED_IN, currentRoomId: null });
+            expect(setPage).toHaveBeenCalledWith(PageType.Discover);
+            expect(chat["notifyNewScreen"]).toHaveBeenCalledWith("discover");
         });
 
         describe("clean up drafts", () => {

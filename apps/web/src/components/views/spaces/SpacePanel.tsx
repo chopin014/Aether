@@ -64,8 +64,6 @@ import { useDispatcher } from "../../../hooks/useDispatcher";
 import defaultDispatcher from "../../../dispatcher/dispatcher";
 import { type ActionPayload } from "../../../dispatcher/payloads";
 import { Action } from "../../../dispatcher/actions";
-import { type OpenSpotlightPayload } from "../../../dispatcher/payloads/OpenSpotlightPayload";
-import { Filter } from "../dialogs/spotlight/Filter";
 import { type NotificationState } from "../../../stores/notifications/NotificationState";
 import { KeyBindingAction } from "../../../accessibility/KeyboardShortcuts";
 import { getKeyBindingsManager } from "../../../KeyBindingsManager";
@@ -79,6 +77,8 @@ import { ModuleApi } from "../../../modules/Api.ts";
 import { useModuleSpacePanelItems } from "../../../modules/ExtrasApi.ts";
 import { UserMenuContainer } from "../menus/UserMenuContainer.tsx";
 import { RoomListCollapsedContext } from "../../../contexts/RoomListCollapsedContext";
+import { PageTypeContext } from "../../../contexts/PageTypeContext";
+import PageType from "../../../PageTypes";
 import { SDKContext } from "../../../contexts/SDKContext.ts";
 import { type SDKContextClass } from "../../../contexts/SDKContextClass.ts";
 import AetherSymbolIcon from "../../../../res/img/aether/symbol-mono.svg?react";
@@ -272,20 +272,18 @@ const CreateSpaceButton: React.FC<Pick<IInnerSpacePanelProps, "isPanelCollapsed"
     );
 };
 
-const DiscoverSpacesButton: React.FC = () => {
+const DiscoverSpacesButton: React.FC<{ selected: boolean }> = ({ selected }) => {
     const onDiscoverClick = (): void => {
-        defaultDispatcher.dispatch<OpenSpotlightPayload>({
-            action: Action.OpenSpotlight,
-            initialFilter: Filter.PublicSpaces,
-        });
+        defaultDispatcher.fire(Action.ViewDiscover);
     };
 
     return (
-        <li className="mx_SpaceItem mx_SpaceItem_discover collapsed" role="treeitem" aria-selected={false}>
+        <li className="mx_SpaceItem mx_SpaceItem_discover collapsed" role="treeitem" aria-selected={selected}>
             <SpaceButton
                 className="mx_SpaceButton_discover"
                 label={_t("space|discover_public_spaces")}
                 onClick={onDiscoverClick}
+                selected={selected}
                 isNarrow
                 size="32px"
                 icon={<ExploreIcon />}
@@ -313,7 +311,10 @@ const InnerSpacePanel = React.memo<IInnerSpacePanelProps>(
     ({ children, isPanelCollapsed, setPanelCollapsed, isDraggingOver, innerRef, ...props }) => {
         const sdkContext = useContext(SDKContext);
         const desktopShellEnabled = useSettingValue("feature_desktop_shell");
-        const [invites, metaSpaces, actualSpaces, activeSpace] = useSpaces();
+        const [invites, metaSpaces, actualSpaces, spaceInStore] = useSpaces();
+        // While Discover is open, it is the selected item rather than the Space it was opened from.
+        const onDiscover = useContext(PageTypeContext) === PageType.Discover;
+        const activeSpace = onDiscover ? undefined : spaceInStore;
         const activeSpaces = activeSpace ? [activeSpace] : [];
 
         const moduleSpaceItems = useModuleSpacePanelItems(ModuleApi.instance.extras);
@@ -393,7 +394,9 @@ const InnerSpacePanel = React.memo<IInnerSpacePanelProps>(
                 {shouldShowComponent(UIComponent.CreateSpaces) && (
                     <CreateSpaceButton isPanelCollapsed={isPanelCollapsed} setPanelCollapsed={setPanelCollapsed} />
                 )}
-                {desktopShellEnabled && shouldShowComponent(UIComponent.ExploreRooms) && <DiscoverSpacesButton />}
+                {desktopShellEnabled && shouldShowComponent(UIComponent.ExploreRooms) && (
+                    <DiscoverSpacesButton selected={onDiscover} />
+                )}
             </IndicatorScrollbar>
         );
     },
