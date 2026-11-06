@@ -254,6 +254,16 @@
             "history_note": "Previously received messages may remain on other clients and homeservers. Deletion does not erase every copy.",
             "room_list": "Channels and nested servers to delete"
         },
+        "image_crop": {
+            "animated": "Editing keeps only a still frame of an animated image.",
+            "apply": "Apply",
+            "keep_original": "Use original",
+            "position": "Image position",
+            "position_hint": "Drag or use the arrow keys to move the image. Press + or - to zoom.",
+            "reset": "Reset",
+            "rotate": "Rotate",
+            "zoom": "Zoom"
+        },
         "keybinds": {
             "clear_action": "Clear %(action)s keybind",
             "ptt_hint": "Push to talk uses the same key and release delay as Voice & Video. In push to talk mode, an unassigned key keeps your microphone closed.",

@@ -1031,6 +1031,16 @@
             "group_spacing": "Espaço entre grupos de mensagens",
             "group_spacing_value": "%(size)spx",
             "title": "Exibição das mensagens"
+        },
+        "image_crop": {
+            "animated": "Editar mantém apenas um quadro parado de uma imagem animada.",
+            "apply": "Aplicar",
+            "keep_original": "Usar original",
+            "position": "Posição da imagem",
+            "position_hint": "Arraste ou use as setas para mover a imagem. Pressione + ou - para ampliar.",
+            "reset": "Redefinir",
+            "rotate": "Girar",
+            "zoom": "Zoom"
         }
     },
     "threads": {
