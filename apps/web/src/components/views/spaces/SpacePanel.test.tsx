@@ -27,7 +27,6 @@ import SettingsStore from "../../../settings/SettingsStore";
 import UnwrappedSpacePanel from "./SpacePanel";
 import defaultDispatcher from "../../../dispatcher/dispatcher";
 import { Action } from "../../../dispatcher/actions";
-import { Filter } from "../dialogs/spotlight/Filter";
 import Modal from "../../../Modal";
 import { CreateServerDialog } from "../dialogs/CreateServerDialog";
 
@@ -271,10 +270,7 @@ describe("<SpacePanel />", () => {
             try {
                 render(<SpacePanel />);
                 fireEvent.click(screen.getByRole("button", { name: "Discover public servers" }));
-                expect(dispatch).toHaveBeenCalledWith({
-                    action: Action.OpenSpotlight,
-                    initialFilter: Filter.PublicSpaces,
-                });
+                expect(dispatch).toHaveBeenCalledWith({ action: Action.ViewDiscover });
                 expect(screen.getByRole("button", { name: "Create a server" })).toBeVisible();
                 expect(screen.queryByRole("heading", { name: "Create a server" })).not.toBeInTheDocument();
             } finally {

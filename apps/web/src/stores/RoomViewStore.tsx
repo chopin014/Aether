@@ -243,6 +243,18 @@ export class RoomViewStore extends EventEmitter {
                     viewingCall: false,
                 });
                 break;
+            case Action.ViewDiscover:
+                // Only the desktop shell leaves the room for a Discover page; elsewhere Discover is a dialog.
+                if (SettingsStore.getValue("feature_desktop_shell")) {
+                    this.setState({
+                        roomId: null,
+                        roomAlias: null,
+                        viaServers: [],
+                        wasContextSwitch: false,
+                        viewingCall: false,
+                    });
+                }
+                break;
             case Action.ViewRoomError:
                 this.viewRoomError(payload as ViewRoomErrorPayload);
                 break;

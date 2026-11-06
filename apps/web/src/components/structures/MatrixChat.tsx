@@ -111,6 +111,7 @@ import { type SummarizedNotificationState } from "../../stores/notifications/Sum
 import Views from "../../Views";
 import { type FocusNextType, type ViewRoomPayload } from "../../dispatcher/payloads/ViewRoomPayload";
 import { type ViewHomePagePayload } from "../../dispatcher/payloads/ViewHomePagePayload";
+import { type ViewDiscoverPayload } from "../../dispatcher/payloads/ViewDiscoverPayload";
 import { type AfterLeaveRoomPayload } from "../../dispatcher/payloads/AfterLeaveRoomPayload";
 import { type AfterForgetRoomPayload } from "../../dispatcher/payloads/AfterForgetRoomPayload";
 import { type DoAfterSyncPreparedPayload } from "../../dispatcher/payloads/DoAfterSyncPreparedPayload";
@@ -809,6 +810,15 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
                 this.viewSomethingBehindModal();
                 break;
             case Action.ViewRoomDirectory: {
+                // The desktop shell lists public rooms on its Discover page, next to public Spaces.
+                if (SettingsStore.getValue("feature_desktop_shell")) {
+                    dis.dispatch<ViewDiscoverPayload>({
+                        action: Action.ViewDiscover,
+                        section: "rooms",
+                        query: payload.initialText,
+                    });
+                    break;
+                }
                 Modal.createDialog(
                     RovingSpotlightDialog,
                     {
@@ -821,6 +831,25 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
                 );
 
                 // View the welcome or home page if we need something to look at
+                this.viewSomethingBehindModal();
+                break;
+            }
+            case Action.ViewDiscover: {
+                const { section, query } = payload as ViewDiscoverPayload;
+                if (SettingsStore.getValue("feature_desktop_shell")) {
+                    this.viewDiscover();
+                    break;
+                }
+                Modal.createDialog(
+                    RovingSpotlightDialog,
+                    {
+                        initialText: query,
+                        initialFilter: section === "rooms" ? Filter.PublicRooms : Filter.PublicSpaces,
+                    },
+                    "mx_SpotlightDialog_wrapper",
+                    false,
+                    true,
+                );
                 this.viewSomethingBehindModal();
                 break;
             }
@@ -1147,6 +1176,15 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
         });
         this.setPage(PageType.HomePage);
         this.notifyNewScreen("home");
+    }
+
+    private viewDiscover(): void {
+        this.setStateForNewView({
+            view: Views.LOGGED_IN,
+            currentRoomId: null,
+        });
+        this.setPage(PageType.Discover);
+        this.notifyNewScreen("discover");
     }
 
     private viewUser(userId: string, subAction: string): void {
@@ -1987,6 +2025,8 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
             });
         } else if (screen === "directory") {
             dis.fire(Action.ViewRoomDirectory);
+        } else if (screen === "discover") {
+            dis.fire(Action.ViewDiscover);
         } else if (screen === "start_sso" || screen === "start_cas") {
             let cli = MatrixClientPeg.get();
             if (!cli) {

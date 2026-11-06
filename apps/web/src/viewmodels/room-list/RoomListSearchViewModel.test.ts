@@ -16,6 +16,7 @@ import { shouldShowComponent } from "../../customisations/helpers/UIComponents";
 import defaultDispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 import LegacyCallHandler, { LegacyCallHandlerEvent } from "../../LegacyCallHandler";
+import SettingsStore from "../../settings/SettingsStore";
 
 vi.mock("../../customisations/helpers/UIComponents", () => ({
     shouldShowComponent: vi.fn(),
@@ -63,6 +64,17 @@ describe("RoomListSearchViewModel", () => {
 
         it("should hide explore button when UIComponent.ExploreRooms is disabled", () => {
             vi.mocked(shouldShowComponent).mockReturnValue(false);
+            const vm = new RoomListSearchViewModel({
+                activeSpace: MetaSpace.Home,
+                legacyCallHandler: context.legacyCallHandler,
+            });
+
+            expect(vm.getSnapshot().displayExploreButton).toBe(false);
+        });
+
+        it("should hide explore button in the desktop shell, which has Discover on the Space bar", () => {
+            vi.mocked(shouldShowComponent).mockReturnValue(true);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name) => name === "feature_desktop_shell");
             const vm = new RoomListSearchViewModel({
                 activeSpace: MetaSpace.Home,
                 legacyCallHandler: context.legacyCallHandler,
