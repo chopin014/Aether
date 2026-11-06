@@ -18,6 +18,7 @@ const meta = {
     title: "Desktop/Server voice activity",
     component: ServerVoiceActivity,
     args: {
+        server: { id: "!terra:example.org", name: "Terra do boi gordo" },
         channels: [
             { roomId: "!lounge", name: "Lounge", people: ["Alice", "Bob", "Carol"].map(person) },
             {
@@ -33,3 +34,10 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
+
+/** A single small call, which shows every face without a count. */
+export const FewPeople: Story = {
+    args: {
+        channels: [{ roomId: "!geral", name: "Geral#1", people: ["chopin", "LiTz"].map(person) }],
+    },
+};
