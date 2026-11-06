@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000000..9e4d0a04ee
 --- /dev/null
 +++ b/dist/aether-screen-share.js
-@@ -0,0 +1,253 @@
+@@ -0,0 +1,318 @@
 +/*
 +Copyright 2026 Gabriel
 +
@@ -17,7 +17,7 @@ index 0000000000..9e4d0a04ee
 +export function aetherResolveScreenShareQuality(policy, raw = {}) {
 +    const maxHeight = positive(policy?.max_resolution) ? policy.max_resolution : 1080;
 +    const maxFps = positive(policy?.max_framerate) ? Math.min(policy.max_framerate, 60) : 30;
-+    const maxBr = positive(policy?.max_bitrate) ? policy.max_bitrate : 5000000;
++    const maxBr = positive(policy?.max_bitrate) ? policy.max_bitrate : 20000000;
 +    return {
 +        resolutionHeight: Math.min(positive(raw.resolutionHeight) ? raw.resolutionHeight : maxHeight, maxHeight),
 +        frameRate: Math.min(positive(raw.frameRate) ? raw.frameRate : 30, maxFps),
@@ -28,6 +28,7 @@ index 0000000000..9e4d0a04ee
 +
 +/** Bound capture before publishing; ideal constraints alone can exceed a deployment maximum. */
 +export async function aetherConstrainScreenTrack(track, quality) {
++    track.mediaStreamTrack.contentHint = quality.frameRate <= 15 ? "detail" : "motion";
 +    await track.mediaStreamTrack.applyConstraints({
 +        width: {
 +            ideal: Math.round((quality.resolutionHeight * 16) / 9),
@@ -36,6 +37,36 @@ index 0000000000..9e4d0a04ee
 +        height: { ideal: quality.resolutionHeight, max: quality.resolutionHeight },
 +        frameRate: { ideal: quality.frameRate, max: quality.frameRate },
 +    });
++}
++
++/** Prefer hardware WebRTC encoders, without mistaking WebCodecs support for RTP encoding support. */
++export async function aetherChooseScreenCodec(track, quality, participant) {
++    const capabilities = globalThis.navigator?.mediaCapabilities;
++    const codecs = globalThis.RTCRtpSender?.getCapabilities?.("video")?.codecs ?? [];
++    const allowed = participant.enabledPublishVideoCodecs;
++    const settings = track.mediaStreamTrack.getSettings?.() ?? {};
++    for (const codec of ["av1", "h264"]) {
++        const mime = `video/${codec}`;
++        if (!codecs.some((entry) => entry.mimeType.toLowerCase() === mime)) continue;
++        if (allowed?.length && !allowed.some((entry) => entry.mime.toLowerCase() === mime)) continue;
++        try {
++            const info = await capabilities?.encodingInfo({
++                type: "webrtc",
++                video: {
++                    contentType: mime,
++                    width: settings.width ?? Math.round((quality.resolutionHeight * 16) / 9),
++                    height: settings.height ?? quality.resolutionHeight,
++                    bitrate: quality.maxBitrate,
++                    framerate: quality.frameRate,
++                    scalabilityMode: codec === "av1" ? "L1T3" : "L1T1",
++                },
++            });
++            if (info?.supported && info.powerEfficient && info.smooth) return codec;
++        } catch {
++            // Missing capability support or a rejected codec must keep software sharing available.
++        }
++    }
++    return "vp8";
 +}
 +
 +const senderLayerLimits = new WeakMap();
@@ -63,9 +94,14 @@ index 0000000000..9e4d0a04ee
 +            limits = { caps, primary };
 +            senderLayerLimits.set(sender, limits);
 +        }
++        const secondary = limits.caps.map((cap, index) =>
++            index === limits.primary ? 0 : Math.min(cap, quality.maxBitrate / (5 * encodings.length)),
++        );
++        const secondaryTotal = secondary.reduce((sum, cap) => sum + cap, 0);
++        parameters.degradationPreference = "maintain-framerate";
 +        for (let index = 0; index < encodings.length; ++index) {
 +            encodings[index].maxBitrate =
-+                index === limits.primary ? quality.maxBitrate : Math.min(limits.caps[index], quality.maxBitrate);
++                index === limits.primary ? quality.maxBitrate - secondaryTotal : secondary[index];
 +            encodings[index].maxFramerate = quality.frameRate;
 +        }
 +        await sender.setParameters(parameters);
@@ -207,14 +243,43 @@ index 0000000000..9e4d0a04ee
 +                { once: true },
 +            );
 +            await aetherConstrainScreenTrack(video, next);
++            const codec = await aetherChooseScreenCodec(video, next, participant);
 +            for (const track of tracks) {
 +                if (disposed || !requested || ticket !== generation) break;
-+                await participant.publishTrack(track, {
-+                    screenShareEncoding: { maxBitrate: next.maxBitrate, maxFramerate: next.frameRate },
-+                    // One screen layer avoids an uncontrolled aggregate bandwidth or delayed backup codec publisher.
-+                    simulcast: false,
++                const lowerBitrate = Math.min(750000, next.maxBitrate / 10);
++                const options = {
++                    videoCodec: codec,
++                    degradationPreference: "maintain-framerate",
++                    scalabilityMode: codec === "av1" ? "L1T3" : "L1T1",
++                    screenShareEncoding: {
++                        maxBitrate: codec === "av1" ? next.maxBitrate : next.maxBitrate - lowerBitrate,
++                        maxFramerate: next.frameRate,
++                    },
++                    // AV1 uses temporal layers; VP8/H.264 offer a bounded, full-framerate lower spatial layer.
++                    simulcast: codec !== "av1",
++                    screenShareSimulcastLayers: [{
++                        width: Math.round((Math.min(360, next.resolutionHeight / 2) * 16) / 9),
++                        height: Math.min(360, next.resolutionHeight / 2),
++                        encoding: { maxBitrate: lowerBitrate, maxFramerate: next.frameRate },
++                    }],
 +                    backupCodec: false,
-+                });
++                };
++                try {
++                    await participant.publishTrack(track, options);
++                } catch (error) {
++                    if (track !== video || codec === "vp8" || disposed || ticket !== generation) throw error;
++                    // A driver may reject an encoder that its capability probe advertised.
++                    await participant.publishTrack(track, {
++                        ...options,
++                        videoCodec: "vp8",
++                        simulcast: true,
++                        scalabilityMode: "L1T1",
++                        screenShareEncoding: {
++                            maxBitrate: next.maxBitrate - lowerBitrate,
++                            maxFramerate: next.frameRate,
++                        },
++                    });
++                }
 +            }
 +            if (disposed || !requested || ticket !== generation) return release();
 +            await aetherConstrainScreenSenders(video, next);
@@ -1048,7 +1113,7 @@ index e597a18..3b698af 100644
 +            screenShareError: null, needsDevicePermissions: false, permissionError: null,
 +            supportsReactions: false, ringing: null, participants: [], screenShares: [], lobbyPreviewVideo: null,
 +            screenShareQuality: aetherResolveScreenShareQuality(policy, aetherAudio.screenShareQuality),
-+            screenSharePolicyLimits: { maxResolutionHeight: policy?.max_resolution ?? 1080, maxFrameRate: policy?.max_framerate ?? 30, maxBitrate: policy?.max_bitrate ?? 5000000 },
++            screenSharePolicyLimits: { maxResolutionHeight: policy?.max_resolution ?? 1080, maxFrameRate: policy?.max_framerate ?? 30, maxBitrate: policy?.max_bitrate ?? 20000000 },
 +            renderAudioElement: () => null
 +        },
 +        actions: {
