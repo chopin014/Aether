@@ -307,104 +307,178 @@ Please see LICENSE in the repository root for full details.
     height: var(--cpd-space-12x);
 }
 
+/*
+ * Spotlit stream volume: a glass capsule on the name badge's row. At rest only the speaker shows; hovering or
+ * focusing it slides the slider and level out to the left, like a media player.
+ */
 .streamVolumeControl {
-    position: absolute;
-    right: var(--cpd-space-3x);
-    bottom: var(--cpd-space-3x);
-    width: var(--cpd-space-10x);
-    border-radius: var(--cpd-space-5x);
-    z-index: 3;
+    --stream-volume-fill: var(--cpd-color-text-primary);
+    --stream-volume-track: color-mix(in srgb, var(--cpd-color-text-primary) 22%, transparent);
+
+    flex: none;
+    display: flex;
+    align-items: center;
+    height: var(--cpd-space-8x);
+    margin-left: auto;
+    border-radius: 999px;
+    color: var(--cpd-color-text-primary);
+    background: color-mix(in srgb, var(--cpd-color-bg-canvas-default) 72%, transparent);
+    backdrop-filter: blur(16px) saturate(140%);
+    box-shadow:
+        inset 0 0 0 1px color-mix(in srgb, var(--cpd-color-text-primary) 9%, transparent),
+        0 var(--cpd-space-1-5x) var(--cpd-space-5x) color-mix(in srgb, black 35%, transparent);
+    pointer-events: auto;
     opacity: 0;
-    transition: opacity 120ms ease;
+    transition: opacity 150ms ease-out;
 }
 
+/* A muted stream keeps its crossed-out speaker visible so the silence is never a mystery. */
 .tile:hover .streamVolumeControl,
-.tile:focus-within .streamVolumeControl {
+.tile:focus-within .streamVolumeControl,
+.streamVolumeControl[data-muted="true"] {
     opacity: 1;
 }
 
-.streamVolumeControl > button {
-    position: relative;
-    z-index: 1;
-    width: var(--cpd-space-10x);
-    height: var(--cpd-space-10x);
-    border-radius: var(--cpd-space-5x);
-    background: color-mix(in srgb, var(--cpd-color-bg-canvas-default) 85%, transparent);
+.streamVolumeButton {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--cpd-space-8x);
+    height: var(--cpd-space-8x);
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    transition: background-color 120ms ease-out;
+}
+
+.streamVolumeButton:hover {
+    background: color-mix(in srgb, var(--cpd-color-text-primary) 12%, transparent);
+}
+
+.streamVolumeButton:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: -2px;
+}
+
+.streamVolumeButton svg {
+    width: 18px;
+    height: 18px;
 }
 
 .streamVolumePanel {
-    position: absolute;
-    bottom: 0;
-    inset-inline: 0;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: var(--cpd-space-3x);
-    padding: var(--cpd-space-3x) 0 calc(var(--cpd-space-10x) + var(--cpd-space-3x));
-    border-radius: var(--cpd-space-5x);
-    background: color-mix(in srgb, var(--cpd-color-bg-canvas-default) 92%, transparent);
-    box-shadow: 0 0 var(--cpd-space-6x) color-mix(in srgb, var(--cpd-color-purple-900) 15%, transparent);
+    gap: var(--cpd-space-2-5x);
+    max-width: 0;
+    overflow: hidden;
     visibility: hidden;
     opacity: 0;
-    transition: opacity 120ms ease;
+    transition:
+        max-width 200ms cubic-bezier(0.2, 0, 0, 1),
+        padding 200ms cubic-bezier(0.2, 0, 0, 1),
+        opacity 120ms ease-out,
+        visibility 0s linear 200ms;
 }
 
-.streamVolumeControl:hover > button,
-.streamVolumeControl:focus-within > button {
-    background: transparent;
-}
-
+/* Keyboard focus keeps it open; a mouse drag lets it close as soon as the pointer leaves. */
 .streamVolumeControl:hover .streamVolumePanel,
-.streamVolumeControl:focus-within .streamVolumePanel {
+.streamVolumeControl:has(:focus-visible) .streamVolumePanel {
+    max-width: 160px;
+    padding-inline: var(--cpd-space-1x) var(--cpd-space-3x);
     visibility: visible;
     opacity: 1;
+    transition:
+        max-width 220ms cubic-bezier(0.2, 0, 0, 1),
+        padding 220ms cubic-bezier(0.2, 0, 0, 1),
+        opacity 160ms ease-out 40ms,
+        visibility 0s;
 }
 
 .streamVolumeValue {
+    min-width: 3ch;
+    text-align: right;
+    font: var(--cpd-font-body-xs-semibold);
     font-variant-numeric: tabular-nums;
-    color: var(--cpd-color-text-primary);
+    color: var(--cpd-color-text-secondary);
 }
 
+/* A thin track with a filled portion; the thumb grows slightly while it is being dragged. */
 .streamVolumeSlider {
-    writing-mode: vertical-lr;
-    direction: rtl;
+    flex: none;
     appearance: none;
-    width: var(--cpd-space-2x);
-    height: var(--cpd-space-28x);
-    min-height: var(--cpd-space-24x);
+    width: 104px;
+    height: var(--cpd-space-4x);
     margin: 0;
-    border-radius: var(--cpd-space-4x);
-    background: linear-gradient(
-        to top,
-        var(--cpd-color-purple-900) 0%,
-        var(--cpd-color-purple-1000) var(--stream-volume),
-        color-mix(in srgb, var(--cpd-color-text-primary) 18%, transparent) var(--stream-volume)
-    );
+    background: transparent;
     cursor: pointer;
+}
+
+.streamVolumeSlider::-webkit-slider-runnable-track {
+    height: var(--cpd-space-1x);
+    border-radius: 999px;
+    background: linear-gradient(
+        to right,
+        var(--stream-volume-fill) var(--stream-volume),
+        var(--stream-volume-track) var(--stream-volume)
+    );
+}
+
+.streamVolumeSlider::-moz-range-track {
+    height: var(--cpd-space-1x);
+    border-radius: 999px;
+    background: var(--stream-volume-track);
+}
+
+.streamVolumeSlider::-moz-range-progress {
+    height: var(--cpd-space-1x);
+    border-radius: 999px;
+    background: var(--stream-volume-fill);
 }
 
 .streamVolumeSlider::-webkit-slider-thumb {
     appearance: none;
-    width: var(--cpd-space-5x);
-    height: var(--cpd-space-5x);
+    width: var(--cpd-space-3x);
+    height: var(--cpd-space-3x);
+    margin-top: calc((var(--cpd-space-1x) - var(--cpd-space-3x)) / 2);
     border: 0;
     border-radius: 50%;
-    background: var(--cpd-color-text-primary);
-    box-shadow: 0 0 var(--cpd-space-3x) var(--cpd-color-purple-900);
+    background: white;
+    box-shadow: 0 1px var(--cpd-space-1x) color-mix(in srgb, black 45%, transparent);
+    transition: transform 120ms ease-out;
 }
 
 .streamVolumeSlider::-moz-range-thumb {
-    width: var(--cpd-space-5x);
-    height: var(--cpd-space-5x);
+    width: var(--cpd-space-3x);
+    height: var(--cpd-space-3x);
     border: 0;
     border-radius: 50%;
-    background: var(--cpd-color-text-primary);
-    box-shadow: 0 0 var(--cpd-space-3x) var(--cpd-color-purple-900);
+    background: white;
+    box-shadow: 0 1px var(--cpd-space-1x) color-mix(in srgb, black 45%, transparent);
+    transition: transform 120ms ease-out;
+}
+
+.streamVolumeSlider:active::-webkit-slider-thumb {
+    transform: scale(1.25);
+}
+
+.streamVolumeSlider:active::-moz-range-thumb {
+    transform: scale(1.25);
 }
 
 .streamVolumeSlider:focus-visible {
-    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
-    outline-offset: var(--cpd-space-2x);
+    outline: none;
+}
+
+.streamVolumeSlider:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px var(--cpd-color-border-focused);
+}
+
+.streamVolumeSlider:focus-visible::-moz-range-thumb {
+    box-shadow: 0 0 0 3px var(--cpd-color-border-focused);
 }
 
 .tile[data-kind="screen_share"] {
