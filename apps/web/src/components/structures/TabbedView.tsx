@@ -39,6 +39,8 @@ export class Tab<T extends string> {
      * @param {string} screenName The screen name to report to Posthog.
      * @param {string} labelClassName Additional class to add to the tab label.
      * @param {TabAnchor[]} anchors Links to sections of the tab, listed under its label while it is open.
+     * @param {string} group The untranslated heading of the group the tab belongs to. Neighbouring tabs with the
+     *     same group are listed together under one heading.
      */
     public constructor(
         public readonly id: T,
@@ -48,6 +50,7 @@ export class Tab<T extends string> {
         public readonly screenName?: ScreenName,
         public readonly labelClassName?: string,
         public readonly anchors?: TabAnchor[],
+        public readonly group?: TranslationKey,
     ) {}
 }
 
@@ -217,8 +220,13 @@ export default function TabbedView<T extends string>(props: IProps<T>): JSX.Elem
 
     const windowWidth = useWindowWidth();
 
-    const labels = props.tabs.map((tab) => (
+    const labels = props.tabs.map((tab, index) => (
         <React.Fragment key={"tab_label_" + tab.id}>
+            {tab.group && tab.group !== props.tabs[index - 1]?.group && (
+                <li role="presentation" className="mx_TabbedView_tabGroup">
+                    {_t(tab.group)}
+                </li>
+            )}
             <TabLabel
                 tab={tab}
                 isActive={tab.id === props.activeTabId}

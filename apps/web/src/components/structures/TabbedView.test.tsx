@@ -120,4 +120,32 @@ describe("<TabbedView />", () => {
             expect(container.querySelector(".mx_TabbedView_anchors")).toBeNull();
         });
     });
+
+    describe("groups", () => {
+        const grouped = (id: string, group?: TranslationKey): Tab<string> =>
+            new Tab(id, "common|general", null, <div>{id}</div>, undefined, undefined, undefined, group);
+
+        it("lists one heading above each run of tabs in the same group", () => {
+            const tabs = [
+                grouped("A", "common|general"),
+                grouped("B", "common|general"),
+                grouped("C", "common|appearance"),
+                grouped("D"),
+            ] as NonEmptyArray<Tab<any>>;
+            const { container } = render(<TabbedView {...defaultProps} tabs={tabs} activeTabId="A" />);
+
+            const items = [...container.querySelectorAll(".mx_TabbedView_tabLabels > li")].map((li) =>
+                li.classList.contains("mx_TabbedView_tabGroup") ? `# ${li.textContent}` : li.id || "tab",
+            );
+            expect(items).toEqual(["# General", "tab", "tab", "# Appearance", "tab", "tab"]);
+        });
+
+        it("keeps the headings out of the keyboard and screen reader tab order", () => {
+            const tabs = [grouped("A", "common|general")] as NonEmptyArray<Tab<any>>;
+            const { container, getAllByRole } = render(<TabbedView {...defaultProps} tabs={tabs} activeTabId="A" />);
+
+            expect(container.querySelector(".mx_TabbedView_tabGroup")).toHaveAttribute("role", "presentation");
+            expect(getAllByRole("tab")).toHaveLength(1);
+        });
+    });
 });

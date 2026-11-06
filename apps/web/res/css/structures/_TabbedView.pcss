@@ -108,6 +108,20 @@ Please see LICENSE files in the repository root for full details.
     vertical-align: middle;
 }
 
+/* The heading above a group of tabs. */
+.mx_TabbedView_tabGroup {
+    list-style: none;
+    padding: var(--cpd-space-4x) var(--cpd-space-3x) var(--cpd-space-1x);
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-xs-semibold);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+
+    &:first-child {
+        padding-block-start: 0;
+    }
+}
+
 /* Links to the sections of the open tab, hidden with the labels on narrow viewports. */
 .mx_TabbedView_anchors {
     list-style: none;
@@ -162,6 +176,7 @@ Please see LICENSE files in the repository root for full details.
 @media (max-width: 1024px) {
     .mx_TabbedView_tabsOnLeft.mx_TabbedView_responsive {
         .mx_TabbedView_tabLabel_text,
+        .mx_TabbedView_tabGroup,
         .mx_TabbedView_anchors {
             display: none;
         }
