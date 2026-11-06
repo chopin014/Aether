@@ -44,6 +44,7 @@ const config = {
     protocols: { name: "Aether", schemes: ["aether"] },
     linux: {
         ...base.linux,
+        extraResources: [{ from: "native-dist", to: "native/nvenc" }],
         target: ["AppImage"],
         executableName: "aether",
         icon: "aether/icon.png",
