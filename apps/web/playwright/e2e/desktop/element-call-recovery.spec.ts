@@ -6,7 +6,6 @@ Please see LICENSE in the repository root for full details.
 */
 
 import { createHmac } from "node:crypto";
-import { writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { connect, createServer, type Server } from "node:net";
 import { promisify } from "node:util";
@@ -63,6 +62,9 @@ test.use({
     },
 });
 test.skip(({ homeserverType, browserName }) => homeserverType !== "synapse" || browserName !== "chromium");
+// The suite takes about 40 minutes and restarts and pauses the shared SFU container, so it only runs when asked for:
+// AETHER_CALL_RECOVERY=1 pnpm test:playwright -- playwright/e2e/desktop/element-call-recovery.spec.ts --project=Chrome
+test.skip(!process.env.AETHER_CALL_RECOVERY, "Set AETHER_CALL_RECOVERY=1 to run the call recovery suite");
 
 async function settle(page: Page): Promise<void> {
     await rejectToastIfExists(page, "Verify this device");
@@ -202,7 +204,6 @@ for (const fault of cases) {
         test.setTimeout(renewalCycleFaults.includes(fault) ? 600_000 : 240_000);
         const injection = fault.replace(/^encrypted /, "");
         let socketFault = false;
-        let manuallyRecovered: boolean | null = null;
         const logs: string[] = [];
         const bobLogs: string[] = [];
         const testStart = Date.now();
@@ -426,21 +427,15 @@ for (const fault of cases) {
             const last = samples.at(-1)!;
             // Keep the memberships the homeserver holds, to see what each client last sent.
             const roomState = await homeserver.csApi.request("GET", `/v3/rooms/${roomId}/state`, user.accessToken);
-            await writeFile(
-                testInfo.outputPath("call-members.json"),
-                JSON.stringify(
+            await testInfo.attach("call-members", {
+                body: JSON.stringify(
                     (roomState as Array<{ type: string }>).filter((e) => e.type === "org.matrix.msc3401.call.member"),
                     null,
                     2,
                 ),
-            );
+                contentType: "application/json",
+            });
             const flowing = { alice: await audioFlowing(app, roomId), bob: await audioFlowing(bobApp, roomId) };
-            const heard = {
-                alice: last.alice.sounds.slice(samples[0].alice.sounds.length),
-                bob: last.bob.sounds.slice(samples[0].bob.sounds.length),
-            };
-            console.log(`RECOVERY_RESULT ${JSON.stringify({ fault, last, flowing, heard })}`);
-            await page.screenshot({ path: testInfo.outputPath("after-fault.png") });
             if (renewalCycleFaults.includes(fault)) {
                 // Nobody left, so nobody may vanish from the call or be announced as leaving at any point.
                 const before = samples[0];
@@ -458,7 +453,6 @@ for (const fault of cases) {
                     alice: last.alice.sounds.slice(before.alice.sounds.length),
                     bob: last.bob.sounds.slice(before.bob.sounds.length),
                 };
-                console.log(`RENEWAL_RESULT ${JSON.stringify({ fault, gaps, cues })}`);
                 expect.soft(gaps, `participants vanished during ${fault}`).toEqual([]);
                 expect.soft(cues, `cues played during ${fault}`).toEqual({ alice: [], bob: [] });
             }
@@ -474,31 +468,14 @@ for (const fault of cases) {
                     `Alice did not recover after ${fault}`,
                 )
                 .toBe(true);
-            if (last.alice.phase !== "in_call" || !last.alice.own || !flowing.alice || !flowing.bob) {
-                for (const clientApp of [app, ...(last.bob.phase !== "in_call" || !last.bob.own ? [bobApp] : [])]) {
-                    const stage = clientApp.page.getByTestId("aether-call-stage").filter({ visible: true });
-                    await stage.getByTestId("incall_leave").click();
-                    await openCall(clientApp.page, roomId);
-                }
-                await expect.poll(async () => (await measure(app, roomId)).own, { timeout: 30_000 }).toBe(1);
-                await expect.poll(() => audioFlowing(app, roomId), { timeout: 30_000 }).toBe(true);
-                await expect.poll(() => audioFlowing(bobApp, roomId), { timeout: 30_000 }).toBe(true);
-                manuallyRecovered = true;
-                console.log(`MANUAL_RECOVERY ${fault}: leave/rejoin restored both audio directions`);
-            }
         } finally {
             if (paused) await run("docker", ["unpause", matrixRTCBackend!.livekit.getId()]);
-            await writeFile(
-                testInfo.outputPath("recovery-samples.json"),
-                JSON.stringify({ fault, samples, manuallyRecovered }, null, 2),
-            );
-            await writeFile(testInfo.outputPath("call-lifecycle.log"), logs.join("\n"));
-            await writeFile(testInfo.outputPath("bob-call-lifecycle.log"), bobLogs.join("\n"));
             await testInfo.attach("recovery-samples", {
-                body: JSON.stringify({ fault, samples, manuallyRecovered }, null, 2),
+                body: JSON.stringify({ fault, samples }, null, 2),
                 contentType: "application/json",
             });
-            await testInfo.attach("call-lifecycle", { body: logs.join("\n"), contentType: "text/plain" });
+            await testInfo.attach("alice-call-lifecycle", { body: logs.join("\n"), contentType: "text/plain" });
+            await testInfo.attach("bob-call-lifecycle", { body: bobLogs.join("\n"), contentType: "text/plain" });
             page.off("console", onConsole);
             for (const bobPage of context.pages()) bobPage.off("console", onBobConsole);
             await context.close();
