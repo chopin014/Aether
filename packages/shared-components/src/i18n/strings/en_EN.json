@@ -577,6 +577,7 @@
             "emoji": "Emoji",
             "frequently_used": "Frequently used",
             "library": "Sound library",
+            "muted_hint": "Unmute your microphone to play sounds for everyone.",
             "name": "Sound name",
             "no_results": "No sounds found. Try another search.",
             "preview": "Preview %(name)s",

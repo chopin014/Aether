@@ -49,6 +49,8 @@ export interface SoundboardViewSnapshot {
     suggested: readonly SoundboardSound[];
     volume: number;
     busy: boolean;
+    /** The microphone is muted or deafened, so sounds can only be previewed, not played for the call. */
+    muted: boolean;
     error?: string;
     uploadLibraryId: string;
     uploadName: string;
@@ -88,6 +90,7 @@ export function SoundboardView({ vm }: { vm: SoundboardViewModel }): JSX.Element
         suggested,
         volume,
         busy,
+        muted,
         error,
         uploadLibraryId,
         uploadName,
@@ -155,7 +158,12 @@ export function SoundboardView({ vm }: { vm: SoundboardViewModel }): JSX.Element
         <div className={styles.grid}>
             {sounds.map((sound) => (
                 <div className={styles.tile} key={`${sound.libraryId}/${sound.id}`}>
-                    <button type="button" disabled={busy} className={styles.play} onClick={() => void vm.play(sound)}>
+                    <button
+                        type="button"
+                        disabled={busy || muted}
+                        className={styles.play}
+                        onClick={() => void vm.play(sound)}
+                    >
                         <span className={styles.emoji} aria-hidden="true">
                             {sound.emoji}
                         </span>
@@ -230,6 +238,11 @@ export function SoundboardView({ vm }: { vm: SoundboardViewModel }): JSX.Element
                     </label>
                 </details>
             </div>
+            {muted && (
+                <Text size="sm" className={styles.mutedHint} role="status">
+                    {_t("desktop|soundboard|muted_hint")}
+                </Text>
+            )}
             <div className={styles.browser}>
                 <nav className={styles.libraryRail} aria-label={_t("desktop|soundboard|library")}>
                     <button

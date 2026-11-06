@@ -1,6 +1,6 @@
-diff --git a/b/dist/aether-screen-share.js b/dist/aether-screen-share.js
+diff --git a/dist/aether-screen-share.js b/dist/aether-screen-share.js
 new file mode 100644
-index 0000000000..9e4d0a04ee
+index 0000000..201f68f
 --- /dev/null
 +++ b/dist/aether-screen-share.js
 @@ -0,0 +1,329 @@
@@ -334,7 +334,7 @@ index 0000000000..9e4d0a04ee
 +    };
 +}
 diff --git a/dist/element-call.js b/dist/element-call.js
-index e597a18..c6cdbec 100644
+index e597a18..cd7b120 100644
 --- a/dist/element-call.js
 +++ b/dist/element-call.js
 @@ -1,3 +1,4 @@
@@ -342,6 +342,24 @@ index e597a18..c6cdbec 100644
  import { a as e, c as t, d as n, f as r, g as i, h as a, i as o, l as s, m as c, n as l, o as u, r as d, s as f, t as p, u as m, v as h } from "./tslib.es6-Dvd8DmFP.js";
  import { $ as g, $t as _, A as v, At as y, B as b, Bt as x, C as S, Ct as C, D as w, Dt as T, E, Et as D, F as O, Ft as k, G as A, Gt as j, H as ee, Ht as te, I as ne, It as re, J as M, Jt as ie, K as ae, Kt as oe, L as se, Lt as ce, M as le, Mt as ue, N as de, Nt as fe, O as pe, Ot as me, P as N, Pt as he, Q as ge, Qt as _e, R as ve, Rt as ye, S as be, St as xe, T as Se, Tt as Ce, U as we, Ut as Te, V as Ee, Vt as De, W as Oe, Wt as ke, X as Ae, Xt as je, Y as Me, Yt as Ne, Z as Pe, Zt as Fe, _ as Ie, _t as Le, a as Re, an as ze, at as Be, b as Ve, bt as He, c as Ue, cn as We, ct as Ge, d as Ke, dt as qe, en as Je, et as Ye, f as Xe, ft as Ze, g as Qe, gt as $e, h as et, ht as tt, i as nt, in as rt, it, j as at, jt as ot, k as st, kt as ct, l as lt, lt as ut, m as dt, mt as P, n as ft, nn as pt, nt as mt, o as ht, on as gt, ot as _t, p as vt, pt as yt, q as bt, qt as xt, rn as St, rt as Ct, s as wt, sn as Tt, st as Et, t as Dt, tn as Ot, tt as kt, u as At, ut as jt, v as Mt, vt as F, w as Nt, wt as Pt, x as Ft, xt as It, y as Lt, yt as Rt, z as zt, zt as Bt } from "./matrix-C_sMRXGh.js";
  import { a as Vt, i as Ht, n as Ut, o as Wt, r as Gt, t as Kt } from "./api-BhQx_VCr.js";
+@@ -16247,7 +16248,7 @@ var Db = 64e3, Ob = class extends mp.EventEmitter {
+ 						participantIdentity: n.participantIdentity,
+ 						participantSid: n.participantSid
+ 					});
+-					t.value?.case === "user" && kb(t, t.value.value), this.emit(Y.DataPacketReceived, t, n.value.value.encryptionType);
++					t.value?.case === "user" && kb(t, t.value.value), this.emit(Y.DataPacketReceived, t, Pu.GCM); /* Aether: senders never fill in encryption_type, so report what was actually decrypted. */
+ 				} else n.value?.case === "user" && kb(n, n.value.value), this.emit(Y.DataPacketReceived, n, Pu.NONE);
+ 			} finally {
+ 				t();
+@@ -16789,7 +16790,7 @@ var Db = 64e3, Ob = class extends mp.EventEmitter {
+ 					e.value = {
+ 						case: "encryptedPacket",
+ 						value: new Xu({
+-							encryptedValue: n.payload,
++							encryptionType: Pu.GCM, encryptedValue: n.payload,
+ 							iv: n.iv,
+ 							keyIndex: n.keyIndex
+ 						})
 @@ -37062,11 +37063,12 @@ var fX = qi.createInstance(), pX = /* @__PURE__ */ function(e) {
  async function kX(e, t, n, r, i, a) {
  	let o;
@@ -1693,8 +1711,21 @@ index e597a18..c6cdbec 100644
  
  //# sourceMappingURL=element-call.js.map
 \ No newline at end of file
+diff --git a/dist/matrix-C_sMRXGh.js b/dist/matrix-C_sMRXGh.js
+index ca16de1..c118b2b 100644
+--- a/dist/matrix-C_sMRXGh.js
++++ b/dist/matrix-C_sMRXGh.js
+@@ -11266,7 +11266,7 @@ var Gv = () => m(Wv), Kv = /* @__PURE__ */ r(((e) => {
+ 			{
+ 				key: "sendInternal",
+ 				value: function(e) {
+-					console.log(`[PostmessageTransport] Sending object to ${this.targetOrigin}: `, e), this.transportWindow.postMessage(e, this.targetOrigin);
++					console.log("[PostmessageTransport] Sending action:", e.action), this.transportWindow.postMessage(e, this.targetOrigin);
+ 				}
+ 			},
+ 			{
 diff --git a/dist/types/component/api.d.ts b/dist/types/component/api.d.ts
-index 313605238c..a93d113490 100644
+index 3136052..a93d113 100644
 --- a/dist/types/component/api.d.ts
 +++ b/dist/types/component/api.d.ts
 @@ -21,7 +21,7 @@ import type { MatrixClient } from "matrix-js-sdk";
@@ -1707,7 +1738,7 @@ index 313605238c..a93d113490 100644
  export type { JoinCallData } from "../src/widget";
  export type { ConfigOptions } from "../src/config/ConfigOptions";
 diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
-index 0d9ec1bba7..e275b6c522 100644
+index 0d9ec1b..e275b6c 100644
 --- a/dist/types/component/host.d.ts
 +++ b/dist/types/component/host.d.ts
 @@ -9,9 +9,10 @@
@@ -1810,7 +1841,7 @@ index 0d9ec1bba7..e275b6c522 100644
  /**
   * The {@link HostBridge} the rest of Element Call sees, built from what a
 diff --git a/dist/types/component/index.d.ts b/dist/types/component/index.d.ts
-index 31d5f31..dc70169 100644
+index 31d5f31..2793b59 100644
 --- a/dist/types/component/index.d.ts
 +++ b/dist/types/component/index.d.ts
 @@ -11,6 +11,7 @@
@@ -1845,7 +1876,7 @@ index 31d5f31..dc70169 100644
 + */
 +export declare function setElementCallServiceUrl(provider: ((client: MatrixClient) => Promise<string | undefined>) | null): void;
 diff --git a/dist/types/src/HostBridge.d.ts b/dist/types/src/HostBridge.d.ts
-index b95e092b28..4c668bf803 100644
+index b95e092..4c668bf 100644
 --- a/dist/types/src/HostBridge.d.ts
 +++ b/dist/types/src/HostBridge.d.ts
 @@ -1,5 +1,22 @@
@@ -1916,15 +1947,3 @@ index b95e092b28..4c668bf803 100644
      /**
       * Whether Element Call may offer to change the user's profile — their
       * display name and avatar. Only when the account is Element Call's own,
-diff --git a/dist/matrix-C_sMRXGh.js b/dist/matrix-C_sMRXGh.js
---- a/dist/matrix-C_sMRXGh.js
-+++ b/dist/matrix-C_sMRXGh.js
-@@ -11266,7 +11266,7 @@
- 			{
- 				key: "sendInternal",
- 				value: function(e) {
--					console.log(`[PostmessageTransport] Sending object to ${this.targetOrigin}: `, e), this.transportWindow.postMessage(e, this.targetOrigin);
-+					console.log("[PostmessageTransport] Sending action:", e.action), this.transportWindow.postMessage(e, this.targetOrigin);
- 				}
- 			},
- 			{

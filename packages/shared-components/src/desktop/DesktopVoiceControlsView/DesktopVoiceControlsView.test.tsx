@@ -330,6 +330,7 @@ it("opens the full dock soundboard and plays a sound", async () => {
             suggested: [{ id: "quack", name: "Quack", emoji: "🦆", libraryId: "builtin" }],
             volume: 80,
             busy: false,
+            muted: false,
             uploadLibraryId: "",
             uploadName: "",
             uploadEmoji: "🔊",
