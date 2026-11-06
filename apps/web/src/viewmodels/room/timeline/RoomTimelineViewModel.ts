@@ -38,6 +38,8 @@ import { haveRendererForEvent, pickFactory } from "../../../events/EventTileFact
 import shouldHideEvent from "../../../shouldHideEvent";
 import SettingsStore from "../../../settings/SettingsStore";
 import { SlidingSyncManager } from "../../../SlidingSyncManager";
+import UserActivity from "../../../UserActivity";
+import Timer from "../../../utils/Timer";
 import { clearRoomNotification } from "../../../utils/notifications";
 import { findLastSuccessfulWeSent } from "./event-tile/EventTileReceiptState";
 import {
@@ -221,11 +223,10 @@ export class RoomTimelineViewModel
     private loadGeneration = 0;
 
     /**
-     * Set when the SDK replaced the room's live timeline (after a gap in sync) while the reader was looking at older
-     * messages. The window then holds a timeline that no longer leads to new messages, so the live end has to be
-     * loaded afresh; see {@link onTimelineReset}.
+     * Runs while the user is active, to send the read receipt held back while they were away; see
+     * {@link sendAutoReadReceipt}.
      */
-    private detachedFromLive = false;
+    private receiptActivityTimer?: Timer;
 
     /** Avoid racing native initial history expansion with a separate messages request. */
     private initialTimelinePending = false;
@@ -489,13 +490,24 @@ export class RoomTimelineViewModel
             void this.load({ kind: "live" });
             return;
         }
-        this.detachedFromLive = true;
-        this.mergeSnapshot({ atLiveEnd: false }, "timeline-reset");
+        // Regular sync may keep the old timeline with a token leading forward to the new one; otherwise the window
+        // no longer reaches new messages until the live end is loaded again.
+        this.mergeSnapshot({ atLiveEnd: this.windowReachesLive() }, "timeline-reset");
     };
+
+    /**
+     * Whether the window ends in a timeline the SDK no longer leads to new messages from: one dropped when sync
+     * replaced every timeline after a gap. Forward pagination cannot reach the live end from it.
+     */
+    private windowDetachedFromLive(): boolean {
+        if (this.timelineWindow.canPaginate(Direction.Forward)) return false;
+        const end = this.timelineWindow.getTimelineIndex(Direction.Forward)?.timeline;
+        return end !== undefined && end !== this.opts.room.getUnfilteredTimelineSet().getLiveTimeline();
+    }
 
     /** Whether the window holds the newest messages of the room's live timeline. */
     private windowReachesLive(): boolean {
-        return !this.detachedFromLive && !this.timelineWindow.canPaginate(Direction.Forward);
+        return !this.timelineWindow.canPaginate(Direction.Forward) && !this.windowDetachedFromLive();
     }
 
     /** Someone's read receipt moved. Only the receipts change, so the rows are left alone. */
@@ -543,7 +555,7 @@ export class RoomTimelineViewModel
         if (this.isDisposed) return;
 
         debug(`[TimelineVM][onRoomTimeline] live event ${event.getId()} (${event.getType()})`);
-        if (this.detachedFromLive) {
+        if (this.windowDetachedFromLive()) {
             // The window cannot reach the new live timeline. Count the message for the jump-to-latest button.
             if (event.getSender() !== this.opts.client.getSafeUserId()) this.unreadMessageCount++;
             this.mergeSnapshot(
@@ -830,29 +842,35 @@ export class RoomTimelineViewModel
         const generation = ++this.loadGeneration;
         const superseded = (): boolean => this.isDisposed || generation !== this.loadGeneration;
         this.loading = true;
-        // Every load builds its window from the timelines the room has now, which lead to the live end.
-        this.detachedFromLive = false;
         this.navigationEventId = target.kind === "live" ? null : target.eventId;
         debug(
             `[TimelineVM] load() start — kind=${target.kind}${target.kind !== "live" ? ` eventId=${target.eventId}` : ""}`,
         );
         const sdkLoadTarget = target.kind !== "live" ? target.eventId : undefined;
+        // Each load fills its own window, so one that is overtaken never touches the window being shown.
+        const window = new TimelineWindow(this.opts.client, this.opts.room.getUnfilteredTimelineSet(), {
+            windowLimit: WINDOW_LIMIT,
+        });
 
         try {
-            await this.timelineWindow.load(sdkLoadTarget, INITIAL_SIZE);
+            await window.load(sdkLoadTarget, INITIAL_SIZE);
             if (superseded()) return;
             // Cached live messages should not wait for history. Anchored loads still fill before
             // placement; a live window with no visible events must first look for something to show.
             if (
                 target.kind !== "live" ||
-                (!this.initialTimelinePending && this.renderableEventCount(undefined, Direction.Backward) === 0)
+                (!this.initialTimelinePending && this.renderableEventCount(window, undefined, Direction.Backward) === 0)
             ) {
                 await this.fillInitialWindow(
+                    window,
                     target.kind === "permalink" ? sdkLoadTarget : undefined,
                     target.kind === "live" ? 1 : MIN_INITIAL_EVENTS,
                 );
             }
             if (superseded()) return;
+            // This is the newest load: its window is shown from now on. Pagination still running on the old window
+            // sees the change and stops.
+            this.timelineWindow = window;
             const windowEvents = this.timelineWindow.getEvents();
             debug(
                 `[TimelineVM] load() window — ${windowEvents.length} events in window, ` +
@@ -956,7 +974,11 @@ export class RoomTimelineViewModel
      * SDK otherwise retries empty pages internally, multiplying our limit by ten. A room that
      * returns duplicate or hidden events should show what we have before loading more on scroll.
      */
-    private async fillInitialWindow(centreOn: string | undefined, minimumEvents: number): Promise<void> {
+    private async fillInitialWindow(
+        window: TimelineWindow,
+        centreOn: string | undefined,
+        minimumEvents: number,
+    ): Promise<void> {
         const MAX_FILL_REQUESTS_PER_DIRECTION = 2;
         const perDirectionTarget = centreOn ? Math.ceil(minimumEvents / 2) : minimumEvents;
 
@@ -967,17 +989,17 @@ export class RoomTimelineViewModel
             let requests = 0;
             while (
                 requests < MAX_FILL_REQUESTS_PER_DIRECTION &&
-                this.renderableEventCount(centreOn, direction) < perDirectionTarget &&
-                this.timelineWindow.canPaginate(direction)
+                this.renderableEventCount(window, centreOn, direction) < perDirectionTarget &&
+                window.canPaginate(direction)
             ) {
                 requests++;
-                const before = this.timelineWindow.getEvents().length;
-                await this.timelineWindow.paginate(direction, PAGINATE_SIZE, true, 1);
+                const before = window.getEvents().length;
+                await window.paginate(direction, PAGINATE_SIZE, true, 1);
                 if (this.isDisposed) return;
                 debug(
                     `[TimelineVM] fillInitialWindow — paginate(${direction === Direction.Backward ? "backward" : "forward"}) ` +
-                        `window: ${before}→${this.timelineWindow.getEvents().length}, ` +
-                        `renderable(side)=${this.renderableEventCount(centreOn, direction)}`,
+                        `window: ${before}→${window.getEvents().length}, ` +
+                        `renderable(side)=${this.renderableEventCount(window, centreOn, direction)}`,
                 );
             }
         }
@@ -989,8 +1011,8 @@ export class RoomTimelineViewModel
      * centred target can be filled independently); without it, counts the whole
      * window. Side-effect-free — does not touch the continuation cache.
      */
-    private renderableEventCount(centreOn: string | undefined, direction: Direction): number {
-        const events = this.timelineWindow.getEvents();
+    private renderableEventCount(window: TimelineWindow, centreOn: string | undefined, direction: Direction): number {
+        const events = window.getEvents();
         const showHiddenEvents = SettingsStore.getValue("showHiddenEventsInTimeline");
 
         let from = 0;
@@ -1028,8 +1050,11 @@ export class RoomTimelineViewModel
      * Held until now so the cold-loading list stays pinned to the anchor instead of
      * being snapped to the bottom by the virtualizer's grow-to-bottom trap (see the View's onSettled).
      */
-    public onAnchorReached = (): void => {
-        if (this.snapshot.current.pendingAnchor === null) return;
+    public onAnchorReached = (targetKey?: string | null): void => {
+        const pending = this.snapshot.current.pendingAnchor;
+        if (pending === null) return;
+        // A newer anchor, such as a message navigated to while the first one was still being placed, stays.
+        if (targetKey !== undefined && pending.targetKey !== targetKey) return;
         debug(`[TimelineVM] onAnchorReached — placement settled, clearing pendingAnchor`);
         this.mergeSnapshot({ pendingAnchor: null }, "anchor-settled");
     };
@@ -1120,10 +1145,16 @@ export class RoomTimelineViewModel
      * only advance the receipt here. The FullyRead marker is advanced once on dispose
      * (see {@link dispose}), mirroring Element X iOS's behaviour.
      */
-    private sendAutoReadReceipt(): void {
+    private sendAutoReadReceipt(requireActivity = true): void {
         if (this.isDisposed) return;
         // Someone previewing a room they have not joined cannot send receipts there.
         if (this.opts.room.getMyMembership() !== KnownMembership.Join) return;
+        // Messages arriving in a window nobody is looking at have not been read. Wait until the user is back,
+        // as the old timeline does.
+        if (requireActivity && !UserActivity.sharedInstance().userActiveNow()) {
+            this.sendReceiptWhenActive();
+            return;
+        }
         const eventId = this.lastBottomEventId;
         if (!eventId || eventId === this.lastSentReceiptEventId) return;
 
@@ -1221,7 +1252,25 @@ export class RoomTimelineViewModel
     public sendReadReceiptNow(): void {
         if (this.readReceiptDebounceTimer !== null) clearTimeout(this.readReceiptDebounceTimer);
         this.readReceiptDebounceTimer = null;
-        this.sendAutoReadReceipt();
+        this.sendAutoReadReceipt(false);
+    }
+
+    /** Send the held-back receipt once the user has been active for a moment. */
+    private sendReceiptWhenActive(): void {
+        if (this.receiptActivityTimer) return;
+        const timer = new Timer(READ_RECEIPT_DEBOUNCE_MS);
+        this.receiptActivityTimer = timer;
+        UserActivity.sharedInstance().timeWhileActiveNow(timer);
+        timer.finished().then(
+            () => {
+                if (this.receiptActivityTimer !== timer) return;
+                this.receiptActivityTimer = undefined;
+                this.sendAutoReadReceipt();
+            },
+            () => {
+                // Aborted on dispose.
+            },
+        );
     }
 
     /** Whether the reader is at the newest message of the live timeline. */
@@ -1358,6 +1407,8 @@ export class RoomTimelineViewModel
             clearTimeout(this.readReceiptDebounceTimer);
             this.readReceiptDebounceTimer = null;
         }
+        this.receiptActivityTimer?.abort();
+        this.receiptActivityTimer = undefined;
         if (this.decryptDebounceTimer !== null) {
             clearTimeout(this.decryptDebounceTimer);
             this.decryptDebounceTimer = null;
@@ -1456,7 +1507,7 @@ export class RoomTimelineViewModel
 
         if (!this.timelineWindow.canPaginate(Direction.Forward)) {
             debug(`[TimelineVM] paginate(forward) skipped — canPaginate=false`);
-            if (!this.snapshot.current.atLiveEnd && !this.detachedFromLive) {
+            if (!this.snapshot.current.atLiveEnd && this.windowReachesLive()) {
                 debug(`[TimelineVM] paginate(forward) — setting atLiveEnd=true`);
                 this.mergeSnapshot({ atLiveEnd: true }, "paginate(forward)-at-live-end");
             }
@@ -1629,6 +1680,9 @@ export class RoomTimelineViewModel
             this.republish("paginate(forward)-start");
         }
 
+        // The chain belongs to the window it started on. A load that replaces the window ends it.
+        const window = this.timelineWindow;
+        const replaced = (): boolean => this.isDisposed || this.timelineWindow !== window;
         try {
             let emptyBatches = 0;
 
@@ -1643,12 +1697,12 @@ export class RoomTimelineViewModel
                 // below lands as a pure add (no on-append scroll jump). No-op
                 // below the cap.
                 await this.makeRoomBeforeExtending(direction, dirLabel);
-                if (this.isDisposed) return;
+                if (replaced()) return;
 
-                const eventsBefore = new Set(this.timelineWindow.getEvents());
-                const hasMore = await this.timelineWindow.paginate(direction, PAGINATE_SIZE, true, 1);
-                if (this.isDisposed) return;
-                const eventsAfter = this.timelineWindow.getEvents();
+                const eventsBefore = new Set(window.getEvents());
+                const hasMore = await window.paginate(direction, PAGINATE_SIZE, true, 1);
+                if (replaced()) return;
+                const eventsAfter = window.getEvents();
 
                 // Give newly-fetched encrypted messages a moment to decrypt, so buildItems can
                 // see what they really are and decide once whether to show them. Any that take
@@ -1656,7 +1710,7 @@ export class RoomTimelineViewModel
                 const newEvents = eventsAfter.filter((e) => !eventsBefore.has(e));
                 if (newEvents.length > 0) {
                     await this.waitForDecryption(newEvents, PAGINATE_DECRYPT_WAIT_MS);
-                    if (this.isDisposed) return;
+                    if (replaced()) return;
                 }
 
                 const rebuilt = this.buildItems();

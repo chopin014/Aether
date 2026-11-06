@@ -404,7 +404,9 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
                     revealedRef.current = true;
                     setRevealed(true);
                 }
-                vm.onAnchorReached();
+                // Only the anchor this placement was for has settled. One set meanwhile, such as a message navigated
+                // to while the first one was placed, is placed once the list is shown.
+                vm.onAnchorReached(anchor?.targetKey ?? null);
                 return;
             }
             coldRafRef.current = requestAnimationFrame(tick);
@@ -435,7 +437,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             if (target !== null) {
                 virtualizer.scrollToOffset(target);
                 lastPlacedAnchorKeyRef.current = anchor.targetKey;
-                vm.onAnchorReached();
+                vm.onAnchorReached(anchor.targetKey);
             }
         }
     });
