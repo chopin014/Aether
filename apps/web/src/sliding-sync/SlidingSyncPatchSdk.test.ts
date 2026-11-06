@@ -12,8 +12,10 @@ import { EventTimeline, EventType, MatrixError, RoomEvent, type MatrixClient } f
 import { type QueryDict } from "matrix-js-sdk/src/utils";
 import { logger } from "matrix-js-sdk/src/logger";
 import {
+    ExtensionState,
     SlidingSync,
     SlidingSyncEvent,
+    type Extension,
     type MSC3575RoomData,
     type MSC3575SlidingSyncResponse,
 } from "matrix-js-sdk/src/sliding-sync";
@@ -149,7 +151,7 @@ describe("sliding sync requests", () => {
         at: number;
     }
 
-    function setup() {
+    function setup(extension?: Extension<object, object>) {
         const client = makeClient();
         const requests: Request[] = [];
         vi.spyOn(client.http, "authedRequest").mockImplementation(((
@@ -186,6 +188,7 @@ describe("sliding sync requests", () => {
             client,
             20_000,
         );
+        if (extension) sync.registerExtension(extension);
         void sync.start();
         return { sync, requests, nextRequest };
     }
@@ -210,6 +213,30 @@ describe("sliding sync requests", () => {
         const fourth = await nextRequest(4);
         expect(sync.isRoomSubscriptionConfirmed(roomId)).toBe(true);
         expect(fourth.qps).toEqual({ pos: "2", timeout: 20_000 });
+        sync.stop();
+    });
+
+    it("asks for an immediate answer for a change made while extensions are being prepared", async () => {
+        const preparing = Promise.withResolvers<void>();
+        let prepared = 0;
+        const { sync, nextRequest } = setup({
+            name: () => "org.example.slow",
+            when: () => ExtensionState.PreProcess,
+            onRequest: async () => {
+                prepared++;
+                if (prepared === 2) await preparing.promise;
+                return {};
+            },
+            onResponse: async () => {},
+        });
+        (await nextRequest(1)).reply({ pos: "1" });
+        await vi.waitFor(() => expect(prepared).toBe(2));
+        // The subscription changes while the next request is still being prepared.
+        sync.modifyRoomSubscriptions(new Set([roomId]));
+        preparing.resolve();
+        const second = await nextRequest(2);
+        expect(second.qps).toEqual({ pos: "1" });
+        expect(second.body.room_subscriptions).toHaveProperty([roomId]);
         sync.stop();
     });
 

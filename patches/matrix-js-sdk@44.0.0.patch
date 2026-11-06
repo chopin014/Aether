@@ -354,7 +354,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      /**
       * Re-setup this connection e.g in the event of an expired session.
       */
-@@ -600,13 +624,32 @@
+@@ -600,15 +624,39 @@
  
      /**
       * Start syncing with the server. Blocks until stopped.
@@ -379,30 +379,37 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 +        // Consecutive rejected requests, other than for an expired connection, to back off between fresh starts.
 +        let rejectedRequests = 0;
          while (!this.terminated) {
-             this.needsResend = false;
-+            // A changed request is answered immediately, so new subscriptions and list ranges never wait
-+            // out a long poll, and a room the server will not send is known to be absent straight away.
-+            const changed = this.requestChanged || currentPos === undefined;
-+            this.requestChanged = false;
-+            const timeoutMS = changed ? 0 : this.timeoutMS;
+-            this.needsResend = false;
++            let changed = false;
              let resp: MSC3575SlidingSyncResponse | undefined;
              try {
++                // Preparing extensions can wait. Lists and subscriptions changed meanwhile are read below, with
++                // nothing else waited on before the request is sent, so they always get the answer they need.
++                const extensions = await this.getExtensionRequest(currentPos === undefined);
++                if (this.terminated) return;
++                this.needsResend = false;
++                // A changed request is answered immediately, so new subscriptions and list ranges never wait
++                // out a long poll, and a room the server will not send is known to be absent straight away.
++                changed = this.requestChanged || currentPos === undefined;
++                this.requestChanged = false;
++                const timeoutMS = changed ? 0 : this.timeoutMS;
                  const reqLists: Record<string, MSC3575List> = {};
-@@ -616,10 +659,11 @@
+                 this.lists.forEach((l: SlidingList, key: string) => {
+                     reqLists[key] = l.getList(true);
+@@ -616,9 +664,9 @@
                  const reqBody: MSC3575SlidingSyncRequest = {
                      lists: reqLists,
                      pos: currentPos,
 -                    timeout: this.timeoutMS,
 -                    clientTimeout: this.timeoutMS + BUFFER_PERIOD_MS,
+-                    extensions: await this.getExtensionRequest(currentPos === undefined),
 +                    timeout: timeoutMS,
 +                    clientTimeout: timeoutMS + BUFFER_PERIOD_MS,
-                     extensions: await this.getExtensionRequest(currentPos === undefined),
++                    extensions,
                  };
-+                if (this.terminated) return;
                  // check if we are (un)subscribing to a room and modify request this one time for it
                  const newSubscriptions = difference(this.desiredRoomSubscriptions, this.confirmedRoomSubscriptions);
-                 const unsubscriptions = difference(this.confirmedRoomSubscriptions, this.desiredRoomSubscriptions);
-@@ -639,6 +683,12 @@
+@@ -639,6 +687,12 @@
                  }
                  this.pendingReq = this.client.slidingSync(reqBody, this.proxyBaseUrl, this.abortController.signal);
                  resp = await this.pendingReq;
@@ -415,7 +422,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  currentPos = resp.pos;
                  // update what we think we're subscribed to.
                  for (const roomId of newSubscriptions) {
-@@ -664,25 +714,43 @@
+@@ -664,25 +718,43 @@
                  });
                  this.invokeLifecycleListeners(SlidingSyncState.RequestFinished, resp);
              } catch (err) {
