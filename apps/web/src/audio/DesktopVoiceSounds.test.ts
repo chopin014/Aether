@@ -7,6 +7,9 @@ Please see LICENSE in the repository root for full details.
 
 // @vitest-environment happy-dom
 
+import { existsSync } from "node:fs";
+import path from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -64,7 +67,7 @@ describe("desktop voice feedback", () => {
         preloadDesktopVoiceSounds(["userJoined"]);
         preloadDesktopVoiceSounds(["userJoined"]);
         expect(createAudio).toHaveBeenCalledOnce();
-        expect(createAudio).toHaveBeenCalledWith(expect.stringContaining("user-joined.wav"));
+        expect(createAudio).toHaveBeenCalledWith(expect.stringContaining("aether/join.wav"));
         expect(audios[0]).toMatchObject({ preload: "auto" });
         expect(play).not.toHaveBeenCalled();
     });
@@ -100,7 +103,15 @@ describe("desktop voice feedback", () => {
     it("has an asset for every cue", async () => {
         for (const { id } of DESKTOP_VOICE_SOUNDS) await playDesktopVoiceSound(id, { preview: true });
         expect(createAudio).toHaveBeenCalledTimes(DESKTOP_VOICE_SOUNDS.length);
-        expect(new Set(createAudio.mock.calls.map(([url]) => url)).size).toBe(DESKTOP_VOICE_SOUNDS.length);
+        // happy-dom serves assets from http://localhost, so look each one up on disk by its file name.
+        const media = path.join(import.meta.dirname, "../../res/media/aether");
+        for (const [url] of createAudio.mock.calls)
+            expect(existsSync(path.join(media, url.split("/").pop()))).toBe(true);
+    });
+    it("uses the join and leave recordings when other people join or leave", async () => {
+        await playDesktopVoiceSound("userJoined");
+        await playDesktopVoiceSound("userLeft");
+        expect(createAudio.mock.calls.map(([url]) => url.split("/").pop())).toEqual(["join.wav", "leave.wav"]);
     });
     it("coalesces duplicate events but allows the cue again after it ends", async () => {
         await playDesktopVoiceSound("mute");
