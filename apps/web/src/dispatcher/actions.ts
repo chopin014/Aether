@@ -426,4 +426,14 @@ export enum Action {
      * Payload: {@link RoomListSectionsCollapseStateChangedPayload}
      */
     RoomListSectionsCollapseStateChanged = "room_list_sections_collapse_state_changed",
+
+    /**
+     * Asks the desktop voice controls to mute or unmute the microphone, as their own button does.
+     */
+    ToggleDesktopMicrophone = "toggle_desktop_microphone",
+
+    /**
+     * Asks the desktop voice controls to deafen or undeafen, as their own button does.
+     */
+    ToggleDesktopDeafen = "toggle_desktop_deafen",
 }

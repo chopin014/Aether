@@ -1031,6 +1031,27 @@
             "group_spacing": "Espaço entre grupos de mensagens",
             "group_spacing_value": "%(size)spx",
             "title": "Exibição das mensagens"
+        },
+        "voice_user_menu": {
+            "copy_user_id": "Copiar ID do usuário",
+            "deafen": "Desativar áudio",
+            "disable_video": "Desativar vídeo",
+            "edit_profile": "Editar perfil",
+            "ignore": "Ignorar",
+            "invite_to_server": "Convidar para o servidor",
+            "mention": "Mencionar",
+            "message": "Mensagem",
+            "mute": "Silenciar",
+            "mute_microphone": "Silenciar",
+            "mute_soundboard": "Silenciar efeitos sonoros",
+            "profile": "Perfil",
+            "roles": "Cargos",
+            "start_call": "Iniciar chamada",
+            "title": "Opções de %(name)s",
+            "unignore": "Parar de ignorar",
+            "user_volume": "Volume do usuário",
+            "user_volume_for": "Volume de %(name)s",
+            "verify": "Verificar"
         }
     },
     "threads": {

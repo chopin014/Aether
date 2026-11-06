@@ -37,6 +37,7 @@ import { CallStore, CallStoreEvent } from "../../stores/CallStore";
 import { CallEvent, type Call } from "../../models/Call";
 import { RoomListItemViewModel } from "./RoomListItemViewModel";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
+import { VoiceUserPreferences, VoiceUserPreferencesEvent } from "../../audio/desktop/VoiceUserPreferences";
 import { mediaFromMxc } from "../../customisations/Media";
 import RoomListStoreV3 from "../../stores/room-list-v3/RoomListStoreV3";
 import * as tagRoomModule from "../../utils/room/tagRoom";
@@ -49,6 +50,13 @@ import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDial
 import { prepareCallSoon } from "../../components/views/voip/prepareElementCall";
 
 vi.mock("../../components/views/voip/prepareElementCall", () => ({ prepareCallSoon: vi.fn() }));
+vi.mock("../desktop/VoiceUserMenuViewModel", () => ({
+    VoiceUserMenuViewModel: class {
+        public constructor(private readonly props: { userId: string }) {}
+        public getSnapshot = (): { userId: string } => ({ userId: this.props.userId });
+        public dispose(): void {}
+    },
+}));
 
 vi.mock("./utils", () => ({
     hasAccessToOptionsMenu: vi.fn().mockReturnValue(true),
@@ -252,6 +260,45 @@ describe("RoomListItemViewModel", () => {
         expect(viewModel.getSnapshot().callStartedAt).toBeUndefined();
     });
 
+    it("marks participants muted for this user only and opens one participant menu at a time", () => {
+        const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+        vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
+            setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+        );
+        vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+        const alice = new RoomMember(room.roomId, "@alice:server");
+        alice.name = "Alice";
+        const call = Object.assign(new EventEmitter(), {
+            participants: new Map([[alice, new Set(["device1"])]]),
+            callType: CallType.Voice,
+            speakingUserIds: new Set<string>(),
+            soundboardUserIds: new Set<string>(),
+            voiceStates: new Map<string, VoiceState>(),
+        });
+        vi.mocked(CallStore.instance.getCall).mockReturnValue(call as unknown as Call);
+        const preferences = VoiceUserPreferences.instance;
+        const get = vi.spyOn(preferences, "get");
+        viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+        expect(viewModel.getSnapshot().callParticipants?.[0].isLocallyMuted).toBe(false);
+
+        get.mockReturnValue({ volume: 1, muted: true, soundboardMuted: false, videoDisabled: false });
+        preferences.emit(VoiceUserPreferencesEvent.Changed);
+        expect(viewModel.getSnapshot().callParticipants?.[0].isLocallyMuted).toBe(true);
+
+        const first = viewModel.openCallParticipantMenu(alice.userId);
+        expect(first.getSnapshot().userId).toBe(alice.userId);
+        const disposeFirst = vi.spyOn(first, "dispose");
+        const second = viewModel.openCallParticipantMenu(alice.userId);
+        expect(disposeFirst).toHaveBeenCalledOnce();
+        const disposeSecond = vi.spyOn(second, "dispose");
+        viewModel.closeCallParticipantMenu();
+        expect(disposeSecond).toHaveBeenCalledOnce();
+
+        viewModel.openCallParticipantMenu(alice.userId);
+        viewModel.dispose();
+        expect(preferences.listenerCount(VoiceUserPreferencesEvent.Changed)).toBe(0);
+    });
+
     it("shows distinct call members before joining and updates every join and leave", () => {
         const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
         vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
@@ -281,6 +328,7 @@ describe("RoomListItemViewModel", () => {
                 isSoundboardPlaying: false,
                 isMuted: false,
                 isDeafened: false,
+                isLocallyMuted: false,
             },
         ]);
         call.voiceStates = new Map([[alice.userId, { userId: alice.userId, muted: true, deafened: true }]]);

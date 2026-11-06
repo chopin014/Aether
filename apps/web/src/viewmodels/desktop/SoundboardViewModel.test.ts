@@ -28,6 +28,7 @@ import { SoundboardViewModel } from "./SoundboardViewModel";
 import { CallEvent, ConnectionState, type ElementCall } from "../../models/Call";
 import { SOUNDBOARD_EVENT, SOUNDBOARD_PLAY, SoundboardAudio } from "../../audio/soundboard/Soundboard";
 import SettingsStore from "../../settings/SettingsStore";
+import { VoiceUserPreferences } from "../../audio/desktop/VoiceUserPreferences";
 import type SpaceStore from "../../stores/spaces/SpaceStore";
 import { UPDATE_SELECTED_SPACE } from "../../stores/spaces";
 import type { SoundboardTransport } from "../../audio/soundboard/SoundboardTransport";
@@ -501,6 +502,17 @@ describe("SoundboardViewModel", () => {
         receive(event());
         receive(event());
         expect(SoundboardAudio.prototype.play).toHaveBeenCalledTimes(1);
+    });
+    it("stays silent for someone whose soundboard this user muted", () => {
+        const get = vi.spyOn(VoiceUserPreferences.instance, "get").mockReturnValue({
+            volume: 1,
+            muted: false,
+            soundboardMuted: true,
+            videoDisabled: false,
+        });
+        receive(event());
+        expect(get).toHaveBeenCalledWith("@bob:example.org");
+        expect(SoundboardAudio.prototype.play).not.toHaveBeenCalled();
     });
     it("handles live encrypted requests after decryption but ignores decrypted history", () => {
         const encrypted = event({ event_id: "$encrypted", type: "m.room.encrypted" });

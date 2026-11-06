@@ -63,6 +63,8 @@ import { threadLabel } from "../threads/threadLabel";
 import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
 import { ChannelMenuViewModel } from "../desktop/ChannelMenuViewModel";
 import { prepareCallSoon } from "../../components/views/voip/prepareElementCall";
+import { VoiceUserMenuViewModel } from "../desktop/VoiceUserMenuViewModel";
+import { VoiceUserPreferences, VoiceUserPreferencesEvent } from "../../audio/desktop/VoiceUserPreferences";
 
 /**
  * View section type without `isSelected` field
@@ -152,6 +154,13 @@ export class RoomListItemViewModel
 
         // Subscribe to call state changes
         this.disposables.trackListener(CallStore.instance, CallStoreEvent.Call, this.onCallStateChanged);
+        // A participant muted for this user only is marked in the channel's list.
+        this.disposables.trackListener(
+            VoiceUserPreferences.instance,
+            VoiceUserPreferencesEvent.Changed,
+            this.onVoiceActivityChanged,
+        );
+        this.disposables.track(() => this.closeCallParticipantMenu());
         this.disposables.track(() => this.callDisposables.dispose());
         // If there is an active call for this room, listen to participant changes
         this.listenToCallParticipants();
@@ -239,17 +248,27 @@ export class RoomListItemViewModel
         });
     };
 
-    /** Whether a call participant is talking, muted or deafened, as far as our own connection can tell. */
+    /**
+     * Whether a call participant is talking, muted or deafened, as far as our own connection can tell, and whether
+     * this user muted them for themselves.
+     */
     private static voiceActivityOf(
         call: Call | null | undefined,
         userId: string,
-    ): { isSpeaking: boolean; isSoundboardPlaying: boolean; isMuted: boolean; isDeafened: boolean } {
+    ): {
+        isSpeaking: boolean;
+        isSoundboardPlaying: boolean;
+        isMuted: boolean;
+        isDeafened: boolean;
+        isLocallyMuted: boolean;
+    } {
         const voiceState = call?.voiceStates.get(userId);
         return {
             isSpeaking: call?.speakingUserIds.has(userId) ?? false,
             isSoundboardPlaying: call?.soundboardUserIds?.has(userId) ?? false,
             isMuted: voiceState?.muted ?? false,
             isDeafened: voiceState?.deafened ?? false,
+            isLocallyMuted: VoiceUserPreferences.instance.get(userId).muted,
         };
     }
 
@@ -343,6 +362,24 @@ export class RoomListItemViewModel
     public onViewCallParticipant = (userId: string): void => {
         const member = this.props.room.getMember(userId);
         if (member) dispatcher.dispatch<ViewUserPayload>({ action: Action.ViewUser, member });
+    };
+
+    private callParticipantMenu?: VoiceUserMenuViewModel;
+
+    /** The right-click menu for a voice participant; opening another closes the previous one. */
+    public openCallParticipantMenu = (userId: string): VoiceUserMenuViewModel => {
+        this.closeCallParticipantMenu();
+        this.callParticipantMenu = new VoiceUserMenuViewModel({
+            client: this.props.client,
+            userId,
+            room: this.props.room,
+        });
+        return this.callParticipantMenu;
+    };
+
+    public closeCallParticipantMenu = (): void => {
+        this.callParticipantMenu?.dispose();
+        this.callParticipantMenu = undefined;
     };
 
     private onRoomChanged = (): void => {

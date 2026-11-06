@@ -135,6 +135,13 @@ export class DesktopVoiceControlsViewModel
         this.disposables.track(() => this.call?.off(CallEvent.SpeakingUsers, this.refresh));
         this.disposables.track(() => this.call?.off(CallEvent.SoundboardUsers, this.refresh));
         this.disposables.track(() => this.call?.off(CallEvent.ConnectionStats, this.refresh));
+        // Other surfaces, such as a participant's own menu, ask through the dispatcher so the sounds and the
+        // undeafen-on-unmute rule stay in one place.
+        const dispatcherRef = defaultDispatcher.register((payload) => {
+            if (payload.action === Action.ToggleDesktopMicrophone) void this.toggleMicrophone();
+            else if (payload.action === Action.ToggleDesktopDeafen) void this.toggleDeafened();
+        });
+        this.disposables.track(() => defaultDispatcher.unregister(dispatcherRef));
         this.onCallsChanged();
     }
 

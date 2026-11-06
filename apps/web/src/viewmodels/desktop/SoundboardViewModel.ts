@@ -27,6 +27,7 @@ import { SoundboardClip } from "../../audio/soundboard/SoundboardClip";
 import { CallEvent, type ElementCall } from "../../models/Call";
 import { _t } from "../../languageHandler";
 import SettingsStore from "../../settings/SettingsStore";
+import { VoiceUserPreferences } from "../../audio/desktop/VoiceUserPreferences";
 import MediaDeviceHandler from "../../MediaDeviceHandler";
 import type SpaceStore from "../../stores/spaces/SpaceStore";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
@@ -252,7 +253,9 @@ export class SoundboardViewModel extends BaseViewModel<SoundboardViewSnapshot, P
             this.isDisposed ||
             !this.props.call.connected ||
             this.props.call.locallyLeaving ||
-            SettingsStore.getValue("desktopDeafened")
+            SettingsStore.getValue("desktopDeafened") ||
+            // The person who played it may have their soundboard muted for this user only.
+            (sender !== undefined && VoiceUserPreferences.instance.get(sender).soundboardMuted)
         )
             return;
         const source = this.source(sound) ?? sharedSound?.url;

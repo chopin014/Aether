@@ -691,6 +691,27 @@
             "unmute": "Unmute",
             "voice_settings": "Voice settings"
         },
+        "voice_user_menu": {
+            "copy_user_id": "Copy user ID",
+            "deafen": "Deafen",
+            "disable_video": "Disable video",
+            "edit_profile": "Edit profile",
+            "ignore": "Ignore",
+            "invite_to_server": "Invite to server",
+            "mention": "Mention",
+            "message": "Message",
+            "mute": "Mute",
+            "mute_microphone": "Mute",
+            "mute_soundboard": "Mute soundboard",
+            "profile": "Profile",
+            "roles": "Roles",
+            "start_call": "Start call",
+            "title": "Options for %(name)s",
+            "unignore": "Stop ignoring",
+            "user_volume": "User volume",
+            "user_volume_for": "Volume for %(name)s",
+            "verify": "Verify"
+        },
         "voice_video": {
             "advanced_voice": "Show advanced voice settings",
             "advanced_voice_description": "Automatic gain control and voice channel switch warning",
