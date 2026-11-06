@@ -41,7 +41,11 @@ const cases = [
     "network offline",
     "encrypted membership removal",
     "encrypted SFU restart",
+    "slow homeserver",
+    "clock 8s ahead",
 ] as const;
+// Faults that only show up when memberships are renewed, which happens every five minutes.
+const renewalCycleFaults: ReadonlyArray<(typeof cases)[number]> = ["slow homeserver", "clock 8s ahead"];
 
 test.use({
     matrixRTC: true,
@@ -70,7 +74,16 @@ async function settle(page: Page): Promise<void> {
         await window.mxSettingsStore.setValue("desktopNoiseSuppression", null, level, "none");
         const peers: RTCPeerConnection[] = [];
         const sockets: WebSocket[] = [];
-        Object.assign(window, { __recoveryPeers: peers, __recoverySockets: sockets });
+        const sounds: string[] = [];
+        Object.assign(window, { __recoveryPeers: peers, __recoverySockets: sockets, __recoverySounds: sounds });
+        // Record every cue the app plays so false join and leave sounds can be counted.
+        const play = HTMLMediaElement.prototype.play;
+        HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+            // Only the app's own cues are files; call audio plays from media streams.
+            const src = this.currentSrc || this.src;
+            if (src.endsWith(".wav")) sounds.push(src.split("/").pop()!.split(".")[0]);
+            return play.call(this);
+        };
         const Peer = window.RTCPeerConnection;
         window.RTCPeerConnection = class extends Peer {
             public constructor(config?: RTCConfiguration) {
@@ -140,6 +153,9 @@ async function measure(app: ElementAppPage, roomId: string) {
         tiles: await stage.getByTestId("videoTile").allTextContents(),
         alerts: await app.page.getByRole("alert").filter({ visible: true }).allTextContents(),
         statusText: await app.page.getByRole("status").filter({ visible: true }).allTextContents(),
+        sounds: await app.page.evaluate(() => [
+            ...(window as unknown as { __recoverySounds: string[] }).__recoverySounds,
+        ]),
     };
 }
 
@@ -183,15 +199,19 @@ for (const fault of cases) {
         user,
         matrixRTCBackend,
     }, testInfo) => {
-        test.setTimeout(240_000);
+        test.setTimeout(renewalCycleFaults.includes(fault) ? 600_000 : 240_000);
         const injection = fault.replace(/^encrypted /, "");
         let socketFault = false;
         let manuallyRecovered: boolean | null = null;
         const logs: string[] = [];
-        const onConsole = (msg: ConsoleMessage): void => {
-            if (/membership|livekit|reconnect|connection|pausing|resuming|error/i.test(msg.text()))
-                logs.push(msg.text());
+        const bobLogs: string[] = [];
+        const testStart = Date.now();
+        const lifecycle = (into: string[]) => (msg: ConsoleMessage) => {
+            if (/membership|livekit|reconnect|connection|pausing|resuming|error|expir|rejoin/i.test(msg.text()))
+                into.push(`+${((Date.now() - testStart) / 1000).toFixed(1)}s ${msg.text()}`);
         };
+        const onConsole = lifecycle(logs);
+        const onBobConsole = lifecycle(bobLogs);
         page.on("console", onConsole);
         await settle(page);
         const bob = await homeserver.registerUser(
@@ -211,7 +231,14 @@ for (const fault of cases) {
             bob: Awaited<ReturnType<typeof measure>>;
         }> = [];
         try {
+            if (fault === "clock 8s ahead") {
+                await context.addInitScript(() => {
+                    const now = Date.now.bind(Date);
+                    Date.now = (): number => now() + 8000;
+                });
+            }
             const bobPage = await context.newPage();
+            bobPage.on("console", onBobConsole);
             await routeConfigJson(context, homeserver.baseUrl, config);
             await populateLocalStorageWithCredentials(bobPage, bob);
             await bobPage.goto("/");
@@ -261,6 +288,14 @@ for (const fault of cases) {
             const membershipPattern = /\/_matrix\/client\/.*\/rooms\/.*\/state\/org\.matrix\.msc3401\.call\.member/;
             let duration = fault.includes("beyond retries") ? 110 : 30;
             if (fault === "baseline") duration = 5;
+            // Cover a full membership renewal, which is due five minutes after joining.
+            if (renewalCycleFaults.includes(fault)) duration = 320;
+            if (fault === "slow homeserver") {
+                await page.route(membershipPattern, async (route) => {
+                    if (route.request().method() === "PUT") await new Promise((resolve) => setTimeout(resolve, 7000));
+                    await route.continue();
+                });
+            }
             if (fault.includes("renewal")) {
                 await page.route(membershipPattern, (route) =>
                     route.request().method() === "PUT"
@@ -389,9 +424,44 @@ for (const fault of cases) {
                 }
             }
             const last = samples.at(-1)!;
+            // Keep the memberships the homeserver holds, to see what each client last sent.
+            const roomState = await homeserver.csApi.request("GET", `/v3/rooms/${roomId}/state`, user.accessToken);
+            await writeFile(
+                testInfo.outputPath("call-members.json"),
+                JSON.stringify(
+                    (roomState as Array<{ type: string }>).filter((e) => e.type === "org.matrix.msc3401.call.member"),
+                    null,
+                    2,
+                ),
+            );
             const flowing = { alice: await audioFlowing(app, roomId), bob: await audioFlowing(bobApp, roomId) };
-            console.log(`RECOVERY_RESULT ${JSON.stringify({ fault, last, flowing })}`);
+            const heard = {
+                alice: last.alice.sounds.slice(samples[0].alice.sounds.length),
+                bob: last.bob.sounds.slice(samples[0].bob.sounds.length),
+            };
+            console.log(`RECOVERY_RESULT ${JSON.stringify({ fault, last, flowing, heard })}`);
             await page.screenshot({ path: testInfo.outputPath("after-fault.png") });
+            if (renewalCycleFaults.includes(fault)) {
+                // Nobody left, so nobody may vanish from the call or be announced as leaving at any point.
+                const before = samples[0];
+                const gaps = samples
+                    .filter((sample) => sample.seconds >= 0)
+                    .filter(
+                        (sample) =>
+                            sample.alice.own !== 1 ||
+                            sample.alice.members.length !== 2 ||
+                            sample.bob.own !== 1 ||
+                            sample.bob.members.length !== 2,
+                    )
+                    .map((sample) => sample.seconds);
+                const cues = {
+                    alice: last.alice.sounds.slice(before.alice.sounds.length),
+                    bob: last.bob.sounds.slice(before.bob.sounds.length),
+                };
+                console.log(`RENEWAL_RESULT ${JSON.stringify({ fault, gaps, cues })}`);
+                expect.soft(gaps, `participants vanished during ${fault}`).toEqual([]);
+                expect.soft(cues, `cues played during ${fault}`).toEqual({ alice: [], bob: [] });
+            }
             // Once the fault is gone the call must come back on its own: own tile, and audio in both directions.
             expect
                 .soft(
@@ -423,12 +493,14 @@ for (const fault of cases) {
                 JSON.stringify({ fault, samples, manuallyRecovered }, null, 2),
             );
             await writeFile(testInfo.outputPath("call-lifecycle.log"), logs.join("\n"));
+            await writeFile(testInfo.outputPath("bob-call-lifecycle.log"), bobLogs.join("\n"));
             await testInfo.attach("recovery-samples", {
                 body: JSON.stringify({ fault, samples, manuallyRecovered }, null, 2),
                 contentType: "application/json",
             });
             await testInfo.attach("call-lifecycle", { body: logs.join("\n"), contentType: "text/plain" });
             page.off("console", onConsole);
+            for (const bobPage of context.pages()) bobPage.off("console", onBobConsole);
             await context.close();
         }
     });
