@@ -29,6 +29,7 @@ import {
 } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import RoomAvatar from "../avatars/RoomAvatar";
+import { avatarUrlForRoom } from "../../../Avatar";
 import { type SpaceKey } from "../../../stores/spaces";
 import SpaceTreeLevelLayoutStore from "../../../stores/spaces/SpaceTreeLevelLayoutStore";
 import { NotificationBadge } from "../rooms/NotificationBadge/NotificationBadge";
@@ -164,7 +165,18 @@ export const SpaceButton = <T extends keyof HTMLElementTagNameMap>({
             })}
             aria-label={label}
             title={!isNarrow || menuDisplayed ? undefined : label}
-            caption={voiceActivity.length > 0 ? <ServerVoiceActivity channels={voiceActivity} /> : undefined}
+            caption={
+                space && voiceActivity.length > 0 ? (
+                    <ServerVoiceActivity
+                        server={{
+                            id: space.roomId,
+                            name: label,
+                            avatarUrl: avatarUrlForRoom(space, 48, 48, "crop") ?? undefined,
+                        }}
+                        channels={voiceActivity}
+                    />
+                ) : undefined
+            }
             onClick={onClick}
             onContextMenu={openMenu}
             ref={ref}
