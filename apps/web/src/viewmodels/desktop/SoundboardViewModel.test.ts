@@ -50,6 +50,7 @@ describe("SoundboardViewModel", () => {
             connected: true,
             locallyLeaving: false,
             participants: new Map([[{ userId: "@bob:example.org" } as RoomMember, new Set(["DEVICE"])]]),
+            voiceStates: new Map(),
         }) as unknown as ElementCall;
         room = new Room(call.roomId, client, client.getSafeUserId(), {
             pendingEventOrdering: PendingEventOrdering.Detached,
@@ -192,6 +193,7 @@ describe("SoundboardViewModel", () => {
             locallyLeaving: false,
             soundboardTransport: bobTransport,
             participants: new Map([[{ userId: client.getUserId() } as RoomMember, new Set(["DEVICE"])]]),
+            voiceStates: new Map(),
         }) as unknown as ElementCall;
         const bobVm = new SoundboardViewModel({ client: bob, call: bobCall, spaceStore });
         try {
@@ -238,9 +240,61 @@ describe("SoundboardViewModel", () => {
         listener(data(packet), "@bob:example.org");
         listener(data(packet), "@bob:example.org");
         expect(SoundboardAudio.prototype.play).toHaveBeenCalledOnce();
+        // The sender's clock may run ahead of ours; live call data is still played.
+        listener(data({ ...packet, id: "ahead", ts: Date.now() + 5_000 }), "@bob:example.org");
+        expect(SoundboardAudio.prototype.play).toHaveBeenCalledTimes(2);
         Object.assign(call, { soundboardTransport: null });
         call.emit(CallEvent.SoundboardTransport);
         expect(unsubscribe).toHaveBeenCalledOnce();
+    });
+    it("only previews while the microphone is muted or deafened", async () => {
+        const transport: SoundboardTransport = {
+            send: vi.fn().mockResolvedValue(undefined),
+            subscribe: vi.fn(() => vi.fn()),
+        };
+        Object.assign(call, { soundboardTransport: transport });
+        call.emit(CallEvent.SoundboardTransport);
+        expect(vm.getSnapshot().muted).toBe(false);
+        const muted = { audio_enabled: false, video_enabled: false };
+        Object.assign(call, { deviceMuteState: muted });
+        call.emit(CallEvent.DeviceMute, muted);
+        expect(vm.getSnapshot().muted).toBe(true);
+        await vm.play(builtin);
+        expect(SoundboardAudio.prototype.play).not.toHaveBeenCalled();
+        expect(transport.send).not.toHaveBeenCalled();
+        expect(client.sendEvent).not.toHaveBeenCalled();
+        await vm.play(builtin, true);
+        expect(SoundboardAudio.prototype.play).toHaveBeenCalledOnce();
+        const unmuted = { audio_enabled: true, video_enabled: false };
+        Object.assign(call, { deviceMuteState: unmuted });
+        call.emit(CallEvent.DeviceMute, unmuted);
+        expect(vm.getSnapshot().muted).toBe(false);
+        await vm.play(builtin);
+        expect(transport.send).toHaveBeenCalledOnce();
+
+        // Deafening is reported through the setting watcher.
+        const onDeafened = vi
+            .mocked(SettingsStore.watchSetting)
+            .mock.calls.find(([setting]) => setting === "desktopDeafened")![2] as () => void;
+        vi.mocked(SettingsStore.getValue).mockImplementation(
+            (key) => ({ desktopDeafened: true, desktopSpeakerVolume: 100 })[key as string] ?? false,
+        );
+        onDeafened();
+        expect(vm.getSnapshot().muted).toBe(true);
+        await vm.play(builtin);
+        expect(transport.send).toHaveBeenCalledOnce();
+    });
+    it("ignores sounds from participants whose microphones are muted", () => {
+        Object.assign(call, {
+            voiceStates: new Map([["@bob:example.org", { userId: "@bob:example.org", muted: true, deafened: false }]]),
+        });
+        receive(event());
+        expect(SoundboardAudio.prototype.play).not.toHaveBeenCalled();
+        Object.assign(call, {
+            voiceStates: new Map([["@bob:example.org", { userId: "@bob:example.org", muted: false, deafened: false }]]),
+        });
+        receive(event({ event_id: "$unmuted" }));
+        expect(SoundboardAudio.prototype.play).toHaveBeenCalledOnce();
     });
     it("previews locally and broadcasts a play request only for shared playback", async () => {
         await vm.play(builtin, true);

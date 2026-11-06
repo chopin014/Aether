@@ -150,5 +150,6 @@ export * from "./desktop/DesktopKeybindsView";
 
 export * from "./desktop/DeleteChannelView";
 export * from "./desktop/DeleteServerView";
+export * from "./desktop/IncomingCallView";
 
 export * from "./desktop/SoundboardView";

@@ -1,9 +1,9 @@
-diff --git a/b/dist/aether-screen-share.js b/dist/aether-screen-share.js
+diff --git a/dist/aether-screen-share.js b/dist/aether-screen-share.js
 new file mode 100644
-index 0000000000..9e4d0a04ee
+index 0000000..201f68f
 --- /dev/null
 +++ b/dist/aether-screen-share.js
-@@ -0,0 +1,253 @@
+@@ -0,0 +1,329 @@
 +/*
 +Copyright 2026 Gabriel
 +
@@ -17,7 +17,7 @@ index 0000000000..9e4d0a04ee
 +export function aetherResolveScreenShareQuality(policy, raw = {}) {
 +    const maxHeight = positive(policy?.max_resolution) ? policy.max_resolution : 1080;
 +    const maxFps = positive(policy?.max_framerate) ? Math.min(policy.max_framerate, 60) : 30;
-+    const maxBr = positive(policy?.max_bitrate) ? policy.max_bitrate : 5000000;
++    const maxBr = positive(policy?.max_bitrate) ? policy.max_bitrate : 20000000;
 +    return {
 +        resolutionHeight: Math.min(positive(raw.resolutionHeight) ? raw.resolutionHeight : maxHeight, maxHeight),
 +        frameRate: Math.min(positive(raw.frameRate) ? raw.frameRate : 30, maxFps),
@@ -28,6 +28,7 @@ index 0000000000..9e4d0a04ee
 +
 +/** Bound capture before publishing; ideal constraints alone can exceed a deployment maximum. */
 +export async function aetherConstrainScreenTrack(track, quality) {
++    track.mediaStreamTrack.contentHint = quality.frameRate <= 15 ? "detail" : "motion";
 +    await track.mediaStreamTrack.applyConstraints({
 +        width: {
 +            ideal: Math.round((quality.resolutionHeight * 16) / 9),
@@ -36,6 +37,41 @@ index 0000000000..9e4d0a04ee
 +        height: { ideal: quality.resolutionHeight, max: quality.resolutionHeight },
 +        frameRate: { ideal: quality.frameRate, max: quality.frameRate },
 +    });
++}
++
++/** Prefer hardware WebRTC encoders, without mistaking WebCodecs support for RTP encoding support. */
++export async function aetherChooseScreenCodec(track, quality, participant, excluded = []) {
++    const capabilities = globalThis.navigator?.mediaCapabilities;
++    const codecs = globalThis.RTCRtpSender?.getCapabilities?.("video")?.codecs ?? [];
++    const allowed = participant.enabledPublishVideoCodecs;
++    const settings = track.mediaStreamTrack.getSettings?.() ?? {};
++    for (const codec of ["av1", "h264"]) {
++        if (excluded.includes(codec)) continue;
++        // The bundled LiveKit frame cryptor cannot encrypt AV1 yet. Keep encrypted calls on hardware H.264.
++        if (codec === "av1" && participant.isE2EEEnabled) continue;
++        const mime = `video/${codec}`;
++        if (allowed?.length && !allowed.some((entry) => entry.mime.toLowerCase() === mime)) continue;
++        for (const profile of codecs.filter((entry) => entry.mimeType.toLowerCase() === mime)) {
++            try {
++                const info = await capabilities?.encodingInfo({
++                    type: "webrtc",
++                    video: {
++                        // Packetization and profile determine whether Chromium can use its hardware encoder.
++                        contentType: profile.sdpFmtpLine ? `${mime};${profile.sdpFmtpLine}` : mime,
++                        width: settings.width ?? Math.round((quality.resolutionHeight * 16) / 9),
++                        height: settings.height ?? quality.resolutionHeight,
++                        bitrate: quality.maxBitrate,
++                        framerate: quality.frameRate,
++                        scalabilityMode: codec === "av1" ? "L1T3" : "L1T1",
++                    },
++                });
++                if (info?.supported && info.powerEfficient && info.smooth) return codec;
++            } catch {
++                // Missing capability support or a rejected codec must keep software sharing available.
++            }
++        }
++    }
++    return "vp8";
 +}
 +
 +const senderLayerLimits = new WeakMap();
@@ -63,9 +99,14 @@ index 0000000000..9e4d0a04ee
 +            limits = { caps, primary };
 +            senderLayerLimits.set(sender, limits);
 +        }
++        const secondary = limits.caps.map((cap, index) =>
++            index === limits.primary ? 0 : Math.min(cap, quality.maxBitrate / (5 * encodings.length)),
++        );
++        const secondaryTotal = secondary.reduce((sum, cap) => sum + cap, 0);
++        parameters.degradationPreference = "maintain-framerate";
 +        for (let index = 0; index < encodings.length; ++index) {
 +            encodings[index].maxBitrate =
-+                index === limits.primary ? quality.maxBitrate : Math.min(limits.caps[index], quality.maxBitrate);
++                index === limits.primary ? quality.maxBitrate - secondaryTotal : secondary[index];
 +            encodings[index].maxFramerate = quality.frameRate;
 +        }
 +        await sender.setParameters(parameters);
@@ -207,14 +248,49 @@ index 0000000000..9e4d0a04ee
 +                { once: true },
 +            );
 +            await aetherConstrainScreenTrack(video, next);
++            let codec = await aetherChooseScreenCodec(video, next, participant);
 +            for (const track of tracks) {
 +                if (disposed || !requested || ticket !== generation) break;
-+                await participant.publishTrack(track, {
-+                    screenShareEncoding: { maxBitrate: next.maxBitrate, maxFramerate: next.frameRate },
-+                    // One screen layer avoids an uncontrolled aggregate bandwidth or delayed backup codec publisher.
-+                    simulcast: false,
++                const lowerBitrate = Math.min(750000, next.maxBitrate / 10);
++                const options = {
++                    videoCodec: codec,
++                    degradationPreference: "maintain-framerate",
++                    scalabilityMode: codec === "av1" ? "L1T3" : "L1T1",
++                    screenShareEncoding: {
++                        maxBitrate: codec === "av1" ? next.maxBitrate : next.maxBitrate - lowerBitrate,
++                        maxFramerate: next.frameRate,
++                    },
++                    // AV1 uses temporal layers; VP8/H.264 offer a bounded, full-framerate lower spatial layer.
++                    simulcast: codec !== "av1",
++                    screenShareSimulcastLayers: [{
++                        width: Math.round((Math.min(360, next.resolutionHeight / 2) * 16) / 9),
++                        height: Math.min(360, next.resolutionHeight / 2),
++                        encoding: { maxBitrate: lowerBitrate, maxFramerate: next.frameRate },
++                    }],
 +                    backupCodec: false,
-+                });
++                };
++                const failed = [];
++                for (;;) {
++                    try {
++                        await participant.publishTrack(track, {
++                            ...options,
++                            videoCodec: codec,
++                            simulcast: codec !== "av1",
++                            scalabilityMode: codec === "av1" ? "L1T3" : "L1T1",
++                            screenShareEncoding: {
++                                maxBitrate: codec === "av1" ? next.maxBitrate : next.maxBitrate - lowerBitrate,
++                                maxFramerate: next.frameRate,
++                            },
++                        });
++                        break;
++                    } catch (error) {
++                        if (track !== video || codec === "vp8" || disposed || ticket !== generation) throw error;
++                        // Try the remaining hardware codecs before using the software encoder.
++                        failed.push(codec);
++                        codec = await aetherChooseScreenCodec(video, next, participant, failed);
++                        if (disposed || !requested || ticket !== generation) break;
++                    }
++                }
 +            }
 +            if (disposed || !requested || ticket !== generation) return release();
 +            await aetherConstrainScreenSenders(video, next);
@@ -258,7 +334,7 @@ index 0000000000..9e4d0a04ee
 +    };
 +}
 diff --git a/dist/element-call.js b/dist/element-call.js
-index e597a18..3b698af 100644
+index e597a18..cbde580 100644
 --- a/dist/element-call.js
 +++ b/dist/element-call.js
 @@ -1,3 +1,4 @@
@@ -266,6 +342,24 @@ index e597a18..3b698af 100644
  import { a as e, c as t, d as n, f as r, g as i, h as a, i as o, l as s, m as c, n as l, o as u, r as d, s as f, t as p, u as m, v as h } from "./tslib.es6-Dvd8DmFP.js";
  import { $ as g, $t as _, A as v, At as y, B as b, Bt as x, C as S, Ct as C, D as w, Dt as T, E, Et as D, F as O, Ft as k, G as A, Gt as j, H as ee, Ht as te, I as ne, It as re, J as M, Jt as ie, K as ae, Kt as oe, L as se, Lt as ce, M as le, Mt as ue, N as de, Nt as fe, O as pe, Ot as me, P as N, Pt as he, Q as ge, Qt as _e, R as ve, Rt as ye, S as be, St as xe, T as Se, Tt as Ce, U as we, Ut as Te, V as Ee, Vt as De, W as Oe, Wt as ke, X as Ae, Xt as je, Y as Me, Yt as Ne, Z as Pe, Zt as Fe, _ as Ie, _t as Le, a as Re, an as ze, at as Be, b as Ve, bt as He, c as Ue, cn as We, ct as Ge, d as Ke, dt as qe, en as Je, et as Ye, f as Xe, ft as Ze, g as Qe, gt as $e, h as et, ht as tt, i as nt, in as rt, it, j as at, jt as ot, k as st, kt as ct, l as lt, lt as ut, m as dt, mt as P, n as ft, nn as pt, nt as mt, o as ht, on as gt, ot as _t, p as vt, pt as yt, q as bt, qt as xt, rn as St, rt as Ct, s as wt, sn as Tt, st as Et, t as Dt, tn as Ot, tt as kt, u as At, ut as jt, v as Mt, vt as F, w as Nt, wt as Pt, x as Ft, xt as It, y as Lt, yt as Rt, z as zt, zt as Bt } from "./matrix-C_sMRXGh.js";
  import { a as Vt, i as Ht, n as Ut, o as Wt, r as Gt, t as Kt } from "./api-BhQx_VCr.js";
+@@ -16247,7 +16248,7 @@ var Db = 64e3, Ob = class extends mp.EventEmitter {
+ 						participantIdentity: n.participantIdentity,
+ 						participantSid: n.participantSid
+ 					});
+-					t.value?.case === "user" && kb(t, t.value.value), this.emit(Y.DataPacketReceived, t, n.value.value.encryptionType);
++					t.value?.case === "user" && kb(t, t.value.value), this.emit(Y.DataPacketReceived, t, Pu.GCM); /* Aether: senders never fill in encryption_type, so report what was actually decrypted. */
+ 				} else n.value?.case === "user" && kb(n, n.value.value), this.emit(Y.DataPacketReceived, n, Pu.NONE);
+ 			} finally {
+ 				t();
+@@ -16789,7 +16790,7 @@ var Db = 64e3, Ob = class extends mp.EventEmitter {
+ 					e.value = {
+ 						case: "encryptedPacket",
+ 						value: new Xu({
+-							encryptedValue: n.payload,
++							encryptionType: Pu.GCM, encryptedValue: n.payload,
+ 							iv: n.iv,
+ 							keyIndex: n.keyIndex
+ 						})
 @@ -19409,6 +19410,8 @@ var AS = class extends mp.EventEmitter {
  	}
  	setVolume(e) {
@@ -308,7 +402,95 @@ index e597a18..3b698af 100644
  	let s, c = i?.matrixRTCMode === void 0, l = i?.matrixRTCMode === x.Matrix_2_0;
  	if (c || l) try {
  		return a?.info(`Trying to get JWT via default endpoint for focus ${n}...`), AX(await NX(t, n, r, o, i?.delayEndpointBaseUrl, i?.delayId));
-@@ -42228,7 +42236,7 @@ var x4 = /* @__PURE__ */ function(e) {
+@@ -42205,6 +42213,87 @@ function y4(e, t) {
+ 	};
+ }
+ //#endregion
++// Aether: bound reconnecting even if LiveKit stalls inside an attempt or its retry policy has not finished.
++const aetherReconnectTimeoutMs = 6e4;
++// Aether: how long a connection must stay up before a later loss starts the rejoin schedule from the beginning.
++const aetherStableConnectionMs = 3e4;
++// Aether: LiveKit leaves the room disconnected once its reconnect attempts run out or the SFU drops the
++// participant, and its reconnect loop can also stall. Report both as a lost connection so the call can recover
++// instead of waiting forever. `onStable` runs once the connection has stayed up for a while.
++function aetherWatchLivekitState(isStopped, connectionLost, publish, onStable) {
++	let joined = !1, lost = !1, timer = null, stableTimer = null;
++	const clearStable = () => {
++		if (stableTimer !== null) clearTimeout(stableTimer);
++		stableTimer = null;
++	};
++	const clear = () => {
++		if (timer !== null) clearTimeout(timer);
++		timer = null;
++		clearStable();
++	};
++	const fail = (reason) => {
++		clear();
++		if (lost || isStopped()) return;
++		lost = !0;
++		publish(connectionLost(reason));
++	};
++	return {
++		update(state) {
++			if (lost) return;
++			if (state === "reconnecting" || state === "signalReconnecting") {
++				clearStable();
++				timer ??= setTimeout(() => fail(`still reconnecting after ${aetherReconnectTimeoutMs}ms`), aetherReconnectTimeoutMs);
++			} else clear();
++			if (state === "connected") {
++				joined = !0;
++				stableTimer = setTimeout(() => {
++					stableTimer = null;
++					onStable?.();
++				}, aetherStableConnectionMs);
++			}
++			if (state === "disconnected" && joined && !isStopped()) fail("disconnected after joining");
++			else publish(state);
++		},
++		dispose: clear
++	};
++}
++// Aether: retry transient media failures, including failed replacement connections during an ongoing outage.
++function aetherCanAutoReconnect(error) {
++    if (error?.code === "CONNECTION_LOST_ERROR") return !0;
++    if (error?.code !== "SFU_ERROR" || error.category !== "NETWORK_CONNECTIVITY") return !1;
++    // Authentication, explicit leave and configuration errors require user action.
++    const reason = error.localisedMessageValues?.reason;
++    return reason === undefined || ["ServerUnreachable", "Timeout", "WebSocket"].includes(reason);
++}
++// Aether: how early to renew a call membership. Every client decides that a membership has expired by its own clock,
++// so the SDK's default of 5 seconds lets a slow renewal or a few seconds of clock drift drop people from the call, and
++// play leave and join cues, at every renewal. Renew halfway through, but no more than two minutes early.
++function aetherMembershipExpiryHeadroomMs(expiryMs) {
++	return expiryMs === void 0 ? void 0 : Math.min(12e4, Math.floor(expiryMs / 2));
++}
++// Aether: delays before each automatic rejoin after a lost connection. Once they run out the call keeps retrying at
++// the last delay, so it comes back on its own after a long outage, and shows the connection error meanwhile.
++const aetherAutoReconnectDelays = [1e3, 2e3, 5e3, 1e4, 2e4, 3e4];
++// Rejoin attempts per room since its connection last held.
++const aetherAutoReconnectAttempts = new Map();
++const aetherAutoReconnectByError = new WeakMap();
++function aetherAutoReconnectDelay(roomId, error) {
++	// The same error can be scheduled more than once when React re-runs effects, so only count it the first time.
++	if (!aetherAutoReconnectByError.has(error)) {
++		const attempt = aetherAutoReconnectAttempts.get(roomId) ?? 0;
++		aetherAutoReconnectAttempts.set(roomId, attempt + 1);
++		aetherAutoReconnectByError.set(error, {
++			delay: aetherAutoReconnectDelays[Math.min(attempt, aetherAutoReconnectDelays.length - 1)],
++			// Past the fast attempts the person should see that the call is down, while it still retries.
++			quiet: attempt < aetherAutoReconnectDelays.length
++		});
++	}
++	return aetherAutoReconnectByError.get(error);
++}
++function aetherConnectionHeld(roomId) {
++	aetherAutoReconnectAttempts.delete(roomId);
++}
++//#endregion
+ //#region src/state/CallViewModel/localMember/HomeserverConnected.ts
+ function b4(e, t, n, r) {
+ 	let i = V.getChild("[HomeserverConnected]"), a = r ?? ce.get().sync_disconnect_grace_period_ms, o = Yk(t, Bn.Sync).pipe(CA([t.getSyncState()]), F(([e]) => e === Jn.Syncing), $e(), wA((e) => e || a <= 0 ? Ck(e) : Ck(!1).pipe(hA(a), CA(!0))), $e()), s = e.behavior(Yk(n, er.StatusChanged).pipe(F(() => n.membershipStatus ?? tr.Unknown)), n.membershipStatus ?? tr.Unknown), c = s.pipe(F((e) => e === tr.Connected)), l = Yk(n, er.ProbablyLeft).pipe(CA(null), F(() => n.probablyLeft !== !0));
+@@ -42228,7 +42317,7 @@ var x4 = /* @__PURE__ */ function(e) {
  		return this._livekitAlias;
  	}
  	constructor(e, t) {
@@ -317,16 +499,29 @@ index e597a18..3b698af 100644
  		let { transport: n, client: r, scope: i } = e;
  		this.scope = i, this.livekitRoom = e.livekitRoomFactory(), this.transport = n, this.client = r, this.remoteParticipants$ = i.behavior(oL(this.livekitRoom)), this.logRemoteTrackEvents(), i.onEnd(() => {
  			this.logger.info("Connection scope ended, stopping connection"), this.stop();
-@@ -42249,7 +42257,7 @@ var x4 = /* @__PURE__ */ function(e) {
+@@ -42249,9 +42338,19 @@ var x4 = /* @__PURE__ */ function(e) {
  		try {
  			this._state$.next("FetchingConfig");
  			let { url: e, jwt: t, livekitAlias: n } = this.existingSFUConfig ?? await this.getSFUConfigForRemoteConnection();
 -			if (this.logger.debug("Starting Connection to: ", this.transport.livekit_service_url, "jwt: ", t, "wss: ", e, "livekitAlias: ", n), this._livekitAlias = n, this.stopped) return;
 +			if (this.logger.debug("Starting Connection to: ", this.transport.livekit_service_url, "wss: ", e, "livekitAlias: ", n), this._livekitAlias = n, this.stopped) return;
++			const aetherState = aetherWatchLivekitState(() => this.stopped, (reason) => {
++				this.logger.warn(`LiveKit connection lost: ${reason}`);
++				return new _X();
++			}, (state) => this._state$.next(state), () => aetherConnectionHeld(this.roomId));
++			const aetherOnDisconnected = (reason) => {
++				if (!this.stopped) this.logger.warn(`LiveKit room disconnected, reason: ${reason}`);
++			};
++			this.livekitRoom.on(q.Disconnected, aetherOnDisconnected), this.scope.onEnd(() => {
++				this.livekitRoom.off(q.Disconnected, aetherOnDisconnected), aetherState.dispose();
++			});
  			nL(this.livekitRoom).pipe(this.scope.bind(), F((e) => e)).subscribe((e) => {
- 				this._state$.next(e);
+-				this._state$.next(e);
++				aetherState.update(e);
  			});
-@@ -42416,7 +42424,39 @@ var x4 = /* @__PURE__ */ function(e) {
+ 			try {
+ 				this.logger.info(`livekitRoom.connect ${e}`), await this.livekitRoom.connect(e, t), this.logger.info(`livekitRoom.connect SUCCESS ${e}`);
+@@ -42416,7 +42515,39 @@ var x4 = /* @__PURE__ */ function(e) {
  		}
  	});
  	let de = e.behavior(ue.pipe(wA((e) => e === null ? Ck(!1) : E4(e)))), fe = new Rt(null), pe = null;
@@ -367,7 +562,7 @@ index e597a18..3b698af 100644
  		let e = {
  			audio: {
  				autoGainControl: !1,
-@@ -42452,6 +42492,16 @@ var x4 = /* @__PURE__ */ function(e) {
+@@ -42452,6 +42583,16 @@ var x4 = /* @__PURE__ */ function(e) {
  		_.info(`toggleScreenSharing called. Switching ${n ? "On" : "Off"}`);
  		let r = ue.value;
  		r && T4(r.setScreenShareEnabled(n, e, t), n, _, (e) => fe.next(e));
@@ -384,7 +579,15 @@ index e597a18..3b698af 100644
  	}), {
  		startTracks: D,
  		requestJoinAndPublish: k,
-@@ -42497,6 +42547,11 @@ function D4(e, t, n, { encryptMedia: r, matrixRTCMode: i, delayedLeaveTimings: a
+@@ -42490,6 +42631,7 @@ function D4(e, t, n, { encryptMedia: r, matrixRTCMode: i, delayedLeaveTimings: a
+ 		delayedLeaveEventRestartLocalTimeoutMs: a.restart_timeout_ms,
+ 		networkErrorRetryMs: l.network_error_retry_ms,
+ 		membershipEventExpiryMs: l.membership_event_expiry_ms,
++		membershipEventExpiryHeadroomMs: aetherMembershipExpiryHeadroomMs(l.membership_event_expiry_ms),
+ 		keyRotationParticipantLimit: l.key_rotation_participant_limit,
+ 		unstableSendStickyEvents: i === x.Matrix_2_0,
+ 		maximumNetworkErrorRetryCount: f
+@@ -42497,6 +42639,11 @@ function D4(e, t, n, { encryptMedia: r, matrixRTCMode: i, delayedLeaveTimings: a
  }
  //#endregion
  //#region src/state/CallViewModel/localMember/RtcTransportAutoDiscovery.ts
@@ -396,7 +599,7 @@ index e597a18..3b698af 100644
  var O4 = class {
  	constructor({ client: e, resolvedConfig: t, logger: n }) {
  		this.client = e, this.resolvedConfig = t, this.logger = n.getChild("[RtcTransportAutoDiscovery]");
-@@ -42504,6 +42559,12 @@ var O4 = class {
+@@ -42504,6 +42651,12 @@ var O4 = class {
  	async discoverPreferredTransport() {
  		let e = await this.tryBackendTransports();
  		if (e) return this.logger.info(`Found backend transport: ${e.livekit_service_url}`), e;
@@ -409,7 +612,7 @@ index e597a18..3b698af 100644
  		let t = this.tryConfigTransport();
  		return t ? (this.logger.info(`Found app config transport: ${t.livekit_service_url}`), t) : null;
  	}
-@@ -42511,7 +42572,8 @@ var O4 = class {
+@@ -42511,7 +42664,8 @@ var O4 = class {
  		let e = this.client;
  		this.logger.info("First try to use getRTCTransports end point ...");
  		try {
@@ -419,7 +622,7 @@ index e597a18..3b698af 100644
  			if (n) return n;
  			this.logger.info("No livekit transport found in getRTCTransports end point", t);
  		} catch (e) {
-@@ -42548,7 +42610,30 @@ async function A4({ ownMembershipIdentity: e, client: t, roomId: n, matrixRTCMod
+@@ -42548,7 +42702,30 @@ async function A4({ ownMembershipIdentity: e, client: t, roomId: n, matrixRTCMod
  		throw i.error(`Failed to authenticate to transport ${s.livekit_service_url}`, e), M4(e);
  	}
  }
@@ -450,7 +653,7 @@ index e597a18..3b698af 100644
  	return {
  		transport: e,
  		sfuConfig: await kX(i, n, e.livekit_service_url, r, { matrixRTCMode: t }, a)
-@@ -42634,6 +42719,33 @@ function H4() {
+@@ -42634,6 +42811,33 @@ function H4() {
  }
  //#endregion
  //#region src/state/CallViewModel/remoteMembers/ConnectionFactory.ts
@@ -484,7 +687,7 @@ index e597a18..3b698af 100644
  var U4 = class {
  	constructor(e, t, n, r, i, a, o) {
  		this.client = e, this.roomId = t, this.devices = n, this.processorState$ = r, this.controlledAudioDevices = a;
-@@ -42647,7 +42759,11 @@ var U4 = class {
+@@ -42647,7 +42851,11 @@ var U4 = class {
  				},
  				controlledAudioDevices: this.controlledAudioDevices
  			});
@@ -497,7 +700,7 @@ index e597a18..3b698af 100644
  		};
  		this.livekitRoomFactory = o ?? s;
  	}
-@@ -42699,7 +42815,7 @@ function W4({ devices: e, processorState: t, e2eeLivekitOptions: n, controlledAu
+@@ -42699,7 +42907,7 @@ function W4({ devices: e, processorState: t, e2eeLivekitOptions: n, controlledAu
  			autoGainControl: b.getValue()
  		},
  		audioOutput: { deviceId: r ? void 0 : e.audioOutput.selected$.value?.id },
@@ -506,7 +709,7 @@ index e597a18..3b698af 100644
  	};
  }
  //#endregion
-@@ -42895,7 +43011,8 @@ var c3 = class {
+@@ -42895,7 +43103,8 @@ var c3 = class {
  	constructor(e, t, n, r, i, a) {
  		this.connection = e, this.muteStates = n, this.logger = i, this.shouldPublish = !1, this.scope = new yL();
  		let o = e.livekitRoom;
@@ -516,7 +719,7 @@ index e597a18..3b698af 100644
  			this.logger.error("Failed to set E2EE enabled on room", e);
  		}), this.observeTrackProcessors(this.scope, o, r), this.observeMediaDevices(this.scope, t, a), this.workaroundRestartAudioInputTrackChrome(t, this.scope), this.connection.livekitRoom.localParticipant.on(J.LocalTrackPublished, this.onLocalTrackPublished.bind(this));
  	}
-@@ -43118,6 +43235,408 @@ function _3(e, t) {
+@@ -43118,6 +43327,408 @@ function _3(e, t) {
  }
  //#endregion
  //#region src/state/media/UserMediaViewModel.ts
@@ -925,7 +1128,7 @@ index e597a18..3b698af 100644
  function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType: i, ...a }) {
  	let { participant$: o } = a, s = e.behavior(o.pipe(wA((e) => (e && aL(e)) ?? Ck(void 0)))), c = new He(), l = new Rt(NaN), u = (e, t) => e.behavior(Lk([o, Et.value$]).pipe(wA(([e, n]) => e && n ? p3(e, t, i) : Ck(void 0))));
  	return {
-@@ -43127,6 +43646,7 @@ function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType:
+@@ -43127,6 +43738,7 @@ function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType:
  			videoSource: Z.Source.Camera
  		}),
  		type: "user",
@@ -933,7 +1136,7 @@ index e597a18..3b698af 100644
  		speaking$: e.behavior(o.pipe(wA((e) => e ? iL(e, J.IsSpeakingChanged).pipe(F((e) => e.isSpeaking)) : Ck(!1)))),
  		audioEnabled$: e.behavior(s.pipe(F((e) => e?.microphoneTrack?.isMuted === !1))),
  		videoEnabled$: e.behavior(s.pipe(F((e) => e?.cameraTrack?.isMuted === !1))),
-@@ -43153,7 +43673,7 @@ function y3(e, { mediaDevices: t, ...n }) {
+@@ -43153,7 +43765,7 @@ function y3(e, { mediaDevices: t, ...n }) {
  	return {
  		...r,
  		local: !0,
@@ -942,7 +1145,7 @@ index e597a18..3b698af 100644
  		alwaysShow$: se.value$,
  		setAlwaysShow: se.setValue,
  		switchCamera$: e.behavior(Wt === "desktop" ? Ck(null) : i.pipe(F((e) => {
-@@ -43209,7 +43729,7 @@ function x3(e, { pretendToBeDisconnected$: t, ...n }) {
+@@ -43209,7 +43821,7 @@ function x3(e, { pretendToBeDisconnected$: t, ...n }) {
  		...r,
  		...b3(e, {
  			pretendToBeDisconnected$: t,
@@ -951,7 +1154,7 @@ index e597a18..3b698af 100644
  		}),
  		local: !1,
  		speaking$: e.behavior(t.pipe(wA((e) => e ? Ck(!1) : r.speaking$))),
-@@ -43234,6 +43754,7 @@ function S3(e, t) {
+@@ -43234,6 +43846,7 @@ function S3(e, t) {
  function C3(e, t) {
  	return {
  		...S3(e, t),
@@ -959,7 +1162,7 @@ index e597a18..3b698af 100644
  		local: !0
  	};
  }
-@@ -43244,7 +43765,7 @@ function w3(e, { pretendToBeDisconnected$: t, ...n }) {
+@@ -43244,7 +43857,7 @@ function w3(e, { pretendToBeDisconnected$: t, ...n }) {
  		...S3(e, n),
  		...b3(e, {
  			pretendToBeDisconnected$: t,
@@ -968,7 +1171,7 @@ index e597a18..3b698af 100644
  		}),
  		local: !1,
  		videoEnabled$: e.behavior(t.pipe(F((e) => !e))),
-@@ -43611,7 +44132,108 @@ function k3(e, t, n, r, i, a, o, s, c) {
+@@ -43611,7 +44224,108 @@ function k3(e, t, n, r, i, a, o, s, c) {
  		let t = {};
  		return e instanceof hX ? { transportError: e } : e === C4.Waiting ? null : (e.matrix instanceof hX && (t.matrixError = e.matrix), e.media instanceof hX ? t.publishError = e.media : typeof e.media == "object" && e.media.connection instanceof hX && (t.connectionError = e.media.connection), t);
  	})), null);
@@ -1077,7 +1280,7 @@ index e597a18..3b698af 100644
  		autoLeave$: ie,
  		ringingVm$: de,
  		ringingStatusLocation: h === Ut.AppBar ? "app_bar" : "tile",
-@@ -45955,7 +46577,7 @@ var k5 = (e) => {
+@@ -45955,7 +46669,7 @@ var k5 = (e) => {
  		n
  	], t[30] = u, t[31] = e.client, t[32] = e.e2eeSystem, t[33] = e.matrixRoom, t[34] = e.muteStates, t[35] = e.onLeft, t[36] = e.rtcSession, t[37] = d, t[38] = c, t[39] = n, t[40] = g) : g = t[40], z(h, g), n === null || i === null || o === null) return null;
  	let _;
@@ -1086,7 +1289,7 @@ index e597a18..3b698af 100644
  		...e,
  		vm: n,
  		footerVm: i,
-@@ -45967,6 +46589,300 @@ var k5 = (e) => {
+@@ -45967,6 +46681,315 @@ var k5 = (e) => {
  		rtcSession: e.rtcSession,
  		children: _
  	}), t[46] = e.rtcSession, t[47] = _, t[48] = n, t[49] = v) : v = t[49], v;
@@ -1103,7 +1306,7 @@ index e597a18..3b698af 100644
 +            screenShareError: null, needsDevicePermissions: false, permissionError: null,
 +            supportsReactions: false, ringing: null, participants: [], screenShares: [], lobbyPreviewVideo: null,
 +            screenShareQuality: aetherResolveScreenShareQuality(policy, aetherAudio.screenShareQuality),
-+            screenSharePolicyLimits: { maxResolutionHeight: policy?.max_resolution ?? 1080, maxFrameRate: policy?.max_framerate ?? 30, maxBitrate: policy?.max_bitrate ?? 5000000 },
++            screenSharePolicyLimits: { maxResolutionHeight: policy?.max_resolution ?? 1080, maxFrameRate: policy?.max_framerate ?? 30, maxBitrate: policy?.max_bitrate ?? 20000000 },
 +            renderAudioElement: () => null
 +        },
 +        actions: {
@@ -1115,6 +1318,21 @@ index e597a18..3b698af 100644
 +    });
 +}, AetherHostLobbyBridge = ({ hostBridge: p, matrixInfo: E, matrixRoom: _, muteStates: c, mediaDevices: O, participantCount: D, e2eeSystem: T, error: l, left: ee, returnToLobby: S, onJoin, onReconnect, onReturnToLobby }) => {
 +	let [, forceRender] = B(0);
++    const [autoReconnecting, setAutoReconnecting] = B(!1);
++    z(() => {
++        if (!aetherCanAutoReconnect(l)) return;
++        const { delay, quiet } = aetherAutoReconnectDelay(E.roomId, l);
++        V.info(`Connection lost, rejoining automatically in ${delay}ms`);
++        setAutoReconnecting(quiet);
++        const timer = setTimeout(() => {
++            setAutoReconnecting(!1);
++            onReconnect();
++        }, delay);
++        return () => {
++            clearTimeout(timer);
++            setAutoReconnecting(!1);
++        };
++    }, [l]);
 +    const [permissionError, setPermissionError] = B(null);
 +    const needsDevicePermissions = !P(O.usingNames$);
 +	z(() => {
@@ -1131,11 +1349,11 @@ index e597a18..3b698af 100644
 +	let lobbyVideoHandle = aetherGetVideoHandle(previewVideoTrack);
 +	return p.renderPresentation({
 +		state: {
-+			phase: l ? "error" : ee && !S ? "ended" : "lobby",
++			phase: autoReconnecting ? "reconnecting" : l ? "error" : ee && !S ? "ended" : "lobby",
 +			roomId: E.roomId,
 +			roomName: E.roomName ?? _.name ?? E.roomId,
 +			connected: !1,
-+			reconnecting: !1,
++			reconnecting: autoReconnecting,
 +			participantCount: D,
 +			localAudioEnabled: audioEn,
 +			localVideoEnabled: videoEn,
@@ -1143,11 +1361,11 @@ index e597a18..3b698af 100644
 +			canShareScreen: !1,
 +			keyRotationSuppressed: !1,
 +			encrypted: T.kind !== re.NONE,
-+			fatalError: l ? {
++			fatalError: l && !autoReconnecting ? {
 +				code: l.code ?? "call_error",
 +				title: l.localisedTitle ?? "",
 +				message: l.localisedMessage ?? l.message ?? String(l),
-+				canReconnect: l instanceof _X
++				canReconnect: aetherCanAutoReconnect(l)
 +			} : null,
 +			screenShareError: null,
 +            supportsReactions: false,
@@ -1387,7 +1605,7 @@ index e597a18..3b698af 100644
  }, A5 = ({ client: e, vm: t, footerVm: n, developerSettingsVm: r, matrixInfo: i, matrixRoom: a, muteStates: o, onShareClick: s }) => {
  	let c = V.getChild("[InCallView]"), { t: l } = Je(), u = pe(), { sendReaction: d, toggleRaisedHand: f } = rZ();
  	N2();
-@@ -47656,6 +48572,8 @@ var L5 = /* @__PURE__ */ c(((e, t) => {
+@@ -47656,6 +48679,8 @@ var L5 = /* @__PURE__ */ c(((e, t) => {
  	}) }), t[23] = n.localisedTitle, t[24] = a, t[25] = c, t[26] = u, t[27] = d, t[28] = f, t[29] = p) : p = t[29], p;
  }, v7 = (e) => {
  	let t = I(8), { recoveryActionHandler: n, onError: r, children: i } = e, a;
@@ -1396,7 +1614,7 @@ index e597a18..3b698af 100644
  	t[0] === n ? a = t[1] : (a = (e) => {
  		let { error: t, resetError: r } = e, i = t instanceof hX ? t : new xX(t instanceof Error ? t : /* @__PURE__ */ Error());
  		return /* @__PURE__ */ H(_7, {
-@@ -47874,8 +48792,8 @@ var T7 = (e) => {
+@@ -47874,8 +48899,8 @@ var T7 = (e) => {
  		s
  	]);
  	let [ee, te] = B(!1), ne = st(), M = nn((e) => {
@@ -1407,7 +1625,7 @@ index e597a18..3b698af 100644
  			case "allOthersLeft":
  				r = g.current?.playSound("left", 0);
  				break;
-@@ -47925,7 +48843,8 @@ var T7 = (e) => {
+@@ -47925,7 +48950,8 @@ var T7 = (e) => {
  		a
  	]);
  	let ie = F5(_), [ae, oe] = B(!1), se = nn(() => oe(!1), [oe]), ce = nn(() => oe(!0), [oe]), le = ie === Hn.Public ? ce : null;
@@ -1417,7 +1635,7 @@ index e597a18..3b698af 100644
  	let ue = /* @__PURE__ */ H(g7, {
  		room: _,
  		open: ae,
-@@ -47940,9 +48859,26 @@ var T7 = (e) => {
+@@ -47940,9 +48966,26 @@ var T7 = (e) => {
  		participantCount: D,
  		onShareClick: le
  	})] }), fe;
@@ -1445,7 +1663,7 @@ index e597a18..3b698af 100644
  		client: e,
  		matrixInfo: E,
  		rtcSession: a,
-@@ -47950,6 +48886,7 @@ var T7 = (e) => {
+@@ -47950,6 +48993,7 @@ var T7 = (e) => {
  		onLeft: M,
  		muteStates: c,
  		e2eeSystem: T,
@@ -1453,7 +1671,7 @@ index e597a18..3b698af 100644
  		onShareClick: le
  	})] }) : ee && !m ? t || tt.instance.isEnabled() ? /* @__PURE__ */ H(sQ, {
  		endedCallId: a.room.roomId,
-@@ -47964,7 +48901,10 @@ var T7 = (e) => {
+@@ -47964,7 +49008,10 @@ var T7 = (e) => {
  			}));
  		},
  		onError: (e) => {
@@ -1465,7 +1683,7 @@ index e597a18..3b698af 100644
  		},
  		children: fe
  	});
-@@ -48021,7 +48961,9 @@ function j7(e, t, n) {
+@@ -48021,7 +49068,9 @@ function j7(e, t, n) {
  		themeChange$: new FO(1),
  		join$: new He(),
  		hangUp$: new He(),
@@ -1476,7 +1694,7 @@ index e597a18..3b698af 100644
  	}));
  	z(() => {
  		n !== void 0 && i.themeChange$.next({
-@@ -48045,6 +48987,28 @@ function j7(e, t, n) {
+@@ -48045,6 +49094,28 @@ function j7(e, t, n) {
  		notifyDeviceMute: async (e) => {
  			await r.current.notifyDeviceMute?.(e);
  		},
@@ -1505,7 +1723,7 @@ index e597a18..3b698af 100644
  		get close() {
  			let e = r.current.close;
  			return e === void 0 ? void 0 : async () => await e();
-@@ -48061,7 +49025,20 @@ function j7(e, t, n) {
+@@ -48061,7 +49132,20 @@ function j7(e, t, n) {
  	return on(t, () => ({
  		join: async (e) => await A7(i.join$, "join a call", e),
  		hangUp: async () => await A7(i.hangUp$, "hang up", {}),
@@ -1527,7 +1745,7 @@ index e597a18..3b698af 100644
  	}), [i]), a;
  }
  //#endregion
-@@ -48173,7 +49150,7 @@ var I7 = (e) => {
+@@ -48173,7 +49257,7 @@ var I7 = (e) => {
  		children: /* @__PURE__ */ H(dt, {
  			value: m,
  			children: /* @__PURE__ */ H(oo, {
@@ -1536,7 +1754,7 @@ index e597a18..3b698af 100644
  				onError: () => void d.setAlwaysOnScreen(!1),
  				children: /* @__PURE__ */ H(I7, { children: /* @__PURE__ */ H(zn, { children: /* @__PURE__ */ H(Mt, {
  					client: n,
-@@ -48219,6 +49196,6 @@ function z7(e) {
+@@ -48219,6 +49303,6 @@ function z7(e) {
  	return /* @__PURE__ */ H(S, { error: e });
  }
  //#endregion
@@ -1545,8 +1763,21 @@ index e597a18..3b698af 100644
  
  //# sourceMappingURL=element-call.js.map
 \ No newline at end of file
+diff --git a/dist/matrix-C_sMRXGh.js b/dist/matrix-C_sMRXGh.js
+index ca16de1..c118b2b 100644
+--- a/dist/matrix-C_sMRXGh.js
++++ b/dist/matrix-C_sMRXGh.js
+@@ -11266,7 +11266,7 @@ var Gv = () => m(Wv), Kv = /* @__PURE__ */ r(((e) => {
+ 			{
+ 				key: "sendInternal",
+ 				value: function(e) {
+-					console.log(`[PostmessageTransport] Sending object to ${this.targetOrigin}: `, e), this.transportWindow.postMessage(e, this.targetOrigin);
++					console.log("[PostmessageTransport] Sending action:", e.action), this.transportWindow.postMessage(e, this.targetOrigin);
+ 				}
+ 			},
+ 			{
 diff --git a/dist/types/component/api.d.ts b/dist/types/component/api.d.ts
-index 313605238c..a93d113490 100644
+index 3136052..a93d113 100644
 --- a/dist/types/component/api.d.ts
 +++ b/dist/types/component/api.d.ts
 @@ -21,7 +21,7 @@ import type { MatrixClient } from "matrix-js-sdk";
@@ -1559,7 +1790,7 @@ index 313605238c..a93d113490 100644
  export type { JoinCallData } from "../src/widget";
  export type { ConfigOptions } from "../src/config/ConfigOptions";
 diff --git a/dist/types/component/host.d.ts b/dist/types/component/host.d.ts
-index 0d9ec1bba7..e275b6c522 100644
+index 0d9ec1b..6b9675b 100644
 --- a/dist/types/component/host.d.ts
 +++ b/dist/types/component/host.d.ts
 @@ -9,9 +9,10 @@
@@ -1662,7 +1893,7 @@ index 0d9ec1bba7..e275b6c522 100644
  /**
   * The {@link HostBridge} the rest of Element Call sees, built from what a
 diff --git a/dist/types/component/index.d.ts b/dist/types/component/index.d.ts
-index 31d5f31..dc70169 100644
+index 31d5f31..2793b59 100644
 --- a/dist/types/component/index.d.ts
 +++ b/dist/types/component/index.d.ts
 @@ -11,6 +11,7 @@
@@ -1697,7 +1928,7 @@ index 31d5f31..dc70169 100644
 + */
 +export declare function setElementCallServiceUrl(provider: ((client: MatrixClient) => Promise<string | undefined>) | null): void;
 diff --git a/dist/types/src/HostBridge.d.ts b/dist/types/src/HostBridge.d.ts
-index b95e092b28..4c668bf803 100644
+index b95e092..4c668bf 100644
 --- a/dist/types/src/HostBridge.d.ts
 +++ b/dist/types/src/HostBridge.d.ts
 @@ -1,5 +1,22 @@
@@ -1768,15 +1999,3 @@ index b95e092b28..4c668bf803 100644
      /**
       * Whether Element Call may offer to change the user's profile — their
       * display name and avatar. Only when the account is Element Call's own,
-diff --git a/dist/matrix-C_sMRXGh.js b/dist/matrix-C_sMRXGh.js
---- a/dist/matrix-C_sMRXGh.js
-+++ b/dist/matrix-C_sMRXGh.js
-@@ -11266,7 +11266,7 @@
- 			{
- 				key: "sendInternal",
- 				value: function(e) {
--					console.log(`[PostmessageTransport] Sending object to ${this.targetOrigin}: `, e), this.transportWindow.postMessage(e, this.targetOrigin);
-+					console.log("[PostmessageTransport] Sending action:", e.action), this.transportWindow.postMessage(e, this.targetOrigin);
- 				}
- 			},
- 			{

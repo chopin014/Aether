@@ -2004,8 +2004,6 @@
         "online": "Online",
         "online_for": "Online for %(duration)s",
         "save_failed": "Could not save your presence preference on this device.",
-        "unknown": "Unknown",
-        "unknown_for": "Unknown for %(duration)s",
         "unreachable": "Account provider of the user is unreachable",
         "update_failed": "Could not update presence. Your requested status is retained; retry to send it again."
     },

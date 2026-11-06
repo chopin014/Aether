@@ -17,17 +17,25 @@ import { getKnownPresence } from "../../utils/knownPresence";
 import { presencePreferenceKey, readPresencePreference } from "../../utils/presencePreference";
 import { _t } from "../../languageHandler";
 import SettingsStore from "../../settings/SettingsStore";
+import { type PresenceHints } from "./PresenceHints";
 
 interface Props {
     client: MatrixClient;
     dispatcher: MatrixDispatcher;
 }
 
-const IDLE_MS = 3 * 60 * 1000;
+/** No input for this long makes an Online user Away. */
+export const IDLE_MS = 3 * 60 * 1000;
+
+/** While automatically Away, how often to look for input in other apps that should end it. */
+export const AWAY_CHECK_MS = 15 * 1000;
 
 /** Own this device's presence intent and automatic idle timer for the lifetime of its Matrix client. */
 export class PresenceViewModel extends BaseViewModel<PresenceSnapshot, Props> {
     private timer?: ReturnType<typeof setTimeout>;
+    /** Bumped whenever the idle timer is rearmed, so a slow system idle lookup cannot act on old information. */
+    private idleCheck = 0;
+    private hints?: PresenceHints;
     private started = false;
     private desired: SetPresence;
     private applied?: SetPresence;
@@ -52,16 +60,24 @@ export class PresenceViewModel extends BaseViewModel<PresenceSnapshot, Props> {
         this.disposables.trackListener(props.client, UserEvent.Presence, this.onPresence);
         this.disposables.trackListener(props.client, ClientEvent.Event, this.onPresenceEvent);
         this.onPresence();
-        this.disposables.track(() => clearTimeout(this.timer));
+        this.disposables.track(() => {
+            clearTimeout(this.timer);
+            this.idleCheck++;
+        });
         this.disposables.track(() => this.desiredListeners.clear());
     }
 
-    /** Start after the SDK's sync API exists. Repeated calls do not add listeners or requests. */
-    public start = (): void => {
+    /**
+     * Start after the SDK's sync API exists. Repeated calls do not add listeners or requests.
+     * @param hints - other signs that the user is present, such as being in a call or using another app
+     */
+    public start = (hints?: PresenceHints): void => {
         if (this.started || this.isDisposed || !this.snapshot.current.enabled) return;
         this.started = true;
+        this.hints = hints;
         const ref = this.props.dispatcher.register(this.onAction);
         this.disposables.track(() => this.props.dispatcher.unregister(ref));
+        if (hints) this.disposables.track(hints.watchCalls(this.onCallsChanged));
         this.restartTimer();
         void this.apply(false);
     };
@@ -101,17 +117,72 @@ export class PresenceViewModel extends BaseViewModel<PresenceSnapshot, Props> {
         });
     };
 
+    private isAutomatic = (): boolean => this.snapshot.current.preference === "online";
+
+    /** Wait a full idle period from now. No timer runs during a call, since talking is not idling. */
     private restartTimer = (): void => {
+        this.scheduleIdleCheck(IDLE_MS);
+    };
+
+    private scheduleIdleCheck(delay: number): void {
         clearTimeout(this.timer);
-        if (this.snapshot.current.preference !== "online") return;
-        this.timer = setTimeout(() => {
+        this.idleCheck++;
+        if (!this.isAutomatic() || this.hints?.isInCall()) return;
+        this.timer = setTimeout(this.onIdleTimer, delay);
+    }
+
+    /** This window has seen no input for a while. */
+    private onIdleTimer = (): void => {
+        if (this.hints) {
+            void this.checkSystemIdle();
+        } else {
             this.setDesired(SetPresence.Unavailable);
             void this.apply(false);
-        }, IDLE_MS);
+        }
+    };
+
+    /**
+     * Decide between Online and Away using input anywhere on the computer when the platform can report it, so
+     * playing a game or working in another app does not look like being away.
+     */
+    private checkSystemIdle = async (): Promise<void> => {
+        const check = this.idleCheck;
+        let systemIdle: number | null = null;
+        try {
+            systemIdle = (await this.hints?.getSystemIdleTime()) ?? null;
+        } catch (error) {
+            logger.debug("Could not read system idle time", error);
+        }
+        // Activity, a call or a new preference while waiting has already decided.
+        if (this.isDisposed || check !== this.idleCheck || !this.isAutomatic() || this.hints?.isInCall()) return;
+
+        if (systemIdle === null) {
+            // Only this window's input is known, and the timer only fires after a full idle period of it.
+            this.setDesired(SetPresence.Unavailable);
+            void this.apply(false);
+            return;
+        }
+        if (systemIdle < IDLE_MS) {
+            this.setDesired(SetPresence.Online);
+            this.scheduleIdleCheck(IDLE_MS - systemIdle);
+        } else {
+            this.setDesired(SetPresence.Unavailable);
+            // Keep looking so that coming back to another app, without touching this window, ends Away.
+            this.scheduleIdleCheck(AWAY_CHECK_MS);
+        }
+        void this.apply(false);
+    };
+
+    /** Being connected to a call keeps an automatic status Online; leaving starts a fresh idle period. */
+    private onCallsChanged = (): void => {
+        if (!this.isAutomatic()) return;
+        if (this.hints?.isInCall()) this.setDesired(SetPresence.Online);
+        this.restartTimer();
+        void this.apply(false);
     };
 
     private onAction = (payload: ActionPayload): void => {
-        if (payload.action !== Action.UserActivity || this.snapshot.current.preference !== "online") return;
+        if (payload.action !== Action.UserActivity || !this.isAutomatic()) return;
         this.setDesired(SetPresence.Online);
         this.restartTimer();
         void this.apply(false);

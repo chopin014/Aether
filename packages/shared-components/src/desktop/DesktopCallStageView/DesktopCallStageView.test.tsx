@@ -362,7 +362,7 @@ describe("DesktopCallStageView", () => {
         expect(screen.queryByText("Voice Connected")).not.toBeInTheDocument();
     });
 
-    it("offers a compact vertical stream slider on keyboard focus without changing microphone audio", () => {
+    it("slides the stream volume out on keyboard focus without changing microphone audio", () => {
         const vm = new TestCallStageViewModel({
             participants: [makeParticipant()],
             screenShares: [makeScreenShare()],
@@ -372,9 +372,23 @@ describe("DesktopCallStageView", () => {
         expect(screen.queryByRole("slider", { name: /stream volume/i })).not.toBeInTheDocument();
         screen.getByRole("button", { name: "Mute Bob's stream audio" }).focus();
         const slider = screen.getByRole("slider", { name: /stream volume/i });
-        expect(slider).toHaveAttribute("aria-orientation", "vertical");
+        expect(slider).not.toHaveAttribute("aria-orientation", "vertical");
+        expect(slider.parentElement).toHaveTextContent("80");
         fireEvent.change(slider, { target: { value: "37" } });
         expect(vm.setScreenShareAudioVolume).toHaveBeenCalledWith(makeScreenShare().id, 37);
+    });
+
+    it("keeps a muted stream's speaker visible outside hover and shows its level as zero", () => {
+        const vm = new TestCallStageViewModel({
+            participants: [makeParticipant()],
+            screenShares: [makeScreenShare({ streamAudioMuted: true })],
+            layoutMode: "spotlight",
+        });
+        render(<DesktopCallStageView vm={vm} />);
+        const unmute = screen.getByRole("button", { name: "Unmute Bob's stream audio" });
+        expect(getComputedStyle(unmute.parentElement!).opacity).toBe("1");
+        unmute.focus();
+        expect(screen.getByRole("slider", { name: /stream volume/i })).toHaveValue("0");
     });
 
     it("keeps the voice lobby free of camera previews and in-call controls", async () => {
@@ -791,6 +805,7 @@ it("opens the soundboard directly from the in-call toolbar", () => {
             suggested: [{ id: "quack", name: "Quack", emoji: "🦆", libraryId: "builtin" }],
             volume: 80,
             busy: false,
+            muted: false,
             uploadLibraryId: "",
             uploadName: "",
             uploadEmoji: "🔊",

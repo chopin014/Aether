@@ -1,4 +1,6 @@
 /dist
+/.native-build
+/native-dist
 /lib
 /webapp
 /webapp.asar

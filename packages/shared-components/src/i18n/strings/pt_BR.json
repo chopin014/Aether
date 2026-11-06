@@ -296,6 +296,16 @@
         "selected_hint": "Seu status selecionado neste dispositivo."
     },
     "desktop": {
+        "incoming_call": {
+            "accept": "Aceitar",
+            "accept_video": "Aceitar com vídeo",
+            "accept_voice": "Aceitar sem vídeo",
+            "decline": "Recusar",
+            "incoming": "Chamada recebida…",
+            "incoming_video": "Chamada de vídeo recebida…",
+            "label": "Chamada recebida de %(name)s",
+            "started_by": "%(name)s iniciou uma chamada"
+        },
         "threads": {
             "search": "Buscar tópicos",
             "load_error": "Não foi possível carregar os tópicos. Tente novamente.",
@@ -983,6 +993,7 @@
             "emoji": "Emoji",
             "frequently_used": "Usados com frequência",
             "library": "Biblioteca de sons",
+            "muted_hint": "Ative seu microfone para tocar sons para todos.",
             "name": "Nome do som",
             "no_results": "Nenhum som encontrado. Tente outra pesquisa.",
             "preview": "Ouvir %(name)s",

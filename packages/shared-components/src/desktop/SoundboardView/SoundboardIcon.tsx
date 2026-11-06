@@ -7,19 +7,30 @@ Please see LICENSE in the repository root for full details.
 
 import React, { type JSX, type SVGProps } from "react";
 
-/** A monochrome party popper, matching the weight of the call toolbar icons. */
+/** A solid party popper drawn like Compound's solid icons, so it sits evenly beside the call controls. */
 export function SoundboardIcon(props: SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" {...props}>
-            <g stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m4 12-2 9 9-2c1.1-.3.4-2.5-1.6-4.5S4.3 10.9 4 12Z" />
-                <path d="M4.3 12.1c-.3 1 1 3 2.3 4.3s3.4 2.7 4.4 2.4M12 12l2-2m-5-1c-1-3 3-3 2-6m4 11c3 1 3-3 6-2m-6-5 1-3m2 5 3-1" />
-            </g>
-            <g fill="currentColor">
-                <circle cx="6" cy="5" r="1" />
-                <circle cx="19" cy="17" r="1" />
-                <circle cx="19" cy="3" r="1" />
-            </g>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" {...props}>
+            {/* The stroke rounds the cone's corners to match Compound's soft joins. */}
+            <path
+                d="M4.4 9.4 14.6 19.6 11.3 20.1 3.9 12.7ZM3.5 15.1 8.9 20.5 2.4 21.6Z"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinejoin="round"
+            />
+            <path
+                d="M19.2 2.4c.3 1.4.9 2.1 2.4 2.4-1.5.3-2.1 1-2.4 2.4-.3-1.4-.9-2.1-2.4-2.4 1.5-.3 2.1-1 2.4-2.4Z"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinejoin="round"
+            />
+            <path
+                d="M10.2 7.8c-.8-1.4.1-2.3 1-2.8.9-.5 1.3-1.5.7-2.5M16.2 13.8c1.4.8 2.3-.1 2.8-1 .5-.9 1.5-1.3 2.5-.7M13.3 10.7l2.5-2.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+            />
         </svg>
     );
 }

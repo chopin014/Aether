@@ -17,7 +17,7 @@ export function getScreenSharePolicyLimits(): DesktopCallStagePolicyLimits {
     return {
         maxResolutionHeight: positive(policy?.max_resolution) ? policy.max_resolution : 1080,
         maxFrameRate: positive(policy?.max_framerate) ? policy.max_framerate : 30,
-        maxBitrate: positive(policy?.max_bitrate) ? policy.max_bitrate : 5_000_000,
+        maxBitrate: positive(policy?.max_bitrate) ? policy.max_bitrate : 20_000_000,
     };
 }
 

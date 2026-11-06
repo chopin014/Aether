@@ -9,9 +9,24 @@ import { logger } from "matrix-js-sdk/src/logger";
 
 import MediaDeviceHandler from "../MediaDeviceHandler";
 
-/** Owns one decoded, continuously looping ringback for a call. */
+/** The looping call sounds: the ringback a caller hears, and the ring for an incoming call. */
+export type DesktopCallRingtoneSound = "ringback" | "ring";
+
+// Each URL is a literal so the bundler can find and emit the file.
+const SOUNDS: Record<DesktopCallRingtoneSound, { url: () => string; gain: number }> = {
+    ringback: { url: () => new URL("../../res/media/ringback.mp3", import.meta.url).href, gain: 0.5 },
+    // An incoming call has to be heard over whatever else is playing, so it rings louder than the ringback.
+    ring: { url: () => new URL("../../res/media/ring.mp3", import.meta.url).href, gain: 0.8 },
+};
+
+/** Owns one decoded, continuously looping call sound, played on the selected output device. */
 export class DesktopCallRingtone {
     private playback?: { context: AudioContext; abort: AbortController; source?: AudioBufferSourceNode };
+
+    /**
+     * @param sound Which call sound to loop; the ringback by default.
+     */
+    public constructor(private readonly sound: DesktopCallRingtoneSound = "ringback") {}
 
     /** Starts once while waiting for pickup; cancels loading and playback on pickup, failure, or disposal. */
     public setRinging = (ringing: boolean): void => {
@@ -45,14 +60,12 @@ export class DesktopCallRingtone {
                 }
             }
             if (this.playback !== playback) return;
-            const response = await fetch(new URL("../../res/media/ringback.mp3", import.meta.url).href, {
-                signal: playback.abort.signal,
-            });
-            if (!response.ok) throw new Error(`Could not load ringback: ${response.status}`);
+            const response = await fetch(SOUNDS[this.sound].url(), { signal: playback.abort.signal });
+            if (!response.ok) throw new Error(`Could not load ${this.sound}: ${response.status}`);
             const buffer = await context.decodeAudioData(await response.arrayBuffer());
             if (this.playback !== playback) return;
             const gain = context.createGain();
-            gain.gain.value = 0.5;
+            gain.gain.value = SOUNDS[this.sound].gain;
             gain.connect(context.destination);
             const source = context.createBufferSource();
             source.buffer = buffer;
@@ -64,7 +77,7 @@ export class DesktopCallRingtone {
         } catch (error) {
             if (playback && this.playback !== playback) return;
             this.setRinging(false);
-            logger.debug("Could not play outgoing ringback", error);
+            logger.debug(`Could not play ${this.sound}`, error);
         }
     };
 }

@@ -436,13 +436,15 @@ test(
                                 if (sender.track?.id === screenTrackId) {
                                     const settings = sender.track.getSettings();
                                     return (
+                                        sender.track.contentHint === "detail" &&
+                                        sender.getParameters().degradationPreference === "maintain-framerate" &&
                                         settings.frameRate! <= 15 &&
                                         settings.height! <= 720 &&
                                         sender
                                             .getParameters()
                                             .encodings.every(
                                                 (encoding) =>
-                                                    encoding.maxFramerate! <= 15 && encoding.maxBitrate! <= 5_000_000,
+                                                    encoding.maxFramerate! <= 15 && encoding.maxBitrate! <= 20_000_000,
                                             )
                                     );
                                 }
