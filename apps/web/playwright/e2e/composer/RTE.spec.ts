@@ -41,7 +41,9 @@ test.describe("Composer", () => {
             // TODO add tests for rich text mode
 
             test.describe("Plain text mode", () => {
-                test("autocomplete behaviour tests", async ({ page }) => {
+                test("autocomplete behaviour tests", async ({ page, app }) => {
+                    // /devtools is only offered once developer mode is on.
+                    await app.settings.setValue("developerMode", null, SettingLevel.ACCOUNT, true);
                     // Select plain text mode after composer is ready
                     await expect(page.locator("div[contenteditable=true]")).toBeVisible();
                     await page.getByRole("button", { name: "Hide formatting" }).click();

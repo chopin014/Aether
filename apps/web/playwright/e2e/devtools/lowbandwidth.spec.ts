@@ -9,6 +9,7 @@ import { rejectToast } from "@element-hq/element-web-playwright-common";
 
 import { test, expect } from "../../element-web-test";
 import { getSampleFilePath } from "../../sample-files";
+import { SettingLevel } from "../../../src/settings/SettingLevel";
 
 test.describe("Devtools", () => {
     test.use({
@@ -28,6 +29,8 @@ test.describe("Devtools", () => {
         await createRoomDialog.getByRole("textbox", { name: "Name" }).fill("Test Room");
         await createRoomDialog.getByRole("button", { name: "Create room" }).click();
 
+        // /devtools is only offered once developer mode is on.
+        await app.settings.setValue("developerMode", null, SettingLevel.ACCOUNT, true);
         const composer = app.getComposer().locator("[contenteditable]");
         await composer.fill("/devtools");
         await composer.press("Enter");

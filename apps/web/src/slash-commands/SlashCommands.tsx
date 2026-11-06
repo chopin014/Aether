@@ -531,6 +531,9 @@ export const Commands = [
     new Command({
         command: "devtools",
         description: _td("slash_command|devtools"),
+        // The dialog can send any event as the user and change any setting, so a stranger could talk someone into
+        // using it against themselves. It is only offered to people who already turned on developer mode.
+        isEnabled: () => SettingsStore.getValue("developerMode"),
         runFn: function (cli, roomId, threadRootId) {
             Modal.createDialog(DevtoolsDialog, { roomId, threadRootId }, "mx_DevtoolsDialog_wrapper");
             return success();
