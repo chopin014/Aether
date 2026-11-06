@@ -884,7 +884,6 @@
         "saving": "Updating…",
         "selected_hint": "Your selected status on this device.",
         "title": "Presence",
-        "unknown": "Status unknown",
         "unknown_hint": "Your selected status; server status unavailable."
     },
     "release_announcement": {
