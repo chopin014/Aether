@@ -27,6 +27,7 @@ import { SettingsSection } from "../../shared/SettingsSection";
 import { SettingsSubsection, SettingsSubsectionText } from "../../shared/SettingsSubsection";
 import { UserPersonalInfoSettings } from "../../UserPersonalInfoSettings";
 import { SDKContext } from "../../../../../contexts/SDKContext.ts";
+import { DesktopAccountOverviewSettings } from "./DesktopAccountOverviewSettings";
 
 interface IProps {
     closeSettingsFn: () => void;
@@ -181,8 +182,26 @@ const AccountUserSettingsTab: React.FC<IProps> = ({ closeSettingsFn, startCustom
 
     let accountManagementSection: JSX.Element | undefined;
     const isAccountManagedExternally = Boolean(externalAccountManagementUrl);
-    if (SettingsStore.getValue(UIFeature.Deactivate) && !isAccountManagedExternally) {
+    const canDeactivate = SettingsStore.getValue(UIFeature.Deactivate) && !isAccountManagedExternally;
+    if (canDeactivate) {
         accountManagementSection = <ManagementSection onDeactivateClicked={onDeactivateClicked} />;
+    }
+
+    // The desktop shell shows the account as one overview: profile card, sign-in and the danger zone.
+    if (SettingsStore.getValue("feature_desktop_shell")) {
+        return (
+            <SettingsTab data-testid="mx_AccountUserSettingsTab">
+                <DesktopAccountOverviewSettings
+                    externalAccountManagementUrl={externalAccountManagementUrl}
+                    canChangePassword={canChangePassword}
+                    canMake3pidChanges={canMake3pidChanges}
+                    canDeactivate={canDeactivate}
+                    onDeactivate={onDeactivateClicked}
+                    onPasswordChanged={onPasswordChanged}
+                    onPasswordChangeError={onPasswordChangeError}
+                />
+            </SettingsTab>
+        );
     }
 
     return (
