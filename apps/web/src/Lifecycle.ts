@@ -78,6 +78,7 @@ import { type OnLoggedInPayload } from "./dispatcher/payloads/OnLoggedInPayload.
 import { clearUploadedMediaCache } from "./utils/UploadedMediaCache";
 import { CallStatusListener } from "./CallStatusListener.ts";
 import { CallStore } from "./stores/CallStore.ts";
+import { createPresenceHints } from "./presence/createPresenceHints";
 import { ModuleApi } from "./modules/Api.ts";
 import { stopDesktopVoiceSound } from "./audio/DesktopVoiceSounds";
 import { markStartup } from "./performance/StartupTimings";
@@ -1150,7 +1151,7 @@ async function startMatrixClient(
 
     // Similarly, don't start sending presence updates until we've started the client
     if (!SettingsStore.getValue("lowBandwidth")) {
-        void Presence.start();
+        void Presence.start(createPresenceHints(CallStore.instance));
         AetherPresenceService.instance.start(client);
     }
 

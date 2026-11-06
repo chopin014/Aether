@@ -22,14 +22,18 @@ import { ActivityTrackerEvent } from "./ActivityTracker";
 import { msUntilLevelChange } from "./activityHint";
 import { mergePresence, type MergedPresence, type MergedPresenceState } from "./mergedPresence";
 
-/** The homeserver's presence for a user, if the homeserver is configured to provide it and has sent some. */
-export function getServerPresence(client: MatrixClient, userId: string): MergedPresenceState | undefined {
-    if (!isPresenceEnabled(client)) return undefined;
-    const presence = getKnownPresence(client.getUser(userId));
+/** Map a presence string received from the homeserver to a status a dot can show. Unknown values give undefined. */
+export function toMergedPresenceState(presence: string | undefined): MergedPresenceState | undefined {
     if (!presence) return undefined;
     if (BUSY_PRESENCE_NAME.matches(presence)) return "busy";
     if (presence === "online" || presence === "unavailable" || presence === "offline") return presence;
     return undefined;
+}
+
+/** The homeserver's presence for a user, if the homeserver is configured to provide it and has sent some. */
+export function getServerPresence(client: MatrixClient, userId: string): MergedPresenceState | undefined {
+    if (!isPresenceEnabled(client)) return undefined;
+    return toMergedPresenceState(getKnownPresence(client.getUser(userId)));
 }
 
 /** The best current status for a user right now, or null if nothing is known. */
