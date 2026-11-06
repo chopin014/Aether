@@ -95,6 +95,39 @@ test.describe("Sliding Sync", () => {
         await checkOrder(["Apple", "Orange", "Pineapple", "Test Room"], page);
     });
 
+    test("shows the rooms saved on this device before the server answers on the next start", async ({
+        page,
+        app,
+        testRoom,
+    }) => {
+        for (const fruit of ["Apple", "Orange"]) {
+            await app.client.createRoom({ name: fruit });
+            await expect(page.getByRole("option", { name: `Open room ${fruit}` })).toBeVisible();
+        }
+        await page.getByRole("option", { name: "Open room Test Room" }).click();
+        await app.client.sendMessage(testRoom.roomId, "Saved for the next start");
+        await expect(page.getByText("Saved for the next start")).toBeVisible();
+        // Changes are written in batches, a moment after they arrive.
+        await page.waitForTimeout(3000);
+
+        // Hold every sliding sync response back for a while on the next start.
+        const release = Promise.withResolvers<void>();
+        await page.route("**/org.matrix.simplified_msc3575/sync**", async (route) => {
+            await release.promise;
+            await route.continue();
+        });
+        await page.reload();
+        const roomList = page.getByTestId("room-list");
+        await expect(roomList.getByRole("option", { name: "Open room Apple" })).toBeVisible({ timeout: 10_000 });
+        await expect(roomList.getByRole("option", { name: "Open room Orange" })).toBeVisible();
+        await expect(page.getByText("Saved for the next start")).toBeVisible();
+
+        // Once the server answers, the room keeps working live.
+        release.resolve();
+        await app.client.sendMessage(testRoom.roomId, "Arrived after the server answered");
+        await expect(page.getByText("Arrived after the server answered")).toBeVisible();
+    });
+
     test("should move rooms around as new events arrive", async ({ page, app, testRoom }) => {
         // create rooms and check room names are correct
         const roomIds: string[] = [];

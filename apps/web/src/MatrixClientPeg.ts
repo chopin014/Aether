@@ -306,6 +306,8 @@ class MatrixClientPegClass implements IMatrixClientPeg {
                 this.getInitialRoomId(),
                 this.getHomePrefetch(),
             );
+            // Show the rooms this device saved last time while the first request is under way.
+            opts.slidingSyncSnapshot = SlidingSyncManager.instance.snapshotLoader(this.matrixClient);
         } else {
             void SlidingSyncManager.instance.checkSupport(this.matrixClient);
         }

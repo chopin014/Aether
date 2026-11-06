@@ -17,6 +17,7 @@ import {
 } from "matrix-js-sdk/src/sliding-sync";
 import { ClientEvent, EventType, createClient, type MatrixClient, MatrixEvent, Room } from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
+import { KnownMembership } from "matrix-js-sdk/src/types";
 import { MatrixRTCSessionManagerEvents } from "matrix-js-sdk/src/matrixrtc";
 // The real SDK adapter verifies state-to-call discovery, beyond checking request parameters.
 // oxlint-disable-next-line no-restricted-imports
@@ -1111,6 +1112,48 @@ describe("SlidingSyncManager", () => {
                 idle.prefetchRoom("!a");
                 idle.setCallRooms(["!a"]);
             }).not.toThrow();
+        });
+    });
+
+    describe("rooms saved on this device", () => {
+        it("offers the saved rooms only to the client it was set up for", async () => {
+            await manager.setup(client);
+            expect(manager.snapshotLoader(client)).toBeInstanceOf(Function);
+            expect(manager.snapshotLoader(stubClient())).toBeUndefined();
+            await expect(manager.snapshotLoader(client)!()).resolves.toBeNull();
+        });
+
+        it("keeps no saved rooms for a session without a device", async () => {
+            vi.mocked(client.getDeviceId).mockReturnValue(null);
+            await manager.setup(client);
+            expect(manager.snapshotLoader(client)).toBeUndefined();
+        });
+
+        it("marks saved rooms the server no longer lists as left, once every list has been sent", async () => {
+            const sync = (await manager.setup(client))!;
+            const cache = (
+                manager as unknown as { cache: { restoredRoomIds: ReadonlySet<string>; forgetRooms: () => void } }
+            ).cache;
+            vi.spyOn(cache, "restoredRoomIds", "get").mockReturnValue(
+                new Set(["!kept:example.org", "!gone:example.org"]),
+            );
+            const forget = vi.spyOn(cache, "forgetRooms");
+            const gone = new Room("!gone:example.org", client, client.getUserId()!);
+            gone.updateMyMembership(KnownMembership.Join);
+            vi.mocked(client.getRoom).mockImplementation((roomId) => (roomId === gone.roomId ? gone : null));
+
+            await sync.emitPromised(SlidingSyncEvent.RoomData, "!kept:example.org", {
+                name: "Kept",
+                required_state: [],
+                timeline: [],
+            });
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, null);
+            await vi.waitFor(() => expect(sync.getListParams("recent")?.timeline_limit).toBe(20));
+            expect(forget).not.toHaveBeenCalled();
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, null);
+            await vi.waitFor(() => expect(forget).toHaveBeenCalledWith(["!gone:example.org"]));
+            expect(gone.getMyMembership()).toBe(KnownMembership.Leave);
+            sync.stop();
         });
     });
 

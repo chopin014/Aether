@@ -36,7 +36,17 @@ Please see LICENSE files in the repository root for full details.
  *                      list ops)
  */
 
-import { type MatrixClient, ClientEvent, EventType, type Room } from "matrix-js-sdk/src/matrix";
+import {
+    type MatrixClient,
+    type MatrixEvent,
+    ClientEvent,
+    EventType,
+    type Room,
+    RoomEvent,
+    SyncState,
+} from "matrix-js-sdk/src/matrix";
+import { KnownMembership } from "matrix-js-sdk/src/types";
+
 import {
     type MSC3575Filter,
     type MSC3575List,
@@ -48,6 +58,7 @@ import {
     SlidingSync,
     SlidingSyncEvent,
     SlidingSyncState,
+    type SlidingSyncSnapshot,
 } from "matrix-js-sdk/src/sliding-sync";
 import { logger } from "matrix-js-sdk/src/logger";
 import { sleep } from "matrix-js-sdk/src/utils";
@@ -59,6 +70,7 @@ import {
     RoomSubscriptionName,
 } from "./sliding-sync/roomStateProfiles";
 import { RoomSubscriptionLeases, type RoomSubscriptionLease } from "./sliding-sync/RoomSubscriptionLeases";
+import { SlidingSyncCache } from "./sliding-sync/SlidingSyncCache";
 
 // how long to long poll for
 const SLIDING_SYNC_TIMEOUT_MS = 20 * 1000;
@@ -238,11 +250,20 @@ export class SlidingSyncManager {
 
     private configureDefer = Promise.withResolvers<void>();
 
+    // What this device keeps of the session's rooms, shown at the next start before the server answers.
+    private cache?: SlidingSyncCache;
+    private detachCache?: () => void;
+    // Rooms the server has sent on this connection, to find saved rooms it no longer lists.
+    private readonly seenRooms = new Set<string>();
+
     public static get instance(): SlidingSyncManager {
         return SlidingSyncManager.internalInstance;
     }
 
     private configure(client: MatrixClient, proxyUrl: string, initialRoomId?: string): SlidingSync {
+        this.detachCache?.();
+        this.detachCache = undefined;
+        this.seenRooms.clear();
         this.cancelInitialPreparations?.();
         this.initialTimelines.clear();
         for (const settle of this.roomWaiters) settle();
@@ -797,6 +818,8 @@ export class SlidingSyncManager {
                 }
             });
             if (!hasSetRanges && this.bootstrapRooms.size === 0) {
+                // Every list has now been sent in full.
+                this.dropRoomsNoLongerListed(slidingSync);
                 // finish spidering
                 slidingSync.off(SlidingSyncEvent.Lifecycle, lifecycle);
             }
@@ -866,9 +889,92 @@ export class SlidingSyncManager {
         }
         // The first request must carry the destination, so apply its subscription now rather than in a batch.
         this.applySubscriptions(slidingSync);
+        this.attachCache(client, slidingSync);
         logger.info("Simplified Sliding Sync activated at", client.baseUrl);
         void this.startSpidering(slidingSync, SPIDER_BATCH_SIZE, SPIDER_GAP_MS, true);
         return slidingSync;
+    }
+
+    /**
+     * What to show at startup before the server answers: the rooms and account data this device saved in the
+     * previous session. Passed to the SDK as `slidingSyncSnapshot` when the client starts.
+     * @param client - The client being started; must be the one {@link setup} was given.
+     */
+    public snapshotLoader(client: MatrixClient): (() => Promise<SlidingSyncSnapshot | null>) | undefined {
+        const cache = this.cache;
+        if (!cache || this.client !== client) return undefined;
+        return () => cache.load();
+    }
+
+    /** Keep what this connection learns on this device, for the next start. */
+    private attachCache(client: MatrixClient, slidingSync: SlidingSync): void {
+        const userId = client.getUserId();
+        const deviceId = client.getDeviceId();
+        const previous = this.cache;
+        void previous?.dispose();
+        this.cache = userId && deviceId ? new SlidingSyncCache(userId, deviceId) : undefined;
+        const cache = this.cache;
+        if (!cache) return;
+
+        const onRoomData = (roomId: string, data: MSC3575RoomData): void => {
+            this.seenRooms.add(roomId);
+            cache.observeRoomData(roomId, data);
+        };
+        const onAccountData = (event: MatrixEvent): void => cache.observeAccountData(event);
+        const onRoomAccountData = (event: MatrixEvent, room: Room): void =>
+            cache.observeRoomAccountData(room.roomId, event);
+        const onReceipt = (event: MatrixEvent, room: Room): void => cache.observeReceipt(room.roomId, event);
+        const onPageHidden = (): void => {
+            if (document.visibilityState === "hidden") void cache.flush();
+        };
+        const onPageHide = (): void => void cache.flush();
+        // Account data and receipts are watched from the first Prepared state onwards. Restoring the saved
+        // session announces the same events, which need not be saved again.
+        let watchingClient = false;
+        const watchClient = (): void => {
+            if (watchingClient) return;
+            watchingClient = true;
+            client.on(ClientEvent.AccountData, onAccountData);
+            client.on(RoomEvent.AccountData, onRoomAccountData);
+            client.on(RoomEvent.Receipt, onReceipt);
+        };
+        const onSync = (state: SyncState): void => {
+            if (state === SyncState.Prepared || state === SyncState.Syncing) watchClient();
+        };
+        slidingSync.on(SlidingSyncEvent.RoomData, onRoomData);
+        client.on(ClientEvent.Sync, onSync);
+        document.addEventListener("visibilitychange", onPageHidden);
+        window.addEventListener("pagehide", onPageHide);
+        this.detachCache = (): void => {
+            slidingSync.off(SlidingSyncEvent.RoomData, onRoomData);
+            client.off(ClientEvent.Sync, onSync);
+            client.off(ClientEvent.AccountData, onAccountData);
+            client.off(RoomEvent.AccountData, onRoomAccountData);
+            client.off(RoomEvent.Receipt, onReceipt);
+            document.removeEventListener("visibilitychange", onPageHidden);
+            window.removeEventListener("pagehide", onPageHide);
+            void cache.dispose();
+        };
+    }
+
+    /**
+     * After every list has been sent in full, treat saved rooms the server did not send as left: the user left
+     * them, was removed, or they were forgotten while this device was away. They are shown as left, as a regular
+     * sync shows rooms the user has left, and are not saved again.
+     */
+    private dropRoomsNoLongerListed(slidingSync: SlidingSync): void {
+        const cache = this.cache;
+        const client = this.client;
+        if (!cache || !client || this.slidingSync !== slidingSync) return;
+        const gone = [...cache.restoredRoomIds].filter((roomId) => !this.seenRooms.has(roomId));
+        if (gone.length === 0) return;
+        logger.info(`SlidingSync: ${gone.length} saved rooms are no longer listed`);
+        for (const roomId of gone) {
+            const room = client.getRoom(roomId);
+            if (room && room.getMyMembership() !== KnownMembership.Leave)
+                room.updateMyMembership(KnownMembership.Leave);
+        }
+        cache.forgetRooms(gone);
     }
 
     /**

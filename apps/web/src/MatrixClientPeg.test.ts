@@ -160,6 +160,21 @@ describe("MatrixClientPeg", () => {
             expect(window.location.hash).toBe("#/home");
         });
 
+        it("passes the rooms saved by the last sliding sync session to the client", async () => {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) => {
+                if (name === "feature_simplified_sliding_sync") return true;
+                return getValue(name, ...args);
+            });
+            vi.spyOn(SlidingSyncManager.instance, "setup").mockResolvedValue(undefined);
+            const loader = vi.fn(async () => null);
+            const snapshotLoader = vi.spyOn(SlidingSyncManager.instance, "snapshotLoader").mockReturnValue(loader);
+            const startClient = vi.spyOn(testPeg.safeGet(), "startClient").mockResolvedValue(undefined);
+            await testPeg.start();
+            expect(snapshotLoader).toHaveBeenCalledWith(testPeg.safeGet());
+            expect(startClient).toHaveBeenCalledWith(expect.objectContaining({ slidingSyncSnapshot: loader }));
+        });
+
         it("should initialise the rust crypto library by default", async () => {
             const mockInitRustCrypto = vi.spyOn(testPeg.safeGet(), "initRustCrypto").mockResolvedValue(undefined);
 
