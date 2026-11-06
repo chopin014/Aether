@@ -63,6 +63,7 @@ import { threadLabel } from "../threads/threadLabel";
 import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
 import { ChannelMenuViewModel } from "../desktop/ChannelMenuViewModel";
 import { prepareCallSoon } from "../../components/views/voip/prepareElementCall";
+import { getCallSessionStart } from "../../utils/call/callSessionStart";
 
 /**
  * View section type without `isSelected` field
@@ -251,15 +252,6 @@ export class RoomListItemViewModel
             isMuted: voiceState?.muted ?? false,
             isDeafened: voiceState?.deafened ?? false,
         };
-    }
-
-    /** When the earliest membership still in the room's call was created, so the channel can show how long it has been in use. */
-    private static callStartedAt(room: Room, client: MatrixClient): number | undefined {
-        const joined = client.matrixRTC
-            .getRoomSession(room)
-            .memberships.map((membership) => membership.createdTs())
-            .filter((ts) => ts > 0);
-        return joined.length ? Math.min(...joined) : undefined;
     }
 
     /**
@@ -583,7 +575,9 @@ export class RoomListItemViewModel
             channelIconUrl,
             canEditChannel,
             callParticipants,
-            callStartedAt: callParticipants?.length ? RoomListItemViewModel.callStartedAt(room, client) : undefined,
+            callStartedAt: callParticipants?.length
+                ? getCallSessionStart(room, client.matrixRTC.getRoomSession(room).memberships)
+                : undefined,
             canInvite,
             canCopyRoomLink,
             canMarkAsRead,

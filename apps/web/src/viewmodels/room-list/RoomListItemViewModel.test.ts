@@ -252,6 +252,42 @@ describe("RoomListItemViewModel", () => {
         expect(viewModel.getSnapshot().callStartedAt).toBeUndefined();
     });
 
+    it("dates a voice channel from when it was last empty, through people who have since left", () => {
+        const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+        vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
+            setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+        );
+        vi.spyOn(room, "isCallRoom").mockReturnValue(true);
+        const bob = new RoomMember(room.roomId, "@bob:server");
+        const call = Object.assign(new EventEmitter(), {
+            participants: new Map([[bob, new Set(["BOB"])]]),
+            callType: CallType.Voice,
+            speakingUserIds: new Set<string>(),
+            soundboardUserIds: new Set<string>(),
+            voiceStates: new Map<string, VoiceState>(),
+        });
+        vi.mocked(CallStore.instance.getCall).mockReturnValue(call as unknown as Call);
+        // Alice started the call at 1 000 and left at 5 000, after Bob joined at 3 000.
+        room.currentState.setStateEvents([
+            new MatrixEvent({
+                type: EventType.GroupCallMemberPrefix,
+                state_key: "_@alice:server_ALICE_m.call",
+                sender: "@alice:server",
+                room_id: room.roomId,
+                event_id: "$alice-left",
+                origin_server_ts: 5_000,
+                content: {},
+                unsigned: { prev_content: { application: "m.call", device_id: "ALICE", created_ts: 1_000 } },
+            }),
+        ]);
+        vi.mocked(matrixClient.matrixRTC.getRoomSession).mockReturnValue({
+            memberships: [{ createdTs: () => 3_000 }],
+        } as unknown as ReturnType<MatrixClient["matrixRTC"]["getRoomSession"]>);
+
+        viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+        expect(viewModel.getSnapshot().callStartedAt).toBe(1_000);
+    });
+
     it("shows distinct call members before joining and updates every join and leave", () => {
         const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
         vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
