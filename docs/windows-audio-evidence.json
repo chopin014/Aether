@@ -1,0 +1,652 @@
+{
+    "copyright": "2026 OpenAI",
+    "license": "AGPL-3.0-only OR LicenseRef-Element-Commercial",
+    "captureDate": "2026-11-06",
+    "installedVersion": "0.1.11",
+    "repositoryCommit": "8f9f47da06713d7059bcc98a305efe3403572287",
+    "microphoneSampleRateHz": 48000,
+    "units": {
+        "observedMs": "Milliseconds relative to a local reference within the capture; not the audible onset.",
+        "statsTimestampMs": "WebRTC report timestamp, using the same reference as observedMs.",
+        "captureFrames": "Sample frames, not callback invocations."
+    },
+    "rtpSamples": [
+        {
+            "observedMs": 40,
+            "statsTimestampMs": 40.0810546875,
+            "phase": "repeat_on_b",
+            "sourceAudioSeconds": 1514.3399999987678,
+            "sourceAudioEnergy": 27.520820863830032,
+            "outgoingPackets": 75706,
+            "sfuReportedOutgoingPacketsLost": 0,
+            "sfuReportTimestampMs": -708.806884765625,
+            "incomingPacketsLost": 0,
+            "incomingConcealedSamples": 692052,
+            "incomingSilentConcealedSamples": 483644,
+            "incomingConcealmentEvents": 108,
+            "candidatePairRttMs": 54,
+            "microphoneUnderrunEvents": 78
+        },
+        {
+            "observedMs": 1008,
+            "statsTimestampMs": 1008.56201171875,
+            "phase": "repeat_on_b",
+            "sourceAudioSeconds": 1515.159999998767,
+            "sourceAudioEnergy": 27.66389338699538,
+            "outgoingPackets": 75750,
+            "sfuReportedOutgoingPacketsLost": 0,
+            "sfuReportTimestampMs": 296.10009765625,
+            "incomingPacketsLost": 0,
+            "incomingConcealedSamples": 692052,
+            "incomingSilentConcealedSamples": 483644,
+            "incomingConcealmentEvents": 108,
+            "candidatePairRttMs": 150,
+            "microphoneUnderrunEvents": 78
+        },
+        {
+            "observedMs": 1990,
+            "statsTimestampMs": 1990.31103515625,
+            "phase": "repeat_on_b",
+            "sourceAudioSeconds": 1516.0599999987662,
+            "sourceAudioEnergy": 27.83542425774001,
+            "outgoingPackets": 75795,
+            "sfuReportedOutgoingPacketsLost": 0,
+            "sfuReportTimestampMs": 1322.220947265625,
+            "incomingPacketsLost": 0,
+            "incomingConcealedSamples": 692052,
+            "incomingSilentConcealedSamples": 483644,
+            "incomingConcealmentEvents": 108,
+            "candidatePairRttMs": 150,
+            "microphoneUnderrunEvents": 78
+        },
+        {
+            "observedMs": 2987,
+            "statsTimestampMs": 2988.089111328125,
+            "phase": "repeat_on_b",
+            "sourceAudioSeconds": 1516.7799999987656,
+            "sourceAudioEnergy": 27.83542534470635,
+            "outgoingPackets": 75831,
+            "sfuReportedOutgoingPacketsLost": 0,
+            "sfuReportTimestampMs": 2415.196044921875,
+            "incomingPacketsLost": 0,
+            "incomingConcealedSamples": 692052,
+            "incomingSilentConcealedSamples": 483644,
+            "incomingConcealmentEvents": 108,
+            "candidatePairRttMs": 21,
+            "microphoneUnderrunEvents": 78
+        },
+        {
+            "observedMs": 4000,
+            "statsTimestampMs": 4000.219970703125,
+            "phase": "repeat_on_b",
+            "sourceAudioSeconds": 1517.389999998765,
+            "sourceAudioEnergy": 27.83542534470635,
+            "outgoingPackets": 75862,
+            "sfuReportedOutgoingPacketsLost": 0,
+            "sfuReportTimestampMs": 3461.403076171875,
+            "incomingPacketsLost": 0,
+            "incomingConcealedSamples": 694443,
+            "incomingSilentConcealedSamples": 483644,
+            "incomingConcealmentEvents": 109,
+            "candidatePairRttMs": 21,
+            "microphoneUnderrunEvents": 78
+        },
+        {
+            "observedMs": 4988,
+            "statsTimestampMs": 4988.412109375,
+            "phase": "repeat_on_b",
+            "sourceAudioSeconds": 1518.2599999987642,
+            "sourceAudioEnergy": 27.835425459256683,
+            "outgoingPackets": 75905,
+            "sfuReportedOutgoingPacketsLost": 0,
+            "sfuReportTimestampMs": 4465.60302734375,
+            "incomingPacketsLost": 0,
+            "incomingConcealedSamples": 694443,
+            "incomingSilentConcealedSamples": 483644,
+            "incomingConcealmentEvents": 109,
+            "candidatePairRttMs": 21,
+            "microphoneUnderrunEvents": 78
+        },
+        {
+            "observedMs": 5998,
+            "statsTimestampMs": 5998.096923828125,
+            "phase": "repeat_on_b",
+            "sourceAudioSeconds": 1519.1999999987634,
+            "sourceAudioEnergy": 27.83542552666065,
+            "outgoingPackets": 75952,
+            "sfuReportedOutgoingPacketsLost": 0,
+            "sfuReportTimestampMs": 5479.908935546875,
+            "incomingPacketsLost": 0,
+            "incomingConcealedSamples": 694443,
+            "incomingSilentConcealedSamples": 483644,
+            "incomingConcealmentEvents": 109,
+            "candidatePairRttMs": 19,
+            "microphoneUnderrunEvents": 78
+        },
+        {
+            "observedMs": 6991,
+            "statsTimestampMs": 6991.450927734375,
+            "phase": "repeat_on_b",
+            "sourceAudioSeconds": 1520.1399999987625,
+            "sourceAudioEnergy": 27.83542552666065,
+            "outgoingPackets": 75999,
+            "sfuReportedOutgoingPacketsLost": 0,
+            "sfuReportTimestampMs": 6502.0380859375,
+            "incomingPacketsLost": 0,
+            "incomingConcealedSamples": 694443,
+            "incomingSilentConcealedSamples": 483644,
+            "incomingConcealmentEvents": 109,
+            "candidatePairRttMs": 19,
+            "microphoneUnderrunEvents": 78
+        }
+    ],
+    "captureSamples": [
+        {
+            "observedMs": 110,
+            "contextAudioSeconds": 1515.2106666666666,
+            "captureDeliveredFrames": 80880000,
+            "captureTotalFrames": 80880000,
+            "captureLatencyMs": 18.719,
+            "enabled": true,
+            "muted": false
+        },
+        {
+            "observedMs": 609,
+            "contextAudioSeconds": 1515.632,
+            "captureDeliveredFrames": 80904000,
+            "captureTotalFrames": 80904000,
+            "captureLatencyMs": 18.689,
+            "enabled": true,
+            "muted": false
+        },
+        {
+            "observedMs": 1121,
+            "contextAudioSeconds": 1516.0906666666667,
+            "captureDeliveredFrames": 80928480,
+            "captureTotalFrames": 80928480,
+            "captureLatencyMs": 19.506,
+            "enabled": true,
+            "muted": false
+        },
+        {
+            "observedMs": 1600,
+            "contextAudioSeconds": 1516.5013333333334,
+            "captureDeliveredFrames": 80951520,
+            "captureTotalFrames": 80951520,
+            "captureLatencyMs": 19.549,
+            "enabled": true,
+            "muted": false
+        },
+        {
+            "observedMs": 2103,
+            "contextAudioSeconds": 1516.9706666666666,
+            "captureDeliveredFrames": 80976000,
+            "captureTotalFrames": 80976000,
+            "captureLatencyMs": 18.81,
+            "enabled": true,
+            "muted": false
+        },
+        {
+            "observedMs": 2893,
+            "contextAudioSeconds": 1517.52,
+            "captureDeliveredFrames": 81013920,
+            "captureTotalFrames": 81013920,
+            "captureLatencyMs": 18.684,
+            "enabled": true,
+            "muted": false
+        },
+        {
+            "observedMs": 3451,
+            "contextAudioSeconds": 1517.72,
+            "captureDeliveredFrames": 81040320,
+            "captureTotalFrames": 81040320,
+            "captureLatencyMs": 18.696,
+            "enabled": true,
+            "muted": false
+        },
+        {
+            "observedMs": 3601,
+            "contextAudioSeconds": 1517.872,
+            "captureDeliveredFrames": 81047520,
+            "captureTotalFrames": 81047520,
+            "captureLatencyMs": 18.761,
+            "enabled": true,
+            "muted": false
+        },
+        {
+            "observedMs": 4102,
+            "contextAudioSeconds": 1518.3013333333333,
+            "captureDeliveredFrames": 81072000,
+            "captureTotalFrames": 81072000,
+            "captureLatencyMs": 18.74,
+            "enabled": true,
+            "muted": false
+        },
+        {
+            "observedMs": 4603,
+            "contextAudioSeconds": 1518.76,
+            "captureDeliveredFrames": 81096000,
+            "captureTotalFrames": 81096000,
+            "captureLatencyMs": 18.828,
+            "enabled": true,
+            "muted": false
+        },
+        {
+            "observedMs": 5108,
+            "contextAudioSeconds": 1519.2,
+            "captureDeliveredFrames": 81120000,
+            "captureTotalFrames": 81120000,
+            "captureLatencyMs": 18.791,
+            "enabled": true,
+            "muted": false
+        },
+        {
+            "observedMs": 5599,
+            "contextAudioSeconds": 1519.64,
+            "captureDeliveredFrames": 81143520,
+            "captureTotalFrames": 81143520,
+            "captureLatencyMs": 18.708,
+            "enabled": true,
+            "muted": false
+        },
+        {
+            "observedMs": 6123,
+            "contextAudioSeconds": 1520.1413333333333,
+            "captureDeliveredFrames": 81168960,
+            "captureTotalFrames": 81168960,
+            "captureLatencyMs": 18.979,
+            "enabled": true,
+            "muted": false
+        },
+        {
+            "observedMs": 6600,
+            "contextAudioSeconds": 1520.5813333333333,
+            "captureDeliveredFrames": 81191520,
+            "captureTotalFrames": 81191520,
+            "captureLatencyMs": 18.755,
+            "enabled": true,
+            "muted": false
+        }
+    ],
+    "longWindows": [
+        {
+            "phase": "repeat_on_a",
+            "first": {
+                "observedMs": -115401,
+                "contextAudioSeconds": 1409.232,
+                "captureDeliveredFrames": 75335520,
+                "captureTotalFrames": 75335520,
+                "captureLatencyMs": 18.724,
+                "enabled": true,
+                "muted": false
+            },
+            "last": {
+                "observedMs": -67014,
+                "contextAudioSeconds": 1450.3786666666667,
+                "captureDeliveredFrames": 77658240,
+                "captureTotalFrames": 77658240,
+                "captureLatencyMs": 18.863,
+                "enabled": true,
+                "muted": false
+            }
+        },
+        {
+            "phase": "repeat_off_a",
+            "first": {
+                "observedMs": -58705,
+                "contextAudioSeconds": 1457.872,
+                "captureDeliveredFrames": 78057120,
+                "captureTotalFrames": 78057120,
+                "captureLatencyMs": 18.731,
+                "enabled": true,
+                "muted": false
+            },
+            "last": {
+                "observedMs": -31950,
+                "contextAudioSeconds": 1483.832,
+                "captureDeliveredFrames": 79341120,
+                "captureTotalFrames": 79341120,
+                "captureLatencyMs": 18.724,
+                "enabled": true,
+                "muted": false
+            }
+        },
+        {
+            "phase": "repeat_on_b",
+            "first": {
+                "observedMs": -25401,
+                "contextAudioSeconds": 1490.272,
+                "captureDeliveredFrames": 79655520,
+                "captureTotalFrames": 79655520,
+                "captureLatencyMs": 19.467,
+                "enabled": true,
+                "muted": false
+            },
+            "last": {
+                "observedMs": 13102,
+                "contextAudioSeconds": 1526.52,
+                "captureDeliveredFrames": 81504000,
+                "captureTotalFrames": 81504000,
+                "captureLatencyMs": 18.728,
+                "enabled": true,
+                "muted": false
+            }
+        },
+        {
+            "phase": "repeat_off_b",
+            "first": {
+                "observedMs": 19609,
+                "contextAudioSeconds": 1531.1413333333333,
+                "captureDeliveredFrames": 81816000,
+                "captureTotalFrames": 81816000,
+                "captureLatencyMs": 18.656,
+                "enabled": true,
+                "muted": false
+            },
+            "last": {
+                "observedMs": 58104,
+                "contextAudioSeconds": 1556.56,
+                "captureDeliveredFrames": 83664000,
+                "captureTotalFrames": 83664000,
+                "captureLatencyMs": 18.733,
+                "enabled": true,
+                "muted": false
+            }
+        }
+    ],
+    "localOutputClockTest": {
+        "anchorRemoved": true,
+        "windows": [
+            {
+                "phase": "baseline",
+                "first": {
+                    "observedMs": 3001,
+                    "contextAudioSeconds": 1885.5013333333334,
+                    "captureDeliveredFrames": 99955200,
+                    "captureTotalFrames": 99955200,
+                    "visibility": "visible"
+                },
+                "last": {
+                    "observedMs": 15002,
+                    "contextAudioSeconds": 1897.4906666666666,
+                    "captureDeliveredFrames": 100531200,
+                    "captureTotalFrames": 100531200,
+                    "visibility": "visible"
+                }
+            },
+            {
+                "phase": "local_anchor",
+                "first": {
+                    "observedMs": 18269,
+                    "contextAudioSeconds": 1900.752,
+                    "captureDeliveredFrames": 100687680,
+                    "captureTotalFrames": 100687680,
+                    "visibility": "visible"
+                },
+                "last": {
+                    "observedMs": 45010,
+                    "contextAudioSeconds": 1927.4933333333333,
+                    "captureDeliveredFrames": 101971200,
+                    "captureTotalFrames": 101971200,
+                    "visibility": "visible"
+                }
+            },
+            {
+                "phase": "anchor_removed",
+                "first": {
+                    "observedMs": 48502,
+                    "contextAudioSeconds": 1930.992,
+                    "captureDeliveredFrames": 102139200,
+                    "captureTotalFrames": 102139200,
+                    "visibility": "visible"
+                },
+                "last": {
+                    "observedMs": 90008,
+                    "contextAudioSeconds": 1972.48,
+                    "captureDeliveredFrames": 104131200,
+                    "captureTotalFrames": 104131200,
+                    "visibility": "visible"
+                }
+            }
+        ]
+    },
+    "visibilityClockTest": {
+        "windows": [
+            {
+                "visibility": "hidden",
+                "first": {
+                    "observedMs": 3015,
+                    "contextAudioSeconds": 2998.5813333333335,
+                    "captureDeliveredFrames": 157293600,
+                    "captureTotalFrames": 157293600,
+                    "microphoneUnderrunEvents": 78,
+                    "state": "running"
+                },
+                "last": {
+                    "observedMs": 21057,
+                    "contextAudioSeconds": 3016.432,
+                    "captureDeliveredFrames": 158159520,
+                    "captureTotalFrames": 158159520,
+                    "microphoneUnderrunEvents": 78,
+                    "state": "running"
+                }
+            },
+            {
+                "visibility": "visible",
+                "first": {
+                    "observedMs": 25295,
+                    "contextAudioSeconds": 3020.552,
+                    "captureDeliveredFrames": 158363040,
+                    "captureTotalFrames": 158363040,
+                    "microphoneUnderrunEvents": 78,
+                    "state": "running"
+                },
+                "last": {
+                    "observedMs": 55675,
+                    "contextAudioSeconds": 3049.421333333333,
+                    "captureDeliveredFrames": 159821280,
+                    "captureTotalFrames": 159821280,
+                    "microphoneUnderrunEvents": 78,
+                    "state": "running"
+                }
+            },
+            {
+                "visibility": "hidden",
+                "first": {
+                    "observedMs": 59015,
+                    "contextAudioSeconds": 3052.770666666667,
+                    "captureDeliveredFrames": 159982080,
+                    "captureTotalFrames": 159982080,
+                    "microphoneUnderrunEvents": 78,
+                    "state": "running"
+                },
+                "last": {
+                    "observedMs": 100019,
+                    "contextAudioSeconds": 3093.4133333333334,
+                    "captureDeliveredFrames": 161949600,
+                    "captureTotalFrames": 161949600,
+                    "microphoneUnderrunEvents": 78,
+                    "state": "running"
+                }
+            },
+            {
+                "visibility": "visible",
+                "first": {
+                    "observedMs": 103754,
+                    "contextAudioSeconds": 3097.08,
+                    "captureDeliveredFrames": 162129120,
+                    "captureTotalFrames": 162129120,
+                    "microphoneUnderrunEvents": 78,
+                    "state": "running"
+                },
+                "last": {
+                    "observedMs": 120002,
+                    "contextAudioSeconds": 3113.144,
+                    "captureDeliveredFrames": 162909120,
+                    "captureTotalFrames": 162909120,
+                    "microphoneUnderrunEvents": 78,
+                    "state": "running"
+                }
+            }
+        ]
+    },
+    "workletTrace": {
+        "traceSeconds": 60.954596,
+        "excludedBoundarySeconds": 1,
+        "callbacks": 21863,
+        "medianMs": 0.038,
+        "p95Ms": 4.994,
+        "p99Ms": 6.639,
+        "maxMs": 37.359,
+        "overQuantum": 5832,
+        "over10ms": 24,
+        "cpuMs": 24164.988,
+        "elapsedMs": 27542.103,
+        "longCallbacks": [
+            {
+                "relativeSeconds": 4.216612,
+                "elapsedMs": 10.302,
+                "cpuMs": 4.199,
+                "nonCpuMs": 6.103
+            },
+            {
+                "relativeSeconds": 7.101673,
+                "elapsedMs": 10.068,
+                "cpuMs": 4.261,
+                "nonCpuMs": 5.807
+            },
+            {
+                "relativeSeconds": 10.53587,
+                "elapsedMs": 12.749,
+                "cpuMs": 3.884,
+                "nonCpuMs": 8.865
+            },
+            {
+                "relativeSeconds": 11.101853,
+                "elapsedMs": 12.449,
+                "cpuMs": 4.033,
+                "nonCpuMs": 8.416
+            },
+            {
+                "relativeSeconds": 19.021723,
+                "elapsedMs": 17.265,
+                "cpuMs": 4.132,
+                "nonCpuMs": 13.133
+            },
+            {
+                "relativeSeconds": 19.481658,
+                "elapsedMs": 11.573,
+                "cpuMs": 4.199,
+                "nonCpuMs": 7.374
+            },
+            {
+                "relativeSeconds": 19.705017,
+                "elapsedMs": 10.009,
+                "cpuMs": 4.153,
+                "nonCpuMs": 5.856
+            },
+            {
+                "relativeSeconds": 22.441514,
+                "elapsedMs": 10.476,
+                "cpuMs": 4.161,
+                "nonCpuMs": 6.315
+            },
+            {
+                "relativeSeconds": 24.571581,
+                "elapsedMs": 12.16,
+                "cpuMs": 4.056,
+                "nonCpuMs": 8.104
+            },
+            {
+                "relativeSeconds": 24.976032,
+                "elapsedMs": 10.717,
+                "cpuMs": 3.993,
+                "nonCpuMs": 6.724
+            },
+            {
+                "relativeSeconds": 25.291479,
+                "elapsedMs": 18.243,
+                "cpuMs": 4.218,
+                "nonCpuMs": 14.025
+            },
+            {
+                "relativeSeconds": 26.341628,
+                "elapsedMs": 11.115,
+                "cpuMs": 4.181,
+                "nonCpuMs": 6.934
+            },
+            {
+                "relativeSeconds": 28.065553,
+                "elapsedMs": 21.83,
+                "cpuMs": 4.107,
+                "nonCpuMs": 17.723
+            },
+            {
+                "relativeSeconds": 37.861633,
+                "elapsedMs": 10.02,
+                "cpuMs": 4.077,
+                "nonCpuMs": 5.943
+            },
+            {
+                "relativeSeconds": 38.54152,
+                "elapsedMs": 11.02,
+                "cpuMs": 3.843,
+                "nonCpuMs": 7.177
+            },
+            {
+                "relativeSeconds": 38.581809,
+                "elapsedMs": 13.141,
+                "cpuMs": 4.181,
+                "nonCpuMs": 8.96
+            },
+            {
+                "relativeSeconds": 39.841499,
+                "elapsedMs": 10.375,
+                "cpuMs": 4.281,
+                "nonCpuMs": 6.094
+            },
+            {
+                "relativeSeconds": 42.95275,
+                "elapsedMs": 11.085,
+                "cpuMs": 4.074,
+                "nonCpuMs": 7.011
+            },
+            {
+                "relativeSeconds": 43.345472,
+                "elapsedMs": 11.123,
+                "cpuMs": 3.894,
+                "nonCpuMs": 7.229
+            },
+            {
+                "relativeSeconds": 43.946632,
+                "elapsedMs": 37.359,
+                "cpuMs": 4.001,
+                "nonCpuMs": 33.358
+            },
+            {
+                "relativeSeconds": 44.844874,
+                "elapsedMs": 11.804,
+                "cpuMs": 4.018,
+                "nonCpuMs": 7.786
+            },
+            {
+                "relativeSeconds": 45.595598,
+                "elapsedMs": 10.049,
+                "cpuMs": 4.069,
+                "nonCpuMs": 5.98
+            },
+            {
+                "relativeSeconds": 54.157006,
+                "elapsedMs": 15.542,
+                "cpuMs": 4.125,
+                "nonCpuMs": 11.417
+            },
+            {
+                "relativeSeconds": 57.646813,
+                "elapsedMs": 16.323,
+                "cpuMs": 4.166,
+                "nonCpuMs": 12.157
+            }
+        ]
+    }
+}
