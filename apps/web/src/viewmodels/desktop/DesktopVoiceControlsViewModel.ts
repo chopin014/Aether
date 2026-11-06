@@ -27,7 +27,7 @@ import { UserTab } from "../../components/views/dialogs/UserTab";
 
 import { DesktopShortcutManager } from "../../audio/desktop/DesktopShortcutManager";
 import { MicrophoneTest, mediaTestError } from "../../audio/desktop/MicrophoneTest";
-import { getMicrophoneGateConfig } from "../../audio/desktop/DesktopVoicePipeline";
+import { getMicrophoneGateConfig, MAX_SPEAKER_VOLUME_PERCENT } from "../../audio/desktop/DesktopVoicePipeline";
 import { customizeDesktopVoiceProfile } from "../../audio/desktop/DesktopVoiceProfiles";
 
 import { playDesktopVoiceSound } from "../../audio/DesktopVoiceSounds";
@@ -284,11 +284,13 @@ export class DesktopVoiceControlsViewModel
         percent: number,
     ): Promise<void> {
         if (!Number.isFinite(percent)) return;
+        // The speaker can play the call louder than it arrives; the microphone is only ever turned down.
+        const max = setting === "desktopSpeakerVolume" ? MAX_SPEAKER_VOLUME_PERCENT : 100;
         await SettingsStore.setValue(
             setting,
             null,
             SettingLevel.DEVICE,
-            Math.max(0, Math.min(100, Math.round(percent))),
+            Math.max(0, Math.min(max, Math.round(percent))),
         );
     }
 

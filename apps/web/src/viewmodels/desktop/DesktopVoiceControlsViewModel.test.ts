@@ -661,11 +661,15 @@ describe("DesktopVoiceControlsViewModel", () => {
             expect(vm.getSnapshot().error).toBe("The device could not be changed. Please try again.");
         });
 
-        it("saves microphone and speaker volumes within 0–100%", async () => {
-            await vm.setMicrophoneVolume(64.4);
+        it("saves the microphone within 0–100% and the speaker up to 200%", async () => {
+            await vm.setMicrophoneVolume(140);
             await vm.setSpeakerVolume(140);
+            expect(preferences.get("desktopMicrophoneVolume")).toBe(100);
+            expect(preferences.get("desktopSpeakerVolume")).toBe(140);
+            await vm.setMicrophoneVolume(64.4);
+            await vm.setSpeakerVolume(260);
             expect(preferences.get("desktopMicrophoneVolume")).toBe(64);
-            expect(preferences.get("desktopSpeakerVolume")).toBe(100);
+            expect(preferences.get("desktopSpeakerVolume")).toBe(200);
         });
 
         it("keeps a device menu open across joining a call, unlike the call's own panels", async () => {

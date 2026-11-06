@@ -139,6 +139,22 @@ describe("DesktopVoiceVideoSettingsView", () => {
             expect(vm.setSpeakerVolume).toHaveBeenCalledWith(20);
         });
 
+        it("lets the speaker go up to 200% and floats each volume above its knob", () => {
+            render(<DesktopVoiceVideoSettingsView vm={makeVm()} />);
+            const speaker = screen.getByRole("slider", { name: "Speaker volume" });
+            expect(speaker).toHaveAttribute("max", "200");
+            const field = speaker.parentElement!;
+            expect(within(field).getByTestId("slider-value")).toHaveTextContent(
+                speaker.getAttribute("aria-valuetext")!,
+            );
+            expect(field).not.toHaveAttribute("data-active");
+            fireEvent.focus(speaker);
+            expect(field).toHaveAttribute("data-active", "true");
+            fireEvent.blur(speaker);
+            expect(field).not.toHaveAttribute("data-active");
+            expect(screen.getByRole("slider", { name: "Microphone volume" })).toHaveAttribute("max", "100");
+        });
+
         it("starts and stops the microphone test and shows its level", async () => {
             const vm = makeVm();
             const { rerender } = render(<DesktopVoiceVideoSettingsView vm={vm} />);

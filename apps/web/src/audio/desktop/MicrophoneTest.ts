@@ -162,8 +162,9 @@ export class MicrophoneTest {
         return { ...getMicrophoneGateConfig(), pushToTalk: false };
     }
 
+    /** An element plays at most at full volume, so a speaker setting above 100% plays the test at full volume. */
     private speakerVolume(): number {
-        return SettingsStore.getValue("desktopSpeakerVolume") / 100;
+        return Math.min(1, SettingsStore.getValue("desktopSpeakerVolume") / 100);
     }
 
     private async play(track: MediaStreamTrack, generation: number, playbackGeneration: number): Promise<void> {
