@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MicrophoneProcessor } from "./MicrophoneProcessor";
 import { loadMicrophoneGateWorklet } from "./microphoneGateWorkletFactory";
 import { loadDenoiserModule } from "./denoiser/loadDenoiserModule";
+import { INAUDIBLE_LEVEL } from "./keepRealtimeClock";
 
 vi.mock("./microphoneGateWorkletFactory", () => ({ loadMicrophoneGateWorklet: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("./denoiser/loadDenoiserModule", () => ({ loadDenoiserModule: vi.fn() }));
@@ -21,6 +22,8 @@ interface FakeContext {
     state: AudioContextState;
     source: { connect: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> };
     outputTrack: { stop: ReturnType<typeof vi.fn>; enabled: boolean };
+    destination: object;
+    clockSource: { offset: { value: number }; connect: ReturnType<typeof vi.fn>; start: ReturnType<typeof vi.fn> };
     close: ReturnType<typeof vi.fn>;
     resume: ReturnType<typeof vi.fn>;
     suspend: ReturnType<typeof vi.fn>;
@@ -55,6 +58,9 @@ describe("MicrophoneProcessor", () => {
                 public state: AudioContextState = "running";
                 public source = { connect: vi.fn(), disconnect: vi.fn() };
                 public outputTrack = { stop: vi.fn(), enabled: true };
+                public destination = {};
+                public clockSource = { offset: { value: 0 }, connect: vi.fn(), start: vi.fn() };
+                public createConstantSource = vi.fn().mockReturnValue(this.clockSource);
                 public close = vi.fn(async () => {
                     this.state = "closed";
                 });
@@ -118,6 +124,13 @@ describe("MicrophoneProcessor", () => {
         });
         expect(contexts[0].source.connect).toHaveBeenCalledWith(nodes[0]);
         expect(processor.processedTrack).toBe(contexts[0].outputTrack);
+    });
+
+    it("keeps the graph's context on the audio device clock, although nothing reaches the speakers", async () => {
+        await init(new MicrophoneProcessor(config));
+        expect(contexts[0].clockSource.offset.value).toBe(INAUDIBLE_LEVEL);
+        expect(contexts[0].clockSource.connect).toHaveBeenCalledWith(contexts[0].destination);
+        expect(contexts[0].clockSource.start).toHaveBeenCalledOnce();
     });
 
     it("starts noise suppression with the graph when it is wanted", async () => {

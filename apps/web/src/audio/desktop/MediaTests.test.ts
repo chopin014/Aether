@@ -75,10 +75,12 @@ describe("MicrophoneTest", () => {
             class {
                 public sampleRate = 48000;
                 public close = close;
+                public destination = {};
                 public createMediaStreamSource = (): unknown => ({ connect: vi.fn(), disconnect: vi.fn() });
                 public createMediaStreamDestination = (): unknown => ({
                     stream: { getAudioTracks: () => [outputTrack] },
                 });
+                public createConstantSource = (): unknown => ({ offset: {}, connect: vi.fn(), start: vi.fn() });
             },
         );
         vi.stubGlobal(
