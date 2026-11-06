@@ -22,7 +22,9 @@ import {
     M_LOCATION,
     EventType,
     TypedEventEmitter,
+    RuleId,
 } from "matrix-js-sdk/src/matrix";
+import { type IActionsObject } from "matrix-js-sdk/src/pushprocessor";
 import { logger } from "matrix-js-sdk/src/logger";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { type PermissionChanged as PermissionChangedEvent } from "@matrix-org/analytics-events/types/typescript/PermissionChanged";
@@ -45,6 +47,8 @@ import { type SDKContextClass } from "./contexts/SDKContextClass.ts";
 import { localNotificationsAreSilenced, createLocalNotificationSettingsIfNeeded } from "./utils/notifications";
 import { getIncomingCallToastKey, getNotificationEventSendTs, IncomingCallToast } from "./toasts/IncomingCallToast";
 import ToastStore from "./stores/ToastStore";
+import { IncomingCallStore } from "./stores/IncomingCallStore";
+import { getRoomNotifsState, RoomNotifState } from "./RoomNotifs";
 import { stripPlainReply } from "./utils/Reply";
 import { BackgroundAudio } from "./audio/BackgroundAudio";
 import { type MatrixDispatcher } from "./dispatcher/dispatcher.ts";
@@ -163,6 +167,9 @@ export default class Notifier extends TypedEventEmitter<keyof EmittedEvents, Emi
     // they're decrypted until we decide whether to notify for them
     // or not
     private pendingEncryptedEventIds: string[] = [];
+
+    // Events received while catching up that might turn out to be calls once decrypted: see onEvent.
+    private pendingCatchUpEventIds: string[] = [];
 
     // Rooms we have been invited to during the sync response currently being applied, to notify
     // about once it has been: see notifyForPendingInvites.
@@ -517,9 +524,22 @@ export default class Notifier extends TypedEventEmitter<keyof EmittedEvents, Emi
         if (!this.sdkContext.client) return;
         if (removed) return; // only notify for new events, not removed ones
         if (!data.liveEvent || !!toStartOfTimeline) return; // only notify for new things, not old.
-        if (!this.isSyncing) return; // don't alert for any messages initially
         if (ev.getSender() === this.sdkContext.client.getUserId()) return;
         if (data.timeline.getTimelineSet().threadListType !== null) return; // Ignore events on the thread list generated timelines
+
+        if (!this.isSyncing) {
+            // Don't alert for messages received while starting up or catching up after being offline, but do ring
+            // for a call that is still ringing: its lifetime says whether it is too old to answer.
+            if (ev.getType() === EventType.RTCNotification) {
+                this.evaluateEvent(ev);
+            } else if (ev.isBeingDecrypted()) {
+                this.pendingCatchUpEventIds.push(ev.getId()!);
+                while (this.pendingCatchUpEventIds.length > MAX_PENDING_ENCRYPTED) {
+                    this.pendingCatchUpEventIds.shift();
+                }
+            }
+            return;
+        }
 
         void this.sdkContext.client.decryptEventIfNeeded(ev);
 
@@ -582,6 +602,13 @@ export default class Notifier extends TypedEventEmitter<keyof EmittedEvents, Emi
         // in which case it might decrypt soon if the keys arrive
         if (ev.isDecryptionFailure()) return;
 
+        const catchUpIdx = this.pendingCatchUpEventIds.indexOf(ev.getId()!);
+        if (catchUpIdx !== -1) {
+            this.pendingCatchUpEventIds.splice(catchUpIdx, 1);
+            if (ev.getType() === EventType.RTCNotification) this.evaluateEvent(ev);
+            return;
+        }
+
         const idx = this.pendingEncryptedEventIds.indexOf(ev.getId()!);
         if (idx === -1) return;
 
@@ -618,9 +645,12 @@ export default class Notifier extends TypedEventEmitter<keyof EmittedEvents, Emi
 
         const actions = this.sdkContext.client.getPushActionsForEvent(ev);
 
-        if (actions?.notify) {
-            this.performCustomEventHandling(ev);
+        if (ev.getType() === EventType.RTCNotification) {
+            this.evaluateCallNotification(ev, room, actions);
+            return;
+        }
 
+        if (actions?.notify) {
             const store = this.sdkContext.roomViewStore;
             const isViewingRoom = store.getRoomId() === room.roomId;
             const threadId: string | undefined = ev.getId() !== ev.threadRootId ? ev.threadRootId : undefined;
@@ -641,6 +671,26 @@ export default class Notifier extends TypedEventEmitter<keyof EmittedEvents, Emi
                 void this.playAudioNotification(ev, room);
             }
         }
+    }
+
+    /**
+     * Decide whether a call notification should ring. A call that rings the user directly gets through whatever
+     * their message notification level is, like a phone call would, unless they muted the room or all notifications.
+     * A call announced to a group room follows the room's notification settings like any other event.
+     */
+    private evaluateCallNotification(ev: MatrixEvent, room: Room, actions: IActionsObject | null): void {
+        const client = room.client;
+        const content = ev.getContent<Partial<IRTCNotificationContent>>();
+        if (content.notification_type === "ring") {
+            if (client.pushProcessor.getPushRuleById(RuleId.Master)?.enabled) return;
+            if (getRoomNotifsState(client, room.roomId) === RoomNotifState.Mute) return;
+        } else if (!actions?.notify) {
+            return;
+        } else if (actions.tweaks.sound && this.isAudioEnabled()) {
+            // A group call does not ring, so it gets the room's notification sound instead.
+            void this.playAudioNotification(ev, room);
+        }
+        void this.handleRTCNotification(ev, ToastStore.sharedInstance(), room);
     }
 
     /**
@@ -711,32 +761,30 @@ export default class Notifier extends TypedEventEmitter<keyof EmittedEvents, Emi
         const callId = callMembership.getContent<SessionMembershipData>().call_id ?? "";
         const key = getIncomingCallToastKey(callId, roomId);
 
-        if (toaster.hasToast(key)) {
+        const incomingCalls = IncomingCallStore.instance;
+        if (toaster.hasToast(key) || incomingCalls.has(key)) {
             logger.debug(`Detected duplicate notification for call ${key}, ignoring`);
             return;
         }
 
-        toaster.addOrReplaceToast({
-            key,
-            priority: 100,
-            component: IncomingCallToast,
-            bodyClassName: "mx_IncomingCallToast",
-            props: { notificationEvent: ev },
-        });
-    }
+        if (SettingsStore.getValue("feature_desktop_shell")) {
+            // The desktop shell shows its own incoming call popup above everything else, and rings until answered.
+            incomingCalls.add(key, room, ev);
+        } else {
+            toaster.addOrReplaceToast({
+                key,
+                priority: 100,
+                component: IncomingCallToast,
+                bodyClassName: "mx_IncomingCallToast",
+                props: { notificationEvent: ev },
+            });
+        }
 
-    /**
-     * Some events require special handling such as showing in-app toasts.
-     * This function may either create a toast or ignore the event based
-     * on current app state.
-     */
-    private performCustomEventHandling(ev: MatrixEvent): void {
-        const toaster = ToastStore.sharedInstance();
-        const room = this.sdkContext.client?.getRoom(ev.getRoomId());
-
-        if (room && EventType.RTCNotification === ev.getType()) {
-            // We don't need to await this.
-            void this.handleRTCNotification(ev, toaster, room);
+        // Get the user's attention when the app is in the background: a system notification, and a flashing
+        // taskbar entry. The ring itself comes from the popup or toast, so no notification sound is played.
+        if (!document.hasFocus()) {
+            if (this.isEnabled()) this.displayPopupNotification(ev, room);
+            PlatformPeg.get()?.loudNotification(ev, room);
         }
     }
 }

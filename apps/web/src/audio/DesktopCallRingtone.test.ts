@@ -103,6 +103,32 @@ describe("DesktopCallRingtone", () => {
         ringtone.setRinging(true);
         await vi.waitFor(() => expect(start).toHaveBeenCalledOnce());
     });
+    it("loops the incoming call ring louder than the ringback", async () => {
+        const gains: { value: number }[] = [];
+        vi.stubGlobal(
+            "AudioContext",
+            class {
+                public resume = resume;
+                public close = close;
+                public decodeAudioData = decodeAudioData;
+                public destination = {};
+                public createGain = () => {
+                    const gain = { value: 1 };
+                    gains.push(gain);
+                    return { gain, connect: vi.fn() };
+                };
+                public createBufferSource = () => source;
+            },
+        );
+        const ring = new DesktopCallRingtone("ring");
+        ring.setRinging(true);
+        await vi.waitFor(() => expect(start).toHaveBeenCalledOnce());
+        expect(fetchAudio).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/\/ring\.mp3$/), expect.any(Object));
+        expect(source.loop).toBe(true);
+        expect(gains[0].value).toBeGreaterThan(0.5);
+        ring.setRinging(false);
+        expect(stop).toHaveBeenCalledOnce();
+    });
     it("closes the output after a failed download", async () => {
         fetchAudio.mockResolvedValueOnce({ ok: false, status: 404 });
         ringtone.setRinging(true);

@@ -11,6 +11,7 @@ import { prepareElementCall } from "../views/voip/prepareElementCall";
 import { migrateToAns } from "../../audio/desktop/DesktopVoiceProfiles";
 import { deferRoomEntryWork, deferUntilAccountSync } from "../../performance/RoomEntryReady";
 import { DesktopProfileHost } from "../views/desktop/DesktopProfileHost";
+import { DesktopIncomingCallHost } from "../views/desktop/DesktopIncomingCallHost";
 
 import React, { type ClipboardEvent } from "react";
 import {
@@ -799,6 +800,7 @@ class LoggedInView extends React.Component<IProps, IState> {
                     <div className={bodyClasses}>{content}</div>
                 </div>
                 {this.desktopShellEnabled && <DesktopProfileHost />}
+                {this.desktopShellEnabled && <DesktopIncomingCallHost />}
                 <PipContainer />
                 <ToastPortal aria-hidden={this.props.hideToSRUsers}>
                     <ToastContainer />

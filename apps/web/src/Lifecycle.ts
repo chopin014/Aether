@@ -40,6 +40,7 @@ import * as StorageAccess from "./utils/StorageAccess";
 import SettingsStore from "./settings/SettingsStore";
 import { SettingLevel } from "./settings/SettingLevel";
 import ToastStore from "./stores/ToastStore";
+import { IncomingCallStore } from "./stores/IncomingCallStore";
 import { IntegrationManagers } from "./integrations/IntegrationManagers";
 import { Mjolnir } from "./mjolnir/Mjolnir";
 import { DeviceListener } from "./device-listener";
@@ -1114,6 +1115,7 @@ async function startMatrixClient(
     // reset things first just in case
     SDKContextClass.instance.typingStore.reset();
     ToastStore.sharedInstance().reset();
+    IncomingCallStore.instance.reset();
 
     DialogOpener.instance.prepare(client);
     SDKContextClass.instance.notifier.start();
