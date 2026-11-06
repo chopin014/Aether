@@ -98,6 +98,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 export const Default: Story = {};
 export const Connected: Story = { args: { roomName: "Lounge" } };
+export const ConnectedInServer: Story = { args: { roomName: "Lounge", spaceName: "Terra do boi gordo" } };
 export const SharingScreen: Story = { args: { roomName: "Lounge", videoEnabled: true, screenSharing: true } };
 export const ScreenShareUnavailable: Story = { args: { roomName: "Lounge", screenShareAvailable: false } };
 export const Deafened: Story = { args: { roomName: "Lounge", microphoneMuted: true, deafened: true } };
