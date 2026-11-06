@@ -17,6 +17,7 @@ import PowerSelector from "../elements/PowerSelector";
 import MatrixClientContext from "../../../contexts/MatrixClientContext";
 import AccessibleButton from "../elements/AccessibleButton";
 import Modal from "../../../Modal";
+import { confirmPeerPromotion } from "../../../utils/room/confirmPeerPromotion";
 import ErrorDialog from "../dialogs/ErrorDialog";
 import SettingsFieldset from "./SettingsFieldset";
 
@@ -50,6 +51,11 @@ export const AddPrivilegedUsers: React.FC<AddPrivilegedUsersProps> = ({ room, de
                 description: _t("error|update_power_level"),
             });
 
+            return;
+        }
+
+        if (!(await confirmPeerPromotion(client, room, userIds, powerLevel))) {
+            setIsLoading(false);
             return;
         }
 

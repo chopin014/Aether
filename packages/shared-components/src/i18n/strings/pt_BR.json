@@ -1047,6 +1047,69 @@
             "group_spacing_value": "%(size)spx",
             "title": "Exibição das mensagens"
         },
+        "promote_peer": {
+            "can_change_roles": "Poderá mudar o cargo de qualquer pessoa, inclusive o seu.",
+            "can_delete": "Poderá excluir canais e remover qualquer pessoa, inclusive você.",
+            "confirm": "Dar o mesmo poder",
+            "description_channel": "%(who)s terá o mesmo poder que você no canal %(room)s.",
+            "description_server": "%(who)s terá o mesmo poder que você em %(room)s.",
+            "irreversible": "Não dá para desfazer: ninguém pode reduzir o poder de quem está no mesmo nível.",
+            "no_paste": "Digite você mesmo — colar está desativado.",
+            "people": {
+                "one": "%(count)s pessoa",
+                "other": "%(count)s pessoas"
+            },
+            "type_to_confirm": "Para confirmar, digite esta frase:"
+        },
+        "create_server": {
+            "audience_community": "Para um clube ou comunidade",
+            "audience_community_description": "Qualquer pessoa com o link pode entrar, e o servidor aparece entre os servidores públicos.",
+            "audience_description": "Para ajudar na configuração, seu novo servidor é só para alguns amigos ou para uma comunidade maior?",
+            "audience_friends": "Para mim e meus amigos",
+            "audience_friends_description": "Só quem você convidar pode entrar.",
+            "audience_skip": "Não tem certeza? Você pode <skip>pular esta pergunta</skip> por enquanto.",
+            "audience_title": "Conte mais sobre o seu servidor",
+            "create_own": "Criar o meu",
+            "customise_description": "Deixe seu novo servidor com a sua cara dando um nome e um ícone a ele. Se quiser, é possível mudar depois.",
+            "customise_title": "Personalize o seu servidor",
+            "explore": "Explorar servidores públicos",
+            "have_invite": "Já tem um convite?",
+            "invite_examples": "Os convites são assim",
+            "invite_label": "Link de convite",
+            "join_description": "Insira um convite abaixo para entrar em um servidor existente.",
+            "join_server": "Entrar em um servidor",
+            "join_title": "Entrar em um servidor",
+            "name_label": "Nome do servidor",
+            "start_description": "Seu servidor é onde você e seus amigos se encontram. Crie o seu e comece a conversar.",
+            "start_title": "Crie seu servidor",
+            "starter_channels": "Ele começa com um canal de texto geral e um canal de voz Geral.",
+            "upload": "Enviar",
+            "upload_icon": "Enviar ícone do servidor"
+        },
+        "choose_channels": {
+            "description": {
+                "one": "%(server)s tem %(count)s canal. Escolha os que você quer; dá para ver os outros depois na visão geral do servidor.",
+                "other": "%(server)s tem %(count)s canais. Escolha os que você quer; dá para ver os outros depois na visão geral do servidor."
+            },
+            "join": {
+                "one": "Entrar em %(count)s canal",
+                "other": "Entrar em %(count)s canais"
+            },
+            "members": {
+                "one": "%(count)s membro",
+                "other": "%(count)s membros"
+            },
+            "select_all": "Selecionar todos",
+            "select_none": "Limpar",
+            "selected": {
+                "one": "%(count)s selecionado",
+                "other": "%(count)s selecionados"
+            },
+            "skip": "Pular por enquanto",
+            "text_channels": "Canais de texto",
+            "title": "Escolha seus canais",
+            "voice_channels": "Canais de voz"
+        },
         "discover": {
             "add_server": "Adicionar servidor…",
             "categories": "Categorias",

@@ -191,6 +191,30 @@
             "title": "Channel actions",
             "unmute": "Unmute channel"
         },
+        "choose_channels": {
+            "description": {
+                "one": "%(server)s has %(count)s channel. Choose the ones you want; you can browse the rest later from the server's overview.",
+                "other": "%(server)s has %(count)s channels. Choose the ones you want; you can browse the rest later from the server's overview."
+            },
+            "join": {
+                "one": "Join %(count)s channel",
+                "other": "Join %(count)s channels"
+            },
+            "members": {
+                "one": "%(count)s member",
+                "other": "%(count)s members"
+            },
+            "select_all": "Select all",
+            "select_none": "Clear",
+            "selected": {
+                "one": "%(count)s selected",
+                "other": "%(count)s selected"
+            },
+            "skip": "Skip for now",
+            "text_channels": "Text channels",
+            "title": "Pick your channels",
+            "voice_channels": "Voice channels"
+        },
         "color_theme": {
             "aether_dark": "Dark",
             "aether_light": "Light",
@@ -240,6 +264,31 @@
             "search": "Search",
             "unavailable": "Idle",
             "unblock": "Unblock"
+        },
+        "create_server": {
+            "audience_community": "For a club or community",
+            "audience_community_description": "Anyone with the link can join, and people can find it among public servers.",
+            "audience_description": "To help you set it up, is your new server for just a few friends or a larger community?",
+            "audience_friends": "For me and my friends",
+            "audience_friends_description": "Only people you invite can join.",
+            "audience_skip": "Not sure? You can <skip>skip this question</skip> for now.",
+            "audience_title": "Tell us more about your server",
+            "create_own": "Create my own",
+            "customise_description": "Give your new server a personality with a name and an icon. You can always change them later.",
+            "customise_title": "Customise your server",
+            "explore": "Explore public servers",
+            "have_invite": "Have an invite already?",
+            "invite_examples": "Invites look like",
+            "invite_label": "Invite link",
+            "join_description": "Enter an invite below to join an existing server.",
+            "join_server": "Join a server",
+            "join_title": "Join a server",
+            "name_label": "Server name",
+            "start_description": "Your server is where you and your friends hang out. Make yours and start talking.",
+            "start_title": "Create your server",
+            "starter_channels": "It starts with a general text channel and a General voice channel.",
+            "upload": "Upload",
+            "upload_icon": "Upload server icon"
         },
         "delete_channel": {
             "delete": "Delete channel",
@@ -483,6 +532,20 @@
             "too_large": "Your profile has too much in it to store. Remove some links or board items.",
             "unsaved": "Careful, you have unsaved changes.",
             "unsupported": "Your homeserver does not support custom profile fields, so these options are not available. You can still change your name and avatar under Account."
+        },
+        "promote_peer": {
+            "can_change_roles": "They can change anyone's role, including yours.",
+            "can_delete": "They can delete channels and remove anyone, including you.",
+            "confirm": "Give the same power",
+            "description_channel": "%(who)s will get the same power as you in the channel %(room)s.",
+            "description_server": "%(who)s will get the same power as you in %(room)s.",
+            "irreversible": "You cannot take this back: nobody can lower the power of someone at their own level.",
+            "no_paste": "Type it yourself — pasting is turned off.",
+            "people": {
+                "one": "%(count)s person",
+                "other": "%(count)s people"
+            },
+            "type_to_confirm": "To confirm, type this sentence:"
         },
         "search": {
             "box": {

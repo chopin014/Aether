@@ -782,10 +782,24 @@
             "title": "Channel settings",
             "voice": "Voice"
         },
+        "choose_channels": {
+            "error": "None of the channels could be joined. Check your connection and try again.",
+            "partial_error": "Could not join %(names)s. Try again or skip them for now.",
+            "title": "Pick your channels"
+        },
         "contacts": {
             "action_failed": "That action could not be completed. Please try again.",
             "offline": "desktop|contacts|offline",
             "online": "desktop|contacts|online"
+        },
+        "create_server": {
+            "creating_channels": "Setting up channels…",
+            "creating_server": "Creating your server…",
+            "default_name": "%(name)s's server",
+            "error": "Your server could not be created. Check your connection and try again.",
+            "invalid_invite": "That invite doesn't look right. Paste a server link or an address like #aether:matrix.org.",
+            "text_channel_name": "general",
+            "voice_channel_name": "General"
         },
         "delete_channel": {
             "checking": "Checking permissions…",
@@ -838,6 +852,14 @@
             "error_link": "One of your links is not a valid web address.",
             "error_rate_limit": "Your homeserver asked to slow down. Try again in a moment.",
             "error_too_large": "Your profile is larger than your homeserver allows. Remove some links or board items."
+        },
+        "promote_peer": {
+            "phrase_many": {
+                "one": "I want to make this person as powerful as me",
+                "other": "I want to make these %(count)s people as powerful as me"
+            },
+            "phrase_one": "I want to make %(name)s as powerful as me",
+            "title": "Give the same power as you?"
         },
         "share_picker": {
             "title": "Share your screen"
@@ -2855,6 +2877,8 @@
         "invite_controls": {
             "default_label": "Allow users to invite you to rooms"
         },
+        "join_all_channels": "Join every channel of small servers",
+        "join_all_channels_description": "When you join a server with up to 10 channels, join them all at once. Larger servers always let you pick.",
         "jump_to_bottom_on_send": "Jump to the bottom of the timeline when you send a message",
         "key_backup": {
             "setup_secure_backup": {
@@ -4058,7 +4082,6 @@
         "kick_button_space_everything": "Remove them from everything I'm able to",
         "kick_space_specific": "Remove them from specific things I'm able to",
         "kick_space_warning": "They'll still be able to access whatever you're not an admin of.",
-        "promote_warning": "You will not be able to undo this change as you are promoting the user to have the same power level as yourself.",
         "redact": {
             "confirm_button": {
                 "one": "Remove 1 message",

@@ -31,6 +31,7 @@ const base: ChannelMenuViewSnapshot = {
     canEditChannel: true,
     canCreateChannel: true,
     canDeleteChannel: true,
+    canLeave: true,
 };
 
 function makeVm(snapshot: Partial<ChannelMenuViewSnapshot> = {}) {
@@ -145,6 +146,12 @@ describe("ChannelMenuContent", () => {
             expect(screen.queryByRole("menuitem", { name: new RegExp(name) })).not.toBeInTheDocument();
         }
         expect(screen.getByRole("menuitem", { name: "Leave channel" })).toBeVisible();
+    });
+
+    it("leaves out Leave channel for a server's channels", () => {
+        renderContent({ canLeave: false });
+        expect(screen.queryByRole("menuitem", { name: "Leave channel" })).not.toBeInTheDocument();
+        expect(screen.getByRole("menuitem", { name: "Delete channel" })).toBeVisible();
     });
 
     it("leaves out the Matrix extras of a voice channel but keeps Report", () => {
