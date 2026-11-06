@@ -906,6 +906,14 @@ body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) [class*="_tooltip_"] 
             margin: 0;
         }
 
+        /*
+         * A cell is narrower than a picture's action bar, so the bar grows rightwards from the cell's start. Kept at
+         * the cell's end, as in a full-width message, it ran leftwards out of the timeline and was cut off.
+         */
+        .mx_EventTile_line > :has(> .mx_MessageActionBar) {
+            inset-inline: 0 auto;
+        }
+
         /* Each picture is part of one message: no time or read receipts of its own in the grid. */
         [data-testid="event-tile-slot-timestamp"],
         [data-testid="event-tile-slot-receipt"] {

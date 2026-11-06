@@ -42,6 +42,12 @@ interface Props {
     };
 }
 
+/**
+ * How long somebody must stay out of the call before we play the leave cue. Memberships briefly disappear while a
+ * participant's client renews or re-sends its membership, or rejoins after a connection drop; those people never left.
+ */
+export const PARTICIPANT_LEAVE_GRACE_MS = 6000;
+
 /** Persistent desktop voice controls, using Element Call's device and audio-output host APIs. */
 export class DesktopVoiceControlsViewModel
     extends BaseViewModel<DesktopVoiceControlsViewSnapshot, Props>
@@ -51,6 +57,10 @@ export class DesktopVoiceControlsViewModel
     private call?: ElementCall;
     private wasVideoEnabled = false;
     private wasSharingScreen = false;
+    /** Other people currently in the call. */
+    private participantIds = new Set<string>();
+    /** People who dropped out of the call and have not yet been announced as leaving. */
+    private readonly pendingLeaves = new Map<string, number>();
     private pendingAction?: Promise<void>;
     private stopShortcuts?: () => void;
     private testGeneration = 0;
@@ -132,6 +142,7 @@ export class DesktopVoiceControlsViewModel
         this.disposables.track(() => this.call?.off(CallEvent.DeviceMute, this.onDeviceMute));
         this.disposables.track(() => this.call?.off(CallEvent.ScreenShare, this.onScreenShare));
         this.disposables.track(() => this.call?.off(CallEvent.Participants, this.onParticipants));
+        this.disposables.track(() => this.clearPendingLeaves());
         this.disposables.track(() => this.call?.off(CallEvent.SpeakingUsers, this.refresh));
         this.disposables.track(() => this.call?.off(CallEvent.SoundboardUsers, this.refresh));
         this.disposables.track(() => this.call?.off(CallEvent.ConnectionStats, this.refresh));
@@ -390,16 +401,54 @@ export class DesktopVoiceControlsViewModel
         previous: ReadonlyMap<RoomMember, unknown>,
     ): void => {
         this.refresh();
-        if (!this.call || this.call.locallyLeaving || this.snapshot.current.deafened) return;
         const ids = (members: ReadonlyMap<RoomMember, unknown>): Set<string> =>
             new Set(
                 [...members.keys()].map((member) => member.userId).filter((id) => id !== this.props.client.getUserId()),
             );
         const now = ids(participants);
         const before = ids(previous);
-        if ([...now].some((id) => !before.has(id))) void playDesktopVoiceSound("userJoined");
-        else if ([...before].some((id) => !now.has(id))) void playDesktopVoiceSound("userLeft");
+        this.participantIds = now;
+        if (!this.call || this.call.locallyLeaving || this.snapshot.current.deafened) {
+            this.clearPendingLeaves();
+            return;
+        }
+        let joined = false;
+        for (const id of now) {
+            if (before.has(id)) continue;
+            // Coming back before the leave was announced is not a join either.
+            if (this.pendingLeaves.has(id)) {
+                window.clearTimeout(this.pendingLeaves.get(id));
+                this.pendingLeaves.delete(id);
+            } else joined = true;
+        }
+        for (const id of before) {
+            if (now.has(id) || this.pendingLeaves.has(id)) continue;
+            this.pendingLeaves.set(
+                id,
+                window.setTimeout(() => this.announceLeave(id), PARTICIPANT_LEAVE_GRACE_MS),
+            );
+        }
+        if (joined) void playDesktopVoiceSound("userJoined");
     };
+
+    /** Plays the leave cue for somebody who is still gone once the grace period ends. */
+    private announceLeave(id: string): void {
+        this.pendingLeaves.delete(id);
+        if (this.participantIds.has(id) || !this.call || this.call.locallyLeaving) return;
+        if (this.snapshot.current.deafened) return;
+        // Several people leaving together get one cue.
+        for (const [other, timer] of this.pendingLeaves) {
+            if (this.participantIds.has(other)) continue;
+            window.clearTimeout(timer);
+            this.pendingLeaves.delete(other);
+        }
+        void playDesktopVoiceSound("userLeft");
+    }
+
+    private clearPendingLeaves(): void {
+        for (const timer of this.pendingLeaves.values()) window.clearTimeout(timer);
+        this.pendingLeaves.clear();
+    }
 
     private readonly onScreenShare = (): void => {
         this.refresh();
@@ -445,6 +494,8 @@ export class DesktopVoiceControlsViewModel
             this.call?.off(CallEvent.DeviceMute, this.onDeviceMute);
             this.call?.off(CallEvent.ScreenShare, this.onScreenShare);
             this.call?.off(CallEvent.Participants, this.onParticipants);
+            this.clearPendingLeaves();
+            this.participantIds = new Set();
             this.call?.off(CallEvent.SpeakingUsers, this.refresh);
             this.call?.off(CallEvent.SoundboardUsers, this.refresh);
             this.call?.off(CallEvent.ConnectionStats, this.refresh);

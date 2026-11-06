@@ -40,6 +40,7 @@ import * as StorageAccess from "./utils/StorageAccess";
 import SettingsStore from "./settings/SettingsStore";
 import { SettingLevel } from "./settings/SettingLevel";
 import ToastStore from "./stores/ToastStore";
+import { IncomingCallStore } from "./stores/IncomingCallStore";
 import { IntegrationManagers } from "./integrations/IntegrationManagers";
 import { Mjolnir } from "./mjolnir/Mjolnir";
 import { DeviceListener } from "./device-listener";
@@ -78,6 +79,7 @@ import { type OnLoggedInPayload } from "./dispatcher/payloads/OnLoggedInPayload.
 import { clearUploadedMediaCache } from "./utils/UploadedMediaCache";
 import { CallStatusListener } from "./CallStatusListener.ts";
 import { CallStore } from "./stores/CallStore.ts";
+import { createPresenceHints } from "./presence/createPresenceHints";
 import { ModuleApi } from "./modules/Api.ts";
 import { stopDesktopVoiceSound } from "./audio/DesktopVoiceSounds";
 import { markStartup } from "./performance/StartupTimings";
@@ -1113,6 +1115,7 @@ async function startMatrixClient(
     // reset things first just in case
     SDKContextClass.instance.typingStore.reset();
     ToastStore.sharedInstance().reset();
+    IncomingCallStore.instance.reset();
 
     DialogOpener.instance.prepare(client);
     SDKContextClass.instance.notifier.start();
@@ -1150,7 +1153,7 @@ async function startMatrixClient(
 
     // Similarly, don't start sending presence updates until we've started the client
     if (!SettingsStore.getValue("lowBandwidth")) {
-        void Presence.start();
+        void Presence.start(createPresenceHints(CallStore.instance));
         AetherPresenceService.instance.start(client);
     }
 

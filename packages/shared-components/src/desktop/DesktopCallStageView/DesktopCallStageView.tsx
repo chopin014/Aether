@@ -491,6 +491,7 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
         preview = false,
     ): JSX.Element => {
         const isMenuOpen = snapshot.openTileMenuId === tile.id;
+        const streamVolumePercent = tile.streamAudioMuted ? 0 : tile.streamAudioVolumePercent;
         const qualityLabel = snapshot.screenShareQuality.resolutionHeight
             ? `${snapshot.screenShareQuality.resolutionHeight}p ${snapshot.screenShareQuality.frameRate}fps`
             : `${snapshot.screenShareQuality.frameRate}fps`;
@@ -658,49 +659,6 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                         </div>
                     </StagePopover>
                 )}
-                {isSpotlight && !isMenuOpen && tile.hasStreamAudioVolumeControl && (
-                    <div className={styles.streamVolumeControl}>
-                        <button
-                            type="button"
-                            className={styles.tileActionBtn}
-                            aria-label={
-                                tile.streamAudioMuted
-                                    ? _t("desktop|call_stage|unmute_stream_audio", { name: tile.displayName })
-                                    : _t("desktop|call_stage|mute_stream_audio", { name: tile.displayName })
-                            }
-                            onClick={() => vm.toggleScreenShareAudioMuted(tile.id)}
-                        >
-                            {tile.streamAudioMuted || tile.streamAudioVolumePercent === 0 ? (
-                                <VolumeOffIcon />
-                            ) : (
-                                <VolumeOnIcon />
-                            )}
-                        </button>
-                        <div className={styles.streamVolumePanel}>
-                            <Text size="xs" className={styles.streamVolumeValue}>
-                                {tile.streamAudioMuted ? 0 : tile.streamAudioVolumePercent}%
-                            </Text>
-                            <input
-                                type="range"
-                                min={0}
-                                max={100}
-                                step={1}
-                                className={styles.streamVolumeSlider}
-                                style={
-                                    {
-                                        "--stream-volume": `${tile.streamAudioMuted ? 0 : tile.streamAudioVolumePercent}%`,
-                                    } as React.CSSProperties
-                                }
-                                value={tile.streamAudioMuted ? 0 : tile.streamAudioVolumePercent}
-                                aria-orientation="vertical"
-                                aria-label={_t("desktop|call_stage|stream_volume_slider_aria", {
-                                    name: tile.displayName,
-                                })}
-                                onChange={(event) => vm.setScreenShareAudioVolume(tile.id, Number(event.target.value))}
-                            />
-                        </div>
-                    </div>
-                )}
                 <div className={styles.tileBottomBar}>
                     <div className={styles.nameBadge}>
                         <ShareScreenSolidIcon width={14} height={14} />
@@ -710,6 +668,45 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                                 : tile.displayName}
                         </span>
                     </div>
+                    {isSpotlight && !isMenuOpen && tile.hasStreamAudioVolumeControl && (
+                        <div
+                            className={styles.streamVolumeControl}
+                            data-muted={streamVolumePercent === 0 ? "true" : undefined}
+                        >
+                            <button
+                                type="button"
+                                className={styles.streamVolumeButton}
+                                aria-label={
+                                    tile.streamAudioMuted
+                                        ? _t("desktop|call_stage|unmute_stream_audio", { name: tile.displayName })
+                                        : _t("desktop|call_stage|mute_stream_audio", { name: tile.displayName })
+                                }
+                                onClick={() => vm.toggleScreenShareAudioMuted(tile.id)}
+                            >
+                                {streamVolumePercent === 0 ? <VolumeOffIcon /> : <VolumeOnIcon />}
+                            </button>
+                            <div className={styles.streamVolumePanel}>
+                                <input
+                                    type="range"
+                                    min={0}
+                                    max={100}
+                                    step={1}
+                                    className={styles.streamVolumeSlider}
+                                    style={{ "--stream-volume": `${streamVolumePercent}%` } as React.CSSProperties}
+                                    value={streamVolumePercent}
+                                    aria-label={_t("desktop|call_stage|stream_volume_slider_aria", {
+                                        name: tile.displayName,
+                                    })}
+                                    onChange={(event) =>
+                                        vm.setScreenShareAudioVolume(tile.id, Number(event.target.value))
+                                    }
+                                />
+                                <span className={styles.streamVolumeValue} aria-hidden="true">
+                                    {streamVolumePercent}
+                                </span>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
         );

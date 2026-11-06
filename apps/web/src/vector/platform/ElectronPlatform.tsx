@@ -511,6 +511,17 @@ export default class ElectronPlatform extends BasePlatform {
         return this.ipc.call("getSystemLanguages");
     }
 
+    /** Reads input idle time for the whole computer, so using another app does not count as being away. */
+    public async getSystemIdleTime(): Promise<number | null> {
+        try {
+            const seconds: unknown = await this.ipc.call("getSystemIdleTime");
+            return typeof seconds === "number" && Number.isFinite(seconds) ? seconds * 1000 : null;
+        } catch {
+            // A desktop host from before this call existed answers with an error.
+            return null;
+        }
+    }
+
     public async setLanguage(preferredLangs: string[]): Promise<any> {
         return this.ipc.call("setLanguage", preferredLangs);
     }

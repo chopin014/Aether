@@ -303,6 +303,16 @@
             "history_note": "Previously received messages may remain on other clients and homeservers. Deletion does not erase every copy.",
             "room_list": "Channels and nested servers to delete"
         },
+        "incoming_call": {
+            "accept": "Accept",
+            "accept_video": "Accept with video",
+            "accept_voice": "Accept without video",
+            "decline": "Decline",
+            "incoming": "Incoming call…",
+            "incoming_video": "Incoming video call…",
+            "label": "Incoming call from %(name)s",
+            "started_by": "%(name)s started a call"
+        },
         "keybinds": {
             "clear_action": "Clear %(action)s keybind",
             "ptt_hint": "Push to talk uses the same key and release delay as Voice & Video. In push to talk mode, an unassigned key keeps your microphone closed.",
@@ -630,6 +640,7 @@
             "emoji": "Emoji",
             "frequently_used": "Frequently used",
             "library": "Sound library",
+            "muted_hint": "Unmute your microphone to play sounds for everyone.",
             "name": "Sound name",
             "no_results": "No sounds found. Try another search.",
             "preview": "Preview %(name)s",
@@ -947,7 +958,6 @@
         "saving": "Updating…",
         "selected_hint": "Your selected status on this device.",
         "title": "Presence",
-        "unknown": "Status unknown",
         "unknown_hint": "Your selected status; server status unavailable."
     },
     "release_announcement": {

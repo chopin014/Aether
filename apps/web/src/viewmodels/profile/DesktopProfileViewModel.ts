@@ -205,8 +205,7 @@ export class DesktopProfileViewModel
             displayName: name,
             avatarUrl: mxc ? (mediaFromMxc(mxc).getThumbnailOfSourceHttp(160, 160, "crop") ?? undefined) : undefined,
             avatarPreviewUrl: mxc ? props.avatarPreviewUrls?.find((url) => showsMedia(url, mxc)) : undefined,
-            presence:
-                presence === "online" || presence === "unavailable" || presence === "offline" ? presence : undefined,
+            presence: presence === "online" || presence === "unavailable" ? presence : "offline",
             roles: DesktopProfileViewModel.roles(props, userId, member),
             status: extra.status ?? rich?.status,
             appearance: rich && appearanceFromRichProfile(rich, mxc),

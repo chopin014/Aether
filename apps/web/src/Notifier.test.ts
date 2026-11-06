@@ -31,6 +31,10 @@ import {
     MatrixEvent,
     SyncState,
     type AccountDataEvents,
+    ConditionKind,
+    RuleId,
+    type IPushRule,
+    MatrixEventEvent,
 } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { CallMembership, type SessionMembershipData, type MatrixRTCSession } from "matrix-js-sdk/src/matrixrtc";
@@ -51,6 +55,7 @@ import type BasePlatform from "./BasePlatform";
 import Notifier, { NOTIFICATION_SOUND_THROTTLE_MS } from "./Notifier";
 import SettingsStore from "./settings/SettingsStore";
 import ToastStore from "./stores/ToastStore";
+import { IncomingCallStore } from "./stores/IncomingCallStore";
 import {
     createLocalNotificationSettingsIfNeeded,
     getLocalNotificationAccountDataEventType,
@@ -900,6 +905,99 @@ describe("Notifier", () => {
             emitCallNotificationEvent({ ts: Date.now() - 40000 });
 
             expect(ToastStore.sharedInstance().addOrReplaceToast).not.toHaveBeenCalled();
+        });
+
+        it("rings for a direct call even when the room's other events would not notify", () => {
+            mockClient.getPushActionsForEvent.mockReturnValue({ notify: false, tweaks: {} });
+            emitCallNotificationEvent();
+            expect(ToastStore.sharedInstance().addOrReplaceToast).toHaveBeenCalledTimes(1);
+        });
+
+        it("does not ring in a muted room", () => {
+            mockClient.pushRules = {
+                global: {
+                    override: [
+                        {
+                            rule_id: roomId,
+                            default: false,
+                            enabled: true,
+                            conditions: [{ kind: ConditionKind.EventMatch, key: "room_id", pattern: roomId }],
+                            actions: [],
+                        },
+                    ],
+                },
+            };
+            emitCallNotificationEvent();
+            expect(ToastStore.sharedInstance().addOrReplaceToast).not.toHaveBeenCalled();
+        });
+
+        it("does not ring while every notification is muted", () => {
+            vi.spyOn(mockClient.pushProcessor, "getPushRuleById").mockImplementation((id) =>
+                id === RuleId.Master ? ({ rule_id: id, default: true, enabled: true, actions: [] } as IPushRule) : null,
+            );
+            emitCallNotificationEvent();
+            expect(ToastStore.sharedInstance().addOrReplaceToast).not.toHaveBeenCalled();
+        });
+
+        it("announces a group call only when the room's events notify", () => {
+            mockClient.getPushActionsForEvent.mockReturnValue({ notify: false, tweaks: {} });
+            emitCallNotificationEvent({ content: { notification_type: "notification" } });
+            expect(ToastStore.sharedInstance().addOrReplaceToast).not.toHaveBeenCalled();
+        });
+
+        it("rings for a call received while catching up after being offline", () => {
+            notifier.onSyncStateChange(SyncState.Error, SyncState.Syncing);
+            vi.spyOn(notifier, "displayPopupNotification");
+            mockClient.emit(RoomEvent.Timeline, testEvent, testRoom, false, false, {
+                liveEvent: true,
+                timeline: testRoom.getLiveTimeline(),
+            });
+            emitCallNotificationEvent();
+            expect(notifier.displayPopupNotification).not.toHaveBeenCalledWith(testEvent, testRoom);
+            expect(ToastStore.sharedInstance().addOrReplaceToast).toHaveBeenCalledTimes(1);
+            expect(ToastStore.sharedInstance().addOrReplaceToast).toHaveBeenCalledWith(
+                expect.objectContaining({ component: IncomingCallToast }),
+            );
+        });
+
+        it("rings for an encrypted call once it is decrypted while catching up", () => {
+            notifier.onSyncStateChange(SyncState.Error, SyncState.Syncing);
+            const event = emitCallNotificationEvent({ type: EventType.RoomMessageEncrypted });
+            vi.spyOn(event, "isBeingDecrypted").mockReturnValue(true);
+            emitLiveEvent(event);
+            expect(ToastStore.sharedInstance().addOrReplaceToast).not.toHaveBeenCalled();
+
+            vi.spyOn(event, "getType").mockReturnValue(EventType.RTCNotification);
+            mockClient.emit(MatrixEventEvent.Decrypted, event);
+            expect(ToastStore.sharedInstance().addOrReplaceToast).toHaveBeenCalledTimes(1);
+        });
+
+        it("shows the desktop shell's incoming call popup instead of a toast", () => {
+            const add = vi.spyOn(IncomingCallStore.instance, "add").mockImplementation(() => {});
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((key, ...params) =>
+                key === "feature_desktop_shell" || key === "notificationsEnabled"
+                    ? true
+                    : settingsStoreGetValue(key, ...params),
+            );
+            const notificationEvent = emitCallNotificationEvent();
+            expect(add).toHaveBeenCalledWith(getIncomingCallToastKey(callId, roomId), testRoom, notificationEvent);
+            expect(ToastStore.sharedInstance().addOrReplaceToast).not.toHaveBeenCalled();
+        });
+
+        it("flashes the window and shows a system notification when the app is in the background", () => {
+            vi.spyOn(document, "hasFocus").mockReturnValue(false);
+            const popup = vi.spyOn(notifier, "displayPopupNotification").mockImplementation(() => {});
+            const notificationEvent = emitCallNotificationEvent();
+            expect(popup).toHaveBeenCalledWith(notificationEvent, testRoom);
+            expect(MockPlatform.loudNotification).toHaveBeenCalledWith(notificationEvent, testRoom);
+        });
+
+        it("relies on the in-app popup alone while the app is focused", () => {
+            vi.spyOn(document, "hasFocus").mockReturnValue(true);
+            const popup = vi.spyOn(notifier, "displayPopupNotification").mockImplementation(() => {});
+            emitCallNotificationEvent();
+            expect(popup).not.toHaveBeenCalled();
+            expect(MockPlatform.loudNotification).not.toHaveBeenCalled();
         });
     });
 

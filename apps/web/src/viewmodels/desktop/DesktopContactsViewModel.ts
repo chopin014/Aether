@@ -88,8 +88,7 @@ export class DesktopContactsViewModel
             userId,
             name: member?.rawDisplayName || user?.displayName || userId,
             avatarUrl: mxc ? (mediaFromMxc(mxc).getThumbnailOfSourceHttp(64, 64, "crop") ?? undefined) : undefined,
-            presence:
-                presence === "online" || presence === "unavailable" || presence === "offline" ? presence : "unknown",
+            presence: presence === "online" || presence === "unavailable" ? presence : "offline",
             roomId: room?.roomId,
         };
     };

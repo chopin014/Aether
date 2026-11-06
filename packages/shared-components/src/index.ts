@@ -152,5 +152,6 @@ export * from "./desktop/DeleteServerView";
 export * from "./desktop/PromoteToPeerView";
 export * from "./desktop/CreateServerView";
 export * from "./desktop/ChooseServerChannelsView";
+export * from "./desktop/IncomingCallView";
 
 export * from "./desktop/SoundboardView";
