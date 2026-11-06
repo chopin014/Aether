@@ -168,11 +168,11 @@ describe("DesktopProfileViewModel", () => {
         });
     });
 
-    it("omits presence the server never reported and follows later updates", () => {
+    it("shows missing presence as offline and follows later updates", () => {
         delete user.events.presence;
         user.presence = "offline";
         const vm = create();
-        expect(vm.getSnapshot().presence).toBeUndefined();
+        expect(vm.getSnapshot().presence).toBe("offline");
         user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "unavailable" } }));
         client.emit(UserEvent.LastPresenceTs, user.events.presence!, user);
         expect(vm.getSnapshot().presence).toBe("unavailable");

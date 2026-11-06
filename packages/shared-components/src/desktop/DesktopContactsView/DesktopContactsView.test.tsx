@@ -44,6 +44,26 @@ function makeVm(snapshot: Partial<DesktopContactsViewSnapshot> = {}) {
 }
 
 describe("DesktopContactsView", () => {
+    it.each([
+        ["online", "Online"],
+        ["unavailable", "Idle"],
+        ["offline", "Offline"],
+    ] as const)("shows the shared %s presence badge and label", (presence, label) => {
+        render(
+            <DesktopContactsView
+                vm={makeVm({
+                    contacts: [{ userId: "@bob:example.org", name: "Bob", presence }],
+                })}
+            />,
+        );
+        const profile = screen.getByRole("button", { name: "Profile Bob" });
+        expect(within(profile).getByText(label)).toBeVisible();
+        expect(profile.querySelector("svg[data-presence]")).toHaveAttribute("data-presence", presence);
+        if (presence === "offline") {
+            expect(profile.querySelector("svg circle")).toHaveAttribute("fill", "none");
+        }
+    });
+
     it("uses the real user ID for message and profile actions", async () => {
         const vm = makeVm();
         render(<DesktopContactsView vm={vm} />);

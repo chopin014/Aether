@@ -46,13 +46,11 @@ export default class PresenceLabel extends React.Component<IProps> {
             const duration = formatDuration(activeAgo);
             if (presence === "online") return _t("presence|online_for", { duration: duration });
             if (presence === "unavailable") return _t("presence|idle_for", { duration: duration }); // XXX: is this actually right?
-            if (presence === "offline") return _t("presence|offline_for", { duration: duration });
-            return _t("presence|unknown_for", { duration: duration });
+            return _t("presence|offline_for", { duration: duration });
         } else {
             if (presence === "online") return _t("presence|online");
             if (presence === "unavailable") return _t("presence|idle"); // XXX: is this actually right?
-            if (presence === "offline") return _t("presence|offline");
-            return _t("presence|unknown");
+            return _t("presence|offline");
         }
     }
 

@@ -69,7 +69,7 @@ describe("DesktopContactsViewModel", () => {
         vm.setQuery("unknown");
         expect(vm.getSnapshot().contacts).toEqual([]);
     });
-    it("should keep missing presence neutral in All and exclude it from Online", async () => {
+    it("should show missing presence as offline in All and exclude it from Online", async () => {
         delete user.events.presence;
         user.presence = "offline";
         client.emit(UserEvent.LastPresenceTs, undefined, user);
@@ -77,20 +77,20 @@ describe("DesktopContactsViewModel", () => {
         expect(vm.getSnapshot().onlineContacts).toEqual([]);
         expect(vm.getSnapshot().contacts).toEqual([]);
         vm.setTab("all");
-        expect(vm.getSnapshot().contacts[0].presence).toBe("unknown");
+        expect(vm.getSnapshot().contacts[0].presence).toBe("offline");
         user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "offline" } }));
         client.emit(UserEvent.LastPresenceTs, user.events.presence!, user);
         await Promise.resolve();
         expect(vm.getSnapshot().contacts[0].presence).toBe("offline");
     });
 
-    it("should hide known presence when explicitly disabled", async () => {
+    it("should show offline when presence is explicitly disabled", async () => {
         SdkConfig.put({ enable_presence_by_hs_url: { [client.baseUrl]: false } });
         client.emit(UserEvent.LastPresenceTs, user.events.presence!, user);
         await Promise.resolve();
         expect(vm.getSnapshot().onlineContacts).toEqual([]);
         vm.setTab("all");
-        expect(vm.getSnapshot().contacts[0].presence).toBe("unknown");
+        expect(vm.getSnapshot().contacts[0].presence).toBe("offline");
     });
 
     it("opens the existing DM rather than creating a replacement room", () => {
