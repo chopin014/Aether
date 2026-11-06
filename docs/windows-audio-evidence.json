@@ -410,6 +410,86 @@
             }
         ]
     },
+    "visibilityClockTest": {
+        "windows": [
+            {
+                "visibility": "hidden",
+                "first": {
+                    "observedMs": 3015,
+                    "contextAudioSeconds": 2998.5813333333335,
+                    "captureDeliveredFrames": 157293600,
+                    "captureTotalFrames": 157293600,
+                    "microphoneUnderrunEvents": 78,
+                    "state": "running"
+                },
+                "last": {
+                    "observedMs": 21057,
+                    "contextAudioSeconds": 3016.432,
+                    "captureDeliveredFrames": 158159520,
+                    "captureTotalFrames": 158159520,
+                    "microphoneUnderrunEvents": 78,
+                    "state": "running"
+                }
+            },
+            {
+                "visibility": "visible",
+                "first": {
+                    "observedMs": 25295,
+                    "contextAudioSeconds": 3020.552,
+                    "captureDeliveredFrames": 158363040,
+                    "captureTotalFrames": 158363040,
+                    "microphoneUnderrunEvents": 78,
+                    "state": "running"
+                },
+                "last": {
+                    "observedMs": 55675,
+                    "contextAudioSeconds": 3049.421333333333,
+                    "captureDeliveredFrames": 159821280,
+                    "captureTotalFrames": 159821280,
+                    "microphoneUnderrunEvents": 78,
+                    "state": "running"
+                }
+            },
+            {
+                "visibility": "hidden",
+                "first": {
+                    "observedMs": 59015,
+                    "contextAudioSeconds": 3052.770666666667,
+                    "captureDeliveredFrames": 159982080,
+                    "captureTotalFrames": 159982080,
+                    "microphoneUnderrunEvents": 78,
+                    "state": "running"
+                },
+                "last": {
+                    "observedMs": 100019,
+                    "contextAudioSeconds": 3093.4133333333334,
+                    "captureDeliveredFrames": 161949600,
+                    "captureTotalFrames": 161949600,
+                    "microphoneUnderrunEvents": 78,
+                    "state": "running"
+                }
+            },
+            {
+                "visibility": "visible",
+                "first": {
+                    "observedMs": 103754,
+                    "contextAudioSeconds": 3097.08,
+                    "captureDeliveredFrames": 162129120,
+                    "captureTotalFrames": 162129120,
+                    "microphoneUnderrunEvents": 78,
+                    "state": "running"
+                },
+                "last": {
+                    "observedMs": 120002,
+                    "contextAudioSeconds": 3113.144,
+                    "captureDeliveredFrames": 162909120,
+                    "captureTotalFrames": 162909120,
+                    "microphoneUnderrunEvents": 78,
+                    "state": "running"
+                }
+            }
+        ]
+    },
     "workletTrace": {
         "traceSeconds": 60.954596,
         "excludedBoundarySeconds": 1,
