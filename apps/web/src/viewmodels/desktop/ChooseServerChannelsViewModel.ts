@@ -77,12 +77,14 @@ export class ChooseServerChannelsViewModel
     }
 
     public toggle = (id: string): void => {
+        if (this.snapshot.current.busy) return;
         if (this.selection.has(id)) this.selection.delete(id);
         else this.selection.add(id);
         this.updateSelection();
     };
 
     public setAll = (selected: boolean): void => {
+        if (this.snapshot.current.busy) return;
         this.selection = new Set(selected ? this.props.channels.map((channel) => channel.roomId) : []);
         this.updateSelection();
     };

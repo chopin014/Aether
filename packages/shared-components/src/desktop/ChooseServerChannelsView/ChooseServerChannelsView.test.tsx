@@ -70,6 +70,18 @@ describe("ChooseServerChannelsView", () => {
         expect(vm.skip).toHaveBeenCalled();
     });
 
+    it("keeps channels focusable but unchangeable while joining", async () => {
+        const vm = renderPicker({ busy: true });
+        const memes = screen.getByRole("checkbox", { name: /memes/ });
+        expect(memes).not.toHaveAttribute("disabled");
+        memes.focus();
+        expect(memes).toHaveFocus();
+        expect(memes).toHaveAttribute("aria-disabled", "true");
+        await userEvent.click(memes);
+        expect(vm.toggle).not.toHaveBeenCalled();
+        expect(memes).not.toBeChecked();
+    });
+
     it("shows errors", () => {
         renderPicker({ error: "Could not join" });
         expect(screen.getByRole("alert")).toHaveTextContent("Could not join");

@@ -74,6 +74,17 @@ describe("ChooseServerChannelsViewModel", () => {
         expect(props.openFirstChannel).toHaveBeenCalledWith(client, "!space", channels, ["!general"]);
     });
 
+    it("ignores selection changes while joining", async () => {
+        let finish!: (result: { joined: string[]; failed: ServerChannel[] }) => void;
+        const { vm } = make(vi.fn(() => new Promise((resolve) => (finish = resolve))));
+        const joining = vm.confirm();
+        vm.toggle("!memes");
+        vm.setAll(false);
+        expect(vm.getSnapshot().channels.map((c) => c.selected)).toEqual([true, false, false]);
+        finish({ joined: ["!general"], failed: [] });
+        await joining;
+    });
+
     it("does nothing with an empty selection", async () => {
         const { vm, props } = make();
         vm.setAll(false);

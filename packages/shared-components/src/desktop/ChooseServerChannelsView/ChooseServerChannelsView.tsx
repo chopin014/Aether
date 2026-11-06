@@ -92,10 +92,14 @@ function ChannelGroup({
                                 <Text as="span" size="sm" className={styles.members}>
                                     {_t("desktop|choose_channels|members", { count: channel.memberCount })}
                                 </Text>
+                                {/* While joining, the boxes stay focusable so the list can still be scrolled from
+                                    the keyboard; they only stop changing. */}
                                 <CheckboxInput
                                     checked={channel.selected}
-                                    disabled={disabled}
-                                    onChange={() => onToggle(channel.id)}
+                                    aria-disabled={disabled || undefined}
+                                    onChange={() => {
+                                        if (!disabled) onToggle(channel.id);
+                                    }}
                                 />
                             </label>
                         </li>
@@ -153,8 +157,7 @@ export function ChooseServerChannelsView({
                     {allSelected ? _t("desktop|choose_channels|select_none") : _t("desktop|choose_channels|select_all")}
                 </Button>
             </div>
-            {/* Focusable so the list can be scrolled from the keyboard even while its checkboxes are disabled. */}
-            <div className={styles.scroller} tabIndex={0}>
+            <div className={styles.scroller}>
                 <ChannelGroup
                     title={_t("desktop|choose_channels|text_channels")}
                     channels={s.channels.filter((channel) => channel.kind === "text")}
