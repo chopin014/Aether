@@ -25,8 +25,10 @@ import {
 } from "matrix-js-sdk/src/matrix";
 import { type SlidingSync, SlidingSyncEvent, SlidingSyncState } from "matrix-js-sdk/src/sliding-sync";
 
+import { CountRecovery, type CountRecoveryLimits } from "./CountRecovery";
 import {
     type Contribution,
+    CountConfidence,
     type LedgerEventInput,
     RoomCountLedger,
     type RoomCounts,
@@ -71,6 +73,9 @@ export class NotificationCountEngine implements RoomHistoryObserver {
     private inResponse = false;
     private flushTimer?: ReturnType<typeof setTimeout>;
     private started = false;
+    /** Whether a live sync response has been applied: history is fetched for counts only from then on. */
+    private live = false;
+    private readonly recovery: CountRecovery;
     /** Ledgers saved on this device by the last session, taken up as their rooms are restored. */
     private saved = new Map<string, SavedLedger>();
     private changeListener?: (roomId: string) => void;
@@ -82,10 +87,27 @@ export class NotificationCountEngine implements RoomHistoryObserver {
     /** Rooms whose ledger was started from a saved one. */
     private readonly restoredFromSaved = new Set<string>();
 
+    /**
+     * @param recoveryLimits - How much history may be fetched to make counts exact: see {@link CountRecovery}.
+     */
     public constructor(
         private readonly client: MatrixClient,
         private readonly slidingSync: SlidingSync,
-    ) {}
+        recoveryLimits?: Partial<CountRecoveryLimits>,
+    ) {
+        this.recovery = new CountRecovery(
+            client,
+            {
+                recoveryAnchor: (roomId) => this.ledgers.get(roomId)?.recoveryAnchor(),
+                addHistory: (room, events, anchor) => {
+                    if (this.started && this.addEvents(room, events, { kind: "before", anchor })) {
+                        this.markDirty(room.roomId);
+                    }
+                },
+            },
+            recoveryLimits,
+        );
+    }
 
     /** Take over the client's notification counts. */
     public start(): void {
@@ -120,8 +142,17 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         this.client.off(RoomEvent.RedactionCancelled, this.onRedactionCancelled);
         this.client.off(ClientEvent.AccountData, this.onAccountData);
         this.client.off(RoomEvent.MyMembership, this.onMyMembership);
+        this.recovery.stop();
         if (this.flushTimer !== undefined) clearTimeout(this.flushTimer);
         this.flushTimer = undefined;
+    }
+
+    /**
+     * Let history be fetched to make counts exact, once the room list has found every room: before then it would
+     * slow that down, and the rooms it is for are not all known.
+     */
+    public allowRecovery(): void {
+        this.recovery.allow();
     }
 
     /** The counts last set on a room, with how far they can be trusted. */
@@ -233,6 +264,7 @@ export class NotificationCountEngine implements RoomHistoryObserver {
 
     private onApplied = (): void => {
         this.inResponse = false;
+        this.live = true;
         // Sent afresh, the room came with every receipt the user has there: receipts made here that it did not
         // include were not kept.
         for (const roomId of this.awaitingReceipts) {
@@ -386,6 +418,10 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         room.setNotificationCounts({ total: counts.main.total, highlight: counts.main.highlight }, threads);
         this.pruneEvents(roomId, ledger);
         this.changeListener?.(roomId);
+        // A gap keeps the main count from being exact: a little history may fill it.
+        const anchor =
+            this.live && counts.main.confidence !== CountConfidence.Exact ? ledger.recoveryAnchor() : undefined;
+        if (anchor) this.recovery.request(room, anchor);
         return true;
     }
 

@@ -40,6 +40,7 @@ import {
 import { SlidingSyncSdk } from "matrix-js-sdk/src/sliding-sync-sdk";
 
 import { createClientWithCreds } from "../../utils/createMatrixClient";
+import { type CountRecoveryLimits } from "./CountRecovery";
 import { NotificationCountEngine } from "./NotificationCountEngine";
 import { CountConfidence, RoomCountLedger, type SavedLedger } from "./RoomCountLedger";
 
@@ -119,6 +120,9 @@ function receipt(eventId: string, threadId?: string, type = ReceiptType.Read): M
     });
 }
 
+/** No history is fetched to fill gaps, but where a test asks for it. */
+const NO_RECOVERY = { sessionPages: 0 };
+
 describe("NotificationCountEngine", () => {
     const stops: Array<() => void> = [];
     afterEach(() => {
@@ -127,7 +131,7 @@ describe("NotificationCountEngine", () => {
         vi.useRealTimers();
     });
 
-    async function setup() {
+    async function setup(recovery: Partial<CountRecoveryLimits> = NO_RECOVERY) {
         const client: MatrixClient = createClientWithCreds({
             homeserverUrl: "https://example.org",
             userId: me,
@@ -136,7 +140,7 @@ describe("NotificationCountEngine", () => {
         client.setPushRules(pushRules);
         const sync = new SlidingSync("https://example.org", new Map(), {}, client, 1000);
         const api = new SlidingSyncSdk(sync, client, { lazyLoadMembers: true }, { logger });
-        const engine = new NotificationCountEngine(client, sync);
+        const engine = new NotificationCountEngine(client, sync, recovery);
         engine.start();
         stops.push(() => {
             engine.stop();
@@ -291,6 +295,28 @@ describe("NotificationCountEngine", () => {
         );
 
         expect(counts()).toEqual({ total: 1, highlight: 0 });
+    });
+
+    it("fetches a little history to fill a gap by itself, once allowed and sync is live", async () => {
+        const { client, respond, counts, engine } = await setup({ pagesPerGap: 2 });
+        // As once the room list has found every room.
+        engine.allowRecovery();
+        const request = vi.spyOn(client, "createMessagesRequest").mockResolvedValue({
+            chunk: [message("$c", "alice"), message("$b"), message("$a")],
+            start: "gap",
+            end: "older",
+        });
+        await respond({ initial: true, required_state: requiredState, timeline: [message("$a")] }, [receipt("$a")]);
+
+        // A sync that skipped $b and $c.
+        await respond({ limited: true, prev_batch: "gap", timeline: [message("$d")] });
+
+        await vi.waitFor(() => expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Exact));
+        expect(counts()).toEqual({ total: 3, highlight: 1 });
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(request).toHaveBeenCalledWith(roomId, "gap", 50, "b");
+        // The history went to the counts only, not to the room's timeline.
+        expect(client.getRoom(roomId)!.findEventById("$b")).toBeUndefined();
     });
 
     it("gives a lower bound across a gap, and an exact count once history fills it", async () => {
@@ -687,7 +713,7 @@ describe("NotificationCountEngine", () => {
             { lazyLoadMembers: true, slidingSyncSnapshot: async () => snapshot },
             { logger },
         );
-        const engine = new NotificationCountEngine(client, sync);
+        const engine = new NotificationCountEngine(client, sync, NO_RECOVERY);
         engine.start();
         engine.useSaved(new Map([[roomId, saved]]));
         stops.push(() => {
