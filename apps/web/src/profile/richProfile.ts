@@ -197,15 +197,18 @@ function parseTimezone(raw: Record<string, unknown>): string | undefined {
     return undefined;
 }
 
-/** A framing rectangle, as fractions of the image, that stays inside it and is large enough to see. */
+/**
+ * A framing rectangle, as fractions of the image, that stays inside it. Any size the editor can produce is accepted:
+ * zoomed all the way in on a square or tall image, the kept height is well under a tenth.
+ */
 function parseFrame(value: unknown): ProfileImageFrame | undefined {
     if (!isObject(value)) return undefined;
     const { x, y, width, height } = value;
     const fractions = [x, y, width, height];
     if (!fractions.every((n) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1)) return undefined;
     const [fx, fy, fw, fh] = fractions as number[];
-    // A sliver would blow a few pixels up across the whole banner; anything below a tenth is ignored.
-    if (fw < 0.1 || fh < 0.1 || fx + fw > 1.001 || fy + fh > 1.001) return undefined;
+    // Rounding when stored can push the far edge a hair past the image, which is harmless.
+    if (fw <= 0 || fh <= 0 || fx + fw > 1.001 || fy + fh > 1.001) return undefined;
     return { x: fx, y: fy, width: fw, height: fh };
 }
 

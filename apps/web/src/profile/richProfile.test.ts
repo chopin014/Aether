@@ -7,6 +7,7 @@ Please see LICENSE in the repository root for full details.
 */
 
 import { describe, expect, it } from "vitest";
+import { cropRect } from "@element-hq/web-shared-components";
 import { unmockIntlDateTimeFormat } from "test-utils/date";
 
 import {
@@ -256,14 +257,25 @@ describe("serialiseRichField", () => {
         });
     });
 
-    it("drops a banner frame that is malformed, outside the image or too small to show, or has no banner", () => {
+    it("keeps the smallest frame the editor can make, through a save and a read", () => {
+        // A square image framed 3:1 at the editor's 5x zoom keeps a fifteenth of its height.
+        const frame = cropRect({ imageWidth: 600, imageHeight: 600, rotation: 0, aspectRatio: 3, zoom: 5 }, 0.5, 0.5);
+        expect(frame.height).toBeCloseTo(1 / 15);
+        const profile: RichProfile = { ...EMPTY_RICH_PROFILE, bannerMxc: "mxc://example.org/b", bannerFrame: frame };
+        const stored = { [BANNER_FIELD]: "mxc://example.org/b", [RICH_PROFILE_FIELD]: serialiseRichField(profile) };
+        const read = parseRichProfile(stored).bannerFrame!;
+        expect(read.width).toBeCloseTo(frame.width, 3);
+        expect(read.height).toBeCloseTo(frame.height, 3);
+    });
+
+    it("drops a banner frame that is malformed, outside the image or empty, or has no banner", () => {
         const read = (frame: unknown, banner: string | null = "mxc://example.org/banner"): unknown =>
             parseRichProfile({ [BANNER_FIELD]: banner ?? undefined, [RICH_PROFILE_FIELD]: { banner_frame: frame } })
                 .bannerFrame;
         expect(read({ x: 0.1, y: 0.1, width: 0.5, height: 0.3 })).toEqual({ x: 0.1, y: 0.1, width: 0.5, height: 0.3 });
         expect(read({ x: "0", y: 0, width: 1, height: 1 })).toBeUndefined();
         expect(read({ x: 0.6, y: 0, width: 0.6, height: 1 })).toBeUndefined();
-        expect(read({ x: 0, y: 0, width: 0.01, height: 0.01 })).toBeUndefined();
+        expect(read({ x: 0, y: 0, width: 0, height: 0.5 })).toBeUndefined();
         expect(read({ x: 0, y: 0, width: Infinity, height: 1 })).toBeUndefined();
         expect(read({ x: 0, y: 0, width: 1, height: 1 }, null)).toBeUndefined();
     });
