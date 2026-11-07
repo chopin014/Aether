@@ -37,6 +37,10 @@ declare module "matrix-js-sdk/src/types" {
 
     export interface StateEvents {
         "io.aether.soundboard.sound": Partial<StoredSound>;
+        // A server's channel layout, read defensively by stores/space-layout/SpaceLayout.ts
+        "io.aether.space.category": { v?: number; name?: string; order?: string } | EmptyObject;
+        "io.aether.space.channel": { v?: number; category?: string | null; order?: string } | EmptyObject;
+        "io.aether.space.category.deleted": { v?: number } | EmptyObject;
         "io.aether.call.voice_state": PublishedVoiceStateContent | EmptyObject;
         // Jitsi-backed video room state events
         [JitsiCallMemberEventType]: JitsiCallMemberContent;
@@ -54,6 +58,11 @@ declare module "matrix-js-sdk/src/types" {
             status: string;
         };
         "m.room.bot.options": IContent;
+    }
+
+    export interface RoomAccountDataEvents {
+        // A person's sidebar preferences for one server, see stores/space-layout/SpaceLayoutStore.ts
+        "io.aether.space.sidebar": { v?: number; hide_muted?: boolean };
     }
 
     export interface TimelineEvents {
