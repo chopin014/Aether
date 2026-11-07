@@ -7,7 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@test-utils";
+import { render, screen, waitFor } from "@test-utils";
 import userEvent from "@testing-library/user-event";
 
 import { ChannelMenuContent, ChannelMenuView, type ChannelMenuViewSnapshot } from "./ChannelMenuView";
@@ -228,12 +228,41 @@ describe("ChannelMenuContent", () => {
             const user = userEvent.setup();
             const onMoveToCategory = vi.fn();
             const vm = Object.assign(makeVm({ categories }), { onMoveToCategory });
-            render(<ChannelMenuView vm={vm} open onOpenChange={() => {}} trigger={<button type="button">general</button>} />);
+            render(
+                <ChannelMenuView
+                    vm={vm}
+                    open
+                    onOpenChange={() => {}}
+                    trigger={<button type="button">general</button>}
+                />,
+            );
             await user.click(screen.getByRole("menuitem", { name: "Move to category" }));
-            expect(await screen.findByRole("menuitem", { name: "No category" })).toBeVisible();
-            expect(screen.getByRole("menuitem", { name: "Text Channels" })).toHaveAttribute("aria-selected", "true");
+            expect(await screen.findByRole("menuitemradio", { name: "No category" })).not.toBeChecked();
+            expect(screen.getByRole("menuitemradio", { name: "Text Channels" })).toBeChecked();
             // Choose it with the keyboard: the pointer would leave the submenu on its way there in this unstyled test.
-            screen.getByRole("menuitem", { name: "Governo" }).focus();
+            screen.getByRole("menuitemradio", { name: "Governo" }).focus();
+            await user.keyboard("{Enter}");
+            expect(onMoveToCategory).toHaveBeenCalledWith("c_7e50cc0b-4fb5-4ed0-89db-769fb11c837e");
+        });
+
+        it("is reachable with the keyboard alone", async () => {
+            const user = userEvent.setup();
+            const onMoveToCategory = vi.fn();
+            const vm = Object.assign(makeVm({ categories }), { onMoveToCategory });
+            render(
+                <ChannelMenuView
+                    vm={vm}
+                    open
+                    onOpenChange={() => {}}
+                    trigger={<button type="button">general</button>}
+                />,
+            );
+            screen.getByRole("menuitem", { name: "Move to category" }).focus();
+            await user.keyboard("{ArrowRight}");
+            const first = await screen.findByRole("menuitemradio", { name: "No category" });
+            await waitFor(() => expect(first).toHaveFocus());
+            await user.keyboard("{ArrowDown}{ArrowDown}");
+            expect(screen.getByRole("menuitemradio", { name: "Governo" })).toHaveFocus();
             await user.keyboard("{Enter}");
             expect(onMoveToCategory).toHaveBeenCalledWith("c_7e50cc0b-4fb5-4ed0-89db-769fb11c837e");
         });
