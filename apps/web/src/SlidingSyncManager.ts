@@ -828,9 +828,26 @@ export class SlidingSyncManager {
             this.applyingSince = undefined;
             if (this.spaceTreeTimer !== undefined) clearTimeout(this.spaceTreeTimer);
             this.spaceTreeTimer = undefined;
+            if (this.listsCoverAccount && this.slidingSync && this.listsOutgrown(this.slidingSync)) {
+                // A room joined since spidering finished can push the least active one out of every list. Until
+                // the lists grow again, joined channels are subscribed as before.
+                this.listsCoverAccount = false;
+                this.spaceTreeChanged = true;
+                void this.startSpidering(this.slidingSync, SPIDER_BATCH_SIZE, SPIDER_GAP_MS);
+            }
             if (this.spaceTreeChanged) this.refreshSpaceChannels();
         }
     };
+
+    /** Whether a list that grows to the whole account now has more rooms than its range covers. */
+    private listsOutgrown(slidingSync: SlidingSync): boolean {
+        return Object.keys(sssLists).some((listName) => {
+            if (FIXED_LISTS.has(listName)) return false;
+            const upperBound = slidingSync.getListParams(listName)?.ranges[0]?.[1];
+            const count = slidingSync.getListData(listName)?.joinedCount ?? 0;
+            return upperBound !== undefined && upperBound < count - 1;
+        });
+    }
 
     /**
      * A Space's valid children in the Space's own order, as it shows them. Sorting looks at every child, so the

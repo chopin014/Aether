@@ -1535,6 +1535,29 @@ describe("SlidingSyncManager", () => {
             await vi.waitFor(() => expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!unseen"])));
         });
 
+        it("subscribes joined channels again when a list outgrows its range after spidering", async () => {
+            const space = knownRoom("!server", "space");
+            knownRoom("!joined").updateMyMembership(KnownMembership.Join);
+            addChildren(space, ["!joined"]);
+            manager.setActiveSpace("!server");
+            let count = 0;
+            vi.spyOn(sync, "getListData").mockImplementation(() => ({ joinedCount: count }));
+            await (
+                manager as unknown as { startSpidering(sync: SlidingSync, batch: number, gap: number): Promise<void> }
+            ).startSpidering(sync, 10, 1);
+            await applied();
+            await vi.waitFor(() => expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server"])));
+
+            // A room joined since pushes the least active one out of the untagged list's range.
+            count = 500;
+            const ranges = vi.spyOn(sync, "setListRanges");
+            await applied();
+            await vi.waitFor(() => expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!joined"])));
+            // Spidering grows the lists again.
+            await applied();
+            await vi.waitFor(() => expect(ranges).toHaveBeenCalledWith("untagged", [[0, expect.any(Number)]]));
+        });
+
         it("leaves out channels the user has left or been banned from", async () => {
             const space = knownRoom("!server", "space");
             for (const [roomId, membership] of [
