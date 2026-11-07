@@ -262,6 +262,8 @@ export class SlidingSyncManager {
     private spaceTree = new Set<string>();
     private spaceChannels = new Set<string>();
     private spaceTreeChanged = false;
+    // Whether every list has grown to cover the whole account, so known rooms are kept up to date by the lists.
+    private listsCoverAccount = false;
     // When the sync response being applied arrived, and the pending read of changes made outside one.
     private applyingSince?: number;
     private spaceTreeTimer?: ReturnType<typeof setTimeout>;
@@ -306,6 +308,7 @@ export class SlidingSyncManager {
         this.spaceLease = undefined;
         this.callLeases.clear();
         this.activeSpaceId = undefined;
+        this.listsCoverAccount = false;
         this.spaceTree = new Set();
         this.spaceChannels = new Set();
         this.stopFollowingSpaceTree();
@@ -906,6 +909,8 @@ export class SlidingSyncManager {
                     ? room?.currentState.getStateEvents(EventType.RoomMember, userId)?.getContent().membership
                     : undefined;
                 if (membership === KnownMembership.Leave || membership === KnownMembership.Ban) continue;
+                // Once the lists cover the whole account, they keep a joined channel up to date already.
+                if (this.listsCoverAccount && room?.getMyMembership() === KnownMembership.Join) continue;
                 if (channels.size < MAX_SPACE_CHANNELS) channels.add(roomId);
             }
         }
@@ -918,8 +923,8 @@ export class SlidingSyncManager {
             return;
         }
         this.spaceChannels = channels;
-        // Someone switched to this Space and is waiting for its channels.
-        this.scheduleFlush(true);
+        // Sent with the next batch: the channel someone opens next is urgent, and carries these along with it.
+        this.scheduleFlush(false);
     }
 
     /** Replace discovery state with the normal subscription once encryption state is known. */
@@ -1023,6 +1028,9 @@ export class SlidingSyncManager {
             if (!hasSetRanges && this.bootstrapRooms.size === 0) {
                 // finish spidering
                 slidingSync.off(SlidingSyncEvent.Lifecycle, lifecycle);
+                // The open Space's channels the lists now cover need no subscription of their own.
+                this.listsCoverAccount = true;
+                if (this.activeSpaceId) this.refreshSpaceChannels();
             }
         };
         slidingSync.on(SlidingSyncEvent.Lifecycle, lifecycle);
