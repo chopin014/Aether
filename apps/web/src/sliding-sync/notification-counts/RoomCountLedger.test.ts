@@ -167,7 +167,8 @@ describe("RoomCountLedger", () => {
         ledger.addRun(events("f", "g"), { kind: "live", continuesTip: false });
         ledger.setContribution("f", NOTIFY);
         ledger.setContribution("g", NOTIFY);
-        expect(ledger.compute().main).toEqual({ total: 3, highlight: 0, confidence: CountConfidence.LowerBound });
+        // "c" could have been redacted in the gap: it counts as last seen.
+        expect(ledger.compute().main).toEqual({ total: 3, highlight: 0, confidence: CountConfidence.LastKnown });
 
         // History before "f" reaches back to "c".
         ledger.addRun(events("c", "d", "e"), { kind: "before", anchor: "f" });
@@ -272,13 +273,58 @@ describe("RoomCountLedger", () => {
         expect(counts.main.total).toBe(1);
     });
 
-    it("keeps a notifying relation to an unknown event with the main timeline, inexactly", () => {
+    it("counts a notifying relation to an unknown event nowhere, and no scope as exact, until its scope is known", () => {
+        const ledger = new RoomCountLedger();
+        ledger.addRun(
+            [
+                { id: "root", own: false },
+                { id: "reply", own: false, threadRoot: "root" },
+            ],
+            { kind: "live", continuesTip: false },
+        );
+        ledger.setContribution("root", SILENT);
+        ledger.setContribution("reply", SILENT);
+        ledger.setReceiptsComplete();
+        ledger.setReceipt(MAIN_SCOPE, "public", "root");
+        ledger.setReceipt("root", "public", "reply");
+        // Relates to a reply of the thread that was not seen, or to anything else.
+        ledger.addRun([{ id: "edit", own: false, relatesTo: "unseen-reply" }], { kind: "live", continuesTip: true });
+        ledger.setContribution("edit", NOTIFY);
+        // The thread's receipt reads it, if it belongs there.
+        ledger.setReceipt("root", "public", "edit");
+
+        let counts = ledger.compute();
+        expect(counts.main).toEqual({ total: 0, highlight: 0, confidence: CountConfidence.Unknown });
+        expect(counts.threads.get("root")).toEqual({ total: 0, highlight: 0, confidence: CountConfidence.Unknown });
+
+        // A receipt covering every scope reads it wherever it belongs.
+        ledger.setReceipt(UNTHREADED_RECEIPT, "public", "edit");
+        counts = ledger.compute();
+        expect(counts.main.confidence).toBe(CountConfidence.Exact);
+        expect(counts.threads.get("root")?.confidence).toBe(CountConfidence.Exact);
+    });
+
+    it("applies a redaction that arrived before the event it redacts", () => {
         const ledger = ledgerWith(["a"]);
         ledger.setReceipt(MAIN_SCOPE, "public", "a");
-        ledger.addRun([{ id: "edit", own: false, relatesTo: "unknown" }], { kind: "live", continuesTip: true });
-        ledger.setContribution("edit", NOTIFY);
+        ledger.setRedacted("b", true);
+        ledger.addRun(events("b", "c"), { kind: "live", continuesTip: true });
+        ledger.setContribution("b", NOTIFY);
+        ledger.setContribution("c", NOTIFY);
 
-        expect(ledger.compute().main).toEqual({ total: 1, highlight: 0, confidence: CountConfidence.LowerBound });
+        expect(ledger.compute().main).toEqual({ total: 1, highlight: 0, confidence: CountConfidence.Exact });
+    });
+
+    it("keeps a known receipt when a receipt it cannot place arrives after it", () => {
+        const ledger = ledgerWith(["a", "b", "c", "d"]);
+        ledger.setReceipt(MAIN_SCOPE, "public", "c");
+        // Such as one sent here for an old event opened from a link: older, and ignored by the server.
+        ledger.setReceipt(MAIN_SCOPE, "public", "old-event-from-a-link");
+
+        expect(ledger.compute().main).toEqual({ total: 1, highlight: 0, confidence: CountConfidence.Exact });
+        // Once its event is known, it is placed like any other.
+        ledger.addRun(events("old-event-from-a-link", "a"), { kind: "before", anchor: "a" });
+        expect(ledger.compute().main).toEqual({ total: 1, highlight: 0, confidence: CountConfidence.Exact });
     });
 
     it("stops counting a redacted event, and counts it again if the redaction is undone", () => {
@@ -296,6 +342,9 @@ describe("RoomCountLedger", () => {
         ledger.setContribution("c", ENCRYPTED);
 
         expect(ledger.compute().main).toEqual({ total: 1, highlight: 0, confidence: CountConfidence.LowerBound });
+        // It waits until it is forgotten, such as once decrypted, rather than being evaluated again and again.
+        expect(ledger.unevaluated()).toEqual([]);
+        ledger.forgetContribution("c");
         expect(ledger.unevaluated()).toEqual(["c"]);
     });
 
@@ -340,6 +389,9 @@ describe("RoomCountLedger", () => {
             ledger.setContribution("m3", ENCRYPTED);
             ledger.setRedacted("m1", true);
             ledger.setReceipt(MAIN_SCOPE, "private", "root");
+            // One it cannot place is kept beside it.
+            ledger.setReceipt(MAIN_SCOPE, "private", "unseen");
+            ledger.setReceipt("root", "public", "r1");
             ledger.setReceiptsComplete();
             ledger.setJoined(true);
 
@@ -401,6 +453,8 @@ describe("RoomCountLedger", () => {
             threadOf: Map<string, string>;
             contribution: Map<string, Contribution>;
             receipts: Array<{ scope: string; at: number }>;
+            /** Redaction events, and the earlier event each redacts. */
+            redacts: Map<string, string>;
         }
 
         /** A small deterministic random generator, so failures can be replayed. */
@@ -428,7 +482,15 @@ describe("RoomCountLedger", () => {
                 const scope = [MAIN_SCOPE, UNTHREADED_RECEIPT, ids[0], ids[1]][Math.floor(next() * 4)];
                 receipts.push({ scope, at: Math.floor(next() * length) });
             }
-            return { ids, own, threadOf, contribution, receipts };
+            const redacts = new Map<string, string>();
+            for (let i = 0; i < 2; i++) {
+                const at = 3 + Math.floor(next() * (length - 3));
+                const redaction = ids[at];
+                if (own.has(redaction) || threadOf.has(redaction)) continue;
+                redacts.set(redaction, ids[Math.floor(next() * at)]);
+                contribution.set(redaction, SILENT);
+            }
+            return { ids, own, threadOf, contribution, receipts, redacts };
         }
 
         /** The counts by scope, from the whole history. The user joined before the first event. */
@@ -450,6 +512,7 @@ describe("RoomCountLedger", () => {
                 const entry = result.get(scope) ?? { total: 0, highlight: 0 };
                 result.set(scope, entry);
                 if (model.own.has(id) || i <= frontier(scope)) return;
+                if ([...model.redacts.values()].includes(id)) return;
                 const contribution = model.contribution.get(id)!;
                 if (contribution.notify) entry.total++;
                 if (contribution.highlight) entry.highlight++;
@@ -462,7 +525,7 @@ describe("RoomCountLedger", () => {
         }
 
         it("matches whenever it says it is exact, and never counts more than there is", () => {
-            const seen = { exact: 0, inexact: 0 };
+            const seen = { exact: 0, inexact: 0, lastKnown: 0 };
             for (let seed = 1; seed <= 300; seed++) {
                 const next = random(seed);
                 const model = makeModel(next, 30);
@@ -481,12 +544,20 @@ describe("RoomCountLedger", () => {
                     const stretch = model.ids.slice(from, cuts[i + 1]);
                     if (stretch.length > 0) stretches.push(stretch);
                 }
+                // A redaction is only learnt of when the redaction itself arrives.
+                const learnRedactions = (delivered: string[]): void => {
+                    for (const id of delivered) {
+                        const target = model.redacts.get(id);
+                        if (target) ledger.setRedacted(target, true);
+                    }
+                };
                 stretches.forEach((stretch, i) => {
                     const continuesTip = i > 0 && stretches[i - 1][stretches[i - 1].length - 1] === stretch[0];
                     ledger.addRun(
                         stretch.map((id) => input(model, id)),
                         { kind: "live", continuesTip },
                     );
+                    learnRedactions(stretch);
                 });
                 for (const id of model.ids) ledger.setContribution(id, model.contribution.get(id)!);
                 // Receipts only move forward, as the server keeps them.
@@ -504,6 +575,7 @@ describe("RoomCountLedger", () => {
                             { kind: "before", anchor: newest[0] },
                         );
                         for (const id of page) ledger.setContribution(id, model.contribution.get(id)!);
+                        learnRedactions(page);
                     }
                 }
 
@@ -522,6 +594,9 @@ describe("RoomCountLedger", () => {
                             scope,
                             ...want,
                         });
+                    } else if (got.confidence === CountConfidence.LastKnown) {
+                        // As last seen: only a redaction in a gap can make it too high.
+                        seen.lastKnown++;
                     } else {
                         seen.inexact++;
                         const over = got.total > want.total || got.highlight > want.highlight;
@@ -532,6 +607,7 @@ describe("RoomCountLedger", () => {
             // Both outcomes are exercised.
             expect(seen.exact).toBeGreaterThan(100);
             expect(seen.inexact).toBeGreaterThan(100);
+            expect(seen.lastKnown).toBeGreaterThan(10);
         });
     });
 });

@@ -199,7 +199,7 @@ describe("SlidingSyncCache", () => {
         const ledger: SavedLedger = {
             version: 1,
             segments: [[["$a", 8 | 16 | 64]]],
-            receipts: { main: { public: "$z" } },
+            receipts: { main: { public: { best: "$z" } } },
             receiptsComplete: true,
         };
         let saved: SavedLedger | "pending" = "pending";
