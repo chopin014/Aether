@@ -171,7 +171,12 @@ describe("MatrixClientPeg", () => {
             const loader = vi.fn(async () => null);
             const snapshotLoader = vi.spyOn(SlidingSyncManager.instance, "snapshotLoader").mockReturnValue(loader);
             const startClient = vi.spyOn(testPeg.safeGet(), "startClient").mockResolvedValue(undefined);
+            // The saved rooms are read while the store and crypto open.
+            const prefetch = vi.spyOn(SlidingSyncManager.instance, "prefetchSnapshot").mockReturnValue(undefined);
+            const initCrypto = vi.spyOn(testPeg.safeGet(), "initRustCrypto").mockResolvedValue(undefined);
             await testPeg.start();
+            expect(prefetch).toHaveBeenCalledWith(testPeg.safeGet());
+            expect(prefetch.mock.invocationCallOrder[0]).toBeLessThan(initCrypto.mock.invocationCallOrder[0]);
             expect(snapshotLoader).toHaveBeenCalledWith(testPeg.safeGet());
             expect(startClient).toHaveBeenCalledWith(expect.objectContaining({ slidingSyncSnapshot: loader }));
         });

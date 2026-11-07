@@ -379,7 +379,7 @@ describe("sliding sync restoring a saved snapshot", () => {
         );
         const states: SyncState[] = [];
         client.on(ClientEvent.Sync, (state) => states.push(state));
-        void api.sync();
+        const syncing = api.sync();
         const timelineIds = (): string[] =>
             client
                 .getRoom(roomId)!
@@ -387,7 +387,7 @@ describe("sliding sync restoring a saved snapshot", () => {
                 .getEvents()
                 .filter((event) => event.getType() === EventType.RoomMessage)
                 .map((event) => event.getId()!);
-        return { client, api, responses, states, timelineIds };
+        return { client, api, responses, states, timelineIds, syncing };
     }
 
     const saved = (fields: Partial<MSC3575RoomData> = {}): SlidingSyncSnapshot => ({
@@ -606,7 +606,7 @@ describe("sliding sync restoring a saved snapshot", () => {
                 onSyncCompleted: () => {},
                 preprocessToDeviceMessages: async (events: unknown[]) => events,
                 processKeyCounts: async () => {},
-                processDeviceLists: async () => {},
+                processSyncChanges: async () => [],
                 onDeviceListsChanged: async () => {},
                 markAllTrackedUsersAsDirty: async () => {},
             } as unknown as SyncCryptoCallbacks;
@@ -695,6 +695,112 @@ describe("sliding sync restoring a saved snapshot", () => {
                     .map((event) => event.getId()),
             ).toEqual(["$mention"]);
             api.stop();
+        });
+    });
+
+    it("sends the first request without waiting to mark device lists out of date, and applies its changes after", async () => {
+        const marking = Promise.withResolvers<void>();
+        const deviceLists = vi.fn();
+        const callbacks = {
+            onCryptoEvent: async () => {},
+            onSyncCompleted: () => {},
+            preprocessToDeviceMessages: async (events: unknown[]) => events,
+            processKeyCounts: async () => {},
+            processSyncChanges: async (changes: { deviceLists?: unknown }) => {
+                deviceLists(changes.deviceLists);
+                return [];
+            },
+            onDeviceListsChanged: async () => {},
+            markAllTrackedUsersAsDirty: () => marking.promise,
+        } as unknown as SyncCryptoCallbacks;
+        const { api, responses } = setup(async () => null, undefined, callbacks);
+        await vi.waitFor(() => expect(responses).toHaveLength(1));
+        responses[0]({ extensions: { e2ee: { device_lists: { changed: ["@bob:example.org"], left: [] } } } });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(deviceLists).not.toHaveBeenCalled();
+        marking.resolve();
+        await vi.waitFor(() => expect(deviceLists).toHaveBeenCalledWith({ changed: ["@bob:example.org"], left: [] }));
+        api.stop();
+    });
+
+    it("holds a response's device lists until marking device lists out of date succeeds, trying again", async () => {
+        const marks = vi.fn().mockRejectedValueOnce(new Error("store busy")).mockResolvedValue(undefined);
+        const deviceLists = vi.fn();
+        const callbacks = {
+            onCryptoEvent: async () => {},
+            onSyncCompleted: () => {},
+            preprocessToDeviceMessages: async (events: unknown[]) => events,
+            processKeyCounts: async () => {},
+            processSyncChanges: async (changes: { deviceLists?: unknown }) => {
+                deviceLists(changes.deviceLists);
+                return [];
+            },
+            onDeviceListsChanged: async () => {},
+            markAllTrackedUsersAsDirty: marks,
+        } as unknown as SyncCryptoCallbacks;
+        const { api, responses } = setup(async () => null, undefined, callbacks);
+        await vi.waitFor(() => expect(responses).toHaveLength(1));
+        responses[0]({ pos: "1", extensions: { e2ee: { device_lists: { changed: ["@bob:example.org"], left: [] } } } });
+        // The first marking failed: the changes wait while it is made again.
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(deviceLists).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(marks).toHaveBeenCalledTimes(2), { timeout: 3000 });
+        await vi.waitFor(() => expect(deviceLists).toHaveBeenCalledWith({ changed: ["@bob:example.org"], left: [] }));
+        // Later requests do not mark again.
+        await vi.waitFor(() => expect(responses).toHaveLength(2));
+        responses[1]({ pos: "2" });
+        await vi.waitFor(() => expect(responses).toHaveLength(3));
+        expect(marks).toHaveBeenCalledTimes(2);
+        api.stop();
+    });
+
+    describe("when the client stops while device lists are being marked out of date", () => {
+        const callbacks = (marks: () => Promise<void>, deviceLists: (lists: unknown) => void): SyncCryptoCallbacks =>
+            ({
+                onCryptoEvent: async () => {},
+                onSyncCompleted: () => {},
+                preprocessToDeviceMessages: async (events: unknown[]) => events,
+                processKeyCounts: async () => {},
+                processSyncChanges: async (changes: { deviceLists?: unknown }) => {
+                    deviceLists(changes.deviceLists);
+                    return [];
+                },
+                onDeviceListsChanged: async () => {},
+                markAllTrackedUsersAsDirty: marks,
+            }) as unknown as SyncCryptoCallbacks;
+        const changes = { extensions: { e2ee: { device_lists: { changed: ["@bob:example.org"], left: [] } } } };
+
+        it("stops waiting for a marking that never ends, and drops the held changes", async () => {
+            const deviceLists = vi.fn();
+            const { api, responses, syncing } = setup(
+                async () => null,
+                undefined,
+                callbacks(() => new Promise<void>(() => {}), deviceLists),
+            );
+            await vi.waitFor(() => expect(responses).toHaveLength(1));
+            responses[0]({ pos: "1", ...changes });
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            api.stop();
+            await syncing;
+            expect(deviceLists).not.toHaveBeenCalled();
+        });
+
+        it("stops waiting to try a failed marking again", async () => {
+            const deviceLists = vi.fn();
+            const marks = vi.fn().mockRejectedValue(new Error("store busy"));
+            const { api, responses, syncing } = setup(async () => null, undefined, callbacks(marks, deviceLists));
+            await vi.waitFor(() => expect(responses).toHaveLength(1));
+            responses[0]({ pos: "1", ...changes });
+            await vi.waitFor(() => expect(marks).toHaveBeenCalledTimes(1));
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            const stopped = Date.now();
+            api.stop();
+            await syncing;
+            // Well within the half second before the next attempt.
+            expect(Date.now() - stopped).toBeLessThan(400);
+            await new Promise((resolve) => setTimeout(resolve, 600));
+            expect(marks).toHaveBeenCalledTimes(1);
+            expect(deviceLists).not.toHaveBeenCalled();
         });
     });
 

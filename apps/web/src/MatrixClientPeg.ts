@@ -251,6 +251,11 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         // such as for the push rules below, wait for it rather than fail with an unknown token first.
         AccessTokenRenewal.start(this.matrixClient);
 
+        // Reading the rooms this device saved for sliding sync takes a while, and needs neither store nor crypto.
+        if (SettingsStore.getValue("feature_simplified_sliding_sync")) {
+            SlidingSyncManager.instance.prefetchSnapshot(this.matrixClient);
+        }
+
         // The SDK needs server capabilities before starting sync. Fetch them while local stores
         // open; getVersions shares its cached request with later SDK feature checks.
         void this.matrixClient.getVersions().catch((error: unknown) => {
