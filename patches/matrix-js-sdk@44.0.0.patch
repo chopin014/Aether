@@ -922,3 +922,43 @@ diff --git a/src/matrixrtc/MembershipManager.ts b/src/matrixrtc/MembershipManage
          return await this.clientSendMembership(myMembership)
              .then(() => {
                  this.setAndEmitProbablyLeft(false);
+diff --git a/src/http-api/fetch.ts b/src/http-api/fetch.ts
+--- a/src/http-api/fetch.ts
++++ b/src/http-api/fetch.ts
+@@ -68,6 +68,15 @@
+         return this.tokenManager.revokeTokens();
+     }
+ 
++    /**
++     * Refresh the access token of an OAuth2-native session now, rather than when a request finds it expired.
++     * Requests made meanwhile wait for it. See {@link TokenManager.refreshNow}.
++     * @returns Whether new tokens were obtained.
++     */
++    public refreshAccessToken(): Promise<boolean> {
++        return this.tokenManager.refreshNow();
++    }
++
+     public fetch(resource: URL | string, options?: RequestInit): ReturnType<typeof globalThis.fetch> {
+         if (this.opts.fetchFn) {
+             return this.opts.fetchFn(resource, options);
+diff --git a/src/http-api/refresh.ts b/src/http-api/refresh.ts
+--- a/src/http-api/refresh.ts
++++ b/src/http-api/refresh.ts
+@@ -112,6 +112,17 @@
+         }
+     }
+ 
++    /**
++     * Refresh the access token now, rather than when a request finds it expired, such as at start-up when the
++     * stored token has expired or soon will. Requests made meanwhile wait for the refresh, so they do not fail first.
++     * A failed refresh is not acted on: a request that then finds the token unknown handles it as usual.
++     * @returns Whether new tokens were obtained. False without a refresh token or OAuth2 client configuration.
++     */
++    public async refreshNow(): Promise<boolean> {
++        if (!this.opts.refreshToken || !this.opts.oauth2ClientConfig) return false;
++        return (await this._handleUnknownToken()) === TokenRefreshOutcome.Success;
++    }
++
+     /**
+      * This function is called when an M_UNKNOWN_TOKEN error is encountered.
+      * It will attempt to refresh the access token if it is unknown, and will return a TokenRefreshOutcome.
