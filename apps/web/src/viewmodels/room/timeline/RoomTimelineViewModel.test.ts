@@ -836,6 +836,38 @@ describe("RoomTimelineViewModel", () => {
             expect(vm.getSnapshot().highlightedEventId).toBe("$m0");
         });
 
+        it("keeps the unread line or a loaded message it is moving to when a sync gap arrives first", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b"), makeMessage("$c")]);
+            room.addAccountData([
+                new MatrixEvent({ type: EventType.FullyRead, room_id: ROOM_ID, content: { event_id: "$a" } }),
+            ]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onAtBottomStateChange(true);
+
+            vm.jumpToReadMarker();
+            room.resetLiveTimeline("gap", undefined);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "read-marker", align: "center" });
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b", "$c"]);
+            expect(vm.getSnapshot().atLiveEnd).toBe(false);
+        });
+
+        it("keeps a loaded message it brings into view when a sync gap arrives before it is placed", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b"), makeMessage("$c")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const items = vm.getSnapshot().items;
+            vm.onVisibleRangeChanged(indexOfKey(items, "$b"), indexOfKey(items, "$c"));
+            vm.onAtBottomStateChange(true);
+
+            vm.scrollToEventIfNeeded("$a");
+            room.resetLiveTimeline("gap", undefined);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$a", align: "center" });
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b", "$c"]);
+        });
+
         it("keeps a message navigated to in a short room while native history is still being expanded", async () => {
             const preparation = Promise.withResolvers<boolean>();
             vi.spyOn(SlidingSyncManager.instance, "initialTimelinePreparation").mockReturnValue(preparation.promise);
@@ -1237,6 +1269,11 @@ describe("RoomTimelineViewModel", () => {
             vm.onJumpToReadMarker(scrollNow);
 
             expect(scrollNow).toHaveBeenCalledWith(expect.objectContaining({ targetKey: "read-marker" }));
+            // The reader is now reading at the marker, so a gap in sync keeps them there.
+            vm.onAtBottomStateChange(false);
+            room.resetLiveTimeline("gap", undefined);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b", "$c"]);
         });
 
         it("offers a jump when the marker is older than the loaded messages", async () => {

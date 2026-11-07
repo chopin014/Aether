@@ -1252,6 +1252,7 @@ export class RoomTimelineViewModel
         const marker = this.snapshot.current.items.find((item) => item.kind === "read-marker");
         if (marker) {
             this.supersedeLoads();
+            this.navigationEventId = this.frozenMarkerEventId;
             this.mergeSnapshot({ pendingAnchor: { targetKey: marker.key, align: "center" } }, "jump-to-marker");
         } else if (this.frozenMarkerEventId) {
             void this.load({ kind: "permalink", eventId: this.frozenMarkerEventId });
@@ -1269,6 +1270,7 @@ export class RoomTimelineViewModel
         if (index < 0) return;
         if (index >= this.visibleStartArrayIndex && index <= this.visibleEndArrayIndex) return;
         this.supersedeLoads();
+        this.navigationEventId = eventId;
         this.mergeSnapshot({ pendingAnchor: { targetKey: eventId, align: "center" } }, "scroll-to-event");
     }
 
@@ -1330,6 +1332,7 @@ export class RoomTimelineViewModel
                 `[TimelineVM] onJumpToReadMarker — marker in window at index ${rmIdx}, scrolling now key=${readMarkerKey}`,
             );
             this.supersedeLoads();
+            this.navigationEventId = this.frozenMarkerEventId;
             scrollNow({ targetKey: readMarkerKey, align: "center" });
         } else if (this.frozenMarkerEventId && this.timelineWindow.canPaginate(Direction.Backward)) {
             // Frozen marker is not in the current window — reload at it.
