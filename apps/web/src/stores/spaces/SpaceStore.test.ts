@@ -1251,6 +1251,18 @@ describe("SpaceStore", () => {
                 expect(localStorage.getItem(`mx_space_context_${space3}`)).toBeNull();
             });
 
+            it("leaves the landing to the user's own leave once they start leaving the channel", () => {
+                store.setActiveSpace(space3);
+                roomView(orphan2, false);
+                const channel = arrive();
+                defaultDispatcher.dispatch({ action: "leave_room", room_id: orphan2 }, true);
+                expect(arrivalListeners.size).toBe(0);
+                // Their leave reaches sync before the leave request finishes.
+                wasLeftWhileAway.mockReturnValue(true);
+                client.emit(RoomEvent.MyMembership, channel, KnownMembership.Leave, KnownMembership.Join);
+                expect(getCurrentRoom()).toBe(orphan2);
+            });
+
             it("stops following once the channel is joined and the server has sent it", () => {
                 store.setActiveSpace(space3);
                 roomView(orphan2, false);

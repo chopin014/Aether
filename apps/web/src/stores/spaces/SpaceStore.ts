@@ -92,7 +92,8 @@ type SpaceStoreActions =
     | ViewRoomPayload
     | ViewHomePagePayload
     | SwitchSpacePayload
-    | AfterLeaveRoomPayload;
+    | AfterLeaveRoomPayload
+    | { action: "leave_room"; room_id: string };
 
 export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
     // The spaces representing the roots of the various tree-like hierarchies
@@ -117,7 +118,8 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
     // The space currently selected in the Space Panel
     private _activeSpace: SpaceKey = MetaSpace.Home; // set properly by onReady
     private cancelMemberPreparation?: () => void;
-    // Stops following a remembered channel that was opened before it arrived.
+    // The remembered channel opened before it arrived, and what stops following it.
+    private followedChannel?: string;
     private stopFollowingRememberedChannel?: () => void;
     private _suggestedRooms: ISuggestedRoom[] = [];
     private _invitedSpaces = new Set<Room>();
@@ -395,7 +397,10 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
             client.off(ClientEvent.Room, onMembership);
             client.off(RoomEvent.MyMembership, onMembership);
             stopArrivals();
-            if (this.stopFollowingRememberedChannel === stop) this.stopFollowingRememberedChannel = undefined;
+            if (this.stopFollowingRememberedChannel === stop) {
+                this.stopFollowingRememberedChannel = undefined;
+                this.followedChannel = undefined;
+            }
         };
         const gone = (): void => {
             stop();
@@ -411,6 +416,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         };
         this.stopFollowingRememberedChannel?.();
         this.stopFollowingRememberedChannel = stop;
+        this.followedChannel = roomId;
         roomViewStore.on(UPDATE_EVENT, check);
         client.on(ClientEvent.Room, onMembership);
         client.on(RoomEvent.MyMembership, onMembership);
@@ -1328,6 +1334,11 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
                     this.setActiveSpace(MetaSpace.Home, false);
                     window.localStorage.setItem(getSpaceContextKey(this.activeSpace), "");
                 }
+                break;
+
+            case "leave_room":
+                // Leaving the channel is the user's own doing, and where they land after is the leave's to decide.
+                if (payload.room_id === this.followedChannel) this.stopFollowingRememberedChannel?.();
                 break;
 
             case Action.AfterLeaveRoom:

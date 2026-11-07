@@ -1036,17 +1036,31 @@ describe("SlidingSyncManager", () => {
             expect(manager.mayStillArrive("!missing")).toBe(true);
         });
 
-        it("notes which rooms the server has sent on this connection, telling listeners once each", async () => {
+        it("notes which rooms the server has sent on this connection, once the response is applied", async () => {
             const changes = vi.fn();
             const stop = manager.onArrivalChange(changes);
+            const data = { name: "Live", required_state: [], timeline: [] };
             expect(manager.hasLiveData("!live")).toBe(false);
-            sync.emit(SlidingSyncEvent.RoomData, "!live", { name: "Live", required_state: [], timeline: [] });
-            sync.emit(SlidingSyncEvent.RoomData, "!live", { name: "Live", required_state: [], timeline: [] });
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+            sync.emit(SlidingSyncEvent.RoomData, "!live", data);
+            sync.emit(SlidingSyncEvent.RoomData, "!live", data);
+            // Its membership, say, is applied after its data arrives: not live until the response completes.
+            expect(manager.hasLiveData("!live")).toBe(false);
+            expect(changes).not.toHaveBeenCalled();
+            await applied();
             expect(manager.hasLiveData("!live")).toBe(true);
-            expect(changes).toHaveBeenCalledOnce();
+            expect(changes).toHaveBeenCalled();
+            // A request that fails applies nothing.
+            sync.emit(SlidingSyncEvent.RoomData, "!failed", data);
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null, new Error("gone"));
+            await applied();
+            expect(manager.hasLiveData("!failed")).toBe(false);
+            // A listener that stopped is told nothing more.
+            const told = changes.mock.calls.length;
             stop();
-            sync.emit(SlidingSyncEvent.RoomData, "!other", { name: "Other", required_state: [], timeline: [] });
-            expect(changes).toHaveBeenCalledOnce();
+            sync.emit(SlidingSyncEvent.RoomData, "!other", data);
+            await applied();
+            expect(changes).toHaveBeenCalledTimes(told);
         });
 
         it("opens a room from this device's saved data, without waiting for the server", async () => {

@@ -271,6 +271,8 @@ export class SlidingSyncManager {
     // Rooms the server has sent data for on this connection, and saved rooms it turned out the user had left while
     // this device was away.
     private readonly liveRooms = new Set<string>();
+    // Rooms the response being applied has data for, published once it has been applied.
+    private readonly arrivingLiveRooms = new Set<string>();
     private readonly leftWhileAway = new Set<string>();
     // Told when it changes whether a room may still arrive or has, such as for a channel opened before it arrived.
     private readonly arrivalListeners = new Set<() => void>();
@@ -330,6 +332,7 @@ export class SlidingSyncManager {
         this.absentRooms.clear();
         this.savedChannelsAsked.clear();
         this.liveRooms.clear();
+        this.arrivingLiveRooms.clear();
         this.leftWhileAway.clear();
         this.spaceTree = new Set();
         this.spaceChannels = new Set();
@@ -895,11 +898,19 @@ export class SlidingSyncManager {
         this.markSpaceTreeChanged(room.roomId);
     };
 
+    // A room's data arrives before the SDK applies it, such as a change of membership: it counts as live once the
+    // response has been applied, on Complete.
     private readonly onLiveRoomData = (roomId: string): void => {
-        if (this.liveRooms.has(roomId)) return;
-        this.liveRooms.add(roomId);
-        this.notifyArrivals();
+        if (!this.liveRooms.has(roomId)) this.arrivingLiveRooms.add(roomId);
     };
+
+    /** Publish the rooms the response just applied had data for. */
+    private publishLiveRooms(): void {
+        if (this.arrivingLiveRooms.size === 0) return;
+        for (const roomId of this.arrivingLiveRooms) this.liveRooms.add(roomId);
+        this.arrivingLiveRooms.clear();
+        this.notifyArrivals();
+    }
 
     private notifyArrivals(): void {
         for (const listener of this.arrivalListeners) listener();
@@ -915,9 +926,13 @@ export class SlidingSyncManager {
         if (state === SlidingSyncState.RequestFinished) {
             // A response is applied between its arrival and Complete. A failed request applies nothing.
             this.applyingSince = error ? undefined : Date.now();
-            if (error) this.scheduleSpaceTreeRead();
+            if (error) {
+                this.arrivingLiveRooms.clear();
+                this.scheduleSpaceTreeRead();
+            }
         } else if (state === SlidingSyncState.Complete) {
             this.applyingSince = undefined;
+            this.publishLiveRooms();
             if (this.spaceTreeTimer !== undefined) clearTimeout(this.spaceTreeTimer);
             this.spaceTreeTimer = undefined;
             if (this.listsCoverAccount && this.slidingSync && this.listsOutgrown(this.slidingSync)) {
