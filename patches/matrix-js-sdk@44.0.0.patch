@@ -195,7 +195,25 @@ diff --git a/src/client.ts b/src/client.ts
 diff --git a/src/models/room.ts b/src/models/room.ts
 --- a/src/models/room.ts
 +++ b/src/models/room.ts
-@@ -1355,7 +1355,8 @@
+@@ -223,6 +223,8 @@
+      * Fires whenever a receipt is received for a room
+      * @param event - The receipt event
+      * @param room - The room whose receipts was updated.
++     * @param synthetic - Whether the receipt was made up on this device, such as the echo of one it sends, rather
++     * than received from the server.
+      * @example
+      * ```
+      * matrixClient.on("Room.receipt", function(event, room){
+@@ -230,7 +232,7 @@
+      * });
+      * ```
+      */
+-    [RoomEvent.Receipt]: (event: MatrixEvent, room: Room) => void;
++    [RoomEvent.Receipt]: (event: MatrixEvent, room: Room, synthetic?: boolean) => void;
+     /**
+      * Fires whenever the name of a room is updated.
+      * @param room - The room whose Room.name was updated.
+@@ -1355,7 +1357,8 @@
      }
  
      private onReceipt = (event: MatrixEvent): void => {
@@ -205,7 +223,7 @@ diff --git a/src/models/room.ts b/src/models/room.ts
              this.clearNotificationsOnReceipt(event);
          }
      };
-@@ -1670,6 +1671,37 @@
+@@ -1670,6 +1673,37 @@
          return this.bumpStamp;
      }
  
@@ -243,7 +261,7 @@ diff --git a/src/models/room.ts b/src/models/room.ts
      /**
       * Set one of the notification counts for this room
       * @param type - The type of notification count to set.
-@@ -3117,6 +3149,23 @@
+@@ -3117,6 +3151,23 @@
          // List of extra events to check for being parents of any relations encountered
          const neighbouringEvents = [...events];
  
@@ -267,7 +285,7 @@ diff --git a/src/models/room.ts b/src/models/room.ts
          for (const event of events) {
              // TODO: We should have a filter to say "only add state event types X Y Z to the timeline".
              this.processLiveEvent(event);
-@@ -3141,7 +3190,8 @@
+@@ -3141,7 +3192,8 @@
              if (!fromCache && !shouldLiveInThread && !shouldLiveInRoom && event.isRelation()) {
                  try {
                      const parentEvent = new MatrixEvent(
@@ -277,7 +295,7 @@ diff --git a/src/models/room.ts b/src/models/room.ts
                      );
                      neighbouringEvents.push(parentEvent);
                      if (parentEvent.threadRootId) {
-@@ -3274,7 +3324,12 @@
+@@ -3274,7 +3326,12 @@
                          // just read a message, not when we are e.g. receiving
                          // an event during the sync. More explanation at:
                          // https://github.com/matrix-org/matrix-js-sdk/issues/3684
@@ -291,7 +309,16 @@ diff --git a/src/models/room.ts b/src/models/room.ts
                              const lastEvent = receiptDestination.timeline[receiptDestination.timeline.length - 1];
                              if (lastEvent && eventId === lastEvent.getId() && userId === lastEvent.getSender()) {
                                  receiptDestination.setUnread(NotificationCountType.Total, 0);
-@@ -4085,3 +4140,25 @@
+@@ -3308,7 +3365,7 @@
+ 
+         // send events after we've regenerated the structure & cache, otherwise things that
+         // listened for the event would read stale data.
+-        this.emit(RoomEvent.Receipt, event, this);
++        this.emit(RoomEvent.Receipt, event, this, synthetic);
+     }
+ 
+     /**
+@@ -4085,3 +4142,25 @@
          }
      }
  }
