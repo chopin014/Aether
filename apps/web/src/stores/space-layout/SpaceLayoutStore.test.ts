@@ -95,6 +95,29 @@ describe("SpaceLayoutStore", () => {
         expect(store.reader(space).get(SPACE_CATEGORY_EVENT_TYPE, CATEGORY)).toMatchObject({ name: "Theirs, later" });
     });
 
+    it("gives way to a newer edit even when the sync skipped ours", async () => {
+        let finish!: (value: { event_id: string }) => void;
+        vi.mocked(client.sendStateEvent).mockReturnValue(new Promise((resolve) => (finish = resolve)));
+        const sending = store.send(space, SPACE_CATEGORY_EVENT_TYPE, CATEGORY, { v: 1, name: "Mine" });
+        receive(stateEvent(SPACE_CATEGORY_EVENT_TYPE, CATEGORY, { v: 1, name: "Theirs, later" }, "$theirs"));
+        finish({ event_id: "$mine" });
+        await sending;
+        expect(store.reader(space).get(SPACE_CATEGORY_EVENT_TYPE, CATEGORY)).toMatchObject({ name: "Theirs, later" });
+    });
+
+    it("stops showing an accepted edit the sync never brings back", async () => {
+        vi.useFakeTimers();
+        try {
+            vi.mocked(client.sendStateEvent).mockResolvedValue({ event_id: "$mine" });
+            await store.send(space, SPACE_CATEGORY_EVENT_TYPE, CATEGORY, { v: 1, name: "Mine" });
+            expect(store.reader(space).get(SPACE_CATEGORY_EVENT_TYPE, CATEGORY)).toMatchObject({ name: "Mine" });
+            await vi.advanceTimersByTimeAsync(30_000);
+            expect(store.reader(space).get(SPACE_CATEGORY_EVENT_TYPE, CATEGORY)).toBeUndefined();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("leaves the next client's edits alone when the previous client's request ends", async () => {
         let fail!: (error: Error) => void;
         vi.mocked(client.sendStateEvent).mockReturnValue(new Promise((_resolve, reject) => (fail = reject)));

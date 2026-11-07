@@ -113,16 +113,16 @@ export function SpaceMenuView({ vm, fullWidth = false }: SpaceMenuViewProps): JS
                             hideChevron
                         />
                     )}
-                    {serverMenu?.canCreateCategory && vm.createCategory && (
-                        <MenuItem
-                            Icon={FolderIcon}
-                            label={_t("desktop|channel_list_menu|create_category")}
-                            onSelect={vm.createCategory}
-                            hideChevron
-                        />
-                    )}
                     <Separator kind="secondary" />
                 </>
+            )}
+            {fullWidth && serverMenu?.canCreateCategory && vm.createCategory && (
+                <MenuItem
+                    Icon={FolderIcon}
+                    label={_t("desktop|channel_list_menu|create_category")}
+                    onSelect={vm.createCategory}
+                    hideChevron
+                />
             )}
             {fullWidth && serverMenu && vm.toggleHideMutedChannels && (
                 <CheckboxMenuItem

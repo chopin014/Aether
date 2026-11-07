@@ -46,6 +46,9 @@ const WATCHED_STATE = new Set<string>([...SPACE_LAYOUT_EVENT_TYPES, EventType.Sp
 
 const slot = (type: string, stateKey: string): string => `${type}\u0000${stateKey}`;
 
+/** How long an accepted edit keeps showing while the sync hasn't brought anything back to its slot. */
+const ECHO_TIMEOUT = 30_000;
+
 /**
  * Reads and writes the shared channel layout of servers, with the edits this client is still sending applied so that
  * a drag or a rename shows at once. The server stays the authority: its copy replaces an edit once it arrives, and
@@ -129,9 +132,18 @@ export class SpaceLayoutStore extends TypedEventEmitter<SpaceLayoutStoreEvent, E
             );
             if (generation !== this.generation || echoes.get(key) !== echo) return;
             echo.sent = true;
-            // The sync may have brought our event back before the request finished, and maybe a newer one after it.
+            // Once anything reached the slot while the request ran, the server's state is at least as new as what
+            // the sync told us: ours came back, or something newer did, possibly without ours in between.
             const current = space.currentState.getStateEvents(type, stateKey)?.getId();
-            if (current === eventId || echo.seen.has(eventId)) this.dropEcho(space.roomId, key, echo);
+            if (current === eventId || echo.seen.size > 0) {
+                this.dropEcho(space.roomId, key, echo);
+                return;
+            }
+            // Otherwise the next event in the slot replaces it. Should none come, stop showing it after a while
+            // rather than hide the server's state for good.
+            setTimeout(() => {
+                if (generation === this.generation) this.dropEcho(space.roomId, key, echo);
+            }, ECHO_TIMEOUT);
         } catch (error) {
             if (generation === this.generation) this.dropEcho(space.roomId, key, echo);
             throw error;
