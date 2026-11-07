@@ -1277,6 +1277,31 @@ export class SlidingSyncManager {
     }
 
     /**
+     * Whether a client syncs with sliding sync: it was set up for it, rather than falling back to regular sync, such
+     * as because its server offers no sliding sync.
+     * @param client - The client.
+     */
+    public isActiveFor(client: MatrixClient | null | undefined): boolean {
+        return !!client && this.client === client && this.slidingSync !== undefined;
+    }
+
+    /**
+     * Ask whether a client's server offers sliding sync, and keep the answer for the settings.
+     * @param client - The client.
+     * @returns Whether it does, or undefined when it could not be asked, such as while offline.
+     */
+    public async serverOffersSlidingSync(client: MatrixClient): Promise<boolean | undefined> {
+        try {
+            const supported = await this.nativeSlidingSyncSupport(client);
+            SlidingSyncManager.serverSupportsSlidingSync = supported;
+            return supported;
+        } catch (error) {
+            logger.warn("SlidingSync: could not ask whether the server offers sliding sync", error);
+            return undefined;
+        }
+    }
+
+    /**
      * Check whether our homeserver has sliding sync support, that the endpoint is up, and
      * is a sliding sync endpoint.
      *

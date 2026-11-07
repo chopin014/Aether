@@ -893,6 +893,34 @@ describe("SlidingSyncManager", () => {
             await manager.checkSupport(client);
             expect(SlidingSyncManager.serverSupportsSlidingSync).toBeTruthy();
         });
+
+        it.each([true, false])(
+            "says whether the server offers sliding sync (%s), and keeps the answer",
+            async (offers) => {
+                SlidingSyncManager.serverSupportsSlidingSync = !offers;
+                vi.spyOn(manager, "nativeSlidingSyncSupport").mockResolvedValue(offers);
+                await expect(manager.serverOffersSlidingSync(client)).resolves.toBe(offers);
+                expect(SlidingSyncManager.serverSupportsSlidingSync).toBe(offers);
+            },
+        );
+
+        it("cannot say whether the server offers sliding sync when it cannot be asked", async () => {
+            vi.spyOn(manager, "nativeSlidingSyncSupport").mockRejectedValue(new Error("offline"));
+            await expect(manager.serverOffersSlidingSync(client)).resolves.toBeUndefined();
+            expect(SlidingSyncManager.serverSupportsSlidingSync).toBe(false);
+        });
+    });
+
+    describe("isActiveFor", () => {
+        it("is true only for the client sliding sync was set up for", async () => {
+            const other = new SlidingSyncManager();
+            expect(other.isActiveFor(client)).toBe(false);
+            const sync = (await other.setup(client))!;
+            expect(other.isActiveFor(client)).toBe(true);
+            expect(other.isActiveFor(stubClient())).toBe(false);
+            expect(other.isActiveFor(null)).toBe(false);
+            sync.stop();
+        });
     });
     describe("room subscription leases", () => {
         const rooms = new Map<string, Room>();

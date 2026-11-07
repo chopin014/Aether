@@ -894,6 +894,8 @@ describe("RoomViewStore", function () {
             vi.spyOn(SettingsStore, "getValue").mockImplementation((settingName, roomId, value) => {
                 return settingName === "feature_simplified_sliding_sync"; // this is enabled, everything else is disabled.
             });
+            // The client syncs with sliding sync.
+            vi.mocked(slidingSyncManager.isActiveFor).mockReturnValue(true);
         });
 
         afterEach(() => {
@@ -903,6 +905,16 @@ describe("RoomViewStore", function () {
             // and can cause a dangling re-dispatch that fires during a later test and crashes on
             // MatrixClientPeg.safeGet() once that room is no longer set up.
             vi.mocked(SettingsStore.getValue).mockRestore();
+            vi.mocked(slidingSyncManager.isActiveFor).mockReset();
+        });
+
+        it("opens rooms as regular sync does when the client fell back to it", async () => {
+            vi.mocked(slidingSyncManager.isActiveFor).mockReturnValue(false);
+            const setRoomVisible = vi.spyOn(slidingSyncManager, "setRoomVisible");
+            dis.dispatch({ action: Action.ViewRoom, room_id: "!sub1:localhost" });
+            await untilDispatch(Action.ActiveRoomChanged, dis);
+            expect(roomViewStore.getRoomId()).toBe("!sub1:localhost");
+            expect(setRoomVisible).not.toHaveBeenCalled();
         });
 
         it("subscribes to the room", async () => {

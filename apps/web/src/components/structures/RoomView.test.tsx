@@ -148,6 +148,8 @@ describe("RoomView", () => {
         cleanup();
         // Later tests delegate to the real getter; retaining an earlier spy would recurse into itself.
         vi.spyOn(SettingsStore, "getValue").mockRestore();
+        // The sliding sync manager is shared by every test's context.
+        vi.spyOn(stores.slidingSyncManager, "isActiveFor").mockRestore();
     });
 
     const mountRoomView = async (
@@ -425,6 +427,7 @@ describe("RoomView", () => {
         vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
             name === "feature_simplified_sliding_sync" ? true : getValue(name, ...args),
         );
+        vi.spyOn(stores.slidingSyncManager, "isActiveFor").mockReturnValue(true);
         cli.hasLazyLoadMembersEnabled.mockReturnValue(true);
         vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
         const cachedHydration = vi.spyOn(room, "loadMembersIfNeeded");

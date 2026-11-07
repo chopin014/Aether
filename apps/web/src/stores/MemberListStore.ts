@@ -151,7 +151,7 @@ export class MemberListStore {
      * @returns True if enabled
      */
     private async isLazyLoadingEnabled(roomId: string): Promise<boolean> {
-        if (SettingsStore.getValue("feature_simplified_sliding_sync")) {
+        if (this.stores.slidingSyncManager.isActiveFor(this.stores.client)) {
             // only unencrypted rooms use lazy loading
             return !(await this.stores.client?.getCrypto()?.isEncryptionEnabledInRoom(roomId));
         }
@@ -163,7 +163,7 @@ export class MemberListStore {
      * @returns True if there is storage for lazy loading members
      */
     private isLazyMemberStorageEnabled(): boolean {
-        if (SettingsStore.getValue("feature_simplified_sliding_sync")) {
+        if (this.stores.slidingSyncManager.isActiveFor(this.stores.client)) {
             return false;
         }
         return this.stores.client!.hasLazyLoadMembersEnabled();

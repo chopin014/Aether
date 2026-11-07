@@ -298,9 +298,17 @@ class MatrixClientPegClass implements IMatrixClientPeg {
             throw new UserFriendlyError("sliding_sync_legacy_no_longer_supported");
         }
 
-        // If the user has enabled the labs feature for sliding sync, set it up
-        // otherwise check if the feature is supported
-        if (SettingsStore.getValue("feature_simplified_sliding_sync")) {
+        // Sliding sync is used when it is turned on and the server offers it. A server that says it does not gets
+        // regular sync instead, as sliding sync cannot work there. One that cannot be asked, such as while offline,
+        // keeps sliding sync, so the rooms saved last time still show. Starting sync waits for the same answer.
+        const slidingSyncOn = SettingsStore.getValue("feature_simplified_sliding_sync");
+        const serverOffersSlidingSync = slidingSyncOn
+            ? await SlidingSyncManager.instance.serverOffersSlidingSync(this.matrixClient)
+            : undefined;
+        if (slidingSyncOn && serverOffersSlidingSync === false) {
+            logger.warn("MatrixClientPeg: the server offers no sliding sync; using regular sync");
+        }
+        if (slidingSyncOn && serverOffersSlidingSync !== false) {
             opts.slidingSync = await SlidingSyncManager.instance.setup(
                 this.matrixClient,
                 this.getInitialRoomId(),
@@ -308,7 +316,7 @@ class MatrixClientPegClass implements IMatrixClientPeg {
             );
             // Show the rooms this device saved last time while the first request is under way.
             opts.slidingSyncSnapshot = SlidingSyncManager.instance.snapshotLoader(this.matrixClient);
-        } else {
+        } else if (!slidingSyncOn) {
             void SlidingSyncManager.instance.checkSupport(this.matrixClient);
         }
 
