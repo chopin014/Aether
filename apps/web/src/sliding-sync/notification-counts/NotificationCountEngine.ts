@@ -182,9 +182,11 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         this.flush();
     };
 
-    private onReceipt = (event: MatrixEvent, room: Room, synthetic?: boolean): void => {
+    private onReceipt = (event: MatrixEvent, room: Room, synthetic?: boolean, implicit?: boolean): void => {
         const me = this.client.getUserId();
-        if (!me) return;
+        // One the SDK makes up for the sender of an event says only that they read up to their own event, which the
+        // ledger counts already for the events it has.
+        if (!me || implicit) return;
         let mine = false;
         // Only the user's receipts matter: others', such as those the SDK makes up for each sender, start no ledger.
         let ledger: RoomCountLedger | undefined;
@@ -195,9 +197,6 @@ export class NotificationCountEngine implements RoomHistoryObserver {
                 const receipt = byUser?.[me] as { thread_id?: unknown } | undefined;
                 if (!kind || !receipt || typeof receipt !== "object") continue;
                 const scope = typeof receipt.thread_id === "string" ? receipt.thread_id : UNTHREADED_RECEIPT;
-                // The SDK makes one up for each event the user sends: the ledger counts their own events as read
-                // up to there already.
-                if (synthetic && room.findEventById(eventId)?.getSender() === me) continue;
                 ledger ??= this.ledgerFor(room.roomId);
                 ledger.setReceipt(scope, kind, eventId, !synthetic);
                 mine = true;
