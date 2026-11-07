@@ -283,6 +283,41 @@ describe("SlidingSyncCache", () => {
         await next.dispose();
     });
 
+    it("shows nothing a deletion under way removes to a cache opened meanwhile, which then keeps working", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        cache.observeRoomData(roomId, data({ timeline: [message("$a")] }));
+        await cache.flush();
+        // A write is under way when the deletion starts, and the next session's cache reads during it.
+        cache.observeRoomData(roomId, data({ timeline: [message("$b")] }));
+        const writing = cache.flush();
+        const deletion = SlidingSyncCache.deleteAll();
+        const next = new SlidingSyncCache(userId, deviceId);
+        const loaded = next.load();
+        await Promise.all([writing, deletion]);
+        await expect(loaded).resolves.toBeNull();
+        expect(next.isClosed).toBe(false);
+        next.observeRoomData("!next:example.org", data({ timeline: [message("$c")] }));
+        await next.flush();
+        await next.dispose();
+        const after = new SlidingSyncCache(userId, deviceId);
+        expect(Object.keys((await after.load())?.rooms ?? {})).toEqual(["!next:example.org"]);
+        await after.dispose();
+    });
+
+    it("finishes deletions that overlap, while a cache waits for them to open", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        cache.observeRoomData(roomId, data({ timeline: [message("$a")] }));
+        await cache.flush();
+        const first = SlidingSyncCache.deleteAll();
+        const waiting = new SlidingSyncCache(userId, deviceId);
+        const loaded = waiting.load();
+        // The second deletion stops the waiting cache, which must not wait for the deletion in turn.
+        const second = SlidingSyncCache.deleteAll();
+        await Promise.all([first, second]);
+        await expect(loaded).resolves.toBeNull();
+        expect(waiting.isClosed).toBe(true);
+    });
+
     it("deletes every session's saved data", async () => {
         const cache = new SlidingSyncCache(userId, deviceId);
         cache.observeRoomData(roomId, data({ timeline: [message("$a")] }));

@@ -246,6 +246,11 @@ class MatrixClientPegClass implements IMatrixClientPeg {
             throw new Error("createClient must be called first");
         }
 
+        // Reading the rooms this device saved for sliding sync takes a while, and needs neither store nor crypto.
+        if (SettingsStore.getValue("feature_simplified_sliding_sync")) {
+            SlidingSyncManager.instance.prefetchSnapshot(this.matrixClient);
+        }
+
         // The SDK needs server capabilities before starting sync. Fetch them while local stores
         // open; getVersions shares its cached request with later SDK feature checks.
         void this.matrixClient.getVersions().catch((error: unknown) => {
