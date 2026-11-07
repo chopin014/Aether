@@ -84,6 +84,33 @@ describe("SpaceLayoutStore", () => {
         await sending;
     });
 
+    it("gives way to a newer edit that arrived after ours while the request was running", async () => {
+        let finish!: (value: { event_id: string }) => void;
+        vi.mocked(client.sendStateEvent).mockReturnValue(new Promise((resolve) => (finish = resolve)));
+        const sending = store.send(space, SPACE_CATEGORY_EVENT_TYPE, CATEGORY, { v: 1, name: "Mine" });
+        receive(stateEvent(SPACE_CATEGORY_EVENT_TYPE, CATEGORY, { v: 1, name: "Mine" }, "$mine"));
+        receive(stateEvent(SPACE_CATEGORY_EVENT_TYPE, CATEGORY, { v: 1, name: "Theirs, later" }, "$theirs"));
+        finish({ event_id: "$mine" });
+        await sending;
+        expect(store.reader(space).get(SPACE_CATEGORY_EVENT_TYPE, CATEGORY)).toMatchObject({ name: "Theirs, later" });
+    });
+
+    it("leaves the next client's edits alone when the previous client's request ends", async () => {
+        let fail!: (error: Error) => void;
+        vi.mocked(client.sendStateEvent).mockReturnValue(new Promise((_resolve, reject) => (fail = reject)));
+        const old = store.send(space, SPACE_CATEGORY_EVENT_TYPE, CATEGORY, { v: 1, name: "Old client" });
+
+        const next = createTestClient();
+        vi.mocked(next.sendStateEvent).mockReturnValue(new Promise(() => {}));
+        store.watch(next);
+        const nextSpace = new Room(space.roomId, next, "@userId:matrix.org");
+        void store.send(nextSpace, SPACE_CATEGORY_EVENT_TYPE, CATEGORY, { v: 1, name: "New client" });
+
+        fail(new Error("logged out"));
+        await expect(old).rejects.toThrow("logged out");
+        expect(store.reader(nextSpace).get(SPACE_CATEGORY_EVENT_TYPE, CATEGORY)).toMatchObject({ name: "New client" });
+    });
+
     it("undoes an edit the server refuses", async () => {
         vi.mocked(client.sendStateEvent).mockRejectedValue(new Error("M_FORBIDDEN"));
         await expect(store.send(space, SPACE_CATEGORY_EVENT_TYPE, CATEGORY, { v: 1, name: "No" })).rejects.toThrow(

@@ -32,7 +32,12 @@ import dispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
 import DMRoomMap from "../../utils/DMRoomMap";
-import { categoryTag, DESKTOP_TEXT_CHANNELS, DESKTOP_VOICE_CHANNELS } from "./DesktopChannelSections";
+import {
+    categoryTag,
+    DESKTOP_TEXT_CHANNELS,
+    DESKTOP_UNCATEGORIZED,
+    DESKTOP_VOICE_CHANNELS,
+} from "./DesktopChannelSections";
 import * as serverCategories from "./serverCategories";
 import * as spaceUtils from "../../utils/space";
 import * as spaceLayoutActions from "../../stores/space-layout/spaceLayoutActions";
@@ -371,6 +376,37 @@ describe("RoomListViewModel", () => {
                 id: DESKTOP_TEXT_CHANNELS,
                 roomIds: [room1.roomId, room3.roomId],
             });
+        });
+
+        it("never collapses the channels outside any category", async () => {
+            setState(SPACE_CHANNEL_EVENT_TYPE, room1.roomId, { v: 1, category: null, order: "B" });
+            viewModel = createViewModel();
+            RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
+            await flushPromises();
+            dispatcher.dispatch({ action: Action.RoomListCollapseAllSections }, true);
+            await flushPromises();
+            viewModel.onSectionOrRoomDragStart();
+            expect(viewModel.getSectionHeaderViewModel(DESKTOP_UNCATEGORIZED).isExpanded).toBe(true);
+            expect(viewModel.getSnapshot().sections[0]).toMatchObject({
+                id: DESKTOP_UNCATEGORIZED,
+                roomIds: [room1.roomId],
+            });
+            viewModel.onSectionOrRoomDragEnd();
+        });
+
+        it("shows a server's categories instead of its empty state when it has no channels yet", async () => {
+            vi.mocked(RoomListStoreV3.instance.getSortedRoomsInActiveSpace).mockReturnValue({
+                spaceId: SPACE_ID,
+                sections: [{ tag: CHATS_TAG, rooms: [] }],
+            });
+            viewModel = createViewModel();
+            // The untouched built-in categories make way for the empty state.
+            expect(viewModel.getSnapshot().isRoomListEmpty).toBe(true);
+
+            setState(SPACE_CATEGORY_EVENT_TYPE, CATEGORY, { v: 1, name: "Governo", order: "A" });
+            await flushPromises();
+            expect(viewModel.getSnapshot().isRoomListEmpty).toBe(false);
+            expect(viewModel.getSnapshot().sections.map((section) => section.id)).toEqual([categoryTag(CATEGORY)]);
         });
 
         it("moves a channel dropped on a category into it, without tagging the room", () => {

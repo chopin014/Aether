@@ -37,6 +37,8 @@ interface Echo {
     content: Record<string, unknown>;
     /** Whether the server has accepted it, so that the next state event in its slot replaces it. */
     sent: boolean;
+    /** The events that reached its slot while it was being sent, which may include ours and newer ones. */
+    seen: Set<string>;
 }
 
 /** State event types that change how a Space's channels are laid out or who may edit that. */
@@ -60,10 +62,14 @@ export class SpaceLayoutStore extends TypedEventEmitter<SpaceLayoutStoreEvent, E
     private client?: MatrixClient;
     private readonly echoes = new Map<string, Map<string, Echo>>();
     private readonly hideMutedEchoes = new Map<string, boolean>();
+    /** Which client the edits belong to, changing whenever another client takes over. */
+    private generation = 0;
 
     /** Follow a client's state and account data. Safe to call again with the same client. */
     public watch(client: MatrixClient): void {
         if (this.client === client) return;
+        // Requests still running for the previous client must leave the new client's edits alone.
+        this.generation++;
         this.client?.off(RoomStateEvent.Events, this.onStateEvent);
         this.client?.off(RoomEvent.AccountData, this.onAccountData);
         this.echoes.clear();
@@ -108,8 +114,9 @@ export class SpaceLayoutStore extends TypedEventEmitter<SpaceLayoutStoreEvent, E
         const echoes = this.echoes.get(space.roomId) ?? new Map<string, Echo>();
         this.echoes.set(space.roomId, echoes);
         const key = slot(type, stateKey);
-        const echo: Echo = { content, sent: false };
+        const echo: Echo = { content, sent: false, seen: new Set() };
         echoes.set(key, echo);
+        const generation = this.generation;
         this.emit(SpaceLayoutStoreEvent.Changed, space.roomId);
 
         try {
@@ -120,13 +127,13 @@ export class SpaceLayoutStore extends TypedEventEmitter<SpaceLayoutStoreEvent, E
                 content as StateEvents[keyof StateEvents],
                 stateKey,
             );
-            if (echoes.get(key) !== echo) return;
+            if (generation !== this.generation || echoes.get(key) !== echo) return;
             echo.sent = true;
-            // The sync may have brought our event back before the request finished.
-            if (space.currentState.getStateEvents(type, stateKey)?.getId() === eventId)
-                this.dropEcho(space.roomId, key);
+            // The sync may have brought our event back before the request finished, and maybe a newer one after it.
+            const current = space.currentState.getStateEvents(type, stateKey)?.getId();
+            if (current === eventId || echo.seen.has(eventId)) this.dropEcho(space.roomId, key, echo);
         } catch (error) {
-            if (echoes.get(key) === echo) this.dropEcho(space.roomId, key);
+            if (generation === this.generation) this.dropEcho(space.roomId, key, echo);
             throw error;
         }
     }
@@ -156,10 +163,12 @@ export class SpaceLayoutStore extends TypedEventEmitter<SpaceLayoutStoreEvent, E
         }
     }
 
-    private dropEcho(spaceId: string, key: string): void {
+    /** Stop showing an edit, if it is still the one shown in its slot. */
+    private dropEcho(spaceId: string, key: string, echo?: Echo): void {
         const echoes = this.echoes.get(spaceId);
-        echoes?.delete(key);
-        if (echoes?.size === 0) this.echoes.delete(spaceId);
+        if (!echoes || (echo && echoes.get(key) !== echo)) return;
+        echoes.delete(key);
+        if (echoes.size === 0) this.echoes.delete(spaceId);
         this.emit(SpaceLayoutStoreEvent.Changed, spaceId);
     }
 
@@ -168,11 +177,14 @@ export class SpaceLayoutStore extends TypedEventEmitter<SpaceLayoutStoreEvent, E
         if (!WATCHED_STATE.has(type)) return;
         const spaceId = event.getRoomId()!;
         const key = slot(type, event.getStateKey()!);
+        const echo = this.echoes.get(spaceId)?.get(key);
         // Once the server accepted our edit, whatever arrives next in its slot is at least as new.
-        if (this.echoes.get(spaceId)?.get(key)?.sent) {
-            this.dropEcho(spaceId, key);
+        if (echo?.sent) {
+            this.dropEcho(spaceId, key, echo);
             return;
         }
+        // Before then, remember what arrived, to tell once the request finishes whether ours came and went.
+        echo?.seen.add(event.getId()!);
         this.emit(SpaceLayoutStoreEvent.Changed, spaceId);
     };
 

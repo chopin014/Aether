@@ -130,7 +130,8 @@ export class RoomListSectionHeaderViewModel
         super(props, {
             id: props.tag,
             title: props.title,
-            isExpanded: isSectionExpanded(props.spaceId, props.tag),
+            // The channels outside any category have no header to open them again, so they never collapse.
+            isExpanded: props.tag === DESKTOP_UNCATEGORIZED || isSectionExpanded(props.spaceId, props.tag),
             isUnread: false,
             displaySectionMenu: !isDefaultSection,
             canBeReordered: isReorderableSection(props.tag, getCustomSectionData()),
@@ -167,6 +168,7 @@ export class RoomListSectionHeaderViewModel
      * This will not trigger the onToggleExpanded callback.
      */
     public set isExpanded(value: boolean) {
+        if (this.props.tag === DESKTOP_UNCATEGORIZED) return;
         // We don't wait to persist the expanded state to storage, as it is not critical and we want the UI to update immediately
         void setSectionExpanded(this.props.spaceId, this.props.tag, value);
         this.snapshot.merge({ isExpanded: value });
@@ -181,7 +183,8 @@ export class RoomListSectionHeaderViewModel
      */
     public setSpace(spaceId: string): void {
         this.props.spaceId = spaceId;
-        const isExpanded = isSectionExpanded(this.props.spaceId, this.props.tag);
+        const isExpanded =
+            this.props.tag === DESKTOP_UNCATEGORIZED || isSectionExpanded(this.props.spaceId, this.props.tag);
         this.snapshot.merge({
             isExpanded,
             createChannelKind: getCreateChannelKind(this.props.tag, spaceId, this.rooms),

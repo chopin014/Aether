@@ -20,6 +20,7 @@ import { Room, type MatrixClient, PendingEventOrdering, RoomType } from "matrix-
 import {
     categoryIdOfTag,
     categoryTitle,
+    DESKTOP_UNCATEGORIZED,
     getDesktopCategories,
     getDesktopChannelSections,
     isConnectedTo,
@@ -241,9 +242,9 @@ export class RoomListViewModel
             getDesktopChannelSections(roomsResult, { selectedRoomId }),
             (tag) => isSectionExpanded(roomsResult.spaceId, tag),
             (room) => keepInCollapsedCategory(room, selectedRoomId),
-            canEditLayout(props.client, roomsResult.spaceId),
+            emptyCategoryFilter(roomsResult, canEditLayout(props.client, roomsResult.spaceId)),
         );
-        const isRoomListEmpty = roomsResult.sections.every((section) => section.rooms.length === 0);
+        const isRoomListEmpty = isEmptyList(roomsResult, sections);
 
         super(props, {
             // Initial view state - start with empty, will populate in async init
@@ -1050,7 +1051,7 @@ export class RoomListViewModel
             this.channelSections(roomsResult),
             (tag) => this.roomSectionHeaderViewModels.get(tag)?.isExpanded ?? true,
             (room) => keepInCollapsedCategory(room, roomId),
-            canEdit,
+            emptyCategoryFilter(this.roomsResult, canEdit),
         );
         this.sections = sections;
 
@@ -1075,7 +1076,7 @@ export class RoomListViewModel
         };
 
         const activeFilterId = this.activeFilter !== undefined ? filterKeyToIdMap.get(this.activeFilter) : undefined;
-        const isRoomListEmpty = roomsResult.sections.every((section) => section.rooms.length === 0);
+        const isRoomListEmpty = isEmptyList(roomsResult, this.sections);
         const isLoadingRooms = RoomListStoreV3.instance.isLoadingRooms;
         const previousSections = this.snapshot.current.sections;
 
@@ -1294,7 +1295,7 @@ function computeSections(
     channelSections: Section[],
     isSectionExpanded: (tag: string) => boolean,
     keepWhenCollapsed: (room: Room) => boolean,
-    showEmptyCategories: boolean,
+    showEmptyCategory: (tag: string) => boolean,
 ): { sections: Section[]; isFlatList: boolean } {
     const customSections = getCustomSectionData();
 
@@ -1305,7 +1306,7 @@ function computeSections(
             (section) =>
                 section.rooms.length > 0 ||
                 (isCustomSectionTag(section.tag) && customSections[section.tag]?.spaceId === roomsResult.spaceId) ||
-                (showEmptyCategories && categoryIdOfTag(section.tag) !== undefined),
+                showEmptyCategory(section.tag),
         );
     const singleDesktopDMSection =
         SettingsStore.getValue("feature_desktop_shell") &&
@@ -1316,8 +1317,9 @@ function computeSections(
         filtered.length === 0 || (filtered.length === 1 && filtered[0].tag === CHATS_TAG) || singleDesktopDMSection;
 
     const sections = filtered.map((section) => {
-        // A flat list has no section header to toggle, so always render its rooms.
-        if (isFlatList || isSectionExpanded(section.tag)) return section;
+        // A flat list has no section header to toggle, and nor do a server's channels outside any category, so
+        // their rooms always show.
+        if (isFlatList || section.tag === DESKTOP_UNCATEGORIZED || isSectionExpanded(section.tag)) return section;
         // A collapsed server category still shows what needs attention, as in Discord. Other sections show nothing.
         return {
             ...section,
@@ -1353,4 +1355,22 @@ function canEditLayout(client: MatrixClient, spaceId: string): boolean {
     if (!isDesktopChannelList(spaceId)) return false;
     const space = client.getRoom(spaceId);
     return !!space && SpaceLayoutStore.instance.canEditLayout(space);
+}
+
+/**
+ * Which empty categories of a server to show: the ones someone made or changed, to the people who can fill them. An
+ * untouched built-in category stays out of the way, so a new server shows its empty state instead.
+ */
+function emptyCategoryFilter(roomsResult: RoomsResult, canEditLayout: boolean): (tag: string) => boolean {
+    if (!canEditLayout) return () => false;
+    const categories = getDesktopCategories(roomsResult);
+    return (tag) => !!categories.get(tag)?.defined;
+}
+
+/** Whether the list has nothing to show: no rooms, and no empty category waiting for some. */
+function isEmptyList(roomsResult: RoomsResult, sections: Section[]): boolean {
+    return (
+        roomsResult.sections.every((section) => section.rooms.length === 0) &&
+        !sections.some((section) => categoryIdOfTag(section.tag) !== undefined)
+    );
 }
