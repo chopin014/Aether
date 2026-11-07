@@ -282,6 +282,89 @@ describe("NotificationCountEngine", () => {
         expect(counts().total).toBe(59);
     });
 
+    describe("@room in a listed room", () => {
+        /** A room whose listed state gives Bob the given power, where everyone is notified from 50. */
+        async function roomWithPower(
+            power: number,
+            timeline: TimelineEvent[],
+            rules: IPushRules = pushRules,
+        ): Promise<{ total: number; highlight: number }> {
+            const { client, respond, counts } = await setup();
+            client.setPushRules(withRoomNotif(rules));
+            const levels = {
+                type: EventType.RoomPowerLevels,
+                state_key: "",
+                sender: me,
+                event_id: "$levels",
+                origin_server_ts: 0,
+                content: { users: { [bob]: power }, notifications: { room: 50 } },
+            };
+            // The lists ask for the members who sent the events they send.
+            const bobMember = {
+                type: EventType.RoomMember,
+                state_key: bob,
+                sender: bob,
+                event_id: "$bob-member",
+                origin_server_ts: 0,
+                content: { membership: "join" },
+            };
+            await respond(
+                {
+                    initial: true,
+                    required_state: [...requiredState, levels, bobMember],
+                    timeline: [message("$a"), ...timeline],
+                },
+                [receipt("$a")],
+            );
+            return counts();
+        }
+        // As the server's rules have it: the older @room rule, which the SDK does not add by itself.
+        const withRoomNotif = (rules: IPushRules): IPushRules => ({
+            global: {
+                ...rules.global,
+                [PushRuleKind.Override]: [
+                    ...rules.global[PushRuleKind.Override]!,
+                    {
+                        rule_id: ".m.rule.roomnotif",
+                        default: true,
+                        enabled: true,
+                        conditions: [
+                            { kind: ConditionKind.EventMatch, key: "content.body", pattern: "@room" },
+                            { kind: ConditionKind.SenderNotificationPermission, key: "room" },
+                        ],
+                        actions: [PushRuleActionName.Notify, { set_tweak: TweakName.Highlight }],
+                    },
+                ],
+            },
+        });
+        const mentionsEveryone = message("$b", "@room hello", bob, { "m.mentions": { room: true } });
+        const saysAtRoom = message("$b", "@room hello", bob);
+        /** Only mentions notify: plain messages do not. */
+        const mentionsOnly: IPushRules = { global: { ...pushRules.global, [PushRuleKind.Underride]: [] } };
+
+        it("highlights an @room from someone who may notify everyone", async () => {
+            await expect(roomWithPower(50, [mentionsEveryone])).resolves.toEqual({ total: 1, highlight: 1 });
+        });
+
+        it("highlights the older form, @room in the text, from someone who may notify everyone", async () => {
+            await expect(roomWithPower(50, [saysAtRoom])).resolves.toEqual({ total: 1, highlight: 1 });
+        });
+
+        it("does not highlight an @room from someone who may not notify everyone", async () => {
+            await expect(roomWithPower(0, [mentionsEveryone])).resolves.toEqual({ total: 1, highlight: 0 });
+        });
+
+        it("notifies only for an @room where only mentions notify", async () => {
+            await expect(
+                roomWithPower(50, [message("$plain", "hello", bob), mentionsEveryone], mentionsOnly),
+            ).resolves.toEqual({ total: 1, highlight: 1 });
+            await expect(roomWithPower(0, [mentionsEveryone], mentionsOnly)).resolves.toEqual({
+                total: 0,
+                highlight: 0,
+            });
+        });
+    });
+
     it("stops counting at the user's own message", async () => {
         const { respond, counts } = await setup();
 

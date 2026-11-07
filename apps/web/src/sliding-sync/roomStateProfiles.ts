@@ -53,16 +53,17 @@ export const CATALOG_STATE: string[][] = [
     [SPACE_TAG_EVENT_TYPE, ""], // a server's tag, shown on its members' profiles
     [EventType.RoomMember, MSC3575_STATE_KEY_ME], // lets the client calculate that we are in fact in the room
     [EventType.RoomMember, MSC3575_STATE_KEY_LAZY], // names and avatars for cached timeline senders
+    // Who may notify everyone: without it, an @room mention neither highlights nor notifies in a listed room.
+    [EventType.RoomPowerLevels, ""],
 ];
 
 /**
  * State the room view, its header, composer and settings read, beyond the catalog. Without it, a room that was
- * first seen in a list would show default permissions, no topic and no pinned messages.
+ * first seen in a list would show no topic and no pinned messages.
  */
 const ROOM_VIEW_STATE: string[][] = [
     [EventType.RoomName, ""],
     [EventType.RoomTopic, ""],
-    [EventType.RoomPowerLevels, ""],
     [EventType.RoomHistoryVisibility, ""],
     [EventType.RoomGuestAccess, ""],
     [EventType.RoomPinnedEvents, ""],
