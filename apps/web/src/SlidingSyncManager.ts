@@ -936,12 +936,16 @@ export class SlidingSyncManager {
             if (state === SyncState.Prepared || state === SyncState.Syncing) watchClient();
         };
         let checking = false;
+        // The saved rooms still to check; all of them until the first check.
+        let unchecked: ReadonlySet<string> | undefined;
         const onComplete = (state: SlidingSyncState, _response: unknown, error?: Error): void => {
             if (checking || state !== SlidingSyncState.Complete || error) return;
             checking = true;
-            void this.dropRoomsLeftWhileAway(client, slidingSync, cache).then((done) => {
+            const candidates = unchecked ?? new Set(cache.restoredRoomIds);
+            void this.dropRoomsLeftWhileAway(client, slidingSync, cache, candidates).then((remaining) => {
                 checking = false;
-                if (done) slidingSync.off(SlidingSyncEvent.Lifecycle, onComplete);
+                unchecked = remaining;
+                if (remaining.size === 0) slidingSync.off(SlidingSyncEvent.Lifecycle, onComplete);
             });
         };
         slidingSync.on(SlidingSyncEvent.RoomData, onRoomData);
@@ -965,19 +969,21 @@ export class SlidingSyncManager {
     /**
      * Treat saved rooms the user is no longer in as left: they left, were removed, or the room was forgotten while
      * this device was away. Sliding sync does not say that a room has gone, so the server's list of joined rooms is
-     * asked once, after the first response. The rooms are shown as left, as a regular sync shows rooms the user has
-     * left, and are not saved again.
-     * @returns Whether the check is over for this connection; false means it should be tried again.
+     * asked after the first response. The rooms are shown as left, as a regular sync shows rooms the user has left,
+     * and are not saved again.
+     * @param candidates - The saved rooms to check.
+     * @returns The rooms to check again after the next response; none once the check is over for this connection.
      */
     private async dropRoomsLeftWhileAway(
         client: MatrixClient,
         slidingSync: SlidingSync,
         cache: SlidingSyncCache,
-    ): Promise<boolean> {
+        candidates: ReadonlySet<string>,
+    ): Promise<ReadonlySet<string>> {
         // Responses are processed only once saved rooms are restored, so by now it is known whether there were any.
-        if (cache.restoredRoomIds.size === 0) return true;
-        // The list may be older than what sliding sync reports while it is fetched, such as a room rejoined
-        // meanwhile. Those rooms are left to sliding sync.
+        if (candidates.size === 0) return candidates;
+        // Data sliding sync reports while the list is fetched may be newer than the list, such as a room rejoined
+        // meanwhile, or older, such as a room left meanwhile. Those rooms are checked again after the next response.
         const reported = new Set<string>();
         const onRoomData = (roomId: string): void => void reported.add(roomId);
         slidingSync.on(SlidingSyncEvent.RoomData, onRoomData);
@@ -986,26 +992,30 @@ export class SlidingSyncManager {
             joined = new Set((await client.getJoinedRooms()).joined_rooms);
         } catch (error) {
             logger.warn("SlidingSync: could not check which saved rooms the user is still in", error);
-            return false;
+            return candidates;
         } finally {
             slidingSync.off(SlidingSyncEvent.RoomData, onRoomData);
         }
-        if (this.slidingSync !== slidingSync || this.client !== client) return true;
-        const gone = [...cache.restoredRoomIds].filter((roomId) => {
-            if (joined.has(roomId) || reported.has(roomId)) return false;
+        if (this.slidingSync !== slidingSync || this.client !== client) return new Set();
+        const recheck = new Set<string>();
+        const gone: string[] = [];
+        for (const roomId of candidates) {
+            if (joined.has(roomId)) continue;
             // An invite is the server's to report.
-            const membership = client.getRoom(roomId)?.getMyMembership();
-            return membership !== KnownMembership.Invite;
-        });
-        if (gone.length === 0) return true;
-        logger.info(`SlidingSync: ${gone.length} saved rooms are no longer joined`);
-        for (const roomId of gone) {
-            const room = client.getRoom(roomId);
-            if (room && room.getMyMembership() !== KnownMembership.Leave)
-                room.updateMyMembership(KnownMembership.Leave);
+            if (client.getRoom(roomId)?.getMyMembership() === KnownMembership.Invite) continue;
+            if (reported.has(roomId)) recheck.add(roomId);
+            else gone.push(roomId);
         }
-        cache.forgetRooms(gone);
-        return true;
+        if (gone.length > 0) {
+            logger.info(`SlidingSync: ${gone.length} saved rooms are no longer joined`);
+            for (const roomId of gone) {
+                const room = client.getRoom(roomId);
+                if (room && room.getMyMembership() !== KnownMembership.Leave)
+                    room.updateMyMembership(KnownMembership.Leave);
+            }
+            cache.forgetRooms(gone);
+        }
+        return recheck;
     }
 
     /**
