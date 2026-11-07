@@ -320,6 +320,36 @@ describe("<TimelineView />", () => {
         expect(Math.abs(centreOffset())).toBeLessThan(1);
     });
 
+    it("reveals promptly when the first load cannot be placed before paint, without waiting for the timeout", async () => {
+        // Rows far shorter than the estimate: the rows mounted first do not reach the anchor at their real heights,
+        // so placing it before the first paint fails and the frames after it settle it instead.
+        const { vm, actions } = makeFakeVm({
+            items: eventItems(200),
+            pendingAnchor: { targetKey: "evt-150", align: "center" },
+        });
+        const started = performance.now();
+        let revealedAfter: number | undefined;
+        actions.onAnchorReached.mockImplementation(() => (revealedAfter ??= performance.now() - started));
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView
+                    vm={vm}
+                    renderItem={(item) => (
+                        <div data-testid={`row-${item.key}`} style={{ height: 12 }}>
+                            {item.key}
+                        </div>
+                    )}
+                />
+            </div>,
+        );
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalledOnce(), { timeout: 3000 });
+        expect(revealedAfter).toBeLessThan(600);
+        const scroller = screen.getByTestId("timeline-scroller");
+        const viewport = scroller.getBoundingClientRect();
+        const target = screen.getByTestId("row-evt-150").getBoundingClientRect();
+        expect(Math.abs((target.top + target.bottom) / 2 - (viewport.top + viewport.bottom) / 2)).toBeLessThan(1);
+    });
+
     it("stays hidden behind the cover then reveals after the anchor settles, when it cannot be placed at once", async () => {
         // Without ResizeObserver rows are measured as they mount, so placement settles over frames.
         vi.stubGlobal("ResizeObserver", undefined);
