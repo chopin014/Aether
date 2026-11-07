@@ -21,10 +21,10 @@ const test = base.extend<{ spaceId: string; roomIds: Record<string, string> }>({
     roomIds: async ({ app }, use) => {
         const voice = { type: "org.matrix.msc3417.call" };
         const names = ["boas-vindas", "memes", "chat-governamental"];
-        const ids = await Promise.all([
-            ...names.map((name) => app.client.createRoom({ name })),
-            app.client.createRoom({ name: "Geral#1", creation_content: voice }),
-        ]);
+        // One at a time, so they are created in this order, which is the order they are listed in.
+        const ids: string[] = [];
+        for (const name of names) ids.push(await app.client.createRoom({ name }));
+        ids.push(await app.client.createRoom({ name: "Geral#1", creation_content: voice }));
         await use(Object.fromEntries([...names, "Geral#1"].map((name, i) => [name, ids[i]])));
     },
     spaceId: async ({ page, app, user, roomIds }, use) => {
@@ -83,6 +83,18 @@ async function dragChannelToCategory(page: Page, name: string, category: string)
     await page.mouse.up();
 }
 
+/** Drag a channel onto another one: it lands before it when dragged up, after it when dragged down. */
+async function dragChannelBeside(page: Page, name: string, target: string): Promise<void> {
+    const source = (await channel(page, name).boundingBox())!;
+    const x = source.x + source.width / 2;
+    await page.mouse.move(x, source.y + source.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(x, source.y + source.height / 2 + 10, { steps: 5 });
+    const box = (await channel(page, target).boundingBox())!;
+    await page.mouse.move(x, box.y + box.height / 2, { steps: 10 });
+    await page.mouse.up();
+}
+
 test("organises a server's channels into categories everyone sees", async ({ page, app, bot, spaceId, roomIds }) => {
     // The built-in categories hold every channel by its kind until someone changes the layout.
     await assertRoomInSection(page, "Text Channels", "memes");
@@ -136,6 +148,27 @@ test("organises a server's channels into categories everyone sees", async ({ pag
     await rejectToastIfExists(page, "Verify this device");
     await app.viewSpaceByName(SERVER);
     await assertRoomInSection(page, "Governo", "chat-governamental");
+
+    // Channels keep the order chosen for them: memes, created after boas-vindas, is dragged above it.
+    await expect(roomList(page).getByRole("row", { name: /^Open room / })).toHaveText([
+        /boas-vindas/,
+        /memes/,
+        /Geral#1/,
+        /chat-governamental/,
+    ]);
+    await dragChannelBeside(page, "memes", "boas-vindas");
+    await expect(roomList(page).getByRole("row", { name: /^Open room / })).toHaveText([
+        /memes/,
+        /boas-vindas/,
+        /Geral#1/,
+        /chat-governamental/,
+    ]);
+
+    // The channel's own menu moves it too, for people who don't drag.
+    await channel(page, "boas-vindas").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Move to category" }).click();
+    await page.getByRole("menuitem", { name: "Governo", exact: true }).click();
+    await assertRoomInSection(page, "Governo", "boas-vindas");
 
     // Renaming from the category's own menu.
     await getSectionHeader(page, "Governo").click({ button: "right" });
