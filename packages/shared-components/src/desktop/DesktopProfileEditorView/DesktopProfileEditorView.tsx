@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import React, { type ChangeEvent, type JSX, type ReactNode, useId, useRef, useState } from "react";
+import React, { type ChangeEvent, type JSX, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Avatar, Button, IconButton, Text } from "@vector-im/compound-web";
 import DeleteIcon from "@vector-im/compound-design-tokens/assets/web/icons/delete";
 import ImageIcon from "@vector-im/compound-design-tokens/assets/web/icons/image";
@@ -113,6 +113,9 @@ const NAME_EFFECT_LABELS: Record<ProfileNameEffect, TranslationKey> = {
     prism: _td("desktop|profile_editor|name_effects|prism"),
     gummy: _td("desktop|profile_editor|name_effects|gummy"),
 };
+
+/** How often a colour being dragged is passed to the editor. */
+const COLOUR_COMMIT_MS = 50;
 
 /** Theme pairs to start from. */
 const THEME_PRESETS: ProfileTheme[] = [
@@ -326,9 +329,35 @@ function ColourField({
     onChange: (value: string) => void;
 }): JSX.Element {
     const id = useId();
+    // The system picker reports every pixel of a drag. The swatch follows each one, but the editor, which redraws the
+    // whole preview and every tile, hears at most one colour per interval, then the final one.
+    const [shown, setShown] = useState(value);
+    const pending = useRef<string | undefined>(undefined);
+    const timer = useRef<number | undefined>(undefined);
+    // The commit runs later, so it always reaches the newest handler rather than the one from when the drag began.
+    const latest = useRef(onChange);
+    useEffect(() => {
+        latest.current = onChange;
+    });
+    useEffect(() => {
+        if (timer.current === undefined) setShown(value);
+    }, [value]);
+    useEffect(() => () => window.clearTimeout(timer.current), []);
+    const flush = (): void => {
+        timer.current = undefined;
+        if (pending.current === undefined) return;
+        const next = pending.current;
+        pending.current = undefined;
+        latest.current(next);
+    };
+    const pick = (next: string): void => {
+        setShown(next);
+        pending.current = next;
+        timer.current ??= window.setTimeout(flush, COLOUR_COMMIT_MS);
+    };
     return (
         <label className={styles.colour} htmlFor={id}>
-            <input id={id} type="color" value={value} onChange={(event) => onChange(event.target.value)} />
+            <input id={id} type="color" value={shown} onChange={(event) => pick(event.target.value)} />
             <span>{label}</span>
         </label>
     );
