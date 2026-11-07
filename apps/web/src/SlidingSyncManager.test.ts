@@ -1858,6 +1858,17 @@ describe("SlidingSyncManager", () => {
             expect(dispose.mock.contexts).toContain(early);
         });
 
+        it("writes what it keeps at once when the page is hidden or closed", async () => {
+            await manager.setup(client);
+            const cache = (manager as unknown as { cache: { flushNow(): void } }).cache;
+            const flushNow = vi.spyOn(cache, "flushNow");
+            window.dispatchEvent(new Event("pagehide"));
+            expect(flushNow).toHaveBeenCalledTimes(1);
+            vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+            document.dispatchEvent(new Event("visibilitychange"));
+            expect(flushNow).toHaveBeenCalledTimes(2);
+        });
+
         it("keeps no saved rooms for a session without a device", async () => {
             vi.mocked(client.getDeviceId).mockReturnValue(null);
             await manager.setup(client);

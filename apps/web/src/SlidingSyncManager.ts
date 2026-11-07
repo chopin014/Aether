@@ -1305,10 +1305,11 @@ export class SlidingSyncManager {
         const onRoomAccountData = (event: MatrixEvent, room: Room): void =>
             cache.observeRoomAccountData(room.roomId, event);
         const onReceipt = (event: MatrixEvent, room: Room): void => cache.observeReceipt(room.roomId, event);
+        // Hidden or closing pages may not run another task, so the write starts in this one.
         const onPageHidden = (): void => {
-            if (document.visibilityState === "hidden") void cache.flush();
+            if (document.visibilityState === "hidden") cache.flushNow();
         };
-        const onPageHide = (): void => void cache.flush();
+        const onPageHide = (): void => cache.flushNow();
         // Account data and receipts are watched from the first Prepared state onwards. Restoring the saved
         // session announces the same events, which need not be saved again.
         let watchingClient = false;
