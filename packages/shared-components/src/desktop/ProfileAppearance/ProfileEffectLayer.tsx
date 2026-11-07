@@ -14,6 +14,8 @@ import styles from "./ProfileArt.module.css";
 
 /** Discord waits this long after a card opens before its effect starts, so the card lands first. */
 const INTRO_DELAY_S = 0.5;
+/** Effects are soft light and particles, which need no more pixels than this even across a whole dialog. */
+const MAX_EFFECT_PIXELS = 1_500_000;
 
 interface ProfileEffectLayerProps {
     id: ProfileEffectId;
@@ -38,7 +40,14 @@ export function ProfileEffectLayer({
     const scene = useMemo(() => effectScene(id, seed), [id, seed]);
     return (
         <div className={styles.effect} data-effect={id} data-dimmed={dimmed} aria-hidden="true">
-            <ArtCanvas className={styles.effectCanvas} scene={scene} live={live} fps={fps} from={-INTRO_DELAY_S} />
+            <ArtCanvas
+                className={styles.effectCanvas}
+                scene={scene}
+                live={live}
+                fps={fps}
+                from={-INTRO_DELAY_S}
+                maxPixels={MAX_EFFECT_PIXELS}
+            />
         </div>
     );
 }

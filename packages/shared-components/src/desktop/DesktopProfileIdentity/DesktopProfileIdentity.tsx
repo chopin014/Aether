@@ -166,7 +166,9 @@ export function DesktopProfileSurface({
                             id={appearance.effect}
                             seed={userId}
                             live={motion.allowed}
-                            dimmed={motion.hovered}
+                            // A card steps its effect back while it is being read. A full profile fills the whole
+                            // dialog, so dimming there would fade the effect in and out with every pointer movement.
+                            dimmed={motion.hovered && !backdrop}
                         />
                     )}
                     {children}

@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@test-utils";
 
 import { ProfileNameplate } from "./ProfileNameplate";
+import { ProfileEffectLayer } from "./ProfileEffectLayer";
 import { type ProfileNameplateValue } from "./profileCatalogue";
 
 function Row({ nameplate, live = false }: { nameplate: ProfileNameplateValue; live?: boolean }): React.JSX.Element {
@@ -43,5 +44,16 @@ describe("ProfileNameplate", () => {
         rerender(<Row nameplate={nameplate} live />);
         expect(sources()).toEqual(["https://example.org/still.png", "https://example.org/moving.gif"]);
         expect(screen.getByTestId("row").querySelector("[data-live]")).toHaveAttribute("data-live", "true");
+    });
+
+    it("draws an effect across a whole dialog at no more than its pixel budget", () => {
+        const { container } = render(
+            <div style={{ position: "relative", width: 1500, height: 1000 }}>
+                <ProfileEffectLayer id="embers" seed="@robin:example.org" live={false} />
+            </div>,
+        );
+        const canvas = container.querySelector("canvas")!;
+        expect(canvas.width * canvas.height).toBeLessThanOrEqual(1_500_000 * 1.02);
+        expect(canvas.width / canvas.height).toBeCloseTo(1.5, 1);
     });
 });

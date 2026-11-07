@@ -66,8 +66,16 @@ interface ArtCanvasProps {
     live: boolean;
     className?: string;
     style?: CSSProperties;
-    /** Frames per second while moving. Small art reads as smooth at less than the display's rate. */
+    /**
+     * Frames per second while moving, for places where many canvases animate at once. Left out, every display frame
+     * is drawn, which keeps motion even on high refresh rate screens.
+     */
     fps?: number;
+    /**
+     * The most device pixels to draw. A canvas covering a whole dialog is drawn at a lower density beyond this, which
+     * soft artwork does not show but which keeps each frame cheap.
+     */
+    maxPixels?: number;
     /**
      * Where the animation starts when it is live from the moment it appears. A negative time delays it, as a card's
      * effect waits a moment after the card opens. A still canvas always shows the scene's rest frame.
@@ -80,7 +88,15 @@ interface ArtCanvasProps {
  * stops; live, it animates from that same frame, so starting and stopping never jump. Nothing runs while the page is
  * hidden.
  */
-export function ArtCanvas({ scene, live, className, style, fps = 60, from }: ArtCanvasProps): JSX.Element {
+export function ArtCanvas({
+    scene,
+    live,
+    className,
+    style,
+    fps,
+    from,
+    maxPixels = Infinity,
+}: ArtCanvasProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     // Where the animation stopped, so the next start continues from there instead of restarting.
     const clock = useRef<number | undefined>(undefined);
@@ -101,7 +117,7 @@ export function ArtCanvas({ scene, live, className, style, fps = 60, from }: Art
         let frame = 0;
         let last = 0;
         let lastDrawn = 0;
-        const interval = 1000 / fps;
+        const interval = fps ? 1000 / fps : 0;
 
         const draw = (): void => {
             if (!width || !height) return;
@@ -122,9 +138,11 @@ export function ArtCanvas({ scene, live, className, style, fps = 60, from }: Art
                 last = now;
                 return;
             }
+            // The clock follows real time, so motion keeps its speed whatever the screen's refresh rate.
             if (last) clock.current = (clock.current ?? scene.rest) + Math.min(0.1, (now - last) / 1000);
             last = now;
-            if (now - lastDrawn < interval - 2) return;
+            // A capped rate skips whole display frames: a little early is close enough, so frames land evenly.
+            if (interval && now - lastDrawn < interval * 0.9) return;
             lastDrawn = now;
             draw();
         };
@@ -134,7 +152,8 @@ export function ArtCanvas({ scene, live, className, style, fps = 60, from }: Art
             const nextWidth = Math.round(box.width);
             const nextHeight = Math.round(box.height);
             // Twice the pixels is sharp on any screen; more costs memory without a visible gain.
-            const nextRatio = Math.min(2, window.devicePixelRatio || 1);
+            const fit = Math.sqrt(maxPixels / Math.max(1, nextWidth * nextHeight));
+            const nextRatio = Math.round(Math.min(2, window.devicePixelRatio || 1, fit) * 100) / 100;
             if (nextWidth === width && nextHeight === height && nextRatio === ratio) return;
             width = nextWidth;
             height = nextHeight;
@@ -152,7 +171,7 @@ export function ArtCanvas({ scene, live, className, style, fps = 60, from }: Art
             observer?.disconnect();
             cancelAnimationFrame(frame);
         };
-    }, [scene, live, fps, from]);
+    }, [scene, live, fps, from, maxPixels]);
 
     return <canvas ref={canvasRef} className={className} style={style} aria-hidden="true" />;
 }

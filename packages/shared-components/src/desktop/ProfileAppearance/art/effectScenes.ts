@@ -20,6 +20,7 @@ import {
     glow,
     makeLayer,
     mix,
+    noise2,
     paintField,
     pulse,
     rgba,
@@ -335,8 +336,9 @@ function aurora(seed: string): ArtScene {
                     const wave =
                         Math.sin(u * 5 + t * speed + phase) * 0.05 + Math.sin(u * 13 - t * speed * 1.6) * 0.015;
                     const bottom = h * (foot + wave);
-                    const tall = h * (0.12 + 0.12 * fbm(u * 4 + t * 0.08 * speed, phase, 2, 3)) * rise;
-                    const flicker = 0.5 + 0.5 * fbm(u * 14 + t * 0.5, phase + t * 0.15, 7, 2);
+                    // Single-octave noise: rays are thin enough that finer detail would never show.
+                    const tall = h * (0.12 + 0.12 * noise2(u * 4 + t * 0.08 * speed, phase, 2)) * rise;
+                    const flicker = 0.5 + 0.5 * noise2(u * 14 + t * 0.5, phase + t * 0.15, 7);
                     ctx.globalAlpha = strength * flicker * 0.32;
                     ctx.drawImage(sprite, x, bottom - tall, 2.2, tall);
                 }
