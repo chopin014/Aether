@@ -285,6 +285,41 @@ describe("<TimelineView />", () => {
         },
     );
 
+    it("keeps a first load placed before paint in place when a row above grows before the scroll is read back", async () => {
+        const { vm, actions } = makeFakeVm({
+            items: eventItems(50),
+            pendingAnchor: { targetKey: "evt-35", align: "center" },
+        });
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView
+                    vm={vm}
+                    renderItem={(item) => (
+                        <div data-testid={`row-${item.key}`} style={{ height: ROW_HEIGHT }}>
+                            {item.key}
+                        </div>
+                    )}
+                />
+            </div>,
+        );
+        expect(actions.onAnchorReached).toHaveBeenCalledExactlyOnceWith("evt-35");
+        const scroller = screen.getByTestId("timeline-scroller");
+        const centreOffset = (): number => {
+            const viewport = scroller.getBoundingClientRect();
+            const target = screen.getByTestId("row-evt-35").getBoundingClientRect();
+            return (target.top + target.bottom) / 2 - (viewport.top + viewport.bottom) / 2;
+        };
+        expect(Math.abs(centreOffset())).toBeLessThan(1);
+        // In the same task as the placement, before any scroll event: a mounted row above the anchor grows.
+        const above = [...scroller.querySelectorAll<HTMLElement>("[data-testid^='row-evt-']")].find(
+            (row) => row.getBoundingClientRect().bottom <= scroller.getBoundingClientRect().top,
+        );
+        expect(above).toBeDefined();
+        above!.style.height = `${ROW_HEIGHT + 100}px`;
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        expect(Math.abs(centreOffset())).toBeLessThan(1);
+    });
+
     it("stays hidden behind the cover then reveals after the anchor settles, when it cannot be placed at once", async () => {
         // Without ResizeObserver rows are measured as they mount, so placement settles over frames.
         vi.stubGlobal("ResizeObserver", undefined);

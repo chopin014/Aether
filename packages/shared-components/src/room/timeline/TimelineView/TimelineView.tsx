@@ -117,19 +117,23 @@ function placeBeforePaint(
     if (!scroller.ownerDocument.defaultView?.ResizeObserver) return false;
     const mounted = [...virtualizer.elementsCache.values()].filter((element) => element.isConnected);
     if (mounted.length === 0) return false;
-    // Read every height first, then write them: interleaving would force a layout per row.
+    // Read every height first, then record them in one batch: the virtualizer moves the rows once, after the last
+    // one, so measuring does not force a layout per row.
     const heights = mounted.map((element) => Math.round(element.getBoundingClientRect().height));
+    const sizes: [number, number][] = [];
     mounted.forEach((element, i) => {
         const rowIndex = virtualizer.indexFromElement(element);
-        if (rowIndex >= 0) virtualizer.resizeItem(rowIndex, heights[i]);
+        if (rowIndex >= 0) sizes.push([rowIndex, heights[i]]);
         measured.add(element);
     });
+    virtualizer.resizeItems(sizes);
     // Row positions are worked out again only when asked for. The total size asks, so the offset below and the
     // check after it use the heights just measured.
     virtualizer.getTotalSize();
     const target = virtualizer.getOffsetForIndex(index, align);
     if (!target) return false;
-    scroller.scrollTop = target[0];
+    // Through the virtualizer, so a row resizing before the scroll is read back is compensated from this offset.
+    virtualizer.scrollToOffsetNow(target[0]);
     const top = scroller.scrollTop;
     // The browser clamps the scroll; a short list is in place at whatever it allows.
     if (Math.abs(target[0] - top) > 1.5 && top + scroller.clientHeight < scroller.scrollHeight - 1.5) return false;

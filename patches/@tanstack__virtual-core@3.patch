@@ -1,5 +1,5 @@
 diff --git a/dist/esm/index.d.ts b/dist/esm/index.d.ts
-index c9065e7..8c8f81c 100644
+index c9065e73a2565430fc05ec61783490abc0a6d3c0..293ae7124a221f04f50d31e7ccfeb207f0bfa09f 100644
 --- a/dist/esm/index.d.ts
 +++ b/dist/esm/index.d.ts
 @@ -83,6 +83,12 @@ export interface VirtualizerOptions<TScrollElement extends Element | Window, TIt
@@ -15,8 +15,24 @@ index c9065e7..8c8f81c 100644
      followOnAppend?: FollowOnAppend;
      scrollEndThreshold?: number;
      isScrollingResetDelay?: number;
+@@ -168,6 +174,15 @@ export declare class Virtualizer<TScrollElement extends Element | Window, TItemE
+     private shouldMeasureDuringScroll;
+     measureElement: (node: TItemElement | null) => void;
+     resizeItem: (index: number, size: number) => void;
++    /**
++     * Resize several items as one batch, notifying once afterwards. Element-web patch, pending upstream.
++     */
++    resizeItems: (sizes: ReadonlyArray<readonly [index: number, size: number]>) => void;
++    /**
++     * Scroll to an offset at once, noting it as the offset meant, without steering towards it over the next frames.
++     * Element-web patch, pending upstream.
++     */
++    scrollToOffsetNow: (offset: number) => void;
+     getVirtualItems: {
+         (): VirtualItem[];
+         updateDeps(newDeps: [number[], VirtualItem[]]): void;
 diff --git a/dist/esm/index.js b/dist/esm/index.js
-index dcba044..d04e2c3 100644
+index dcba044582148f2b8923163b1a431571230bdfef..a757e5cc589b34438eaf350f3d1f104d57b37f42 100644
 --- a/dist/esm/index.js
 +++ b/dist/esm/index.js
 @@ -331,7 +331,24 @@ class Virtualizer {
@@ -107,7 +123,39 @@ index dcba044..d04e2c3 100644
          );
          const shouldAdjustScroll = ((_d = this.scrollState) == null ? void 0 : _d.behavior) !== "smooth" && (this.shouldAdjustScrollPositionOnItemSizeChange !== void 0 ? this.shouldAdjustScrollPositionOnItemSizeChange(
            // The callback expects a VirtualItem; build one lazily only
-@@ -1274,16 +1320,19 @@ class Virtualizer {
+@@ -1249,6 +1295,31 @@ class Virtualizer {
+       }
+       this.options.scrollToFn(offset, { behavior, adjustments }, this);
+     };
++    // Measure several items at once, as a ResizeObserver callback does: the DOM updates, and the notification, are
++    // made once after every size is recorded, so measuring rows does not force a layout per row.
++    // Element-web patch, pending upstream.
++    this.resizeItems = (sizes) => {
++      const outer = this._resizeBatch;
++      const batch = outer ?? { sync: false };
++      this._resizeBatch = batch;
++      try {
++        for (const [index, size] of sizes) this.resizeItem(index, size);
++      } finally {
++        this._resizeBatch = outer;
++        if (!outer && batch.notify) {
++          this.notify(batch.sync);
++          this._retryClampedAdjustment();
++        }
++      }
++    };
++    // Scroll to an offset at once, and note it as the offset meant, without the frames scrollToOffset then spends
++    // steering towards it. A row resizing before the scroll is read back is compensated from this offset; after
++    // scrollToOffset it would wait for the read-back, and the steering would hold the old pixel offset.
++    // Element-web patch, pending upstream.
++    this.scrollToOffsetNow = (offset) => {
++      this.scrollState = null;
++      this._scrollToOffset(offset, { adjustments: void 0, behavior: "auto" });
++    };
+     this.measure = () => {
+       this.pendingMin = null;
+       this.itemSizeCache.clear();
+@@ -1274,16 +1345,19 @@ class Virtualizer {
        }
        return false;
      } else {
