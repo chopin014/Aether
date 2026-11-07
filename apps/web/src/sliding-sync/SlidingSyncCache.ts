@@ -94,6 +94,8 @@ export class SlidingSyncCache {
     private readonly removedRooms = new Set<string>();
     private accountDataDirty = false;
     private database?: Promise<IDBDatabase | null>;
+    // The database once open, so a write can be started in the calling task.
+    private openDatabase?: IDBDatabase;
     private writeTimer?: ReturnType<typeof setTimeout>;
     private writing: Promise<void> = Promise.resolve();
     private loadedRoomIds: ReadonlySet<string> = new Set();
@@ -419,12 +421,36 @@ export class SlidingSyncCache {
         }
     }
 
+    /**
+     * Write pending changes in the calling task, as when the page is being closed: a write that starts later, after
+     * another task has run, may never happen. Before the database is open, this is {@link flush}.
+     */
+    public flushNow(): void {
+        if (this.writeTimer !== undefined) clearTimeout(this.writeTimer);
+        this.writeTimer = undefined;
+        const database = this.openDatabase;
+        if (!database || this.disposed) {
+            void this.flush();
+            return;
+        }
+        // Write transactions on the same stores commit in the order they are created, so this lands after any write
+        // already under way, which took the changes before these.
+        const written = this.writePending(database);
+        this.writing = this.writing.then(() => written);
+    }
+
     private async write(): Promise<void> {
         if (this.disposed) return;
         if (this.dirtyRooms.size === 0 && this.removedRooms.size === 0 && !this.accountDataDirty) return;
         const database = await this.open();
         // Stopped while the database opened, such as by a logout deleting it.
         if (!database || this.disposed) return;
+        await this.writePending(database);
+    }
+
+    /** Put the pending changes in a transaction straight away, and wait for it to finish. */
+    private async writePending(database: IDBDatabase): Promise<void> {
+        if (this.dirtyRooms.size === 0 && this.removedRooms.size === 0 && !this.accountDataDirty) return;
         this.trimQuietRooms();
         const dirty = [...this.dirtyRooms];
         const removed = [...this.removedRooms];
@@ -441,6 +467,8 @@ export class SlidingSyncCache {
             }
             for (const roomId of removed) rooms.delete(roomId);
             if (accountDataDirty) transaction.objectStore(META).put([...this.accountData.values()], "accountData");
+            // Nothing more is added, so it can commit now rather than at the end of the task.
+            transaction.commit?.();
             await transactionDone(transaction);
         } catch (error) {
             // Writing again later would hit the same problem; the next session starts from the server instead.
@@ -485,8 +513,10 @@ export class SlidingSyncCache {
                 // anything more, so the data is not recreated.
                 database.onversionchange = (): void => {
                     database.close();
+                    this.openDatabase = undefined;
                     void this.invalidate();
                 };
+                this.openDatabase = database;
                 resolve(database);
             };
             request.onerror = (): void => {

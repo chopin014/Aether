@@ -9,7 +9,7 @@ Please see LICENSE in the repository root for full details.
 
 import "fake-indexeddb/auto";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { EventType, MatrixEvent } from "matrix-js-sdk/src/matrix";
 import { type MSC3575RoomData } from "matrix-js-sdk/src/sliding-sync";
 
@@ -215,6 +215,41 @@ describe("SlidingSyncCache", () => {
         reopened.forgetRooms([roomId]);
         expect(Object.keys(snapshot.rooms)).toEqual(["!other:example.org"]);
         await reopened.dispose();
+    });
+
+    it("starts writing in the calling task when the page closes, so the write is not lost", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        // The database is open once anything has been read or written.
+        await cache.load();
+        cache.observeRoomData(roomId, data({ timeline: [message("$a")] }));
+        const transaction = vi.spyOn(IDBDatabase.prototype, "transaction");
+        cache.flushNow();
+        // Created before any other task or microtask could run.
+        expect(transaction).toHaveBeenCalledWith(["rooms", "meta"], "readwrite");
+        transaction.mockRestore();
+        const snapshot = (await (await reopen(cache)).load())!;
+        expect(snapshot.rooms[roomId].timeline.map((event) => event.event_id)).toEqual(["$a"]);
+    });
+
+    it("still writes when the page closes before the database has opened", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        cache.observeRoomData(roomId, data({ timeline: [message("$a")] }));
+        cache.flushNow();
+        const snapshot = (await (await reopen(cache)).load())!;
+        expect(Object.keys(snapshot.rooms)).toEqual([roomId]);
+    });
+
+    it("keeps the newest data when a closing write follows one already under way", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        await cache.load();
+        cache.observeRoomData(roomId, data({ name: "First", timeline: [message("$a")] }));
+        const earlier = cache.flush();
+        cache.observeRoomData(roomId, data({ name: "Second", timeline: [message("$b")] }));
+        cache.flushNow();
+        await earlier;
+        const snapshot = (await (await reopen(cache)).load())!;
+        expect(snapshot.rooms[roomId].name).toBe("Second");
+        expect(snapshot.rooms[roomId].timeline.map((event) => event.event_id)).toEqual(["$a", "$b"]);
     });
 
     it("writes nothing more once its saved data has been deleted, such as at logout", async () => {
