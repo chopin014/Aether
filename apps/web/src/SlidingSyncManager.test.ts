@@ -1186,9 +1186,15 @@ describe("SlidingSyncManager", () => {
             addChildren(space, ["!a"]);
             await applied();
             expect(sync.getRoomSubscriptions()).not.toContain("!a");
+            // The response that brings the Space is still being applied.
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, {
+                pos: "p",
+                lists: {},
+                rooms: {},
+                extensions: {},
+            });
             rooms.set("!server", space);
             client.emit(ClientEvent.Room, space);
-            // The rest of the response is still being processed.
             await tick();
             expect(sync.getRoomSubscriptions()).not.toContain("!a");
             await applied();
@@ -1214,8 +1220,14 @@ describe("SlidingSyncManager", () => {
             addChildren(space, ["!category"]);
             await applied();
             expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!c"]));
-            // Leaving: sync announces the member event, and works out the membership only after processing more of
-            // the response. Nothing is read until the response has been applied.
+            // Leaving: a response arrives, sync announces the member event while applying it, and works out the
+            // membership only after processing more of it. Nothing is read until the response has been applied.
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, {
+                pos: "p",
+                lists: {},
+                rooms: {},
+                extensions: {},
+            });
             client.emit(
                 RoomStateEvent.Events,
                 new MatrixEvent({
