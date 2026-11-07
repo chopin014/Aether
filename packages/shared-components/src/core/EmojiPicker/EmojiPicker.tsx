@@ -32,7 +32,7 @@ import styles from "./EmojiPicker.module.css";
 
 const ZERO_WIDTH_JOINER = "\u200D";
 
-export const EMOJI_HEIGHT = 35;
+export const EMOJI_HEIGHT = 44;
 export const EMOJIS_PER_ROW = 8;
 
 const CATEGORY_CONFIG: Category[] = [
@@ -396,6 +396,9 @@ export function EmojiPicker({
                 return (
                     <div className={styles.category} data-category-id={category.id} role="gridcell">
                         <Heading as="h2" className={styles.categoryLabel}>
+                            <span className={styles.categoryIcon} aria-hidden="true">
+                                {category.emoji}
+                            </span>
                             {_t(category.untranslatedName)}
                         </Heading>
                     </div>

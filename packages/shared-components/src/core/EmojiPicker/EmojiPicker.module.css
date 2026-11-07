@@ -6,44 +6,64 @@
  * Please see LICENSE files in the repository root for full details.
  */
 
+/*
+ * Laid out like Discord's picker: the search box across the top, a rail of categories down the left, the emoji in
+ * large cells beside it, and a footer that previews the emoji under the pointer.
+ */
 .picker {
-    width: 340px;
-    height: min(450px, 80vh);
+    --emoji-picker-cell: 44px;
+
+    width: calc(48px + 8 * var(--emoji-picker-cell) + var(--cpd-space-6x));
+    height: min(460px, 80vh);
     max-height: 80vh;
+    border-radius: 8px;
+    overflow: hidden;
 
-    border-radius: 4px;
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+        "search search"
+        "rail body"
+        "footer footer";
+}
 
+/* The category rail. Each category shows its emoji in grey until it is chosen or pointed at, like Discord's icons. */
+.header {
+    grid-area: rail;
     display: flex;
     flex-direction: column;
-}
-
-.body {
-    margin-left: var(--cpd-space-1-5x);
-    flex: 1;
-    overflow-y: scroll;
-}
-
-.header {
-    padding: var(--cpd-space-1x) var(--cpd-space-2x) 0;
-    border-bottom: 1px solid var(--cpd-color-gray-400);
+    align-items: center;
+    gap: var(--cpd-space-0-5x);
+    padding: var(--cpd-space-2x) 0;
+    overflow-y: auto;
+    scrollbar-width: none;
+    background-color: var(--cpd-color-bg-subtle-secondary);
+    border-top: 1px solid var(--cpd-color-border-interactive-secondary);
 }
 
 .anchor {
+    position: relative;
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
     border: none;
-    padding: var(--cpd-space-1x) 0;
+    border-radius: 8px;
+    background-color: transparent;
     /* We have to explicitly inherit the font as button browser styles are implicitly ignorant */
     font: inherit;
-    font-size: var(--cpd-font-size-heading-sm);
+    font-size: 18px;
     line-height: 1;
-    border-bottom: 2px solid transparent;
-    background-color: transparent;
-    border-radius: 4px 4px 0 0;
-
-    width: 36px;
-    height: 36px;
-
     color: var(--cpd-color-text-primary);
-    display: inline-block;
+    filter: grayscale(1);
+    opacity: 0.55;
+    transition:
+        filter 150ms ease-out,
+        opacity 150ms ease-out,
+        background-color 150ms ease-out;
 
     /*
      * These have 'text' in them because they're emoji, but it doesn't make sense for the user
@@ -56,31 +76,63 @@
     }
 
     &:disabled {
-        filter: opacity(0.3);
+        opacity: 0.2;
     }
 
     &:not(:disabled):hover {
+        filter: none;
+        opacity: 1;
         background-color: var(--cpd-color-bg-subtle-primary);
-        border-bottom: 2px solid var(--cpd-color-text-action-accent);
+    }
+
+    &:focus-visible {
+        outline: 2px solid var(--cpd-color-border-focused);
+        outline-offset: -2px;
     }
 }
 
+/* The chosen category is in colour, with a pill at the rail's edge like a selected server's. */
 .anchorSelected {
-    border-bottom: 2px solid var(--cpd-color-text-action-accent);
+    filter: none;
+    opacity: 1;
+    background-color: var(--cpd-color-bg-subtle-primary);
+
+    &::before {
+        content: "";
+        position: absolute;
+        inset-inline-start: -8px;
+        width: 4px;
+        height: 16px;
+        border-radius: 0 4px 4px 0;
+        background-color: var(--cpd-color-text-primary);
+    }
 }
 
 .search {
-    margin: 8px;
-    border-radius: 4px;
-    border: 1px solid var(--cpd-color-border-interactive-secondary);
-    background-color: var(--cpd-color-bg-canvas-default);
+    grid-area: search;
     display: flex;
+    align-items: center;
+    height: 36px;
+    margin: var(--cpd-space-3x);
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background-color: var(--cpd-color-bg-subtle-secondary);
+    transition: border-color 150ms ease-out;
+
+    &:focus-within {
+        border-color: var(--cpd-color-border-focused);
+    }
 
     input {
         flex: 1;
+        min-width: 0;
+        height: 100%;
         border: none;
-        padding: var(--cpd-space-1x) var(--cpd-space-3x);
-        border-radius: 4px 0;
+        outline: none;
+        padding: 0 var(--cpd-space-3x);
+        background-color: transparent;
+        color: var(--cpd-color-text-primary);
+        font: var(--cpd-font-body-md-regular);
 
         &::placeholder {
             color: var(--cpd-color-text-secondary);
@@ -88,14 +140,21 @@
     }
 
     button {
-        border: none;
-        background-color: inherit;
-        margin: 0;
-        padding: var(--cpd-space-2x);
-        align-self: center;
+        display: grid;
+        place-items: center;
         width: 32px;
         height: 32px;
+        margin: 0;
+        padding: var(--cpd-space-2x);
+        border: none;
+        border-radius: 4px;
+        background-color: inherit;
+        color: var(--cpd-color-icon-secondary);
         cursor: pointer;
+
+        &:hover {
+            color: var(--cpd-color-icon-primary);
+        }
 
         svg {
             width: 100%;
@@ -105,23 +164,42 @@
 }
 
 .searchIcon {
-    width: 18px;
-    margin: var(--cpd-space-2x);
+    width: 20px;
+    margin: 0 var(--cpd-space-2x);
 
     svg {
+        display: block;
         width: 100%;
         height: 100%;
-        color: var(--cpd-color-text-primary);
+        color: var(--cpd-color-icon-secondary);
     }
 }
 
+.body {
+    grid-area: body;
+    overflow-y: scroll;
+    padding: 0 0 var(--cpd-space-2x) var(--cpd-space-2x);
+    border-top: 1px solid var(--cpd-color-border-interactive-secondary);
+}
+
+/* A category's heading, with its emoji in grey before the name. */
 .category {
-    padding: 0 var(--cpd-space-3x);
+    padding: var(--cpd-space-3x) var(--cpd-space-1x) var(--cpd-space-1x);
 }
 
 .categoryLabel {
-    width: 304px;
-    font: var(--cpd-font-heading-sm-semibold);
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-1-5x);
+    margin: 0;
+    font: var(--cpd-font-body-sm-semibold);
+    color: var(--cpd-color-text-secondary);
+}
+
+.categoryIcon {
+    font-size: 14px;
+    line-height: 1;
+    filter: grayscale(1);
 }
 
 .list {
@@ -129,77 +207,78 @@
     margin: 0;
 }
 
-/* A single row of emoji within the grid. Fixed to the width of EMOJIS_PER_ROW
-   cells so the row never wraps, offset to align with the category headers. */
+/* A single row of emoji within the grid, EMOJIS_PER_ROW cells wide so it never wraps. */
 .row {
-    width: 304px;
-    margin: 0 var(--cpd-space-3x);
+    display: flex;
+    width: calc(8 * var(--emoji-picker-cell));
 }
 
 .itemWrapper {
-    display: inline-block;
+    flex: none;
+    width: var(--emoji-picker-cell);
+    height: var(--emoji-picker-cell);
     list-style: none;
-    width: 38px;
     cursor: pointer;
-
-    &:focus-within {
-        background-color: var(--cpd-color-bg-subtle-primary);
-    }
-}
-
-.bodyShowHighlight .itemWrapper [tabindex="0"] .item {
-    background-color: var(--cpd-color-bg-subtle-primary);
 }
 
 .item {
-    display: inline-block;
-    font-size: var(--cpd-font-size-heading-sm);
-    padding: 5px;
+    display: grid;
+    place-items: center;
     width: 100%;
     height: 100%;
     box-sizing: border-box;
-    text-align: center;
-    border-radius: 4px;
+    border-radius: 6px;
+    font-size: 28px;
+    line-height: 1;
+    transition: background-color 100ms ease-out;
 
     &:hover {
         background-color: var(--cpd-color-bg-subtle-primary);
     }
 }
 
+.itemWrapper:focus-within .item,
+.bodyShowHighlight .itemWrapper [tabindex="0"] .item {
+    background-color: var(--cpd-color-bg-subtle-primary);
+}
+
+/* Emoji the user has already reacted with. */
 .itemSelected {
-    color: rgb(0, 0, 0, 0.5);
-    border: 1px solid var(--cpd-color-text-action-accent);
-    padding: var(--cpd-space-1x);
+    background-color: color-mix(in srgb, var(--cpd-color-text-action-accent) 16%, transparent);
+    box-shadow: inset 0 0 0 1px var(--cpd-color-text-action-accent);
 }
 
-.categoryLabel,
-.previewName {
-    font-size: 1rem;
-    font-weight: var(--cpd-font-weight-semibold);
-    margin: 0;
-}
-
+/* The footer: the emoji under the pointer, or the quick reactions while there is none. */
 .footer {
-    border-top: 1px solid var(--cpd-color-gray-400);
-    min-height: 72px;
-    max-height: 72px;
-
+    grid-area: footer;
     display: flex;
     align-items: center;
+    gap: var(--cpd-space-3x);
+    box-sizing: border-box;
+    min-height: 72px;
+    max-height: 72px;
+    padding: 0 var(--cpd-space-4x);
+    border-top: 1px solid var(--cpd-color-border-interactive-secondary);
+    background-color: var(--cpd-color-bg-subtle-secondary);
 }
 
 .previewEmoji {
-    font-size: var(--cpd-font-size-heading-xl);
-    padding: var(--cpd-space-2x) var(--cpd-space-4x);
+    font-size: 32px;
+    line-height: 1;
 }
 
 .previewText {
     display: flex;
     flex: 1;
-    overflow: hidden;
-    padding-top: 1rem;
-    padding-bottom: 1rem;
     flex-direction: column;
+    gap: var(--cpd-space-0-5x);
+    min-width: 0;
+}
+
+.previewName {
+    margin: 0;
+    font: var(--cpd-font-body-md-semibold);
+    color: var(--cpd-color-text-primary);
 }
 
 .name {
@@ -208,8 +287,8 @@
 
 .shortcode {
     color: var(--cpd-color-text-secondary);
-    overflow-wrap: break-word;
-    font: var(--cpd-font-body-md-regular);
+    overflow-wrap: anywhere;
+    font: var(--cpd-font-body-sm-regular);
 
     &::before,
     &::after {
@@ -219,9 +298,29 @@
 
 .quick {
     flex-direction: column;
-    justify-content: space-around;
+    align-items: flex-start;
+    justify-content: center;
+    gap: var(--cpd-space-0-5x);
+    padding: 0 var(--cpd-space-3x);
+
+    .list {
+        display: flex;
+    }
+
+    .itemWrapper {
+        width: 40px;
+        height: 40px;
+    }
+
+    .item {
+        font-size: 24px;
+    }
 }
 
-.quickHeader .name {
-    margin-right: var(--cpd-space-1x);
+.quickHeader {
+    padding-inline-start: var(--cpd-space-1x);
+
+    .name {
+        margin-right: var(--cpd-space-1x);
+    }
 }

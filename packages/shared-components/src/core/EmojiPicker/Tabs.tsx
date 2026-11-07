@@ -53,6 +53,10 @@ const getDefaultAction = (ev: React.KeyboardEvent): RovingAction | undefined => 
             return RovingAction.ArrowLeft;
         case "ArrowRight":
             return RovingAction.ArrowRight;
+        case "ArrowUp":
+            return RovingAction.ArrowUp;
+        case "ArrowDown":
+            return RovingAction.ArrowDown;
         case "Home":
             return RovingAction.Home;
         case "End":
@@ -63,7 +67,7 @@ const getDefaultAction = (ev: React.KeyboardEvent): RovingAction | undefined => 
 };
 
 /**
- * The tab bar at the top of the emoji picker with a tab for each category.
+ * The rail down the side of the emoji picker with a tab for each category, like Discord's.
  */
 export const Tabs: React.FC<Props> = ({
     categories,
@@ -113,11 +117,14 @@ export const Tabs: React.FC<Props> = ({
             let handled = true;
 
             const action = getAction?.(ev) ?? getDefaultAction(ev);
+            // The tabs run down the side of the picker, so up and down move between them as left and right do.
             switch (action) {
                 case RovingAction.ArrowLeft:
+                case RovingAction.ArrowUp:
                     changeCategoryRelative(-1);
                     break;
                 case RovingAction.ArrowRight:
+                case RovingAction.ArrowDown:
                     changeCategoryRelative(1);
                     break;
 
@@ -148,7 +155,13 @@ export const Tabs: React.FC<Props> = ({
     }
 
     return (
-        <nav className={styles.header} role="tablist" aria-label={_t("emoji|categories")} onKeyDown={onKeyDown}>
+        <nav
+            className={styles.header}
+            role="tablist"
+            aria-label={_t("emoji|categories")}
+            aria-orientation="vertical"
+            onKeyDown={onKeyDown}
+        >
             {categories.map((category) => {
                 const classes = classNames(styles.anchor, {
                     [styles.anchorSelected]: category.id === selectedCategory,
