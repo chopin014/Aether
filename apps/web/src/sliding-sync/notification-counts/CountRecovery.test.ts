@@ -50,7 +50,7 @@ function hostFor(filledBy: Map<string, string>): CountRecoveryHost & { pages: Ma
     const pages = new Map<string, string[][]>();
     return {
         pages,
-        recoveryAnchor: (roomId) => anchors.get(roomId) ?? undefined,
+        recoveryAnchor: (roomId) => anchors.get(roomId) || undefined,
         addHistory: (room, events, anchor) => {
             const ids = events.map((event: MatrixEvent) => event.getId()!);
             pages.set(room.roomId, [...(pages.get(room.roomId) ?? []), ids]);
@@ -212,6 +212,87 @@ describe("CountRecovery", () => {
         room.getLiveTimeline().setPaginationToken("later", EventTimeline.BACKWARDS);
         recovery.request(room, "$a");
         await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    });
+
+    /** Start the room's timeline again at a newer event, with a token for the history before it. */
+    function restartAt(room: Room, client: MatrixClient, first: string, token: string): void {
+        room.resetLiveTimeline(token, null);
+        void room.addLiveEvents([client.getEventMapper()(raw(room.roomId, first))], { addToState: false });
+    }
+
+    it("lets a newer gap take the place of one waiting", async () => {
+        const { client } = setup();
+        const room = roomWith(client, "!r:example.org", "$a", "before-a");
+        const request = vi
+            .spyOn(client, "createMessagesRequest")
+            .mockResolvedValue({ chunk: [raw(room.roomId, "$old")], start: "before-e" });
+        const host = hostFor(new Map([[room.roomId, "$old"]])) as ReturnType<typeof hostFor> & {
+            set: (roomId: string, anchor: string) => void;
+        };
+        const recovery = new CountRecovery(client, host);
+        host.set(room.roomId, "$a");
+        recovery.request(room, "$a");
+
+        // Before the room list has found every room, a newer sync leaves another gap.
+        restartAt(room, client, "$e", "before-e");
+        host.set(room.roomId, "$e");
+        recovery.request(room, "$e");
+        recovery.allow();
+        await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+
+        expect(request.mock.calls[0][1]).toBe("before-e");
+    });
+
+    it("does not use a page for a gap that went while it was fetched, and fetches the gap there is now", async () => {
+        const { client } = setup();
+        const room = roomWith(client, "!r:example.org", "$a", "before-a");
+        const answers: Array<(value: { chunk: IRoomEvent[]; start: string }) => void> = [];
+        const request = vi
+            .spyOn(client, "createMessagesRequest")
+            .mockImplementation(() => new Promise((resolve) => answers.push(resolve)));
+        const host = hostFor(new Map([[room.roomId, "$old"]])) as ReturnType<typeof hostFor> & {
+            set: (roomId: string, anchor: string) => void;
+        };
+        const recovery = new CountRecovery(client, host);
+        recovery.allow();
+        host.set(room.roomId, "$a");
+        recovery.request(room, "$a");
+        await vi.waitFor(() => expect(answers).toHaveLength(1));
+
+        // Meanwhile, a newer sync leaves another gap.
+        restartAt(room, client, "$e", "before-e");
+        host.set(room.roomId, "$e");
+        recovery.request(room, "$e");
+        answers[0]({ chunk: [raw(room.roomId, "$z")], start: "before-a" });
+        await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+
+        expect(host.pages.get(room.roomId)).toBeUndefined();
+        expect(request.mock.calls[1][1]).toBe("before-e");
+    });
+
+    it("does not use a page for a gap a receipt closed while it was fetched", async () => {
+        const { client } = setup();
+        const room = roomWith(client, "!r:example.org", "$a", "before-a");
+        const answers: Array<(value: { chunk: IRoomEvent[]; start: string }) => void> = [];
+        const request = vi
+            .spyOn(client, "createMessagesRequest")
+            .mockImplementation(() => new Promise((resolve) => answers.push(resolve)));
+        const host = hostFor(new Map()) as ReturnType<typeof hostFor> & {
+            set: (roomId: string, anchor: string) => void;
+        };
+        const recovery = new CountRecovery(client, host);
+        recovery.allow();
+        host.set(room.roomId, "$a");
+        recovery.request(room, "$a");
+        await vi.waitFor(() => expect(answers).toHaveLength(1));
+
+        // Read up to the newest message meanwhile: no gap matters any more.
+        host.set(room.roomId, "");
+        answers[0]({ chunk: [raw(room.roomId, "$z")], start: "before-a", end: "older" } as never);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(host.pages.get(room.roomId)).toBeUndefined();
+        expect(request).toHaveBeenCalledTimes(1);
     });
 
     it("fetches nothing until allowed, nor once stopped", async () => {
