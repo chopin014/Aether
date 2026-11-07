@@ -35,6 +35,8 @@ import { SlidingSyncSdk } from "matrix-js-sdk/src/sliding-sync-sdk";
 
 import { createClientWithCreds } from "../utils/createMatrixClient";
 
+type SyncCryptoCallbacks = NonNullable<ConstructorParameters<typeof SlidingSyncSdk>[3]["cryptoCallbacks"]>;
+
 const roomId = "!room:example.org";
 const userId = "@alice:example.org";
 
@@ -343,7 +345,11 @@ describe("sliding sync requests", () => {
 describe("sliding sync restoring a saved snapshot", () => {
     afterEach(() => vi.restoreAllMocks());
 
-    function setup(load: () => Promise<SlidingSyncSnapshot | null>, prepare?: (client: MatrixClient) => void) {
+    function setup(
+        load: () => Promise<SlidingSyncSnapshot | null>,
+        prepare?: (client: MatrixClient) => void,
+        cryptoCallbacks?: SyncCryptoCallbacks,
+    ) {
         const client = makeClient();
         prepare?.(client);
         vi.spyOn(client, "getPushRules").mockResolvedValue({ global: {} } as never);
@@ -365,7 +371,12 @@ describe("sliding sync restoring a saved snapshot", () => {
             return promise;
         }) as never);
         const sync = new SlidingSync("https://example.org", new Map(), {}, client, 20_000);
-        const api = new SlidingSyncSdk(sync, client, { lazyLoadMembers: true, slidingSyncSnapshot: load }, { logger });
+        const api = new SlidingSyncSdk(
+            sync,
+            client,
+            { lazyLoadMembers: true, slidingSyncSnapshot: load },
+            { logger, cryptoCallbacks },
+        );
         const states: SyncState[] = [];
         client.on(ClientEvent.Sync, (state) => states.push(state));
         void api.sync();
@@ -568,31 +579,90 @@ describe("sliding sync restoring a saved snapshot", () => {
             api.stop();
         });
 
-        it("applies nothing more to a client stopped while a saved room is being applied", async () => {
-            const snapshot = many();
-            snapshot.roomAccountData = { [id(0)]: [{ type: "m.tag", content: { tags: { "u.work": {} } } }] };
+        /** A saved room that is encrypted, so applying it waits on the crypto layer. */
+        const encrypted = (roomId: string, bump: number): MSC3575RoomData => {
+            const data = savedRoom(roomId, bump);
+            data.required_state = [
+                ...data.required_state,
+                {
+                    type: EventType.RoomEncryption,
+                    state_key: "",
+                    sender: userId,
+                    room_id: roomId,
+                    event_id: `$encryption-${roomId}`,
+                    origin_server_ts: 0,
+                    content: { algorithm: "m.megolm.v1.aes-sha2" },
+                },
+            ];
+            return data;
+        };
+        /** Crypto callbacks that hold a room's encryption event until released. */
+        const holdCrypto = (heldRoomId: string): { callbacks: SyncCryptoCallbacks; release: () => void } => {
             const held = Promise.withResolvers<void>();
-            let holding = true;
-            const original = (
-                SlidingSyncSdk.prototype as unknown as { processRoomData: (...args: unknown[]) => Promise<void> }
-            ).processRoomData;
-            vi.spyOn(
-                SlidingSyncSdk.prototype as unknown as { processRoomData: (...args: unknown[]) => Promise<void> },
-                "processRoomData",
-            ).mockImplementation(async function (this: unknown, ...args: unknown[]) {
-                await original.apply(this, args);
-                // The room opened at start waits, as an encrypted room can wait on the crypto layer.
-                if (holding && (args[1] as { roomId: string }).roomId === id(0)) await held.promise;
-            });
-            const { client, api, states } = setup(async () => snapshot);
-            await vi.waitFor(() => expect(client.getRoom(id(0))).not.toBeNull());
+            const callbacks = {
+                onCryptoEvent: async (room: { roomId: string }) => {
+                    if (room.roomId === heldRoomId) await held.promise;
+                },
+                onSyncCompleted: () => {},
+                preprocessToDeviceMessages: async (events: unknown[]) => events,
+                processKeyCounts: async () => {},
+                processDeviceLists: async () => {},
+                onDeviceListsChanged: async () => {},
+                markAllTrackedUsersAsDirty: async () => {},
+            } as unknown as SyncCryptoCallbacks;
+            return { callbacks, release: () => held.resolve() };
+        };
+
+        it("applies nothing more to a client stopped while a saved room waits on the crypto layer", async () => {
+            const snapshot = many();
+            snapshot.rooms[id(0)] = encrypted(id(0), 10);
+            snapshot.roomAccountData = { [id(0)]: [{ type: "m.tag", content: { tags: { "u.work": {} } } }] };
+            const crypto = holdCrypto(id(0));
+            const { client, api, states } = setup(async () => snapshot, undefined, crypto.callbacks);
+            const heard: string[] = [];
+            client.on(ClientEvent.Event, (event) => heard.push(event.getId()!));
+            await vi.waitFor(() => expect(heard).toContain(`$encryption-${id(0)}`));
             api.stop();
-            holding = false;
-            held.resolve();
+            const afterStop = heard.length;
+            crypto.release();
             await new Promise((resolve) => setTimeout(resolve, 50));
-            expect(client.getRoom(id(0))!.getAccountData("m.tag")).toBeUndefined();
+            // The saved message after the encryption event, the account data and the other rooms never arrive.
+            expect(heard).toHaveLength(afterStop);
+            expect(client.getRoom(id(0))?.getAccountData("m.tag")).toBeUndefined();
             expect(states).not.toContain(SyncState.Prepared);
-            expect(client.getRooms()).toHaveLength(1);
+            expect(client.getRooms().map((room) => room.roomId)).toEqual([id(0)]);
+        });
+
+        it("drops live data that waited on a saved room's restore when the client stops", async () => {
+            const snapshot = many();
+            snapshot.rooms[id(1)] = encrypted(id(1), 11);
+            const crypto = holdCrypto(id(1));
+            // Note live data as it arrives, so the client is stopped while it waits on the saved data.
+            type RoomDataHandler = (roomId: string, data: MSC3575RoomData, fromSnapshot?: boolean) => Promise<void>;
+            const prototype = SlidingSyncSdk.prototype as unknown as { onRoomData: RoomDataHandler };
+            const onRoomData = prototype.onRoomData;
+            const liveRooms: string[] = [];
+            vi.spyOn(prototype, "onRoomData").mockImplementation(function (this: unknown, roomId, data, fromSnapshot) {
+                if (!fromSnapshot) liveRooms.push(roomId);
+                return onRoomData.call(this, roomId, data, fromSnapshot);
+            });
+            const { client, api, responses } = setup(async () => snapshot, undefined, crypto.callbacks);
+            await vi.waitFor(() => expect(responses).toHaveLength(1));
+            // Live data for a room waiting its turn; applying its saved data waits on the crypto layer.
+            responses[0]({
+                rooms: {
+                    [id(1)]: {
+                        name: id(1),
+                        required_state: [],
+                        timeline: [{ ...message("$live", 100), room_id: id(1) }],
+                    },
+                },
+            });
+            await vi.waitFor(() => expect(liveRooms).toContain(id(1)));
+            api.stop();
+            crypto.release();
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            expect(messages(client, id(1))).not.toContain("$live");
         });
 
         it("adds live events to the notifications while saved rooms are still being applied", async () => {

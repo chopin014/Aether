@@ -322,7 +322,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      private notifEvents: MatrixEvent[] = []; // accumulator of sync events in the current sync response
  
      public constructor(
-@@ -463,7 +508,12 @@
+@@ -463,7 +508,13 @@
          });
      }
  
@@ -332,11 +332,12 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +        if (!fromSnapshot) {
 +            const restore = this.roomRestores.get(roomId) ?? (this.snapshot?.rooms[roomId] && this.restoreRoom(roomId));
 +            if (restore) await restore;
++            if (this.stopped) return;
 +        }
          let room = this.client.store.getRoom(roomId);
          if (!room) {
              if (!roomData.initial) {
-@@ -476,7 +526,7 @@
+@@ -476,7 +527,7 @@
              }
              room = _createAndReEmitRoom(this.client, roomId, this.opts);
          }
@@ -345,7 +346,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      private onLifecycle(state: SlidingSyncState, resp: MSC3575SlidingSyncResponse | null, err?: Error): void {
-@@ -490,7 +540,7 @@
+@@ -490,7 +541,7 @@
                      break;
                  }
                  // Element won't stop showing the initial loading spinner unless we fire SyncState.Prepared
@@ -354,7 +355,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                      this.updateSyncState(SyncState.Prepared, {
                          oldSyncToken: undefined,
                          nextSyncToken: resp.pos,
-@@ -651,7 +701,12 @@
+@@ -651,7 +702,12 @@
          return false;
      }
  
@@ -368,7 +369,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          roomData = ensureNameEvent(client, room.roomId, roomData);
          const stateEvents = mapEvents(this.client, room.roomId, roomData.required_state);
          // Prevent events from being decrypted ahead of time
-@@ -669,6 +724,8 @@
+@@ -669,6 +725,8 @@
          // necessarily set `initial` in the latter case, so without checking `expanded_timeline` the older events would
          // be appended after the newer ones we already have.
          const expandedTimeline = roomData.expanded_timeline || roomData.unstable_expanded_timeline;
@@ -377,7 +378,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          if (roomData.limited || roomData.initial || expandedTimeline) {
              // we should not know about any of these timeline entries if this is a genuinely new room.
              // If we do, then we've effectively done scrollback.
-@@ -703,10 +760,19 @@
+@@ -703,10 +761,19 @@
                      newEvents.unshift(recvEvent);
                  }
              }
@@ -401,7 +402,16 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              }
          }
  
-@@ -750,9 +816,15 @@
+@@ -739,6 +806,8 @@
+         if (roomData.invite_state) {
+             const inviteStateEvents = mapEvents(this.client, room.roomId, roomData.invite_state);
+             await this.injectRoomEvents(room, inviteStateEvents);
++            // A client stopped meanwhile is not changed any more.
++            if (this.stopped) return;
+             if (roomData.initial) {
+                 room.recalculate();
+                 this.client.store.storeRoom(room);
+@@ -750,9 +819,15 @@
              return;
          }
  
@@ -418,7 +428,16 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              room.getLiveTimeline().setPaginationToken(roomData.prev_batch ?? null, EventTimeline.BACKWARDS);
          }
  
-@@ -832,7 +904,8 @@
+@@ -810,6 +885,8 @@
+         } */
+ 
+         await this.injectRoomEvents(room, stateEvents, timelineEvents, roomData.num_live);
++        // A client stopped meanwhile is not changed any more.
++        if (this.stopped) return;
+ 
+         // we deliberately don't add ephemeral events to the timeline
+         room.addEphemeralEvents(ephemeralEvents);
+@@ -832,9 +909,12 @@
  
          // check if any timeline events should bing and add them to the notifEvents array:
          // we'll purge this once we've fully processed the sync response
@@ -427,8 +446,20 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +        if (!fromSnapshot) this.addNotifications(timelineEvents);
  
          const processRoomEvent = async (e: MatrixEvent): Promise<void> => {
++            // The crypto layer can take a while with an event; a client stopped meanwhile hears no more.
++            if (this.stopped) return;
              client.emit(ClientEvent.Event, e);
-@@ -991,12 +1064,144 @@
+             if (e.isState() && e.getType() == EventType.RoomEncryption && this.syncOpts.cryptoCallbacks) {
+                 await this.syncOpts.cryptoCallbacks.onCryptoEvent(room, e);
+@@ -843,6 +923,7 @@
+ 
+         await promiseMapSeries(stateEvents, processRoomEvent);
+         await promiseMapSeries(timelineEvents, processRoomEvent);
++        if (this.stopped) return;
+         ephemeralEvents.forEach(function (e) {
+             client.emit(ClientEvent.Event, e);
+         });
+@@ -991,12 +1072,144 @@
      public async sync(): Promise<void> {
          this.syncOpts.logger.debug("Sliding sync init loop");
  
@@ -577,7 +608,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                  this.syncOpts.logger.debug("Got push rules");
                  this.client.pushRules = result;
                  break;
-@@ -1007,9 +1212,6 @@
+@@ -1007,9 +1220,6 @@
                  }
              }
          }
@@ -587,7 +618,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      /**
-@@ -1017,6 +1219,10 @@
+@@ -1017,6 +1227,10 @@
       */
      public stop(): void {
          this.syncOpts.logger.debug("SyncApi.stop");
