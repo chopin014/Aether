@@ -809,6 +809,33 @@ describe("RoomTimelineViewModel", () => {
             await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$c"]));
         });
 
+        it("keeps going to an older message when a sync gap arrives on the way", async () => {
+            const events = Array.from({ length: 250 }, (_, i) => makeMessage(`$m${i}`));
+            seedTimeline(events);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onAtBottomStateChange(true);
+            const realLoad = TimelineWindow.prototype.load;
+            const slow = Promise.withResolvers<void>();
+            vi.spyOn(TimelineWindow.prototype, "load").mockImplementation(async function (
+                this: TimelineWindow,
+                eventId?: string,
+                size?: number,
+            ) {
+                await realLoad.call(this, eventId, size);
+                if (eventId === "$m0") await slow.promise;
+            });
+            vm.showEvent("$m0");
+            // A gap in sync after the message is found, while the load is still running.
+            await vi.waitFor(() =>
+                expect(TimelineWindow.prototype.load).toHaveBeenCalledWith("$m0", expect.any(Number)),
+            );
+            room.resetLiveTimeline("gap", undefined);
+            slow.resolve();
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$m0"));
+            expect(vm.getSnapshot().highlightedEventId).toBe("$m0");
+        });
+
         it("keeps a message navigated to in a short room while native history is still being expanded", async () => {
             const preparation = Promise.withResolvers<boolean>();
             vi.spyOn(SlidingSyncManager.instance, "initialTimelinePreparation").mockReturnValue(preparation.promise);

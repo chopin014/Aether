@@ -484,9 +484,13 @@ export class RoomTimelineViewModel
      */
     private onTimelineReset = (_room: Room | undefined, timelineSet: EventTimelineSet): void => {
         if (this.isDisposed || timelineSet !== this.opts.room.getUnfilteredTimelineSet()) return;
-        // A reader at the newest messages follows on, even after navigating to a message and scrolling back down.
+        // A navigation still loading or being placed is where the reader is going, wherever the list is now.
+        // Otherwise a reader at the newest messages follows on, even after navigating and scrolling back down.
+        const navigating =
+            this.navigationEventId !== null && (this.loading || this.snapshot.current.pendingAnchor !== null);
         const readingHistory =
-            !this.isAtLiveBottom && (this.navigationEventId !== null || this.lastBottomEventId !== null);
+            navigating ||
+            (!this.isAtLiveBottom && (this.navigationEventId !== null || this.lastBottomEventId !== null));
         debug(`[TimelineVM] onTimelineReset — readingHistory=${readingHistory}`);
         if (!readingHistory) {
             void this.load({ kind: "live" });
