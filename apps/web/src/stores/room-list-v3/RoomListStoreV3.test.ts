@@ -600,6 +600,8 @@ describe("RoomListStoreV3", () => {
                 // Space's key, as often as sync processes a room.
                 inSpace.add(rooms[13].roomId);
                 inSpace.delete(rooms[6].roomId);
+                const updates = vi.fn();
+                store.on(LISTS_UPDATE_EVENT, updates);
                 spaceStore.emit(spaceRoom.roomId);
                 await Promise.resolve();
                 spaceStore.emit(spaceRoom.roomId);
@@ -607,6 +609,9 @@ describe("RoomListStoreV3", () => {
                 expect(recalculate).not.toHaveBeenCalled();
                 nextFrame();
                 expect(recalculate).toHaveBeenCalledTimes(1);
+                // One update of the lists, with nothing left for the next frame.
+                expect(updates).toHaveBeenCalledTimes(1);
+                expect(frames).toHaveLength(0);
                 expect(shown()).toContain(rooms[13].roomId);
                 expect(shown()).not.toContain(rooms[6].roomId);
 

@@ -468,8 +468,11 @@ export class RoomListStoreV3Class extends AsyncStoreWithClient<EmptyObject> {
         if (!this.pendingEmit) {
             this.pendingEmit = true;
             requestAnimationFrame(() => {
+                if (this.activeSpaceRoomsChanged) {
+                    this.activeSpaceRoomsChanged = false;
+                    this.roomSkipList?.calculateActiveSpaceForNodes();
+                }
                 this.pendingEmit = false;
-                if (this.activeSpaceRoomsChanged) this.onActiveSpaceChanged();
                 this.emit(LISTS_UPDATE_EVENT);
             });
         }
