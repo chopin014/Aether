@@ -18,5 +18,5 @@ export type DesktopUpdateState = {
     /** Unix timestamp in milliseconds for the most recent completed check. */
     lastChecked?: number;
     /** Why this installation cannot update. */
-    reason?: "disabled" | "development" | "package" | "platform";
+    reason?: "disabled" | "development" | "location" | "package" | "platform";
 };

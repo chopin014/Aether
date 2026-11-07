@@ -67,6 +67,9 @@ export function DesktopUpdatesView({ vm }: Props): JSX.Element {
         case "development":
             unsupportedDescription = _t("desktop|updates|unsupported_development");
             break;
+        case "location":
+            unsupportedDescription = _t("desktop|updates|unsupported_location");
+            break;
         case "package":
             unsupportedDescription = _t("desktop|updates|unsupported_package");
             break;

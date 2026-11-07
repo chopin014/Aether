@@ -804,6 +804,7 @@
             "unsupported": "Automatic updates aren't available for this installation.",
             "unsupported_development": "Automatic updates aren't available in a development build.",
             "unsupported_disabled": "Automatic updates are turned off for this build.",
+            "unsupported_location": "Aether can't update itself because it can't write to the folder it's in. Move it to a folder you own, such as one in your home folder.",
             "unsupported_package": "This package doesn't support automatic updates.",
             "unsupported_platform": "Automatic updates aren't available on this platform.",
             "version_unknown": "Unknown"
