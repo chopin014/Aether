@@ -253,8 +253,6 @@ export class SlidingSyncManager {
     // What this device keeps of the session's rooms, shown at the next start before the server answers.
     private cache?: SlidingSyncCache;
     private detachCache?: () => void;
-    // Rooms the server has sent on this connection, to find saved rooms it no longer lists.
-    private readonly seenRooms = new Set<string>();
 
     public static get instance(): SlidingSyncManager {
         return SlidingSyncManager.internalInstance;
@@ -263,7 +261,6 @@ export class SlidingSyncManager {
     private configure(client: MatrixClient, proxyUrl: string, initialRoomId?: string): SlidingSync {
         this.detachCache?.();
         this.detachCache = undefined;
-        this.seenRooms.clear();
         this.cancelInitialPreparations?.();
         this.initialTimelines.clear();
         for (const settle of this.roomWaiters) settle();
@@ -915,7 +912,6 @@ export class SlidingSyncManager {
         if (!cache) return;
 
         const onRoomData = (roomId: string, data: MSC3575RoomData): void => {
-            this.seenRooms.add(roomId);
             cache.observeRoomData(roomId, data);
         };
         const onAccountData = (event: MatrixEvent): void => cache.observeAccountData(event);
@@ -939,17 +935,14 @@ export class SlidingSyncManager {
         const onSync = (state: SyncState): void => {
             if (state === SyncState.Prepared || state === SyncState.Syncing) watchClient();
         };
-        let reconciled = false;
-        const onComplete = (
-            state: SlidingSyncState,
-            response: MSC3575SlidingSyncResponse | null,
-            error?: Error,
-        ): void => {
-            if (reconciled || state !== SlidingSyncState.Complete || error) return;
-            // Responses are processed only once saved rooms are restored, so by now it is known whether there were any.
-            if (cache.restoredRoomIds.size === 0) reconciled = true;
-            else if (response) reconciled = this.dropRoomsNoLongerListed(slidingSync, response);
-            if (reconciled) slidingSync.off(SlidingSyncEvent.Lifecycle, onComplete);
+        let checking = false;
+        const onComplete = (state: SlidingSyncState, _response: unknown, error?: Error): void => {
+            if (checking || state !== SlidingSyncState.Complete || error) return;
+            checking = true;
+            void this.dropRoomsLeftWhileAway(client, slidingSync, cache).then((done) => {
+                checking = false;
+                if (done) slidingSync.off(SlidingSyncEvent.Lifecycle, onComplete);
+            });
         };
         slidingSync.on(SlidingSyncEvent.RoomData, onRoomData);
         slidingSync.on(SlidingSyncEvent.Lifecycle, onComplete);
@@ -970,29 +963,35 @@ export class SlidingSyncManager {
     }
 
     /**
-     * Once this connection has been sent every room the user is in, treat saved rooms it did not send as left: the
-     * user left them, was removed, or they were forgotten while this device was away. They are shown as left, as a
-     * regular sync shows rooms the user has left, and are not saved again.
-     *
-     * "Every room" is judged by the server's own count for the unfiltered list, against the rooms this connection
-     * has received that the user is still in, rather than by when list ranges were expanded: responses can overlap
-     * those changes. If the counts never meet, nothing is dropped.
-     * @returns Whether the check was made, so it need not be made again.
+     * Treat saved rooms the user is no longer in as left: they left, were removed, or the room was forgotten while
+     * this device was away. Sliding sync does not say that a room has gone, so the server's list of joined rooms is
+     * asked once, after the first response. The rooms are shown as left, as a regular sync shows rooms the user has
+     * left, and are not saved again.
+     * @returns Whether the check is over for this connection; false means it should be tried again.
      */
-    private dropRoomsNoLongerListed(slidingSync: SlidingSync, response: MSC3575SlidingSyncResponse): boolean {
-        const cache = this.cache;
-        const client = this.client;
-        if (!cache || !client || this.slidingSync !== slidingSync) return true;
-        const total = response.lists?.untagged?.count;
-        if (total === undefined) return false;
-        const stillIn = [...this.seenRooms].filter((roomId) => {
+    private async dropRoomsLeftWhileAway(
+        client: MatrixClient,
+        slidingSync: SlidingSync,
+        cache: SlidingSyncCache,
+    ): Promise<boolean> {
+        // Responses are processed only once saved rooms are restored, so by now it is known whether there were any.
+        if (cache.restoredRoomIds.size === 0) return true;
+        let joined: Set<string>;
+        try {
+            joined = new Set((await client.getJoinedRooms()).joined_rooms);
+        } catch (error) {
+            logger.warn("SlidingSync: could not check which saved rooms the user is still in", error);
+            return false;
+        }
+        if (this.slidingSync !== slidingSync || this.client !== client) return true;
+        const gone = [...cache.restoredRoomIds].filter((roomId) => {
+            if (joined.has(roomId)) return false;
+            // An invite or a room the user rejoined meanwhile is the server's to report.
             const membership = client.getRoom(roomId)?.getMyMembership();
-            return membership === KnownMembership.Join || membership === KnownMembership.Invite;
+            return membership !== KnownMembership.Invite;
         });
-        if (stillIn.length < total) return false;
-        const gone = [...cache.restoredRoomIds].filter((roomId) => !this.seenRooms.has(roomId));
         if (gone.length === 0) return true;
-        logger.info(`SlidingSync: ${gone.length} saved rooms are no longer listed`);
+        logger.info(`SlidingSync: ${gone.length} saved rooms are no longer joined`);
         for (const roomId of gone) {
             const room = client.getRoom(roomId);
             if (room && room.getMyMembership() !== KnownMembership.Leave)

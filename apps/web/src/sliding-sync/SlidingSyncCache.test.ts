@@ -121,20 +121,19 @@ describe("SlidingSyncCache", () => {
         expect(snapshot.rooms[roomId].limited).toBe(false);
     });
 
-    it("keeps an invite until the room is joined, and drops rooms the user left", async () => {
+    it("keeps no invites, keeps a room once it is joined, and drops rooms the user left", async () => {
         const cache = new SlidingSyncCache(userId, deviceId);
         cache.observeRoomData(roomId, data({ invite_state: [member("invite") as never] }));
         cache.observeRoomData("!left:example.org", data({ required_state: [member("join") as never] }));
         cache.observeRoomData("!left:example.org", data({ timeline: [member("leave")] }));
         let next = await reopen(cache);
-        let snapshot = (await next.load())!;
-        expect(snapshot.rooms[roomId].invite_state).toHaveLength(1);
-        expect(snapshot.rooms["!left:example.org"]).toBeUndefined();
+        await expect(next.load()).resolves.toBeNull();
 
         next.observeRoomData(roomId, data({ required_state: [member("join") as never], timeline: [message("$a")] }));
         next = await reopen(next);
-        snapshot = (await next.load())!;
-        expect(snapshot.rooms[roomId].invite_state).toBeUndefined();
+        const snapshot = (await next.load())!;
+        expect(Object.keys(snapshot.rooms)).toEqual([roomId]);
+        await next.dispose();
     });
 
     it("keeps account data and only the user's own receipts", async () => {

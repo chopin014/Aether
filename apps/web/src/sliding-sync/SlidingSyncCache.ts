@@ -26,7 +26,6 @@ interface CachedRoom {
             | "highlight_count"
             | "bump_stamp"
             | "is_dm"
-            | "invite_state"
         >
     >;
     /** The room's current state, by type and state key. */
@@ -190,10 +189,9 @@ export class SlidingSyncCache {
         }
         const timeline = data.timeline ?? [];
         if (data.invite_state) {
-            room.summary.invite_state = data.invite_state;
-        } else if ((data.required_state?.length ?? 0) > 0 || timeline.length > 0) {
-            // A room the user has joined since it was an invite.
-            delete room.summary.invite_state;
+            // Invites are not kept: the server sends them at once, and one declined elsewhere must not linger.
+            this.forgetRooms([roomId]);
+            return;
         }
         for (const event of [...(data.required_state ?? []), ...timeline]) {
             const key = stateKeyOf(event);
