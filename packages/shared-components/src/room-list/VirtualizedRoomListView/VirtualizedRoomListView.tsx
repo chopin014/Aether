@@ -25,7 +25,7 @@ import { RoomListSectionHeaderView, RoomListStickySectionHeaderView } from "./Ro
 import { RoomListSectionHeaderDragOverlayView } from "./RoomListSectionHeaderDragOverlayView";
 import { RoomListItemWrapper } from "./RoomListItemWrapper";
 import { RoomListItemDragOverlayView } from "./RoomListItemDragOverlayView";
-import { isSectionDragData, type RoomListDragData } from "./dragAndDrop";
+import { dropSide, isRoomSlotData, isSectionDragData, type RoomListDragData } from "./dragAndDrop";
 import { useRoomListAccessibilityPlugin } from "./RoomListAccessibilityPlugin";
 import styles from "./VirtualizedRoomListView.module.css";
 import { useI18n } from "../../core/i18n/i18nContext";
@@ -346,6 +346,7 @@ export function VirtualizedRoomListView({ vm, renderAvatar, onKeyDown }: Virtual
             onFocus: (item: string, e: React.FocusEvent) => void,
             isInLastSection?: boolean,
             roomIndexInSection?: number,
+            canDropBeside?: boolean,
         ): JSX.Element => {
             const { activeRoomIndex, roomCount, vm, isFlatList } = context.context;
             const isSelected = activeRoomIndex === index;
@@ -378,6 +379,7 @@ export function VirtualizedRoomListView({ vm, renderAvatar, onKeyDown }: Virtual
                     isFirstItem={isFirstItem}
                     isLastItem={isLastItem}
                     isInFlatList={isFlatList}
+                    canDropBeside={canDropBeside}
                 />
             );
         },
@@ -399,7 +401,15 @@ export function VirtualizedRoomListView({ vm, renderAvatar, onKeyDown }: Virtual
             const { sections } = context.context;
             const roomIndexInSection = sections[groupIndex].roomIds.findIndex((id) => id === roomId);
             const isInLastSection = groupIndex === sections.length - 1;
-            return getItemComponent(index, roomId, context, onFocus, isInLastSection, roomIndexInSection);
+            return getItemComponent(
+                index,
+                roomId,
+                context,
+                onFocus,
+                isInLastSection,
+                roomIndexInSection,
+                sections[groupIndex].canReorder,
+            );
         },
         [getItemComponent],
     );
@@ -615,7 +625,7 @@ export function VirtualizedRoomListView({ vm, renderAvatar, onKeyDown }: Virtual
         <DragDropProvider<RoomListDragData>
             onDragStart={(event) => {
                 // Changing the state of sections (collapsed/expanded) while dragging a section header or a room causes a double readback for the a11y announcement.
-                vm.onSectionOrRoomDragStart();
+                vm.onSectionOrRoomDragStart(isSectionDragData(event.operation.source?.data));
             }}
             onDragEnd={(event) => {
                 const { source, target } = event.operation;
@@ -624,6 +634,8 @@ export function VirtualizedRoomListView({ vm, renderAvatar, onKeyDown }: Virtual
                 if (event.canceled || !source || !target) return;
                 if (isSectionDragData(source.data)) {
                     vm.changeSectionOrder(String(source.id), String(target.id));
+                } else if (isRoomSlotData(target.data)) {
+                    vm.moveRoomBeside?.(String(source.id), String(target.id), dropSide(source.data, target.data));
                 } else {
                     vm.changeRoomSection(String(source.id), String(target.id));
                 }

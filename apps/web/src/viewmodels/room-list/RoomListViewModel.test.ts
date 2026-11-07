@@ -73,6 +73,11 @@ vi.mock("./utils", () => ({
     hasAccessToNotificationMenu: vi.fn().mockReturnValue(true),
 }));
 
+/** The sections of a snapshot without whether they can be reordered, which some tests don't look at. */
+function withoutReorder(sections: { id: string; roomIds: string[] }[]): { id: string; roomIds: string[] }[] {
+    return sections.map(({ id, roomIds }) => ({ id, roomIds }));
+}
+
 describe("RoomListViewModel", () => {
     let matrixClient: MatrixClient;
     let sdkContext: TestSDKContext;
@@ -168,7 +173,7 @@ describe("RoomListViewModel", () => {
             expect(viewModel.getSnapshot().hidePrimaryFilters).toBe(true);
             expect(viewModel.getSnapshot().isFlatList).toBe(false);
             expect(viewModel.roomIds).toEqual([room1.roomId, room3.roomId, room2.roomId]);
-            expect(viewModel.getSnapshot().sections).toEqual([
+            expect(withoutReorder(viewModel.getSnapshot().sections)).toEqual([
                 { id: DESKTOP_TEXT_CHANNELS, roomIds: [room1.roomId, room3.roomId] },
                 { id: DESKTOP_VOICE_CHANNELS, roomIds: [room2.roomId] },
             ]);
@@ -317,7 +322,7 @@ describe("RoomListViewModel", () => {
             setState(SPACE_CATEGORY_EVENT_TYPE, CATEGORY, { v: 1, name: "Governo", order: "A" });
             setState(SPACE_CHANNEL_EVENT_TYPE, room3.roomId, { v: 1, category: CATEGORY, order: "B" });
             await flushPromises();
-            expect(viewModel.getSnapshot().sections).toEqual([
+            expect(withoutReorder(viewModel.getSnapshot().sections)).toEqual([
                 { id: categoryTag(CATEGORY), roomIds: [room3.roomId] },
                 { id: DESKTOP_TEXT_CHANNELS, roomIds: [room1.roomId] },
                 { id: DESKTOP_VOICE_CHANNELS, roomIds: [room2.roomId] },
@@ -336,7 +341,10 @@ describe("RoomListViewModel", () => {
             viewModel = createViewModel();
             RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
             await flushPromises();
-            expect(viewModel.getSnapshot().sections[0]).toEqual({ id: categoryTag(CATEGORY), roomIds: [] });
+            expect(withoutReorder(viewModel.getSnapshot().sections)[0]).toEqual({
+                id: categoryTag(CATEGORY),
+                roomIds: [],
+            });
 
             vi.mocked(space.currentState.maySendStateEvent).mockReturnValue(false);
             RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
@@ -372,7 +380,7 @@ describe("RoomListViewModel", () => {
             RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
             await flushPromises();
             await viewModel.getSectionHeaderViewModel(DESKTOP_TEXT_CHANNELS).onClick();
-            expect(viewModel.getSnapshot().sections[0]).toEqual({
+            expect(withoutReorder(viewModel.getSnapshot().sections)[0]).toEqual({
                 id: DESKTOP_TEXT_CHANNELS,
                 roomIds: [room1.roomId, room3.roomId],
             });
@@ -407,6 +415,50 @@ describe("RoomListViewModel", () => {
             await flushPromises();
             expect(viewModel.getSnapshot().isRoomListEmpty).toBe(false);
             expect(viewModel.getSnapshot().sections.map((section) => section.id)).toEqual([categoryTag(CATEGORY)]);
+        });
+
+        it("lets the people who edit the layout reorder its channels", async () => {
+            viewModel = createViewModel();
+            RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
+            await flushPromises();
+            expect(viewModel.getSnapshot().sections.every((section) => section.canReorder)).toBe(true);
+
+            vi.mocked(space.currentState.maySendStateEvent).mockReturnValue(false);
+            RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
+            await flushPromises();
+            expect(viewModel.getSnapshot().sections.some((section) => section.canReorder)).toBe(false);
+        });
+
+        it("moves a channel dropped beside another into that channel's category, on the side it came from", async () => {
+            const move = vi.spyOn(spaceLayoutActions, "moveChannel").mockResolvedValue();
+            vi.mocked(room2.isCallRoom).mockReturnValue(false);
+            viewModel = createViewModel();
+            RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
+            await flushPromises();
+            viewModel.moveRoomBeside(room3.roomId, room1.roomId, "before");
+            expect(move).toHaveBeenCalledWith(space, room3.roomId, "builtin.text", {
+                anchor: room1.roomId,
+                side: "before",
+            });
+            move.mockClear();
+            // Nothing happens for a room dropped on itself or beside a room that isn't listed.
+            viewModel.moveRoomBeside(room1.roomId, room1.roomId, "after");
+            viewModel.moveRoomBeside(room1.roomId, "!missing:server", "after");
+            expect(move).not.toHaveBeenCalled();
+        });
+
+        it("keeps categories open while a channel is dragged, and collapses them for a category", async () => {
+            viewModel = createViewModel();
+            RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
+            await flushPromises();
+            const header = viewModel.getSectionHeaderViewModel(DESKTOP_TEXT_CHANNELS);
+            viewModel.onSectionOrRoomDragStart(false);
+            expect(header.isExpanded).toBe(true);
+            viewModel.onSectionOrRoomDragEnd();
+            viewModel.onSectionOrRoomDragStart(true);
+            expect(header.isExpanded).toBe(false);
+            viewModel.onSectionOrRoomDragEnd();
+            expect(header.isExpanded).toBe(true);
         });
 
         it("moves a channel dropped on a category into it, without tagging the room", () => {

@@ -30,6 +30,7 @@ type RoomListItemProps = RoomListItemViewSnapshot &
         isFirstItem: boolean;
         isLastItem: boolean;
         renderAvatar: (room: Room) => React.ReactElement;
+        dropIndicator?: "before" | "after";
     };
 
 // Wrapper component that creates a mocked ViewModel
@@ -58,6 +59,7 @@ const RoomListItemWrapperImpl = ({
     isFirstItem,
     isLastItem,
     renderAvatar: renderAvatarProp,
+    dropIndicator,
     ...rest
 }: RoomListItemProps): JSX.Element => {
     const vm = useMockedViewModel(rest, {
@@ -89,6 +91,7 @@ const RoomListItemWrapperImpl = ({
             isFirstItem={isFirstItem}
             isLastItem={isLastItem}
             renderAvatar={renderAvatarProp}
+            dropIndicator={dropIndicator}
             role="option"
         />
     );
