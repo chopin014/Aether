@@ -171,13 +171,14 @@ describe("<RoomListItemView />", () => {
         render(<Story />);
         const symbol = screen.getByTestId(`channel-kind-${kind}`).parentElement;
         expect(symbol).toContainElement(screen.getByTestId("channel-private"));
-        expect(screen.getByRole("option")).toHaveAccessibleName(/Private channel\.$/);
+        expect(screen.getByRole("option")).toHaveAccessibleDescription("Private channel");
+        expect(screen.getByRole("option")).not.toHaveAccessibleName(/Private/);
     });
 
     it("leaves an open channel without a lock", () => {
         render(<Default channelKind="text" />);
         expect(screen.queryByTestId("channel-private")).toBeNull();
-        expect(screen.getByRole("option")).not.toHaveAccessibleName(/Private channel/);
+        expect(screen.getByRole("option")).not.toHaveAccessibleDescription();
     });
 
     it("dims a muted channel instead of showing a bell", () => {

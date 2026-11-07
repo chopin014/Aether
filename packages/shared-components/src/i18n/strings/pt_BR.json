@@ -1223,7 +1223,7 @@
             "invite_to": "Convidar pessoas para %(channel)s",
             "edit": "Editar canal",
             "edit_named": "Editar %(channel)s",
-            "private_label": "%(label)s Canal privado."
+            "private": "Canal privado"
         }
     },
     "threads": {

@@ -227,7 +227,7 @@
             "edit_named": "Edit %(channel)s",
             "invite": "Create invite",
             "invite_to": "Invite people to %(channel)s",
-            "private_label": "%(label)s Private channel."
+            "private": "Private channel"
         },
         "choose_channels": {
             "description": {

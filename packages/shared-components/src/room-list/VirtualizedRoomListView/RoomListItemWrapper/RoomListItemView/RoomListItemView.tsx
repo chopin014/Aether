@@ -329,10 +329,7 @@ export const RoomListItemView = memo(function RoomListItemView({
     };
 
     // Generate a11y label from notification state and room name
-    const notificationLabel = getA11yLabel(item.name, item.notification);
-    const a11yLabel = item.isPrivateChannel
-        ? _t("desktop|channel_row|private_label", { label: notificationLabel })
-        : notificationLabel;
+    const a11yLabel = getA11yLabel(item.name, item.notification);
 
     const roomItem = (
         <RoomListItemContextMenu vm={vm}>
@@ -352,6 +349,8 @@ export const RoomListItemView = memo(function RoomListItemView({
                 align="stretch"
                 type="button"
                 aria-label={a11yLabel}
+                // Said after the name, so the room keeps the same name whether or not it is private.
+                aria-description={item.isPrivateChannel ? _t("desktop|channel_row|private") : undefined}
                 onClick={vm.onOpenRoom}
                 onPointerEnter={vm.onIntentToOpen}
                 onFocus={onItemFocus}
