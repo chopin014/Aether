@@ -606,7 +606,7 @@ describe("sliding sync restoring a saved snapshot", () => {
                 onSyncCompleted: () => {},
                 preprocessToDeviceMessages: async (events: unknown[]) => events,
                 processKeyCounts: async () => {},
-                processDeviceLists: async () => {},
+                processSyncChanges: async () => [],
                 onDeviceListsChanged: async () => {},
                 markAllTrackedUsersAsDirty: async () => {},
             } as unknown as SyncCryptoCallbacks;
@@ -696,6 +696,53 @@ describe("sliding sync restoring a saved snapshot", () => {
             ).toEqual(["$mention"]);
             api.stop();
         });
+    });
+
+    it("sends the first request without waiting to mark device lists out of date, and applies its changes after", async () => {
+        const marking = Promise.withResolvers<void>();
+        const deviceLists = vi.fn();
+        const callbacks = {
+            onCryptoEvent: async () => {},
+            onSyncCompleted: () => {},
+            preprocessToDeviceMessages: async (events: unknown[]) => events,
+            processKeyCounts: async () => {},
+            processSyncChanges: async (changes: { deviceLists?: unknown }) => {
+                deviceLists(changes.deviceLists);
+                return [];
+            },
+            onDeviceListsChanged: async () => {},
+            markAllTrackedUsersAsDirty: () => marking.promise,
+        } as unknown as SyncCryptoCallbacks;
+        const { api, responses } = setup(async () => null, undefined, callbacks);
+        await vi.waitFor(() => expect(responses).toHaveLength(1));
+        responses[0]({ extensions: { e2ee: { device_lists: { changed: ["@bob:example.org"], left: [] } } } });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(deviceLists).not.toHaveBeenCalled();
+        marking.resolve();
+        await vi.waitFor(() => expect(deviceLists).toHaveBeenCalledWith({ changed: ["@bob:example.org"], left: [] }));
+        api.stop();
+    });
+
+    it("marks device lists out of date again with the next request when marking them failed", async () => {
+        const marks = vi.fn().mockRejectedValueOnce(new Error("store busy")).mockResolvedValue(undefined);
+        const callbacks = {
+            onCryptoEvent: async () => {},
+            onSyncCompleted: () => {},
+            preprocessToDeviceMessages: async (events: unknown[]) => events,
+            processKeyCounts: async () => {},
+            processSyncChanges: async () => [],
+            onDeviceListsChanged: async () => {},
+            markAllTrackedUsersAsDirty: marks,
+        } as unknown as SyncCryptoCallbacks;
+        const { api, responses } = setup(async () => null, undefined, callbacks);
+        await vi.waitFor(() => expect(responses).toHaveLength(1));
+        responses[0]({ pos: "1" });
+        await vi.waitFor(() => expect(responses).toHaveLength(2));
+        expect(marks).toHaveBeenCalledTimes(2);
+        responses[1]({ pos: "2" });
+        await vi.waitFor(() => expect(responses).toHaveLength(3));
+        expect(marks).toHaveBeenCalledTimes(2);
+        api.stop();
     });
 
     it("starts normally when the snapshot cannot be loaded", async () => {
