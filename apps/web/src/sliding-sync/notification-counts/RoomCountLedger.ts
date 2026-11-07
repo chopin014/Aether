@@ -83,6 +83,8 @@ interface ReceiptPoints {
     best?: string;
     /** The latest receipt whose event the ledger did not have, which may be before or after `best`. */
     dangling?: string;
+    /** `dangling` was made on this device and has not been settled: see {@link RoomCountLedger.setReceipt}. */
+    unsettled?: boolean;
 }
 
 /** Where the user's join is kept among the frontiers. */
@@ -119,8 +121,10 @@ interface Tally {
 interface Frontier {
     /** The newest known point: everything up to it is read. */
     known?: LedgerEvent;
-    /** A point whose event the ledger does not know. */
+    /** A point whose event the ledger does not know, before the newest segment. */
     dangling: boolean;
+    /** A point whose event the ledger does not know, which could be anywhere, even after the newest event known. */
+    anywhere?: boolean;
 }
 
 /** How many events a room keeps; older ones are let go, and counts relying on them stop being exact. */
@@ -251,22 +255,48 @@ export class RoomCountLedger {
      * @param scope - The receipt's thread: "main", a thread root, or {@link UNTHREADED_RECEIPT}.
      * @param kind - Public (`m.read`) or private (`m.read.private`). Both mark events read.
      * @param eventId - The event read up to.
+     * @param settled - False for a receipt made on this device: one for an event the ledger does not have could
+     * then be anywhere until {@link settleReceipts}. The server's receipts come with the events they could be for.
      */
-    public setReceipt(scope: string, kind: ReceiptKind, eventId: string): void {
+    public setReceipt(scope: string, kind: ReceiptKind, eventId: string, settled = true): void {
         const byKind = this.receipts.get(scope) ?? {};
         const points = byKind[kind] ?? {};
-        const next = this.events.get(eventId);
-        if (next) {
+        const keepLater = (id: string | undefined): void => {
+            const event = id !== undefined ? this.events.get(id) : undefined;
             const best = points.best !== undefined ? this.events.get(points.best) : undefined;
             // A receipt never moves back: of two known events, the later stays.
-            if (!best || compare(next, best) > 0) points.best = eventId;
+            if (event && (!best || compare(event, best) > 0)) points.best = id;
+        };
+        // One that could not be placed when it came may have been since, such as by history filling a gap: it is
+        // kept as a known one before anything replaces it.
+        if (points.dangling !== undefined && this.events.has(points.dangling)) {
+            keepLater(points.dangling);
+            points.dangling = undefined;
+            points.unsettled = undefined;
+        }
+        if (this.events.has(eventId)) {
+            keepLater(eventId);
         } else {
             // Kept beside the known one rather than replacing it: it cannot be placed against it, and an older one,
             // such as one sent here for an event opened from a link, must not undo a newer one.
             points.dangling = eventId;
+            points.unsettled = settled ? undefined : true;
         }
         byKind[kind] = points;
         this.receipts.set(scope, byKind);
+    }
+
+    /**
+     * Settle the receipts made on this device for events the ledger does not have. Until a sync response sent after
+     * them is applied, such an event could be newer than anything the ledger was given, such as one opened from a
+     * link while sync was behind; once it is, the event would have arrived if it were.
+     */
+    public settleReceipts(): void {
+        for (const byKind of this.receipts.values()) {
+            for (const points of [byKind.public, byKind.private]) {
+                if (points) points.unsettled = undefined;
+            }
+        }
     }
 
     /** Record that every receipt the user has in this room is known: a scope without one has never been read. */
@@ -350,7 +380,8 @@ export class RoomCountLedger {
         for (const [scope, entry] of tallies) {
             const frontier = this.frontierFor(scope, frontiers);
             // Exact needs the newest receipt in the newest segment: then there is no gap after it.
-            const covered = this.receiptsComplete && !!frontier.known && frontier.known.segment === live;
+            const covered =
+                this.receiptsComplete && !frontier.anywhere && !!frontier.known && frontier.known.segment === live;
             const exact = covered && !entry.inexact && !entry.stale && !unrouted;
             let confidence = CountConfidence.Unknown;
             if (exact) {
@@ -385,12 +416,13 @@ export class RoomCountLedger {
     /** The receipts, own events and join, gathered by scope. */
     private frontiers(): Map<string, Frontier> {
         const result = new Map<string, Frontier>();
-        const note = (scope: string, eventId: string | undefined): void => {
+        const note = (scope: string, eventId: string | undefined, unsettled = false): void => {
             if (eventId === undefined) return;
             const frontier = result.get(scope) ?? { dangling: false };
             const event = this.events.get(eventId);
             if (!event) {
                 frontier.dangling = true;
+                if (unsettled) frontier.anywhere = true;
             } else if (!frontier.known || compare(event, frontier.known) > 0) {
                 frontier.known = event;
             }
@@ -399,13 +431,15 @@ export class RoomCountLedger {
         for (const [scope, byKind] of this.receipts) {
             for (const points of [byKind.public, byKind.private]) {
                 note(scope, points?.best);
-                note(scope, points?.dangling);
+                note(scope, points?.dangling, points?.unsettled);
             }
         }
         // The user's own events read everything before them in their scope.
         let join: LedgerEvent | undefined;
         for (const event of this.events.values()) {
-            if (event.own) note(this.scopeOf(event) ?? MAIN_SCOPE, event.id);
+            // One whose scope is not known yet, such as a reaction to an event not seen, reads nothing until it is.
+            const scope = event.own ? this.scopeOf(event) : undefined;
+            if (scope) note(scope, event.id);
             if (event.joins && (!join || compare(event, join) > 0)) join = event;
         }
         if (this.joined) result.set(JOIN, { known: join, dangling: !join });
@@ -426,7 +460,7 @@ export class RoomCountLedger {
             if (other && (!known || compare(other, known) > 0)) known = other;
         }
         const dangling = !!own?.dangling || !!shared?.dangling || (!known && !!join?.dangling);
-        return { known, dangling };
+        return { known, dangling, anywhere: !!own?.anywhere || !!shared?.anywhere };
     }
 
     /**
@@ -442,7 +476,7 @@ export class RoomCountLedger {
         const frontier = this.frontierFor(scope, frontiers);
         if (frontier.known && compare(event, frontier.known) <= 0) return "read";
         // A receipt not known yet could be anywhere. So could the join, when nothing else marks a start.
-        if (!this.receiptsComplete) return "unresolved";
+        if (!this.receiptsComplete || frontier.anywhere) return "unresolved";
         if (!frontier.known && !frontier.dangling) return "unresolved";
         // A receipt whose event is not known is before the newest segment, but could be after an older one.
         if (frontier.dangling && event.segment !== this.liveSegment()) return "unresolved";

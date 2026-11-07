@@ -313,6 +313,48 @@ describe("RoomCountLedger", () => {
         expect(ledger.compute().main).toEqual({ total: 1, highlight: 0, confidence: CountConfidence.Exact });
     });
 
+    it("keeps a receipt that history placed when another it cannot place replaces it", () => {
+        const ledger = ledgerWith(["a", "b"]);
+        ledger.setReceipt(MAIN_SCOPE, "public", "a");
+        ledger.addRun(events("d", "e"), { kind: "live", continuesTip: false });
+        ledger.setContribution("d", NOTIFY);
+        ledger.setContribution("e", NOTIFY);
+        // Read up to an event in the gap, which history then fills.
+        ledger.setReceipt(MAIN_SCOPE, "public", "c");
+        ledger.addRun(events("b", "c"), { kind: "before", anchor: "d" });
+        ledger.setContribution("c", NOTIFY);
+        // A later receipt for an event opened from a link.
+        ledger.setReceipt(MAIN_SCOPE, "public", "old-event-from-a-link");
+
+        expect(ledger.compute().main).toEqual({ total: 2, highlight: 0, confidence: CountConfidence.Exact });
+    });
+
+    it("places a receipt made here for an event it does not have only once a later response is applied", () => {
+        const ledger = ledgerWith(["a", "b", "c"]);
+        ledger.setReceipt(MAIN_SCOPE, "public", "a");
+        // Such as for a newer event opened from a link while sync is behind: it may read "b" and "c" already.
+        ledger.setReceipt(MAIN_SCOPE, "public", "newer-than-anything-known", false);
+        expect(ledger.compute().main).toEqual({ total: 0, highlight: 0, confidence: CountConfidence.Unknown });
+
+        // Sync has caught up without bringing it: it is older than what is known.
+        ledger.settleReceipts();
+        expect(ledger.compute().main).toEqual({ total: 2, highlight: 0, confidence: CountConfidence.Exact });
+    });
+
+    it("does not take the user's own relation to an event not seen as reading the main timeline", () => {
+        const ledger = new RoomCountLedger();
+        ledger.addRun([...events("a", "b"), { id: "reaction", own: true, relatesTo: "unseen-thread-reply" }], {
+            kind: "live",
+            continuesTip: false,
+        });
+        ledger.setContribution("a", NOTIFY);
+        ledger.setContribution("b", NOTIFY);
+        ledger.setReceiptsComplete();
+        ledger.setReceipt(MAIN_SCOPE, "public", "a");
+
+        expect(ledger.compute().main).toEqual({ total: 1, highlight: 0, confidence: CountConfidence.Exact });
+    });
+
     it("keeps a known receipt when a receipt it cannot place arrives after it", () => {
         const ledger = ledgerWith(["a", "b", "c", "d"]);
         ledger.setReceipt(MAIN_SCOPE, "public", "c");
