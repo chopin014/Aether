@@ -9,9 +9,11 @@ Please see LICENSE in the repository root for full details.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+    type AnyMemberCountCondition,
     ClientEvent,
     ConditionKind,
     EventType,
+    type IPushRule,
     type IPushRules,
     MatrixEvent,
     type MatrixClient,
@@ -612,7 +614,7 @@ describe("NotificationCountEngine", () => {
     });
 
     /** A second session restoring what the first saved, as at the next start, with a server that never answers. */
-    function restoreSession(saved: SavedLedger, snapshot: SlidingSyncSnapshot) {
+    function restoreSession(saved: SavedLedger, snapshot: SlidingSyncSnapshot, rules: IPushRules = pushRules) {
         const client: MatrixClient = createClientWithCreds({
             homeserverUrl: "https://example.org",
             userId: me,
@@ -620,7 +622,7 @@ describe("NotificationCountEngine", () => {
         });
         // As the real one does: the rules are processed as the client sets them.
         vi.spyOn(client, "getPushRules").mockImplementation(async () => {
-            client.setPushRules(pushRules);
+            client.setPushRules(rules);
             return client.pushRules!;
         });
         vi.spyOn(client.http, "authedRequest").mockImplementation(() => new Promise(() => {}));
@@ -706,6 +708,46 @@ describe("NotificationCountEngine", () => {
         expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Unknown);
     });
 
+    it("keeps a restored room's saved counts when the same push rules come in another order", async () => {
+        // Rules whose member count conditions give different answers, and which match no message here.
+        const sizes = (is: AnyMemberCountCondition, id: string): IPushRule => ({
+            rule_id: id,
+            default: false,
+            enabled: true,
+            conditions: [
+                { kind: ConditionKind.RoomMemberCount, is },
+                { kind: ConditionKind.EventMatch, key: "type", pattern: "org.example.never" },
+            ],
+            actions: [],
+        });
+        const ordered: IPushRules = {
+            global: {
+                ...pushRules.global,
+                [PushRuleKind.Override]: [...pushRules.global[PushRuleKind.Override]!, sizes(">5", "big")],
+                [PushRuleKind.Underride]: [...pushRules.global[PushRuleKind.Underride]!, sizes("1", "alone")],
+            },
+        };
+        const { underride, ...rest } = ordered.global;
+        const reordered: IPushRules = { global: { underride, ...rest } };
+        const first = await setup();
+        first.client.setPushRules(ordered);
+        await first.respond(
+            { initial: true, required_state: requiredState, timeline: [message("$a"), message("$b"), message("$c")] },
+            [receipt("$a")],
+        );
+        const saved = first.engine.save(roomId) as SavedLedger;
+
+        const { engine, announced } = restoreSession(
+            saved,
+            { rooms: { [roomId]: { name: "Saved", required_state: requiredState, timeline: [message("$c")] } } },
+            reordered,
+        );
+
+        // $b is known only from what was saved: had its result been forgotten, it would not count.
+        await expect(announced).resolves.toEqual({ total: 2, highlight: 0 });
+        expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Exact);
+    });
+
     it("evaluates a saved ledger again once restored with other push rules", async () => {
         const first = await setup();
         await first.respond(
@@ -740,6 +782,9 @@ describe("NotificationCountEngine", () => {
         // Read here: published at the next task, unless asked to before, such as when the page closes.
         const room = client.getRoom(roomId)!;
         room.addLocalEchoReceipt(me, room.findEventById("$b")!, ReceiptType.Read, true);
+        expect(engine.save(roomId)).toBe("pending");
+        // Out of time at once: it stays waiting, keeping its last saved record.
+        engine.finishPending(-1);
         expect(engine.save(roomId)).toBe("pending");
         engine.finishPending();
         expect(counts().total).toBe(0);

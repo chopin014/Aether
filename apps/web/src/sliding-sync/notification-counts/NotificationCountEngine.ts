@@ -41,6 +41,9 @@ const NOT_YET_KNOWN: Contribution = { notify: false, highlight: false, final: fa
 /** How long one pass of work may take before letting the page paint, in milliseconds. */
 const SLICE_MS = 4;
 
+/** How long publishing what is ready may take at once, such as before the page closes, in milliseconds. */
+const FINISH_BUDGET_MS = 30;
+
 /** How many events a room has evaluated in a pass even when the pass is out of time. */
 const MIN_EVALUATIONS = 20;
 
@@ -135,15 +138,17 @@ export class NotificationCountEngine implements RoomHistoryObserver {
     }
 
     /**
-     * Publish at once every room whose counts are waiting, other than ones a sync response being applied changed:
-     * such as before the page closes, so what is done can be saved.
+     * Publish at once the rooms whose counts are waiting, other than ones a sync response being applied changed:
+     * such as before the page closes, so what is done can be saved. It takes no longer than its budget; rooms it
+     * does not reach stay waiting, and keep their last saved record.
      */
-    public finishPending(): void {
+    public finishPending(budgetMs = FINISH_BUDGET_MS): void {
         if (!this.started) return;
+        const deadline = performance.now() + budgetMs;
         for (const roomId of this.dirty) {
             if (this.held.has(roomId)) continue;
-            this.publish(roomId, Infinity);
-            this.dirty.delete(roomId);
+            if (performance.now() > deadline) break;
+            if (this.publish(roomId, deadline)) this.dirty.delete(roomId);
         }
     }
 
@@ -497,6 +502,8 @@ function memberCountConditions(rules: IPushRules | undefined): string[] {
                 }
             }
         }
+        // The same conditions read the same in whatever order the rules list them.
+        conditions = [...new Set(conditions)].sort();
         memberCountCache.set(rules, conditions);
     }
     return conditions;
