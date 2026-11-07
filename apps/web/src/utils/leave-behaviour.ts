@@ -60,6 +60,9 @@ export async function leaveRoomBehaviour(
         throw new Error(`Expected to find room for id ${roomId}`);
     }
 
+    // Where the user lands after leaving is decided here, not by a Space following the channel it opened.
+    SDKContextClass.instance.spaceStore.noteLeavingRoom(roomId);
+
     // attempt to hang up legacy based calls
     try {
         SDKContextClass.instance.legacyCallHandler.hangupOrReject(roomId);

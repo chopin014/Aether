@@ -23,6 +23,7 @@ import { KnownMembership } from "matrix-js-sdk/src/types";
 import { logger } from "matrix-js-sdk/src/logger";
 
 import { AsyncStoreWithClient } from "../AsyncStoreWithClient";
+import { UPDATE_EVENT } from "../AsyncStore";
 import { getChildOrder, validOrder } from "./childOrder";
 import { type MatrixDispatcher } from "../../dispatcher/dispatcher.ts";
 import RoomListStoreV3 from "../room-list-v3/RoomListStoreV3";
@@ -116,6 +117,9 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
     // The space currently selected in the Space Panel
     private _activeSpace: SpaceKey = MetaSpace.Home; // set properly by onReady
     private cancelMemberPreparation?: () => void;
+    // The remembered channel opened before it arrived, and what stops following it.
+    private followedChannel?: string;
+    private stopFollowingRememberedChannel?: () => void;
     private _suggestedRooms: ISuggestedRoom[] = [];
     private _invitedSpaces = new Set<Room>();
     private spaceOrderLocalEchoMap = new Map<string, string | undefined>();
@@ -224,15 +228,19 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
         window.localStorage.setItem(ACTIVE_SPACE_LS_KEY, (this._activeSpace = space)); // Update & persist selected space
         this.cancelMemberPreparation?.();
+        this.stopFollowingRememberedChannel?.();
         let destinationRoomId =
             this.sdkContext.roomViewStore.getRoomId() ?? this.getLastSelectedRoomIdForSpace(space) ?? undefined;
 
         if (contextSwitch) {
+            // A remembered channel sliding sync has not brought yet still opens: the room view shows it once it
+            // arrives, rather than quietly opening another channel.
             const canView = (roomId: string | null): roomId is string =>
                 !!roomId &&
                 cliSpace?.getMyMembership() !== KnownMembership.Invite &&
-                this.matrixClient!.getRoom(roomId)?.getMyMembership() === KnownMembership.Join &&
-                this.isRoomInSpace(space, roomId);
+                ((this.matrixClient!.getRoom(roomId)?.getMyMembership() === KnownMembership.Join &&
+                    this.isRoomInSpace(space, roomId)) ||
+                    this.isChannelOnItsWay(space, roomId));
             // view last selected room from space; without one, the desktop shell opens the space's first text
             // channel, so that opening a server lands in a chat rather than the space overview
             const lastRoomId = this.getLastSelectedRoomIdForSpace(space);
@@ -246,12 +254,14 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
             // else view space home or home depending on what is being clicked on
             if (canView(roomId)) {
                 destinationRoomId = roomId;
+                const onItsWay = !this.matrixClient.getRoom(roomId);
                 this.dispatcher.dispatch<ViewRoomPayload>({
                     action: Action.ViewRoom,
                     room_id: roomId,
                     context_switch: true,
                     metricsTrigger: "WebSpaceContextSwitch",
                 });
+                if (onItsWay) this.followRememberedChannel(space, roomId);
             } else if (cliSpace) {
                 this.dispatcher.dispatch<ViewRoomPayload>({
                     action: Action.ViewRoom,
@@ -313,7 +323,111 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
             room.getMyMembership() === KnownMembership.Join
         )
             return roomId;
+        // Sliding sync may not have brought the remembered channel yet. It is kept rather than replaced.
+        if (!room && roomId && this.isChannelOnItsWay(space, roomId)) return roomId;
         return this.getFirstTextChannel(space);
+    }
+
+    /**
+     * Whether a room is a channel of the Space that sliding sync may still bring: the client does not know it yet,
+     * and the Space, or a joined Space inside it, lists it as a child.
+     */
+    private isChannelOnItsWay(space: SpaceKey, roomId: string): boolean {
+        if (isMetaSpace(space) || !roomId.startsWith("!")) return false;
+        if (!this.sdkContext.slidingSyncManager.mayStillArrive(roomId)) return false;
+        const visited = new Set<string>();
+        const queue = [space];
+        while (queue.length > 0) {
+            const spaceId = queue.shift()!;
+            if (visited.has(spaceId)) continue;
+            visited.add(spaceId);
+            const child = this.matrixClient
+                ?.getRoom(spaceId)
+                ?.currentState.getStateEvents(EventType.SpaceChild, roomId);
+            // As in getChildren, a child event without `via` has been removed.
+            if (child?.getContent()?.via) return true;
+            queue.push(...this.getChildSpaces(spaceId).map((subspace) => subspace.roomId));
+        }
+        return false;
+    }
+
+    /**
+     * Note that the user is leaving a room, by any means: a remembered channel being followed is no longer followed,
+     * as where they land after is the leave's to decide.
+     * @param roomId - The room being left.
+     */
+    public noteLeavingRoom(roomId: string): void {
+        if (roomId === this.followedChannel) this.stopFollowingRememberedChannel?.();
+    }
+
+    /**
+     * Follow a remembered channel opened before sliding sync brought it, while it stays open in this Space. If it
+     * turns out the user is no longer in it, the channel is forgotten and the Space's first channel opens instead.
+     * That can be known late: after the room view gave up waiting, once the lists cover the whole account, or once
+     * saved rooms are checked against the server after a restart. Following ends once the channel is joined and the
+     * server has sent it on this connection.
+     */
+    private followRememberedChannel(space: string, roomId: string): void {
+        const client = this.matrixClient;
+        if (!client) return;
+        const roomViewStore = this.sdkContext.roomViewStore;
+        const manager = this.sdkContext.slidingSyncManager;
+        // The room view opens it with the next dispatch. Until then, other room view updates are not a move away.
+        let opened = false;
+        const check = (): void => {
+            if (this._activeSpace !== space) return stop();
+            if (roomViewStore.getRoomId() !== roomId) {
+                if (opened) stop();
+                return;
+            }
+            opened = true;
+            const room = client.getRoom(roomId);
+            if (!room) {
+                if (!manager.mayStillArrive(roomId)) gone();
+                return;
+            }
+            // The user's own member event, or the server's list of joined rooms after a restart, decides. The SDK
+            // reports "leave" for a room it has no membership for yet, so that alone does not.
+            const userId = client.getUserId();
+            const membership = userId
+                ? room.currentState.getStateEvents(EventType.RoomMember, userId)?.getContent().membership
+                : undefined;
+            if (membership === KnownMembership.Leave || membership === KnownMembership.Ban) return gone();
+            if (manager.wasLeftWhileAway(roomId)) return gone();
+            if (room.getMyMembership() === KnownMembership.Join && manager.hasLiveData(roomId)) stop();
+        };
+        const onMembership = (room: Room): void => {
+            if (room.roomId === roomId) check();
+        };
+        const stopArrivals = manager.onArrivalChange(check);
+        const stop = (): void => {
+            roomViewStore.off(UPDATE_EVENT, check);
+            client.off(ClientEvent.Room, onMembership);
+            client.off(RoomEvent.MyMembership, onMembership);
+            stopArrivals();
+            if (this.stopFollowingRememberedChannel === stop) {
+                this.stopFollowingRememberedChannel = undefined;
+                this.followedChannel = undefined;
+            }
+        };
+        const gone = (): void => {
+            stop();
+            logger.info(`Space ${space} no longer has its remembered channel ${roomId}`);
+            window.localStorage.removeItem(getSpaceContextKey(space));
+            this.dispatcher.dispatch<ViewRoomPayload>({
+                action: Action.ViewRoom,
+                // Sliding sync marks the rooms it sends as joined, so the channel itself is passed over.
+                room_id: this.getFirstTextChannel(space, roomId) ?? space,
+                context_switch: true,
+                metricsTrigger: "WebSpaceContextSwitch",
+            });
+        };
+        this.stopFollowingRememberedChannel?.();
+        this.stopFollowingRememberedChannel = stop;
+        this.followedChannel = roomId;
+        roomViewStore.on(UPDATE_EVENT, check);
+        client.on(ClientEvent.Room, onMembership);
+        client.on(RoomEvent.MyMembership, onMembership);
     }
 
     private async loadSuggestedRooms(space: Room): Promise<void> {
@@ -398,11 +512,17 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         return this.getChildren(spaceId).filter((r) => !r.isSpaceRoom());
     }
 
-    /** The first joined room of a space, in the space's own order, that is a chat rather than a call. */
-    private getFirstTextChannel(spaceId: string): string | null {
+    /**
+     * The first joined room of a space, in the space's own order, that is a chat rather than a call.
+     * @param except - A room to pass over, such as a channel the user turned out to have left.
+     */
+    private getFirstTextChannel(spaceId: string, except?: string): string | null {
         const channel = this.getChildRooms(spaceId).find(
             (room) =>
-                room.getMyMembership() === KnownMembership.Join && !room.isCallRoom() && !room.isElementVideoRoom(),
+                room.roomId !== except &&
+                room.getMyMembership() === KnownMembership.Join &&
+                !room.isCallRoom() &&
+                !room.isElementVideoRoom(),
         );
         return channel?.roomId ?? null;
     }
@@ -1102,6 +1222,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
     protected async reset(): Promise<void> {
         this.cancelMemberPreparation?.();
+        this.stopFollowingRememberedChannel?.();
         this.rootSpaces = [];
         this.parentMap = new EnhancedMap();
         this.notificationStateMap = new Map();
