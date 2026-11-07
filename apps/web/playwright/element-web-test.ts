@@ -54,11 +54,6 @@ export interface TestFixtures extends BaseTestFixtures {
 type CombinedTestFixtures = PlaywrightTestArgs & TestFixtures;
 export type Fixtures = _Fixtures<CombinedTestFixtures, Services & WorkerOptions, CombinedTestFixtures>;
 export const test = base.extend<TestFixtures>({
-    // AETHER_E2E_SLIDING_SYNC=1 runs every test with Simplified Sliding Sync, to check it matches regular sync.
-    labsFlags: async ({ labsFlags }, use) => {
-        const slidingSync = process.env["AETHER_E2E_SLIDING_SYNC"] === "1";
-        await use(slidingSync ? [...labsFlags, "feature_simplified_sliding_sync"] : labsFlags);
-    },
     context: async ({ context }, use, testInfo) => {
         // We skip tests instead of using grep-invert to still surface the counts in the html report
         test.skip(
