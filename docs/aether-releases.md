@@ -78,6 +78,11 @@ testing; they do not opt users into preview updates. Stable releases publish `la
 folder the user can write to so Aether can replace it during an update. Releases exclude `.deb` and `.tar.gz` files;
 any custom builds using those formats must be replaced manually.
 
+An AppImage registers itself with the desktop on every launch. It writes `~/.local/share/applications/aether.desktop`
+and its icon, so the app appears in the menu, the taskbar shows its icon and the browser can return sign-in links to
+`aether://`. Rewriting it on each launch keeps it pointing at the AppImage after an update renames the file. A working
+launcher made by `install-aether-appimage.ts` is left unchanged.
+
 The first updater-enabled build must be installed manually by users who already have an older Aether build. After that
 one upgrade, the app can find published stable releases through GitHub. Windows installers install per-user to avoid
 administrator prompts during updates. Windows builds are intentionally unsigned because Aether has no signing
