@@ -236,6 +236,15 @@ describe("RoomListItemViewModel", () => {
             expect(viewModel.getSnapshot().mentionCount).toBe(1);
         });
 
+        it("follows a channel's mention count when only that count changes", () => {
+            vi.spyOn(notificationState, "isMention", "get").mockReturnValue(true);
+            const unread = vi.spyOn(RoomNotifs, "getUnreadNotificationCount").mockReturnValue(1);
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            unread.mockReturnValue(2);
+            room.emit(RoomEvent.UnreadNotifications);
+            expect(viewModel.getSnapshot().mentionCount).toBe(2);
+        });
+
         it("has no mention count without a mention", () => {
             viewModel = new RoomListItemViewModel({ room, client: matrixClient });
             expect(viewModel.getSnapshot().mentionCount).toBeUndefined();

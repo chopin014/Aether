@@ -328,20 +328,6 @@
     display: none;
 }
 
-/* Forced colours drop backgrounds, so the marker and the badge keep a system colour of their own. */
-@media (forced-colors: active) {
-    .unreadMarker {
-        forced-color-adjust: none;
-        background-color: CanvasText;
-    }
-
-    .mentionBadge {
-        forced-color-adjust: none;
-        background-color: Highlight;
-        color: HighlightText;
-    }
-}
-
 /* How many times the person was mentioned in a channel. */
 .mentionBadge {
     display: inline-flex;
@@ -357,6 +343,20 @@
     color: var(--mx-desktop-badge-text, var(--cpd-color-text-on-solid-primary));
     font: var(--cpd-font-body-xs-semibold);
     font-variant-numeric: tabular-nums;
+}
+
+/* Forced colours drop backgrounds, so the marker and the badge keep a system colour of their own. */
+@media (forced-colors: active) {
+    .unreadMarker {
+        forced-color-adjust: none;
+        background-color: CanvasText;
+    }
+
+    .mentionBadge {
+        forced-color-adjust: none;
+        background-color: Highlight;
+        color: HighlightText;
+    }
 }
 
 /* The buttons sit at the row's end, beside its (then empty) badge area. */

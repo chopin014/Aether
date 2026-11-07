@@ -172,6 +172,8 @@ export class RoomListItemViewModel
 
         // Subscribe to room-specific events
         this.disposables.trackListener(props.room, RoomEvent.Name, this.onRoomChanged);
+        // A channel's badge counts mentions, which can change while its overall notification state does not.
+        this.disposables.trackListener(props.room, RoomEvent.UnreadNotifications, this.onUnreadNotifications);
         this.disposables.trackListener(props.room, RoomEvent.Tags, this.onRoomChanged);
         this.disposables.trackListener(props.room, RoomStateEvent.Members, this.onParticipantProfileChanged);
         this.disposables.trackListener(props.room, RoomStateEvent.Events, this.onRoomStateEvent);
@@ -396,6 +398,10 @@ export class RoomListItemViewModel
 
     private onRoomChanged = (): void => {
         this.updateItem();
+    };
+
+    private readonly onUnreadNotifications = (): void => {
+        if (this.snapshot.current.channelKind) this.updateItem();
     };
 
     /**
