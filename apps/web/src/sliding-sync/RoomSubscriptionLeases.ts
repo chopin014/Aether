@@ -167,6 +167,14 @@ export class RoomSubscriptionLeases {
     }
 
     /**
+     * Whether a room should be subscribed now for one of the leases.
+     * @param roomId - The room.
+     */
+    public has(roomId: string): boolean {
+        return this.roomIds().includes(roomId);
+    }
+
+    /**
      * The rooms that should be subscribed now, most important first.
      */
     public roomIds(): string[] {

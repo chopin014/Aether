@@ -15,7 +15,15 @@ import {
     SlidingSyncState,
     type MSC3575RoomData,
 } from "matrix-js-sdk/src/sliding-sync";
-import { ClientEvent, EventType, createClient, type MatrixClient, MatrixEvent, Room } from "matrix-js-sdk/src/matrix";
+import {
+    ClientEvent,
+    EventType,
+    createClient,
+    type MatrixClient,
+    MatrixEvent,
+    Room,
+    RoomStateEvent,
+} from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { MatrixRTCSessionManagerEvents } from "matrix-js-sdk/src/matrixrtc";
@@ -28,6 +36,8 @@ import { waitFor } from "test-utils-rtl";
 import { mkStubRoom, stubClient } from "test-utils";
 
 import { SlidingSyncManager } from "./SlidingSyncManager";
+import { CATALOG_STATE } from "./sliding-sync/roomStateProfiles";
+import { type RoomSubscriptionLeases } from "./sliding-sync/RoomSubscriptionLeases";
 import { JitsiCallMemberEventType } from "./call-types";
 
 class MockSlidingSync extends EventEmitter {
@@ -1074,34 +1084,103 @@ describe("SlidingSyncManager", () => {
             expect(sync.getRoomSubscriptions()).toEqual(new Set());
         });
 
-        it("lists the selected Space's channels first, once per Space", async () => {
-            knownRoom("!server", "space");
-            const setList = vi.spyOn(sync, "setList");
+        /** Make `childIds` children of a Space, as its state lists them. */
+        function addChildren(space: Room, childIds: string[], content: object = { via: ["example.org"] }): void {
+            const events = childIds.map(
+                (childId) =>
+                    new MatrixEvent({
+                        type: EventType.SpaceChild,
+                        state_key: childId,
+                        event_id: `$child${space.roomId}${childId}${JSON.stringify(content)}`,
+                        room_id: space.roomId,
+                        sender: client.getUserId()!,
+                        content,
+                    }),
+            );
+            space.currentState.setStateEvents(events);
+            for (const event of events) client.emit(RoomStateEvent.Events, event, space.currentState, null);
+        }
+
+        /** Every list's parameters, to check that none asks the server to filter by Space. */
+        const listFilters = (): unknown[] =>
+            [...(sync as unknown as { lists: Map<string, unknown> }).lists.keys()].map(
+                (name) => sync.getListParams(name)?.filters,
+            );
+
+        it("subscribes the selected Space's channels from its state, without filtering lists by Space", async () => {
+            const space = knownRoom("!server", "space");
+            const category = knownRoom("!category", "space");
+            addChildren(space, ["!a", "!b", "!category"]);
+            addChildren(space, ["!removed"], {});
+            addChildren(category, ["!c"]);
             manager.setActiveSpace("!server", ["!category", "#not-a-room"]);
-            manager.setActiveSpace("!server", ["!category"]);
-            expect(setList).toHaveBeenCalledTimes(2);
-            expect(sync.getListParams("active_space")).toEqual(
-                expect.objectContaining({
-                    ranges: [[0, 199]],
-                    timeline_limit: 1,
-                    filters: { spaces: ["!server", "!category"], not_room_types: ["m.space"] },
-                }),
-            );
-            expect(sync.getListParams("active_space_recent")).toEqual(
-                expect.objectContaining({ ranges: [[0, 9]], timeline_limit: 20 }),
-            );
             await tick();
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!a", "!b", "!c"]));
             expect(nameOf("!server")).toBe("space");
-            // Home keeps the last Space's lists, and releases the Space after its grace period.
+            expect(nameOf("!a")).toBe("channel");
+            expect(subscriptionOf("!a")).toEqual({ timeline_limit: 1, required_state: CATALOG_STATE });
+            // Synapse fails the whole request when a list filters by Space.
+            expect(listFilters()).not.toContainEqual(expect.objectContaining({ spaces: expect.anything() }));
+
+            // Home keeps the last Space's channels.
             manager.setActiveSpace(null);
-            expect(sync.getListParams("active_space")?.filters?.spaces).toEqual(["!server", "!category"]);
+            await tick();
+            expect(sync.getRoomSubscriptions()).toContain("!a");
+        });
+
+        it("follows the Space's children as its state changes", async () => {
+            const space = knownRoom("!server", "space");
+            manager.setActiveSpace("!server");
+            await tick();
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server"]));
+
+            // The Space's state arrives after it was selected, such as on a first start.
+            addChildren(space, ["!a", "!b"]);
+            await tick();
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!a", "!b"]));
+            addChildren(space, ["!b"], {});
+            await tick();
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!a"]));
+
+            // Another Space's children do not count.
+            const other = knownRoom("!other", "space");
+            addChildren(other, ["!elsewhere"]);
+            await tick();
+            expect(sync.getRoomSubscriptions()).not.toContain("!elsewhere");
+        });
+
+        it("gives an open channel its room subscription, and keeps it after the room is left", async () => {
+            vi.useFakeTimers();
+            const space = knownRoom("!server", "space");
+            knownRoom("!a");
+            addChildren(space, ["!a"]);
+            manager.setActiveSpace("!server");
+            await vi.advanceTimersByTimeAsync(0);
+            expect(nameOf("!a")).toBe("channel");
+            const lease = (manager as unknown as { leases: RoomSubscriptionLeases }).leases.acquire("!a", "view");
+            await vi.advanceTimersByTimeAsync(0);
+            expect(nameOf("!a")).toBe("room");
+            lease.release();
+            await vi.advanceTimersByTimeAsync(120_000);
+            expect(nameOf("!a")).toBe("room");
+            expect(sync.getRoomSubscriptions()).toContain("!a");
+        });
+
+        it("subscribes no more than 200 channels of a Space", async () => {
+            const space = knownRoom("!server", "space");
+            addChildren(
+                space,
+                Array.from({ length: 250 }, (_, i) => `!channel${i}`),
+            );
+            manager.setActiveSpace("!server");
+            await tick();
+            expect(sync.getRoomSubscriptions().size).toBe(201);
         });
 
         it("applies a Space selected before the connection existed", async () => {
             const fresh = new SlidingSyncManager();
             fresh.setActiveSpace("!early");
             const freshSync = (await fresh.setup(client))!;
-            expect(freshSync.getListParams("active_space")?.filters?.spaces).toEqual(["!early"]);
             expect(freshSync.getRoomSubscriptions()).toContain("!early");
             freshSync.stop();
         });

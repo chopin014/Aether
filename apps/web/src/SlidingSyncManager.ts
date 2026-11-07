@@ -43,6 +43,7 @@ import {
     EventType,
     type Room,
     RoomEvent,
+    RoomStateEvent,
     SyncState,
 } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
@@ -94,10 +95,10 @@ const SUBSCRIPTION_BATCH_MS = 150;
 // How long to wait for a room nobody has seen before letting the room view show what it can.
 const ROOM_DISCOVERY_TIMEOUT_MS = 10_000;
 
-// The lists for the Space someone is looking at, so its channels appear before the whole account is listed.
-const ACTIVE_SPACE_LIST = "active_space";
-const ACTIVE_SPACE_RECENT_LIST = "active_space_recent";
-const ACTIVE_SPACE_RANGE = 200;
+// The channels of the Space someone is looking at are subscribed, so they appear before the whole account is
+// listed. They are read from the Space's own state: homeservers do not filter lists by Space, and Synapse fails the
+// whole request when asked to.
+const MAX_SPACE_CHANNELS = 200;
 
 /** How a room someone opened was found. */
 export type RoomVisibility =
@@ -244,8 +245,11 @@ export class SlidingSyncManager {
     private readonly appliedNames = new Map<string, RoomSubscriptionName>();
     private flushQueued = false;
     private flushTimer?: ReturnType<typeof setTimeout>;
-    // The Space whose lists are registered, and the Space asked for before the connection existed.
-    private activeSpaceKey?: string;
+    // The Space whose channels are subscribed, then its joined subspaces; and the Space asked for before the
+    // connection existed.
+    private activeSpaces: string[] = [];
+    private spaceChannels = new Set<string>();
+    private spaceChannelsQueued = false;
     private pendingActiveSpace?: { spaceId: string; subspaceIds: string[] };
 
     private configureDefer = Promise.withResolvers<void>();
@@ -264,7 +268,9 @@ export class SlidingSyncManager {
         this.cancelInitialPreparations?.();
         this.initialTimelines.clear();
         for (const settle of this.roomWaiters) settle();
+        this.client?.off(RoomStateEvent.Events, this.onSpaceState);
         this.client = client;
+        client.on(RoomStateEvent.Events, this.onSpaceState);
         this.bootstrapRooms.clear();
         this.encryptedRooms.clear();
         this.expectedSpaces.clear();
@@ -274,7 +280,8 @@ export class SlidingSyncManager {
         this.viewLease = undefined;
         this.spaceLease = undefined;
         this.callLeases.clear();
-        this.activeSpaceKey = undefined;
+        this.activeSpaces = [];
+        this.spaceChannels = new Set();
         if (this.flushTimer !== undefined) clearTimeout(this.flushTimer);
         this.flushTimer = undefined;
         this.flushQueued = false;
@@ -461,6 +468,14 @@ export class SlidingSyncManager {
         if (this.initialTimelines.get(roomId)?.phase === "expanding") return RoomSubscriptionName.ExpandedBootstrap;
         const room = this.client?.getRoom(roomId);
         if (this.expectedSpaces.has(roomId) || room?.isSpaceRoom()) return RoomSubscriptionName.Space;
+        if (this.spaceChannels.has(roomId) && !this.bootstrapRooms.has(roomId) && !this.leases.has(roomId)) {
+            // Only listed because its Space is open. A room given more history keeps it: a smaller subscription
+            // would be sent again for nothing.
+            const applied = this.appliedNames.get(roomId);
+            return applied === RoomSubscriptionName.Room || applied === RoomSubscriptionName.Encrypted
+                ? applied
+                : RoomSubscriptionName.Channel;
+        }
         if (!room || this.bootstrapRooms.has(roomId)) return RoomSubscriptionName.Bootstrap;
         if (room.hasEncryptionStateEvent() || this.encryptedRooms.has(roomId)) return RoomSubscriptionName.Encrypted;
         const purposes = this.leases.purposes(roomId);
@@ -478,6 +493,7 @@ export class SlidingSyncManager {
     private applySubscriptions(slidingSync: SlidingSync): void {
         if (this.slidingSync !== slidingSync) return;
         const desired = new Set(this.leases.roomIds());
+        for (const roomId of this.spaceChannels) desired.add(roomId);
         for (const roomId of this.bootstrapRooms) desired.add(roomId);
         for (const roomId of this.initialTimelines.keys()) desired.add(roomId);
         let changed = false;
@@ -692,28 +708,48 @@ export class SlidingSyncManager {
             this.spaceLease = this.leases.acquire(spaceId, "space");
             previous?.release();
         }
-        this.setActiveSpaceLists(this.slidingSync, spaceId, subspaceIds);
+        this.setActiveSpaceChannels(spaceId, subspaceIds);
     }
 
-    private setActiveSpaceLists(slidingSync: SlidingSync, spaceId: string, subspaceIds: string[]): void {
-        const spaces = [spaceId, ...subspaceIds.filter((id) => id.startsWith("!") && id !== spaceId)];
-        const key = spaces.join("\n");
-        if (this.activeSpaceKey === key) return;
-        this.activeSpaceKey = key;
-        const filters: MSC3575Filter = { spaces, not_room_types: ["m.space"] };
-        // The channels someone is most likely to open first get their recent history.
-        slidingSync.setList(ACTIVE_SPACE_RECENT_LIST, {
-            ranges: [[0, 9]],
-            timeline_limit: RECENT_TIMELINE_LIMIT,
-            required_state: CATALOG_STATE,
-            filters,
+    private setActiveSpaceChannels(spaceId: string, subspaceIds: string[]): void {
+        this.activeSpaces = [spaceId, ...subspaceIds.filter((id) => id.startsWith("!") && id !== spaceId)];
+        this.refreshSpaceChannels();
+    }
+
+    /** A Space's children changed. Each response can bring many, so they are read once it has been applied. */
+    private readonly onSpaceState = (event: MatrixEvent): void => {
+        if (event.getType() !== EventType.SpaceChild || !this.activeSpaces.includes(event.getRoomId()!)) return;
+        if (this.spaceChannelsQueued) return;
+        this.spaceChannelsQueued = true;
+        queueMicrotask(() => {
+            this.spaceChannelsQueued = false;
+            this.refreshSpaceChannels();
         });
-        slidingSync.setList(ACTIVE_SPACE_LIST, {
-            ranges: [[0, ACTIVE_SPACE_RANGE - 1]],
-            timeline_limit: LIST_TIMELINE_LIMIT,
-            required_state: CATALOG_STATE,
-            filters,
-        });
+    };
+
+    /**
+     * Subscribe the channels the active Space and its subspaces list, and stop subscribing ones they no longer list.
+     * Children are read from the Spaces' state, so a Space whose state has not arrived yet has none until it does.
+     */
+    private refreshSpaceChannels(): void {
+        const channels = new Set<string>();
+        for (const spaceId of this.activeSpaces) {
+            const children = this.client?.getRoom(spaceId)?.currentState.getStateEvents(EventType.SpaceChild) ?? [];
+            for (const child of children) {
+                const roomId = child.getStateKey();
+                const via = child.getContent().via;
+                // A child event without servers to join through is a removed child.
+                if (!roomId?.startsWith("!") || !Array.isArray(via) || via.length === 0) continue;
+                if (this.activeSpaces.includes(roomId) || channels.size >= MAX_SPACE_CHANNELS) continue;
+                channels.add(roomId);
+            }
+        }
+        if (channels.size === this.spaceChannels.size && [...channels].every((id) => this.spaceChannels.has(id))) {
+            return;
+        }
+        this.spaceChannels = channels;
+        // Someone switched to this Space and is waiting for its channels.
+        this.scheduleFlush(true);
     }
 
     /** Replace discovery state with the normal subscription once encryption state is known. */
@@ -855,7 +891,7 @@ export class SlidingSyncManager {
                 // Spaces need their child graph and metadata, without conversation history.
                 this.expectedSpaces.add(prefetch.spaceId);
                 this.leases.prefetch(prefetch.spaceId);
-                this.setActiveSpaceLists(slidingSync, prefetch.spaceId, []);
+                this.setActiveSpaceChannels(prefetch.spaceId, []);
             }
             // Saved hints may refer to rooms the account has since left. Drop absent hints
             // after the first response so they cannot keep background discovery pending.
