@@ -286,11 +286,8 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
         this.emit(UPDATE_SELECTED_SPACE, this.activeSpace);
         this.emit(UPDATE_SUGGESTED_ROOMS, (this._suggestedRooms = []));
-        // With sliding sync, the selected Space's channels are listed first. Home keeps the last Space's lists.
-        this.sdkContext.slidingSyncManager.setActiveSpace(
-            cliSpace?.roomId ?? null,
-            cliSpace ? this.getChildSpaces(cliSpace.roomId).map((child) => child.roomId) : [],
-        );
+        // With sliding sync, the selected Space's channels are loaded first. Home keeps the last Space's channels.
+        this.sdkContext.slidingSyncManager.setActiveSpace(cliSpace?.roomId ?? null);
 
         if (cliSpace) {
             void this.loadSuggestedRooms(cliSpace);
