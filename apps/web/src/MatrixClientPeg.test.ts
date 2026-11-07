@@ -20,6 +20,7 @@ import SdkConfig from "./SdkConfig";
 import PlatformPeg from "./PlatformPeg";
 import type BasePlatform from "./BasePlatform";
 import { createClientWithCreds } from "./utils/createMatrixClient";
+import { ACCESS_TOKEN_EXPIRY_STORAGE_KEY, AccessTokenRenewal } from "./utils/tokens/AccessTokenRenewal";
 import * as StorageManager from "./utils/StorageManager";
 import { SlidingSyncManager } from "./SlidingSyncManager";
 import { LegacyCryptoStoreError } from "./utils/LegacyCryptoStoreError.ts";
@@ -303,6 +304,34 @@ describe("MatrixClientPeg", () => {
             store.resolve();
             await starting;
             expect(client.startClient).toHaveBeenCalled();
+        });
+
+        it("renews an expired access token before the first requests, while the local store opens", async () => {
+            const client = testPeg.safeGet();
+            const store = Promise.withResolvers<void>();
+            client.store.startup = vi.fn().mockReturnValue(store.promise);
+            const order: string[] = [];
+            const refreshAccessToken = vi.fn(async () => {
+                order.push("renew");
+                return true;
+            });
+            Object.assign(client, { http: { refreshAccessToken } });
+            vi.spyOn(client, "getPushRules").mockImplementation(async () => {
+                order.push("push rules");
+                return { global: {} };
+            });
+            localStorage.setItem(ACCESS_TOKEN_EXPIRY_STORAGE_KEY, String(Date.now() - 1000));
+            AccessTokenRenewal.create(client);
+            try {
+                const starting = testPeg.start();
+                expect(order).toEqual(["renew", "push rules"]);
+                expect(client.startClient).not.toHaveBeenCalled();
+                store.resolve();
+                await starting;
+            } finally {
+                AccessTokenRenewal.stop(client);
+                localStorage.removeItem(ACCESS_TOKEN_EXPIRY_STORAGE_KEY);
+            }
         });
 
         it("fetches push rules while the local store opens and passes the pending result to sync", async () => {
