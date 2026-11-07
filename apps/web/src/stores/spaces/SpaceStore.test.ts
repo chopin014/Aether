@@ -46,6 +46,7 @@ import { type SummarizedNotificationState } from "../notifications/SummarizedNot
 import { NotificationLevel } from "../notifications/NotificationLevel";
 import { storeRoomAliasInCache } from "../../RoomAliasCache.ts";
 import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
+import { UPDATE_EVENT } from "../AsyncStore";
 
 vi.useFakeTimers();
 
@@ -1134,6 +1135,102 @@ describe("SpaceStore", () => {
             expect(getCurrentRoom()).toBe(space2);
         });
 
+        describe("with a remembered channel that has not arrived yet", () => {
+            let mayStillArrive: MockInstance<(roomId: string) => boolean>;
+            let viewedRoom: MockInstance<() => string | null>;
+            let roomLoading: MockInstance<() => boolean>;
+            const onItsWay = (roomId: string): boolean => roomId === orphan2;
+            beforeEach(() => {
+                // The Space lists a channel the client does not know yet, which sliding sync may still bring.
+                mkSpace(space3, [room1, orphan2]);
+                mayStillArrive = vi.spyOn(sdkContext.slidingSyncManager, "mayStillArrive").mockImplementation(onItsWay);
+                localStorage.setItem(`mx_space_context_${space3}`, orphan2);
+                // The room view's own updates show what each test sets.
+                viewedRoom = vi.spyOn(sdkContext.roomViewStore, "getRoomId").mockReturnValue(null);
+                roomLoading = vi.spyOn(sdkContext.roomViewStore, "isRoomLoading").mockReturnValue(false);
+            });
+            afterEach(() => {
+                mayStillArrive.mockRestore();
+                viewedRoom.mockRestore();
+                roomLoading.mockRestore();
+            });
+
+            /** Show the room view on a room, loading it or having loaded it. */
+            const roomView = (roomId: string, loading: boolean): void => {
+                viewedRoom.mockReturnValue(roomId);
+                roomLoading.mockReturnValue(loading);
+                sdkContext.roomViewStore.emit(UPDATE_EVENT);
+            };
+
+            it("opens it rather than another channel", () => {
+                store.setActiveSpace(space3);
+                expect(getCurrentRoom()).toBe(orphan2);
+            });
+
+            it("opens it when a joined Space inside the Space lists it", () => {
+                const inner = "!inner:server";
+                mkSpace(space4, [room1, inner]);
+                mkSpace(inner, [orphan2]);
+                localStorage.setItem(`mx_space_context_${space4}`, orphan2);
+                store.setActiveSpace(space4);
+                expect(getCurrentRoom()).toBe(orphan2);
+            });
+
+            it("is not opened when the Space does not list it", () => {
+                localStorage.setItem(`mx_space_context_${space2}`, orphan2);
+                store.setActiveSpace(space2);
+                expect(getCurrentRoom()).toBe(space2);
+            });
+
+            it("opens the Space's first channel instead, and forgets it, once it turns out to be gone", () => {
+                store.setActiveSpace(space3);
+                expect(getCurrentRoom()).toBe(orphan2);
+                roomView(orphan2, true);
+                expect(getCurrentRoom()).toBe(orphan2);
+                // The server answered without it.
+                mayStillArrive.mockReturnValue(false);
+                roomView(orphan2, false);
+                expect(getCurrentRoom()).toBe(room1);
+                expect(localStorage.getItem(`mx_space_context_${space3}`)).toBeNull();
+            });
+
+            it("keeps it while it is still on its way after the room view has opened it", () => {
+                store.setActiveSpace(space3);
+                expect(getCurrentRoom()).toBe(orphan2);
+                roomView(orphan2, false);
+                // It is no longer followed once the room view has opened it.
+                mayStillArrive.mockReturnValue(false);
+                roomView(orphan2, false);
+                expect(getCurrentRoom()).toBe(orphan2);
+                expect(localStorage.getItem(`mx_space_context_${space3}`)).toBe(orphan2);
+            });
+
+            it("stops following it when someone opens another room", () => {
+                store.setActiveSpace(space3);
+                expect(getCurrentRoom()).toBe(orphan2);
+                // Room view changes before it reaches the channel are not a move away from it.
+                roomView(room2, false);
+                roomView(orphan2, true);
+                roomView(room2, false);
+                mayStillArrive.mockReturnValue(false);
+                roomView(orphan2, false);
+                expect(getCurrentRoom()).toBe(orphan2);
+                expect(localStorage.getItem(`mx_space_context_${space3}`)).toBe(orphan2);
+            });
+
+            it("stops following it when someone opens another Space", () => {
+                store.setActiveSpace(space3);
+                expect(getCurrentRoom()).toBe(orphan2);
+                // Without a remembered channel, the Space's home opens.
+                store.setActiveSpace(space1);
+                expect(getCurrentRoom()).toBe(space1);
+                mayStillArrive.mockReturnValue(false);
+                roomView(orphan2, false);
+                expect(getCurrentRoom()).toBe(space1);
+                expect(localStorage.getItem(`mx_space_context_${space3}`)).toBe(orphan2);
+            });
+        });
+
         describe("in the desktop shell", () => {
             let getValue: MockInstance<typeof SettingsStore.getValue>;
             beforeEach(() => {
@@ -1151,6 +1248,20 @@ describe("SpaceStore", () => {
                 viewRoom(room1);
                 store.setActiveSpace(space2);
                 expect(getCurrentRoom()).toBe(room2);
+            });
+
+            it("keeps a remembered channel that sliding sync has not brought yet", async () => {
+                mkSpace(space3, [room1, orphan2]);
+                vi.spyOn(sdkContext.slidingSyncManager, "mayStillArrive").mockImplementation(
+                    (roomId) => roomId === orphan2,
+                );
+                localStorage.setItem(`mx_space_context_${space3}`, orphan2);
+                expect(store.getLastSelectedRoomIdForSpace(space3)).toBe(orphan2);
+                store.setActiveSpace(space3);
+                expect(getCurrentRoom()).toBe(orphan2);
+                vi.mocked(sdkContext.slidingSyncManager.mayStillArrive).mockRestore();
+                // Without sliding sync, a room the client does not know is not the user's.
+                expect(store.getLastSelectedRoomIdForSpace(space3)).toBe(room1);
             });
 
             it("opens the first text channel when the last viewed room left the space", async () => {

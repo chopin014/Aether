@@ -23,6 +23,7 @@ import { KnownMembership } from "matrix-js-sdk/src/types";
 import { logger } from "matrix-js-sdk/src/logger";
 
 import { AsyncStoreWithClient } from "../AsyncStoreWithClient";
+import { UPDATE_EVENT } from "../AsyncStore";
 import { getChildOrder, validOrder } from "./childOrder";
 import { type MatrixDispatcher } from "../../dispatcher/dispatcher.ts";
 import RoomListStoreV3 from "../room-list-v3/RoomListStoreV3";
@@ -116,6 +117,8 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
     // The space currently selected in the Space Panel
     private _activeSpace: SpaceKey = MetaSpace.Home; // set properly by onReady
     private cancelMemberPreparation?: () => void;
+    // Stops following a remembered channel that was opened before it arrived.
+    private stopFollowingRememberedChannel?: () => void;
     private _suggestedRooms: ISuggestedRoom[] = [];
     private _invitedSpaces = new Set<Room>();
     private spaceOrderLocalEchoMap = new Map<string, string | undefined>();
@@ -224,15 +227,19 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
         window.localStorage.setItem(ACTIVE_SPACE_LS_KEY, (this._activeSpace = space)); // Update & persist selected space
         this.cancelMemberPreparation?.();
+        this.stopFollowingRememberedChannel?.();
         let destinationRoomId =
             this.sdkContext.roomViewStore.getRoomId() ?? this.getLastSelectedRoomIdForSpace(space) ?? undefined;
 
         if (contextSwitch) {
+            // A remembered channel sliding sync has not brought yet still opens: the room view shows it once it
+            // arrives, rather than quietly opening another channel.
             const canView = (roomId: string | null): roomId is string =>
                 !!roomId &&
                 cliSpace?.getMyMembership() !== KnownMembership.Invite &&
-                this.matrixClient!.getRoom(roomId)?.getMyMembership() === KnownMembership.Join &&
-                this.isRoomInSpace(space, roomId);
+                ((this.matrixClient!.getRoom(roomId)?.getMyMembership() === KnownMembership.Join &&
+                    this.isRoomInSpace(space, roomId)) ||
+                    this.isChannelOnItsWay(space, roomId));
             // view last selected room from space; without one, the desktop shell opens the space's first text
             // channel, so that opening a server lands in a chat rather than the space overview
             const lastRoomId = this.getLastSelectedRoomIdForSpace(space);
@@ -246,12 +253,14 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
             // else view space home or home depending on what is being clicked on
             if (canView(roomId)) {
                 destinationRoomId = roomId;
+                const onItsWay = !this.matrixClient.getRoom(roomId);
                 this.dispatcher.dispatch<ViewRoomPayload>({
                     action: Action.ViewRoom,
                     room_id: roomId,
                     context_switch: true,
                     metricsTrigger: "WebSpaceContextSwitch",
                 });
+                if (onItsWay) this.followRememberedChannel(space, roomId);
             } else if (cliSpace) {
                 this.dispatcher.dispatch<ViewRoomPayload>({
                     action: Action.ViewRoom,
@@ -313,7 +322,78 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
             room.getMyMembership() === KnownMembership.Join
         )
             return roomId;
+        // Sliding sync may not have brought the remembered channel yet. It is kept rather than replaced.
+        if (!room && roomId && this.isChannelOnItsWay(space, roomId)) return roomId;
         return this.getFirstTextChannel(space);
+    }
+
+    /**
+     * Whether a room is a channel of the Space that sliding sync may still bring: the client does not know it yet,
+     * and the Space, or a joined Space inside it, lists it as a child.
+     */
+    private isChannelOnItsWay(space: SpaceKey, roomId: string): boolean {
+        if (isMetaSpace(space) || !roomId.startsWith("!")) return false;
+        if (!this.sdkContext.slidingSyncManager.mayStillArrive(roomId)) return false;
+        const visited = new Set<string>();
+        const queue = [space];
+        while (queue.length > 0) {
+            const spaceId = queue.shift()!;
+            if (visited.has(spaceId)) continue;
+            visited.add(spaceId);
+            const child = this.matrixClient
+                ?.getRoom(spaceId)
+                ?.currentState.getStateEvents(EventType.SpaceChild, roomId);
+            // As in getChildren, a child event without `via` has been removed.
+            if (child?.getContent()?.via) return true;
+            queue.push(...this.getChildSpaces(spaceId).map((subspace) => subspace.roomId));
+        }
+        return false;
+    }
+
+    /**
+     * Follow a remembered channel opened before sliding sync brought it. If it turns out the user is no longer in
+     * it, the channel is forgotten and the Space's first channel opens instead.
+     */
+    private followRememberedChannel(space: string, roomId: string): void {
+        const roomViewStore = this.sdkContext.roomViewStore;
+        const stop = (): void => {
+            roomViewStore.off(UPDATE_EVENT, check);
+            if (this.stopFollowingRememberedChannel === stop) this.stopFollowingRememberedChannel = undefined;
+        };
+        // The room view opens it with the next dispatch, and is followed until it has finished loading it.
+        let opened = false;
+        const check = (): void => {
+            if (this._activeSpace !== space) return stop();
+            if (roomViewStore.getRoomId() !== roomId) {
+                if (opened) stop();
+                return;
+            }
+            opened = true;
+            if (roomViewStore.isRoomLoading()) return;
+            stop();
+            const room = this.matrixClient?.getRoom(roomId);
+            // The SDK reports "leave" for a room it has no membership for yet, so the user's own member event
+            // decides. A room still on its way after a slow answer is shown by the room view once it arrives.
+            const userId = this.matrixClient?.getUserId();
+            const membership = userId
+                ? room?.currentState.getStateEvents(EventType.RoomMember, userId)?.getContent().membership
+                : undefined;
+            const gone = room
+                ? membership === KnownMembership.Leave || membership === KnownMembership.Ban
+                : !this.sdkContext.slidingSyncManager.mayStillArrive(roomId);
+            if (!gone) return;
+            logger.info(`Space ${space} no longer has its remembered channel ${roomId}`);
+            window.localStorage.removeItem(getSpaceContextKey(space));
+            this.dispatcher.dispatch<ViewRoomPayload>({
+                action: Action.ViewRoom,
+                room_id: this.getFirstTextChannel(space) ?? space,
+                context_switch: true,
+                metricsTrigger: "WebSpaceContextSwitch",
+            });
+        };
+        this.stopFollowingRememberedChannel?.();
+        this.stopFollowingRememberedChannel = stop;
+        roomViewStore.on(UPDATE_EVENT, check);
     }
 
     private async loadSuggestedRooms(space: Room): Promise<void> {
@@ -1102,6 +1182,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
     protected async reset(): Promise<void> {
         this.cancelMemberPreparation?.();
+        this.stopFollowingRememberedChannel?.();
         this.rootSpaces = [];
         this.parentMap = new EnhancedMap();
         this.notificationStateMap = new Map();
