@@ -9,7 +9,17 @@ import React from "react";
 import { describe, expect, it } from "vitest";
 import { render } from "@test-utils";
 
-import { AnimatedDeviceIcon, HangUpIcon, NoiseSuppressionIcon, ReactionIcon, ScreenShareIcon, SignalIcon } from ".";
+import {
+    AddIcon,
+    AnimatedDeviceIcon,
+    HangUpIcon,
+    NoiseSuppressionIcon,
+    ReactionIcon,
+    ScreenShareIcon,
+    SendIcon,
+    SignalIcon,
+    StickerIcon,
+} from ".";
 import { SoundboardIcon } from "../SoundboardView";
 
 describe("LiveIcons", () => {
@@ -19,6 +29,9 @@ describe("LiveIcons", () => {
         ["reaction", <ReactionIcon key="reaction" />],
         ["screen share", <ScreenShareIcon key="share" />],
         ["signal", <SignalIcon key="signal" bars={4} />],
+        ["add", <AddIcon key="add" />],
+        ["sticker", <StickerIcon key="sticker" />],
+        ["send", <SendIcon key="send" />],
     ])("hides the %s icon from assistive technology", (_name, icon) => {
         const { container } = render(icon);
         expect(container.firstElementChild).toHaveAttribute("aria-hidden", "true");
@@ -50,6 +63,7 @@ describe("LiveIcons", () => {
     it.each([
         ["screen share", () => <ScreenShareIcon />],
         ["reaction", () => <ReactionIcon />],
+        ["sticker", () => <StickerIcon />],
     ])("gives each %s icon its own mask", (_name, Icon) => {
         const { container } = render(
             <>

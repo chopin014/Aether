@@ -130,6 +130,8 @@ export * from "./desktop/MessageDisplayView";
 export * from "./desktop/DesktopUpdatesView";
 export * from "./desktop/AccountOverviewView";
 export * from "./desktop/SettingsSidebarHeaderView";
+// Icons that act out what their button does, named under LiveIcons so they never clash with Compound's icons.
+export * as LiveIcons from "./desktop/LiveIcons";
 
 export * from "./presence/PresenceGlyph";
 export * from "./presence/PresenceMenuView";

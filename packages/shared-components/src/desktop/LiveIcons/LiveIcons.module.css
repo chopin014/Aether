@@ -133,6 +133,24 @@ Please see LICENSE in the repository root for full details.
     opacity: 0;
 }
 
+/* --- Composer: the plus, the sticker and the paper plane --- */
+
+/* The plus turns into a cross while its menu is open. */
+:is(button, [role="button"])[aria-expanded="true"] .add {
+    rotate: 135deg;
+}
+
+/* The fold is a cut through the sticker, drawn as a line so it can peel back in. */
+.stickerFold {
+    fill: none;
+    stroke: black;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+}
+
 @media (prefers-reduced-motion: no-preference) {
     /* Unmuting makes the icon bounce back; muting shakes it and sends a ring out from it. */
     .deviceIcon[data-animate][data-off="true"] {
@@ -171,6 +189,12 @@ Please see LICENSE in the repository root for full details.
 
     .signal[data-pending] rect:nth-of-type(4) {
         animation-delay: 450ms;
+    }
+
+    .add {
+        transition:
+            scale 320ms var(--live-spring),
+            rotate 360ms var(--live-spring);
     }
 
     /* Pressing squishes the icon; releasing lets it spring back. */
@@ -270,6 +294,26 @@ Please see LICENSE in the repository root for full details.
         .reactionFeature {
             transform-origin: 12px 14px;
             animation: live-grin 640ms var(--live-spring);
+        }
+
+        /* The plus gives a quarter turn, unless its menu is open and it is already a cross. */
+        &:not([aria-expanded="true"]) .add {
+            rotate: 90deg;
+        }
+
+        /* The sticker is slapped down and its corner peels up again. */
+        .stickerBody {
+            transform-origin: 12px 12px;
+            animation: live-sticker-slap 560ms var(--live-spring);
+        }
+
+        .stickerFold {
+            animation: live-draw 380ms 180ms ease-out both;
+        }
+
+        /* The plane flies off to the right and a new one glides in behind it. */
+        .send {
+            animation: live-send 620ms cubic-bezier(0.2, 0.8, 0.2, 1);
         }
 
         /* The popper kicks, its spark spins and the streamers and confetti burst out again. */
@@ -564,5 +608,37 @@ Please see LICENSE in the repository root for full details.
     100% {
         opacity: 0;
         transform: translate(var(--live-dx), var(--live-dy)) scale(1);
+    }
+}
+
+@keyframes live-sticker-slap {
+    0%,
+    100% {
+        transform: none;
+    }
+    30% {
+        transform: rotate(-10deg) scale(1.12);
+    }
+    60% {
+        transform: rotate(4deg) scale(0.94);
+    }
+}
+
+@keyframes live-send {
+    0% {
+        transform: none;
+        opacity: 1;
+    }
+    35% {
+        transform: translate(7px, -3px) rotate(-12deg);
+        opacity: 0;
+    }
+    36% {
+        transform: translate(-8px, 2px);
+        opacity: 0;
+    }
+    100% {
+        transform: none;
+        opacity: 1;
     }
 }
