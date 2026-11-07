@@ -120,4 +120,3 @@ export const InVoice: Story = {
 };
 /** Nothing chosen at all: the banner takes the avatar's colour. */
 export const Plain: Story = { args: { roles: [], canVerify: false } };
-

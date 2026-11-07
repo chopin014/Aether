@@ -50,7 +50,15 @@ function Row({ id, nameStyle }: { id: ProfileNameplateId; nameStyle?: ProfileNam
 
 function Gallery(): JSX.Element {
     return (
-        <div style={{ display: "grid", gap: 4, width: 240, padding: 12, background: "var(--cpd-color-bg-canvas-default)" }}>
+        <div
+            style={{
+                display: "grid",
+                gap: 4,
+                width: 240,
+                padding: 12,
+                background: "var(--cpd-color-bg-canvas-default)",
+            }}
+        >
             {PROFILE_NAMEPLATES.map((id) => (
                 <Row key={id} id={id} />
             ))}
