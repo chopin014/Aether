@@ -191,6 +191,22 @@ describe("<SpaceMenuView />", () => {
             expect(vm.toggleHideMutedChannels).toHaveBeenCalled();
         });
 
+        it("offers creating categories to people who may edit the layout but not create rooms", async () => {
+            const user = userEvent.setup();
+            const vm = Object.assign(
+                new MockedViewModel({
+                    ...defaultSnapshot,
+                    canCreateRoom: false,
+                    canCreateVideoRoom: false,
+                    serverMenu: { canCreateCategory: true, hideMutedChannels: false },
+                }),
+                { createCategory: vi.fn(), toggleHideMutedChannels: vi.fn() },
+            );
+            render(<SpaceMenuView vm={vm} fullWidth />);
+            await user.click(screen.getByRole("button", { name: "Open server menu" }));
+            expect(screen.getByRole("menuitem", { name: "Create category" })).toBeInTheDocument();
+        });
+
         it("leaves out creating categories for people who can't", async () => {
             const user = userEvent.setup();
             render(<SpaceMenuView vm={makeVm({ canCreateCategory: false, hideMutedChannels: true })} fullWidth />);
