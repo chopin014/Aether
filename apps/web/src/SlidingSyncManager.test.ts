@@ -1731,6 +1731,40 @@ describe("SlidingSyncManager", () => {
             expect(load.mock.contexts[1]).toBe((manager as unknown as { cache: SlidingSyncCache }).cache);
         });
 
+        it("reads afresh, rather than adopt an early read whose saved data was deleted before set-up", async () => {
+            vi.spyOn(SlidingSyncCache.prototype, "load").mockResolvedValue({ rooms: { "!a": {} as never } });
+            manager.prefetchSnapshot(client);
+            const early = (manager as unknown as { prefetched: { cache: SlidingSyncCache } }).prefetched.cache;
+            await SlidingSyncCache.deleteAll();
+            await manager.setup(client);
+            // The deleted cache is not adopted, and its rooms are not shown.
+            expect((manager as unknown as { cache: SlidingSyncCache }).cache).not.toBe(early);
+            await expect(manager.snapshotLoader(client)!()).resolves.toEqual({
+                rooms: { "!a": {} },
+                priorityRoomIds: [],
+            });
+        });
+
+        it("drops saved rooms read early when the cache is deleted while the client starts", async () => {
+            const read = Promise.withResolvers<{ rooms: Record<string, never> }>();
+            vi.spyOn(SlidingSyncCache.prototype, "load").mockReturnValue(read.promise as never);
+            manager.prefetchSnapshot(client);
+            await manager.setup(client);
+            const loader = manager.snapshotLoader(client)!;
+            await SlidingSyncCache.deleteAll();
+            read.resolve({ rooms: { "!a": {} as never } });
+            await expect(loader()).resolves.toBeNull();
+        });
+
+        it("lets go of an early read made for another client", async () => {
+            const dispose = vi.spyOn(SlidingSyncCache.prototype, "dispose");
+            vi.spyOn(SlidingSyncCache.prototype, "load").mockResolvedValue(null);
+            manager.prefetchSnapshot(stubClient());
+            const early = (manager as unknown as { prefetched: { cache: SlidingSyncCache } }).prefetched.cache;
+            await manager.setup(client);
+            expect(dispose.mock.contexts).toContain(early);
+        });
+
         it("keeps no saved rooms for a session without a device", async () => {
             vi.mocked(client.getDeviceId).mockReturnValue(null);
             await manager.setup(client);

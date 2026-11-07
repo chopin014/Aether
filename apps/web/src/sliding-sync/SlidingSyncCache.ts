@@ -158,6 +158,11 @@ export class SlidingSyncCache {
         }
     }
 
+    /** Whether this cache has stopped, such as because its saved data was deleted at logout. */
+    public get isClosed(): boolean {
+        return this.disposed;
+    }
+
     /** The rooms {@link load} found saved. */
     public get restoredRoomIds(): ReadonlySet<string> {
         return this.loadedRoomIds;

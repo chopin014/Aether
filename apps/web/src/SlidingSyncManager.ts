@@ -1141,11 +1141,14 @@ export class SlidingSyncManager {
     public snapshotLoader(client: MatrixClient): (() => Promise<SlidingSyncSnapshot | null>) | undefined {
         const cache = this.cache;
         if (!cache || this.client !== client) return undefined;
-        // A read started early is used once; a later start reads afresh.
+        // A read started early is used once; a later start reads afresh. One made for another client is let go.
         const prefetched = this.prefetched?.cache === cache ? this.prefetched.snapshot : undefined;
+        if (this.prefetched && this.prefetched.cache !== cache) void this.prefetched.cache.dispose();
         this.prefetched = undefined;
         return async () => {
-            const snapshot = await (prefetched ?? cache.load());
+            const read = await (prefetched ?? cache.load());
+            // Deleted meanwhile, such as by a logout in another window: nothing saved is shown.
+            const snapshot = cache.isClosed ? null : read;
             // The room and Space the app opens at start are shown before the rest.
             if (snapshot) snapshot.priorityRoomIds = [...this.roomsShownFirst];
             return snapshot;
@@ -1172,7 +1175,15 @@ export class SlidingSyncManager {
         const userId = client.getUserId();
         const deviceId = client.getDeviceId();
         const previous = this.cache;
-        const prefetched = this.prefetched?.client === client ? this.prefetched.cache : undefined;
+        // An early read for this client is adopted, unless its saved data was deleted meanwhile. One for another
+        // client, or a deleted one, is let go.
+        let prefetched: SlidingSyncCache | undefined;
+        if (this.prefetched?.client === client && !this.prefetched.cache.isClosed) {
+            prefetched = this.prefetched.cache;
+        } else if (this.prefetched) {
+            void this.prefetched.cache.dispose();
+            this.prefetched = undefined;
+        }
         if (previous !== prefetched) void previous?.dispose();
         this.cache = prefetched ?? (userId && deviceId ? new SlidingSyncCache(userId, deviceId) : undefined);
         const cache = this.cache;

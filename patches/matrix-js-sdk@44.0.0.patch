@@ -211,6 +211,15 @@ diff --git a/src/sync.ts b/src/sync.ts
 diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 --- a/src/sliding-sync-sdk.ts
 +++ b/src/sliding-sync-sdk.ts
+@@ -17,7 +17,7 @@
+ import type { SyncCryptoCallbacks } from "./common-crypto/CryptoBackend.ts";
+ import { NotificationCountType, Room, RoomEvent } from "./models/room.ts";
+ import { logger } from "./logger.ts";
+-import { promiseMapSeries } from "./utils.ts";
++import { promiseMapSeries, sleep } from "./utils.ts";
+ import { EventTimeline } from "./models/event-timeline.ts";
+ import { ClientEvent, type IStoredClientOpts, type MatrixClient } from "./client.ts";
+ import {
 @@ -49,9 +49,10 @@
      type MSC3575SlidingSyncResponse,
      type SlidingSync,
@@ -227,29 +236,32 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      private toDeviceEvents: IToDeviceEvent[] = [];
      private e2ee?: ExtensionE2EEResponse;
      private hasChanges = false;
-+    // Marking every tracked user's devices as out of date, for a fresh connection, and whether it last failed.
-+    private invalidation?: Promise<boolean>;
-+    private invalidationFailed = false;
++    // Marking every tracked user's devices as out of date, for a fresh connection; and whether syncing stopped.
++    private invalidation?: Promise<void>;
++    private stopped = false;
  
      public constructor(
          private readonly client: MatrixClient,
-@@ -99,12 +103,33 @@
+@@ -99,13 +103,49 @@
          this.hasChanges = true;
      }
  
 +    /**
-+     * Apply changes only once every device list has been marked out of date.
-+     * @param invalidation - The marking, resolving to whether it succeeded.
++     * Mark every tracked user's device list as out of date, without waiting for it: changes collected meanwhile are
++     * applied once it has succeeded, when the collector is next flushed.
 +     */
-+    public invalidateDeviceLists(invalidation: Promise<boolean>): void {
++    public invalidateDeviceLists(): void {
++        const crypto = this.cryptoCallbacks;
++        if (!crypto) return;
++        const invalidation = crypto.markAllTrackedUsersAsDirty();
++        // Waited for in flush(); a failure there is retried, so it must not surface as unhandled meanwhile.
++        invalidation.catch(() => undefined);
 +        this.invalidation = invalidation;
 +    }
 +
-+    /** Whether the last marking of device lists failed, so it must be made again. Clears the answer. */
-+    public takeFailedInvalidation(): boolean {
-+        const failed = this.invalidationFailed;
-+        this.invalidationFailed = false;
-+        return failed;
++    /** Stop retrying, as syncing has stopped. */
++    public stop(): void {
++        this.stopped = true;
 +    }
 +
      /**
@@ -258,44 +270,53 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
       * A no-op if nothing has been collected since the last flush, so it is safe to call once per extension.
       */
      public async flush(): Promise<void> {
-+        // A fresh connection's device list changes only mean something once every device list is marked out of date.
+-        if (!this.hasChanges) return;
++        // A fresh connection's device list changes, and its to-device messages, are only handled once every device
++        // list is marked out of date. A marking that fails is made again, backing off, with the changes held.
 +        if (this.invalidation) {
-+            const invalidation = this.invalidation;
++            let invalidation: Promise<void> = this.invalidation;
++            for (let attempt = 1; ; attempt++) {
++                try {
++                    await invalidation;
++                    break;
++                } catch (error) {
++                    logger.warn("E2EE: could not mark device lists out of date; trying again", error);
++                }
++                await sleep(Math.min(30_000, 500 * 2 ** (attempt - 1)));
++                if (this.stopped) return;
++                invalidation = this.cryptoCallbacks!.markAllTrackedUsersAsDirty();
++                this.invalidation = invalidation;
++            }
 +            this.invalidation = undefined;
-+            if (!(await invalidation)) this.invalidationFailed = true;
 +        }
-         if (!this.hasChanges) return;
++        if (this.stopped || !this.hasChanges) return;
          const toDeviceEvents = this.toDeviceEvents;
          const e2ee = this.e2ee;
-@@ -141,7 +166,7 @@
-     }
+         this.toDeviceEvents = [];
+@@ -127,10 +167,7 @@
+ }
  
-     public async onRequest(isInitial: boolean): Promise<ExtensionE2EERequest> {
--        if (isInitial) {
-+        if (isInitial || this.collector.takeFailedInvalidation()) {
-             // In SSS, the `?pos=` contains the stream position for device list updates.
-             // If we do not have a `?pos=` (e.g because we forgot it, or because the server
-             // invalidated our connection) then we MUST invlaidate all device lists because
-@@ -149,7 +174,17 @@
+ class ExtensionE2EE implements Extension<ExtensionE2EERequest, ExtensionE2EEResponse> {
+-    public constructor(
+-        private readonly crypto: SyncCryptoCallbacks,
+-        private readonly collector: E2EESyncChangesCollector,
+-    ) {}
++    public constructor(private readonly collector: E2EESyncChangesCollector) {}
+ 
+     public name(): string {
+         return "e2ee";
+@@ -149,7 +186,9 @@
              // to encrypt for new devices. This is an expensive call, so we should
              // really really remember `?pos=` wherever possible.
              logger.log("ExtensionE2EE: invalidating all device lists due to missing 'pos'");
 -            await this.crypto.markAllTrackedUsersAsDirty();
-+            // It can take a round trip, so the request does not wait for it. The response's device list changes are
-+            // applied after it, when the collector is flushed; a failure is tried again with the next request.
-+            this.collector.invalidateDeviceLists(
-+                this.crypto.markAllTrackedUsersAsDirty().then(
-+                    () => true,
-+                    (error) => {
-+                        logger.warn("ExtensionE2EE: could not invalidate device lists; trying again", error);
-+                        return false;
-+                    },
-+                ),
-+            );
++            // It can take a round trip, so the request does not wait for it. The response's device list changes and
++            // to-device messages are applied once it has succeeded; see E2EESyncChangesCollector.flush.
++            this.collector.invalidateDeviceLists();
          }
          return {
              enabled: true, // this is sticky so only send it on the initial request
-@@ -254,28 +289,65 @@
+@@ -254,28 +293,65 @@
      }
  
      private processGlobalAccountData(globalAccountData: IMinimalEvent[]): void {
@@ -380,7 +401,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  type ExtensionTypingRequest = {
      enabled: boolean;
  };
-@@ -428,6 +500,13 @@
+@@ -428,7 +504,16 @@
      private syncStateData?: ISyncStateData;
      private lastPos: string | null = null;
      private failCount = 0;
@@ -392,9 +413,28 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +    // Set once a saved snapshot has been announced as Prepared, so the first response does not announce it again.
 +    private preparedFromSnapshot = false;
      private notifEvents: MatrixEvent[] = []; // accumulator of sync events in the current sync response
++    // Collects the e2ee and to-device extensions' changes for the crypto layer.
++    private readonly e2eeCollector: E2EESyncChangesCollector;
  
      public constructor(
-@@ -463,7 +542,13 @@
+         private readonly slidingSync: SlidingSync,
+@@ -448,6 +533,7 @@
+         // The `e2ee` and `to_device` extensions feed a shared collector, so that the crypto layer sees all the
+         // encryption-relevant data from a response in a single call.
+         const e2eeCollector = new E2EESyncChangesCollector(this.client, this.syncOpts.cryptoCallbacks);
++        this.e2eeCollector = e2eeCollector;
+         const extensions: Extension<any, any>[] = [
+             new ExtensionToDevice(e2eeCollector),
+             new ExtensionAccountData(this.client),
+@@ -456,14 +542,20 @@
+             new ExtensionStickyEvents(this.client),
+         ];
+         if (this.syncOpts.cryptoCallbacks) {
+-            extensions.push(new ExtensionE2EE(this.syncOpts.cryptoCallbacks, e2eeCollector));
++            extensions.push(new ExtensionE2EE(e2eeCollector));
+         }
+         extensions.forEach((ext) => {
+             this.slidingSync.registerExtension(ext);
          });
      }
  
@@ -409,7 +449,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          let room = this.client.store.getRoom(roomId);
          if (!room) {
              if (!roomData.initial) {
-@@ -476,7 +561,7 @@
+@@ -476,7 +568,7 @@
              }
              room = _createAndReEmitRoom(this.client, roomId, this.opts);
          }
@@ -418,7 +458,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      private onLifecycle(state: SlidingSyncState, resp: MSC3575SlidingSyncResponse | null, err?: Error): void {
-@@ -490,7 +575,7 @@
+@@ -490,7 +582,7 @@
                      break;
                  }
                  // Element won't stop showing the initial loading spinner unless we fire SyncState.Prepared
@@ -427,7 +467,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                      this.updateSyncState(SyncState.Prepared, {
                          oldSyncToken: undefined,
                          nextSyncToken: resp.pos,
-@@ -651,7 +736,12 @@
+@@ -651,7 +743,12 @@
          return false;
      }
  
@@ -441,7 +481,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          roomData = ensureNameEvent(client, room.roomId, roomData);
          const stateEvents = mapEvents(this.client, room.roomId, roomData.required_state);
          // Prevent events from being decrypted ahead of time
-@@ -669,6 +759,8 @@
+@@ -669,6 +766,8 @@
          // necessarily set `initial` in the latter case, so without checking `expanded_timeline` the older events would
          // be appended after the newer ones we already have.
          const expandedTimeline = roomData.expanded_timeline || roomData.unstable_expanded_timeline;
@@ -450,7 +490,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          if (roomData.limited || roomData.initial || expandedTimeline) {
              // we should not know about any of these timeline entries if this is a genuinely new room.
              // If we do, then we've effectively done scrollback.
-@@ -703,10 +795,19 @@
+@@ -703,10 +802,19 @@
                      newEvents.unshift(recvEvent);
                  }
              }
@@ -474,7 +514,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              }
          }
  
-@@ -739,6 +840,8 @@
+@@ -739,6 +847,8 @@
          if (roomData.invite_state) {
              const inviteStateEvents = mapEvents(this.client, room.roomId, roomData.invite_state);
              await this.injectRoomEvents(room, inviteStateEvents);
@@ -483,7 +523,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              if (roomData.initial) {
                  room.recalculate();
                  this.client.store.storeRoom(room);
-@@ -750,9 +853,15 @@
+@@ -750,9 +860,15 @@
              return;
          }
  
@@ -500,7 +540,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              room.getLiveTimeline().setPaginationToken(roomData.prev_batch ?? null, EventTimeline.BACKWARDS);
          }
  
-@@ -810,6 +919,8 @@
+@@ -810,6 +926,8 @@
          } */
  
          await this.injectRoomEvents(room, stateEvents, timelineEvents, roomData.num_live);
@@ -509,7 +549,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
          // we deliberately don't add ephemeral events to the timeline
          room.addEphemeralEvents(ephemeralEvents);
-@@ -832,9 +943,12 @@
+@@ -832,9 +950,12 @@
  
          // check if any timeline events should bing and add them to the notifEvents array:
          // we'll purge this once we've fully processed the sync response
@@ -523,7 +563,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              client.emit(ClientEvent.Event, e);
              if (e.isState() && e.getType() == EventType.RoomEncryption && this.syncOpts.cryptoCallbacks) {
                  await this.syncOpts.cryptoCallbacks.onCryptoEvent(room, e);
-@@ -843,6 +957,7 @@
+@@ -843,6 +964,7 @@
  
          await promiseMapSeries(stateEvents, processRoomEvent);
          await promiseMapSeries(timelineEvents, processRoomEvent);
@@ -531,7 +571,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          ephemeralEvents.forEach(function (e) {
              client.emit(ClientEvent.Event, e);
          });
-@@ -991,12 +1106,144 @@
+@@ -991,12 +1113,144 @@
      public async sync(): Promise<void> {
          this.syncOpts.logger.debug("Sliding sync init loop");
  
@@ -680,7 +720,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                  this.syncOpts.logger.debug("Got push rules");
                  this.client.pushRules = result;
                  break;
-@@ -1007,9 +1254,6 @@
+@@ -1007,9 +1261,6 @@
                  }
              }
          }
@@ -690,11 +730,12 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      /**
-@@ -1017,6 +1261,10 @@
+@@ -1017,6 +1268,11 @@
       */
      public stop(): void {
          this.syncOpts.logger.debug("SyncApi.stop");
 +        this.stopped = true;
++        this.e2eeCollector.stop();
 +        // Saved rooms not applied yet are let go.
 +        this.snapshot = undefined;
 +        this.roomRestores.clear();

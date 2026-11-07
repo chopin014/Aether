@@ -723,22 +723,31 @@ describe("sliding sync restoring a saved snapshot", () => {
         api.stop();
     });
 
-    it("marks device lists out of date again with the next request when marking them failed", async () => {
+    it("holds a response's device lists until marking device lists out of date succeeds, trying again", async () => {
         const marks = vi.fn().mockRejectedValueOnce(new Error("store busy")).mockResolvedValue(undefined);
+        const deviceLists = vi.fn();
         const callbacks = {
             onCryptoEvent: async () => {},
             onSyncCompleted: () => {},
             preprocessToDeviceMessages: async (events: unknown[]) => events,
             processKeyCounts: async () => {},
-            processSyncChanges: async () => [],
+            processSyncChanges: async (changes: { deviceLists?: unknown }) => {
+                deviceLists(changes.deviceLists);
+                return [];
+            },
             onDeviceListsChanged: async () => {},
             markAllTrackedUsersAsDirty: marks,
         } as unknown as SyncCryptoCallbacks;
         const { api, responses } = setup(async () => null, undefined, callbacks);
         await vi.waitFor(() => expect(responses).toHaveLength(1));
-        responses[0]({ pos: "1" });
+        responses[0]({ pos: "1", extensions: { e2ee: { device_lists: { changed: ["@bob:example.org"], left: [] } } } });
+        // The first marking failed: the changes wait while it is made again.
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(deviceLists).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(marks).toHaveBeenCalledTimes(2), { timeout: 3000 });
+        await vi.waitFor(() => expect(deviceLists).toHaveBeenCalledWith({ changed: ["@bob:example.org"], left: [] }));
+        // Later requests do not mark again.
         await vi.waitFor(() => expect(responses).toHaveLength(2));
-        expect(marks).toHaveBeenCalledTimes(2);
         responses[1]({ pos: "2" });
         await vi.waitFor(() => expect(responses).toHaveLength(3));
         expect(marks).toHaveBeenCalledTimes(2);
