@@ -1188,8 +1188,11 @@ export class RoomTimelineViewModel
      * Without this, a slower load finishing later would take them back to where it was going.
      */
     private supersedeLoads(): void {
+        const wasLoading = this.loading;
         this.loadGeneration++;
         this.loading = false;
+        // Updates that arrived during the load were held back for it. Apply them to the rows shown instead.
+        if (wasLoading) this.scheduleRebuild();
     }
 
     /**
@@ -1361,14 +1364,21 @@ export class RoomTimelineViewModel
         } else {
             // Already have the latest events — scroll to the last item now.
             this.supersedeLoads();
+            this.navigationEventId = null;
             const items = this.snapshot.current.items;
             if (items.length > 0) {
                 const targetKey = items[items.length - 1].key;
                 debug(`[TimelineVM] onJumpToLive — scrolling now to targetKey=${targetKey}`);
-                this.mergeSnapshot({ numUnreadMessages: 0, hasHighlights: false }, "jump-to-live");
+                this.mergeSnapshot(
+                    { numUnreadMessages: 0, hasHighlights: false, highlightedEventId: null },
+                    "jump-to-live",
+                );
                 scrollNow({ targetKey, align: "end" });
             } else {
-                this.mergeSnapshot({ numUnreadMessages: 0, hasHighlights: false }, "jump-to-live-empty");
+                this.mergeSnapshot(
+                    { numUnreadMessages: 0, hasHighlights: false, highlightedEventId: null },
+                    "jump-to-live-empty",
+                );
             }
         }
     };

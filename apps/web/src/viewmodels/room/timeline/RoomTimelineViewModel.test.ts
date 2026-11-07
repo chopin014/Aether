@@ -793,6 +793,34 @@ describe("RoomTimelineViewModel", () => {
             expect(load).toHaveBeenCalledWith("$elsewhere", expect.any(Number));
         });
 
+        it("forgets an abandoned navigation when the jump-to-latest button is used", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const realLoad = TimelineWindow.prototype.load;
+            const slow = Promise.withResolvers<void>();
+            vi.spyOn(TimelineWindow.prototype, "load").mockImplementation(async function (
+                this: TimelineWindow,
+                eventId?: string,
+                size?: number,
+            ) {
+                if (eventId === "$elsewhere") await slow.promise;
+                return realLoad.call(this, eventId, size);
+            });
+            vm.showEvent("$elsewhere");
+            const scrollNow = vi.fn();
+            vm.onJumpToLive(scrollNow);
+            expect(scrollNow).toHaveBeenCalledWith({ targetKey: "$b", align: "end" });
+            expect(vm.getSnapshot().highlightedEventId).toBeNull();
+
+            // The reader is at the newest messages again, so a gap in sync follows them on.
+            vm.onAtBottomStateChange(true);
+            room.resetLiveTimeline("gap", undefined);
+            room.getUnfilteredTimelineSet().addLiveEvent(makeMessage("$c"), { addToState: false });
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$c"]));
+            slow.resolve();
+        });
+
         it("keeps a message navigated to while the first placement settles", async () => {
             seedTimeline([makeMessage("$a"), makeMessage("$b")]);
             const vm = await createStartedViewModel();
@@ -1495,6 +1523,31 @@ describe("RoomTimelineViewModel", () => {
         beforeEach(() => {
             // The messages being sent are ours, as they are in the app.
             vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+        });
+
+        it("shows a send failure that happened while an abandoned load was running", async () => {
+            seedTimeline([makeMessage("$a")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const pending = addPendingMessage("~pending");
+            await vi.waitFor(() => expect(eventRow(vm, "~pending")?.sendState).toBe("sending"));
+            const realLoad = TimelineWindow.prototype.load;
+            const slow = Promise.withResolvers<void>();
+            vi.spyOn(TimelineWindow.prototype, "load").mockImplementation(async function (
+                this: TimelineWindow,
+                eventId?: string,
+                size?: number,
+            ) {
+                if (eventId === "$elsewhere") await slow.promise;
+                return realLoad.call(this, eventId === "$elsewhere" ? undefined : eventId, size);
+            });
+            vm.showEvent("$elsewhere");
+            room.updatePendingEvent(pending, EventStatus.NOT_SENT);
+            await settle();
+            // The reader presses Escape while that load is still running.
+            vm.jumpToLive();
+            await vi.waitFor(() => expect(eventRow(vm, "~pending")?.sendState).toBe("failed"));
+            slow.resolve();
         });
 
         it("shows a message as soon as it leaves the composer, after the confirmed ones", async () => {
