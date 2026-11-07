@@ -1180,6 +1180,42 @@ describe("SlidingSyncManager", () => {
             expect(joinedRooms).toHaveBeenCalledTimes(2);
             sync.stop();
         });
+        it("keeps a saved room that sliding sync reports while the joined rooms are fetched", async () => {
+            const sync = (await manager.setup(client))!;
+            const cache = (
+                manager as unknown as { cache: { restoredRoomIds: ReadonlySet<string>; forgetRooms: () => void } }
+            ).cache;
+            vi.spyOn(cache, "restoredRoomIds", "get").mockReturnValue(
+                new Set(["!rejoined:example.org", "!gone:example.org"]),
+            );
+            const forget = vi.spyOn(cache, "forgetRooms");
+            const rooms = new Map(
+                ["!rejoined:example.org", "!gone:example.org"].map((roomId) => {
+                    const room = new Room(roomId, client, client.getUserId()!);
+                    room.updateMyMembership(KnownMembership.Join);
+                    return [roomId, room] as const;
+                }),
+            );
+            vi.mocked(client.getRoom).mockImplementation((roomId) => rooms.get(roomId!) ?? null);
+            // The server makes its list before the user rejoins a room they had left.
+            const answer = Promise.withResolvers<{ joined_rooms: string[] }>();
+            client.getJoinedRooms = vi.fn().mockReturnValue(answer.promise);
+
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, {
+                pos: "p",
+                lists: {},
+                rooms: {},
+                extensions: {},
+            });
+            await vi.waitFor(() => expect(client.getJoinedRooms).toHaveBeenCalled());
+            sync.emit(SlidingSyncEvent.RoomData, "!rejoined:example.org", { name: "Rejoined" } as MSC3575RoomData);
+            answer.resolve({ joined_rooms: [] });
+
+            await vi.waitFor(() => expect(forget).toHaveBeenCalledExactlyOnceWith(["!gone:example.org"]));
+            expect(rooms.get("!rejoined:example.org")!.getMyMembership()).toBe(KnownMembership.Join);
+            expect(rooms.get("!gone:example.org")!.getMyMembership()).toBe(KnownMembership.Leave);
+            sync.stop();
+        });
     });
 
     describe("setup", () => {

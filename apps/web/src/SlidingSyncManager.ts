@@ -976,17 +976,24 @@ export class SlidingSyncManager {
     ): Promise<boolean> {
         // Responses are processed only once saved rooms are restored, so by now it is known whether there were any.
         if (cache.restoredRoomIds.size === 0) return true;
+        // The list may be older than what sliding sync reports while it is fetched, such as a room rejoined
+        // meanwhile. Those rooms are left to sliding sync.
+        const reported = new Set<string>();
+        const onRoomData = (roomId: string): void => void reported.add(roomId);
+        slidingSync.on(SlidingSyncEvent.RoomData, onRoomData);
         let joined: Set<string>;
         try {
             joined = new Set((await client.getJoinedRooms()).joined_rooms);
         } catch (error) {
             logger.warn("SlidingSync: could not check which saved rooms the user is still in", error);
             return false;
+        } finally {
+            slidingSync.off(SlidingSyncEvent.RoomData, onRoomData);
         }
         if (this.slidingSync !== slidingSync || this.client !== client) return true;
         const gone = [...cache.restoredRoomIds].filter((roomId) => {
-            if (joined.has(roomId)) return false;
-            // An invite or a room the user rejoined meanwhile is the server's to report.
+            if (joined.has(roomId) || reported.has(roomId)) return false;
+            // An invite is the server's to report.
             const membership = client.getRoom(roomId)?.getMyMembership();
             return membership !== KnownMembership.Invite;
         });
