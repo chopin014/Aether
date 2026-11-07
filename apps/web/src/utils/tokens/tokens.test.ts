@@ -94,6 +94,26 @@ describe("tokens", () => {
             expect(localStorage.length).toBe(0);
         });
 
+        it.each(["saved", "failed"])(
+            "touches no storage once it may no longer, when a save under way has %s",
+            async (outcome) => {
+                const saving = Promise.withResolvers<void>();
+                vi.mocked(StorageAccess.idbSave).mockReturnValueOnce(saving.promise);
+                // A fallback another session left, which must stay.
+                localStorage.setItem("mx_access_token_fallback", "theirs");
+                let mayWrite = true;
+                const writing = persistTokens(undefined, { accessToken: ACCESS_TOKEN }, () => mayWrite);
+                await vi.waitFor(() => expect(StorageAccess.idbSave).toHaveBeenCalled());
+                // The session is replaced, or logged out, while the save is under way.
+                mayWrite = false;
+                if (outcome === "saved") saving.resolve();
+                else saving.reject(new Error("quota"));
+                await writing;
+                expect(localStorage.getItem("mx_access_token_fallback")).toBe("theirs");
+                expect(localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)).toBeNull();
+            },
+        );
+
         it("asks before writing each token, so a later token is not written once the answer changes", async () => {
             const answers = [true, false];
             await persistTokens(undefined, { accessToken: ACCESS_TOKEN, refreshToken: "refresh" }, () =>

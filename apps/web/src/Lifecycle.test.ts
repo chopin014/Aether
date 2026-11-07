@@ -266,6 +266,19 @@ describe("Lifecycle", () => {
                     initIdbMock(idbStorageSession());
                 });
 
+                it("keeps the restored session as the stored one when writing its credentials again fails", async () => {
+                    const setItem = localStorage.setItem.bind(localStorage);
+                    vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+                        if (key === "mx_hs_url") throw new Error("storage full");
+                        setItem(key, value);
+                    });
+                    vi.spyOn(logger, "warn").mockImplementation(() => {});
+                    expect(await restoreSessionFromStorage()).toEqual(true);
+                    // Tokens it refreshes once storage recovers are stored, rather than lost.
+                    expect(ownsStoredSession(mockClient)).toBe(true);
+                    Lifecycle.stopMatrixClient();
+                });
+
                 it("should persist credentials", async () => {
                     expect(await restoreSessionFromStorage()).toEqual(true);
                     // Its session is the stored one, so the tokens it refreshes are stored, until it stops.

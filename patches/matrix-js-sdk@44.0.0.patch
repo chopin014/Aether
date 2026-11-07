@@ -925,7 +925,7 @@ diff --git a/src/matrixrtc/MembershipManager.ts b/src/matrixrtc/MembershipManage
 diff --git a/src/http-api/fetch.ts b/src/http-api/fetch.ts
 --- a/src/http-api/fetch.ts
 +++ b/src/http-api/fetch.ts
-@@ -68,6 +68,23 @@
+@@ -68,6 +68,30 @@
          return this.tokenManager.revokeTokens();
      }
  
@@ -946,13 +946,39 @@ diff --git a/src/http-api/fetch.ts b/src/http-api/fetch.ts
 +        return this.tokenManager.whenRefreshSettled();
 +    }
 +
++    /**
++     * Refresh no more tokens, and abort a refresh under way. See {@link TokenManager.stop}.
++     */
++    public stopTokenRefresh(): void {
++        this.tokenManager.stop();
++    }
++
      public fetch(resource: URL | string, options?: RequestInit): ReturnType<typeof globalThis.fetch> {
          if (this.opts.fetchFn) {
              return this.opts.fetchFn(resource, options);
 diff --git a/src/http-api/refresh.ts b/src/http-api/refresh.ts
 --- a/src/http-api/refresh.ts
 +++ b/src/http-api/refresh.ts
-@@ -112,6 +112,26 @@
+@@ -83,6 +83,10 @@
+     // rather than racing to discover it independently.
+     private tokenRefresherPromise?: Promise<TokenRefresher>;
+ 
++    // Set by stop(): no more refreshes, and the one under way is aborted.
++    private stopped = false;
++    private readonly stopping = new AbortController();
++
+     /**
+      * This function is called before every request to ensure that the access token is valid.
+      * @returns a snapshot containing the access token and other properties which must be passed to the handleUnknownToken
+@@ -100,6 +104,7 @@
+     }
+ 
+     private async refreshIfNeeded(): Promise<unknown> {
++        if (this.stopped) return;
+         if (this.tokenRefreshPromise) {
+             return this.tokenRefreshPromise;
+         }
+@@ -112,6 +117,36 @@
          }
      }
  
@@ -963,8 +989,18 @@ diff --git a/src/http-api/refresh.ts b/src/http-api/refresh.ts
 +     * @returns Whether new tokens were obtained. False without a refresh token or OAuth2 client configuration.
 +     */
 +    public async refreshNow(): Promise<boolean> {
-+        if (!this.opts.refreshToken || !this.opts.oauth2ClientConfig) return false;
++        if (this.stopped || !this.opts.refreshToken || !this.opts.oauth2ClientConfig) return false;
 +        return (await this._handleUnknownToken()) === TokenRefreshOutcome.Success;
++    }
++
++    /**
++     * Refresh no more tokens, and abort a refresh under way, such as when the session is handed to another instance:
++     * a refresh finishing later would replace a refresh token that instance already uses. Revoking tokens still
++     * works.
++     */
++    public stop(): void {
++        this.stopped = true;
++        this.stopping.abort();
 +    }
 +
 +    /**
@@ -979,3 +1015,26 @@ diff --git a/src/http-api/refresh.ts b/src/http-api/refresh.ts
      /**
       * This function is called when an M_UNKNOWN_TOKEN error is encountered.
       * It will attempt to refresh the access token if it is unknown, and will return a TokenRefreshOutcome.
+@@ -126,6 +161,8 @@
+     private async _handleUnknownToken(): Promise<TokenRefreshOutcome>;
+     private async _handleUnknownToken(snapshot: AccessTokens, attempt: number): Promise<TokenRefreshOutcome>;
+     private async _handleUnknownToken(snapshot?: AccessTokens, attempt?: number): Promise<TokenRefreshOutcome> {
++        // A stopped session refreshes nothing more; the request fails as on a failed refresh.
++        if (this.stopped) return TokenRefreshOutcome.Failure;
+         if (snapshot?.expiry) {
+             // If our token is unknown, but it should not have expired yet, then we should not refresh
+             const expiresIn = snapshot.expiry.getTime() - Date.now();
+@@ -175,9 +212,12 @@
+                 // We already checked `oauth2ClientConfig` is set above, so this should be unreachable.
+                 return TokenRefreshOutcome.Logout;
+             }
++            // Stopped while the auth server was found: no grant is asked for.
++            if (this.stopped) return TokenRefreshOutcome.Failure;
+ 
++            const outer = this.getAbortSignal?.();
+             const { accessToken, refreshToken, expiry } = await tokenRefresher.refreshTokens(this.opts.refreshToken, {
+-                abortSignal: this.getAbortSignal?.(),
++                abortSignal: outer ? AbortSignal.any([outer, this.stopping.signal]) : this.stopping.signal,
+             });
+             this.opts.accessToken = accessToken;
+             this.opts.refreshToken = refreshToken;

@@ -51,7 +51,11 @@ function setup(
         if (url === metadata.token_endpoint) {
             const body = init?.body instanceof URLSearchParams ? init.body : undefined;
             calls.push(`token ${body?.get("refresh_token")}`);
-            return tokenResponse.promise;
+            // Aborting the request, as fetch does.
+            return new Promise<Response>((resolve, reject) => {
+                init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+                void tokenResponse.promise.then(resolve);
+            });
         }
         const headers = new Headers(init?.headers);
         calls.push(`${new URL(url).pathname} ${headers.get("Authorization")}`);
@@ -150,6 +154,18 @@ describe("refreshing an access token ahead of time", () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it("aborts a refresh under way when stopped, and starts no other, even for a request's unknown token", async () => {
+        const { http, calls, refreshed } = setup();
+        const renewing = http.refreshAccessToken();
+        await vi.waitFor(() => expect(calls).toEqual(["token old_refresh"]));
+        http.stopTokenRefresh();
+        await expect(renewing).resolves.toBe(false);
+        await http.whenTokenRefreshSettled();
+        expect(refreshed).toEqual([]);
+        await expect(http.refreshAccessToken()).resolves.toBe(false);
+        expect(calls).toEqual(["token old_refresh"]);
     });
 
     it("does nothing for a session that cannot refresh", async () => {

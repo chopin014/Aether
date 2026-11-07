@@ -158,6 +158,8 @@ async function persistTokenInStorage(
         // Save either the encrypted token, or the plain token if there is no token or we were
         // unable to encrypt (e.g. if the browser doesn't have WebCrypto).
         await StorageAccess.idbSave("account", storageKey, valueToStore);
+        // Saving waits too. Storage that has since passed to another session, or been cleared, is not touched.
+        if (canWrite && !canWrite()) return;
         // IndexedDB is now authoritative, so drop any fallback left behind by an earlier failed
         // write. If we left it in place, getStoredToken would keep preferring it over the value
         // we have just written.
@@ -175,6 +177,7 @@ async function persistTokenInStorage(
             localStorage.removeItem(storageKey);
         }
     } catch (e) {
+        if (canWrite && !canWrite()) return;
         // We could not save to IndexedDB, so fall back to localStorage. We store the token
         // unencrypted since localStorage only saves strings.
         logger.error(

@@ -167,6 +167,9 @@ export class AccessTokenRenewal {
      * @param client - The client.
      */
     public static release(client: MatrixClient): void {
+        // Only sessions that can refresh have a renewal. A refresh under way is aborted, and none starts later:
+        // finishing it would replace a refresh token another session or tab may be using by then.
+        if (AccessTokenRenewal.byClient.has(client)) client.http.stopTokenRefresh();
         AccessTokenRenewal.stop(client);
         if (storedSessionOwner === client) storedSessionOwner = null;
     }

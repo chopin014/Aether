@@ -29,14 +29,16 @@ describe("AccessTokenRenewal", () => {
     let client: MatrixClient;
     let refreshAccessToken: ReturnType<typeof vi.fn<() => Promise<boolean>>>;
     let whenTokenRefreshSettled: ReturnType<typeof vi.fn<() => Promise<void>>>;
+    let stopTokenRefresh: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
         vi.useFakeTimers({ now: 1_000_000_000 });
         localStorage.clear();
         refreshAccessToken = vi.fn<() => Promise<boolean>>().mockResolvedValue(true);
         whenTokenRefreshSettled = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+        stopTokenRefresh = vi.fn();
         client = {
-            http: { refreshAccessToken, whenTokenRefreshSettled },
+            http: { refreshAccessToken, whenTokenRefreshSettled, stopTokenRefresh },
             getUserId: () => "@alice:example.org",
             getDeviceId: () => "DEVICE",
         } as unknown as MatrixClient;
@@ -217,6 +219,14 @@ describe("AccessTokenRenewal", () => {
         expect(ownsStoredSession(client)).toBe(false);
         AccessTokenRenewal.release(other);
         expect(ownsStoredSession(other)).toBe(false);
+    });
+
+    it("ends a session's refreshing for good when released, but not that of one that cannot refresh", () => {
+        AccessTokenRenewal.release(client);
+        expect(stopTokenRefresh).not.toHaveBeenCalled();
+        AccessTokenRenewal.create(client);
+        AccessTokenRenewal.release(client);
+        expect(stopTokenRefresh).toHaveBeenCalledOnce();
     });
 
     it("stops renewing when released", async () => {
