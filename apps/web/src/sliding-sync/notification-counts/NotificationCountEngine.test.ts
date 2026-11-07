@@ -16,10 +16,12 @@ import {
     MatrixEvent,
     type MatrixClient,
     NotificationCountType,
+    PushRuleActionName,
     PushRuleKind,
     ReceiptType,
     Room,
     RoomEvent,
+    TweakName,
 } from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
 import {
@@ -80,7 +82,7 @@ const pushRules: IPushRules = {
                 default: false,
                 enabled: true,
                 pattern: "alice",
-                actions: ["notify", { set_tweak: "highlight" }],
+                actions: [PushRuleActionName.Notify, { set_tweak: TweakName.Highlight }],
             },
         ],
         [PushRuleKind.RoomSpecific]: [],
@@ -91,7 +93,7 @@ const pushRules: IPushRules = {
                 default: true,
                 enabled: true,
                 conditions: [{ kind: ConditionKind.EventMatch, key: "type", pattern: "m.room.message" }],
-                actions: ["notify"],
+                actions: [PushRuleActionName.Notify],
             },
         ],
     },
@@ -135,14 +137,15 @@ describe("NotificationCountEngine", () => {
             receipts: MatrixEvent[] = [],
             { pauseBeforeReceipts = false } = {},
         ): Promise<void> => {
-            const response = { pos: "1", lists: {}, rooms: { [roomId]: data } } as MSC3575SlidingSyncResponse;
+            const roomData: MSC3575RoomData = { required_state: [], timeline: [], ...data, name: "Room" };
+            const response: MSC3575SlidingSyncResponse = {
+                pos: "1",
+                lists: {},
+                rooms: { [roomId]: roomData },
+                extensions: {},
+            };
             sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, response);
-            await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, {
-                required_state: [],
-                timeline: [],
-                ...data,
-                name: "Room",
-            });
+            await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, roomData);
             sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, response);
             // Applying a response can take a while; other work runs meanwhile.
             if (pauseBeforeReceipts) await new Promise((resolve) => setTimeout(resolve, 0));
