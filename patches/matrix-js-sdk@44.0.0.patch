@@ -150,6 +150,15 @@ diff --git a/src/client.ts b/src/client.ts
      public getPushActionsForEvent(event: MatrixEvent, forceRecalculate = false): IActionsObject | null {
          if (!event.getPushActions() || forceRecalculate) {
              const { actions, rule } = this.pushProcessor.actionsAndRuleForEvent(event);
+@@ -5265,7 +5341,7 @@
+                         await thread?.processEvent(event);
+                         const sender = event.getSender()!;
+                         if (!backwards || thread?.getEventReadUpTo(sender) === null) {
+-                            room.addLocalEchoReceipt(sender, event, ReceiptType.Read);
++                            room.addLocalEchoReceipt(sender, event, ReceiptType.Read, false, true);
+                         }
+                     }
+ 
 @@ -5315,6 +5391,21 @@
                      const matrixEvents = res.chunk.filter(noUnsafeEventProps).map(this.getEventMapper());
  
@@ -195,25 +204,27 @@ diff --git a/src/client.ts b/src/client.ts
 diff --git a/src/models/room.ts b/src/models/room.ts
 --- a/src/models/room.ts
 +++ b/src/models/room.ts
-@@ -223,6 +223,8 @@
+@@ -223,6 +223,10 @@
       * Fires whenever a receipt is received for a room
       * @param event - The receipt event
       * @param room - The room whose receipts was updated.
 +     * @param synthetic - Whether the receipt was made up on this device, such as the echo of one it sends, rather
 +     * than received from the server.
++     * @param implicit - Whether it was made up for the sender of an event, who has read up to it, rather than for a
++     * receipt that was sent.
       * @example
       * ```
       * matrixClient.on("Room.receipt", function(event, room){
-@@ -230,7 +232,7 @@
+@@ -230,7 +234,7 @@
       * });
       * ```
       */
 -    [RoomEvent.Receipt]: (event: MatrixEvent, room: Room) => void;
-+    [RoomEvent.Receipt]: (event: MatrixEvent, room: Room, synthetic?: boolean) => void;
++    [RoomEvent.Receipt]: (event: MatrixEvent, room: Room, synthetic?: boolean, implicit?: boolean) => void;
      /**
       * Fires whenever the name of a room is updated.
       * @param room - The room whose Room.name was updated.
-@@ -1355,7 +1357,8 @@
+@@ -1355,7 +1359,8 @@
      }
  
      private onReceipt = (event: MatrixEvent): void => {
@@ -223,7 +234,7 @@ diff --git a/src/models/room.ts b/src/models/room.ts
              this.clearNotificationsOnReceipt(event);
          }
      };
-@@ -1670,6 +1673,37 @@
+@@ -1670,6 +1675,37 @@
          return this.bumpStamp;
      }
  
@@ -261,7 +272,16 @@ diff --git a/src/models/room.ts b/src/models/room.ts
      /**
       * Set one of the notification counts for this room
       * @param type - The type of notification count to set.
-@@ -3117,6 +3151,23 @@
+@@ -2760,7 +2796,7 @@
+         // pointing to an event that wasn't yet in the timeline
+         // Don't synthesize RR for m.room.redaction as this causes the RR to go missing.
+         if (event.sender && event.getType() !== EventType.RoomRedaction) {
+-            this.addReceipt(synthesizeReceipt(event.sender.userId, event, ReceiptType.Read), true);
++            this.addReceipt(synthesizeReceipt(event.sender.userId, event, ReceiptType.Read), true, true);
+ 
+             // Any live events from a user could be taken as implicit
+             // presence information: evidence that they are currently active.
+@@ -3117,6 +3153,23 @@
          // List of extra events to check for being parents of any relations encountered
          const neighbouringEvents = [...events];
  
@@ -285,7 +305,7 @@ diff --git a/src/models/room.ts b/src/models/room.ts
          for (const event of events) {
              // TODO: We should have a filter to say "only add state event types X Y Z to the timeline".
              this.processLiveEvent(event);
-@@ -3141,7 +3192,8 @@
+@@ -3141,7 +3194,8 @@
              if (!fromCache && !shouldLiveInThread && !shouldLiveInRoom && event.isRelation()) {
                  try {
                      const parentEvent = new MatrixEvent(
@@ -295,7 +315,16 @@ diff --git a/src/models/room.ts b/src/models/room.ts
                      );
                      neighbouringEvents.push(parentEvent);
                      if (parentEvent.threadRootId) {
-@@ -3274,7 +3326,12 @@
+@@ -3237,7 +3291,7 @@
+      * @param event - The m.receipt event.
+      * @param synthetic - True if this event is implicit.
+      */
+-    public addReceipt(event: MatrixEvent, synthetic = false): void {
++    public addReceipt(event: MatrixEvent, synthetic = false, implicit = false): void {
+         const content = event.getContent<ReceiptContent>();
+ 
+         this.roomReceipts.add(content, synthetic);
+@@ -3274,7 +3328,12 @@
                          // just read a message, not when we are e.g. receiving
                          // an event during the sync. More explanation at:
                          // https://github.com/matrix-org/matrix-js-sdk/issues/3684
@@ -309,16 +338,16 @@ diff --git a/src/models/room.ts b/src/models/room.ts
                              const lastEvent = receiptDestination.timeline[receiptDestination.timeline.length - 1];
                              if (lastEvent && eventId === lastEvent.getId() && userId === lastEvent.getSender()) {
                                  receiptDestination.setUnread(NotificationCountType.Total, 0);
-@@ -3308,7 +3365,7 @@
+@@ -3308,7 +3367,7 @@
  
          // send events after we've regenerated the structure & cache, otherwise things that
          // listened for the event would read stale data.
 -        this.emit(RoomEvent.Receipt, event, this);
-+        this.emit(RoomEvent.Receipt, event, this, synthetic);
++        this.emit(RoomEvent.Receipt, event, this, synthetic, implicit);
      }
  
      /**
-@@ -4085,3 +4142,25 @@
+@@ -4085,3 +4144,25 @@
          }
      }
  }
@@ -1600,3 +1629,56 @@ diff --git a/src/http-api/refresh.ts b/src/http-api/refresh.ts
              });
              this.opts.accessToken = accessToken;
              this.opts.refreshToken = refreshToken;
+diff --git a/src/models/read-receipt.ts b/src/models/read-receipt.ts
+--- a/src/models/read-receipt.ts
++++ b/src/models/read-receipt.ts
+@@ -340,7 +340,7 @@
+         return this.receiptCacheByEventId.get(event.getId()!) || [];
+     }
+ 
+-    public abstract addReceipt(event: MatrixEvent, synthetic: boolean): void;
++    public abstract addReceipt(event: MatrixEvent, synthetic: boolean, implicit?: boolean): void;
+ 
+     public abstract setUnread(type: NotificationCountType, count: number): void;
+ 
+@@ -379,9 +379,17 @@
+      * @param e - The event that is to be acknowledged
+      * @param receiptType - The type of receipt
+      * @param unthreaded - the receipt is unthreaded
++     * @param implicit - the receipt stands for the sender having read up to their own event, rather than for a
++     * receipt that was sent
+      */
+-    public addLocalEchoReceipt(userId: string, e: MatrixEvent, receiptType: ReceiptType, unthreaded = false): void {
+-        this.addReceipt(synthesizeReceipt(userId, e, receiptType, unthreaded), true);
++    public addLocalEchoReceipt(
++        userId: string,
++        e: MatrixEvent,
++        receiptType: ReceiptType,
++        unthreaded = false,
++        implicit = false,
++    ): void {
++        this.addReceipt(synthesizeReceipt(userId, e, receiptType, unthreaded), true, implicit);
+     }
+ 
+     /**
+diff --git a/src/models/thread.ts b/src/models/thread.ts
+--- a/src/models/thread.ts
++++ b/src/models/thread.ts
+@@ -290,7 +290,7 @@
+         if (!toStartOfTimeline) {
+             const sender = event.getSender();
+             if (sender && room && this.shouldSendLocalEchoReceipt(sender, event)) {
+-                room.addLocalEchoReceipt(sender, event, ReceiptType.Read);
++                room.addLocalEchoReceipt(sender, event, ReceiptType.Read, false, true);
+             }
+             if (event.getId() !== this.id && event.isRelation(THREAD_RELATION_TYPE.name)) {
+                 this.replyCount++;
+@@ -847,7 +847,7 @@
+         return this.timelineSet;
+     }
+ 
+-    public addReceipt(event: MatrixEvent, synthetic: boolean): void {
++    public addReceipt(event: MatrixEvent, synthetic: boolean, implicit?: boolean): void {
+         throw new Error("Unsupported function on the thread model");
+     }
+ 
