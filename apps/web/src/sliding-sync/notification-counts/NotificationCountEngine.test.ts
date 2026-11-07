@@ -12,6 +12,7 @@ import {
     type AnyMemberCountCondition,
     ClientEvent,
     ConditionKind,
+    EventTimeline,
     EventType,
     type IPushRule,
     type IPushRules,
@@ -524,6 +525,59 @@ describe("NotificationCountEngine", () => {
         await respond({ timeline: [message("$n")] }, [receipt("$n")]);
         expect(counts().total).toBe(0);
         expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Exact);
+    });
+
+    it("takes marking a room read at the user's own last message as reading its threads too", async () => {
+        const { client, respond, engine, settle } = await setup();
+        await respond(
+            {
+                initial: true,
+                required_state: requiredState,
+                timeline: [message("$root"), reply("$r1", "$root"), message("$mine", "hello", me)],
+            },
+            [receipt("$root", "main")],
+        );
+        expect(engine.getCounts(roomId)?.threads.get("$root")?.total).toBe(1);
+
+        // As "mark as read" does: a receipt without a thread, for the last message, the user's own.
+        const room = client.getRoom(roomId)!;
+        room.addLocalEchoReceipt(me, room.findEventById("$mine")!, ReceiptType.Read, true);
+        await settle();
+
+        expect(engine.getCounts(roomId)?.threads.get("$root")?.total).toBe(0);
+        expect(room.getThreadUnreadNotificationCount("$root", NotificationCountType.Total)).toBe(0);
+    });
+
+    it("ignores the receipts the SDK makes up for the user's own events, including in a thread's history", async () => {
+        const { client, respond, counts, engine, settle } = await setup();
+        await respond({ initial: true, required_state: requiredState, timeline: [message("$root"), message("$b")] }, [
+            receipt("$root"),
+        ]);
+        const room = client.getRoom(roomId)!;
+        const made: Array<{ synthetic?: boolean; implicit?: boolean }> = [];
+        room.on(RoomEvent.Receipt, (_event, _room, synthetic, implicit) => made.push({ synthetic, implicit }));
+
+        // Replies of the user's in the thread, more than receipts made here are kept for, loaded forwards as the
+        // thread's history: the SDK makes a receipt up for each before the events reach the thread.
+        const thread = room.createThread("$root", room.findEventById("$root"), [], true);
+        const replies = Array.from({ length: 6 }, (_, i) => ({
+            ...message(`$mine${i}`, "hello", me, { "m.relates_to": { rel_type: "m.thread", event_id: "$root" } }),
+            origin_server_ts: 10 + i,
+        }));
+        vi.spyOn(client, "fetchRelations").mockResolvedValue({ chunk: replies } as never);
+        // As for a thread opened at an older reply.
+        const older = thread.timelineSet.addTimeline();
+        older.setPaginationToken("later", EventTimeline.FORWARDS);
+        await client.paginateEventTimeline(older, { backwards: false, limit: 6 });
+        await settle();
+
+        expect(made.length).toBeGreaterThan(0);
+        expect(made.every(({ synthetic, implicit }) => synthetic && implicit)).toBe(true);
+        expect(counts().total).toBe(1);
+        expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Exact);
+        expect(engine.getCounts(roomId)?.threads.get("$root")?.confidence ?? CountConfidence.Exact).not.toBe(
+            CountConfidence.Unknown,
+        );
     });
 
     it("lets the server's receipt take the place of one made here that it did not keep", async () => {
