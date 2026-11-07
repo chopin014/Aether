@@ -1308,8 +1308,15 @@ export class SlidingSyncManager {
         SlidingSyncManager.serverSupportsSlidingSync = supported;
         try {
             localStorage.setItem(supportKey(client), String(supported));
-        } catch {
-            // Only a later start's head start is lost.
+        } catch (error) {
+            // Storage is full, say. An answer that cannot be updated is dropped rather than left stale, so the next
+            // start asks the server again.
+            logger.warn("SlidingSync: could not keep whether the server offers sliding sync", error);
+            try {
+                localStorage.removeItem(supportKey(client));
+            } catch {
+                // Nothing more can be done.
+            }
         }
         return supported;
     }

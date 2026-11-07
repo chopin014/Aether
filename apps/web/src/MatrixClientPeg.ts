@@ -339,10 +339,15 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         const asking = manager.serverOffersSlidingSync(client);
         if (known === undefined) return asking;
         void asking.then((offers) => {
-            if (offers === false && manager.isActiveFor(client)) {
-                logger.warn("MatrixClientPeg: the server no longer offers sliding sync; reloading to use regular sync");
-                PlatformPeg.get()?.reload();
+            if (offers !== false || !manager.isActiveFor(client)) return;
+            // Reloading only helps once the next start will not read the old answer again, or it would reload
+            // every time.
+            if (manager.knownServerSupport(client) === true) {
+                logger.warn("MatrixClientPeg: the server no longer offers sliding sync, but that could not be kept");
+                return;
             }
+            logger.warn("MatrixClientPeg: the server no longer offers sliding sync; reloading to use regular sync");
+            PlatformPeg.get()?.reload();
         });
         return known;
     }

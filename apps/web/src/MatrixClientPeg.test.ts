@@ -183,7 +183,10 @@ describe("MatrixClientPeg", () => {
             });
 
             it("decides at once from the answer kept from last time, and reloads if the server has since dropped it", async () => {
-                vi.spyOn(SlidingSyncManager.instance, "knownServerSupport").mockReturnValue(true);
+                // The answer kept from last time, then the new one once the server has answered.
+                vi.spyOn(SlidingSyncManager.instance, "knownServerSupport")
+                    .mockReturnValueOnce(true)
+                    .mockReturnValue(false);
                 const answer = Promise.withResolvers<boolean | undefined>();
                 vi.spyOn(SlidingSyncManager.instance, "serverOffersSlidingSync").mockReturnValue(answer.promise);
                 const setup = vi.spyOn(SlidingSyncManager.instance, "setup").mockResolvedValue(undefined);
@@ -195,6 +198,19 @@ describe("MatrixClientPeg", () => {
                 expect(setup).toHaveBeenCalledOnce();
                 answer.resolve(false);
                 await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce());
+            });
+
+            it("does not reload when the server's new answer could not be kept, which would reload every time", async () => {
+                // The old answer still reads back, as when storage is full.
+                vi.spyOn(SlidingSyncManager.instance, "knownServerSupport").mockReturnValue(true);
+                vi.spyOn(SlidingSyncManager.instance, "serverOffersSlidingSync").mockResolvedValue(false);
+                vi.spyOn(SlidingSyncManager.instance, "setup").mockResolvedValue(undefined);
+                vi.spyOn(SlidingSyncManager.instance, "isActiveFor").mockReturnValue(true);
+                const reload = vi.fn();
+                vi.spyOn(PlatformPeg, "get").mockReturnValue({ reload } as unknown as BasePlatform);
+                await testPeg.start();
+                for (let i = 0; i < 5; i++) await Promise.resolve();
+                expect(reload).not.toHaveBeenCalled();
             });
 
             it.each([true, undefined])(

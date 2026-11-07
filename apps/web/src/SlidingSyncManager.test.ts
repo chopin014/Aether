@@ -918,6 +918,24 @@ describe("SlidingSyncManager", () => {
             expect(manager.knownServerSupport(client)).toBeUndefined();
         });
 
+        it("drops an answer it cannot update, rather than leave it stale", async () => {
+            localStorage.clear();
+            vi.spyOn(manager, "nativeSlidingSyncSupport").mockResolvedValue(true);
+            await manager.serverOffersSlidingSync(client);
+            expect(manager.knownServerSupport(client)).toBe(true);
+            // The server stops offering it while storage is full.
+            vi.spyOn(manager, "nativeSlidingSyncSupport").mockResolvedValue(false);
+            const setItem = vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+                throw new DOMException("full", "QuotaExceededError");
+            });
+            try {
+                await expect(manager.serverOffersSlidingSync(client)).resolves.toBe(false);
+            } finally {
+                setItem.mockRestore();
+            }
+            expect(manager.knownServerSupport(client)).toBeUndefined();
+        });
+
         it("takes a server whose versions list no unstable features as offering no sliding sync", async () => {
             const real = createClient({ baseUrl: "https://versions.example.org" });
             fetchMock.get("https://versions.example.org/_matrix/client/versions", { versions: ["v1.11"] });
