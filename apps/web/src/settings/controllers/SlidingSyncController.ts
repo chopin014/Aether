@@ -13,21 +13,19 @@ import SettingController from "./SettingController";
 import PlatformPeg from "../../PlatformPeg";
 import { _t } from "../../languageHandler";
 import { SlidingSyncManager } from "../../SlidingSyncManager";
-import { MatrixClientPeg } from "../../MatrixClientPeg";
 import { SlidingSyncCache } from "../../sliding-sync/SlidingSyncCache";
 import { type SettingLevel } from "../SettingLevel";
 
 export default class SlidingSyncController extends SettingController {
     public async onChange(_level: SettingLevel, _roomId: string | null, newValue: unknown): Promise<void> {
-        const client = MatrixClientPeg.get();
-        if (!newValue && SlidingSyncManager.instance.isActiveFor(client)) {
-            // Sliding sync never updates what regular sync saved before it was turned on. Regular sync starts afresh
-            // instead, as after clearing the cache; the session and its encryption keys are kept.
+        if (!newValue) {
+            // Regular sync catches up from where it last stopped, as after a long time offline: what it saved, such
+            // as outgoing to-device messages, is kept. The rooms sliding sync saved would be stale if it were turned
+            // on again, so they go.
             try {
-                await client?.store.deleteAllData();
                 await SlidingSyncCache.deleteAll();
             } catch (error) {
-                logger.warn("SlidingSyncController: could not clear the saved sync data", error);
+                logger.warn("SlidingSyncController: could not delete the rooms sliding sync saved", error);
             }
         }
         PlatformPeg.get()?.reload();
