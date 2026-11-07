@@ -40,6 +40,8 @@ import { Action } from "../../dispatcher/actions";
 import MatrixClientContext from "../../contexts/MatrixClientContext";
 import { PosthogAnalytics } from "../../PosthogAnalytics";
 import SettingsStore from "../../settings/SettingsStore";
+import Modal from "../../Modal";
+import ImageView from "../../components/views/elements/ImageView";
 
 const sendContentListToRoomSpy = vi.spyOn(ContentMessages.sharedInstance(), "sendContentListToRoom");
 
@@ -402,6 +404,28 @@ describe("RoomUploadViewModel attachment tray", () => {
 
         expect(vm.getSnapshot().attachments.map((attachment) => attachment.name)).toEqual(["notes.txt"]);
         expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview");
+    });
+
+    it("opens a waiting image at full size in the lightbox", async () => {
+        const createDialog = vi
+            .spyOn(Modal, "createDialog")
+            .mockReturnValue({} as ReturnType<typeof Modal.createDialog>);
+        await vm.initiateViaInputFiles([image, notes]);
+        const [photo, other] = vm.getSnapshot().attachments;
+
+        vm.openAttachment(photo.id);
+        expect(createDialog).toHaveBeenCalledWith(
+            ImageView,
+            { src: "blob:preview", name: "photo.png", fileSize: 1 },
+            "mx_Dialog_lightbox",
+            undefined,
+            true,
+        );
+
+        // A file that is not an image has nothing to show.
+        createDialog.mockClear();
+        vm.openAttachment(other.id);
+        expect(createDialog).not.toHaveBeenCalled();
     });
 
     it("sends the files in order without asking, with the caption, and empties the tray", async () => {

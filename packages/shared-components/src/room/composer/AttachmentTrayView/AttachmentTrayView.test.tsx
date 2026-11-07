@@ -19,6 +19,7 @@ import {
 
 class TestAttachmentTrayViewModel extends MockViewModel<AttachmentTrayViewSnapshot> {
     public removeAttachment = vi.fn<AttachmentTrayViewActions["removeAttachment"]>();
+    public openAttachment = vi.fn<AttachmentTrayViewActions["openAttachment"]>();
 }
 
 const photo: PendingAttachment = { id: "a", name: "photo.png", size: 2048, kind: "image", previewUrl: "blob:photo" };
@@ -48,5 +49,16 @@ describe("AttachmentTrayView", () => {
         fireEvent.click(screen.getByRole("button", { name: "Remove notes.txt" }));
 
         expect(vm.removeAttachment).toHaveBeenCalledWith("b");
+    });
+
+    it("opens a waiting image when its picture is clicked", () => {
+        const vm = new TestAttachmentTrayViewModel({ attachments: [photo, notes] });
+        render(<AttachmentTrayView vm={vm} />);
+
+        fireEvent.click(screen.getByRole("button", { name: "View photo.png" }));
+
+        expect(vm.openAttachment).toHaveBeenCalledWith("a");
+        // Other files have nothing to open.
+        expect(screen.queryByRole("button", { name: "View notes.txt" })).not.toBeInTheDocument();
     });
 });

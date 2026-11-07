@@ -38,6 +38,8 @@ export interface AttachmentTrayViewSnapshot {
 export interface AttachmentTrayViewActions {
     /** Takes a file out of the tray. */
     removeAttachment: (id: string) => void;
+    /** Shows a waiting image at full size, before it is sent. */
+    openAttachment: (id: string) => void;
 }
 
 export type AttachmentTrayViewModel = ViewModel<AttachmentTrayViewSnapshot, AttachmentTrayViewActions>;
@@ -70,7 +72,7 @@ function Preview({ attachment }: Readonly<{ attachment: PendingAttachment }>): J
 
 /**
  * The files waiting to go with the next message, shown above the composer's text: a picture of each, its name, and
- * a button that takes it out. Nothing is shown when the tray is empty.
+ * a button that takes it out. Clicking a waiting image opens it at full size. Nothing is shown when the tray is empty.
  *
  * @example
  * ```tsx
@@ -86,9 +88,22 @@ export function AttachmentTrayView({ vm }: Readonly<AttachmentTrayViewProps>): J
         <ul className={styles.tray} aria-label={_t("composer|attachments|label", { count: attachments.length })}>
             {attachments.map((attachment) => {
                 const removeLabel = _t("composer|attachments|remove", { name: attachment.name });
+                // Like Discord's, a waiting picture opens at full size when clicked, so it can be checked before sending.
+                const viewable = attachment.kind === "image" && !!attachment.previewUrl;
                 return (
                     <li key={attachment.id} className={styles.card}>
-                        <Preview attachment={attachment} />
+                        {viewable ? (
+                            <button
+                                type="button"
+                                className={styles.open}
+                                aria-label={_t("composer|attachments|view", { name: attachment.name })}
+                                onClick={() => vm.openAttachment(attachment.id)}
+                            >
+                                <Preview attachment={attachment} />
+                            </button>
+                        ) : (
+                            <Preview attachment={attachment} />
+                        )}
                         <span className={styles.details}>
                             <span className={styles.name} title={attachment.name}>
                                 {attachment.name}
