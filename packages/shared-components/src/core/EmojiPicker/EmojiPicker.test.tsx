@@ -9,7 +9,7 @@
 import React from "react";
 import { DATA_BY_CATEGORY } from "@matrix-org/emojibase-bindings";
 import userEvent from "@testing-library/user-event";
-import { render, waitFor, screen } from "@test-utils";
+import { fireEvent, render, waitFor, screen } from "@test-utils";
 import { describe, expect, it, vi } from "vitest";
 
 import { EmojiPicker, filterEmojis } from "./EmojiPicker";
@@ -341,6 +341,35 @@ describe("EmojiPicker", function () {
         await waitFor(() => expect(getActiveEmoji().textContent).toEqual("🧪"));
         expect(input).toHaveAttribute("aria-activedescendant", getActiveEmoji().id);
         expect(getActiveEmoji().id).not.toEqual(activeId);
+    });
+
+    it("keeps previewing the last emoji pointed at until the pointer leaves the grid", async () => {
+        const { container } = render(<EmojiPicker onChoose={vi.fn()} onFinished={vi.fn()} />);
+        await waitFor(() => expect(container.querySelector('[role="gridcell"] [tabindex]')).toBeInTheDocument());
+
+        const [first, second] = container.querySelectorAll<HTMLElement>('[role="gridcell"] [tabindex]');
+        const body = container.querySelector('[role="grid"]')!.parentElement!.closest<HTMLElement>("[id]")!;
+        // React derives enter and leave from where the pointer moved over from and out to.
+        const move = (from: HTMLElement, to: HTMLElement): void => {
+            fireEvent.mouseOut(from, { relatedTarget: to });
+            fireEvent.mouseOver(to, { relatedTarget: from });
+        };
+        const quickReactions = (): HTMLElement | null => screen.queryByRole("toolbar", { name: "Quick Reactions" });
+
+        move(body, first);
+        expect(screen.getByText("grinning face")).toBeInTheDocument();
+        expect(quickReactions()).not.toBeInTheDocument();
+
+        // Crossing the gap to the next emoji must not bring the quick reactions back in between.
+        move(first, first.parentElement!);
+        expect(screen.getByText("grinning face")).toBeInTheDocument();
+        expect(quickReactions()).not.toBeInTheDocument();
+
+        move(first.parentElement!, second);
+        expect(screen.getByText("grinning face with big eyes")).toBeInTheDocument();
+
+        move(second, document.body);
+        expect(quickReactions()).toBeInTheDocument();
     });
 
     describe("Category keyboard selection", () => {
