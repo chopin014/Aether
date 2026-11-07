@@ -581,7 +581,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          ephemeralEvents.forEach(function (e) {
              client.emit(ClientEvent.Event, e);
          });
-@@ -991,12 +1132,144 @@
+@@ -991,12 +1132,154 @@
      public async sync(): Promise<void> {
          this.syncOpts.logger.debug("Sliding sync init loop");
  
@@ -613,6 +613,15 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +        }
 +        if (!snapshot || this.stopped) return;
 +        this.snapshot = snapshot;
++        // Until every saved room is applied, a room someone asks for can be applied ahead of its turn.
++        this.slidingSync.setSavedRooms({
++            has: (roomId) => !!this.snapshot?.rooms[roomId] || this.roomRestores.has(roomId),
++            restore: (roomIds, background) =>
++                this.restoreRooms(
++                    roomIds.filter((roomId) => this.snapshot?.rooms[roomId] || this.roomRestores.has(roomId)),
++                    background,
++                ),
++        });
 +        try {
 +            if (snapshot.accountData?.length) applyGlobalAccountData(this.client, snapshot.accountData);
 +        } catch (error) {
@@ -653,6 +662,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +            // Every saved room is in place: later live data needs no check, and the snapshot can be let go.
 +            this.snapshot = undefined;
 +            this.roomRestores.clear();
++            this.slidingSync.setSavedRooms(undefined);
 +        });
 +    }
 +
@@ -730,7 +740,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                  this.syncOpts.logger.debug("Got push rules");
                  this.client.pushRules = result;
                  break;
-@@ -1007,9 +1280,6 @@
+@@ -1007,9 +1290,6 @@
                  }
              }
          }
@@ -740,7 +750,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      /**
-@@ -1017,6 +1287,11 @@
+@@ -1017,6 +1297,12 @@
       */
      public stop(): void {
          this.syncOpts.logger.debug("SyncApi.stop");
@@ -749,6 +759,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +        // Saved rooms not applied yet are let go.
 +        this.snapshot = undefined;
 +        this.roomRestores.clear();
++        this.slidingSync.setSavedRooms(undefined);
          this.slidingSync.stop();
      }
  
@@ -768,7 +779,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
  
  // /sync requests allow you to set a timeout= but the request may continue
  // beyond that and wedge forever, so we need to track how long we are willing
-@@ -55,6 +55,23 @@
+@@ -55,6 +55,34 @@
      not_tags?: string[];
  }
  
@@ -789,10 +800,21 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 +    priorityRoomIds?: string[];
 +}
 +
++/**
++ * Saved room data the client holds but has not applied yet, such as the rooms of a {@link SlidingSyncSnapshot} it
++ * applies in the background.
++ */
++export interface SlidingSyncSavedRooms {
++    /** Whether the room's saved data is still to be applied, or being applied. */
++    has(roomId: string): boolean;
++    /** Apply the rooms' saved data now. Background rooms wait for the page to be idle. */
++    restore(roomIds: string[], background: boolean): Promise<void>;
++}
++
  /**
   * Represents a list subscription.
   */
-@@ -317,8 +334,12 @@
+@@ -317,8 +345,12 @@
      private lists: Map<string, SlidingList>;
      private listModifiedCount = 0;
      private terminated = false;
@@ -805,7 +827,16 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      // map of extension name to req/resp handler
      private extensions: Record<string, Extension<any, any>> = {};
  
-@@ -465,6 +486,16 @@
+@@ -332,6 +364,8 @@
+ 
+     private pendingReq?: Promise<MSC3575SlidingSyncResponse>;
+     private abortController?: AbortController;
++    // Saved room data the client has not applied yet, while it holds some.
++    private savedRooms?: SlidingSyncSavedRooms;
+ 
+     /**
+      * Create a new sliding sync instance
+@@ -465,6 +499,43 @@
          return new Set(Array.from(this.desiredRoomSubscriptions));
      }
  
@@ -819,10 +850,37 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 +        return this.confirmedRoomSubscriptions.has(roomId);
 +    }
 +
++    /**
++     * Set by the client while it holds saved room data it has not applied yet.
++     * @param savedRooms - The saved rooms, or undefined once there are none left to apply.
++     */
++    public setSavedRooms(savedRooms: SlidingSyncSavedRooms | undefined): void {
++        this.savedRooms = savedRooms;
++    }
++
++    /**
++     * Whether the client holds saved data for a room that it has not applied yet, such as from an earlier session.
++     * @param roomId - The room.
++     */
++    public hasSavedRoom(roomId: string): boolean {
++        return this.savedRooms?.has(roomId) ?? false;
++    }
++
++    /**
++     * Apply the saved data for these rooms now rather than in its turn, such as for a room someone opens. Rooms with
++     * no saved data left to apply are skipped.
++     * @param roomIds - The rooms, the most wanted first.
++     * @param background - Wait for the page to be idle, such as for rooms someone may open soon.
++     * @returns Resolves once the rooms are applied.
++     */
++    public restoreSavedRooms(roomIds: string[], background = false): Promise<void> {
++        return this.savedRooms?.restore(roomIds, background) ?? Promise.resolve();
++    }
++
      /**
       * Modify the room subscriptions for the sync API. Calling this function will interrupt the
       * /sync request to resend new subscriptions. If the /sync stream has not started, this will
-@@ -569,6 +600,7 @@
+@@ -569,6 +640,7 @@
       */
      public resend(): void {
          this.needsResend = true;
@@ -830,7 +888,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
          this.abortController?.abort();
          this.abortController = new AbortController();
      }
-@@ -578,12 +610,21 @@
+@@ -578,12 +650,21 @@
       */
      public stop(): void {
          this.terminated = true;
@@ -852,7 +910,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      /**
       * Re-setup this connection e.g in the event of an expired session.
       */
-@@ -600,15 +641,41 @@
+@@ -600,15 +681,41 @@
  
      /**
       * Start syncing with the server. Blocks until stopped.
@@ -896,7 +954,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  const reqLists: Record<string, MSC3575List> = {};
                  this.lists.forEach((l: SlidingList, key: string) => {
                      reqLists[key] = l.getList(true);
-@@ -616,9 +683,9 @@
+@@ -616,9 +723,9 @@
                  const reqBody: MSC3575SlidingSyncRequest = {
                      lists: reqLists,
                      pos: currentPos,
@@ -909,7 +967,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  };
                  // check if we are (un)subscribing to a room and modify request this one time for it
                  const newSubscriptions = difference(this.desiredRoomSubscriptions, this.confirmedRoomSubscriptions);
-@@ -637,8 +704,15 @@
+@@ -637,8 +744,15 @@
                          reqBody.room_subscriptions[roomId] = sub;
                      }
                  }
@@ -925,7 +983,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  currentPos = resp.pos;
                  // update what we think we're subscribed to.
                  for (const roomId of newSubscriptions) {
-@@ -664,25 +738,43 @@
+@@ -664,25 +778,43 @@
                  });
                  this.invokeLifecycleListeners(SlidingSyncState.RequestFinished, resp);
              } catch (err) {

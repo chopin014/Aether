@@ -387,7 +387,7 @@ describe("sliding sync restoring a saved snapshot", () => {
                 .getEvents()
                 .filter((event) => event.getType() === EventType.RoomMessage)
                 .map((event) => event.getId()!);
-        return { client, api, responses, states, timelineIds, syncing };
+        return { client, api, sync, responses, states, timelineIds, syncing };
     }
 
     const saved = (fields: Partial<MSC3575RoomData> = {}): SlidingSyncSnapshot => ({
@@ -564,6 +564,52 @@ describe("sliding sync restoring a saved snapshot", () => {
             await vi.waitFor(() => expect(states).toContain(SyncState.Syncing));
             expect(messages(client, id(1))).toEqual([`$saved-${id(1)}`, "$live"]);
             api.stop();
+        });
+
+        it("applies a saved room someone asks for ahead of its turn", async () => {
+            const { client, api, sync, states } = setup(async () => many());
+            const storedAfterPrepared: string[] = [];
+            let asked: Promise<void> | undefined;
+            client.on(ClientEvent.Sync, (state) => {
+                if (state !== SyncState.Prepared) return;
+                client.on(ClientEvent.Room, (room) => storedAfterPrepared.push(room.roomId));
+                // The least active room waits for every other background room.
+                expect(client.getRoom(id(0))).not.toBeNull();
+                expect(client.getRoom(id(1))).toBeNull();
+                expect(sync.hasSavedRoom(id(1))).toBe(true);
+                asked = sync.restoreSavedRooms([id(1)]);
+            });
+            await vi.waitFor(() => expect(states).toContain(SyncState.Prepared));
+            await asked;
+            expect(messages(client, id(1))).toEqual([`$saved-${id(1)}`]);
+            expect(storedAfterPrepared[0]).toBe(id(1));
+            // Applied once: the background restore skips it.
+            await vi.waitFor(() => expect(client.getRooms()).toHaveLength(31));
+            expect(storedAfterPrepared.filter((roomId) => roomId === id(1))).toHaveLength(1);
+            expect(messages(client, id(1))).toEqual([`$saved-${id(1)}`]);
+            api.stop();
+        });
+
+        it("has no saved rooms left once every one is applied", async () => {
+            const { client, api, sync } = setup(async () => many());
+            await vi.waitFor(() => expect(client.getRooms()).toHaveLength(31));
+            await vi.waitFor(() => expect(sync.hasSavedRoom(id(1))).toBe(false));
+            // Asking for a room with nothing saved left does nothing.
+            await sync.restoreSavedRooms([id(1), "!unknown:example.org"]);
+            expect(client.getRoom("!unknown:example.org")).toBeNull();
+            api.stop();
+        });
+
+        it("lets saved rooms go when the client stops", async () => {
+            const { client, api, sync, states } = setup(async () => many());
+            // Stopped before the background restore starts.
+            client.on(ClientEvent.Sync, (state) => {
+                if (state === SyncState.Prepared) api.stop();
+            });
+            await vi.waitFor(() => expect(states).toContain(SyncState.Prepared));
+            expect(sync.hasSavedRoom(id(1))).toBe(false);
+            await sync.restoreSavedRooms([id(1)]);
+            expect(client.getRoom(id(1))).toBeNull();
         });
 
         it("does not show a room dropped from the snapshot before its turn", async () => {
