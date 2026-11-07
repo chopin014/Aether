@@ -76,6 +76,7 @@ import {
 } from "./sliding-sync/roomStateProfiles";
 import { RoomSubscriptionLeases, type RoomSubscriptionLease } from "./sliding-sync/RoomSubscriptionLeases";
 import { SlidingSyncCache } from "./sliding-sync/SlidingSyncCache";
+import { NotificationCountEngine } from "./sliding-sync/notification-counts/NotificationCountEngine";
 
 // how long to long poll for
 const SLIDING_SYNC_TIMEOUT_MS = 20 * 1000;
@@ -301,6 +302,7 @@ export class SlidingSyncManager {
         snapshot: Promise<SlidingSyncSnapshot | null>;
     };
     private detachCache?: () => void;
+    private countEngine?: NotificationCountEngine;
 
     public static get instance(): SlidingSyncManager {
         return SlidingSyncManager.internalInstance;
@@ -366,6 +368,11 @@ export class SlidingSyncManager {
         // Responses are followed from the start, so a change is never read while one is half applied.
         this.slidingSync.on(SlidingSyncEvent.Lifecycle, this.onResponseApplied);
         this.slidingSync.on(SlidingSyncEvent.RoomData, this.onLiveRoomData);
+        // The server's counts are not real (Synapse sends zero), so they are worked out here.
+        this.countEngine?.stop();
+        const countEngine = new NotificationCountEngine(client, this.slidingSync);
+        this.countEngine = countEngine;
+        countEngine.start();
         const ownedSync = this.slidingSync;
         // SlidingSync has no stopped event. Settle waits before our owned instance stops.
         const stop = ownedSync.stop.bind(ownedSync);
@@ -377,6 +384,7 @@ export class SlidingSyncManager {
             }
             ownedSync.off(SlidingSyncEvent.Lifecycle, this.onResponseApplied);
             ownedSync.off(SlidingSyncEvent.RoomData, this.onLiveRoomData);
+            countEngine.stop();
             stop();
         };
         this.configureDefer.resolve();

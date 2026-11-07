@@ -45,7 +45,45 @@ diff --git a/src/client.ts b/src/client.ts
  import { SlidingSyncSdk } from "./sliding-sync-sdk.ts";
  import {
      determineFeatureSupport,
-@@ -507,6 +512,12 @@
+@@ -501,12 +506,50 @@
+     Detached = "detached",
+ }
+ 
++/** How a sync timeline relates to what the room had: see {@link RoomHistoryObserver.onSyncTimeline}. */
++export interface SyncTimelineInfo {
++    /** The server left out events between the previous response and this timeline. */
++    limited: boolean;
++    /** The room is new to this connection, so the timeline may overlap events the room already has. */
++    initial: boolean;
++    /** The timeline reaches further back than before because its limit was raised. */
++    expanded: boolean;
++    /** The room was restored from data saved on this device, not received from the server. */
++    fromSnapshot: boolean;
++}
++
++/**
++ * Hears every event a room's history gains, in room order, before the events are split between the main timeline
++ * and threads. Used to count notifications on the client: see {@link MatrixClient.setLocalNotificationCounts}.
++ */
++export interface RoomHistoryObserver {
++    /**
++     * Called once a sliding sync response's timeline for a joined room has been added to the room.
++     * @param events - The whole timeline the server sent, oldest first, including events the room already had.
++     */
++    onSyncTimeline(room: Room, events: MatrixEvent[], info: SyncTimelineInfo): void;
++    /**
++     * Called when a page of history arrives for a room's main timeline set, before it is added.
++     * @param events - The page, oldest first, including thread events the timeline itself leaves out.
++     * @param link - The event the page comes just before or just after, when the timeline had one.
++     */
++    onHistoryPage(room: Room, events: MatrixEvent[], link: { before?: string; after?: string }): void;
++    /** Called once a room restored from saved data has its saved account data and receipts too. */
++    onSavedRoomApplied(room: Room): void;
++}
++
+ export interface IStartClientOpts {
+     /**
+      * The event `limit=` to apply to initial sync. Default: 8.
       */
      initialSyncLimit?: number;
  
@@ -58,7 +96,7 @@ diff --git a/src/client.ts b/src/client.ts
      /**
       * True to put `archived=true</code> on the <code>/initialSync` request. Default: false.
       */
-@@ -567,6 +578,13 @@
+@@ -567,6 +610,13 @@
       */
      slidingSync?: SlidingSync;
  
@@ -72,10 +110,178 @@ diff --git a/src/client.ts b/src/client.ts
      /**
       * Include user profiles in sync responses.
       * Will only work if the server supports MSC4429.
+@@ -1317,6 +1367,8 @@
+     protected syncApi?: SlidingSyncSdk | SyncApi;
+     public roomNameGenerator?: ICreateClientOpts["roomNameGenerator"];
+     public pushRules?: IPushRules;
++    private localNotificationCounts = false;
++    private roomHistoryObserver?: RoomHistoryObserver;
+     protected syncLeftRoomsPromise?: Promise<Room[]>;
+     protected syncedLeftRooms = false;
+     protected clientOpts?: IStoredClientOpts;
+@@ -4417,6 +4469,30 @@
+      * Useful when an event just got decrypted
+      * @returns A dict of actions to perform.
+      */
++    /**
++     * Count notifications on this device instead of taking the server's counts: for sync that does not send real
++     * counts, such as Synapse's Simplified Sliding Sync. The SDK then leaves every room's counts alone; the app sets
++     * them with {@link Room#setNotificationCounts}.
++     */
++    public setLocalNotificationCounts(enabled: boolean): void {
++        this.localNotificationCounts = enabled;
++    }
++
++    /** Whether notifications are counted on this device: see {@link setLocalNotificationCounts}. */
++    public hasLocalNotificationCounts(): boolean {
++        return this.localNotificationCounts;
++    }
++
++    /** Hear the events each room's history gains, in room order. Only one observer is kept. */
++    public setRoomHistoryObserver(observer: RoomHistoryObserver | undefined): void {
++        this.roomHistoryObserver = observer;
++    }
++
++    /** The observer set with {@link setRoomHistoryObserver}. */
++    public getRoomHistoryObserver(): RoomHistoryObserver | undefined {
++        return this.roomHistoryObserver;
++    }
++
+     public getPushActionsForEvent(event: MatrixEvent, forceRecalculate = false): IActionsObject | null {
+         if (!event.getPushActions() || forceRecalculate) {
+             const { actions, rule } = this.pushProcessor.actionsAndRuleForEvent(event);
+@@ -5265,7 +5341,7 @@
+                         await thread?.processEvent(event);
+                         const sender = event.getSender()!;
+                         if (!backwards || thread?.getEventReadUpTo(sender) === null) {
+-                            room.addLocalEchoReceipt(sender, event, ReceiptType.Read);
++                            room.addLocalEchoReceipt(sender, event, ReceiptType.Read, false, true);
+                         }
+                     }
+ 
+@@ -5315,6 +5391,21 @@
+                     const matrixEvents = res.chunk.filter(noUnsafeEventProps).map(this.getEventMapper());
+ 
+                     const timelineSet = eventTimeline.getTimelineSet();
++                    const observer = this.roomHistoryObserver;
++                    if (observer && matrixEvents.length > 0 && timelineSet === room.getUnfilteredTimelineSet()) {
++                        const known = eventTimeline.getEvents();
++                        try {
++                            observer.onHistoryPage(
++                                room,
++                                backwards ? matrixEvents.slice().reverse() : matrixEvents,
++                                backwards
++                                    ? { before: known[0]?.getId() }
++                                    : { after: known[known.length - 1]?.getId() },
++                            );
++                        } catch (error) {
++                            this.logger.warn("Room history observer failed", error);
++                        }
++                    }
+                     const [timelineEvents, , unknownRelations] = room.partitionThreadedEvents(matrixEvents);
+                     timelineSet.addEventsToTimeline(timelineEvents, backwards, false, eventTimeline, token);
+                     this.processAggregatedTimelineEvents(room, timelineEvents);
+@@ -6037,7 +6128,9 @@
+      * we have on record matches.
+      */
+     private fixupRoomNotifications = (): void => {
+-        if (this.isInitialSyncComplete()) {
++        if (this.isInitialSyncComplete() && this.localNotificationCounts) {
++            this.off(ClientEvent.Sync, this.fixupRoomNotifications);
++        } else if (this.isInitialSyncComplete()) {
+             const unreadRooms = (this.getRooms() ?? []).filter((room) => {
+                 return room.getUnreadNotificationCount(NotificationCountType.Total) > 0;
+             });
+@@ -9153,6 +9246,8 @@
+  * accurate notification_count
+  */
+ export function fixNotificationCountOnDecryption(cli: MatrixClient, event: MatrixEvent): void {
++    // Counted elsewhere, from the decrypted event too.
++    if (cli.hasLocalNotificationCounts()) return;
+     const ourUserId = cli.getUserId();
+     const eventId = event.getId();
+ 
 diff --git a/src/models/room.ts b/src/models/room.ts
 --- a/src/models/room.ts
 +++ b/src/models/room.ts
-@@ -3117,6 +3117,23 @@
+@@ -223,6 +223,10 @@
+      * Fires whenever a receipt is received for a room
+      * @param event - The receipt event
+      * @param room - The room whose receipts was updated.
++     * @param synthetic - Whether the receipt was made up on this device, such as the echo of one it sends, rather
++     * than received from the server.
++     * @param implicit - Whether it was made up for the sender of an event, who has read up to it, rather than for a
++     * receipt that was sent.
+      * @example
+      * ```
+      * matrixClient.on("Room.receipt", function(event, room){
+@@ -230,7 +234,7 @@
+      * });
+      * ```
+      */
+-    [RoomEvent.Receipt]: (event: MatrixEvent, room: Room) => void;
++    [RoomEvent.Receipt]: (event: MatrixEvent, room: Room, synthetic?: boolean, implicit?: boolean) => void;
+     /**
+      * Fires whenever the name of a room is updated.
+      * @param room - The room whose Room.name was updated.
+@@ -1355,7 +1359,8 @@
+     }
+ 
+     private onReceipt = (event: MatrixEvent): void => {
+-        if (this.hasEncryptionStateEvent()) {
++        // Counted elsewhere: see MatrixClient.setLocalNotificationCounts.
++        if (this.hasEncryptionStateEvent() && !this.client.hasLocalNotificationCounts()) {
+             this.clearNotificationsOnReceipt(event);
+         }
+     };
+@@ -1670,6 +1675,37 @@
+         return this.bumpStamp;
+     }
+ 
++    /**
++     * Replace every notification count of this room at once: its main timeline's and each thread's. Threads left
++     * out have none. Emits {@link RoomEvent.UnreadNotifications} once for the main timeline and once for each
++     * thread whose counts changed, and not at all when nothing did.
++     * @param main - The main timeline's counts, without its threads'.
++     * @param threads - Each thread's counts, by root event ID.
++     */
++    public setNotificationCounts(main: NotificationCount, threads: Map<string, NotificationCount>): void {
++        const same = (a: NotificationCount | undefined, b: NotificationCount | undefined): boolean =>
++            (a?.total ?? 0) === (b?.total ?? 0) && (a?.highlight ?? 0) === (b?.highlight ?? 0);
++        const changedThreads: string[] = [];
++        for (const threadId of new Set([...this.threadNotifications.keys(), ...threads.keys()])) {
++            if (!same(this.threadNotifications.get(threadId), threads.get(threadId))) changedThreads.push(threadId);
++        }
++        const mainChanged = !same(this.notificationCounts, main);
++        if (!mainChanged && changedThreads.length === 0) return;
++        this.notificationCounts = { total: main.total ?? 0, highlight: main.highlight ?? 0 };
++        this.threadNotifications.clear();
++        for (const [threadId, counts] of threads) {
++            this.threadNotifications.set(threadId, { total: counts.total ?? 0, highlight: counts.highlight ?? 0 });
++        }
++        if (mainChanged) this.emit(RoomEvent.UnreadNotifications, this.notificationCounts);
++        for (const threadId of changedThreads) {
++            this.emit(
++                RoomEvent.UnreadNotifications,
++                this.threadNotifications.get(threadId) ?? { total: 0, highlight: 0 },
++                threadId,
++            );
++        }
++    }
++
+     /**
+      * Set one of the notification counts for this room
+      * @param type - The type of notification count to set.
+@@ -2760,7 +2796,7 @@
+         // pointing to an event that wasn't yet in the timeline
+         // Don't synthesize RR for m.room.redaction as this causes the RR to go missing.
+         if (event.sender && event.getType() !== EventType.RoomRedaction) {
+-            this.addReceipt(synthesizeReceipt(event.sender.userId, event, ReceiptType.Read), true);
++            this.addReceipt(synthesizeReceipt(event.sender.userId, event, ReceiptType.Read), true, true);
+ 
+             // Any live events from a user could be taken as implicit
+             // presence information: evidence that they are currently active.
+@@ -3117,6 +3153,23 @@
          // List of extra events to check for being parents of any relations encountered
          const neighbouringEvents = [...events];
  
@@ -99,7 +305,7 @@ diff --git a/src/models/room.ts b/src/models/room.ts
          for (const event of events) {
              // TODO: We should have a filter to say "only add state event types X Y Z to the timeline".
              this.processLiveEvent(event);
-@@ -3141,7 +3158,8 @@
+@@ -3141,7 +3194,8 @@
              if (!fromCache && !shouldLiveInThread && !shouldLiveInRoom && event.isRelation()) {
                  try {
                      const parentEvent = new MatrixEvent(
@@ -109,7 +315,39 @@ diff --git a/src/models/room.ts b/src/models/room.ts
                      );
                      neighbouringEvents.push(parentEvent);
                      if (parentEvent.threadRootId) {
-@@ -4085,3 +4103,25 @@
+@@ -3237,7 +3291,7 @@
+      * @param event - The m.receipt event.
+      * @param synthetic - True if this event is implicit.
+      */
+-    public addReceipt(event: MatrixEvent, synthetic = false): void {
++    public addReceipt(event: MatrixEvent, synthetic = false, implicit = false): void {
+         const content = event.getContent<ReceiptContent>();
+ 
+         this.roomReceipts.add(content, synthetic);
+@@ -3274,7 +3328,12 @@
+                         // just read a message, not when we are e.g. receiving
+                         // an event during the sync. More explanation at:
+                         // https://github.com/matrix-org/matrix-js-sdk/issues/3684
+-                        if (!synthetic && this.client.isInitialSyncComplete() && userId === this.client.getUserId()) {
++                        if (
++                            !synthetic &&
++                            this.client.isInitialSyncComplete() &&
++                            userId === this.client.getUserId() &&
++                            !this.client.hasLocalNotificationCounts()
++                        ) {
+                             const lastEvent = receiptDestination.timeline[receiptDestination.timeline.length - 1];
+                             if (lastEvent && eventId === lastEvent.getId() && userId === lastEvent.getSender()) {
+                                 receiptDestination.setUnread(NotificationCountType.Total, 0);
+@@ -3308,7 +3367,7 @@
+ 
+         // send events after we've regenerated the structure & cache, otherwise things that
+         // listened for the event would read stale data.
+-        this.emit(RoomEvent.Receipt, event, this);
++        this.emit(RoomEvent.Receipt, event, this, synthetic, implicit);
+     }
+ 
+     /**
+@@ -4085,3 +4144,25 @@
          }
      }
  }
@@ -591,7 +829,16 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          roomData = ensureNameEvent(client, room.roomId, roomData);
          const stateEvents = mapEvents(this.client, room.roomId, roomData.required_state);
          // Prevent events from being decrypted ahead of time
-@@ -669,6 +870,8 @@
+@@ -659,6 +860,8 @@
+         // room::decryptCriticalEvent is in charge of decrypting all the events
+         // required for a client to function properly
+         let timelineEvents = mapEvents(this.client, room.roomId, roomData.timeline, false);
++        // Everything the server sent, in order, for whoever counts notifications on this device.
++        const sentTimeline = timelineEvents;
+         const ephemeralEvents: MatrixEvent[] = []; // TODO this.mapSyncEventsFormat(joinObj.ephemeral);
+ 
+         // TODO: handle threaded / beacon events
+@@ -669,6 +872,8 @@
          // necessarily set `initial` in the latter case, so without checking `expanded_timeline` the older events would
          // be appended after the newer ones we already have.
          const expandedTimeline = roomData.expanded_timeline || roomData.unstable_expanded_timeline;
@@ -600,7 +847,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          if (roomData.limited || roomData.initial || expandedTimeline) {
              // we should not know about any of these timeline entries if this is a genuinely new room.
              // If we do, then we've effectively done scrollback.
-@@ -703,10 +906,19 @@
+@@ -703,20 +908,31 @@
                      newEvents.unshift(recvEvent);
                  }
              }
@@ -624,7 +871,21 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              }
          }
  
-@@ -739,6 +951,8 @@
+         const encrypted = room.hasEncryptionStateEvent();
++        // Counts worked out on this device replace the server's: see MatrixClient.setLocalNotificationCounts.
++        const serverCounts = !client.hasLocalNotificationCounts();
+         // we do this first so it's correct when any of the events fire
+-        if (roomData.notification_count != null) {
++        if (serverCounts && roomData.notification_count != null) {
+             room.setUnreadNotificationCount(NotificationCountType.Total, roomData.notification_count);
+         }
+ 
+-        if (roomData.highlight_count != null) {
++        if (serverCounts && roomData.highlight_count != null) {
+             // We track unread notifications ourselves in encrypted rooms, so don't
+             // bother setting it here. We trust our calculations better than the
+             // server's for this case, and therefore will assume that our non-zero
+@@ -739,6 +955,8 @@
          if (roomData.invite_state) {
              const inviteStateEvents = mapEvents(this.client, room.roomId, roomData.invite_state);
              await this.injectRoomEvents(room, inviteStateEvents);
@@ -633,7 +894,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              if (roomData.initial) {
                  room.recalculate();
                  this.client.store.storeRoom(room);
-@@ -750,9 +964,15 @@
+@@ -750,9 +968,15 @@
              return;
          }
  
@@ -650,7 +911,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              room.getLiveTimeline().setPaginationToken(roomData.prev_batch ?? null, EventTimeline.BACKWARDS);
          }
  
-@@ -810,6 +1030,8 @@
+@@ -810,6 +1034,8 @@
          } */
  
          await this.injectRoomEvents(room, stateEvents, timelineEvents, roomData.num_live);
@@ -659,7 +920,27 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
          // we deliberately don't add ephemeral events to the timeline
          room.addEphemeralEvents(ephemeralEvents);
-@@ -832,9 +1054,12 @@
+@@ -825,6 +1051,19 @@
+         room._unstable_addStickyEvents(timelineEvents.filter((e) => e.unstableStickyInfo !== undefined));
+ 
+         room.recalculate();
++        const observer = client.getRoomHistoryObserver();
++        if (observer) {
++            try {
++                observer.onSyncTimeline(room, sentTimeline, {
++                    limited: !!roomData.limited,
++                    initial: !!roomData.initial,
++                    expanded: !!expandedTimeline,
++                    fromSnapshot,
++                });
++            } catch (error) {
++                this.syncOpts.logger.warn("Room history observer failed", error);
++            }
++        }
+         if (roomData.initial) {
+             client.store.storeRoom(room);
+             client.emit(ClientEvent.Room, room);
+@@ -832,9 +1071,12 @@
  
          // check if any timeline events should bing and add them to the notifEvents array:
          // we'll purge this once we've fully processed the sync response
@@ -673,7 +954,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              client.emit(ClientEvent.Event, e);
              if (e.isState() && e.getType() == EventType.RoomEncryption && this.syncOpts.cryptoCallbacks) {
                  await this.syncOpts.cryptoCallbacks.onCryptoEvent(room, e);
-@@ -843,6 +1068,7 @@
+@@ -843,6 +1085,7 @@
  
          await promiseMapSeries(stateEvents, processRoomEvent);
          await promiseMapSeries(timelineEvents, processRoomEvent);
@@ -681,7 +962,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          ephemeralEvents.forEach(function (e) {
              client.emit(ClientEvent.Event, e);
          });
-@@ -991,12 +1217,154 @@
+@@ -991,12 +1234,155 @@
      public async sync(): Promise<void> {
          this.syncOpts.logger.debug("Sliding sync init loop");
  
@@ -819,6 +1100,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +            if (!room) return;
 +            if (accountData) room.addAccountData(mapEvents(this.client, roomId, accountData));
 +            if (receipt) processEphemeralEvents(this.client, roomId, [receipt]);
++            this.client.getRoomHistoryObserver()?.onSavedRoomApplied(room);
 +        } catch (error) {
 +            this.syncOpts.logger.warn(`Sliding sync: could not apply the saved room ${roomId}`, error);
 +        }
@@ -840,7 +1122,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                  this.syncOpts.logger.debug("Got push rules");
                  this.client.pushRules = result;
                  break;
-@@ -1007,9 +1375,6 @@
+@@ -1007,9 +1393,6 @@
                  }
              }
          }
@@ -850,7 +1132,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      /**
-@@ -1017,6 +1382,12 @@
+@@ -1017,6 +1400,12 @@
       */
      public stop(): void {
          this.syncOpts.logger.debug("SyncApi.stop");
@@ -914,7 +1196,27 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
  /**
   * Represents a list subscription.
   */
-@@ -317,8 +345,12 @@
+@@ -296,6 +324,11 @@
+      *  - SlidingSyncState.Complete: Fires after the response has been processed.
+      */
+     Lifecycle = "SlidingSync.Lifecycle",
++    /**
++     * This event fires once a response has been fully applied: its rooms and every extension, such as receipts.
++     * Unlike `SlidingSyncState.Complete`, which fires before the extensions that run after the rooms.
++     */
++    Applied = "SlidingSync.Applied",
+ }
+ 
+ export type SlidingSyncEventHandlerMap = {
+@@ -305,6 +338,7 @@
+         resp: MSC3575SlidingSyncResponse | null,
+         err?: Error,
+     ) => void;
++    [SlidingSyncEvent.Applied]: (resp: MSC3575SlidingSyncResponse) => void;
+ };
+ 
+ /**
+@@ -317,8 +351,12 @@
      private lists: Map<string, SlidingList>;
      private listModifiedCount = 0;
      private terminated = false;
@@ -927,7 +1229,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      // map of extension name to req/resp handler
      private extensions: Record<string, Extension<any, any>> = {};
  
-@@ -332,6 +364,8 @@
+@@ -332,6 +370,8 @@
  
      private pendingReq?: Promise<MSC3575SlidingSyncResponse>;
      private abortController?: AbortController;
@@ -936,7 +1238,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
  
      /**
       * Create a new sliding sync instance
-@@ -465,6 +499,43 @@
+@@ -465,6 +505,43 @@
          return new Set(Array.from(this.desiredRoomSubscriptions));
      }
  
@@ -980,7 +1282,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      /**
       * Modify the room subscriptions for the sync API. Calling this function will interrupt the
       * /sync request to resend new subscriptions. If the /sync stream has not started, this will
-@@ -569,6 +640,7 @@
+@@ -569,6 +646,7 @@
       */
      public resend(): void {
          this.needsResend = true;
@@ -988,7 +1290,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
          this.abortController?.abort();
          this.abortController = new AbortController();
      }
-@@ -578,12 +650,21 @@
+@@ -578,12 +656,21 @@
       */
      public stop(): void {
          this.terminated = true;
@@ -1010,7 +1312,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      /**
       * Re-setup this connection e.g in the event of an expired session.
       */
-@@ -600,15 +681,41 @@
+@@ -600,15 +687,41 @@
  
      /**
       * Start syncing with the server. Blocks until stopped.
@@ -1054,7 +1356,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  const reqLists: Record<string, MSC3575List> = {};
                  this.lists.forEach((l: SlidingList, key: string) => {
                      reqLists[key] = l.getList(true);
-@@ -616,9 +723,9 @@
+@@ -616,9 +729,9 @@
                  const reqBody: MSC3575SlidingSyncRequest = {
                      lists: reqLists,
                      pos: currentPos,
@@ -1067,7 +1369,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  };
                  // check if we are (un)subscribing to a room and modify request this one time for it
                  const newSubscriptions = difference(this.desiredRoomSubscriptions, this.confirmedRoomSubscriptions);
-@@ -637,8 +744,15 @@
+@@ -637,8 +750,15 @@
                          reqBody.room_subscriptions[roomId] = sub;
                      }
                  }
@@ -1083,7 +1385,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  currentPos = resp.pos;
                  // update what we think we're subscribed to.
                  for (const roomId of newSubscriptions) {
-@@ -664,25 +778,43 @@
+@@ -664,25 +784,43 @@
                  });
                  this.invokeLifecycleListeners(SlidingSyncState.RequestFinished, resp);
              } catch (err) {
@@ -1134,6 +1436,14 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
              await this.onPreExtensionsResponse(resp.extensions);
  
              // oxlint-disable-next-line guard-for-in
+@@ -692,6 +830,7 @@
+ 
+             this.invokeLifecycleListeners(SlidingSyncState.Complete, resp);
+             await this.onPostExtensionsResponse(resp.extensions);
++            this.emit(SlidingSyncEvent.Applied, resp);
+         }
+     }
+ }
 diff --git a/src/http-api/logging.ts b/src/http-api/logging.ts
 --- a/src/http-api/logging.ts
 +++ b/src/http-api/logging.ts
@@ -1319,3 +1629,56 @@ diff --git a/src/http-api/refresh.ts b/src/http-api/refresh.ts
              });
              this.opts.accessToken = accessToken;
              this.opts.refreshToken = refreshToken;
+diff --git a/src/models/read-receipt.ts b/src/models/read-receipt.ts
+--- a/src/models/read-receipt.ts
++++ b/src/models/read-receipt.ts
+@@ -340,7 +340,7 @@
+         return this.receiptCacheByEventId.get(event.getId()!) || [];
+     }
+ 
+-    public abstract addReceipt(event: MatrixEvent, synthetic: boolean): void;
++    public abstract addReceipt(event: MatrixEvent, synthetic: boolean, implicit?: boolean): void;
+ 
+     public abstract setUnread(type: NotificationCountType, count: number): void;
+ 
+@@ -379,9 +379,17 @@
+      * @param e - The event that is to be acknowledged
+      * @param receiptType - The type of receipt
+      * @param unthreaded - the receipt is unthreaded
++     * @param implicit - the receipt stands for the sender having read up to their own event, rather than for a
++     * receipt that was sent
+      */
+-    public addLocalEchoReceipt(userId: string, e: MatrixEvent, receiptType: ReceiptType, unthreaded = false): void {
+-        this.addReceipt(synthesizeReceipt(userId, e, receiptType, unthreaded), true);
++    public addLocalEchoReceipt(
++        userId: string,
++        e: MatrixEvent,
++        receiptType: ReceiptType,
++        unthreaded = false,
++        implicit = false,
++    ): void {
++        this.addReceipt(synthesizeReceipt(userId, e, receiptType, unthreaded), true, implicit);
+     }
+ 
+     /**
+diff --git a/src/models/thread.ts b/src/models/thread.ts
+--- a/src/models/thread.ts
++++ b/src/models/thread.ts
+@@ -290,7 +290,7 @@
+         if (!toStartOfTimeline) {
+             const sender = event.getSender();
+             if (sender && room && this.shouldSendLocalEchoReceipt(sender, event)) {
+-                room.addLocalEchoReceipt(sender, event, ReceiptType.Read);
++                room.addLocalEchoReceipt(sender, event, ReceiptType.Read, false, true);
+             }
+             if (event.getId() !== this.id && event.isRelation(THREAD_RELATION_TYPE.name)) {
+                 this.replyCount++;
+@@ -847,7 +847,7 @@
+         return this.timelineSet;
+     }
+ 
+-    public addReceipt(event: MatrixEvent, synthetic: boolean): void {
++    public addReceipt(event: MatrixEvent, synthetic: boolean, implicit?: boolean): void {
+         throw new Error("Unsupported function on the thread model");
+     }
+ 
