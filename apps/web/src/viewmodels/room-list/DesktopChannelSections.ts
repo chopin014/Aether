@@ -126,3 +126,20 @@ export function getDesktopCategories(result: RoomsResult): Map<string, Projected
     const layout = projectLayout(layoutReader(space), space, []);
     return new Map(layout.categories.map((category) => [categoryTag(category.id), category]));
 }
+
+/**
+ * Every channel of each category of the server a room list result belongs to, by section tag, whatever the list
+ * shows: muted channels it hides and the person's pinned favourites included. Muting or reading a category acts on
+ * all of them.
+ */
+export function getDesktopCategoryMembers(result: RoomsResult): Map<string, Room[]> {
+    if (!isDesktopChannelList(result.spaceId)) return new Map();
+    const space = channelListSpace(result);
+    const pool = new Map<string, Room>();
+    for (const section of result.sections) {
+        if (section.tag === DefaultTagID.Invite || section.tag === DefaultTagID.DM) continue;
+        for (const room of section.rooms) pool.set(room.roomId, room);
+    }
+    const layout = projectLayout(layoutReader(space), space, [...pool.values()]);
+    return new Map(layout.categories.map((category) => [categoryTag(category.id), category.rooms]));
+}

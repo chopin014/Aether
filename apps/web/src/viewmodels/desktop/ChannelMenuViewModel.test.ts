@@ -29,6 +29,7 @@ import SettingsStore from "../../settings/SettingsStore";
 import * as layoutActions from "../../stores/space-layout/spaceLayoutActions";
 import * as SpaceLayout from "../../stores/space-layout/SpaceLayout";
 import { SpaceLayoutStore, SpaceLayoutStoreEvent } from "../../stores/space-layout/SpaceLayoutStore";
+import { TimedMutes, TimedMutesEvent } from "../../stores/notifications/TimedMutes";
 
 vi.mock("../../Modal");
 
@@ -500,6 +501,28 @@ describe("ChannelMenuViewModel", () => {
             const move = vi.spyOn(layoutActions, "moveChannel").mockResolvedValue();
             create().onMoveToCategory(null);
             expect(move).toHaveBeenCalledWith(space, ROOM_ID, null);
+        });
+    });
+
+    describe("timed mutes", () => {
+        it("mutes the channel for a while and turns it back on", () => {
+            const mute = vi.spyOn(TimedMutes.instance, "mute").mockResolvedValue();
+            const unmute = vi.spyOn(TimedMutes.instance, "unmute").mockResolvedValue();
+            const vm = create();
+            vm.onMute(15 * 60_000);
+            expect(mute).toHaveBeenCalledWith([room], 15 * 60_000);
+            vm.onUnmute();
+            expect(unmute).toHaveBeenCalledWith([room]);
+        });
+
+        it("says when the channel's mute ends, following changes", () => {
+            const until = vi.spyOn(TimedMutes.instance, "mutedUntil").mockReturnValue(undefined);
+            const vm = create();
+            expect(vm.getSnapshot().mutedUntil).toBeUndefined();
+            until.mockReturnValue(7_000);
+            TimedMutes.instance.emit(TimedMutesEvent.Changed, ROOM_ID);
+            expect(vm.getSnapshot().mutedUntil).toBe(7_000);
+            vm.dispose();
         });
     });
 });

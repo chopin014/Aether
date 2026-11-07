@@ -63,6 +63,15 @@ declare module "matrix-js-sdk/src/types" {
     export interface RoomAccountDataEvents {
         // A person's sidebar preferences for one server, see stores/space-layout/SpaceLayoutStore.ts
         "io.aether.space.sidebar": { v?: number; hide_muted?: boolean };
+        // How a room was muted and when that ends, see stores/notifications/TimedMutes.ts
+        "io.aether.mute": { v?: number; until?: number; restore?: string; by?: string } | EmptyObject;
+        // A person's notification level for a whole server, see stores/notifications/ServerNotifications.ts
+        "io.aether.space.notifications": {
+            v?: number;
+            level?: string;
+            muted?: { until?: number };
+            muted_categories?: Record<string, { until?: number }>;
+        };
     }
 
     export interface TimelineEvents {

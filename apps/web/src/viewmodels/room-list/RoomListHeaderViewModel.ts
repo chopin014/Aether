@@ -5,7 +5,15 @@
  * Please see LICENSE files in the repository root for full details.
  */
 
-import { JoinRule, type MatrixClient, type Room, RoomEvent, RoomType } from "matrix-js-sdk/src/matrix";
+import {
+    JoinRule,
+    type MatrixClient,
+    type MatrixEvent,
+    type Room,
+    RoomEvent,
+    RoomType,
+} from "matrix-js-sdk/src/matrix";
+import { logger } from "matrix-js-sdk/src/logger";
 import {
     BaseViewModel,
     type RoomListHeaderViewSnapshot,
@@ -30,6 +38,16 @@ import { ReleaseAnnouncementStore } from "../../stores/ReleaseAnnouncementStore"
 import { keepIfSame } from "../../utils/keepIfSame";
 import { SpaceLayoutStore, SpaceLayoutStoreEvent } from "../../stores/space-layout/SpaceLayoutStore";
 import { reportLayoutError, showCreateCategory } from "./serverCategories";
+import { TimedMutes, TimedMutesEvent } from "../../stores/notifications/TimedMutes";
+import {
+    getServerMute,
+    getServerNotificationLevel,
+    markServerAsRead,
+    muteServer,
+    SERVER_NOTIFICATIONS_ACCOUNT_DATA_TYPE,
+    setServerNotificationLevel,
+    unmuteServer,
+} from "../../stores/notifications/ServerNotifications";
 import { isDesktopChannelList } from "./DesktopChannelSections";
 
 export interface Props {
@@ -101,8 +119,17 @@ export class RoomListHeaderViewModel
             SpaceLayoutStoreEvent.Changed,
             this.refreshServerMenu,
         );
+        // The server's mute and notification level are the person's own settings for it, and its mute lasts while
+        // its channels are muted by it.
+        this.disposables.trackListener(props.matrixClient, RoomEvent.AccountData, this.onAccountData);
+        this.disposables.trackListener(TimedMutes.instance, TimedMutesEvent.Changed, this.refreshServerMenu);
+        this.disposables.track(() => clearTimeout(this.muteEndTimer));
         this.refreshServerMenu();
     }
+
+    private readonly onAccountData = (...args: unknown[]): void => {
+        if ((args[0] as MatrixEvent).getType() === SERVER_NOTIFICATIONS_ACCOUNT_DATA_TYPE) this.refreshServerMenu();
+    };
 
     /** The server whose menu this is, when a desktop server is open. */
     private get server(): Room | null {
@@ -110,13 +137,50 @@ export class RoomListHeaderViewModel
         return space && isDesktopChannelList(space.roomId) ? space : null;
     }
 
+    /** Wakes the menu up when the server's mute ends, to offer muting again. */
+    private muteEndTimer?: ReturnType<typeof setTimeout>;
+
     private readonly refreshServerMenu = (): void => {
         const space = this.server;
         const store = SpaceLayoutStore.instance;
+        const mute = space ? getServerMute(space) : undefined;
         const serverMenu = space
-            ? { canCreateCategory: store.canEditLayout(space), hideMutedChannels: store.isHidingMutedChannels(space) }
+            ? {
+                  canCreateCategory: store.canEditLayout(space),
+                  hideMutedChannels: store.isHidingMutedChannels(space),
+                  isMuted: !!mute,
+                  ...(mute?.until !== undefined ? { mutedUntil: mute.until } : {}),
+                  notificationLevel: getServerNotificationLevel(space),
+              }
             : undefined;
         this.snapshot.merge({ serverMenu: keepIfSame(this.snapshot.current.serverMenu, serverMenu) });
+        clearTimeout(this.muteEndTimer);
+        if (mute?.until !== undefined) {
+            this.muteEndTimer = setTimeout(this.refreshServerMenu, Math.min(mute.until - Date.now() + 1, 2 ** 31 - 1));
+        }
+    };
+
+    public markServerAsRead = (): void => {
+        const space = this.server;
+        if (space) markServerAsRead(space).catch((error) => logger.warn("Failed to mark a server as read", error));
+    };
+
+    public muteServer = (duration: number | null): void => {
+        const space = this.server;
+        if (space) muteServer(space, duration).catch((error) => logger.warn("Failed to mute a server", error));
+    };
+
+    public unmuteServer = (): void => {
+        const space = this.server;
+        if (space) unmuteServer(space).catch((error) => logger.warn("Failed to unmute a server", error));
+    };
+
+    public setServerNotificationLevel = (level: "all" | "mentions"): void => {
+        const space = this.server;
+        if (!space) return;
+        setServerNotificationLevel(space, level).catch((error) =>
+            logger.warn("Failed to change a server's notifications", error),
+        );
     };
 
     public createCategory = (): void => {
