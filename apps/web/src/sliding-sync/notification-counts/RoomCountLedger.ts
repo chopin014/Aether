@@ -88,6 +88,8 @@ interface ReceiptPoints {
      * after the newest event known, until its event arrives or the server's receipts supersede it.
      */
     local?: string[];
+    /** More of `local` came than are kept: one let go could be anywhere too, until the server's receipt comes. */
+    overflowed?: boolean;
 }
 
 /** How many receipts made on this device for events not seen are kept, per scope and kind. */
@@ -288,7 +290,10 @@ export class RoomCountLedger {
             keepLater(id);
             return false;
         });
-        if (fromServer) points.local = undefined;
+        if (fromServer) {
+            points.local = undefined;
+            points.overflowed = undefined;
+        }
         if (this.events.has(eventId)) {
             keepLater(eventId);
         } else if (fromServer) {
@@ -299,6 +304,7 @@ export class RoomCountLedger {
             // newer one.
             const local = (points.local ?? []).filter((id) => id !== eventId);
             local.push(eventId);
+            if (local.length > MAX_LOCAL_RECEIPTS) points.overflowed = true;
             points.local = local.slice(-MAX_LOCAL_RECEIPTS);
         }
         if (points.local?.length === 0) points.local = undefined;
@@ -313,7 +319,9 @@ export class RoomCountLedger {
     public dropLocalReceipts(): void {
         for (const byKind of this.receipts.values()) {
             for (const points of [byKind.public, byKind.private]) {
-                if (points) points.local = undefined;
+                if (!points) continue;
+                points.local = undefined;
+                points.overflowed = undefined;
             }
         }
     }
@@ -455,6 +463,11 @@ export class RoomCountLedger {
                 note(scope, points?.best);
                 note(scope, points?.dangling);
                 for (const id of points?.local ?? []) note(scope, id, true);
+                if (points?.overflowed) {
+                    const frontier = result.get(scope) ?? { dangling: false };
+                    frontier.anywhere = true;
+                    result.set(scope, frontier);
+                }
             }
         }
         // The user's own events read everything before them in their scope.

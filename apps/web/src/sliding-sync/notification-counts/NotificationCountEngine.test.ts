@@ -170,7 +170,14 @@ describe("NotificationCountEngine", () => {
         };
         /** Let the engine publish what is not tied to a sync response. */
         const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
-        return { client, sync, engine, respond, counts, settle };
+        /** A sync response without this room. */
+        const respondWithoutRoom = (): void => {
+            const response: MSC3575SlidingSyncResponse = { pos: "1", lists: {}, rooms: {}, extensions: {} };
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, response);
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, response);
+            sync.emit(SlidingSyncEvent.Applied, response);
+        };
+        return { client, sync, engine, respond, respondWithoutRoom, counts, settle };
     }
 
     it("counts the messages after the user's receipt, ignoring the server's dummy counts", async () => {
@@ -485,7 +492,7 @@ describe("NotificationCountEngine", () => {
     });
 
     it("does not place a receipt made here for an event sync has not brought, until sync brings it", async () => {
-        const { client, respond, counts, engine, settle } = await setup();
+        const { client, respond, respondWithoutRoom, counts, engine, settle } = await setup();
         await respond(
             { initial: true, required_state: requiredState, timeline: [message("$a"), message("$b"), message("$c")] },
             [receipt("$a")],
@@ -501,8 +508,13 @@ describe("NotificationCountEngine", () => {
 
         // Neither a response made before the receipt reached the server, nor one without this room, places it.
         await respond({ timeline: [message("$d")] });
-        await respond({});
+        respondWithoutRoom();
+        await settle();
         expect(counts().total).toBe(0);
+        expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Unknown);
+
+        // Nor do the user's own messages, even more of them at once than are kept of receipts made here.
+        await respond({ timeline: [1, 2, 3, 4, 5].map((i) => message(`$mine${i}`, "hello", me)) });
         expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Unknown);
 
         // Sync brings it, with the server's echo of the receipt: everything up to it is read.
