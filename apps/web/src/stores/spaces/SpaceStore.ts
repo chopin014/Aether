@@ -23,6 +23,7 @@ import { KnownMembership } from "matrix-js-sdk/src/types";
 import { logger } from "matrix-js-sdk/src/logger";
 
 import { AsyncStoreWithClient } from "../AsyncStoreWithClient";
+import { getChildOrder, validOrder } from "./childOrder";
 import { type MatrixDispatcher } from "../../dispatcher/dispatcher.ts";
 import RoomListStoreV3 from "../room-list-v3/RoomListStoreV3";
 import SettingsStore from "../../settings/SettingsStore";
@@ -83,23 +84,7 @@ const partitionSpacesAndRooms = (arr: Room[]): [Room[], Room[]] => {
     );
 };
 
-const validOrder = (order?: string): string | undefined => {
-    if (
-        typeof order === "string" &&
-        order.length <= 50 &&
-        Array.from(order).every((c: string) => {
-            const charCode = c.charCodeAt(0);
-            return charCode >= 0x20 && charCode <= 0x7e;
-        })
-    ) {
-        return order;
-    }
-};
-
-// For sorting space children using a validated `order`, `origin_server_ts`, `room_id`
-export const getChildOrder = (order: string | undefined, ts: number, roomId: string): Array<string | number> => {
-    return [validOrder(order) ?? NaN, ts, roomId]; // NaN has lodash sort it at the end in asc
-};
+export { getChildOrder } from "./childOrder";
 
 type SpaceStoreActions =
     | SettingUpdatedPayload
@@ -286,11 +271,8 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
         this.emit(UPDATE_SELECTED_SPACE, this.activeSpace);
         this.emit(UPDATE_SUGGESTED_ROOMS, (this._suggestedRooms = []));
-        // With sliding sync, the selected Space's channels are listed first. Home keeps the last Space's lists.
-        this.sdkContext.slidingSyncManager.setActiveSpace(
-            cliSpace?.roomId ?? null,
-            cliSpace ? this.getChildSpaces(cliSpace.roomId).map((child) => child.roomId) : [],
-        );
+        // With sliding sync, the selected Space's channels are loaded first. Home keeps the last Space's channels.
+        this.sdkContext.slidingSyncManager.setActiveSpace(cliSpace?.roomId ?? null);
 
         if (cliSpace) {
             void this.loadSuggestedRooms(cliSpace);

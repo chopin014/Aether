@@ -109,6 +109,15 @@ export const ENCRYPTED_SUBSCRIPTION: MSC3575RoomSubscription = {
     include_old_rooms: OLD_ROOMS,
 };
 
+/**
+ * A channel of the Space someone is looking at, before anyone opens it: what the room list shows of it, as a list
+ * entry gets. Opening it moves it to its normal subscription.
+ */
+export const CHANNEL_SUBSCRIPTION: MSC3575RoomSubscription = {
+    timeline_limit: 1,
+    required_state: CATALOG_STATE,
+};
+
 /** A Space someone is looking at: its children, permissions and soundboard, without history. */
 export const SPACE_SUBSCRIPTION: MSC3575RoomSubscription = {
     timeline_limit: 0,
@@ -136,6 +145,7 @@ export enum RoomSubscriptionName {
     Prefetch = "prefetch",
     Encrypted = "encrypted",
     Space = "space",
+    Channel = "channel",
     Bootstrap = "bootstrap",
     ExpandedBootstrap = "bootstrap-expanded",
 }
@@ -146,6 +156,7 @@ export const NAMED_SUBSCRIPTIONS: ReadonlyMap<RoomSubscriptionName, MSC3575RoomS
     [RoomSubscriptionName.Prefetch, PREFETCH_SUBSCRIPTION],
     [RoomSubscriptionName.Encrypted, ENCRYPTED_SUBSCRIPTION],
     [RoomSubscriptionName.Space, SPACE_SUBSCRIPTION],
+    [RoomSubscriptionName.Channel, CHANNEL_SUBSCRIPTION],
     [RoomSubscriptionName.Bootstrap, BOOTSTRAP_SUBSCRIPTION],
     [RoomSubscriptionName.ExpandedBootstrap, EXPANDED_BOOTSTRAP_SUBSCRIPTION],
 ]);

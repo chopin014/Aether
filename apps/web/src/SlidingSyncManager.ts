@@ -43,9 +43,11 @@ import {
     EventType,
     type Room,
     RoomEvent,
+    RoomStateEvent,
     SyncState,
 } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
+import { sortBy } from "lodash";
 
 import {
     type MSC3575Filter,
@@ -62,6 +64,9 @@ import {
 } from "matrix-js-sdk/src/sliding-sync";
 import { logger } from "matrix-js-sdk/src/logger";
 import { sleep } from "matrix-js-sdk/src/utils";
+
+import SettingsStore from "./settings/SettingsStore";
+import { getChildOrder } from "./stores/spaces/childOrder";
 
 import {
     CATALOG_STATE,
@@ -94,10 +99,17 @@ const SUBSCRIPTION_BATCH_MS = 150;
 // How long to wait for a room nobody has seen before letting the room view show what it can.
 const ROOM_DISCOVERY_TIMEOUT_MS = 10_000;
 
-// The lists for the Space someone is looking at, so its channels appear before the whole account is listed.
-const ACTIVE_SPACE_LIST = "active_space";
-const ACTIVE_SPACE_RECENT_LIST = "active_space_recent";
-const ACTIVE_SPACE_RANGE = 200;
+// The channels of the Space someone is looking at are subscribed, so they appear before the whole account is
+// listed. They are read from the Space's own state: homeservers do not filter lists by Space, and Synapse fails the
+// whole request when asked to.
+const MAX_SPACE_CHANNELS = 200;
+// How many of a Space tree's children are looked at, so a huge Space costs little each time it changes.
+const MAX_SPACE_TREE_VISITS = 1000;
+// Changes to the Space tree outside a sync response, such as rooms restored from this device, are read after this
+// pause, so a burst of them costs one walk.
+const SPACE_TREE_SETTLE_MS = 50;
+// A response still being applied after this long is treated as over: its processing failed or the connection stopped.
+const RESPONSE_STALL_MS = 15_000;
 
 /** How a room someone opened was found. */
 export type RoomVisibility =
@@ -244,9 +256,18 @@ export class SlidingSyncManager {
     private readonly appliedNames = new Map<string, RoomSubscriptionName>();
     private flushQueued = false;
     private flushTimer?: ReturnType<typeof setTimeout>;
-    // The Space whose lists are registered, and the Space asked for before the connection existed.
-    private activeSpaceKey?: string;
-    private pendingActiveSpace?: { spaceId: string; subspaceIds: string[] };
+    // The Space whose channels are subscribed, the rooms met walking its tree, and the Space asked for before the
+    // connection existed.
+    private activeSpaceId?: string;
+    private spaceTree = new Set<string>();
+    private spaceChannels = new Set<string>();
+    private spaceTreeChanged = false;
+    // When the sync response being applied arrived, and the pending read of changes made outside one.
+    private applyingSince?: number;
+    private spaceTreeTimer?: ReturnType<typeof setTimeout>;
+    // Each walked Space's children in the Space's order, with the child events they were sorted from.
+    private readonly sortedChildren = new Map<string, { events: MatrixEvent[]; sorted: MatrixEvent[] }>();
+    private pendingActiveSpace?: string;
 
     private configureDefer = Promise.withResolvers<void>();
 
@@ -264,7 +285,17 @@ export class SlidingSyncManager {
         this.cancelInitialPreparations?.();
         this.initialTimelines.clear();
         for (const settle of this.roomWaiters) settle();
+        this.client?.off(RoomStateEvent.Events, this.onSpaceState);
+        this.client?.off(ClientEvent.Room, this.onRoomStored);
+        this.client?.off(RoomEvent.MyMembership, this.onMyMembership);
+        this.client?.off(RoomEvent.Redaction, this.onSpaceRedaction);
+        this.client?.off(RoomEvent.RedactionCancelled, this.onSpaceRedaction);
         this.client = client;
+        client.on(RoomStateEvent.Events, this.onSpaceState);
+        client.on(ClientEvent.Room, this.onRoomStored);
+        client.on(RoomEvent.MyMembership, this.onMyMembership);
+        client.on(RoomEvent.Redaction, this.onSpaceRedaction);
+        client.on(RoomEvent.RedactionCancelled, this.onSpaceRedaction);
         this.bootstrapRooms.clear();
         this.encryptedRooms.clear();
         this.expectedSpaces.clear();
@@ -274,7 +305,10 @@ export class SlidingSyncManager {
         this.viewLease = undefined;
         this.spaceLease = undefined;
         this.callLeases.clear();
-        this.activeSpaceKey = undefined;
+        this.activeSpaceId = undefined;
+        this.spaceTree = new Set();
+        this.spaceChannels = new Set();
+        this.stopFollowingSpaceTree();
         if (this.flushTimer !== undefined) clearTimeout(this.flushTimer);
         this.flushTimer = undefined;
         this.flushQueued = false;
@@ -296,6 +330,8 @@ export class SlidingSyncManager {
             this.slidingSync.addCustomSubscription(name, subscription);
         }
         this.trackInitialTimelines(this.slidingSync);
+        // Responses are followed from the start, so a change is never read while one is half applied.
+        this.slidingSync.on(SlidingSyncEvent.Lifecycle, this.onResponseApplied);
         const ownedSync = this.slidingSync;
         // SlidingSync has no stopped event. Settle waits before our owned instance stops.
         const stop = ownedSync.stop.bind(ownedSync);
@@ -303,7 +339,9 @@ export class SlidingSyncManager {
             if (this.slidingSync === ownedSync) {
                 this.cancelInitialPreparations?.();
                 for (const settle of this.roomWaiters) settle();
+                this.stopFollowingSpaceTree();
             }
+            ownedSync.off(SlidingSyncEvent.Lifecycle, this.onResponseApplied);
             stop();
         };
         this.configureDefer.resolve();
@@ -461,6 +499,16 @@ export class SlidingSyncManager {
         if (this.initialTimelines.get(roomId)?.phase === "expanding") return RoomSubscriptionName.ExpandedBootstrap;
         const room = this.client?.getRoom(roomId);
         if (this.expectedSpaces.has(roomId) || room?.isSpaceRoom()) return RoomSubscriptionName.Space;
+        if (this.spaceChannels.has(roomId) && !this.bootstrapRooms.has(roomId) && !this.leases.has(roomId)) {
+            // Only listed because its Space is open. A room given more history keeps it: a smaller subscription
+            // would be sent again for nothing.
+            const applied = this.appliedNames.get(roomId);
+            return applied === RoomSubscriptionName.Room ||
+                applied === RoomSubscriptionName.Encrypted ||
+                applied === RoomSubscriptionName.Prefetch
+                ? applied
+                : RoomSubscriptionName.Channel;
+        }
         if (!room || this.bootstrapRooms.has(roomId)) return RoomSubscriptionName.Bootstrap;
         if (room.hasEncryptionStateEvent() || this.encryptedRooms.has(roomId)) return RoomSubscriptionName.Encrypted;
         const purposes = this.leases.purposes(roomId);
@@ -468,7 +516,12 @@ export class SlidingSyncManager {
         // A room that is only likely to be opened, or kept for its grace period, never loses history it was given:
         // a smaller subscription would be sent again for nothing.
         const applied = this.appliedNames.get(roomId);
-        if (applied && applied !== RoomSubscriptionName.Prefetch && applied !== RoomSubscriptionName.Space) {
+        if (
+            applied &&
+            applied !== RoomSubscriptionName.Prefetch &&
+            applied !== RoomSubscriptionName.Space &&
+            applied !== RoomSubscriptionName.Channel
+        ) {
             return RoomSubscriptionName.Room;
         }
         return RoomSubscriptionName.Prefetch;
@@ -478,6 +531,7 @@ export class SlidingSyncManager {
     private applySubscriptions(slidingSync: SlidingSync): void {
         if (this.slidingSync !== slidingSync) return;
         const desired = new Set(this.leases.roomIds());
+        for (const roomId of this.spaceChannels) desired.add(roomId);
         for (const roomId of this.bootstrapRooms) desired.add(roomId);
         for (const roomId of this.initialTimelines.keys()) desired.add(roomId);
         let changed = false;
@@ -672,12 +726,12 @@ export class SlidingSyncManager {
     }
 
     /**
-     * Load the Space someone is looking at first: its own state, and lists of its channels so they appear before the
-     * rest of the account is listed. The lists stay on the last Space when they go Home.
+     * Load the Space someone is looking at first: its own state, and its channels, so they appear before the rest of
+     * the account is listed. The channels of subspaces the user has joined are included, as the Space shows them too.
+     * The channels stay subscribed when they go Home.
      * @param spaceId - The Space, or null for Home and other views without one.
-     * @param subspaceIds - Joined Spaces inside it, whose channels it shows too.
      */
-    public setActiveSpace(spaceId: string | null, subspaceIds: string[] = []): void {
+    public setActiveSpace(spaceId: string | null): void {
         const previous = this.spaceLease;
         if (!spaceId?.startsWith("!")) {
             this.spaceLease = undefined;
@@ -685,35 +739,187 @@ export class SlidingSyncManager {
             return;
         }
         if (!this.slidingSync) {
-            this.pendingActiveSpace = { spaceId, subspaceIds };
+            this.pendingActiveSpace = spaceId;
             return;
         }
         if (previous?.roomId !== spaceId) {
             this.spaceLease = this.leases.acquire(spaceId, "space");
             previous?.release();
         }
-        this.setActiveSpaceLists(this.slidingSync, spaceId, subspaceIds);
+        this.activeSpaceId = spaceId;
+        this.refreshSpaceChannels();
     }
 
-    private setActiveSpaceLists(slidingSync: SlidingSync, spaceId: string, subspaceIds: string[]): void {
-        const spaces = [spaceId, ...subspaceIds.filter((id) => id.startsWith("!") && id !== spaceId)];
-        const key = spaces.join("\n");
-        if (this.activeSpaceKey === key) return;
-        this.activeSpaceKey = key;
-        const filters: MSC3575Filter = { spaces, not_room_types: ["m.space"] };
-        // The channels someone is most likely to open first get their recent history.
-        slidingSync.setList(ACTIVE_SPACE_RECENT_LIST, {
-            ranges: [[0, 9]],
-            timeline_limit: RECENT_TIMELINE_LIMIT,
-            required_state: CATALOG_STATE,
-            filters,
+    /**
+     * Note a change to a room in the active Space's tree: a Space's children, a room arriving, being upgraded or
+     * turning out to be a Space, or the user joining or leaving a subspace. A change a sync response brings is read
+     * once the response has been applied, when the SDK has stored every room and worked out every membership. Any
+     * other change, such as rooms restored from this device before the first response, is read after a short pause.
+     */
+    private markSpaceTreeChanged(roomId: string | undefined): void {
+        if (!roomId || !this.spaceTree.has(roomId)) return;
+        this.spaceTreeChanged = true;
+        this.scheduleSpaceTreeRead();
+    }
+
+    /** Read changes made outside a response after a short pause, or once a stalled response is given up on. */
+    private scheduleSpaceTreeRead(): void {
+        if (this.spaceTreeTimer !== undefined || !this.spaceTreeChanged) return;
+        const applying = this.applyingSince !== undefined;
+        if (applying && Date.now() - this.applyingSince! < RESPONSE_STALL_MS) {
+            // Complete reads it. The timer only guards against a response that never completes.
+            this.spaceTreeTimer = setTimeout(
+                () => {
+                    this.spaceTreeTimer = undefined;
+                    this.scheduleSpaceTreeRead();
+                },
+                RESPONSE_STALL_MS - (Date.now() - this.applyingSince!),
+            );
+            return;
+        }
+        this.spaceTreeTimer = setTimeout(() => {
+            this.spaceTreeTimer = undefined;
+            if (this.applyingSince !== undefined && Date.now() - this.applyingSince < RESPONSE_STALL_MS) {
+                this.scheduleSpaceTreeRead();
+                return;
+            }
+            this.applyingSince = undefined;
+            if (this.spaceTreeChanged) this.refreshSpaceChannels();
+        }, SPACE_TREE_SETTLE_MS);
+    }
+
+    /** Forget the Space tree's pending reads, such as when the connection stops or is replaced. */
+    private stopFollowingSpaceTree(): void {
+        this.spaceTreeChanged = false;
+        this.applyingSince = undefined;
+        if (this.spaceTreeTimer !== undefined) clearTimeout(this.spaceTreeTimer);
+        this.spaceTreeTimer = undefined;
+        this.sortedChildren.clear();
+    }
+
+    private readonly onSpaceState = (event: MatrixEvent): void => {
+        const type = event.getType();
+        // A child event can change without being replaced, such as when it is redacted, so the order is dropped.
+        if (type === EventType.SpaceChild) this.sortedChildren.delete(event.getRoomId()!);
+        if (type === EventType.SpaceChild || type === EventType.RoomCreate || type === EventType.RoomTombstone) {
+            this.markSpaceTreeChanged(event.getRoomId());
+        }
+    };
+
+    private readonly onRoomStored = (room: Room): void => this.markSpaceTreeChanged(room.roomId);
+
+    private readonly onMyMembership = (room: Room): void => this.markSpaceTreeChanged(room.roomId);
+
+    /** Redacting a child event, even locally, or cancelling a local redaction, changes it in place. */
+    private readonly onSpaceRedaction = (_redaction: MatrixEvent, room: Room): void => {
+        this.sortedChildren.delete(room.roomId);
+        this.markSpaceTreeChanged(room.roomId);
+    };
+
+    private readonly onResponseApplied = (state: SlidingSyncState, _response: unknown, error?: Error): void => {
+        if (state === SlidingSyncState.RequestFinished) {
+            // A response is applied between its arrival and Complete. A failed request applies nothing.
+            this.applyingSince = error ? undefined : Date.now();
+            if (error) this.scheduleSpaceTreeRead();
+        } else if (state === SlidingSyncState.Complete) {
+            this.applyingSince = undefined;
+            if (this.spaceTreeTimer !== undefined) clearTimeout(this.spaceTreeTimer);
+            this.spaceTreeTimer = undefined;
+            if (this.spaceTreeChanged) this.refreshSpaceChannels();
+        }
+    };
+
+    /**
+     * A Space's valid children in the Space's own order, as it shows them. Sorting looks at every child, so the
+     * order is kept while the Space's child events are the same ones, which is much cheaper to check.
+     */
+    private childrenInOrder(space: Room): MatrixEvent[] {
+        const events = space.currentState.getStateEvents(EventType.SpaceChild);
+        const cached = this.sortedChildren.get(space.roomId);
+        if (cached?.events.length === events.length && cached.events.every((event, i) => event === events[i])) {
+            return cached.sorted;
+        }
+        const valid = events.filter((event) => {
+            const via = event.getContent().via;
+            // A child event without servers to join through is a removed child.
+            return event.getStateKey()?.startsWith("!") && Array.isArray(via) && via.length > 0;
         });
-        slidingSync.setList(ACTIVE_SPACE_LIST, {
-            ranges: [[0, ACTIVE_SPACE_RANGE - 1]],
-            timeline_limit: LIST_TIMELINE_LIMIT,
-            required_state: CATALOG_STATE,
-            filters,
-        });
+        const sorted = sortBy(valid, (event) =>
+            getChildOrder(event.getContent().order, event.getTs(), event.getStateKey()!),
+        );
+        this.sortedChildren.set(space.roomId, { events, sorted });
+        return sorted;
+    }
+
+    /**
+     * Subscribe the channels of the active Space and of the subspaces the user has joined, and stop subscribing ones no
+     * longer in it. They are read from the Spaces' state, so a Space whose state has not arrived yet adds none until
+     * it does. Upgraded rooms count as their newest version, as the Space shows them. A child that has not arrived
+     * yet counts as a channel until it turns out to be a Space.
+     */
+    private refreshSpaceChannels(): void {
+        this.spaceTreeChanged = false;
+        const client = this.client;
+        const userId = client?.getUserId();
+        const dynamicPredecessors = SettingsStore.getValue("feature_dynamic_room_predecessors");
+        const channels = new Set<string>();
+        // Every room the walk met, including each version of an upgraded one, so the tree is read again when one of
+        // them changes.
+        const tree = new Set<string>();
+        const walked = new Set<string>();
+        const queue = this.activeSpaceId ? [this.activeSpaceId] : [];
+        let visits = 0;
+        while (queue.length > 0 && channels.size < MAX_SPACE_CHANNELS && visits < MAX_SPACE_TREE_VISITS) {
+            const spaceId = queue.shift()!;
+            tree.add(spaceId);
+            walked.add(spaceId);
+            // In the Space's own order, so the same channels are kept when there are too many.
+            const space = client?.getRoom(spaceId);
+            for (const child of space ? this.childrenInOrder(space) : []) {
+                if (channels.size >= MAX_SPACE_CHANNELS || ++visits > MAX_SPACE_TREE_VISITS) break;
+                const childId = child.getStateKey()!;
+                tree.add(childId);
+                const versions = client?.getRoomUpgradeHistory(childId, true, dynamicPredecessors) ?? [];
+                for (const version of versions) tree.add(version.roomId);
+                const room = versions.at(-1) ?? client?.getRoom(childId);
+                const roomId = room?.roomId ?? childId;
+                if (walked.has(roomId) || channels.has(roomId)) continue;
+                // A replacement nobody has seen yet is subscribed, so it can arrive, whether it is a channel or a
+                // subspace. Until then the room it replaces stands in for it, as the Space shows it.
+                const replacement = room?.currentState
+                    .getStateEvents(EventType.RoomTombstone, "")
+                    ?.getContent().replacement_room;
+                if (typeof replacement === "string" && replacement.startsWith("!") && !client?.getRoom(replacement)) {
+                    tree.add(replacement);
+                    if (channels.size < MAX_SPACE_CHANNELS) channels.add(replacement);
+                }
+                if (room?.isSpaceRoom()) {
+                    if (room.getMyMembership() === KnownMembership.Join) {
+                        walked.add(roomId);
+                        queue.push(roomId);
+                    }
+                    continue;
+                }
+                // Rooms the user has left are not shown. The SDK reports "leave" for a room it has no membership
+                // for yet, so the user's own member event decides.
+                const membership = userId
+                    ? room?.currentState.getStateEvents(EventType.RoomMember, userId)?.getContent().membership
+                    : undefined;
+                if (membership === KnownMembership.Leave || membership === KnownMembership.Ban) continue;
+                if (channels.size < MAX_SPACE_CHANNELS) channels.add(roomId);
+            }
+        }
+        this.spaceTree = tree;
+        // Only the Spaces in the tree keep their order, so visiting many Spaces does not grow it.
+        for (const spaceId of this.sortedChildren.keys()) {
+            if (!walked.has(spaceId)) this.sortedChildren.delete(spaceId);
+        }
+        if (channels.size === this.spaceChannels.size && [...channels].every((id) => this.spaceChannels.has(id))) {
+            return;
+        }
+        this.spaceChannels = channels;
+        // Someone switched to this Space and is waiting for its channels.
+        this.scheduleFlush(true);
     }
 
     /** Replace discovery state with the normal subscription once encryption state is known. */
@@ -855,7 +1061,8 @@ export class SlidingSyncManager {
                 // Spaces need their child graph and metadata, without conversation history.
                 this.expectedSpaces.add(prefetch.spaceId);
                 this.leases.prefetch(prefetch.spaceId);
-                this.setActiveSpaceLists(slidingSync, prefetch.spaceId, []);
+                this.activeSpaceId = prefetch.spaceId;
+                this.refreshSpaceChannels();
             }
             // Saved hints may refer to rooms the account has since left. Drop absent hints
             // after the first response so they cannot keep background discovery pending.
@@ -878,9 +1085,9 @@ export class SlidingSyncManager {
             slidingSync.on(SlidingSyncEvent.Lifecycle, onFirstResponse);
         }
         if (this.pendingActiveSpace) {
-            const { spaceId, subspaceIds } = this.pendingActiveSpace;
+            const spaceId = this.pendingActiveSpace;
             this.pendingActiveSpace = undefined;
-            this.setActiveSpace(spaceId, subspaceIds);
+            this.setActiveSpace(spaceId);
         }
         // The first request must carry the destination, so apply its subscription now rather than in a batch.
         this.applySubscriptions(slidingSync);

@@ -128,6 +128,25 @@ test.describe("Sliding Sync", () => {
         await expect(page.getByText("Arrived after the server answered")).toBeVisible();
     });
 
+    test("lists the channels of a Space someone opens, and keeps syncing", async ({ page, app, user }) => {
+        // Opening a Space used to ask the server for lists filtered by Space, which Synapse cannot do: every sync
+        // request failed from then on.
+        const addChild = (spaceId: string, roomId: string): Promise<unknown> =>
+            app.client.sendStateEvent(spaceId, "m.space.child", { via: [user.homeServer] }, roomId);
+        const spaceId = await app.client.createSpace({ name: "Guild" });
+        for (const name of ["Channel A", "Channel B", "Channel C"]) {
+            await addChild(spaceId, await app.client.createRoom({ name }));
+        }
+        await (await app.getSpacePanelButton("Guild")).click();
+        const names = page.getByTestId("room-list").getByTestId("room-name");
+        for (const name of ["Channel A", "Channel B", "Channel C"]) {
+            await expect(names.filter({ hasText: name })).toBeVisible();
+        }
+
+        // Sync keeps working: creating a room waits for it to arrive through sync.
+        await app.client.createRoom({ name: "Elsewhere" });
+    });
+
     test("should move rooms around as new events arrive", async ({ page, app, testRoom }) => {
         // create rooms and check room names are correct
         const roomIds: string[] = [];
