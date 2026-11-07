@@ -484,6 +484,84 @@ describe("NotificationCountEngine", () => {
         expect(counts().total).toBe(2);
     });
 
+    it("does not place a receipt made here for an event sync has not brought until a later response", async () => {
+        const { client, respond, counts, engine, settle } = await setup();
+        await respond(
+            { initial: true, required_state: requiredState, timeline: [message("$a"), message("$b"), message("$c")] },
+            [receipt("$a")],
+        );
+        expect(counts().total).toBe(2);
+
+        // Read on this device up to a newer message opened from a link, which sync has not brought yet.
+        const room = client.getRoom(roomId)!;
+        room.addLocalEchoReceipt(me, new MatrixEvent(message("$n")), ReceiptType.Read, true);
+        await settle();
+        expect(counts().total).toBe(0);
+        expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Unknown);
+
+        // Sync brings it: everything up to it is read.
+        await respond({ timeline: [message("$n")] });
+        expect(counts().total).toBe(0);
+        expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Exact);
+    });
+
+    it("evaluates a room's messages again when its member count changes what the push rules match", async () => {
+        const { client, respond, counts } = await setup();
+        // Messages notify only in rooms of two, as with the default rule for direct messages.
+        client.setPushRules({
+            global: {
+                ...pushRules.global,
+                [PushRuleKind.Underride]: [
+                    {
+                        rule_id: ".m.rule.room_one_to_one",
+                        default: true,
+                        enabled: true,
+                        conditions: [
+                            { kind: ConditionKind.RoomMemberCount, is: "2" },
+                            { kind: ConditionKind.EventMatch, key: "type", pattern: "m.room.message" },
+                        ],
+                        actions: [PushRuleActionName.Notify],
+                    },
+                ],
+            },
+        });
+        await respond(
+            { initial: true, required_state: requiredState, joined_count: 2, timeline: [message("$a"), message("$b")] },
+            [receipt("$a")],
+        );
+        expect(counts().total).toBe(1);
+
+        await respond({ joined_count: 3 });
+
+        expect(counts().total).toBe(0);
+    });
+
+    it("evaluates a room's messages again when its power levels change", async () => {
+        const { client, respond } = await setup();
+        const powerLevels = (id: string): MSC3575RoomData["required_state"][number] => ({
+            type: EventType.RoomPowerLevels,
+            state_key: "",
+            sender: me,
+            event_id: id,
+            origin_server_ts: 1,
+            content: { users: { [me]: 100 } },
+        });
+        await respond(
+            {
+                initial: true,
+                required_state: [...requiredState, powerLevels("$levels")],
+                timeline: [message("$a"), message("$b")],
+            },
+            [receipt("$a")],
+        );
+        const evaluate = vi.spyOn(client.pushProcessor, "actionsForEvent");
+
+        // Who may notify everyone can change what a message does.
+        await respond({ required_state: [powerLevels("$new-levels")] });
+
+        expect(evaluate.mock.calls.map(([event]) => event.getId())).toContain("$b");
+    });
+
     it("clears the counts of a room the user leaves", async () => {
         const { client, respond, counts } = await setup();
         await respond({ initial: true, required_state: requiredState, timeline: [message("$a")] }, []);

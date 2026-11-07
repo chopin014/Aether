@@ -68,6 +68,13 @@ export class NotificationCountEngine implements RoomHistoryObserver {
     /** Rooms the response being applied sent afresh: once it all is, every receipt the user has there is known. */
     private readonly awaitingReceipts = new Set<string>();
     private inResponse = false;
+    /** How many sync responses have arrived. */
+    private responses = 0;
+    /**
+     * Rooms with a receipt made on this device that could not be placed, by how many responses had arrived when it
+     * was made. It is settled once a later one is applied.
+     */
+    private readonly unsettled = new Map<string, number>();
     private flushTimer?: ReturnType<typeof setTimeout>;
     private started = false;
     /** Ledgers saved on this device by the last session, taken up as their rooms are restored. */
@@ -197,18 +204,28 @@ export class NotificationCountEngine implements RoomHistoryObserver {
     }
 
     private onLifecycle = (state: SlidingSyncState, response: unknown, error?: Error): void => {
-        if (state === SlidingSyncState.RequestFinished && !error && response) this.inResponse = true;
+        if (state === SlidingSyncState.RequestFinished && !error && response) {
+            this.inResponse = true;
+            this.responses++;
+        }
     };
 
     private onApplied = (): void => {
         this.inResponse = false;
         for (const roomId of this.awaitingReceipts) this.ledgers.get(roomId)?.setReceiptsComplete();
         this.awaitingReceipts.clear();
+        // A response that arrived after a receipt made here would have brought its event, were it a new one.
+        for (const [roomId, made] of this.unsettled) {
+            if (made >= this.responses) continue;
+            this.unsettled.delete(roomId);
+            this.ledgers.get(roomId)?.settleReceipts();
+            this.dirty.add(roomId);
+        }
         this.held.clear();
         this.flush();
     };
 
-    private onReceipt = (event: MatrixEvent, room: Room): void => {
+    private onReceipt = (event: MatrixEvent, room: Room, synthetic?: boolean): void => {
         const me = this.client.getUserId();
         if (!me) return;
         let mine = false;
@@ -220,7 +237,8 @@ export class NotificationCountEngine implements RoomHistoryObserver {
                 const receipt = byUser?.[me] as { thread_id?: unknown } | undefined;
                 if (!kind || !receipt || typeof receipt !== "object") continue;
                 const scope = typeof receipt.thread_id === "string" ? receipt.thread_id : UNTHREADED_RECEIPT;
-                ledger.setReceipt(scope, kind, eventId);
+                ledger.setReceipt(scope, kind, eventId, !synthetic);
+                if (synthetic && !ledger.has(eventId)) this.unsettled.set(room.roomId, this.responses);
                 mine = true;
             }
         }
@@ -272,6 +290,7 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         this.roomEvents.delete(room.roomId);
         this.published.delete(room.roomId);
         this.contexts.delete(room.roomId);
+        this.unsettled.delete(room.roomId);
         this.dirty.delete(room.roomId);
         room.setNotificationCounts({}, new Map());
     };
