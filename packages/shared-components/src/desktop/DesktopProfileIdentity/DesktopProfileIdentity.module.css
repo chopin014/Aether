@@ -16,11 +16,15 @@ Please see LICENSE in the repository root for full details.
         var(--profile-primary),
         var(--profile-wash-colour) var(--profile-wash)
     );
-    background: linear-gradient(
+    /* The card's fill, also used inside its gradient frame. */
+    --desktop-profile-fill: linear-gradient(
         180deg,
         var(--desktop-profile-surface),
         color-mix(in srgb, var(--profile-accent), var(--profile-wash-colour) var(--profile-wash))
     );
+    /* The frame shows the theme's colours at full strength, as Discord's themed cards do. */
+    --desktop-profile-frame: linear-gradient(160deg, var(--profile-primary), var(--profile-accent));
+    background: var(--desktop-profile-fill);
 }
 /* The theme's colours are arbitrary, so the design tokens used inside the card follow them. */
 .surface[data-tone="dark"] {
@@ -74,18 +78,6 @@ Please see LICENSE in the repository root for full details.
 .surface a:hover {
     color: var(--cpd-color-text-primary) !important;
 }
-.effectHost {
-    position: absolute;
-    inset: 0;
-    z-index: 2;
-    border-radius: inherit;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 700ms ease;
-}
-.effectHost[data-live="true"] {
-    opacity: 1;
-}
 .backdrop {
     position: absolute;
     inset: 0;
@@ -109,8 +101,28 @@ Please see LICENSE in the repository root for full details.
     overflow: hidden;
     background: color-mix(in srgb, var(--desktop-profile-banner) 55%, var(--cpd-color-bg-canvas-default));
 }
+/* Without an image the banner shows both theme colours at full strength, above the softened body. */
 .surface[data-tone] .bannerColour {
-    background: var(--profile-primary);
+    background: linear-gradient(
+        135deg,
+        var(--profile-primary),
+        color-mix(in srgb, var(--profile-accent) 85%, var(--profile-primary))
+    );
+}
+/* An avatar's own colour is shown as it is; only the fallback from the ID is softened into the card. */
+.bannerColour[data-from-avatar="true"] {
+    background: var(--desktop-profile-banner);
+}
+/*
+ * The avatar sits in a hole cut out of the banner, rather than on a disc painted in the card's colour, so whatever is
+ * behind the card (its theme gradient, its effect) shows round the avatar too. Discord cuts its banner the same way.
+ */
+.bannerColour {
+    mask-image: radial-gradient(
+        circle at var(--cutout-x) var(--cutout-y),
+        transparent calc(var(--cutout-radius) - 0.5px),
+        #000000 var(--cutout-radius)
+    );
 }
 .bannerImage {
     position: absolute;
@@ -126,15 +138,26 @@ Please see LICENSE in the repository root for full details.
 }
 .popoutBanner {
     --desktop-profile-banner-height: 112px;
-    --desktop-profile-avatar-ring: var(--cpd-space-1x);
+    --desktop-profile-avatar-ring: var(--cpd-space-1-5x);
     --desktop-profile-avatar-size: 80px;
-    height: calc(var(--desktop-profile-banner-height) + var(--cpd-space-10x));
+    --desktop-profile-below-banner: var(--cpd-space-10x);
+    height: calc(var(--desktop-profile-banner-height) + var(--desktop-profile-below-banner));
 }
 .fullBanner {
-    --desktop-profile-banner-height: 176px;
-    --desktop-profile-avatar-ring: var(--cpd-space-1-5x);
+    --desktop-profile-banner-height: 196px;
+    --desktop-profile-avatar-ring: var(--cpd-space-2x);
     --desktop-profile-avatar-size: 120px;
-    height: calc(var(--desktop-profile-banner-height) + var(--cpd-space-16x));
+    --desktop-profile-below-banner: var(--cpd-space-16x);
+    height: calc(var(--desktop-profile-banner-height) + var(--desktop-profile-below-banner));
+}
+.popoutBanner,
+.fullBanner {
+    --cutout-radius: calc(var(--desktop-profile-avatar-size) / 2 + var(--desktop-profile-avatar-ring));
+    --cutout-x: calc(var(--cpd-space-6x) + var(--cutout-radius));
+    --cutout-y: calc(100% + var(--desktop-profile-below-banner) - var(--cutout-radius));
+}
+.banner:dir(rtl) {
+    --cutout-x: calc(100% - var(--cpd-space-6x) - var(--cutout-radius));
 }
 .bannerColour[data-colour="2"] {
     --desktop-profile-banner: var(--cpd-color-text-decorative-2);
@@ -169,7 +192,6 @@ Please see LICENSE in the repository root for full details.
     display: flex;
     padding: var(--desktop-profile-avatar-ring);
     border-radius: 50%;
-    background: var(--desktop-profile-surface, var(--cpd-color-bg-subtle-secondary));
 }
 .avatarBox {
     position: relative;
@@ -363,4 +385,101 @@ Please see LICENSE in the repository root for full details.
     .statusBubble {
         animation: none;
     }
+}
+
+/* Mutual Spaces and activity */
+.faces {
+    display: inline-flex;
+    flex: none;
+}
+.face {
+    display: flex;
+    margin-inline-start: calc(var(--cpd-space-1x) * -1.5);
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px var(--desktop-profile-surface, var(--cpd-color-bg-subtle-secondary));
+}
+.face:first-child {
+    margin-inline-start: 0;
+}
+.mutual {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-2x);
+    margin: 0;
+    color: var(--cpd-color-text-secondary);
+}
+.activity {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpd-space-2x);
+    padding: var(--cpd-space-3x);
+    border-radius: var(--cpd-space-2x);
+    background: color-mix(in srgb, var(--cpd-color-bg-subtle-primary) 70%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cpd-color-text-primary) 6%, transparent);
+}
+.activityHeading {
+    margin: 0;
+    color: var(--cpd-color-text-primary);
+}
+.activityBody {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-3x);
+    min-width: 0;
+}
+/* Up to four faces in a square, like Discord's voice card. */
+.activityFaces {
+    display: grid;
+    flex: none;
+    grid-template-columns: repeat(2, 24px);
+    gap: 2px;
+    padding: var(--cpd-space-1x);
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-canvas-default);
+}
+.activityFaces[data-count="1"] {
+    grid-template-columns: 24px;
+}
+.activityText {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.activityTitle {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-1x);
+    margin: 0;
+    color: var(--cpd-color-text-primary);
+}
+.activityTitle span,
+.activityDetail {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.activityTitle svg {
+    flex: none;
+    color: var(--cpd-color-icon-success-primary);
+}
+.activityDetail {
+    margin: 0;
+    color: var(--cpd-color-text-secondary);
+}
+.activityJoin {
+    padding: var(--cpd-space-2x);
+    border: 0;
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-subtle-primary);
+    color: var(--cpd-color-text-primary);
+    font: var(--cpd-font-body-sm-semibold);
+    cursor: pointer;
+    transition: background 120ms ease;
+}
+.activityJoin:hover {
+    background: color-mix(in srgb, var(--cpd-color-text-primary) 16%, transparent);
+}
+.activityJoin:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: var(--cpd-border-width-2);
 }

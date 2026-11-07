@@ -141,4 +141,29 @@ describe("DesktopFullProfileView", () => {
         await userEvent.click(screen.getByRole("button", { name: "Edit profile" }));
         expect(vm.editProfile).toHaveBeenCalled();
     });
+
+    it("opens on what the person is doing and joins their voice channel", async () => {
+        const vm = makeVm({
+            activity: {
+                kind: "voice",
+                roomId: "!voice:example.org",
+                channelName: "Lounge",
+                spaceName: "Aether HQ",
+                count: 2,
+                people: [{ id: "@robin:example.org", name: "Robin" }],
+            },
+        });
+        render(<DesktopFullProfileView vm={vm} />);
+        expect(screen.getByRole("tab", { name: "Activity", selected: true })).toBeVisible();
+        expect(screen.getByText("Lounge")).toBeVisible();
+        expect(screen.getByText(/in Aether HQ/)).toBeVisible();
+        await userEvent.click(screen.getByRole("button", { name: "Join voice channel" }));
+        expect(vm.openRoom).toHaveBeenCalledWith("!voice:example.org");
+    });
+
+    it("says so when the person is not doing anything", async () => {
+        render(<DesktopFullProfileView vm={makeVm()} />);
+        await userEvent.click(screen.getByRole("tab", { name: "Activity" }));
+        expect(screen.getByText("Robin isn't doing anything right now")).toBeVisible();
+    });
 });

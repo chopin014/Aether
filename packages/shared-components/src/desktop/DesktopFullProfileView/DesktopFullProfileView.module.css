@@ -33,12 +33,36 @@ Please see LICENSE in the repository root for full details.
     background: var(--cpd-color-bg-subtle-secondary);
     border-radius: 50%;
 }
+/*
+ * The person's identity is a card of its own inset in the dialog, as in Discord's full profile, so what is shared
+ * with them reads as a separate panel beside it.
+ */
 .profile {
     display: flex;
     flex-direction: column;
     min-width: 0;
+    margin: var(--cpd-space-6x) 0 var(--cpd-space-6x) var(--cpd-space-6x);
     overflow: auto;
-    background: var(--desktop-profile-surface);
+    border-radius: var(--cpd-space-3x);
+    background: var(--cpd-color-bg-subtle-secondary);
+    box-shadow:
+        0 var(--cpd-space-1x) var(--cpd-space-6x) rgb(0 0 0 / 22%),
+        inset 0 0 0 1px color-mix(in srgb, var(--cpd-color-text-primary) 6%, transparent);
+    scrollbar-width: thin;
+}
+.view[data-tone] .profile {
+    border: var(--cpd-space-1x) solid transparent;
+    background:
+        var(--desktop-profile-fill) padding-box,
+        var(--desktop-profile-frame) border-box;
+    box-shadow: 0 var(--cpd-space-1x) var(--cpd-space-6x) rgb(0 0 0 / 30%);
+}
+/* Around a themed card the dialog is a deeper shade of the same colours, so the card stands forward. */
+.view[data-tone="dark"] {
+    background: linear-gradient(rgb(0 0 0 / 38%), rgb(0 0 0 / 38%)), var(--desktop-profile-fill);
+}
+.view[data-tone="light"] {
+    background: linear-gradient(rgb(255 255 255 / 40%), rgb(255 255 255 / 40%)), var(--desktop-profile-fill);
 }
 .details {
     display: flex;
@@ -129,7 +153,7 @@ Please see LICENSE in the repository root for full details.
     display: flex;
     flex-direction: column;
     min-width: 0;
-    padding: var(--cpd-space-5x) var(--cpd-space-12x) var(--cpd-space-5x) var(--cpd-space-6x);
+    padding: var(--cpd-space-8x) var(--cpd-space-12x) var(--cpd-space-5x) var(--cpd-space-8x);
     overflow: auto;
 }
 .tabs {
@@ -250,6 +274,9 @@ Please see LICENSE in the repository root for full details.
 .caption {
     color: var(--cpd-color-text-secondary);
 }
+.emptyTitle {
+    color: var(--cpd-color-text-primary);
+}
 @keyframes desktop-full-profile-in {
     from {
         opacity: 0;
@@ -268,6 +295,7 @@ Please see LICENSE in the repository root for full details.
         overflow: auto;
     }
     .profile {
+        margin: var(--cpd-space-4x) var(--cpd-space-4x) 0;
         overflow: visible;
     }
     .shared {

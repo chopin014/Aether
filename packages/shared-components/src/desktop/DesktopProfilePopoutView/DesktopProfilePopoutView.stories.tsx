@@ -25,6 +25,7 @@ function PopoutStory(snapshot: DesktopProfilePopoutViewSnapshot): JSX.Element {
         toggleIgnore: fn(),
         moderate: fn(),
         openFullProfile: fn(),
+        openRoom: fn(),
         editProfile: fn(),
         close: fn(),
     });
@@ -83,3 +84,40 @@ export const LightTheme: Story = {
         },
     },
 };
+/** A themed cosmic card: the ringed decoration, comets over it and someone to join in voice. */
+export const InVoice: Story = {
+    args: {
+        displayName: "LiTz",
+        pronouns: "he/him",
+        bio: "Building Aether. Usually in the Lounge.",
+        mutual: {
+            count: 4,
+            faces: [
+                { id: "!a:example.org", name: "Aether HQ" },
+                { id: "!b:example.org", name: "Bussines party" },
+                { id: "!c:example.org", name: "Work in Silence" },
+            ],
+        },
+        activity: {
+            kind: "voice",
+            roomId: "!voice:example.org",
+            channelName: "Geral#1",
+            spaceName: "Terra do borgerds",
+            count: 3,
+            people: [
+                { id: "@litz:example.org", name: "LiTz" },
+                { id: "@chopin:example.org", name: "chopin" },
+                { id: "@pon:example.org", name: "Pon" },
+            ],
+        },
+        appearance: {
+            theme: { primary: "#0b1030", accent: "#3a1f7a" },
+            decoration: "ringed",
+            effect: "comets",
+            nameStyle: { font: "scifi", effect: "prism", colour: "#8ed8ea", colourEnd: "#c77dff" },
+        },
+    },
+};
+/** Nothing chosen at all: the banner takes the avatar's colour. */
+export const Plain: Story = { args: { roles: [], canVerify: false } };
+

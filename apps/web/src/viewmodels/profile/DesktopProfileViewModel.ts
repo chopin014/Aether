@@ -67,6 +67,7 @@ import {
 } from "../../profile/richProfileView";
 import { wornSpaceTag } from "../../profile/spaceTag";
 import { getUserNote, setUserNote } from "../../profile/userNotes";
+import { VoiceActivityIndex, voiceActivity } from "../../profile/voiceActivity";
 
 /** One snapshot serves both the popout card and the full profile. */
 export type DesktopProfileViewSnapshot = DesktopFullProfileViewSnapshot & DesktopProfilePopoutViewSnapshot;
@@ -123,6 +124,7 @@ export class DesktopProfileViewModel
         this.disposables.trackListener(client, ClientEvent.Event, this.onEvent);
         const store = RichProfileStore.forClient(client);
         this.disposables.track(store.subscribe(props.member.userId, this.refresh));
+        this.disposables.track(VoiceActivityIndex.instance.subscribe(this.refresh));
         void store.request(props.member.userId, { onOpen: true });
         void this.loadVerification();
         void this.loadStatus();
@@ -196,6 +198,7 @@ export class DesktopProfileViewModel
         const memberSince =
             props.full && room && member?.membership === KnownMembership.Join ? joinedAt(room, userId) : undefined;
         // An ignored person's styling goes with their messages, and the viewer may have turned all of it off.
+        const shared = isMe ? [] : mutualSpaces(client, userId);
         const rich =
             client.isUserIgnored(userId) || !SettingsStore.getValue("showProfileAppearance")
                 ? undefined
@@ -242,7 +245,9 @@ export class DesktopProfileViewModel
                     ? { verified: verification.verified, deviceCount: verification.deviceCount }
                     : undefined,
             mutualRooms: extra.mutualRooms ?? { state: props.full ? "loading" : "unsupported", items: [] },
-            mutualSpaces: props.full && !isMe ? mutualSpaces(client, userId) : [],
+            mutualSpaces: props.full ? shared : [],
+            mutual: isMe ? undefined : { count: shared.length, faces: shared.slice(0, 3) },
+            activity: voiceActivity(client, VoiceActivityIndex.instance.roomOf(userId)),
         };
     }
 

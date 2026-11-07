@@ -19,6 +19,13 @@ Please see LICENSE in the repository root for full details.
     transform-origin: 50% 20%;
     animation: desktop-profile-pop 180ms cubic-bezier(0.2, 1.1, 0.4, 1);
 }
+/* A themed card wears its colours as a frame, with its contents on a softened fill inside it. */
+.card[data-tone] {
+    border: var(--cpd-space-1x) solid transparent;
+    background:
+        var(--desktop-profile-fill) padding-box,
+        var(--desktop-profile-frame) border-box;
+}
 .card h2,
 .card p {
     margin: 0;

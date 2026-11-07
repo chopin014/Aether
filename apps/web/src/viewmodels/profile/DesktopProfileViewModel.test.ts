@@ -32,6 +32,8 @@ import {
     unignoreUser,
 } from "../../components/viewmodels/right_panel/user_info/UserInfoIgnoreButtonViewModel";
 import SettingsStore from "../../settings/SettingsStore";
+import * as voiceActivityModule from "../../profile/voiceActivity";
+import { VoiceActivityIndex } from "../../profile/voiceActivity";
 
 const { copy } = vi.hoisted(() => ({ copy: vi.fn() }));
 vi.mock("@element-hq/element-web-shared-utils", async (importOriginal) => ({
@@ -444,6 +446,31 @@ describe("DesktopProfileViewModel", () => {
             vi.spyOn(space, "getMember").mockReturnValue(member);
             vi.mocked(client.getRooms).mockReturnValue([room, space]);
             expect(create({ full: true }).getSnapshot().mutualSpaces).toMatchObject([{ id: space.roomId }]);
+            // The popout shows a count with the first few icons, without the full list.
+            expect(create({ full: false }).getSnapshot()).toMatchObject({
+                mutualSpaces: [],
+                mutual: { count: 1, faces: [{ id: space.roomId }] },
+            });
+        });
+
+        it("shows the voice channel the person is in, and follows them as they move", () => {
+            const index = VoiceActivityIndex.instance;
+            const roomOf = vi.spyOn(index, "roomOf").mockReturnValue(undefined);
+            const activity = vi.spyOn(voiceActivityModule, "voiceActivity");
+            const vm = create({ full: false });
+            expect(vm.getSnapshot().activity).toBeUndefined();
+            roomOf.mockReturnValue("!lounge:example.org");
+            activity.mockReturnValue({
+                kind: "voice",
+                roomId: "!lounge:example.org",
+                channelName: "Lounge",
+                count: 1,
+                people: [],
+            });
+            // Anyone joining or leaving a call makes the card look again.
+            (index as unknown as { listeners: Set<() => void> }).listeners.forEach((listener) => listener());
+            expect(activity).toHaveBeenLastCalledWith(client, "!lounge:example.org");
+            expect(vm.getSnapshot().activity?.channelName).toBe("Lounge");
         });
 
         it("opens a mutual room and closes", () => {

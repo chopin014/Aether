@@ -43,6 +43,7 @@ function makeVm(snapshot: Partial<DesktopProfilePopoutViewSnapshot> = {}) {
             toggleIgnore: vi.fn(),
             moderate: vi.fn(),
             openFullProfile: vi.fn(),
+            openRoom: vi.fn(),
             editProfile: vi.fn(),
             close: vi.fn(),
         } satisfies DesktopProfilePopoutViewActions,
@@ -50,6 +51,41 @@ function makeVm(snapshot: Partial<DesktopProfilePopoutViewSnapshot> = {}) {
 }
 
 describe("DesktopProfilePopoutView", () => {
+    it("shows the Spaces you share and the voice channel the person is in, with a way to join them", async () => {
+        const vm = makeVm({
+            mutual: { count: 2, faces: [{ id: "!a:example.org", name: "Aether HQ" }] },
+            activity: {
+                kind: "voice",
+                roomId: "!voice:example.org",
+                channelName: "Lounge",
+                count: 3,
+                people: [
+                    { id: "@robin:example.org", name: "Robin" },
+                    { id: "@sam:example.org", name: "Sam" },
+                ],
+            },
+        });
+        render(<DesktopProfilePopoutView vm={vm} />);
+        expect(screen.getByText("2 mutual servers")).toBeVisible();
+        expect(screen.getByRole("region", { name: "In voice" }).textContent).toContain("Lounge");
+        expect(screen.getByText("3 people in voice")).toBeVisible();
+        await userEvent.click(screen.getByRole("button", { name: "Join voice channel" }));
+        expect(vm.openRoom).toHaveBeenCalledWith("!voice:example.org");
+    });
+
+    it("does not offer to join your own voice channel", () => {
+        const activity = {
+            kind: "voice" as const,
+            roomId: "!v:example.org",
+            channelName: "Lounge",
+            count: 1,
+            people: [],
+        };
+        render(<DesktopProfilePopoutView vm={makeVm({ isMe: true, canMessage: false, activity })} />);
+        expect(screen.getByText("Lounge")).toBeVisible();
+        expect(screen.queryByRole("button", { name: "Join voice channel" })).toBeNull();
+    });
+
     it("shows the name, Matrix ID, role chips and presence", () => {
         render(<DesktopProfilePopoutView vm={makeVm()} />);
         expect(screen.getByRole("heading", { name: "Robin" })).toBeVisible();
