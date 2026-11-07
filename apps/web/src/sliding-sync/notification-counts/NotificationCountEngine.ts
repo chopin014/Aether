@@ -253,6 +253,9 @@ export class NotificationCountEngine implements RoomHistoryObserver {
                 const receipt = byUser?.[me] as { thread_id?: unknown } | undefined;
                 if (!kind || !receipt || typeof receipt !== "object") continue;
                 const scope = typeof receipt.thread_id === "string" ? receipt.thread_id : UNTHREADED_RECEIPT;
+                // The SDK makes one up for each event the user sends: the ledger counts their own events as read
+                // up to there already.
+                if (synthetic && room.findEventById(eventId)?.getSender() === me) continue;
                 ledger ??= this.ledgerFor(room.roomId);
                 ledger.setReceipt(scope, kind, eventId, !synthetic);
                 mine = true;

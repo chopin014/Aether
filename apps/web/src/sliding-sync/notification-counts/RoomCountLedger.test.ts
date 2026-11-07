@@ -343,6 +343,20 @@ describe("RoomCountLedger", () => {
         expect(ledger.compute().main).toEqual({ total: 2, highlight: 0, confidence: CountConfidence.Exact });
     });
 
+    it("stays uncertain when more receipts made here for events not seen come than are kept", () => {
+        const ledger = ledgerWith(["a", "b"]);
+        ledger.setReceipt(MAIN_SCOPE, "public", "a");
+        for (const id of ["unseen1", "unseen2", "unseen3", "unseen4", "unseen5"]) {
+            ledger.setReceipt(MAIN_SCOPE, "public", id, false);
+        }
+        // The kept ones arrive: the one let go could still read "b".
+        ledger.addRun(events("unseen2", "unseen3", "unseen4", "unseen5"), { kind: "before", anchor: "a" });
+        expect(ledger.compute().main).toEqual({ total: 0, highlight: 0, confidence: CountConfidence.Unknown });
+
+        ledger.setReceipt(MAIN_SCOPE, "public", "a");
+        expect(ledger.compute().main).toEqual({ total: 1, highlight: 0, confidence: CountConfidence.Exact });
+    });
+
     it("keeps a receipt made here waiting while others come and go", () => {
         const ledger = ledgerWith(["a", "b", "c"]);
         ledger.addRun([{ id: "reply", own: false, threadRoot: "c" }], { kind: "live", continuesTip: true });
