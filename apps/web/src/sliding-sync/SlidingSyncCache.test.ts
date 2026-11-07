@@ -207,6 +207,37 @@ describe("SlidingSyncCache", () => {
         await otherSession.dispose();
     });
 
+    it("writes nothing more once its saved data has been deleted, such as at logout", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        await cache.load();
+        cache.observeRoomData(roomId, data({ timeline: [message("$private")] }));
+        await SlidingSyncCache.deleteAll();
+        // Pending writes, later changes and page-hide flushes must not recreate the data.
+        cache.observeRoomData(roomId, data({ timeline: [message("$later")] }));
+        await cache.flush();
+        await new Promise((resolve) => setTimeout(resolve, 1600));
+        const next = new SlidingSyncCache(userId, deviceId);
+        await expect(next.load()).resolves.toBeNull();
+        await next.dispose();
+    });
+
+    it("stops writing when another window deletes the saved data", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        cache.observeRoomData(roomId, data({ timeline: [message("$a")] }));
+        await cache.flush();
+        cache.observeRoomData(roomId, data({ timeline: [message("$b")] }));
+        // Another window deletes the database directly, without this window's cache knowing.
+        await new Promise<void>((resolve, reject) => {
+            const request = indexedDB.deleteDatabase(SlidingSyncCache.databaseName(userId, deviceId));
+            request.onsuccess = (): void => resolve();
+            request.onerror = (): void => reject(request.error);
+        });
+        await cache.flush();
+        const next = new SlidingSyncCache(userId, deviceId);
+        await expect(next.load()).resolves.toBeNull();
+        await next.dispose();
+    });
+
     it("deletes every session's saved data", async () => {
         const cache = new SlidingSyncCache(userId, deviceId);
         cache.observeRoomData(roomId, data({ timeline: [message("$a")] }));

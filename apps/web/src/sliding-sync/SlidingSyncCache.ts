@@ -84,6 +84,9 @@ function transactionDone(transaction: IDBTransaction): Promise<void> {
  * logout ({@link deleteAll}).
  */
 export class SlidingSyncCache {
+    /** Caches in use in this window, so deleting the saved data can stop them first. */
+    private static readonly live = new Set<SlidingSyncCache>();
+
     private readonly rooms = new Map<string, CachedRoom>();
     private readonly accountData = new Map<string, IMinimalEvent>();
     private readonly dirtyRooms = new Set<string>();
@@ -102,15 +105,22 @@ export class SlidingSyncCache {
     public constructor(
         private readonly userId: string,
         private readonly deviceId: string,
-    ) {}
+    ) {
+        SlidingSyncCache.live.add(this);
+    }
 
     /** The database name for a session. */
     public static databaseName(userId: string, deviceId: string): string {
         return `${DATABASE_PREFIX}${userId}:${deviceId}`;
     }
 
-    /** Delete every session's saved sliding sync data, such as on logout. */
+    /**
+     * Delete every session's saved sliding sync data, such as on logout. Caches in use stop first and drop what they
+     * had yet to write, so nothing is written back afterwards. Caches in other windows stop when their database is
+     * deleted.
+     */
     public static async deleteAll(): Promise<void> {
+        await Promise.all([...SlidingSyncCache.live].map((cache) => cache.invalidate()));
         if (typeof indexedDB === "undefined" || typeof indexedDB.databases !== "function") return;
         const databases = await indexedDB.databases();
         await Promise.all(
@@ -288,6 +298,26 @@ export class SlidingSyncCache {
         if (this.disposed) return;
         await this.flush();
         this.disposed = true;
+        SlidingSyncCache.live.delete(this);
+        const database = await this.database;
+        database?.close();
+    }
+
+    /**
+     * Stop for good without writing anything more: the saved data is being deleted. Pending changes are dropped and
+     * a write already under way is waited for, so it cannot land after the deletion.
+     */
+    private async invalidate(): Promise<void> {
+        this.disposed = true;
+        SlidingSyncCache.live.delete(this);
+        if (this.writeTimer !== undefined) clearTimeout(this.writeTimer);
+        this.writeTimer = undefined;
+        this.dirtyRooms.clear();
+        this.removedRooms.clear();
+        this.accountDataDirty = false;
+        this.rooms.clear();
+        this.accountData.clear();
+        await this.writing.catch(() => undefined);
         const database = await this.database;
         database?.close();
     }
@@ -364,7 +394,8 @@ export class SlidingSyncCache {
         if (this.disposed) return;
         if (this.dirtyRooms.size === 0 && this.removedRooms.size === 0 && !this.accountDataDirty) return;
         const database = await this.open();
-        if (!database) return;
+        // Stopped while the database opened, such as by a logout deleting it.
+        if (!database || this.disposed) return;
         this.trimQuietRooms();
         const dirty = [...this.dirtyRooms];
         const removed = [...this.removedRooms];
@@ -389,6 +420,8 @@ export class SlidingSyncCache {
     }
 
     private open(): Promise<IDBDatabase | null> {
+        // A stopped cache never opens, or reopens, the database: that would recreate deleted data.
+        if (this.disposed) return Promise.resolve(null);
         this.database ??= new Promise<IDBDatabase | null>((resolve) => {
             if (typeof indexedDB === "undefined") {
                 resolve(null);
@@ -410,10 +443,11 @@ export class SlidingSyncCache {
             };
             request.onsuccess = (): void => {
                 const database = request.result;
-                // Let logout delete the database, or a newer schema replace it, without waiting for this session.
+                // Another window is deleting the database (a logout) or replacing its schema: stop, without writing
+                // anything more, so the data is not recreated.
                 database.onversionchange = (): void => {
                     database.close();
-                    this.database = undefined;
+                    void this.invalidate();
                 };
                 resolve(database);
             };
