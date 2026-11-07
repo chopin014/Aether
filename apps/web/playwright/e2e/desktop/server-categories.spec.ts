@@ -182,6 +182,7 @@ test("organises a server's channels into categories everyone sees", async ({ pag
     // A muted channel can be hidden, and comes back when the option is turned off.
     await channel(page, "memes").click({ button: "right" });
     await page.getByRole("menuitem", { name: "Mute channel" }).click();
+    await page.getByRole("menuitem", { name: "Until I turn it back on" }).click();
     await channel(page, "boas-vindas").click();
     await (await openChannelListMenu(page)).getByRole("menuitemcheckbox", { name: "Hide muted channels" }).click();
     await expect(channel(page, "memes")).toHaveCount(0);
@@ -208,4 +209,55 @@ test("organises a server's channels into categories everyone sees", async ({ pag
         "aria-level",
         "2",
     );
+});
+
+test("mutes a category or the whole server for a while, as Discord does", async ({ page, app, spaceId, roomIds }) => {
+    const muteRecord = (roomId: string): Promise<Record<string, unknown> | undefined> =>
+        app.client.evaluate(
+            (client, roomId) => client.getRoom(roomId)?.getAccountData("io.aether.mute")?.getContent(),
+            roomId,
+        );
+
+    // A category muted for 15 minutes silences its channels and says when it ends.
+    await getSectionHeader(page, "Text Channels").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Mute category" }).click();
+    await page.getByRole("menuitem", { name: "For 15 minutes" }).click();
+    await expect
+        .poll(() => muteRecord(roomIds["memes"]))
+        .toMatchObject({ v: 1, by: "category", until: expect.any(Number) });
+    await expect(getSectionHeader(page, "Text Channels")).toHaveClass(/muted/);
+    // The channel itself shows as muted once the server's push rules come back.
+    await expect(channel(page, "memes").locator("[class*='mutedChannel']")).toHaveCount(1);
+    await channel(page, "memes").click({ button: "right" });
+    await expect(page.getByRole("menuitem", { name: /Unmute channel/ })).toContainText(/Until/);
+    await page.keyboard.press("Escape");
+
+    await getSectionHeader(page, "Text Channels").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Unmute category" }).click();
+    await expect(getSectionHeader(page, "Text Channels")).not.toHaveClass(/muted/);
+    await expect.poll(() => muteRecord(roomIds["memes"])).toEqual({});
+
+    // The server menu mutes every channel until it is turned back on, then turns them all back on.
+    const serverMenu = page.getByRole("button", { name: "Open server menu" });
+    await serverMenu.click();
+    await page.getByRole("menuitem", { name: "Mute server" }).click();
+    await page.getByRole("menuitem", { name: "Until I turn it back on" }).click();
+    await expect.poll(() => muteRecord(roomIds["Geral#1"])).toMatchObject({ by: "server" });
+    await serverMenu.click();
+    await page.getByRole("menuitem", { name: "Unmute server" }).click();
+    await expect.poll(() => muteRecord(roomIds["Geral#1"])).toEqual({});
+
+    // Notifying only about mentions is remembered for the server.
+    await serverMenu.click();
+    await page.getByRole("menuitem", { name: "Notification settings" }).click();
+    await page.getByRole("menuitemradio", { name: "Only @mentions" }).click();
+    await expect
+        .poll(() =>
+            app.client.evaluate(
+                (client, spaceId) =>
+                    client.getRoom(spaceId)?.getAccountData("io.aether.space.notifications")?.getContent(),
+                spaceId,
+            ),
+        )
+        .toMatchObject({ level: "mentions" });
 });
