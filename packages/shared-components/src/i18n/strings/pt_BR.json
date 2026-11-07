@@ -389,7 +389,8 @@
             "people_in_voice": {
                 "one": "%(count)s pessoa em voz",
                 "other": "%(count)s pessoas em voz"
-            }
+            },
+            "presence_busy": "Não perturbe"
         },
         "channel_menu": {
             "title": "Ações do canal",

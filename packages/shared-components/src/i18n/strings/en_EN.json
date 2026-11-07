@@ -455,6 +455,7 @@
                 "one": "%(count)s person in voice",
                 "other": "%(count)s people in voice"
             },
+            "presence_busy": "Do not disturb",
             "presence_offline": "Offline",
             "presence_online": "Online",
             "presence_unavailable": "Away",

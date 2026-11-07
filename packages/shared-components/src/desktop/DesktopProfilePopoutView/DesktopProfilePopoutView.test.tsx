@@ -91,6 +91,11 @@ describe("DesktopProfilePopoutView", () => {
         expect(screen.queryByRole("button", { name: "Join voice channel" })).toBeNull();
     });
 
+    it("shows do not disturb", () => {
+        render(<DesktopProfilePopoutView vm={makeVm({ presence: "busy" })} />);
+        expect(screen.getByRole("img", { name: "Do not disturb" })).toHaveAttribute("data-presence", "busy");
+    });
+
     it("shows the name, Matrix ID, role chips and presence", () => {
         render(<DesktopProfilePopoutView vm={makeVm()} />);
         expect(screen.getByRole("heading", { name: "Robin" })).toBeVisible();

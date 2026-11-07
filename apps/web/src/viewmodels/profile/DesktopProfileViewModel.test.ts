@@ -9,6 +9,7 @@ Please see LICENSE in the repository root for full details.
 
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import {
+    TypedEventEmitter,
     EventType,
     MatrixEvent,
     Room,
@@ -34,6 +35,9 @@ import {
 import SettingsStore from "../../settings/SettingsStore";
 import * as voiceActivityModule from "../../profile/voiceActivity";
 import { VoiceActivityIndex } from "../../profile/voiceActivity";
+import * as presenceModule from "../../presence/useMergedPresence";
+import { AetherPresenceService } from "../../presence/AetherPresenceService";
+import { AetherPresenceStoreEvent } from "../../presence/AetherPresenceStore";
 
 const { copy } = vi.hoisted(() => ({ copy: vi.fn() }));
 vi.mock("@element-hq/element-web-shared-utils", async (importOriginal) => ({
@@ -178,6 +182,37 @@ describe("DesktopProfileViewModel", () => {
         user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "unavailable" } }));
         client.emit(UserEvent.LastPresenceTs, user.events.presence!, user);
         expect(vm.getSnapshot().presence).toBe("unavailable");
+    });
+
+    it("shows the status Aether reports when the homeserver shares none, and follows it", () => {
+        // A homeserver like matrix.org shares no presence: every user stays offline as far as it knows.
+        delete user.events.presence;
+        user.presence = "offline";
+        const store = new TypedEventEmitter<string, Record<string, (userId: string) => void>>();
+        vi.spyOn(AetherPresenceService.instance, "store", "get").mockReturnValue(
+            store as unknown as AetherPresenceService["store"],
+        );
+        const merged = vi.spyOn(presenceModule, "getMergedPresence").mockReturnValue({
+            state: "unavailable",
+            source: "aether",
+        } as ReturnType<typeof presenceModule.getMergedPresence>);
+        const vm = create();
+        expect(vm.getSnapshot().presence).toBe("unavailable");
+
+        merged.mockReturnValue({ state: "busy", source: "aether" } as ReturnType<
+            typeof presenceModule.getMergedPresence
+        >);
+        store.emit(AetherPresenceStoreEvent.Update, "@someone-else:example.org");
+        expect(vm.getSnapshot().presence).toBe("unavailable");
+        store.emit(AetherPresenceStoreEvent.Update, member.userId);
+        expect(vm.getSnapshot().presence).toBe("busy");
+
+        // Seen activity alone is not a status, as in the member list.
+        merged.mockReturnValue({ state: "online", source: "activity" } as ReturnType<
+            typeof presenceModule.getMergedPresence
+        >);
+        store.emit(AetherPresenceStoreEvent.Update, member.userId);
+        expect(vm.getSnapshot().presence).toBe("offline");
     });
 
     it("shows the standard power-level role, and the Space role when the room is in the active Space", () => {

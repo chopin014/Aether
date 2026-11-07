@@ -37,7 +37,7 @@ import {
 import styles from "./DesktopProfileIdentity.module.css";
 
 /** Presence shown on a profile; the host maps unknown status to offline. */
-export type DesktopProfilePresence = "online" | "unavailable" | "offline";
+export type DesktopProfilePresence = "online" | "unavailable" | "busy" | "offline";
 
 /** A Matrix power-level role shown where Discord shows server roles. */
 export interface DesktopProfileRole {
@@ -190,6 +190,7 @@ function PresenceBadge({ presence }: PresenceBadgeProps): JSX.Element {
     const labels: Record<DesktopProfilePresence, string> = {
         online: _t("desktop|profile|presence_online"),
         unavailable: _t("desktop|profile|presence_unavailable"),
+        busy: _t("desktop|profile|presence_busy"),
         offline: _t("desktop|profile|presence_offline"),
     };
     const label = labels[presence];

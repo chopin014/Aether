@@ -243,6 +243,9 @@ Please see LICENSE in the repository root for full details.
 .badge[data-presence="unavailable"] {
     color: #f2b33d;
 }
+.badge[data-presence="busy"] {
+    color: #f23f43;
+}
 
 /* Thought bubble beside the avatar, with the two small circles that lead from it. */
 .statusBubble {
