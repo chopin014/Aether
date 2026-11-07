@@ -696,6 +696,16 @@ class TimelinePanel extends React.Component<IProps, IState> {
             }
         }
 
+        // History added before the window can now be paged back to, such as the older events a sliding sync
+        // response brings for a timeline restored from this device without a pagination token.
+        if (
+            toStartOfTimeline &&
+            !this.state.canBackPaginate &&
+            this.timelineWindow?.canPaginate(EventTimeline.BACKWARDS)
+        ) {
+            this.setState({ canBackPaginate: true });
+        }
+
         // The SDK marks a late thread reply as non-live when inserting it by timestamp.
         // At the loaded live timeline's tail it still needs to reach the desktop conversation.
         const desktopThreadInsertion =
