@@ -1005,6 +1005,8 @@ describe("SlidingSyncManager", () => {
         });
 
         it("reports a room the server answered without as absent", async () => {
+            const changes = vi.fn();
+            manager.onArrivalChange(changes);
             const visible = manager.setRoomVisible("!missing");
             await tick();
             expect(nameOf("!missing")).toBe("bootstrap");
@@ -1024,6 +1026,7 @@ describe("SlidingSyncManager", () => {
                 extensions: {},
             });
             await expect(visible).resolves.toBe("absent");
+            expect(changes).toHaveBeenCalled();
             expect((manager as unknown as { bootstrapRooms: Set<string> }).bootstrapRooms.has("!missing")).toBe(false);
             expect(manager.initialTimelinePreparation(client, "!missing")).toBeUndefined();
             expect(manager.mayStillArrive("!missing")).toBe(false);
@@ -1031,6 +1034,19 @@ describe("SlidingSyncManager", () => {
             client.emit(ClientEvent.Room, knownRoom("!missing"));
             rooms.delete("!missing");
             expect(manager.mayStillArrive("!missing")).toBe(true);
+        });
+
+        it("notes which rooms the server has sent on this connection, telling listeners once each", async () => {
+            const changes = vi.fn();
+            const stop = manager.onArrivalChange(changes);
+            expect(manager.hasLiveData("!live")).toBe(false);
+            sync.emit(SlidingSyncEvent.RoomData, "!live", { name: "Live", required_state: [], timeline: [] });
+            sync.emit(SlidingSyncEvent.RoomData, "!live", { name: "Live", required_state: [], timeline: [] });
+            expect(manager.hasLiveData("!live")).toBe(true);
+            expect(changes).toHaveBeenCalledOnce();
+            stop();
+            sync.emit(SlidingSyncEvent.RoomData, "!other", { name: "Other", required_state: [], timeline: [] });
+            expect(changes).toHaveBeenCalledOnce();
         });
 
         it("opens a room from this device's saved data, without waiting for the server", async () => {
@@ -1564,6 +1580,8 @@ describe("SlidingSyncManager", () => {
             await tick();
             expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!joined", "!unseen"]));
             // Spidering finishes: every list covers all the rooms there are.
+            const covered = vi.fn();
+            manager.onArrivalChange(covered);
             vi.spyOn(sync, "getListData").mockReturnValue({ joinedCount: 0 });
             await (
                 manager as unknown as { startSpidering(sync: SlidingSync, batch: number, gap: number): Promise<void> }
@@ -1572,6 +1590,7 @@ describe("SlidingSyncManager", () => {
             await vi.waitFor(() => expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!unseen"])));
             // A room the lists did not bring is not the user's, unless this device saved it and has not applied it.
             expect(manager.mayStillArrive("!elsewhere")).toBe(false);
+            expect(covered).toHaveBeenCalled();
             sync.setSavedRooms({ has: (roomId) => roomId === "!elsewhere", restore: async () => {} });
             expect(manager.mayStillArrive("!elsewhere")).toBe(true);
         });
@@ -1872,10 +1891,20 @@ describe("SlidingSyncManager", () => {
             await new Promise((resolve) => setTimeout(resolve, 0));
             expect(forget).not.toHaveBeenCalled();
             respond();
+            const changes = vi.fn();
+            manager.onArrivalChange(changes);
             await vi.waitFor(() => expect(forget).toHaveBeenCalledExactlyOnceWith(["!gone:example.org"]));
             expect(rooms.get("!gone:example.org")!.getMyMembership()).toBe(KnownMembership.Leave);
             expect(rooms.get("!kept:example.org")!.getMyMembership()).toBe(KnownMembership.Join);
             expect(rooms.get("!invited:example.org")!.getMyMembership()).toBe(KnownMembership.Invite);
+            // Said to have been left while this device was away, until the user is back in it.
+            expect(manager.wasLeftWhileAway("!gone:example.org")).toBe(true);
+            expect(manager.wasLeftWhileAway("!kept:example.org")).toBe(false);
+            expect(changes).toHaveBeenCalled();
+            const rejoined = rooms.get("!gone:example.org")!;
+            rejoined.updateMyMembership(KnownMembership.Join);
+            client.emit(RoomEvent.MyMembership, rejoined, KnownMembership.Join, KnownMembership.Leave);
+            expect(manager.wasLeftWhileAway("!gone:example.org")).toBe(false);
             // Checked once per connection.
             respond();
             await new Promise((resolve) => setTimeout(resolve, 0));

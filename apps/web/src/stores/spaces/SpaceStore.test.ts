@@ -1139,21 +1139,47 @@ describe("SpaceStore", () => {
             let mayStillArrive: MockInstance<(roomId: string) => boolean>;
             let viewedRoom: MockInstance<() => string | null>;
             let roomLoading: MockInstance<() => boolean>;
+            let hasLiveData: MockInstance<(roomId: string) => boolean>;
+            let wasLeftWhileAway: MockInstance<(roomId: string) => boolean>;
+            let arrivalListeners: Set<() => void>;
+            let onArrivalChange: MockInstance<(listener: () => void) => () => void>;
             const onItsWay = (roomId: string): boolean => roomId === orphan2;
             beforeEach(() => {
                 // The Space lists a channel the client does not know yet, which sliding sync may still bring.
                 mkSpace(space3, [room1, orphan2]);
-                mayStillArrive = vi.spyOn(sdkContext.slidingSyncManager, "mayStillArrive").mockImplementation(onItsWay);
+                const manager = sdkContext.slidingSyncManager;
+                mayStillArrive = vi.spyOn(manager, "mayStillArrive").mockImplementation(onItsWay);
+                hasLiveData = vi.spyOn(manager, "hasLiveData").mockReturnValue(false);
+                wasLeftWhileAway = vi.spyOn(manager, "wasLeftWhileAway").mockReturnValue(false);
+                arrivalListeners = new Set();
+                onArrivalChange = vi.spyOn(manager, "onArrivalChange").mockImplementation((listener) => {
+                    arrivalListeners.add(listener);
+                    return () => arrivalListeners.delete(listener);
+                });
                 localStorage.setItem(`mx_space_context_${space3}`, orphan2);
                 // The room view's own updates show what each test sets.
                 viewedRoom = vi.spyOn(sdkContext.roomViewStore, "getRoomId").mockReturnValue(null);
                 roomLoading = vi.spyOn(sdkContext.roomViewStore, "isRoomLoading").mockReturnValue(false);
             });
             afterEach(() => {
-                mayStillArrive.mockRestore();
-                viewedRoom.mockRestore();
-                roomLoading.mockRestore();
+                for (const spy of [mayStillArrive, viewedRoom, roomLoading, hasLiveData, wasLeftWhileAway]) {
+                    spy.mockRestore();
+                }
+                onArrivalChange.mockRestore();
             });
+
+            /** The manager learns something about which rooms may still arrive. */
+            const arrivalsChange = (): void => {
+                for (const listener of arrivalListeners) listener();
+            };
+
+            /** The channel arrives, joined, as sliding sync brings it. */
+            const arrive = (): Room => {
+                const channel = mkRoom(orphan2);
+                mayStillArrive.mockReturnValue(false);
+                client.emit(ClientEvent.Room, channel);
+                return channel;
+            };
 
             /** Show the room view on a room, loading it or having loaded it. */
             const roomView = (roomId: string, loading: boolean): void => {
@@ -1194,13 +1220,47 @@ describe("SpaceStore", () => {
                 expect(localStorage.getItem(`mx_space_context_${space3}`)).toBeNull();
             });
 
-            it("keeps it while it is still on its way after the room view has opened it", () => {
+            it("keeps it while it is still on its way after the room view gave up waiting", () => {
                 store.setActiveSpace(space3);
                 expect(getCurrentRoom()).toBe(orphan2);
                 roomView(orphan2, false);
-                // It is no longer followed once the room view has opened it.
-                mayStillArrive.mockReturnValue(false);
+                expect(getCurrentRoom()).toBe(orphan2);
+                expect(localStorage.getItem(`mx_space_context_${space3}`)).toBe(orphan2);
+            });
+
+            it("opens the first channel once a channel still on its way after the wait turns out to be gone", () => {
+                store.setActiveSpace(space3);
+                expect(getCurrentRoom()).toBe(orphan2);
+                // The room view gave up waiting; the lists later cover the whole account without it.
                 roomView(orphan2, false);
+                mayStillArrive.mockReturnValue(false);
+                arrivalsChange();
+                expect(getCurrentRoom()).toBe(room1);
+                expect(localStorage.getItem(`mx_space_context_${space3}`)).toBeNull();
+            });
+
+            it("forgets a channel that arrived from this device's data but was left while it was away", () => {
+                store.setActiveSpace(space3);
+                roomView(orphan2, false);
+                const channel = arrive();
+                expect(getCurrentRoom()).toBe(orphan2);
+                // The server's list of joined rooms, checked after the first response, no longer has it.
+                wasLeftWhileAway.mockReturnValue(true);
+                client.emit(RoomEvent.MyMembership, channel, KnownMembership.Leave, KnownMembership.Join);
+                expect(getCurrentRoom()).toBe(room1);
+                expect(localStorage.getItem(`mx_space_context_${space3}`)).toBeNull();
+            });
+
+            it("stops following once the channel is joined and the server has sent it", () => {
+                store.setActiveSpace(space3);
+                roomView(orphan2, false);
+                arrive();
+                hasLiveData.mockReturnValue(true);
+                arrivalsChange();
+                expect(arrivalListeners.size).toBe(0);
+                // Leaving it later is the user's own doing, and handled as any room they leave.
+                wasLeftWhileAway.mockReturnValue(true);
+                arrivalsChange();
                 expect(getCurrentRoom()).toBe(orphan2);
                 expect(localStorage.getItem(`mx_space_context_${space3}`)).toBe(orphan2);
             });

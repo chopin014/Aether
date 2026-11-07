@@ -268,6 +268,12 @@ export class SlidingSyncManager {
     private readonly absentRooms = new Set<string>();
     // Saved channels already asked to be applied in the background, so each is asked for once.
     private readonly savedChannelsAsked = new Set<string>();
+    // Rooms the server has sent data for on this connection, and saved rooms it turned out the user had left while
+    // this device was away.
+    private readonly liveRooms = new Set<string>();
+    private readonly leftWhileAway = new Set<string>();
+    // Told when it changes whether a room may still arrive or has, such as for a channel opened before it arrived.
+    private readonly arrivalListeners = new Set<() => void>();
     // When the sync response being applied arrived, and the pending read of changes made outside one.
     private applyingSince?: number;
     private spaceTreeTimer?: ReturnType<typeof setTimeout>;
@@ -323,6 +329,8 @@ export class SlidingSyncManager {
         this.listsCoverAccount = false;
         this.absentRooms.clear();
         this.savedChannelsAsked.clear();
+        this.liveRooms.clear();
+        this.leftWhileAway.clear();
         this.spaceTree = new Set();
         this.spaceChannels = new Set();
         this.stopFollowingSpaceTree();
@@ -349,6 +357,7 @@ export class SlidingSyncManager {
         this.trackInitialTimelines(this.slidingSync);
         // Responses are followed from the start, so a change is never read while one is half applied.
         this.slidingSync.on(SlidingSyncEvent.Lifecycle, this.onResponseApplied);
+        this.slidingSync.on(SlidingSyncEvent.RoomData, this.onLiveRoomData);
         const ownedSync = this.slidingSync;
         // SlidingSync has no stopped event. Settle waits before our owned instance stops.
         const stop = ownedSync.stop.bind(ownedSync);
@@ -359,6 +368,7 @@ export class SlidingSyncManager {
                 this.stopFollowingSpaceTree();
             }
             ownedSync.off(SlidingSyncEvent.Lifecycle, this.onResponseApplied);
+            ownedSync.off(SlidingSyncEvent.RoomData, this.onLiveRoomData);
             stop();
         };
         this.configureDefer.resolve();
@@ -707,6 +717,7 @@ export class SlidingSyncManager {
                 // The server has answered this subscription without the room. Stop asking for its history.
                 logger.log("SlidingSync setRoomVisible: the server did not send", roomId);
                 this.absentRooms.add(roomId);
+                this.notifyArrivals();
                 this.bootstrapRooms.delete(roomId);
                 this.settleInitialTimeline(roomId, false);
                 settle("absent");
@@ -744,6 +755,34 @@ export class SlidingSyncManager {
         if (!client || !slidingSync || client.getRoom(roomId)) return false;
         if (slidingSync.hasSavedRoom(roomId)) return true;
         return !this.listsCoverAccount && !this.absentRooms.has(roomId);
+    }
+
+    /**
+     * Whether the server has sent data for a room on this connection, rather than the room only being restored from
+     * what this device saved.
+     * @param roomId - The room.
+     */
+    public hasLiveData(roomId: string): boolean {
+        return this.liveRooms.has(roomId);
+    }
+
+    /**
+     * Whether a room this device saved turned out to be one the user left, or was removed from, while it was away.
+     * @param roomId - The room.
+     */
+    public wasLeftWhileAway(roomId: string): boolean {
+        return this.leftWhileAway.has(roomId);
+    }
+
+    /**
+     * Be told when what {@link mayStillArrive}, {@link hasLiveData} or {@link wasLeftWhileAway} say may have
+     * changed.
+     * @param listener - Called after each change.
+     * @returns A function that stops telling it.
+     */
+    public onArrivalChange(listener: () => void): () => void {
+        this.arrivalListeners.add(listener);
+        return () => this.arrivalListeners.delete(listener);
     }
 
     /**
@@ -850,7 +889,21 @@ export class SlidingSyncManager {
         this.markSpaceTreeChanged(room.roomId);
     };
 
-    private readonly onMyMembership = (room: Room): void => this.markSpaceTreeChanged(room.roomId);
+    private readonly onMyMembership = (room: Room): void => {
+        // A room rejoined since is the user's again.
+        if (room.getMyMembership() === KnownMembership.Join) this.leftWhileAway.delete(room.roomId);
+        this.markSpaceTreeChanged(room.roomId);
+    };
+
+    private readonly onLiveRoomData = (roomId: string): void => {
+        if (this.liveRooms.has(roomId)) return;
+        this.liveRooms.add(roomId);
+        this.notifyArrivals();
+    };
+
+    private notifyArrivals(): void {
+        for (const listener of this.arrivalListeners) listener();
+    }
 
     /** Redacting a child event, even locally, or cancelling a local redaction, changes it in place. */
     private readonly onSpaceRedaction = (_redaction: MatrixEvent, room: Room): void => {
@@ -1095,6 +1148,7 @@ export class SlidingSyncManager {
                 slidingSync.off(SlidingSyncEvent.Lifecycle, lifecycle);
                 // The open Space's channels the lists now cover need no subscription of their own.
                 this.listsCoverAccount = true;
+                this.notifyArrivals();
                 if (this.activeSpaceId) this.refreshSpaceChannels();
             }
         };
@@ -1327,11 +1381,13 @@ export class SlidingSyncManager {
         if (gone.length > 0) {
             logger.info(`SlidingSync: ${gone.length} saved rooms are no longer joined`);
             for (const roomId of gone) {
+                this.leftWhileAway.add(roomId);
                 const room = client.getRoom(roomId);
                 if (room && room.getMyMembership() !== KnownMembership.Leave)
                     room.updateMyMembership(KnownMembership.Leave);
             }
             cache.forgetRooms(gone);
+            this.notifyArrivals();
         }
         return recheck;
     }

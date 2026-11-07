@@ -351,16 +351,18 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
     }
 
     /**
-     * Follow a remembered channel opened before sliding sync brought it. If it turns out the user is no longer in
-     * it, the channel is forgotten and the Space's first channel opens instead.
+     * Follow a remembered channel opened before sliding sync brought it, while it stays open in this Space. If it
+     * turns out the user is no longer in it, the channel is forgotten and the Space's first channel opens instead.
+     * That can be known late: after the room view gave up waiting, once the lists cover the whole account, or once
+     * saved rooms are checked against the server after a restart. Following ends once the channel is joined and the
+     * server has sent it on this connection.
      */
     private followRememberedChannel(space: string, roomId: string): void {
+        const client = this.matrixClient;
+        if (!client) return;
         const roomViewStore = this.sdkContext.roomViewStore;
-        const stop = (): void => {
-            roomViewStore.off(UPDATE_EVENT, check);
-            if (this.stopFollowingRememberedChannel === stop) this.stopFollowingRememberedChannel = undefined;
-        };
-        // The room view opens it with the next dispatch, and is followed until it has finished loading it.
+        const manager = this.sdkContext.slidingSyncManager;
+        // The room view opens it with the next dispatch. Until then, other room view updates are not a move away.
         let opened = false;
         const check = (): void => {
             if (this._activeSpace !== space) return stop();
@@ -369,24 +371,40 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
                 return;
             }
             opened = true;
-            if (roomViewStore.isRoomLoading()) return;
-            stop();
-            const room = this.matrixClient?.getRoom(roomId);
-            // The SDK reports "leave" for a room it has no membership for yet, so the user's own member event
-            // decides. A room still on its way after a slow answer is shown by the room view once it arrives.
-            const userId = this.matrixClient?.getUserId();
+            const room = client.getRoom(roomId);
+            if (!room) {
+                if (!manager.mayStillArrive(roomId)) gone();
+                return;
+            }
+            // The user's own member event, or the server's list of joined rooms after a restart, decides. The SDK
+            // reports "leave" for a room it has no membership for yet, so that alone does not.
+            const userId = client.getUserId();
             const membership = userId
-                ? room?.currentState.getStateEvents(EventType.RoomMember, userId)?.getContent().membership
+                ? room.currentState.getStateEvents(EventType.RoomMember, userId)?.getContent().membership
                 : undefined;
-            const gone = room
-                ? membership === KnownMembership.Leave || membership === KnownMembership.Ban
-                : !this.sdkContext.slidingSyncManager.mayStillArrive(roomId);
-            if (!gone) return;
+            if (membership === KnownMembership.Leave || membership === KnownMembership.Ban) return gone();
+            if (manager.wasLeftWhileAway(roomId)) return gone();
+            if (room.getMyMembership() === KnownMembership.Join && manager.hasLiveData(roomId)) stop();
+        };
+        const onMembership = (room: Room): void => {
+            if (room.roomId === roomId) check();
+        };
+        const stopArrivals = manager.onArrivalChange(check);
+        const stop = (): void => {
+            roomViewStore.off(UPDATE_EVENT, check);
+            client.off(ClientEvent.Room, onMembership);
+            client.off(RoomEvent.MyMembership, onMembership);
+            stopArrivals();
+            if (this.stopFollowingRememberedChannel === stop) this.stopFollowingRememberedChannel = undefined;
+        };
+        const gone = (): void => {
+            stop();
             logger.info(`Space ${space} no longer has its remembered channel ${roomId}`);
             window.localStorage.removeItem(getSpaceContextKey(space));
             this.dispatcher.dispatch<ViewRoomPayload>({
                 action: Action.ViewRoom,
-                room_id: this.getFirstTextChannel(space) ?? space,
+                // Sliding sync marks the rooms it sends as joined, so the channel itself is passed over.
+                room_id: this.getFirstTextChannel(space, roomId) ?? space,
                 context_switch: true,
                 metricsTrigger: "WebSpaceContextSwitch",
             });
@@ -394,6 +412,8 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         this.stopFollowingRememberedChannel?.();
         this.stopFollowingRememberedChannel = stop;
         roomViewStore.on(UPDATE_EVENT, check);
+        client.on(ClientEvent.Room, onMembership);
+        client.on(RoomEvent.MyMembership, onMembership);
     }
 
     private async loadSuggestedRooms(space: Room): Promise<void> {
@@ -478,11 +498,17 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         return this.getChildren(spaceId).filter((r) => !r.isSpaceRoom());
     }
 
-    /** The first joined room of a space, in the space's own order, that is a chat rather than a call. */
-    private getFirstTextChannel(spaceId: string): string | null {
+    /**
+     * The first joined room of a space, in the space's own order, that is a chat rather than a call.
+     * @param except - A room to pass over, such as a channel the user turned out to have left.
+     */
+    private getFirstTextChannel(spaceId: string, except?: string): string | null {
         const channel = this.getChildRooms(spaceId).find(
             (room) =>
-                room.getMyMembership() === KnownMembership.Join && !room.isCallRoom() && !room.isElementVideoRoom(),
+                room.roomId !== except &&
+                room.getMyMembership() === KnownMembership.Join &&
+                !room.isCallRoom() &&
+                !room.isElementVideoRoom(),
         );
         return channel?.roomId ?? null;
     }
