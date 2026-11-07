@@ -17,6 +17,8 @@ import { advanceDateAndTime, stubClient, createTestClient } from "test-utils";
 import { type IMatrixClientPeg, MatrixClientPeg as peg } from "./MatrixClientPeg";
 import { presencePreferenceKey } from "./utils/presencePreference";
 import SdkConfig from "./SdkConfig";
+import PlatformPeg from "./PlatformPeg";
+import type BasePlatform from "./BasePlatform";
 import { createClientWithCreds } from "./utils/createMatrixClient";
 import * as StorageManager from "./utils/StorageManager";
 import { SlidingSyncManager } from "./SlidingSyncManager";
@@ -99,6 +101,8 @@ describe("MatrixClientPeg", () => {
             mockClient.initRustCrypto = vi.fn();
             mockClient.startClient = vi.fn();
             mockClient.setSyncPresence = vi.fn().mockResolvedValue(undefined);
+            // The server offers sliding sync, which tests turning it on rely on.
+            mockClient.doesServerSupportUnstableFeature = vi.fn().mockResolvedValue(true);
             testPeg.set(mockClient as unknown as MatrixClient);
         });
 
@@ -176,6 +180,21 @@ describe("MatrixClientPeg", () => {
                 await testPeg.start();
                 expect(setup).not.toHaveBeenCalled();
                 expect(startClient.mock.calls[0][0]?.slidingSync).toBeUndefined();
+            });
+
+            it("decides at once from the answer kept from last time, and reloads if the server has since dropped it", async () => {
+                vi.spyOn(SlidingSyncManager.instance, "knownServerSupport").mockReturnValue(true);
+                const answer = Promise.withResolvers<boolean | undefined>();
+                vi.spyOn(SlidingSyncManager.instance, "serverOffersSlidingSync").mockReturnValue(answer.promise);
+                const setup = vi.spyOn(SlidingSyncManager.instance, "setup").mockResolvedValue(undefined);
+                vi.spyOn(SlidingSyncManager.instance, "isActiveFor").mockReturnValue(true);
+                const reload = vi.fn();
+                vi.spyOn(PlatformPeg, "get").mockReturnValue({ reload } as unknown as BasePlatform);
+                // Starting does not wait for the server's answer.
+                await testPeg.start();
+                expect(setup).toHaveBeenCalledOnce();
+                answer.resolve(false);
+                await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce());
             });
 
             it.each([true, undefined])(

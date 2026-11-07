@@ -300,10 +300,10 @@ class MatrixClientPegClass implements IMatrixClientPeg {
 
         // Sliding sync is used when it is turned on and the server offers it. A server that says it does not gets
         // regular sync instead, as sliding sync cannot work there. One that cannot be asked, such as while offline,
-        // keeps sliding sync, so the rooms saved last time still show. Starting sync waits for the same answer.
+        // keeps sliding sync, so the rooms saved last time still show.
         const slidingSyncOn = SettingsStore.getValue("feature_simplified_sliding_sync");
         const serverOffersSlidingSync = slidingSyncOn
-            ? await SlidingSyncManager.instance.serverOffersSlidingSync(this.matrixClient)
+            ? await this.serverOffersSlidingSync(this.matrixClient)
             : undefined;
         if (slidingSyncOn && serverOffersSlidingSync === false) {
             logger.warn("MatrixClientPeg: the server offers no sliding sync; using regular sync");
@@ -326,6 +326,25 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         MatrixClientBackedController.matrixClient = this.matrixClient;
 
         return opts;
+    }
+
+    /**
+     * Whether the server offers sliding sync. The answer it gave last time decides at once, and is checked again in
+     * the background; a server that has stopped offering it while sliding sync runs is moved to regular sync by
+     * reloading. Without an answer from before, it waits for the server, as starting sync does anyway.
+     */
+    private async serverOffersSlidingSync(client: MatrixClient): Promise<boolean | undefined> {
+        const manager = SlidingSyncManager.instance;
+        const known = manager.knownServerSupport(client);
+        const asking = manager.serverOffersSlidingSync(client);
+        if (known === undefined) return asking;
+        void asking.then((offers) => {
+            if (offers === false && manager.isActiveFor(client)) {
+                logger.warn("MatrixClientPeg: the server no longer offers sliding sync; reloading to use regular sync");
+                PlatformPeg.get()?.reload();
+            }
+        });
+        return known;
     }
 
     /** Prioritize the destination before the UI can select a room from the first sync response. */

@@ -220,6 +220,11 @@ export type PartialSlidingSyncRequest = {
  * looking at and the rooms they are about to open. Released rooms stay subscribed for a grace period and are then
  * dropped, so the subscriptions of a long session stay bounded.
  */
+/** Where the server's last answer about offering sliding sync is kept, per homeserver. */
+function supportKey(client: MatrixClient): string {
+    return `mx_sliding_sync_offered:${client.baseUrl}`;
+}
+
 export class SlidingSyncManager {
     public static serverSupportsSlidingSync: boolean;
 
@@ -1269,7 +1274,8 @@ export class SlidingSyncManager {
     public async nativeSlidingSyncSupport(client: MatrixClient): Promise<boolean> {
         // Per https://github.com/matrix-org/matrix-spec-proposals/pull/3575/files#r1589542561
         // `client` can be undefined/null in tests for some reason.
-        const support = await client?.doesServerSupportUnstableFeature("org.matrix.simplified_msc3575");
+        // A response that lists no unstable features at all gives undefined, which means no.
+        const support = (await client?.doesServerSupportUnstableFeature("org.matrix.simplified_msc3575")) === true;
         if (support) {
             logger.log("nativeSlidingSyncSupport: org.matrix.simplified_msc3575 sliding sync advertised as unstable");
         }
@@ -1286,17 +1292,38 @@ export class SlidingSyncManager {
     }
 
     /**
-     * Ask whether a client's server offers sliding sync, and keep the answer for the settings.
+     * Ask whether a client's server offers sliding sync. The answer is kept for the settings, and on this device for
+     * the next start ({@link knownServerSupport}).
      * @param client - The client.
      * @returns Whether it does, or undefined when it could not be asked, such as while offline.
      */
     public async serverOffersSlidingSync(client: MatrixClient): Promise<boolean | undefined> {
+        let supported: boolean;
         try {
-            const supported = await this.nativeSlidingSyncSupport(client);
-            SlidingSyncManager.serverSupportsSlidingSync = supported;
-            return supported;
+            supported = await this.nativeSlidingSyncSupport(client);
         } catch (error) {
             logger.warn("SlidingSync: could not ask whether the server offers sliding sync", error);
+            return undefined;
+        }
+        SlidingSyncManager.serverSupportsSlidingSync = supported;
+        try {
+            localStorage.setItem(supportKey(client), String(supported));
+        } catch {
+            // Only a later start's head start is lost.
+        }
+        return supported;
+    }
+
+    /**
+     * What a client's server last said, on this device, about offering sliding sync.
+     * @param client - The client.
+     * @returns Whether it did, or undefined when it has not been asked from here yet.
+     */
+    public knownServerSupport(client: MatrixClient): boolean | undefined {
+        try {
+            const known = localStorage.getItem(supportKey(client));
+            return known === null ? undefined : known === "true";
+        } catch {
             return undefined;
         }
     }

@@ -897,17 +897,31 @@ describe("SlidingSyncManager", () => {
         it.each([true, false])(
             "says whether the server offers sliding sync (%s), and keeps the answer",
             async (offers) => {
+                localStorage.clear();
                 SlidingSyncManager.serverSupportsSlidingSync = !offers;
                 vi.spyOn(manager, "nativeSlidingSyncSupport").mockResolvedValue(offers);
+                expect(manager.knownServerSupport(client)).toBeUndefined();
                 await expect(manager.serverOffersSlidingSync(client)).resolves.toBe(offers);
                 expect(SlidingSyncManager.serverSupportsSlidingSync).toBe(offers);
+                // Kept on this device for the next start, for this homeserver only.
+                expect(manager.knownServerSupport(client)).toBe(offers);
+                const elsewhere = createClient({ baseUrl: "https://elsewhere.example.org" });
+                expect(manager.knownServerSupport(elsewhere)).toBeUndefined();
             },
         );
 
         it("cannot say whether the server offers sliding sync when it cannot be asked", async () => {
+            localStorage.clear();
             vi.spyOn(manager, "nativeSlidingSyncSupport").mockRejectedValue(new Error("offline"));
             await expect(manager.serverOffersSlidingSync(client)).resolves.toBeUndefined();
             expect(SlidingSyncManager.serverSupportsSlidingSync).toBe(false);
+            expect(manager.knownServerSupport(client)).toBeUndefined();
+        });
+
+        it("takes a server whose versions list no unstable features as offering no sliding sync", async () => {
+            const real = createClient({ baseUrl: "https://versions.example.org" });
+            fetchMock.get("https://versions.example.org/_matrix/client/versions", { versions: ["v1.11"] });
+            await expect(manager.serverOffersSlidingSync(real)).resolves.toBe(false);
         });
     });
 
