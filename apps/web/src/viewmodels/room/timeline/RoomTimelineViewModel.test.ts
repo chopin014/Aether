@@ -793,6 +793,31 @@ describe("RoomTimelineViewModel", () => {
             expect(load).toHaveBeenCalledWith("$elsewhere", expect.any(Number));
         });
 
+        it("follows on after a sync gap once the reader has scrolled from a navigated message back to the newest", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.showEvent("$a");
+            vm.onAnchorReached("$a");
+            // While the placement is pending, reaching the bottom does not forget the navigation.
+            vm.onAtBottomStateChange(false);
+            // The reader scrolls back down to the newest message themselves.
+            vm.onAtBottomStateChange(true);
+
+            room.resetLiveTimeline("gap", undefined);
+            room.getUnfilteredTimelineSet().addLiveEvent(makeMessage("$c"), { addToState: false });
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$c"]));
+        });
+
+        it("keeps a navigation that is still being placed when the list reports reaching the bottom", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.showEvent("$a");
+            vm.onAtBottomStateChange(true);
+            expect((vm as unknown as { navigationEventId: string | null }).navigationEventId).toBe("$a");
+        });
+
         it("forgets an abandoned navigation when the jump-to-latest button is used", async () => {
             seedTimeline([makeMessage("$a"), makeMessage("$b")]);
             const vm = await createStartedViewModel();

@@ -1063,6 +1063,9 @@ export class RoomTimelineViewModel
         this.isAtBottom = atBottom;
         if (atBottom && this.snapshot.current.atLiveEnd) {
             this.unreadMessageCount = 0;
+            // A reader who has scrolled back to the newest messages is no longer on the message they navigated to,
+            // unless that navigation is still being loaded or placed.
+            if (!this.loading && this.snapshot.current.pendingAnchor === null) this.navigationEventId = null;
         }
         this.mergeSnapshot(
             {
