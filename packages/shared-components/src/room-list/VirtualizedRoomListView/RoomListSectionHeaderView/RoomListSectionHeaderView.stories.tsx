@@ -34,6 +34,8 @@ const RoomListSectionHeaderViewWrapperImpl = ({
     collapseAllCategories,
     editCategory,
     deleteCategory,
+    muteCategory,
+    unmuteCategory,
     isFocused,
     sectionIndex,
     sectionCount,
@@ -50,6 +52,8 @@ const RoomListSectionHeaderViewWrapperImpl = ({
         collapseAllCategories,
         editCategory,
         deleteCategory,
+        muteCategory,
+        unmuteCategory,
     });
     return (
         <RoomListSectionHeaderView
@@ -98,6 +102,8 @@ const meta = {
         collapseAllCategories: fn(),
         editCategory: fn(),
         deleteCategory: fn(),
+        muteCategory: fn(),
+        unmuteCategory: fn(),
         sectionIndex: 1,
         sectionCount: 3,
         roomCountInSection: 5,
@@ -216,5 +222,15 @@ export const DesktopUncategorized: Story = {
         canBeReordered: false,
         acceptedRoomKind: "none",
         isHidden: true,
+    },
+};
+
+/** A category whose channels are all muted is dimmed, as in Discord. */
+export const DesktopMutedCategory: Story = {
+    args: {
+        ...DesktopServerCategory.args,
+        isUnread: false,
+        isMuted: true,
+        categoryMenu: { canEdit: true, isMuted: true },
     },
 };

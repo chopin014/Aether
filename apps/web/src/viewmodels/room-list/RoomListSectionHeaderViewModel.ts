@@ -5,7 +5,8 @@
  * Please see LICENSE files in the repository root for full details.
  */
 
-import { type Room, RoomType } from "matrix-js-sdk/src/matrix";
+import { type MatrixEvent, type Room, RoomEvent, RoomType } from "matrix-js-sdk/src/matrix";
+import { logger } from "matrix-js-sdk/src/logger";
 import { CallType } from "matrix-js-sdk/src/webrtc/call";
 import {
     type AcceptedRoomKind,
@@ -24,6 +25,13 @@ import {
     isDesktopChannelSection,
 } from "./DesktopChannelSections";
 import { confirmDeleteCategory, showRenameCategory } from "./serverCategories";
+import { TimedMutes, TimedMutesEvent } from "../../stores/notifications/TimedMutes";
+import {
+    getCategoryMute,
+    muteCategory,
+    SERVER_NOTIFICATIONS_ACCOUNT_DATA_TYPE,
+    unmuteCategory,
+} from "../../stores/notifications/ServerNotifications";
 import { clearRoomNotification } from "../../utils/notifications";
 import dispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
@@ -146,6 +154,13 @@ export class RoomListSectionHeaderViewModel
 
         // Recompute the decoration when a call starts or ends in any room
         this.disposables.trackListener(CallStore.instance, CallStoreEvent.Call, this.onCallChanged);
+
+        // A server category is dimmed while all its channels are muted, and its menu says when the mute ends.
+        if (isDesktopChannelSection(props.tag)) {
+            this.disposables.trackListener(TimedMutes.instance, TimedMutesEvent.Changed, () => this.updateMuteState());
+            const client = MatrixClientPeg.get();
+            if (client) this.disposables.trackListener(client, RoomEvent.AccountData, this.onAccountData);
+        }
     }
 
     public onClick = async (): Promise<void> => {
@@ -202,23 +217,80 @@ export class RoomListSectionHeaderViewModel
         void showCreateNewRoom(space, type, { sectionTag, categoryId, sectionName: this.snapshot.current.title });
     };
 
+    /** Every channel of the category, including the ones the list hides or pins as favourites. */
+    private members: Room[] = [];
+
     /**
-     * Show what a server category is called and what the person may do with it. Its name can change at any time,
-     * and so can the person's right to edit the server's layout.
+     * Show what a server category is called, what the person may do with it, and which channels it holds. Its name
+     * can change at any time, and so can the person's right to edit the server's layout.
      */
-    public setCategory(category: { title: string; canEdit: boolean }): void {
+    public setCategory(category: { title: string; canEdit: boolean; members: Room[] }): void {
+        this.members = category.members;
         this.snapshot.merge({
             title: category.title,
-            categoryMenu: keepIfSame(this.snapshot.current.categoryMenu, { canEdit: category.canEdit }),
             canBeReordered: category.canEdit,
             acceptedRoomKind: category.canEdit ? "nonDm" : "none",
         });
+        this.updateMuteState(category.canEdit);
     }
+
+    private get space(): Room | null {
+        return MatrixClientPeg.get()?.getRoom(this.props.spaceId) ?? null;
+    }
+
+    public muteCategory = (duration: number | null): void => {
+        const space = this.space;
+        const categoryId = categoryIdOfTag(this.props.tag);
+        if (!space || !categoryId) return;
+        muteCategory(space, categoryId, this.members, duration).catch((error) =>
+            logger.warn("Failed to mute a category", error),
+        );
+    };
+
+    public unmuteCategory = (): void => {
+        const space = this.space;
+        const categoryId = categoryIdOfTag(this.props.tag);
+        if (!space || !categoryId) return;
+        unmuteCategory(space, categoryId, this.members).catch((error) =>
+            logger.warn("Failed to unmute a category", error),
+        );
+    };
+
+    /**
+     * Dim the category while every one of its text channels is muted, however that happened, and offer to turn its
+     * own mute off only when the person muted the category itself. Voice channels aren't dimmed when muted, so they
+     * don't dim their category either.
+     */
+    private readonly updateMuteState = (canEdit = this.snapshot.current.categoryMenu?.canEdit ?? false): void => {
+        if (!isDesktopChannelSection(this.props.tag)) return;
+        const mutes = TimedMutes.instance;
+        const textChannels = this.members.filter((room) => !room.isCallRoom() && !room.isElementVideoRoom());
+        const isMuted = textChannels.length > 0 && textChannels.every((room) => mutes.isMuted(room));
+        const space = this.space;
+        const categoryId = categoryIdOfTag(this.props.tag);
+        if (!categoryId) {
+            this.snapshot.merge({ isMuted });
+            return;
+        }
+        const own = space ? getCategoryMute(space, categoryId, this.members) : undefined;
+        this.snapshot.merge({
+            isMuted,
+            categoryMenu: keepIfSame(this.snapshot.current.categoryMenu, {
+                canEdit,
+                isMuted: !!own,
+                ...(own?.until !== undefined ? { mutedUntil: own.until } : {}),
+            }),
+        });
+    };
+
+    private readonly onAccountData = (...args: unknown[]): void => {
+        if ((args[0] as MatrixEvent).getType() === SERVER_NOTIFICATIONS_ACCOUNT_DATA_TYPE) this.updateMuteState();
+    };
 
     public markCategoryAsRead = (): void => {
         const client = MatrixClientPeg.get();
         if (!client) return;
-        for (const room of this.rooms) void clearRoomNotification(room, client);
+        for (const room of this.members.length ? this.members : this.rooms) void clearRoomNotification(room, client);
     };
 
     public collapseAllCategories = (): void => {

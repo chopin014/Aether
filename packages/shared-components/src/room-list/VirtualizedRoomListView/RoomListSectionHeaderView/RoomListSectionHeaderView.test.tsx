@@ -18,8 +18,14 @@ import { RoomListSectionHeaderView, type RoomListSectionHeaderViewSnapshot } fro
 import { useMockedViewModel } from "../../../core/viewmodel";
 import { type RoomDragData } from "../dragAndDrop";
 
-const { Default, Collapsed, DesktopChannelCategory, DesktopServerCategory, DesktopUncategorized } =
-    composeStories(stories);
+const {
+    Default,
+    Collapsed,
+    DesktopChannelCategory,
+    DesktopServerCategory,
+    DesktopUncategorized,
+    DesktopMutedCategory,
+} = composeStories(stories);
 
 const HEADER_NAME = "Toggle Favourites section";
 
@@ -107,6 +113,31 @@ describe("<RoomListSectionHeaderView /> stories", () => {
         expect(screen.queryByRole("menuitem", { name: "Edit category" })).toBeNull();
         expect(screen.queryByRole("menuitem", { name: "Delete category" })).toBeNull();
         expect(screen.queryByRole("menuitem", { name: "Mark as read" })).toBeNull();
+    });
+
+    it("mutes a category from its menu, and unmutes a muted one", async () => {
+        const user = userEvent.setup();
+        const args = DesktopServerCategory.args as Record<string, Mock>;
+        args.muteCategory.mockClear();
+        const { unmount } = render(<DesktopServerCategory />);
+        await user.pointer({
+            keys: "[MouseRight]",
+            target: screen.getByRole("button", { name: "Toggle Governo section with unread rooms" }),
+        });
+        await user.click(screen.getByRole("menuitem", { name: "Mute category" }));
+        (await screen.findByRole("menuitem", { name: "For 15 minutes" })).focus();
+        await user.keyboard("{Enter}");
+        expect(args.muteCategory).toHaveBeenCalledWith(15 * 60_000);
+        unmount();
+
+        const muted = DesktopMutedCategory.args as Record<string, Mock>;
+        muted.unmuteCategory.mockClear();
+        render(<DesktopMutedCategory />);
+        const header = screen.getByRole("button", { name: "Toggle Governo section" });
+        expect(header.className).toMatch(/muted/);
+        await user.pointer({ keys: "[MouseRight]", target: header });
+        await user.click(screen.getByRole("menuitem", { name: "Unmute category" }));
+        expect(muted.unmuteCategory).toHaveBeenCalled();
     });
 
     it("has no right-click menu outside a server", async () => {

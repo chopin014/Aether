@@ -175,10 +175,49 @@ describe("ChannelMenuContent", () => {
         expect(vm.onToggleFavourite).toHaveBeenCalled();
     });
 
-    it("mutes, and unmutes a muted channel", async () => {
-        const vm = renderContent();
-        await userEvent.click(screen.getByRole("menuitem", { name: "Mute channel" }));
+    it("mutes a channel for as long as the person chooses", async () => {
+        const user = userEvent.setup();
+        const onMute = vi.fn();
+        const vm = Object.assign(makeVm(), { onMute, onUnmute: vi.fn() });
+        render(
+            <ChannelMenuView vm={vm} open onOpenChange={() => {}} trigger={<button type="button">general</button>} />,
+        );
+        await user.click(screen.getByRole("menuitem", { name: "Mute channel" }));
+        // Choose with the keyboard: the pointer would leave the submenu on its way there in this unstyled test.
+        (await screen.findByRole("menuitem", { name: "For 1 hour" })).focus();
+        await user.keyboard("{Enter}");
+        expect(onMute).toHaveBeenCalledWith(60 * 60_000);
+    });
+
+    it("mutes until turned back on without a timed mute", async () => {
+        const user = userEvent.setup();
+        const vm = makeVm();
+        render(
+            <ChannelMenuView vm={vm} open onOpenChange={() => {}} trigger={<button type="button">general</button>} />,
+        );
+        await user.click(screen.getByRole("menuitem", { name: "Mute channel" }));
+        (await screen.findByRole("menuitem", { name: "Until I turn it back on" })).focus();
+        await user.keyboard("{Enter}");
         expect(vm.onSetNotifState).toHaveBeenCalledWith(RoomNotifState.Mute);
+    });
+
+    it("says when a channel's mute ends", async () => {
+        const until = new Date();
+        until.setHours(23, 59, 0, 0);
+        const onUnmute = vi.fn();
+        const vm = Object.assign(makeVm({ roomNotifState: RoomNotifState.Mute, mutedUntil: until.getTime() }), {
+            onMute: vi.fn(),
+            onUnmute,
+        });
+        render(
+            <div role="menu">
+                <ChannelMenuContent vm={vm} />
+            </div>,
+        );
+        const item = screen.getByRole("menuitem", { name: /Unmute channel/ });
+        expect(item.textContent).toMatch(/Until\s\d{1,2}:59/);
+        await userEvent.click(item);
+        expect(onUnmute).toHaveBeenCalled();
     });
 
     it("offers Unmute for a muted channel", async () => {
