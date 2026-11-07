@@ -70,7 +70,8 @@ interface RoomEntry {
  * period or for a possible visit are dropped first.
  *
  * This class only keeps the books. It calls `onChange` when the set of rooms to subscribe changes; `urgent` is
- * true when someone is waiting for the room: they opened it, joined its call or switched to it as a Space.
+ * true when someone is waiting for the room: they opened it or joined its call. A Space someone switches to is not
+ * urgent: its channels are listed already, and the room they open next carries its subscription along.
  */
 export class RoomSubscriptionLeases {
     private readonly rooms = new Map<string, RoomEntry>();
@@ -108,9 +109,9 @@ export class RoomSubscriptionLeases {
                 this.release(roomId, purpose);
             },
         };
-        // Someone opening a room, joining a call or switching Space is waiting for it. A room that was already kept
-        // for a possible visit needs no request.
-        if (!wasKept || purpose !== "prefetch") this.onChange(purpose !== "prefetch");
+        // Someone opening a room or joining a call is waiting for it. A room that was already kept for a possible
+        // visit needs no request.
+        if (!wasKept || purpose !== "prefetch") this.onChange(purpose === "view" || purpose === "call");
         return lease;
     }
 

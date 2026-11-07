@@ -262,6 +262,8 @@ export class SlidingSyncManager {
     private spaceTree = new Set<string>();
     private spaceChannels = new Set<string>();
     private spaceTreeChanged = false;
+    // Whether every list has grown to cover the whole account, so known rooms are kept up to date by the lists.
+    private listsCoverAccount = false;
     // When the sync response being applied arrived, and the pending read of changes made outside one.
     private applyingSince?: number;
     private spaceTreeTimer?: ReturnType<typeof setTimeout>;
@@ -306,6 +308,7 @@ export class SlidingSyncManager {
         this.spaceLease = undefined;
         this.callLeases.clear();
         this.activeSpaceId = undefined;
+        this.listsCoverAccount = false;
         this.spaceTree = new Set();
         this.spaceChannels = new Set();
         this.stopFollowingSpaceTree();
@@ -825,9 +828,26 @@ export class SlidingSyncManager {
             this.applyingSince = undefined;
             if (this.spaceTreeTimer !== undefined) clearTimeout(this.spaceTreeTimer);
             this.spaceTreeTimer = undefined;
+            if (this.listsCoverAccount && this.slidingSync && this.listsOutgrown(this.slidingSync)) {
+                // A room joined since spidering finished can push the least active one out of every list. Until
+                // the lists grow again, joined channels are subscribed as before.
+                this.listsCoverAccount = false;
+                this.spaceTreeChanged = true;
+                void this.startSpidering(this.slidingSync, SPIDER_BATCH_SIZE, SPIDER_GAP_MS);
+            }
             if (this.spaceTreeChanged) this.refreshSpaceChannels();
         }
     };
+
+    /** Whether a list that grows to the whole account now has more rooms than its range covers. */
+    private listsOutgrown(slidingSync: SlidingSync): boolean {
+        return Object.keys(sssLists).some((listName) => {
+            if (FIXED_LISTS.has(listName)) return false;
+            const upperBound = slidingSync.getListParams(listName)?.ranges[0]?.[1];
+            const count = slidingSync.getListData(listName)?.joinedCount ?? 0;
+            return upperBound !== undefined && upperBound < count - 1;
+        });
+    }
 
     /**
      * A Space's valid children in the Space's own order, as it shows them. Sorting looks at every child, so the
@@ -906,6 +926,8 @@ export class SlidingSyncManager {
                     ? room?.currentState.getStateEvents(EventType.RoomMember, userId)?.getContent().membership
                     : undefined;
                 if (membership === KnownMembership.Leave || membership === KnownMembership.Ban) continue;
+                // Once the lists cover the whole account, they keep a joined channel up to date already.
+                if (this.listsCoverAccount && room?.getMyMembership() === KnownMembership.Join) continue;
                 if (channels.size < MAX_SPACE_CHANNELS) channels.add(roomId);
             }
         }
@@ -918,8 +940,8 @@ export class SlidingSyncManager {
             return;
         }
         this.spaceChannels = channels;
-        // Someone switched to this Space and is waiting for its channels.
-        this.scheduleFlush(true);
+        // Sent with the next batch: the channel someone opens next is urgent, and carries these along with it.
+        this.scheduleFlush(false);
     }
 
     /** Replace discovery state with the normal subscription once encryption state is known. */
@@ -1023,6 +1045,9 @@ export class SlidingSyncManager {
             if (!hasSetRanges && this.bootstrapRooms.size === 0) {
                 // finish spidering
                 slidingSync.off(SlidingSyncEvent.Lifecycle, lifecycle);
+                // The open Space's channels the lists now cover need no subscription of their own.
+                this.listsCoverAccount = true;
+                if (this.activeSpaceId) this.refreshSpaceChannels();
             }
         };
         slidingSync.on(SlidingSyncEvent.Lifecycle, lifecycle);

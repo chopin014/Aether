@@ -905,7 +905,8 @@ describe("SlidingSyncManager", () => {
         const nameOf = (roomId: string): string | undefined => internals.roomIdToCustomSubscription.get(roomId);
         const subscriptionOf = (roomId: string): { timeline_limit: number; required_state: string[][] } =>
             internals.customSubscriptions.get(nameOf(roomId)!)!;
-        const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+        // Long enough for a batch of subscription changes to be sent.
+        const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 200));
 
         function knownRoom(roomId: string, kind: "plain" | "encrypted" | "space" = "plain"): Room {
             const room = new Room(roomId, client, client.getUserId()!);
@@ -1294,7 +1295,8 @@ describe("SlidingSyncManager", () => {
             addChildren(space, ["!a"]);
             await vi.advanceTimersByTimeAsync(10);
             expect(sync.getRoomSubscriptions()).not.toContain("!a");
-            await vi.advanceTimersByTimeAsync(60);
+            // The read, then the next batch of subscription changes.
+            await vi.advanceTimersByTimeAsync(250);
             expect(sync.getRoomSubscriptions()).toContain("!a");
 
             // A response is being applied: its changes wait for it to finish, however long that takes.
@@ -1313,13 +1315,13 @@ describe("SlidingSyncManager", () => {
                 rooms: {},
                 extensions: {},
             });
-            await vi.advanceTimersByTimeAsync(0);
+            await vi.advanceTimersByTimeAsync(200);
             expect(sync.getRoomSubscriptions()).toContain("!b");
 
             // A failed request applies nothing, so changes after it are read after the pause again.
             sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null, new Error("offline"));
             addChildren(space, ["!c"]);
-            await vi.advanceTimersByTimeAsync(60);
+            await vi.advanceTimersByTimeAsync(250);
             expect(sync.getRoomSubscriptions()).toContain("!c");
         });
 
@@ -1369,7 +1371,7 @@ describe("SlidingSyncManager", () => {
                 rooms: {},
                 extensions: {},
             });
-            await vi.advanceTimersByTimeAsync(0);
+            await vi.advanceTimersByTimeAsync(200);
             expect(sync.getRoomSubscriptions()).toContain("!a");
         });
 
@@ -1498,6 +1500,64 @@ describe("SlidingSyncManager", () => {
             );
         });
 
+        it("sends a Space and its channels along with the channel opened next, in one request", async () => {
+            vi.useFakeTimers();
+            const space = knownRoom("!server", "space");
+            knownRoom("!a");
+            addChildren(space, ["!a", "!b"]);
+            await vi.advanceTimersByTimeAsync(0);
+            const modify = vi.spyOn(sync, "modifyRoomSubscriptions");
+            manager.setActiveSpace("!server");
+            await vi.advanceTimersByTimeAsync(20);
+            expect(modify).not.toHaveBeenCalled();
+            // The channel is opened right after: one request carries everything.
+            const lease = (manager as unknown as { leases: RoomSubscriptionLeases }).leases.acquire("!a", "view");
+            await vi.advanceTimersByTimeAsync(0);
+            expect(modify).toHaveBeenCalledExactlyOnceWith(new Set(["!a", "!server", "!b"]));
+            await vi.advanceTimersByTimeAsync(500);
+            expect(modify).toHaveBeenCalledTimes(1);
+            lease.release();
+        });
+
+        it("leaves out joined channels the lists keep up to date, once they cover the whole account", async () => {
+            const space = knownRoom("!server", "space");
+            knownRoom("!joined").updateMyMembership(KnownMembership.Join);
+            addChildren(space, ["!joined", "!unseen"]);
+            manager.setActiveSpace("!server");
+            await tick();
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!joined", "!unseen"]));
+            // Spidering finishes: every list covers all the rooms there are.
+            vi.spyOn(sync, "getListData").mockReturnValue({ joinedCount: 0 });
+            await (
+                manager as unknown as { startSpidering(sync: SlidingSync, batch: number, gap: number): Promise<void> }
+            ).startSpidering(sync, 10, 1);
+            await applied();
+            await vi.waitFor(() => expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!unseen"])));
+        });
+
+        it("subscribes joined channels again when a list outgrows its range after spidering", async () => {
+            const space = knownRoom("!server", "space");
+            knownRoom("!joined").updateMyMembership(KnownMembership.Join);
+            addChildren(space, ["!joined"]);
+            manager.setActiveSpace("!server");
+            let count = 0;
+            vi.spyOn(sync, "getListData").mockImplementation(() => ({ joinedCount: count }));
+            await (
+                manager as unknown as { startSpidering(sync: SlidingSync, batch: number, gap: number): Promise<void> }
+            ).startSpidering(sync, 10, 1);
+            await applied();
+            await vi.waitFor(() => expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server"])));
+
+            // A room joined since pushes the least active one out of the untagged list's range.
+            count = 500;
+            const ranges = vi.spyOn(sync, "setListRanges");
+            await applied();
+            await vi.waitFor(() => expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!joined"])));
+            // Spidering grows the lists again.
+            await applied();
+            await vi.waitFor(() => expect(ranges).toHaveBeenCalledWith("untagged", [[0, expect.any(Number)]]));
+        });
+
         it("leaves out channels the user has left or been banned from", async () => {
             const space = knownRoom("!server", "space");
             for (const [roomId, membership] of [
@@ -1578,7 +1638,7 @@ describe("SlidingSyncManager", () => {
             knownRoom("!a");
             addChildren(space, ["!a"]);
             manager.setActiveSpace("!server");
-            await vi.advanceTimersByTimeAsync(0);
+            await vi.advanceTimersByTimeAsync(200);
             expect(nameOf("!a")).toBe("channel");
             const lease = (manager as unknown as { leases: RoomSubscriptionLeases }).leases.acquire("!a", "view");
             await vi.advanceTimersByTimeAsync(0);
