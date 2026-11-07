@@ -75,11 +75,14 @@ export async function validatePlatformArtifacts(
     platform: AetherReleasePlatform,
 ): Promise<void> {
     const names = new Set(await readdir(directory));
+    // electron-builder names each Linux format with its own architecture name.
     const installerNames =
-        platform === "win" ? [`Aether-${version}-win-x64.exe`] : [`Aether-${version}-linux-x86_64.AppImage`];
+        platform === "win"
+            ? [`Aether-${version}-win-x64.exe`]
+            : [`Aether-${version}-linux-x86_64.AppImage`, `Aether-${version}-linux-amd64.deb`];
 
-    if (platform === "linux" && [...names].some((name) => name.endsWith(".deb") || name.endsWith(".tar.gz"))) {
-        throw new Error("Linux release assets must use AppImage for in-app updates");
+    if (platform === "linux" && [...names].some((name) => name.endsWith(".tar.gz"))) {
+        throw new Error("Linux release assets must only contain packages that update in the app");
     }
 
     for (const installerName of installerNames) assertExists(names, installerName);
@@ -98,7 +101,6 @@ export async function validatePlatformArtifacts(
         throw new Error(`${manifestName} does not contain updater file metadata`);
     }
 
-    const expectedUpdateAsset = installerNames[0];
     const referencedAssets = new Set<string>();
     for (const entry of manifest.files) {
         let assetName: string;
@@ -115,8 +117,11 @@ export async function validatePlatformArtifacts(
             throw new Error(`${manifestName} has an incorrect SHA-512 checksum for ${assetName}`);
     }
 
-    if (!referencedAssets.has(expectedUpdateAsset)) {
-        throw new Error(`${manifestName} does not reference the ${expectedUpdateAsset} updater artifact`);
+    // Each installed format downloads its own file from the shared manifest.
+    for (const installerName of installerNames) {
+        if (!referencedAssets.has(installerName)) {
+            throw new Error(`${manifestName} does not reference the ${installerName} updater artifact`);
+        }
     }
 }
 
