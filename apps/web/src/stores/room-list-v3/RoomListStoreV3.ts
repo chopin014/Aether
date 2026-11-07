@@ -113,14 +113,20 @@ export class RoomListStoreV3Class extends AsyncStoreWithClient<EmptyObject> {
      */
     private pendingEmit = false;
 
+    /** The selected Space, whose changes of rooms are followed. */
+    private watchedSpace?: SpaceKey;
+    private spaceRoomsChangeQueued = false;
+
     public constructor(dispatcher: MatrixDispatcher) {
         super(dispatcher);
         this.buildFilters();
 
         this.msc3946ProcessDynamicPredecessor = SettingsStore.getValue("feature_dynamic_room_predecessors");
         SDKContextClass.instance.spaceStore.on(UPDATE_SELECTED_SPACE, () => {
+            this.watchActiveSpace();
             this.onActiveSpaceChanged();
         });
+        this.watchActiveSpace();
         SDKContextClass.instance.spaceStore.on(UPDATE_HOME_BEHAVIOUR, () => this.onActiveSpaceChanged());
         SettingsStore.watchSetting("RoomList.OrderedCustomSections", null, () => this.onSectionsChange());
 
@@ -485,6 +491,29 @@ export class RoomListStoreV3Class extends AsyncStoreWithClient<EmptyObject> {
         }
         this.scheduleEmit();
     }
+
+    /**
+     * Follow the rooms of the selected Space, which change when channels are added to it or removed from it. The
+     * Space store announces those changes under the Space's own key.
+     */
+    private watchActiveSpace(): void {
+        const spaceStore = SDKContextClass.instance.spaceStore;
+        const space = spaceStore.activeSpace;
+        if (space === this.watchedSpace) return;
+        if (this.watchedSpace !== undefined) spaceStore.off(this.watchedSpace, this.onActiveSpaceRoomsChanged);
+        this.watchedSpace = space;
+        spaceStore.on(space, this.onActiveSpaceRoomsChanged);
+    }
+
+    /** The selected Space's rooms changed. A sync can bring many of its children at once, so they are applied once. */
+    private readonly onActiveSpaceRoomsChanged = (): void => {
+        if (this.spaceRoomsChangeQueued) return;
+        this.spaceRoomsChangeQueued = true;
+        queueMicrotask(() => {
+            this.spaceRoomsChangeQueued = false;
+            this.onActiveSpaceChanged();
+        });
+    };
 
     private onActiveSpaceChanged(): void {
         if (!this.roomSkipList) return;

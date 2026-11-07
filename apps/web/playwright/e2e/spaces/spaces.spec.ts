@@ -149,6 +149,25 @@ test.describe("Spaces", () => {
         ).toBeVisible();
     });
 
+    test("lists a room added to the open space, and drops one removed from it", async ({ page, app, user }) => {
+        const setChild = (spaceId: string, roomId: string, content: object): Promise<unknown> =>
+            app.client.sendStateEvent(spaceId, "m.space.child", content, roomId);
+        const spaceId = await app.client.createSpace({ name: "Guild" });
+        const first = await app.client.createRoom({ name: "First channel" });
+        await setChild(spaceId, first, { via: [user.homeServer] });
+        await rejectToast(page, "Verify this device");
+        await (await app.getSpacePanelButton("Guild")).click();
+        const names = page.getByTestId("room-list").getByTestId("room-name");
+        await expect(names).toHaveText(["First channel"]);
+
+        // Someone adds a room to the space while it is open, then removes the first one.
+        const second = await app.client.createRoom({ name: "Second channel" });
+        await setChild(spaceId, second, { via: [user.homeServer] });
+        await expect(names).toHaveText(["Second channel", "First channel"]);
+        await setChild(spaceId, first, {});
+        await expect(names).toHaveText(["Second channel"]);
+    });
+
     test("should allow user to create just-me space", async ({ page, app, user }) => {
         await app.client.createRoom({
             name: "Sample Room",

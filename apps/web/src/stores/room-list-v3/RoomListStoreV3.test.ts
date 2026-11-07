@@ -569,6 +569,48 @@ describe("RoomListStoreV3", () => {
                     expect(result2).toContain(id);
                 }
             });
+
+            it("shows rooms added to the selected Space, and drops rooms removed from it", async () => {
+                const { client, rooms } = getClientAndRooms();
+                const { spaceRoom, roomIds } = createSpace(rooms, [6, 8], client);
+                const spaceStore = SDKContextClass.instance.spaceStore;
+                const inSpace = new Set(roomIds);
+                vi.spyOn(spaceStore, "isRoomInSpace").mockImplementation(
+                    (space, id) => space === spaceRoom.roomId && inSpace.has(id),
+                );
+                vi.spyOn(spaceStore, "activeSpace", "get").mockImplementation(() => spaceRoom.roomId);
+                const store = new RoomListStoreV3Class(dispatcher);
+                await store.start();
+                const shown = (): string[] =>
+                    store
+                        .getSortedRoomsInActiveSpace()
+                        .sections.flatMap((s) => s.rooms)
+                        .map((r) => r.roomId);
+                expect(shown()).not.toContain(rooms[13].roomId);
+
+                // A channel is added to the Space, and another removed. The Space store announces it under the
+                // Space's key, as often as each of its children changes.
+                inSpace.add(rooms[13].roomId);
+                inSpace.delete(rooms[6].roomId);
+                const recalculate = vi.spyOn(
+                    store as unknown as { onActiveSpaceChanged(): void },
+                    "onActiveSpaceChanged",
+                );
+                spaceStore.emit(spaceRoom.roomId);
+                spaceStore.emit(spaceRoom.roomId);
+                await Promise.resolve();
+                expect(recalculate).toHaveBeenCalledTimes(1);
+                expect(shown()).toContain(rooms[13].roomId);
+                expect(shown()).not.toContain(rooms[6].roomId);
+
+                // Once another Space is selected, the first one's changes no longer count.
+                vi.spyOn(spaceStore, "activeSpace", "get").mockImplementation(() => MetaSpace.Home);
+                spaceStore.emit(UPDATE_SELECTED_SPACE);
+                recalculate.mockClear();
+                spaceStore.emit(spaceRoom.roomId);
+                await Promise.resolve();
+                expect(recalculate).not.toHaveBeenCalled();
+            });
         });
 
         describe("Filters", () => {
