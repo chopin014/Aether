@@ -425,6 +425,68 @@ describe("sliding sync profile updates (MSC4262)", () => {
         expect(announced).toContainEqual(["@carol:example.org", null, undefined]);
         api.stop();
     });
+
+    it("stores a field the server removed as null, alone or with updates, as regular sync does", async () => {
+        const { client, api, responses } = setup(["org.example.status", "org.example.call"]);
+        await client.store.storeUserProfiles(
+            new Map([["@bob:example.org", { "org.example.status": "away", "org.example.call": "!room" }]]),
+        );
+        const announced: [string, unknown][] = [];
+        client.on(ClientEvent.UserProfileUpdate, (who, profile) => announced.push([who, profile]));
+        await vi.waitFor(() => expect(responses).toHaveLength(1));
+        // The status is cleared on its own.
+        responses[0]({
+            pos: "1",
+            extensions: {
+                "org.matrix.msc4262.profiles": { users: { "@bob:example.org": { removed: ["org.example.status"] } } },
+            },
+        });
+        await vi.waitFor(() => expect(announced).toHaveLength(1));
+        expect(announced[0]).toEqual(["@bob:example.org", { "org.example.status": null }]);
+        expect(await client.store.getUserProfile("@bob:example.org")).toEqual({
+            "org.example.status": null,
+            "org.example.call": "!room",
+        });
+        // Then the call ends while a new status is set.
+        await vi.waitFor(() => expect(responses).toHaveLength(2));
+        responses[1]({
+            pos: "2",
+            extensions: {
+                "org.matrix.msc4262.profiles": {
+                    users: {
+                        "@bob:example.org": {
+                            updated: { "org.example.status": "back" },
+                            removed: ["org.example.call"],
+                        },
+                    },
+                },
+            },
+        });
+        await vi.waitFor(() => expect(announced).toHaveLength(2));
+        expect(announced[1]).toEqual(["@bob:example.org", { "org.example.status": "back", "org.example.call": null }]);
+        api.stop();
+    });
+
+    it("writes and announces nothing when the server repeats a profile unchanged, as for each message's sender", async () => {
+        const { client, api, responses } = setup(["org.example.status"]);
+        await client.store.storeUserProfiles(new Map([["@bob:example.org", { "org.example.status": "away" }]]));
+        const write = vi.spyOn(client.store, "storeUserProfiles");
+        const announced = vi.fn();
+        client.on(ClientEvent.UserProfileUpdate, announced);
+        await vi.waitFor(() => expect(responses).toHaveLength(1));
+        const repeated = {
+            "org.matrix.msc4262.profiles": {
+                users: { "@bob:example.org": { updated: { "org.example.status": "away" } } },
+            },
+        };
+        responses[0]({ pos: "1", extensions: repeated });
+        await vi.waitFor(() => expect(responses).toHaveLength(2));
+        responses[1]({ pos: "2", extensions: repeated });
+        await vi.waitFor(() => expect(responses).toHaveLength(3));
+        expect(write).not.toHaveBeenCalled();
+        expect(announced).not.toHaveBeenCalled();
+        api.stop();
+    });
 });
 
 describe("sliding sync restoring a saved snapshot", () => {
