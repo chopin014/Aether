@@ -1691,6 +1691,9 @@ describe("SlidingSyncManager", () => {
     });
 
     describe("rooms saved on this device", () => {
+        // Several tests replace how the cache reads; each starts from the real one.
+        afterEach(() => vi.restoreAllMocks());
+
         it("offers the saved rooms only to the client it was set up for", async () => {
             await manager.setup(client);
             expect(manager.snapshotLoader(client)).toBeInstanceOf(Function);
@@ -1754,6 +1757,21 @@ describe("SlidingSyncManager", () => {
             await SlidingSyncCache.deleteAll();
             read.resolve({ rooms: { "!a": {} as never } });
             await expect(loader()).resolves.toBeNull();
+        });
+
+        it("shows no saved rooms when set-up overlaps deleting them, with a write still under way", async () => {
+            const saved = new SlidingSyncCache(client.getUserId()!, client.getDeviceId()!);
+            const room = (name: string) => ({ name, required_state: [], timeline: [] }) as unknown as MSC3575RoomData;
+            saved.observeRoomData("!a", room("A"));
+            await saved.flush();
+            saved.observeRoomData("!b", room("B"));
+            const writing = saved.flush();
+            manager.prefetchSnapshot(client);
+            const deletion = SlidingSyncCache.deleteAll();
+            await manager.setup(client);
+            const loaded = manager.snapshotLoader(client)!();
+            await Promise.all([writing, deletion]);
+            await expect(loaded).resolves.toBeNull();
         });
 
         it("lets go of an early read made for another client", async () => {
