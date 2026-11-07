@@ -22,6 +22,7 @@ import {
     type MatrixClient,
     MatrixEvent,
     Room,
+    RoomEvent,
     RoomStateEvent,
 } from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
@@ -1107,9 +1108,11 @@ describe("SlidingSyncManager", () => {
                 (name) => sync.getListParams(name)?.filters,
             );
 
-        /** Announce that the user's membership of a room changed, as sync does. */
+        /**
+         * Announce that the user's membership of a room changed, as sync does: the member event first, then the
+         * membership the SDK works out from it.
+         */
         function setMembership(room: Room, membership: KnownMembership): void {
-            room.updateMyMembership(membership);
             const event = new MatrixEvent({
                 type: EventType.RoomMember,
                 state_key: client.getUserId()!,
@@ -1119,6 +1122,20 @@ describe("SlidingSyncManager", () => {
                 content: { membership },
             });
             client.emit(RoomStateEvent.Events, event, room.currentState, null);
+            const previous = room.getMyMembership();
+            room.updateMyMembership(membership);
+            client.emit(RoomEvent.MyMembership, room, membership, previous);
+        }
+
+        /** Finish applying a sync response, as the SDK does once every room in it has been processed. */
+        async function applied(): Promise<void> {
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, {
+                pos: "p",
+                lists: {},
+                rooms: {},
+                extensions: {},
+            });
+            await tick();
         }
 
         it("subscribes the selected Space's channels from its state, without filtering lists by Space", async () => {
@@ -1162,11 +1179,14 @@ describe("SlidingSyncManager", () => {
                 }),
             ]);
             addChildren(space, ["!a"]);
-            await tick();
+            await applied();
             expect(sync.getRoomSubscriptions()).not.toContain("!a");
             rooms.set("!server", space);
             client.emit(ClientEvent.Room, space);
+            // The rest of the response is still being processed.
             await tick();
+            expect(sync.getRoomSubscriptions()).not.toContain("!a");
+            await applied();
             expect(sync.getRoomSubscriptions()).toContain("!a");
         });
 
@@ -1180,17 +1200,36 @@ describe("SlidingSyncManager", () => {
             expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server"]));
 
             setMembership(category, KnownMembership.Join);
-            await tick();
+            await applied();
             expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!c"]));
             // The subspace is taken out of the Space.
             addChildren(space, ["!category"], {});
-            await tick();
+            await applied();
             expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server"]));
             addChildren(space, ["!category"]);
+            await applied();
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!c"]));
+            // Leaving: sync announces the member event, and works out the membership only after processing more of
+            // the response. Nothing is read until the response has been applied.
+            client.emit(
+                RoomStateEvent.Events,
+                new MatrixEvent({
+                    type: EventType.RoomMember,
+                    state_key: client.getUserId()!,
+                    event_id: "$leave!category",
+                    room_id: "!category",
+                    sender: client.getUserId()!,
+                    content: { membership: KnownMembership.Leave },
+                }),
+                category.currentState,
+                null,
+            );
+            await tick();
+            category.updateMyMembership(KnownMembership.Leave);
+            client.emit(RoomEvent.MyMembership, category, KnownMembership.Leave, KnownMembership.Join);
             await tick();
             expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!c"]));
-            setMembership(category, KnownMembership.Leave);
-            await tick();
+            await applied();
             expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server"]));
         });
 
@@ -1202,8 +1241,83 @@ describe("SlidingSyncManager", () => {
             expect(nameOf("!later")).toBe("channel");
             const later = knownRoom("!later", "space");
             client.emit(ClientEvent.Room, later);
-            await tick();
+            await applied();
             expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server"]));
+        });
+
+        it("counts upgraded children as their newest version, and finds a replacement not seen yet", async () => {
+            const space = knownRoom("!server", "space");
+            const oldChannel = knownRoom("!old-channel");
+            const newChannel = knownRoom("!new-channel");
+            const oldCategory = knownRoom("!old-category");
+            const newCategory = knownRoom("!new-category", "space");
+            newCategory.updateMyMembership(KnownMembership.Join);
+            addChildren(newCategory, ["!c"]);
+            const pending = knownRoom("!pending");
+            pending.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.RoomTombstone,
+                    state_key: "",
+                    event_id: "$tombstone!pending",
+                    room_id: "!pending",
+                    sender: client.getUserId()!,
+                    content: { replacement_room: "!unseen", body: "moved" },
+                }),
+            ]);
+            vi.mocked(client.getRoomUpgradeHistory).mockImplementation((roomId) => {
+                if (roomId === "!old-channel") return [oldChannel, newChannel];
+                if (roomId === "!old-category") return [oldCategory, newCategory];
+                return rooms.has(roomId) ? [rooms.get(roomId)!] : [];
+            });
+            addChildren(space, ["!old-channel", "!old-category", "!pending"]);
+            manager.setActiveSpace("!server");
+            await tick();
+            expect(sync.getRoomSubscriptions()).toEqual(
+                new Set(["!server", "!new-channel", "!c", "!pending", "!unseen"]),
+            );
+
+            // A change to any version of an upgraded room is followed.
+            addChildren(newCategory, ["!d"]);
+            await applied();
+            expect(sync.getRoomSubscriptions()).toContain("!d");
+        });
+
+        it("leaves out channels the user has left or been banned from", async () => {
+            const space = knownRoom("!server", "space");
+            for (const [roomId, membership] of [
+                ["!left", KnownMembership.Leave],
+                ["!banned", KnownMembership.Ban],
+                ["!joined", KnownMembership.Join],
+            ] as const) {
+                knownRoom(roomId).currentState.setStateEvents([
+                    new MatrixEvent({
+                        type: EventType.RoomMember,
+                        state_key: client.getUserId()!,
+                        event_id: `$member${roomId}`,
+                        room_id: roomId,
+                        sender: client.getUserId()!,
+                        content: { membership },
+                    }),
+                ]);
+            }
+            addChildren(space, ["!left", "!banned", "!joined"]);
+            manager.setActiveSpace("!server");
+            await tick();
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!joined"]));
+        });
+
+        it("looks at a bounded number of children in a huge Space", async () => {
+            const space = knownRoom("!server", "space");
+            addChildren(
+                space,
+                Array.from({ length: 5000 }, (_, i) => `!sub${i}`),
+            );
+            for (let i = 0; i < 5000; i++) knownRoom(`!sub${i}`, "space");
+            const lookups = vi.mocked(client.getRoom);
+            lookups.mockClear();
+            manager.setActiveSpace("!server");
+            await tick();
+            expect(lookups.mock.calls.length).toBeLessThan(2500);
         });
 
         it("gives a channel someone points at the shorter history of a likely visit, and keeps it", async () => {
@@ -1229,16 +1343,16 @@ describe("SlidingSyncManager", () => {
 
             // The Space's state arrives after it was selected, such as on a first start.
             addChildren(space, ["!a", "!b"]);
-            await tick();
+            await applied();
             expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!a", "!b"]));
             addChildren(space, ["!b"], {});
-            await tick();
+            await applied();
             expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!a"]));
 
             // Another Space's children do not count.
             const other = knownRoom("!other", "space");
             addChildren(other, ["!elsewhere"]);
-            await tick();
+            await applied();
             expect(sync.getRoomSubscriptions()).not.toContain("!elsewhere");
         });
 
