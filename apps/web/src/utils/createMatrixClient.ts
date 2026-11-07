@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 import {
+    type AccessTokens,
     type MatrixClient,
     createClient,
     type ICreateClientOpts,
@@ -27,6 +28,7 @@ import IdentityAuthClient from "../IdentityAuthClient";
 import { _t } from "../languageHandler";
 import { formatList } from "./FormattingUtils";
 import { persistTokens } from "./tokens/tokens.ts";
+import { AccessTokenRenewal, ownsStoredSession, persistAccessTokenExpiry } from "./tokens/AccessTokenRenewal.ts";
 
 const localStorage = window.localStorage;
 
@@ -122,12 +124,28 @@ export function createClientWithCreds(creds: IMatrixClientCreds, oauthClientId?:
         logger.warn("Have a refresh token but no stored OAuth2 client ID: tokens will not be refreshed");
     }
 
+    let renewal: AccessTokenRenewal | undefined;
+    // The client being created, which the refresh callback needs.
+    const created: { client?: MatrixClient } = {};
     const opts: ICreateClientOpts = {
         baseUrl: creds.homeserverUrl,
         idBaseUrl: creds.identityServerUrl,
         accessToken: creds.accessToken,
         refreshToken: creds.refreshToken,
-        onTokenRefresh: persistTokens.bind(null, creds.pickleKey),
+        onTokenRefresh: async (tokens: AccessTokens): Promise<void> => {
+            // A refresh that finishes after this client stopped, such as at logout or before another session or tab
+            // took over, must not write its tokens over what is stored now. It is checked again before each write,
+            // as storing waits on encryption.
+            const owns = (): boolean => !!created.client && ownsStoredSession(created.client);
+            if (!owns()) {
+                logger.warn("Not keeping refreshed tokens: the stored session is no longer this client's");
+                return;
+            }
+            renewal?.noteExpiry(tokens.expiry);
+            await persistTokens(creds.pickleKey, tokens, owns);
+            // Kept once the tokens it describes are.
+            if (owns()) persistAccessTokenExpiry(tokens.expiry);
+        },
         oauthClientId,
         userId: creds.userId,
         deviceId: creds.deviceId,
@@ -149,7 +167,10 @@ export function createClientWithCreds(creds: IMatrixClientCreds, oauthClientId?:
     };
 
     const newCli = createMatrixClient(opts);
+    created.client = newCli;
     newCli.setGuest(Boolean(creds.guest));
+    // The SDK refreshes the tokens of an OAuth2 session, so they can also be renewed before they expire.
+    if (creds.refreshToken && oauthClientId) renewal = AccessTokenRenewal.create(newCli);
 
     const notifTimelineSet = new EventTimelineSet(undefined, {
         timelineSupport: true,
