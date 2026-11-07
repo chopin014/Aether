@@ -303,7 +303,8 @@
     transition: color 120ms ease-out;
 }
 
-/* A muted channel is dimmed, as in Discord, instead of carrying a bell. Opening it brings it back to full strength. */
+/* A muted text channel is dimmed, as in Discord, instead of carrying a bell. Opening it brings it back to full
+   strength. */
 .mutedChannel :is(.channelSymbols, .roomName) {
     opacity: 0.5;
 }
@@ -364,9 +365,14 @@
     margin-inline-start: auto;
 }
 
-/* A selected channel keeps its invite and edit buttons in view, unless a badge needs the space. */
+/* A selected channel keeps its invite and edit buttons in view, unless a badge or a call's duration needs the space. */
 .selected .channelActions:not(.withDecoration) {
     display: flex;
+}
+
+/* Its empty badge area then goes, as it does under the pointer, so the buttons don't move when pointed at. */
+.selected .content:has(> .channelActions:not(.withDecoration)) > .notificationDecoration {
+    display: none;
 }
 
 /* Dimmer than other hover menus, brightening under the pointer. */

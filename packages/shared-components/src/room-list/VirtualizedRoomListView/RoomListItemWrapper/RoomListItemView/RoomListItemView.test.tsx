@@ -187,6 +187,23 @@ describe("<RoomListItemView />", () => {
         expect(screen.queryByTestId("notification-decoration")).toBeNull();
     });
 
+    it("doesn't dim a muted voice channel", () => {
+        render(<DesktopMutedChannel channelKind="voice" />);
+        expect(screen.getByTestId("room-name").closest("[class*='mutedChannel']")).toBeNull();
+    });
+
+    it("keeps an occupied channel's duration in view on a selected row, with its buttons only when pointed at", () => {
+        const { container } = render(
+            <DesktopVoiceChannelOccupied
+                isSelected={true}
+                notification={{ ...DesktopVoiceChannelOccupied.args.notification!, callType: undefined }}
+                canInvite={true}
+            />,
+        );
+        expect(container.querySelector("time")).not.toBeNull();
+        expect(container.querySelector("[class*='channelActions']")?.getAttribute("class")).toMatch(/withDecoration/);
+    });
+
     it("marks an unread channel at its edge without a count", () => {
         render(<DesktopUnreadChannel />);
         expect(screen.getByTestId("channel-unread")).toBeInTheDocument();

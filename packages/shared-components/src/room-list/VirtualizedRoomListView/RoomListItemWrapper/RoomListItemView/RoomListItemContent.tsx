@@ -47,17 +47,20 @@ export const RoomListItemContent = memo(function RoomListItemContent({
     // An occupied voice channel stands out from empty ones, and shows how long it has been occupied.
     const occupied = item.channelKind === "voice" && !!item.callParticipants?.length;
     // A channel shows what Discord shows: a mention count, an unsent message or a call. Plain unread activity is
-    // the bold name and the marker at the row's edge, and a muted channel is dimmed rather than marked with a bell.
+    // the bold name and the marker at the row's edge, and a muted text channel is dimmed rather than marked with a
+    // bell. Voice channels aren't dimmed: their notifications are about messages nobody sends there, so being muted
+    // says nothing about the call.
     const notification = isChannel ? channelNotification(item.notification, occupied) : item.notification;
     const mentionCount = isChannel && item.notification.isMention ? (item.mentionCount ?? 1) : 0;
-    const hasDecoration = mentionCount > 0 || notification.isUnsentMessage || !!notification.callType;
+    const showsDuration = occupied && item.callStartedAt !== undefined;
+    const hasDecoration = mentionCount > 0 || notification.isUnsentMessage || !!notification.callType || showsDuration;
 
     return (
         <Flex
             className={classNames(styles.container, {
                 [styles.dragging]: isDragging,
                 [styles.channel]: isChannel,
-                [styles.mutedChannel]: isChannel && item.notification.muted,
+                [styles.mutedChannel]: item.channelKind === "text" && item.notification.muted,
             })}
             gap="var(--cpd-space-3x)"
             align="center"
