@@ -40,6 +40,15 @@ describe("ProfileName", () => {
         expect([...letters].map((letter) => letter.textContent)).toEqual(["R", "o", "\u00a0", "b", "i", "n"]);
     });
 
+    it("bounces whole words in scripts whose letters join, so they keep their shape", () => {
+        const { container } = render(
+            <ProfileName nameStyle={{ font: "default", effect: "gummy", colour: "#ff88cc" }}>سلام عليكم</ProfileName>,
+        );
+        expect(screen.getByText("سلام عليكم")).toBeInTheDocument();
+        const pieces = container.querySelectorAll("[aria-hidden='true'] > span");
+        expect([...pieces].map((piece) => piece.textContent)).toEqual(["سلام", "\u00a0", "عليكم"]);
+    });
+
     // A taller line pushes the name off the centre of a member row, away from the plain names around it.
     it.each(PROFILE_NAME_FONTS)("does not make its line taller with the %s font", (font) => {
         const line = { font: "500 17px/24px sans-serif", width: "300px" };

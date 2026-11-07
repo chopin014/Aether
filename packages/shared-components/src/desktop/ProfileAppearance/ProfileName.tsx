@@ -17,8 +17,20 @@ interface ProfileNameProps {
     children: ReactNode;
 }
 
-/** Split text into what a reader sees as single characters, so an emoji or accented letter is never torn apart. */
-function graphemes(text: string): string[] {
+/**
+ * Characters from scripts whose letters stand alone, plus punctuation, symbols, emoji and combining marks. Letters of
+ * any other script (Arabic, Syriac, the Indic scripts and more) change shape with their neighbours, and drawing them
+ * one by one would break those joins.
+ */
+const SEPARATE_LETTERS =
+    /^[\p{Script=Latin}\p{Script=Greek}\p{Script=Cyrillic}\p{Script=Armenian}\p{Script=Georgian}\p{Script=Hebrew}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Common}\p{Script=Inherited}]*$/u;
+
+/**
+ * Split a name into the pieces that bounce on their own: single characters as a reader sees them, so an emoji or
+ * accented letter is never torn apart, or whole words where letters join up, so the word keeps its shape.
+ */
+function gummyPieces(text: string): string[] {
+    if (!SEPARATE_LETTERS.test(text)) return text.split(/(\s+)/).filter(Boolean);
     if (typeof Intl.Segmenter !== "function") return [...text];
     return [...new Intl.Segmenter().segment(text)].map((part) => part.segment);
 }
@@ -32,18 +44,18 @@ export function ProfileName({ nameStyle, className, children }: ProfileNameProps
         ...(start ? { "--name-start": start } : {}),
         ...(start ? { "--name-end": nameStyle.colourEnd ?? start } : {}),
     } as CSSProperties;
-    // Gummy letters each bounce on their own, so the name is drawn letter by letter, and read out whole.
+    // Gummy letters (or words) each bounce on their own, so the name is drawn piece by piece, and read out whole.
     const content =
         effect === "gummy" && typeof children === "string" ? (
             <>
                 <span className={styles.visuallyHidden}>{children}</span>
                 <span aria-hidden="true">
-                    {graphemes(children).map((letter, index) => (
+                    {gummyPieces(children).map((letter, index) => (
                         // A letter's place is its identity: the same letter repeats, and letters never move.
                         // oxlint-disable-next-line react/no-array-index-key
                         <span key={index} className={styles.gummyLetter} style={{ "--letter": index } as CSSProperties}>
-                            {/* A lone space in an inline block collapses to nothing, so it is kept as a fixed one. */}
-                            {letter === " " ? "\u00a0" : letter}
+                            {/* Spaces alone in an inline block collapse to nothing, so they are kept as fixed ones. */}
+                            {/^\s+$/.test(letter) ? "\u00a0" : letter}
                         </span>
                     ))}
                 </span>
