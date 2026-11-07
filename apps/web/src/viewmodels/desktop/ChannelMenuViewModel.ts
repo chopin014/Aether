@@ -86,7 +86,11 @@ export class ChannelMenuViewModel
         const space = (props.spaceStore ?? SDKContextClass.instance.spaceStore).activeSpaceRoom;
         if (space) this.disposables.trackListener(space.currentState, RoomStateEvent.Events, this.refresh);
         // Moves being sent show in the server's layout, and so in the menu's categories, before the server confirms them.
-        this.disposables.trackListener(SpaceLayoutStore.instance, SpaceLayoutStoreEvent.Changed, this.refresh);
+        this.disposables.trackListener(
+            SpaceLayoutStore.instance,
+            SpaceLayoutStoreEvent.Changed,
+            this.onLayoutChanged as (...args: unknown[]) => void,
+        );
         if (!props.room.membersLoaded()) {
             // Native encrypted subscriptions do not mark the SDK's full-membership readiness.
             // Share its hydration with crypto so deletion never relies on an incomplete bootstrap roster.
@@ -155,6 +159,13 @@ export class ChannelMenuViewModel
         ];
     }
 
+    /** Only the layout of the server the channel is in changes its categories. */
+    private readonly onLayoutChanged = (spaceId: string): void => {
+        if (spaceId === (this.props.spaceStore ?? SDKContextClass.instance.spaceStore).activeSpaceRoom?.roomId) {
+            this.refresh();
+        }
+    };
+
     private refresh = (): void => {
         const next = ChannelMenuViewModel.compute(this.props);
         this.snapshot.merge({ ...next, categories: keepIfSame(this.snapshot.current.categories, next.categories) });
@@ -194,7 +205,9 @@ export class ChannelMenuViewModel
 
     public onMoveToCategory = (categoryId: string | null): void => {
         const space = (this.props.spaceStore ?? SDKContextClass.instance.spaceStore).activeSpaceRoom;
-        if (!space || !this.snapshot.current.categories) return;
+        const categories = this.snapshot.current.categories;
+        // Choosing the category the channel is already in would only move it to the end.
+        if (!space || !categories || categories.find((category) => category.isCurrent)?.id === categoryId) return;
         moveChannel(space, this.props.room.roomId, categoryId).catch(reportLayoutError);
     };
 

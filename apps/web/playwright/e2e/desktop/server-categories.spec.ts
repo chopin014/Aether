@@ -167,7 +167,7 @@ test("organises a server's channels into categories everyone sees", async ({ pag
     // The channel's own menu moves it too, for people who don't drag.
     await channel(page, "boas-vindas").click({ button: "right" });
     await page.getByRole("menuitem", { name: "Move to category" }).click();
-    await page.getByRole("menuitem", { name: "Governo", exact: true }).click();
+    await page.getByRole("menuitemradio", { name: "Governo", exact: true }).click();
     await assertRoomInSection(page, "Governo", "boas-vindas");
 
     // Renaming from the category's own menu.

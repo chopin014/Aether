@@ -6,7 +6,7 @@ Please see LICENSE in the repository root for full details.
 */
 
 import React, { type JSX, type ReactNode } from "react";
-import { Menu, MenuItem, Separator, SubMenu, ToggleMenuItem } from "@vector-im/compound-web";
+import { Menu, MenuItem, RadioMenuItem, Separator, SubMenu, ToggleMenuItem } from "@vector-im/compound-web";
 import {
     CheckIcon,
     EditIcon,
@@ -313,18 +313,17 @@ export function ChannelMenuContent({ vm, showInfo = false }: ChannelMenuContentP
                         />
                     }
                 >
-                    {s.categories.map((category) => (
-                        <MenuItem
-                            key={category.id ?? ""}
-                            label={category.id === null ? _t("desktop|channel_menu|no_category") : category.name}
-                            aria-selected={category.isCurrent}
-                            onSelect={() => vm.onMoveToCategory?.(category.id)}
-                            onClick={stop}
-                            hideChevron
-                        >
-                            {category.isCurrent && check}
-                        </MenuItem>
-                    ))}
+                    {/* The menu sits inside the channel's row, which a click inside it must not open. */}
+                    <div role="none" onClick={stop}>
+                        {s.categories.map((category) => (
+                            <RadioMenuItem
+                                key={category.id ?? ""}
+                                label={category.id === null ? _t("desktop|channel_menu|no_category") : category.name}
+                                checked={category.isCurrent}
+                                onSelect={() => vm.onMoveToCategory?.(category.id)}
+                            />
+                        ))}
+                    </div>
                 </SubMenu>
             )}
             <Separator />
