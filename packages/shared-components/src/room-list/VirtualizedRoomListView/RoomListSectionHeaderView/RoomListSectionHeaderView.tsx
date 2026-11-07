@@ -17,6 +17,7 @@ import styles from "./RoomListSectionHeaderView.module.css";
 import { useI18n } from "../../../core/i18n/i18nContext";
 import { getGroupHeaderAccessibleProps } from "../../../core/VirtualizedList";
 import { RoomListSectionHeaderContent } from "./RoomListSectionHeaderContent";
+import { CategoryContextMenu } from "./CategoryContextMenu";
 import {
     type AcceptedRoomKind,
     isSectionDragData,
@@ -55,6 +56,16 @@ export interface RoomListSectionHeaderViewSnapshot {
      * header cannot create one.
      */
     createChannelKind?: "text" | "voice";
+    /**
+     * Whether the section has no header of its own, like the channels at the top of a server's list, outside any
+     * category. Only a small gap is drawn in its place.
+     */
+    isHidden?: boolean;
+    /** The right-click menu of a server category; absent for other sections. */
+    categoryMenu?: {
+        /** Whether the person may rename or delete the category. */
+        canEdit: boolean;
+    };
 }
 
 /**
@@ -69,6 +80,14 @@ export interface RoomListSectionHeaderActions {
     removeSection: () => void;
     /** Create a channel in the current Space, listed in this section. */
     createChannel?: () => void;
+    /** Mark every channel of the category as read. */
+    markCategoryAsRead?: () => void;
+    /** Collapse every category of the server. */
+    collapseAllCategories?: () => void;
+    /** Rename the category. */
+    editCategory?: () => void;
+    /** Delete the category, after asking. */
+    deleteCategory?: () => void;
 }
 
 /**
@@ -125,7 +144,7 @@ export const RoomListSectionHeaderView = memo(function RoomListSectionHeaderView
     roomCountInSection,
 }: Readonly<RoomListSectionHeaderViewProps>): JSX.Element {
     const { translate: _t } = useI18n();
-    const { id, title, isExpanded, isUnread, canBeReordered, acceptedRoomKind } = useViewModel(vm);
+    const { id, title, isExpanded, isUnread, canBeReordered, acceptedRoomKind, isHidden } = useViewModel(vm);
     const isLastSection = sectionIndex === sectionCount - 1;
 
     const {
@@ -209,57 +228,62 @@ export const RoomListSectionHeaderView = memo(function RoomListSectionHeaderView
         }
     };
 
+    // Nothing to toggle, focus or drop onto: just the gap before the section's rooms.
+    if (isHidden) return <div className={styles.hiddenHeader} role="presentation" />;
+
     return (
         <div
             aria-expanded={ariaExpanded}
             {...getGroupHeaderAccessibleProps(indexInList, sectionIndex, roomCountInSection)}
         >
             <div role="gridcell" aria-expanded={ariaExpanded}>
-                <button
-                    ref={buttonRef}
-                    type="button"
-                    className={classNames(styles.header, {
-                        [styles.keyboardActive]: keyboardActive,
-                        [styles.firstHeader]: sectionIndex === 0,
-                        // If the section is collapsed and it's the last one
-                        [styles.lastHeader]: !isExpanded && isLastSection,
-                        [styles.unread]: isUnread,
-                        [styles.dragSource]: isDragSource,
-                        [styles.dropTarget]: isDraggingRoom,
-                        [styles.dropTargetBottom]: hasBottomBorder,
-                        [styles.dropTargetTop]: hasTopBorder,
-                    })}
-                    onClick={() => !isDragSource && vm.onClick()}
-                    onKeyDown={(e) => {
-                        if ((e.code === "ArrowRight" && !isExpanded) || (e.code === "ArrowLeft" && isExpanded)) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            vm.onClick();
-                        } else if (e.code === "ArrowRight" && isExpanded && roomCountInSection > 0) {
-                            // Move focus to the first room in the section
-                            e.preventDefault();
-                            e.stopPropagation();
-                            e.currentTarget.dispatchEvent(
-                                new KeyboardEvent("keydown", {
-                                    code: "ArrowDown",
-                                    key: "ArrowDown",
-                                    bubbles: true,
-                                }),
-                            );
+                <CategoryContextMenu vm={vm}>
+                    <button
+                        ref={buttonRef}
+                        type="button"
+                        className={classNames(styles.header, {
+                            [styles.keyboardActive]: keyboardActive,
+                            [styles.firstHeader]: sectionIndex === 0,
+                            // If the section is collapsed and it's the last one
+                            [styles.lastHeader]: !isExpanded && isLastSection,
+                            [styles.unread]: isUnread,
+                            [styles.dragSource]: isDragSource,
+                            [styles.dropTarget]: isDraggingRoom,
+                            [styles.dropTargetBottom]: hasBottomBorder,
+                            [styles.dropTargetTop]: hasTopBorder,
+                        })}
+                        onClick={() => !isDragSource && vm.onClick()}
+                        onKeyDown={(e) => {
+                            if ((e.code === "ArrowRight" && !isExpanded) || (e.code === "ArrowLeft" && isExpanded)) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                vm.onClick();
+                            } else if (e.code === "ArrowRight" && isExpanded && roomCountInSection > 0) {
+                                // Move focus to the first room in the section
+                                e.preventDefault();
+                                e.stopPropagation();
+                                e.currentTarget.dispatchEvent(
+                                    new KeyboardEvent("keydown", {
+                                        code: "ArrowDown",
+                                        key: "ArrowDown",
+                                        bubbles: true,
+                                    }),
+                                );
+                            }
+                        }}
+                        aria-expanded={ariaExpanded}
+                        onFocus={onHeaderFocus}
+                        onBlur={onHeaderBlur}
+                        tabIndex={isFocused ? 0 : -1}
+                        aria-label={
+                            isUnread
+                                ? _t("room_list|section_header|toggle_unread", { section: title })
+                                : _t("room_list|section_header|toggle", { section: title })
                         }
-                    }}
-                    aria-expanded={ariaExpanded}
-                    onFocus={onHeaderFocus}
-                    onBlur={onHeaderBlur}
-                    tabIndex={isFocused ? 0 : -1}
-                    aria-label={
-                        isUnread
-                            ? _t("room_list|section_header|toggle_unread", { section: title })
-                            : _t("room_list|section_header|toggle", { section: title })
-                    }
-                >
-                    <RoomListSectionHeaderContent vm={vm} />
-                </button>
+                    >
+                        <RoomListSectionHeaderContent vm={vm} />
+                    </button>
+                </CategoryContextMenu>
             </div>
         </div>
     );

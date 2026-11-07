@@ -16,11 +16,17 @@ import {
 } from "@element-hq/web-shared-components";
 
 import {
+    categoryIdOfTag,
     DESKTOP_TEXT_CHANNELS,
+    DESKTOP_UNCATEGORIZED,
     DESKTOP_VOICE_CHANNELS,
     isDesktopChannelList,
     isDesktopChannelSection,
 } from "./DesktopChannelSections";
+import { confirmDeleteCategory, showRenameCategory } from "./serverCategories";
+import { clearRoomNotification } from "../../utils/notifications";
+import dispatcher from "../../dispatcher/dispatcher";
+import { Action } from "../../dispatcher/actions";
 import { hasCreateRoomRights } from "./utils";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import { showCreateNewRoom } from "../../utils/space";
@@ -44,6 +50,7 @@ import PosthogTrackers from "../../PosthogTrackers";
 import { CallStore, CallStoreEvent } from "../../stores/CallStore";
 import { type Call, CallEvent } from "../../models/Call";
 import throttle from "lodash/throttle";
+import { keepIfSame } from "../../utils/keepIfSame";
 
 /**
  * The kind of room the section with the given tag accepts. A room is in the People section because
@@ -73,7 +80,12 @@ function getCreateChannelKind(tag: string, spaceId: string, rooms: Room[]): "tex
     let kind: "text" | "voice" | undefined;
     if (tag === DESKTOP_TEXT_CHANNELS) kind = "text";
     else if (tag === DESKTOP_VOICE_CHANNELS) kind = "voice";
-    else if (isCustomSectionTag(tag) || tag === DefaultTagID.Favourite || tag === DefaultTagID.LowPriority) {
+    else if (
+        isCustomSectionTag(tag) ||
+        tag === DefaultTagID.Favourite ||
+        tag === DefaultTagID.LowPriority ||
+        categoryIdOfTag(tag) !== undefined
+    ) {
         if (!isDesktopChannelList(spaceId)) return undefined;
         const voice = rooms.filter((room) => room.isCallRoom() || room.isElementVideoRoom()).length;
         kind = voice > rooms.length - voice ? "voice" : "text";
@@ -124,6 +136,7 @@ export class RoomListSectionHeaderViewModel
             canBeReordered: isReorderableSection(props.tag, getCustomSectionData()),
             acceptedRoomKind: getAcceptedRoomKind(props.tag),
             createChannelKind: getCreateChannelKind(props.tag, props.spaceId, []),
+            isHidden: props.tag === DESKTOP_UNCATEGORIZED,
         });
         const sectionWatherRef = SettingsStore.watchSetting("RoomList.CustomSectionData", null, () =>
             this.onCustomSectionDataChange(),
@@ -179,10 +192,46 @@ export class RoomListSectionHeaderViewModel
         const space = MatrixClientPeg.get()?.getRoom(this.props.spaceId);
         if (!space) return;
         const type = this.snapshot.current.createChannelKind === "voice" ? RoomType.UnstableCall : undefined;
-        // The Text and Voice categories list rooms by their type, while any other section lists the rooms tagged
-        // with it, so the new channel is tagged to appear where it was created.
+        // A server category places the new channel in the server's layout; any other section lists the rooms
+        // tagged with it, so the new channel is tagged to appear where it was created.
+        const categoryId = categoryIdOfTag(this.props.tag);
         const sectionTag = isDesktopChannelSection(this.props.tag) ? undefined : this.props.tag;
-        void showCreateNewRoom(space, type, { sectionTag, sectionName: this.snapshot.current.title });
+        void showCreateNewRoom(space, type, { sectionTag, categoryId, sectionName: this.snapshot.current.title });
+    };
+
+    /**
+     * Show what a server category is called and what the person may do with it. Its name can change at any time,
+     * and so can the person's right to edit the server's layout.
+     */
+    public setCategory(category: { title: string; canEdit: boolean }): void {
+        this.snapshot.merge({
+            title: category.title,
+            categoryMenu: keepIfSame(this.snapshot.current.categoryMenu, { canEdit: category.canEdit }),
+            canBeReordered: category.canEdit,
+            acceptedRoomKind: category.canEdit ? "nonDm" : "none",
+        });
+    }
+
+    public markCategoryAsRead = (): void => {
+        const client = MatrixClientPeg.get();
+        if (!client) return;
+        for (const room of this.rooms) void clearRoomNotification(room, client);
+    };
+
+    public collapseAllCategories = (): void => {
+        dispatcher.dispatch({ action: Action.RoomListCollapseAllSections });
+    };
+
+    public editCategory = (): void => {
+        const space = MatrixClientPeg.get()?.getRoom(this.props.spaceId);
+        const categoryId = categoryIdOfTag(this.props.tag);
+        if (space && categoryId) showRenameCategory(space, categoryId, this.snapshot.current.title);
+    };
+
+    public deleteCategory = (): void => {
+        const space = MatrixClientPeg.get()?.getRoom(this.props.spaceId);
+        const categoryId = categoryIdOfTag(this.props.tag);
+        if (space && categoryId) void confirmDeleteCategory(space, categoryId, this.snapshot.current.title);
     };
 
     /**

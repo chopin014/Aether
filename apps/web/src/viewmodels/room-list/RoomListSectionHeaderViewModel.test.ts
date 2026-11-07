@@ -23,7 +23,16 @@ import { SettingLevel } from "../../settings/SettingLevel";
 import RoomListStoreV3 from "../../stores/room-list-v3/RoomListStoreV3";
 import { DefaultTagID } from "../../stores/room-list-v3/skip-list/tag";
 import { CHATS_TAG, type SectionExpansionState } from "../../stores/room-list-v3/section";
-import { DESKTOP_TEXT_CHANNELS, DESKTOP_VOICE_CHANNELS } from "./DesktopChannelSections";
+import {
+    categoryTag,
+    DESKTOP_TEXT_CHANNELS,
+    DESKTOP_UNCATEGORIZED,
+    DESKTOP_VOICE_CHANNELS,
+} from "./DesktopChannelSections";
+import * as serverCategories from "./serverCategories";
+import * as notifications from "../../utils/notifications";
+import dispatcher from "../../dispatcher/dispatcher";
+import { Action } from "../../dispatcher/actions";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import * as roomListUtils from "./utils";
 import * as spaceUtils from "../../utils/space";
@@ -292,14 +301,15 @@ describe("RoomListSectionHeaderViewModel", () => {
         });
 
         it.each([
-            [DESKTOP_TEXT_CHANNELS, undefined],
-            [DESKTOP_VOICE_CHANNELS, RoomType.UnstableCall],
-        ])("creates a %s room in the Space", (tag, type) => {
+            [DESKTOP_TEXT_CHANNELS, undefined, "builtin.text"],
+            [DESKTOP_VOICE_CHANNELS, RoomType.UnstableCall, "builtin.voice"],
+        ])("creates a %s room in the Space", (tag, type, categoryId) => {
             const showCreateNewRoom = vi.spyOn(spaceUtils, "showCreateNewRoom").mockResolvedValue(true);
             makeViewModel(tag).createChannel();
-            // The categories list rooms by type, so the new room needs no section tag to appear in them.
+            // The server's layout places the new room in its category, so it needs no section tag.
             expect(showCreateNewRoom).toHaveBeenCalledWith(space, type, {
                 sectionTag: undefined,
+                categoryId,
                 sectionName: "Channels",
             });
         });
@@ -860,6 +870,84 @@ describe("RoomListSectionHeaderViewModel", () => {
 
             vm.dispose();
             expect(notificationState.off).toHaveBeenCalledWith(NotificationStateEvents.Update, expect.any(Function));
+        });
+    });
+
+    describe("server categories", () => {
+        const CATEGORY = "c_7e50cc0b-4fb5-4ed0-89db-769fb11c837e";
+        let space: Room;
+
+        function makeViewModel(tag = categoryTag(CATEGORY)): RoomListSectionHeaderViewModel {
+            return new RoomListSectionHeaderViewModel({ tag, title: tag, spaceId: space.roomId, onToggleExpanded });
+        }
+
+        beforeEach(() => {
+            space = mkRoom(matrixClient, "!space:server");
+            vi.spyOn(MatrixClientPeg, "get").mockReturnValue(matrixClient);
+            vi.mocked(matrixClient.getRoom).mockImplementation((roomId) => (roomId === space.roomId ? space : null));
+        });
+
+        it("draws no header for the channels outside any category", () => {
+            expect(makeViewModel(DESKTOP_UNCATEGORIZED).getSnapshot().isHidden).toBe(true);
+            expect(makeViewModel().getSnapshot().isHidden).toBe(false);
+        });
+
+        it("shows a category's name and what the person may do with it", () => {
+            const vm = makeViewModel();
+            expect(vm.getSnapshot().categoryMenu).toBeUndefined();
+            expect(vm.getSnapshot().acceptedRoomKind).toBe("none");
+            vm.setCategory({ title: "Governo", canEdit: true });
+            expect(vm.getSnapshot()).toMatchObject({
+                title: "Governo",
+                categoryMenu: { canEdit: true },
+                canBeReordered: true,
+                acceptedRoomKind: "nonDm",
+            });
+            const menu = vm.getSnapshot().categoryMenu;
+            vm.setCategory({ title: "Governo", canEdit: true });
+            expect(vm.getSnapshot().categoryMenu).toBe(menu);
+            vm.setCategory({ title: "Governo", canEdit: false });
+            expect(vm.getSnapshot()).toMatchObject({ canBeReordered: false, acceptedRoomKind: "none" });
+        });
+
+        it("creates a channel in its category", () => {
+            vi.spyOn(roomListUtils, "hasCreateRoomRights").mockReturnValue(true);
+            const create = vi.spyOn(spaceUtils, "showCreateNewRoom").mockResolvedValue(true);
+            const vm = makeViewModel();
+            vm.setRooms([]);
+            vm.createChannel();
+            expect(create).toHaveBeenCalledWith(space, undefined, {
+                sectionTag: undefined,
+                categoryId: CATEGORY,
+                sectionName: categoryTag(CATEGORY),
+            });
+        });
+
+        it("renames and deletes its category", () => {
+            const rename = vi.spyOn(serverCategories, "showRenameCategory").mockImplementation(() => {});
+            const remove = vi.spyOn(serverCategories, "confirmDeleteCategory").mockResolvedValue();
+            const vm = makeViewModel();
+            vm.setCategory({ title: "Governo", canEdit: true });
+            vm.editCategory();
+            vm.deleteCategory();
+            expect(rename).toHaveBeenCalledWith(space, CATEGORY, "Governo");
+            expect(remove).toHaveBeenCalledWith(space, CATEGORY, "Governo");
+        });
+
+        it("marks every channel of the category as read", () => {
+            const clear = vi.spyOn(notifications, "clearRoomNotification").mockResolvedValue(undefined);
+            const rooms = [mkRoom(matrixClient, "!a:server"), mkRoom(matrixClient, "!b:server")];
+            const vm = makeViewModel();
+            vm.setRooms(rooms);
+            vm.markCategoryAsRead();
+            expect(clear).toHaveBeenCalledTimes(2);
+            expect(clear).toHaveBeenCalledWith(rooms[0], matrixClient);
+        });
+
+        it("collapses every category", () => {
+            const dispatch = vi.spyOn(dispatcher, "dispatch");
+            makeViewModel().collapseAllCategories();
+            expect(dispatch).toHaveBeenCalledWith({ action: Action.RoomListCollapseAllSections });
         });
     });
 });

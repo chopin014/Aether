@@ -18,11 +18,20 @@ import {
 import { Room, type MatrixClient, PendingEventOrdering, RoomType } from "matrix-js-sdk/src/matrix";
 
 import {
+    categoryIdOfTag,
+    categoryTitle,
+    getDesktopCategories,
     getDesktopChannelSections,
+    isConnectedTo,
     isDesktopChannelList,
-    DESKTOP_TEXT_CHANNELS,
-    DESKTOP_VOICE_CHANNELS,
+    isDesktopChannelSection,
+    isRoomMuted,
 } from "./DesktopChannelSections";
+import { reportLayoutError, showCreateCategory } from "./serverCategories";
+import { SpaceLayoutStore, SpaceLayoutStoreEvent } from "../../stores/space-layout/SpaceLayoutStore";
+import { getCategories } from "../../stores/space-layout/SpaceLayout";
+import { moveCategory, moveChannel } from "../../stores/space-layout/spaceLayoutActions";
+import { showCreateNewRoom, showSpaceInvite, shouldShowSpaceInvite } from "../../utils/space";
 
 import { Action } from "../../dispatcher/actions";
 import dispatcher from "../../dispatcher/dispatcher";
@@ -111,10 +120,6 @@ function getVisibleFilterIds(): FilterId[] {
  */
 function getSectionTitle(tag: string): string {
     switch (tag) {
-        case DESKTOP_TEXT_CHANNELS:
-            return _t("desktop|text_channels");
-        case DESKTOP_VOICE_CHANNELS:
-            return _t("desktop|voice_channels");
         case DefaultTagID.Invite:
             return _t("room_list|section|invites");
         case DefaultTagID.Favourite:
@@ -229,8 +234,14 @@ export class RoomListViewModel
         const filterIds = getVisibleFilterIds();
 
         // No section header view models exist yet, so read the persisted expansion state directly
-        const { sections, isFlatList } = computeSections(roomsResult, (tag) =>
-            isSectionExpanded(roomsResult.spaceId, tag),
+        SpaceLayoutStore.instance.watch(props.client);
+        const selectedRoomId = props.roomViewStore.getRoomId();
+        const { sections, isFlatList } = computeSections(
+            roomsResult,
+            getDesktopChannelSections(roomsResult, { selectedRoomId }),
+            (tag) => isSectionExpanded(roomsResult.spaceId, tag),
+            (room) => keepInCollapsedCategory(room, selectedRoomId),
+            canEditLayout(props.client, roomsResult.spaceId),
         );
         const isRoomListEmpty = roomsResult.sections.every((section) => section.rooms.length === 0);
 
@@ -263,6 +274,13 @@ export class RoomListViewModel
 
         // Subscribe to room list loaded
         this.disposables.trackListener(RoomListStoreV3.instance, RoomListStoreV3Event.ListsLoaded, this.onListsLoaded);
+
+        // A server's categories, its channels' places in them and the person's sidebar preferences
+        this.disposables.trackListener(
+            SpaceLayoutStore.instance,
+            SpaceLayoutStoreEvent.Changed,
+            this.onSpaceLayoutChanged as (...args: unknown[]) => void,
+        );
 
         // Subscribe to section creation
         this.disposables.trackListener(
@@ -320,6 +338,21 @@ export class RoomListViewModel
 
         // A room may already be open when the list is created
         this.onRoomViewStoreUpdate();
+    }
+
+    private readonly onSpaceLayoutChanged = (spaceId: string): void => {
+        if (spaceId === this.roomsResult.spaceId) void this.updateRoomListData();
+    };
+
+    /** The sections of a room list result, arranged by the server's layout when it lists a server's channels. */
+    private channelSections(roomsResult: RoomsResult): Section[] {
+        return getDesktopChannelSections(roomsResult, { selectedRoomId: this.props.roomViewStore.getRoomId() });
+    }
+
+    /** The server whose channels are listed, if the list shows a server's channels. */
+    private get channelListSpace(): Room | null {
+        if (!isDesktopChannelList(this.roomsResult.spaceId)) return null;
+        return this.props.client.getRoom(this.roomsResult.spaceId);
     }
 
     private readonly onRoomViewStoreUpdate = (): void => {
@@ -480,7 +513,7 @@ export class RoomListViewModel
      * Get the ordered list of room IDs.
      */
     public get roomIds(): string[] {
-        return getDesktopChannelSections(this.withPreviewRoom(this.roomsResult))
+        return this.channelSections(this.withPreviewRoom(this.roomsResult))
             .flatMap((section) => section.rooms)
             .map((room) => room.roomId);
     }
@@ -680,7 +713,7 @@ export class RoomListViewModel
      */
     private async scrollRoomIntoView(roomId: string): Promise<boolean> {
         // Look in the full (pre-collapse) sections so we can find rooms hidden in collapsed sections.
-        const section = getDesktopChannelSections(this.roomsResult).find((s) =>
+        const section = this.channelSections(this.roomsResult).find((s) =>
             s.rooms.some((room) => room.roomId === roomId),
         );
         // Room not found
@@ -1000,15 +1033,24 @@ export class RoomListViewModel
         this.lastActiveRoomPosition = roomId ? this.findRoomPosition(this.roomsResult.sections, roomId) : undefined;
 
         // Update section header view models with current rooms for unread state tracking
-        for (const section of getDesktopChannelSections(this.roomsResult)) {
-            this.getSectionHeaderViewModel(section.tag).setRooms(section.rooms);
+        const space = this.channelListSpace;
+        const canEdit = !!space && SpaceLayoutStore.instance.canEditLayout(space);
+        const categories = getDesktopCategories(this.roomsResult);
+        for (const section of this.channelSections(this.roomsResult)) {
+            const header = this.getSectionHeaderViewModel(section.tag);
+            header.setRooms(section.rooms);
+            const category = categories.get(section.tag);
+            if (category) header.setCategory({ title: categoryTitle(category), canEdit });
         }
 
         // Build the complete state atomically to ensure consistency
         const roomsResult = this.withPreviewRoom(this.roomsResult);
         const { sections, isFlatList } = computeSections(
             roomsResult,
+            this.channelSections(roomsResult),
             (tag) => this.roomSectionHeaderViewModels.get(tag)?.isExpanded ?? true,
+            (room) => keepInCollapsedCategory(room, roomId),
+            canEdit,
         );
         this.sections = sections;
 
@@ -1048,6 +1090,17 @@ export class RoomListViewModel
             hidePrimaryFilters: SettingsStore.getValue("feature_desktop_shell"),
             isSpaceChannelList: isDesktopChannelList(roomsResult.spaceId),
             canCreateRoom: hasCreateRoomRights(this.props.client, this.props.spaceStore.activeSpaceRoom),
+            channelListMenu: keepIfSame(
+                this.snapshot.current.channelListMenu,
+                space
+                    ? {
+                          hideMutedChannels: SpaceLayoutStore.instance.isHidingMutedChannels(space),
+                          canCreateChannel: hasCreateRoomRights(this.props.client, space),
+                          canCreateCategory: canEdit,
+                          canInvite: shouldShowSpaceInvite(space),
+                      }
+                    : undefined,
+            ),
         });
 
         this.notifyCollapseState(isFlatList);
@@ -1150,7 +1203,40 @@ export class RoomListViewModel
         }
     }
 
+    public toggleHideMutedChannels = (): void => {
+        const space = this.channelListSpace;
+        if (!space) return;
+        const store = SpaceLayoutStore.instance;
+        store.setHidingMutedChannels(space, !store.isHidingMutedChannels(space)).catch(reportLayoutError);
+    };
+
+    public createChannel = (): void => {
+        const space = this.channelListSpace;
+        if (space) void showCreateNewRoom(space);
+    };
+
+    public createCategory = (): void => {
+        const space = this.channelListSpace;
+        if (space) showCreateCategory(space);
+    };
+
+    public inviteToServer = (): void => {
+        const space = this.channelListSpace;
+        if (space) showSpaceInvite(space);
+    };
+
     public changeSectionOrder = async (sourceTag: string, targetTag: string): Promise<void> => {
+        const source = categoryIdOfTag(sourceTag);
+        const target = categoryIdOfTag(targetTag);
+        const space = this.channelListSpace;
+        if (source !== undefined || target !== undefined) {
+            if (!space || source === undefined || target === undefined) return;
+            // As with sections: a category dragged up goes before the one it is dropped on, one dragged down after.
+            const order = getCategories(SpaceLayoutStore.instance.reader(space)).map((category) => category.id);
+            const side = order.indexOf(source) > order.indexOf(target) ? "before" : "after";
+            await moveCategory(space, source, { anchor: target, side }).catch(reportLayoutError);
+            return;
+        }
         await RoomListStoreV3.instance.reorderSection(sourceTag, targetTag);
         // Scroll to the section after it moved
         const filterKeys = this.activeFilter !== undefined ? [this.activeFilter] : undefined;
@@ -1181,6 +1267,14 @@ export class RoomListViewModel
         const room = this.props.client.getRoom(roomId);
         if (!room) return;
 
+        // Dropping a channel on a server category moves it there, at the end, for everyone in the server.
+        if (isDesktopChannelSection(tag)) {
+            const categoryId = categoryIdOfTag(tag);
+            const space = this.channelListSpace;
+            if (space && categoryId !== undefined) moveChannel(space, roomId, categoryId).catch(reportLayoutError);
+            return;
+        }
+
         const currentTag = getSectionTagForRoom(room);
         // Room is already in the section
         if (currentTag === tag) return;
@@ -1197,16 +1291,21 @@ export class RoomListViewModel
  */
 function computeSections(
     roomsResult: RoomsResult,
+    channelSections: Section[],
     isSectionExpanded: (tag: string) => boolean,
+    keepWhenCollapsed: (room: Room) => boolean,
+    showEmptyCategories: boolean,
 ): { sections: Section[]; isFlatList: boolean } {
     const customSections = getCustomSectionData();
 
-    const filtered = getDesktopChannelSections(roomsResult)
-        // Only include sections that have rooms, or custom sections that were created in the current space.
+    const filtered = channelSections
+        // Only include sections that have rooms, custom sections that were created in the current space, and
+        // a server's empty categories for the people who can fill them.
         .filter(
             (section) =>
                 section.rooms.length > 0 ||
-                (isCustomSectionTag(section.tag) && customSections[section.tag]?.spaceId === roomsResult.spaceId),
+                (isCustomSectionTag(section.tag) && customSections[section.tag]?.spaceId === roomsResult.spaceId) ||
+                (showEmptyCategories && categoryIdOfTag(section.tag) !== undefined),
         );
     const singleDesktopDMSection =
         SettingsStore.getValue("feature_desktop_shell") &&
@@ -1216,12 +1315,15 @@ function computeSections(
     const isFlatList =
         filtered.length === 0 || (filtered.length === 1 && filtered[0].tag === CHATS_TAG) || singleDesktopDMSection;
 
-    const sections = filtered.map((section) => ({
-        ...section,
+    const sections = filtered.map((section) => {
         // A flat list has no section header to toggle, so always render its rooms.
-        // Otherwise, remove roomIds for sections that are currently collapsed.
-        rooms: isFlatList || isSectionExpanded(section.tag) ? section.rooms : [],
-    }));
+        if (isFlatList || isSectionExpanded(section.tag)) return section;
+        // A collapsed server category still shows what needs attention, as in Discord. Other sections show nothing.
+        return {
+            ...section,
+            rooms: isDesktopChannelSection(section.tag) ? section.rooms.filter(keepWhenCollapsed) : [],
+        };
+    });
 
     return { sections, isFlatList };
 }
@@ -1234,4 +1336,21 @@ function toRoomListSection(sections: Section[]): RoomListSection[] {
         id: tag,
         roomIds: rooms.map((room) => room.roomId),
     }));
+}
+
+/**
+ * Whether a channel stays in view when its category is collapsed: the open one, the voice channel the person is in,
+ * and one with unread messages the person did not mute, or a mention even if they did.
+ */
+function keepInCollapsedCategory(room: Room, selectedRoomId: string | null | undefined): boolean {
+    if (room.roomId === selectedRoomId || isConnectedTo(room)) return true;
+    const state = RoomNotificationStateStore.instance.getRoomState(room);
+    return state.isMention || (state.hasAnyNotificationOrActivity && !isRoomMuted(room));
+}
+
+/** Whether the person may change the layout of the server with this id. */
+function canEditLayout(client: MatrixClient, spaceId: string): boolean {
+    if (!isDesktopChannelList(spaceId)) return false;
+    const space = client.getRoom(spaceId);
+    return !!space && SpaceLayoutStore.instance.canEditLayout(space);
 }

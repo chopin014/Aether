@@ -37,8 +37,10 @@ export interface RoomListStickySectionHeaderViewProps {
 export const RoomListStickySectionHeaderView = memo(function RoomListStickySectionHeaderView({
     vm,
     isFirst,
-}: Readonly<RoomListStickySectionHeaderViewProps>): JSX.Element {
-    const { isExpanded, isUnread } = useViewModel(vm);
+}: Readonly<RoomListStickySectionHeaderViewProps>): JSX.Element | null {
+    const { isExpanded, isUnread, isHidden } = useViewModel(vm);
+    // A section without a header has nothing to pin.
+    if (isHidden) return null;
 
     return (
         <div className={styles.stickyBackground} aria-hidden={true}>

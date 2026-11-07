@@ -30,6 +30,10 @@ const RoomListSectionHeaderViewWrapperImpl = ({
     editSection,
     removeSection,
     createChannel,
+    markCategoryAsRead,
+    collapseAllCategories,
+    editCategory,
+    deleteCategory,
     isFocused,
     sectionIndex,
     sectionCount,
@@ -37,7 +41,16 @@ const RoomListSectionHeaderViewWrapperImpl = ({
     roomCountInSection,
     ...rest
 }: RoomListSectionHeaderProps): JSX.Element => {
-    const vm = useMockedViewModel(rest, { onClick, editSection, removeSection, createChannel });
+    const vm = useMockedViewModel(rest, {
+        onClick,
+        editSection,
+        removeSection,
+        createChannel,
+        markCategoryAsRead,
+        collapseAllCategories,
+        editCategory,
+        deleteCategory,
+    });
     return (
         <RoomListSectionHeaderView
             vm={vm}
@@ -81,6 +94,10 @@ const meta = {
         editSection: fn(),
         removeSection: fn(),
         createChannel: fn(),
+        markCategoryAsRead: fn(),
+        collapseAllCategories: fn(),
+        editCategory: fn(),
+        deleteCategory: fn(),
         sectionIndex: 1,
         sectionCount: 3,
         roomCountInSection: 5,
@@ -173,5 +190,31 @@ export const DesktopChannelCategory: Story = {
         canBeReordered: false,
         acceptedRoomKind: "none",
         createChannelKind: "voice",
+    },
+};
+
+/** A server category the person may edit: right-clicking it opens its menu, as in Discord. */
+export const DesktopServerCategory: Story = {
+    args: {
+        id: "desktop.category.c_7e50cc0b-4fb5-4ed0-89db-769fb11c837e",
+        title: "Governo",
+        displaySectionMenu: false,
+        canBeReordered: true,
+        acceptedRoomKind: "nonDm",
+        createChannelKind: "text",
+        categoryMenu: { canEdit: true },
+        isUnread: true,
+    },
+};
+
+/** The channels at the top of a server's list have no header, only a gap. */
+export const DesktopUncategorized: Story = {
+    args: {
+        id: "desktop.uncategorized",
+        title: "",
+        displaySectionMenu: false,
+        canBeReordered: false,
+        acceptedRoomKind: "none",
+        isHidden: true,
     },
 };
