@@ -428,7 +428,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
          const processRoomEvent = async (e: MatrixEvent): Promise<void> => {
              client.emit(ClientEvent.Event, e);
-@@ -991,12 +1064,140 @@
+@@ -991,12 +1064,144 @@
      public async sync(): Promise<void> {
          this.syncOpts.logger.debug("Sliding sync init loop");
  
@@ -468,12 +468,14 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +        const byActivity = Object.entries(snapshot.rooms)
 +            .sort(([, a], [, b]) => (b.bump_stamp ?? 0) - (a.bump_stamp ?? 0))
 +            .map(([roomId]) => roomId);
-+        const priority = new Set(snapshot.priorityRoomIds);
-+        const first: string[] = [];
++        // The rooms the snapshot asks for go first, such as the one the client opens at start.
++        const priority = new Set((snapshot.priorityRoomIds ?? []).filter((roomId) => snapshot.rooms[roomId]));
++        const first: string[] = [...priority];
 +        const rest: string[] = [];
 +        let recent = 0;
 +        for (const roomId of byActivity) {
-+            if (priority.has(roomId) || isSavedSpace(snapshot.rooms[roomId])) {
++            if (priority.has(roomId)) continue;
++            if (isSavedSpace(snapshot.rooms[roomId])) {
 +                first.push(roomId);
 +            } else if (recent < ROOMS_SHOWN_FIRST) {
 +                recent++;
@@ -548,6 +550,8 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +        delete snapshot.receipts?.[roomId];
 +        try {
 +            await this.onRoomData(roomId, { ...data, initial: true }, true);
++            // Applying a room can wait, such as on encryption. A client stopped meanwhile gets nothing more.
++            if (this.stopped) return;
 +            const room = this.client.getRoom(roomId);
 +            if (!room) return;
 +            if (accountData) room.addAccountData(mapEvents(this.client, roomId, accountData));
@@ -573,7 +577,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                  this.syncOpts.logger.debug("Got push rules");
                  this.client.pushRules = result;
                  break;
-@@ -1007,9 +1208,6 @@
+@@ -1007,9 +1212,6 @@
                  }
              }
          }
@@ -583,11 +587,14 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      /**
-@@ -1017,6 +1215,7 @@
+@@ -1017,6 +1219,10 @@
       */
      public stop(): void {
          this.syncOpts.logger.debug("SyncApi.stop");
 +        this.stopped = true;
++        // Saved rooms not applied yet are let go.
++        this.snapshot = undefined;
++        this.roomRestores.clear();
          this.slidingSync.stop();
      }
  

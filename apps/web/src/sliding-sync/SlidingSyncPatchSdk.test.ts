@@ -521,7 +521,9 @@ describe("sliding sync restoring a saved snapshot", () => {
 
         it("shows the room opened at start, the Spaces and the most recent rooms before Prepared, then the rest", async () => {
             let shownFirst: string[] = [];
+            let firstStored: string | undefined;
             const { client, api, states } = setup(async () => many());
+            client.on(ClientEvent.Room, (room) => (firstStored ??= room.roomId));
             client.on(ClientEvent.Sync, (state) => {
                 if (state === SyncState.Prepared) shownFirst = client.getRooms().map((room) => room.roomId);
             });
@@ -529,6 +531,8 @@ describe("sliding sync restoring a saved snapshot", () => {
             expect(new Set(shownFirst)).toEqual(
                 new Set([id(0), "!space:example.org", ...Array.from({ length: 20 }, (_, i) => id(29 - i))]),
             );
+            // The room opened at start is applied before any other, though it is the least active.
+            expect(firstStored).toBe(id(0));
             await vi.waitFor(() => expect(client.getRooms()).toHaveLength(31));
             expect(states.filter((state) => state === SyncState.Prepared)).toHaveLength(1);
             api.stop();
@@ -562,6 +566,33 @@ describe("sliding sync restoring a saved snapshot", () => {
             await vi.waitFor(() => expect(client.getRooms()).toHaveLength(30));
             expect(client.getRoom(id(1))).toBeNull();
             api.stop();
+        });
+
+        it("applies nothing more to a client stopped while a saved room is being applied", async () => {
+            const snapshot = many();
+            snapshot.roomAccountData = { [id(0)]: [{ type: "m.tag", content: { tags: { "u.work": {} } } }] };
+            const held = Promise.withResolvers<void>();
+            let holding = true;
+            const original = (
+                SlidingSyncSdk.prototype as unknown as { processRoomData: (...args: unknown[]) => Promise<void> }
+            ).processRoomData;
+            vi.spyOn(
+                SlidingSyncSdk.prototype as unknown as { processRoomData: (...args: unknown[]) => Promise<void> },
+                "processRoomData",
+            ).mockImplementation(async function (this: unknown, ...args: unknown[]) {
+                await original.apply(this, args);
+                // The room opened at start waits, as an encrypted room can wait on the crypto layer.
+                if (holding && (args[1] as { roomId: string }).roomId === id(0)) await held.promise;
+            });
+            const { client, api, states } = setup(async () => snapshot);
+            await vi.waitFor(() => expect(client.getRoom(id(0))).not.toBeNull());
+            api.stop();
+            holding = false;
+            held.resolve();
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            expect(client.getRoom(id(0))!.getAccountData("m.tag")).toBeUndefined();
+            expect(states).not.toContain(SyncState.Prepared);
+            expect(client.getRooms()).toHaveLength(1);
         });
 
         it("adds live events to the notifications while saved rooms are still being applied", async () => {
