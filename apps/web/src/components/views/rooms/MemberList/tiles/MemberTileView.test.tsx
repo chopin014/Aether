@@ -49,6 +49,17 @@ describe("MemberTileView", () => {
             expect(container).toMatchSnapshot();
         });
 
+        it("dims an offline member's row, and lets its artwork move while it is hovered", async () => {
+            render(
+                <RoomMemberTileView item={item} member={member} index={0} memberCount={1} offline onFocus={vi.fn()} />,
+            );
+            const row = screen.getByRole("option");
+            expect(row).toHaveClass("mx_MemberTileView_offline");
+            expect(row.style.getPropertyValue("--profile-motion")).toBe("paused");
+            await userEvent.hover(row);
+            expect(row.style.getPropertyValue("--profile-motion")).toBe("running");
+        });
+
         it("should display an warning E2EIcon when the e2E status = Warning", async () => {
             vi.mocked(matrixClient.getCrypto()!.getUserVerificationStatus).mockResolvedValue({
                 isCrossSigningVerified: vi.fn().mockReturnValue(false),

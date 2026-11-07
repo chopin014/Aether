@@ -119,6 +119,7 @@ export function sdkRoomMemberToRoomMember(member: SdkRoomMember): Member {
             rawDisplayName: member.rawDisplayName,
             disambiguate: member.disambiguate,
             avatarThumbnailUrl: avatarThumbnailUrl,
+            ...(mxcAvatarURL ? { avatarMxc: mxcAvatarURL } : {}),
             powerLevel: member.powerLevel,
             lastModifiedTime: member.getLastModifiedTime(),
             presenceState,

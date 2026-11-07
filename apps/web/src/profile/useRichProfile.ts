@@ -50,8 +50,10 @@ export interface RichRowProfile {
 /**
  * The parts of a profile a compact row shows. Only asks the server in the desktop shell, and shows nothing for ignored
  * people or when the viewer has turned other people's profile styling off.
+ *
+ * @param avatarMxc The person's current avatar, so their animated avatar plays only while it is still that image.
  */
-export function useRichRowProfile(userId: string | undefined): RichRowProfile | undefined {
+export function useRichRowProfile(userId: string | undefined, avatarMxc?: string): RichRowProfile | undefined {
     const client = useMatrixClientContext();
     const desktopShell = useFeatureEnabled("feature_desktop_shell");
     const enabled = useSettingValue("showProfileAppearance");
@@ -61,9 +63,9 @@ export function useRichRowProfile(userId: string | undefined): RichRowProfile | 
     return useMemo(() => {
         if (!profile || !userId || client.isUserIgnored(userId)) return undefined;
         return {
-            appearance: appearanceFromRichProfile(profile, undefined),
+            appearance: appearanceFromRichProfile(profile, avatarMxc),
             status: profile.status,
             tag: wornSpaceTag(client, profile, userId),
         };
-    }, [client, profile, userId]);
+    }, [client, profile, userId, avatarMxc]);
 }
