@@ -467,6 +467,8 @@ export function VirtualizedRoomListView({ vm, renderAvatar, onKeyDown }: Virtual
     const renderStickyHeader = useCallback(
         (groupIndex: number, headerId: string, context: VirtualizedListContext<Context>): ReactNode => {
             const sectionHeaderVM = context.context.vm.getSectionHeaderViewModel(headerId);
+            // A section without a header has nothing to pin.
+            if (sectionHeaderVM.getSnapshot().isHidden) return null;
             return <RoomListStickySectionHeaderView key={headerId} vm={sectionHeaderVM} isFirst={groupIndex === 0} />;
         },
         [],
@@ -567,7 +569,11 @@ export function VirtualizedRoomListView({ vm, renderAvatar, onKeyDown }: Virtual
     }, [vm]);
 
     const isItemFocusable = useCallback(() => true, []);
-    const isGroupHeaderFocusable = useCallback(() => true, []);
+    // A section without a header, such as a server's channels outside any category, draws only a gap.
+    const isGroupHeaderFocusable = useCallback(
+        (header: string) => !vm.getSectionHeaderViewModel(header).getSnapshot().isHidden,
+        [vm],
+    );
     const increaseViewportBy = useMemo(
         () => ({
             top: EXTENDED_VIEWPORT_HEIGHT,

@@ -14,6 +14,7 @@ import { createTestClient, mkSpace } from "test-utils";
 import Modal from "../Modal";
 import * as createRoomModule from "../createRoom";
 import { showCreateNewRoom } from "./space";
+import * as layoutActions from "../stores/space-layout/spaceLayoutActions";
 
 describe("showCreateNewRoom", () => {
     let space: Room;
@@ -61,6 +62,39 @@ describe("showCreateNewRoom", () => {
         vi.mocked(space.client.setRoomTag).mockRejectedValue(new Error("offline"));
         finishDialog([true, { name: "geral" }]);
         await expect(showCreateNewRoom(space, undefined, { sectionTag: "m.favourite" })).resolves.toBe(true);
+    });
+
+    it("places a channel created from a server category in it", async () => {
+        const move = vi.spyOn(layoutActions, "moveChannel").mockResolvedValue();
+        finishDialog([true, { name: "chat-governamental" }]);
+        const category = "c_7e50cc0b-4fb5-4ed0-89db-769fb11c837e";
+        await showCreateNewRoom(space, undefined, { categoryId: category });
+        expect(move).toHaveBeenCalledWith(space, "!new:server", category);
+    });
+
+    it.each([
+        ["builtin.text", undefined],
+        ["builtin.voice", RoomType.UnstableCall],
+    ])("leaves a channel created in %s to land there by its kind", async (category, roomType) => {
+        const move = vi.spyOn(layoutActions, "moveChannel").mockResolvedValue();
+        finishDialog([true, { name: "geral", roomType }]);
+        await showCreateNewRoom(space, roomType, { categoryId: category });
+        expect(move).not.toHaveBeenCalled();
+    });
+
+    it("places a channel whose kind was changed in the dialog in the category it came from", async () => {
+        const move = vi.spyOn(layoutActions, "moveChannel").mockResolvedValue();
+        finishDialog([true, { name: "Geral#1", roomType: RoomType.UnstableCall }]);
+        await showCreateNewRoom(space, undefined, { categoryId: "builtin.text" });
+        expect(move).toHaveBeenCalledWith(space, "!new:server", "builtin.text");
+    });
+
+    it("keeps the created channel when placing it fails", async () => {
+        vi.spyOn(layoutActions, "moveChannel").mockRejectedValue(new Error("M_FORBIDDEN"));
+        finishDialog([true, { name: "geral" }]);
+        await expect(
+            showCreateNewRoom(space, undefined, { categoryId: "c_7e50cc0b-4fb5-4ed0-89db-769fb11c837e" }),
+        ).resolves.toBe(true);
     });
 
     it("creates nothing when the dialog is cancelled", async () => {

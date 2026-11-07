@@ -59,7 +59,9 @@ jobs:
                   src/vector/platform/ElectronPlatform.test.ts
                   src/models/MatrixRTCLegacyKeys.test.ts
                   src/models/Call.test.ts
-                  src/viewmodels/room-list/RoomListItemViewModel.test.ts
+                  src/viewmodels/room-list
+                  src/stores/space-layout
+                  src/utils/space.test.ts
                   src/viewmodels/settings/MicrophoneSettingsViewModel.test.ts
                   src/viewmodels/settings/DesktopUpdatesViewModel.test.ts
                   src/toasts/restartDesktopUpdate.test.ts
@@ -72,7 +74,7 @@ jobs:
                   pnpm exec vitest run --project unit
                   src/desktop
                   src/room/timeline/event-tile/EventTileView
-                  src/room-list/VirtualizedRoomListView/RoomListItemWrapper/RoomListItemView
+                  src/room-list
                   src/settings/MicrophoneSettingsView
             - name: Desktop shell layout in Chromium
               working-directory: apps/web
