@@ -342,6 +342,91 @@ describe("sliding sync requests", () => {
     });
 });
 
+describe("sliding sync profile updates (MSC4262)", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    function setup(fields?: string[]) {
+        const client = makeClient();
+        vi.spyOn(client, "getPushRules").mockResolvedValue({ global: {} } as never);
+        const bodies: Record<string, unknown>[] = [];
+        const responses: ((response: Partial<MSC3575SlidingSyncResponse>) => void)[] = [];
+        vi.spyOn(client.http, "authedRequest").mockImplementation(((
+            _method: unknown,
+            _path: unknown,
+            _qps: unknown,
+            body: Record<string, unknown>,
+            opts: { abortSignal?: AbortSignal },
+        ) => {
+            const { promise, resolve, reject } = Promise.withResolvers<MSC3575SlidingSyncResponse>();
+            opts.abortSignal?.addEventListener("abort", () => {
+                const error = new Error("aborted");
+                error.name = "AbortError";
+                reject(error);
+            });
+            bodies.push(structuredClone(body));
+            responses.push((response) => resolve({ pos: "1", lists: {}, rooms: {}, extensions: {}, ...response }));
+            return promise;
+        }) as never);
+        const sync = new SlidingSync("https://example.org", new Map(), {}, client, 20_000);
+        const api = new SlidingSyncSdk(
+            sync,
+            client,
+            { lazyLoadMembers: true, unstableMSC4429SyncUserProfileFields: fields },
+            { logger },
+        );
+        void api.sync();
+        return { client, api, bodies, responses };
+    }
+
+    const extensionOf = (body: Record<string, unknown>): unknown =>
+        (body.extensions as Record<string, unknown> | undefined)?.["org.matrix.msc4262.profiles"];
+
+    it("asks for the profile fields regular sync asks for", async () => {
+        const { api, bodies } = setup(["org.example.status", "m.tz"]);
+        await vi.waitFor(() => expect(bodies).toHaveLength(1));
+        expect(extensionOf(bodies[0])).toEqual({ enabled: true, fields: ["org.example.status", "m.tz"] });
+        api.stop();
+    });
+
+    it("asks for no profile updates when no fields are wanted", async () => {
+        const { api, bodies } = setup();
+        await vi.waitFor(() => expect(bodies).toHaveLength(1));
+        expect(extensionOf(bodies[0])).toBeUndefined();
+        api.stop();
+    });
+
+    it("stores each update over the profile already known, and announces it once stored", async () => {
+        const { client, api, responses } = setup(["org.example.status"]);
+        await client.store.storeUserProfiles(
+            new Map([["@bob:example.org", { "org.example.status": "away", "m.tz": "Europe/Lisbon" }]]),
+        );
+        const announced: [string, unknown, unknown][] = [];
+        client.on(ClientEvent.UserProfileUpdate, async (who, profile) => {
+            announced.push([who, profile, await client.store.getUserProfile(who)]);
+        });
+        await vi.waitFor(() => expect(responses).toHaveLength(1));
+        responses[0]({
+            extensions: {
+                "org.matrix.msc4262.profiles": {
+                    users: {
+                        "@bob:example.org": { updated: { "org.example.status": "busy" } },
+                        "@carol:example.org": null,
+                    },
+                },
+            },
+        });
+        await vi.waitFor(() => expect(announced).toHaveLength(2));
+        expect(announced).toContainEqual([
+            "@bob:example.org",
+            { "org.example.status": "busy" },
+            { "org.example.status": "busy", "m.tz": "Europe/Lisbon" },
+        ]);
+        // A user whose profile is no longer sent is forgotten.
+        expect(announced).toContainEqual(["@carol:example.org", null, undefined]);
+        api.stop();
+    });
+});
+
 describe("sliding sync restoring a saved snapshot", () => {
     afterEach(() => vi.restoreAllMocks());
 

@@ -211,7 +211,15 @@ diff --git a/src/sync.ts b/src/sync.ts
 diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 --- a/src/sliding-sync-sdk.ts
 +++ b/src/sliding-sync-sdk.ts
-@@ -49,9 +49,10 @@
+@@ -31,6 +31,7 @@
+     processSyncCryptoChanges,
+ } from "./sync.ts";
+ import { type MatrixEvent } from "./models/event.ts";
++import { type SyncUserProfile } from "./models/user.ts";
+ import {
+     type IMinimalEvent,
+     type IRoomEvent,
+@@ -49,9 +50,10 @@
      type MSC3575SlidingSyncResponse,
      type SlidingSync,
      SlidingSyncEvent,
@@ -223,7 +231,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  import { type IPushRules } from "./@types/PushRules.ts";
  import { RoomStateEvent } from "./models/room-state.ts";
  import { RoomMemberEvent } from "./models/room-member.ts";
-@@ -83,6 +84,11 @@
+@@ -83,6 +85,11 @@
      private toDeviceEvents: IToDeviceEvent[] = [];
      private e2ee?: ExtensionE2EEResponse;
      private hasChanges = false;
@@ -235,7 +243,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
      public constructor(
          private readonly client: MatrixClient,
-@@ -99,13 +105,66 @@
+@@ -99,13 +106,66 @@
          this.hasChanges = true;
      }
  
@@ -303,7 +311,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          const toDeviceEvents = this.toDeviceEvents;
          const e2ee = this.e2ee;
          this.toDeviceEvents = [];
-@@ -127,10 +186,7 @@
+@@ -127,10 +187,7 @@
  }
  
  class ExtensionE2EE implements Extension<ExtensionE2EERequest, ExtensionE2EEResponse> {
@@ -315,7 +323,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
      public name(): string {
          return "e2ee";
-@@ -149,7 +205,9 @@
+@@ -149,7 +206,9 @@
              // to encrypt for new devices. This is an expensive call, so we should
              // really really remember `?pos=` wherever possible.
              logger.log("ExtensionE2EE: invalidating all device lists due to missing 'pos'");
@@ -326,7 +334,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          }
          return {
              enabled: true, // this is sticky so only send it on the initial request
-@@ -254,28 +312,65 @@
+@@ -254,28 +313,65 @@
      }
  
      private processGlobalAccountData(globalAccountData: IMinimalEvent[]): void {
@@ -411,7 +419,70 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  type ExtensionTypingRequest = {
      enabled: boolean;
  };
-@@ -428,7 +523,16 @@
+@@ -375,6 +471,62 @@
+  * outside the list window. Sticky events already in a room's timeline are excluded here, so
+  * `processRoomData` picks those up separately.
+  */
++interface ExtensionProfilesRequest {
++    enabled: boolean;
++    fields?: string[];
++}
++
++interface ExtensionProfilesResponse {
++    // Null for a user whose profile is no longer sent, such as once no room is shared with them.
++    users?: Record<string, { updated?: SyncUserProfile } | null>;
++}
++
++/**
++ * The profile updates extension (MSC4262): profile fields of the users the syncing user shares rooms with, as regular
++ * sync sends them with MSC4429. They are stored, and announced as {@link ClientEvent.UserProfileUpdate}, as there.
++ */
++class ExtensionProfiles implements Extension<ExtensionProfilesRequest, ExtensionProfilesResponse> {
++    public constructor(
++        private readonly client: MatrixClient,
++        private readonly fields: string[],
++    ) {}
++
++    public name(): string {
++        return "org.matrix.msc4262.profiles";
++    }
++
++    public when(): ExtensionState {
++        return ExtensionState.PostProcess;
++    }
++
++    public async onRequest(isInitial: boolean): Promise<ExtensionProfilesRequest> {
++        return { enabled: true, fields: this.fields };
++    }
++
++    public async onResponse(data: ExtensionProfilesResponse): Promise<void> {
++        const users = data?.users;
++        if (typeof users !== "object" || users === null) return;
++        const removed: string[] = [];
++        const amended = new Map<string, SyncUserProfile>();
++        for (const [userId, update] of Object.entries(users)) {
++            if (update === null) {
++                removed.push(userId);
++            } else if (typeof update?.updated === "object" && update.updated !== null) {
++                // Only the fields that changed are sent; the others stay as they were.
++                const existing = await this.client.store.getUserProfile(userId);
++                amended.set(userId, { ...existing, ...update.updated });
++            }
++        }
++        if (removed.length) await this.client.store.removeUserProfiles(removed);
++        if (amended.size) await this.client.store.storeUserProfiles(amended);
++        // After storing, so a listener reading the stored profile sees the update.
++        for (const [userId, update] of Object.entries(users)) {
++            if (update === null) this.client.emit(ClientEvent.UserProfileUpdate, userId, null);
++            else if (amended.has(userId)) this.client.emit(ClientEvent.UserProfileUpdate, userId, update!.updated!);
++        }
++    }
++}
++
+ class ExtensionStickyEvents implements Extension<ExtensionStickyEventsRequest, ExtensionStickyEventsResponse> {
+     private nextBatch?: string;
+ 
+@@ -428,7 +580,16 @@
      private syncStateData?: ISyncStateData;
      private lastPos: string | null = null;
      private failCount = 0;
@@ -428,7 +499,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
      public constructor(
          private readonly slidingSync: SlidingSync,
-@@ -448,6 +552,7 @@
+@@ -448,6 +609,7 @@
          // The `e2ee` and `to_device` extensions feed a shared collector, so that the crypto layer sees all the
          // encryption-relevant data from a response in a single call.
          const e2eeCollector = new E2EESyncChangesCollector(this.client, this.syncOpts.cryptoCallbacks);
@@ -436,9 +507,13 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          const extensions: Extension<any, any>[] = [
              new ExtensionToDevice(e2eeCollector),
              new ExtensionAccountData(this.client),
-@@ -456,14 +561,20 @@
+@@ -455,15 +617,24 @@
+             new ExtensionReceipts(this.client),
              new ExtensionStickyEvents(this.client),
          ];
++        // The profile fields asked for are those regular sync asks for with MSC4429.
++        const profileFields = this.opts.unstableMSC4429SyncUserProfileFields;
++        if (profileFields?.length) extensions.push(new ExtensionProfiles(this.client, profileFields));
          if (this.syncOpts.cryptoCallbacks) {
 -            extensions.push(new ExtensionE2EE(this.syncOpts.cryptoCallbacks, e2eeCollector));
 +            extensions.push(new ExtensionE2EE(e2eeCollector));
@@ -459,7 +534,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          let room = this.client.store.getRoom(roomId);
          if (!room) {
              if (!roomData.initial) {
-@@ -476,7 +587,7 @@
+@@ -476,7 +647,7 @@
              }
              room = _createAndReEmitRoom(this.client, roomId, this.opts);
          }
@@ -468,7 +543,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      private onLifecycle(state: SlidingSyncState, resp: MSC3575SlidingSyncResponse | null, err?: Error): void {
-@@ -490,7 +601,7 @@
+@@ -490,7 +661,7 @@
                      break;
                  }
                  // Element won't stop showing the initial loading spinner unless we fire SyncState.Prepared
@@ -477,7 +552,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                      this.updateSyncState(SyncState.Prepared, {
                          oldSyncToken: undefined,
                          nextSyncToken: resp.pos,
-@@ -651,7 +762,12 @@
+@@ -651,7 +822,12 @@
          return false;
      }
  
@@ -491,7 +566,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          roomData = ensureNameEvent(client, room.roomId, roomData);
          const stateEvents = mapEvents(this.client, room.roomId, roomData.required_state);
          // Prevent events from being decrypted ahead of time
-@@ -669,6 +785,8 @@
+@@ -669,6 +845,8 @@
          // necessarily set `initial` in the latter case, so without checking `expanded_timeline` the older events would
          // be appended after the newer ones we already have.
          const expandedTimeline = roomData.expanded_timeline || roomData.unstable_expanded_timeline;
@@ -500,7 +575,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          if (roomData.limited || roomData.initial || expandedTimeline) {
              // we should not know about any of these timeline entries if this is a genuinely new room.
              // If we do, then we've effectively done scrollback.
-@@ -703,10 +821,19 @@
+@@ -703,10 +881,19 @@
                      newEvents.unshift(recvEvent);
                  }
              }
@@ -524,7 +599,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              }
          }
  
-@@ -739,6 +866,8 @@
+@@ -739,6 +926,8 @@
          if (roomData.invite_state) {
              const inviteStateEvents = mapEvents(this.client, room.roomId, roomData.invite_state);
              await this.injectRoomEvents(room, inviteStateEvents);
@@ -533,7 +608,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              if (roomData.initial) {
                  room.recalculate();
                  this.client.store.storeRoom(room);
-@@ -750,9 +879,15 @@
+@@ -750,9 +939,15 @@
              return;
          }
  
@@ -550,7 +625,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              room.getLiveTimeline().setPaginationToken(roomData.prev_batch ?? null, EventTimeline.BACKWARDS);
          }
  
-@@ -810,6 +945,8 @@
+@@ -810,6 +1005,8 @@
          } */
  
          await this.injectRoomEvents(room, stateEvents, timelineEvents, roomData.num_live);
@@ -559,7 +634,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
          // we deliberately don't add ephemeral events to the timeline
          room.addEphemeralEvents(ephemeralEvents);
-@@ -832,9 +969,12 @@
+@@ -832,9 +1029,12 @@
  
          // check if any timeline events should bing and add them to the notifEvents array:
          // we'll purge this once we've fully processed the sync response
@@ -573,7 +648,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              client.emit(ClientEvent.Event, e);
              if (e.isState() && e.getType() == EventType.RoomEncryption && this.syncOpts.cryptoCallbacks) {
                  await this.syncOpts.cryptoCallbacks.onCryptoEvent(room, e);
-@@ -843,6 +983,7 @@
+@@ -843,6 +1043,7 @@
  
          await promiseMapSeries(stateEvents, processRoomEvent);
          await promiseMapSeries(timelineEvents, processRoomEvent);
@@ -581,7 +656,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          ephemeralEvents.forEach(function (e) {
              client.emit(ClientEvent.Event, e);
          });
-@@ -991,12 +1132,144 @@
+@@ -991,12 +1192,144 @@
      public async sync(): Promise<void> {
          this.syncOpts.logger.debug("Sliding sync init loop");
  
@@ -730,7 +805,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                  this.syncOpts.logger.debug("Got push rules");
                  this.client.pushRules = result;
                  break;
-@@ -1007,9 +1280,6 @@
+@@ -1007,9 +1340,6 @@
                  }
              }
          }
@@ -740,7 +815,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      /**
-@@ -1017,6 +1287,11 @@
+@@ -1017,6 +1347,11 @@
       */
      public stop(): void {
          this.syncOpts.logger.debug("SyncApi.stop");
