@@ -13,6 +13,8 @@ import {
     type LedgerEventInput,
     MAIN_SCOPE,
     RoomCountLedger,
+    type SavedLedger,
+    trimSavedLedger,
     UNTHREADED_RECEIPT,
 } from "./RoomCountLedger";
 
@@ -447,6 +449,82 @@ describe("RoomCountLedger", () => {
 
         expect(ledger.size).toBe(2000);
         expect(ledger.compute().main).toEqual({ total: 2000, highlight: 0, confidence: CountConfidence.LowerBound });
+    });
+
+    describe("saved and restored", () => {
+        it("restores the same counts", () => {
+            const ledger = new RoomCountLedger();
+            ledger.addRun(
+                [
+                    { id: "root", own: false },
+                    { id: "join", own: true, joins: true },
+                    { id: "r1", own: false, threadRoot: "root" },
+                    { id: "edit", own: false, relatesTo: "r1" },
+                    { id: "m1", own: false },
+                ],
+                { kind: "live", continuesTip: false },
+            );
+            ledger.addRun(events("m2", "m3"), { kind: "live", continuesTip: false });
+            for (const id of ["root", "r1", "m1", "m2"]) ledger.setContribution(id, NOTIFY);
+            ledger.setContribution("edit", SILENT);
+            ledger.setContribution("m3", ENCRYPTED);
+            ledger.setRedacted("m1", true);
+            ledger.setReceipt(MAIN_SCOPE, "private", "root");
+            // One it cannot place is kept beside it.
+            ledger.setReceipt(MAIN_SCOPE, "private", "unseen");
+            ledger.setReceipt("root", "public", "r1");
+            ledger.setReceiptsComplete();
+            ledger.setJoined(true);
+
+            const restored = RoomCountLedger.restore(ledger.save())!;
+            restored.setJoined(true);
+            expect(restored.compute()).toEqual(ledger.compute());
+            expect(restored.unevaluated()).toEqual(ledger.unevaluated());
+            // It carries on as the original would.
+            for (const copy of [ledger, restored]) {
+                copy.addRun(events("m4"), { kind: "live", continuesTip: true });
+                copy.setContribution("m4", HIGHLIGHT);
+            }
+            expect(restored.compute()).toEqual(ledger.compute());
+        });
+
+        it("saves only the newest events, and then claims no more than it knows", () => {
+            const ids = Array.from({ length: 400 }, (_, i) => `e${i}`);
+            const ledger = ledgerWith(ids);
+            ledger.setJoined(true);
+            ledger.setReceipt(MAIN_SCOPE, "public", "e350");
+            let restored = RoomCountLedger.restore(ledger.save())!;
+            restored.setJoined(true);
+            expect(restored.size).toBe(300);
+            expect(restored.compute().main).toEqual({ total: 49, highlight: 0, confidence: CountConfidence.Exact });
+
+            // Its receipt is among the events left out: everything kept is unread, which is still true.
+            const other = ledgerWith(ids);
+            other.setReceipt(MAIN_SCOPE, "public", "e50");
+            restored = RoomCountLedger.restore(other.save())!;
+            expect(restored.compute().main).toEqual({
+                total: 300,
+                highlight: 0,
+                confidence: CountConfidence.LowerBound,
+            });
+        });
+
+        it("keeps only the newest events when trimmed", () => {
+            const ledger = ledgerWith(["a", "b"]);
+            ledger.addRun(events("c", "d", "e"), { kind: "live", continuesTip: false });
+            const ids = (limit: number): string[][] =>
+                trimSavedLedger(ledger.save(), limit).segments.map((segment) => segment.map(([id]) => id));
+
+            expect(ids(4)).toEqual([["b"], ["c", "d", "e"]]);
+            expect(ids(2)).toEqual([["d", "e"]]);
+        });
+
+        it("does not restore what it cannot read", () => {
+            expect(RoomCountLedger.restore(undefined)).toBeUndefined();
+            const old = { version: 0, segments: [], receipts: {}, receiptsComplete: true };
+            // An older version's shape, which the current type does not allow.
+            expect(RoomCountLedger.restore(old as unknown as SavedLedger)).toBeUndefined();
+        });
     });
 
     describe("against a full history", () => {

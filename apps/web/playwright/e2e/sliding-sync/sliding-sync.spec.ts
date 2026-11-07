@@ -128,6 +128,38 @@ test.describe("Sliding Sync", () => {
         await expect(page.getByText("Arrived after the server answered")).toBeVisible();
     });
 
+    test("shows the unread counts saved on this device before the server answers on the next start", async ({
+        page,
+        user,
+        joinedBot: bob,
+        testRoom,
+    }) => {
+        await bob.sendMessage(testRoom.roomId, "Hello World");
+        await bob.sendMessage(testRoom.roomId, `Hello ${user.displayName}`);
+        const unread = "Open room Test Room with 2 unread mentions.";
+        await expect(page.getByRole("option", { name: unread })).toBeVisible();
+        // Changes are written in batches, a moment after they arrive.
+        await page.waitForTimeout(3000);
+
+        // Hold every sliding sync response back for a while on the next start.
+        const release = Promise.withResolvers<void>();
+        await page.route("**/org.matrix.simplified_msc3575/sync**", async (route) => {
+            await release.promise;
+            await route.continue();
+        });
+        await page.reload();
+        const room = page.getByRole("option", { name: unread });
+        await expect(room).toBeVisible({ timeout: 10_000 });
+        await expect(room.getByTestId("notification-decoration")).toHaveText("2");
+
+        // The server's answer agrees, and reading the room clears it.
+        release.resolve();
+        await room.click();
+        await expect(
+            page.getByRole("option", { name: "Open room Test Room" }).getByTestId("notification-decoration"),
+        ).not.toBeAttached();
+    });
+
     test("lists the channels of a Space someone opens, and keeps syncing", async ({ page, app, user }) => {
         // Opening a Space used to ask the server for lists filtered by Space, which Synapse cannot do: every sync
         // request failed from then on.
