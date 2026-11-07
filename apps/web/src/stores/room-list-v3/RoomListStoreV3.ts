@@ -113,9 +113,10 @@ export class RoomListStoreV3Class extends AsyncStoreWithClient<EmptyObject> {
      */
     private pendingEmit = false;
 
-    /** The selected Space, whose changes of rooms are followed. */
+    /** The selected Space, whose changes of rooms are followed while the store is ready. */
     private watchedSpace?: SpaceKey;
-    private spaceRoomsChangeQueued = false;
+    /** Whether the selected Space's rooms changed since its rooms were last worked out. */
+    private activeSpaceRoomsChanged = false;
 
     public constructor(dispatcher: MatrixDispatcher) {
         super(dispatcher);
@@ -126,7 +127,6 @@ export class RoomListStoreV3Class extends AsyncStoreWithClient<EmptyObject> {
             this.watchActiveSpace();
             this.onActiveSpaceChanged();
         });
-        this.watchActiveSpace();
         SDKContextClass.instance.spaceStore.on(UPDATE_HOME_BEHAVIOUR, () => this.onActiveSpaceChanged());
         SettingsStore.watchSetting("RoomList.OrderedCustomSections", null, () => this.onSectionsChange());
 
@@ -255,6 +255,8 @@ export class RoomListStoreV3Class extends AsyncStoreWithClient<EmptyObject> {
         this.roomSkipList = new RoomSkipList(sorter, this.getSkipListFilters());
 
         await SDKContextClass.instance.spaceStore.storeReadyPromise;
+        // The Space store may have changed Space without announcing it, such as when it was reset at logout.
+        this.watchActiveSpace();
         const rooms = this.getRooms();
         this.roomSkipList.seed(rooms);
         this.emit(LISTS_LOADED_EVENT);
@@ -263,6 +265,7 @@ export class RoomListStoreV3Class extends AsyncStoreWithClient<EmptyObject> {
 
     protected async onNotReady(): Promise<void> {
         this.roomSkipList = undefined;
+        this.unwatchActiveSpace();
     }
 
     protected async onAction(payload: ActionPayload): Promise<void> {
@@ -466,6 +469,7 @@ export class RoomListStoreV3Class extends AsyncStoreWithClient<EmptyObject> {
             this.pendingEmit = true;
             requestAnimationFrame(() => {
                 this.pendingEmit = false;
+                if (this.activeSpaceRoomsChanged) this.onActiveSpaceChanged();
                 this.emit(LISTS_UPDATE_EVENT);
             });
         }
@@ -497,26 +501,33 @@ export class RoomListStoreV3Class extends AsyncStoreWithClient<EmptyObject> {
      * Space store announces those changes under the Space's own key.
      */
     private watchActiveSpace(): void {
-        const spaceStore = SDKContextClass.instance.spaceStore;
-        const space = spaceStore.activeSpace;
+        const space = SDKContextClass.instance.spaceStore.activeSpace;
         if (space === this.watchedSpace) return;
-        if (this.watchedSpace !== undefined) spaceStore.off(this.watchedSpace, this.onActiveSpaceRoomsChanged);
+        this.unwatchActiveSpace();
         this.watchedSpace = space;
-        spaceStore.on(space, this.onActiveSpaceRoomsChanged);
+        SDKContextClass.instance.spaceStore.on(space, this.onActiveSpaceRoomsChanged);
     }
 
-    /** The selected Space's rooms changed. A sync can bring many of its children at once, so they are applied once. */
+    private unwatchActiveSpace(): void {
+        if (this.watchedSpace !== undefined) {
+            SDKContextClass.instance.spaceStore.off(this.watchedSpace, this.onActiveSpaceRoomsChanged);
+        }
+        this.watchedSpace = undefined;
+        this.activeSpaceRoomsChanged = false;
+    }
+
+    /**
+     * The selected Space's rooms changed. Sync can change them once per room it loads, so working them out again,
+     * which looks at every room, waits for the next update of the lists.
+     */
     private readonly onActiveSpaceRoomsChanged = (): void => {
-        if (this.spaceRoomsChangeQueued) return;
-        this.spaceRoomsChangeQueued = true;
-        queueMicrotask(() => {
-            this.spaceRoomsChangeQueued = false;
-            this.onActiveSpaceChanged();
-        });
+        this.activeSpaceRoomsChanged = true;
+        this.scheduleEmit();
     };
 
     private onActiveSpaceChanged(): void {
         if (!this.roomSkipList) return;
+        this.activeSpaceRoomsChanged = false;
         this.roomSkipList.calculateActiveSpaceForNodes();
         this.scheduleEmit();
     }

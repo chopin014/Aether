@@ -28,6 +28,7 @@ import { getMockedRooms } from "./skip-list/__mocks__";
 import { AlphabeticSorter } from "./skip-list/sorters/AlphabeticSorter";
 import dispatcher from "../../dispatcher/dispatcher";
 import { MetaSpace, UPDATE_SELECTED_SPACE } from "../spaces";
+import { type RoomSkipList } from "./skip-list/RoomSkipList";
 import { DefaultTagID } from "./skip-list/tag";
 import { FilterEnum } from "./skip-list/filters";
 import { RoomNotificationStateStore } from "../notifications/RoomNotificationStateStore";
@@ -587,18 +588,24 @@ describe("RoomListStoreV3", () => {
                         .sections.flatMap((s) => s.rooms)
                         .map((r) => r.roomId);
                 expect(shown()).not.toContain(rooms[13].roomId);
+                const frames: FrameRequestCallback[] = [];
+                vi.spyOn(global, "requestAnimationFrame").mockImplementation((callback) => frames.push(callback));
+                const nextFrame = (): void => frames.splice(0).forEach((callback) => callback(0));
+                const recalculate = vi.spyOn(
+                    (store as unknown as { roomSkipList: RoomSkipList }).roomSkipList,
+                    "calculateActiveSpaceForNodes",
+                );
 
                 // A channel is added to the Space, and another removed. The Space store announces it under the
-                // Space's key, as often as each of its children changes.
+                // Space's key, as often as sync processes a room.
                 inSpace.add(rooms[13].roomId);
                 inSpace.delete(rooms[6].roomId);
-                const recalculate = vi.spyOn(
-                    store as unknown as { onActiveSpaceChanged(): void },
-                    "onActiveSpaceChanged",
-                );
-                spaceStore.emit(spaceRoom.roomId);
                 spaceStore.emit(spaceRoom.roomId);
                 await Promise.resolve();
+                spaceStore.emit(spaceRoom.roomId);
+                await Promise.resolve();
+                expect(recalculate).not.toHaveBeenCalled();
+                nextFrame();
                 expect(recalculate).toHaveBeenCalledTimes(1);
                 expect(shown()).toContain(rooms[13].roomId);
                 expect(shown()).not.toContain(rooms[6].roomId);
@@ -606,10 +613,34 @@ describe("RoomListStoreV3", () => {
                 // Once another Space is selected, the first one's changes no longer count.
                 vi.spyOn(spaceStore, "activeSpace", "get").mockImplementation(() => MetaSpace.Home);
                 spaceStore.emit(UPDATE_SELECTED_SPACE);
+                nextFrame();
                 recalculate.mockClear();
                 spaceStore.emit(spaceRoom.roomId);
-                await Promise.resolve();
+                nextFrame();
                 expect(recalculate).not.toHaveBeenCalled();
+            });
+
+            it("follows the Space selected when the store is ready again, such as after logging in again", async () => {
+                const { client, rooms } = getClientAndRooms();
+                const { spaceRoom } = createSpace(rooms, [6], client);
+                const spaceStore = SDKContextClass.instance.spaceStore;
+                vi.spyOn(spaceStore, "activeSpace", "get").mockImplementation(() => spaceRoom.roomId);
+                const store = new RoomListStoreV3Class(dispatcher);
+                await store.start();
+                const lifecycle = store as unknown as {
+                    onNotReady(): Promise<void>;
+                    onReady(): Promise<void>;
+                    roomSkipList: RoomSkipList;
+                };
+                // Logging out resets the Space store to Home without announcing a new selection.
+                await lifecycle.onNotReady();
+                vi.spyOn(spaceStore, "activeSpace", "get").mockImplementation(() => MetaSpace.Home);
+                await lifecycle.onReady();
+                const recalculate = vi.spyOn(lifecycle.roomSkipList, "calculateActiveSpaceForNodes");
+                spaceStore.emit(spaceRoom.roomId);
+                expect(recalculate).not.toHaveBeenCalled();
+                spaceStore.emit(MetaSpace.Home);
+                expect(recalculate).toHaveBeenCalledTimes(1);
             });
         });
 
