@@ -218,8 +218,8 @@ describe("SlidingSyncManager", () => {
             complete(sync, {});
             await vi.waitFor(() => expect(sync.getListParams("recent")?.timeline_limit).toBe(20));
             complete(sync, {});
-            // Only the manager's own tracking of responses stays, with the notification counts'.
-            await vi.waitFor(() => expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(2));
+            // Only the manager's own tracking of responses stays, with the notification counts' and the saved rooms'.
+            await vi.waitFor(() => expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(3));
             const select = vi.spyOn(sync, "useCustomSubscription");
             const visible = manager.setRoomVisible(roomId);
             await vi.waitFor(() => expect(select).toHaveBeenCalledWith(roomId, "bootstrap"));
@@ -236,7 +236,7 @@ describe("SlidingSyncManager", () => {
             complete(sync, { [roomId]: response });
             await expect(preparation).resolves.toBe(true);
             expect(select).toHaveBeenLastCalledWith(roomId, "room");
-            expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(2);
+            expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(3);
             sync.stop();
         });
 
@@ -669,8 +669,8 @@ describe("SlidingSyncManager", () => {
             await vi.waitFor(() => expect(sync.getListParams("recent")?.timeline_limit).toBe(20));
             sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, null);
             await new Promise((resolve) => setTimeout(resolve, 60));
-            // Only the manager's own tracking of responses stays, with the notification counts'.
-            expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(2);
+            // Only the manager's own tracking of responses stays, with the notification counts' and the saved rooms'.
+            expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(3);
             const roomId = "!new:example.org";
             const selectSubscription = vi.spyOn(sync, "useCustomSubscription");
             const visible = manager.setRoomVisible(roomId);

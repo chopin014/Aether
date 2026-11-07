@@ -104,8 +104,12 @@ export class SlidingSyncCache {
     private readonly accountData = new Map<string, IMinimalEvent>();
     private readonly dirtyRooms = new Set<string>();
     private readonly removedRooms = new Set<string>();
-    /** Rooms whose notification count ledger changed since it was last saved. */
-    private readonly countsChanged = new Set<string>();
+    /**
+     * Rooms changed by the sync response being applied. They are written once it all is, so a saved room never has
+     * a response's events without its receipts and counts; until then the room's last written record stands.
+     */
+    private readonly heldRooms = new Set<string>();
+    private inResponse = false;
     private countsSource?: CountsSource;
     private loadedCounts: ReadonlyMap<string, SavedLedger> = new Map();
     private accountDataDirty = false;
@@ -226,8 +230,20 @@ export class SlidingSyncCache {
      */
     public observeCounts(roomId: string): void {
         if (this.disposed || !this.rooms.has(roomId)) return;
-        this.countsChanged.add(roomId);
         this.markRoom(roomId);
+    }
+
+    /** A sync response is being applied: the rooms it changes wait for {@link endResponse}. */
+    public beginResponse(): void {
+        this.inResponse = true;
+    }
+
+    /** The sync response is applied, receipts included: the rooms it changed can be written. */
+    public endResponse(): void {
+        this.inResponse = false;
+        if (this.heldRooms.size === 0) return;
+        this.heldRooms.clear();
+        this.scheduleWrite();
     }
 
     /**
@@ -349,7 +365,7 @@ export class SlidingSyncCache {
         for (const roomId of roomIds) {
             this.rooms.delete(roomId);
             this.dirtyRooms.delete(roomId);
-            this.countsChanged.delete(roomId);
+            this.heldRooms.delete(roomId);
             this.removedRooms.add(roomId);
             delete this.loadedSnapshot?.rooms[roomId];
         }
@@ -385,7 +401,7 @@ export class SlidingSyncCache {
         this.writeTimer = undefined;
         this.dirtyRooms.clear();
         this.removedRooms.clear();
-        this.countsChanged.clear();
+        this.heldRooms.clear();
         this.accountDataDirty = false;
         this.rooms.clear();
         this.accountData.clear();
@@ -437,6 +453,7 @@ export class SlidingSyncCache {
     private markRoom(roomId: string): void {
         this.removedRooms.delete(roomId);
         this.dirtyRooms.add(roomId);
+        if (this.inResponse) this.heldRooms.add(roomId);
         this.scheduleWrite();
     }
 
@@ -459,7 +476,10 @@ export class SlidingSyncCache {
             if (room.timeline.length <= 1) continue;
             room.timeline = room.timeline.slice(-1);
             room.prevBatch = null;
-            this.dirtyRooms.add(room.roomId);
+            if (!this.dirtyRooms.has(room.roomId)) {
+                this.dirtyRooms.add(room.roomId);
+                this.scheduleWrite();
+            }
         }
     }
 
@@ -493,12 +513,11 @@ export class SlidingSyncCache {
     /** Put the pending changes in a transaction straight away, and wait for it to finish. */
     private async writePending(database: IDBDatabase): Promise<void> {
         if (!this.hasPendingWrites()) return;
-        this.readCounts();
+        const dirty = this.readyRooms();
+        // After the ledgers are read, so those written are trimmed too. Rooms this trims are written next time.
         this.trimQuietRooms();
-        const dirty = [...this.dirtyRooms];
         const removed = [...this.removedRooms];
         const accountDataDirty = this.accountDataDirty;
-        this.dirtyRooms.clear();
         this.removedRooms.clear();
         this.accountDataDirty = false;
         try {
@@ -520,30 +539,32 @@ export class SlidingSyncCache {
     }
 
     private hasPendingWrites(): boolean {
-        return (
-            this.dirtyRooms.size > 0 ||
-            this.removedRooms.size > 0 ||
-            this.countsChanged.size > 0 ||
-            this.accountDataDirty
-        );
+        return this.dirtyRooms.size > 0 || this.removedRooms.size > 0 || this.accountDataDirty;
     }
 
-    /** Take the changed notification count ledgers. One being worked out waits for the next write. */
-    private readCounts(): void {
-        let pending = false;
-        for (const roomId of this.countsChanged) {
-            const room = this.rooms.get(roomId);
+    /**
+     * The changed rooms that can be written now, each with its notification count ledger as last published. One
+     * changed by a response still being applied, or whose counts are being worked out, waits: its last written
+     * record stands until then.
+     */
+    private readyRooms(): string[] {
+        const ready: string[] = [];
+        let waiting = false;
+        for (const roomId of this.dirtyRooms) {
+            if (this.heldRooms.has(roomId)) continue;
             const saved = this.countsSource?.(roomId);
             if (saved === "pending") {
-                pending = true;
+                waiting = true;
                 continue;
             }
-            this.countsChanged.delete(roomId);
-            if (!room) continue;
-            room.counts = saved;
-            this.dirtyRooms.add(roomId);
+            const room = this.rooms.get(roomId);
+            // A room not counted yet, such as one still to be restored, keeps the ledger saved with it.
+            if (room && saved) room.counts = saved;
+            ready.push(roomId);
         }
-        if (pending) this.scheduleWrite();
+        for (const roomId of ready) this.dirtyRooms.delete(roomId);
+        if (waiting) this.scheduleWrite();
+        return ready;
     }
 
     private open(): Promise<IDBDatabase | null> {

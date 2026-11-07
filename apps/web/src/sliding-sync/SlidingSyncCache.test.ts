@@ -194,7 +194,7 @@ describe("SlidingSyncCache", () => {
         expect(snapshot.rooms["!r0:example.org"].prev_batch).toBeUndefined();
     });
 
-    it("saves each room's notification count ledger as its source gives it", async () => {
+    it("saves each room's notification count ledger with it, and not the room while its counts are pending", async () => {
         const cache = new SlidingSyncCache(userId, deviceId);
         const ledger: SavedLedger = {
             version: 1,
@@ -202,20 +202,60 @@ describe("SlidingSyncCache", () => {
             receipts: { main: { public: { best: "$z" } } },
             receiptsComplete: true,
         };
-        let saved: SavedLedger | "pending" = "pending";
+        let saved: SavedLedger | "pending" = ledger;
         cache.setCountsSource((id) => (id === roomId ? saved : undefined));
         cache.observeRoomData(roomId, data({ initial: true, timeline: [message("$a")] }));
         cache.observeCounts(roomId);
-        // Not ready yet: the room is written without it, and it is asked for again.
         await cache.flush();
-        saved = ledger;
-        await cache.flush();
-        // A room the cache does not keep has no ledger saved either.
-        cache.observeCounts("!unknown:example.org");
 
-        const next = await reopen(cache);
-        await next.load();
+        // New events arrive while their counts are worked out: the room's record stays as it was.
+        saved = "pending";
+        cache.observeRoomData(roomId, data({ timeline: [message("$b")] }));
+        await cache.flush();
+        let next = await reopen(cache);
+        let snapshot = (await next.load())!;
+        expect(snapshot.rooms[roomId].timeline.map((event) => event.event_id)).toEqual(["$a"]);
         expect(next.restoredCounts).toEqual(new Map([[roomId, ledger]]));
+
+        // Once they are worked out, both are written.
+        const later: SavedLedger = {
+            ...ledger,
+            segments: [
+                [
+                    ["$a", 8],
+                    ["$b", 8 | 16 | 64],
+                ],
+            ],
+        };
+        saved = later;
+        next.setCountsSource(() => later);
+        next.observeRoomData(roomId, data({ timeline: [message("$b")] }));
+        next = await reopen(next);
+        snapshot = (await next.load())!;
+        expect(snapshot.rooms[roomId].timeline.map((event) => event.event_id)).toEqual(["$a", "$b"]);
+        expect(next.restoredCounts).toEqual(new Map([[roomId, later]]));
+        // A room the cache does not keep has no ledger saved either.
+        next.observeCounts("!unknown:example.org");
+        await next.dispose();
+    });
+
+    it("writes a room a sync response changed only once the whole response is applied", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        cache.observeRoomData(roomId, data({ initial: true, timeline: [message("$a")] }));
+        await cache.flush();
+
+        cache.beginResponse();
+        cache.observeRoomData(roomId, data({ timeline: [message("$b")] }));
+        // Not even when the page closes half way: the room keeps its last whole record.
+        cache.flushNow();
+        await cache.flush();
+        const reader = new SlidingSyncCache(userId, deviceId);
+        expect((await reader.load())!.rooms[roomId].timeline.map((event) => event.event_id)).toEqual(["$a"]);
+        await reader.dispose();
+
+        cache.endResponse();
+        const next = await reopen(cache);
+        expect((await next.load())!.rooms[roomId].timeline.map((event) => event.event_id)).toEqual(["$a", "$b"]);
         await next.dispose();
     });
 

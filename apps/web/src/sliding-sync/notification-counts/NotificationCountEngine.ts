@@ -80,6 +80,8 @@ export class NotificationCountEngine implements RoomHistoryObserver {
     /** Ledgers saved on this device by the last session, taken up as their rooms are restored. */
     private saved = new Map<string, SavedLedger>();
     private changeListener?: (roomId: string) => void;
+    /** The push rules changed since the saved ledgers were made: what they say each event adds is out of date. */
+    private savedRulesChanged = false;
 
     public constructor(
         private readonly client: MatrixClient,
@@ -130,6 +132,7 @@ export class NotificationCountEngine implements RoomHistoryObserver {
      */
     public useSaved(saved: ReadonlyMap<string, SavedLedger>): void {
         this.saved = new Map(saved);
+        this.savedRulesChanged = false;
     }
 
     /** Hear which rooms' counts were published, so their ledgers can be saved. */
@@ -157,8 +160,9 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         if (info.initial && !info.fromSnapshot) this.awaitingReceipts.add(room.roomId);
         if (info.fromSnapshot) {
             // Published at once, so the room is announced with its saved counts rather than none.
+            // The room is not in the client's store yet, so it is published as given.
             this.dirty.delete(room.roomId);
-            if (!this.publish(room.roomId, Infinity)) this.markDirty(room.roomId);
+            if (!this.publish(room.roomId, Infinity, room)) this.markDirty(room.roomId);
             return;
         }
         this.markDirty(room.roomId, true);
@@ -277,11 +281,13 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         // The server sends the rules again on every new connection: only a real change matters. Evaluating again
         // needs each event, which saved ledgers do not all have.
         if (previous && JSON.stringify(previous.getContent()) === JSON.stringify(event.getContent())) return;
-        // Every event is evaluated again with the new rules, as its counts are next needed.
+        // Every event is evaluated again with the new rules, as its counts are next needed. So is every event of the
+        // saved ledgers still to be restored, worked out with the old rules.
         for (const [roomId, ledger] of this.ledgers) {
             ledger.forgetContributions();
             this.markDirty(roomId);
         }
+        this.savedRulesChanged = this.saved.size > 0;
     };
 
     private onMyMembership = (room: Room, membership: string): void => {
@@ -330,8 +336,8 @@ export class NotificationCountEngine implements RoomHistoryObserver {
      * Evaluate what a room's counts need, then set them on the room.
      * @returns false when the slice ran out first: the room is published once the rest is evaluated.
      */
-    private publish(roomId: string, deadline: number): boolean {
-        const room = this.client.getRoom(roomId);
+    private publish(roomId: string, deadline: number, given?: Room): boolean {
+        const room = given ?? this.client.getRoom(roomId);
         const ledger = this.ledgers.get(roomId);
         if (!room || !ledger) return true;
         ledger.setJoined(room.getMyMembership() === KnownMembership.Join);
@@ -413,7 +419,9 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         let ledger = this.ledgers.get(roomId);
         if (!ledger) {
             // A saved ledger that cannot be read is dropped: the room is counted afresh.
-            ledger = RoomCountLedger.restore(this.saved.get(roomId)) ?? new RoomCountLedger();
+            const restored = RoomCountLedger.restore(this.saved.get(roomId));
+            if (restored && this.savedRulesChanged) restored.forgetContributions();
+            ledger = restored ?? new RoomCountLedger();
             this.saved.delete(roomId);
             this.ledgers.set(roomId, ledger);
         }

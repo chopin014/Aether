@@ -230,6 +230,7 @@ export class RoomCountLedger {
                 kinds[kind] = {
                     best: typeof points.best === "string" ? points.best : undefined,
                     dangling: typeof points.dangling === "string" ? points.dangling : undefined,
+                    unsettled: points.unsettled === true || undefined,
                 };
             }
             ledger.receipts.set(scope, kinds);

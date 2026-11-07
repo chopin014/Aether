@@ -30,6 +30,7 @@ import {
     SlidingSyncState,
     type MSC3575RoomData,
     type MSC3575SlidingSyncResponse,
+    type SlidingSyncSnapshot,
 } from "matrix-js-sdk/src/sliding-sync";
 // These tests cover how the engine works with the SDK's sliding sync, so they use the real implementation.
 // oxlint-disable-next-line no-restricted-imports
@@ -573,8 +574,16 @@ describe("NotificationCountEngine", () => {
         expect(client.hasLocalNotificationCounts()).toBe(true);
     });
 
-    it("shows a restored room's saved counts as soon as it is restored, before the server answers", async () => {
-        const { client, engine, counts } = await setup();
+    it("announces a restored room with its saved counts, before the server answers", async () => {
+        const client: MatrixClient = createClientWithCreds({
+            homeserverUrl: "https://example.org",
+            userId: me,
+            accessToken: "token",
+        });
+        client.setPushRules(pushRules);
+        vi.spyOn(client, "getPushRules").mockResolvedValue(pushRules);
+        // The server never answers.
+        vi.spyOn(client.http, "authedRequest").mockImplementation(() => new Promise(() => {}));
         // Saved by the last session: two unread messages after the receipt, one a mention.
         const previous = new RoomCountLedger();
         previous.addRun(
@@ -585,22 +594,74 @@ describe("NotificationCountEngine", () => {
         previous.setContribution("$c", { notify: true, highlight: true, final: true });
         previous.setReceipt("main", "public", "$a");
         previous.setReceiptsComplete();
+        // The saved room keeps only its newest event; the saved ledger knows the rest.
+        const snapshot: SlidingSyncSnapshot = {
+            rooms: {
+                [roomId]: { name: "Saved", required_state: requiredState, timeline: [message("$c", "hi alice")] },
+            },
+            accountData: [],
+        };
+        const sync = new SlidingSync("https://example.org", new Map(), {}, client, 20_000);
+        const api = new SlidingSyncSdk(
+            sync,
+            client,
+            { lazyLoadMembers: true, slidingSyncSnapshot: async () => snapshot },
+            { logger },
+        );
+        const engine = new NotificationCountEngine(client, sync);
+        engine.start();
         engine.useSaved(new Map([[roomId, previous.save()]]));
+        stops.push(() => {
+            engine.stop();
+            api.stop();
+        });
+        const announced = Promise.withResolvers<{ total: number; highlight: number }>();
+        client.on(ClientEvent.Room, (room) =>
+            announced.resolve({
+                total: room.getRoomUnreadNotificationCount(NotificationCountType.Total),
+                highlight: room.getRoomUnreadNotificationCount(NotificationCountType.Highlight),
+            }),
+        );
+
+        void api.sync();
+
+        // Already there when the room is announced.
+        await expect(announced.promise).resolves.toEqual({ total: 2, highlight: 1 });
+        expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Exact);
+    });
+
+    it("evaluates saved ledgers restored after the push rules changed", async () => {
+        const { client, engine, counts, settle } = await setup();
+        const previous = new RoomCountLedger();
+        previous.addRun(
+            ["$a", "$b"].map((id) => ({ id, own: false })),
+            { kind: "live", continuesTip: false },
+        );
+        previous.setContribution("$b", { notify: true, highlight: false, final: true });
+        previous.setReceipt("main", "public", "$a");
+        previous.setReceiptsComplete();
+        engine.useSaved(new Map([[roomId, previous.save()]]));
+
+        // The rules change before the room is restored: nothing notifies any more.
+        const silent: IPushRules = { global: { ...pushRules.global, [PushRuleKind.Underride]: [] } };
+        client.setPushRules(silent);
+        client.emit(
+            ClientEvent.AccountData,
+            new MatrixEvent({ type: EventType.PushRules, content: silent }),
+            new MatrixEvent({ type: EventType.PushRules, content: pushRules }),
+        );
         const room = new Room(roomId, client, me);
         room.updateMyMembership("join");
         client.store.storeRoom(room);
-
-        // The saved room keeps only its newest event; the saved ledger knows the rest.
-        engine.onSyncTimeline(room, [new MatrixEvent(message("$c", "hi alice"))], {
+        engine.onSyncTimeline(room, [new MatrixEvent(message("$b"))], {
             limited: false,
             initial: true,
             expanded: false,
             fromSnapshot: true,
         });
+        await settle();
 
-        // At once, without waiting for another task.
-        expect(counts()).toEqual({ total: 2, highlight: 1 });
-        expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Exact);
+        expect(counts().total).toBe(0);
     });
 
     it("gives a room's ledger to save only as it was when its counts were published", async () => {

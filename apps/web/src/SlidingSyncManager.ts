@@ -1366,9 +1366,18 @@ export class SlidingSyncManager {
         const countEngine = this.countEngine;
         cache.setCountsSource((roomId) => countEngine?.save(roomId));
         countEngine?.setChangeListener((roomId) => cache.observeCounts(roomId));
+        // A room changed by a response is written once the whole response is applied, receipts included.
+        const onResponse = (state: SlidingSyncState, response: unknown, error?: Error): void => {
+            if (state === SlidingSyncState.RequestFinished && response && !error) cache.beginResponse();
+        };
+        const onApplied = (): void => cache.endResponse();
+        slidingSync.on(SlidingSyncEvent.Lifecycle, onResponse);
+        slidingSync.on(SlidingSyncEvent.Applied, onApplied);
         this.detachCache = (): void => {
             cache.setCountsSource(undefined);
             countEngine?.setChangeListener(undefined);
+            slidingSync.off(SlidingSyncEvent.Lifecycle, onResponse);
+            slidingSync.off(SlidingSyncEvent.Applied, onApplied);
             slidingSync.off(SlidingSyncEvent.RoomData, onRoomData);
             slidingSync.off(SlidingSyncEvent.Lifecycle, onComplete);
             client.off(ClientEvent.Sync, onSync);
