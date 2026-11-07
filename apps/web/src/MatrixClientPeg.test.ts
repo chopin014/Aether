@@ -17,6 +17,8 @@ import { advanceDateAndTime, stubClient, createTestClient } from "test-utils";
 import { type IMatrixClientPeg, MatrixClientPeg as peg } from "./MatrixClientPeg";
 import { presencePreferenceKey } from "./utils/presencePreference";
 import SdkConfig from "./SdkConfig";
+import PlatformPeg from "./PlatformPeg";
+import type BasePlatform from "./BasePlatform";
 import { createClientWithCreds } from "./utils/createMatrixClient";
 import { ACCESS_TOKEN_EXPIRY_STORAGE_KEY, AccessTokenRenewal } from "./utils/tokens/AccessTokenRenewal";
 import * as StorageManager from "./utils/StorageManager";
@@ -100,6 +102,8 @@ describe("MatrixClientPeg", () => {
             mockClient.initRustCrypto = vi.fn();
             mockClient.startClient = vi.fn();
             mockClient.setSyncPresence = vi.fn().mockResolvedValue(undefined);
+            // The server offers sliding sync, which tests turning it on rely on.
+            mockClient.doesServerSupportUnstableFeature = vi.fn().mockResolvedValue(true);
             testPeg.set(mockClient as unknown as MatrixClient);
         });
 
@@ -159,6 +163,70 @@ describe("MatrixClientPeg", () => {
             await testPeg.start();
             expect(setup).toHaveBeenCalledWith(testPeg.safeGet(), undefined, expected);
             expect(window.location.hash).toBe("#/home");
+        });
+
+        describe("with sliding sync turned on", () => {
+            beforeEach(() => {
+                const getValue = SettingsStore.getValue.bind(SettingsStore);
+                vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) => {
+                    if (name === "feature_simplified_sliding_sync") return true;
+                    return getValue(name, ...args);
+                });
+            });
+
+            it("uses regular sync where the server offers no sliding sync", async () => {
+                vi.spyOn(SlidingSyncManager.instance, "serverOffersSlidingSync").mockResolvedValue(false);
+                const setup = vi.spyOn(SlidingSyncManager.instance, "setup");
+                const discard = vi.spyOn(SlidingSyncManager.instance, "discardPrefetchedSnapshot");
+                const startClient = vi.spyOn(testPeg.safeGet(), "startClient").mockResolvedValue(undefined);
+                await testPeg.start();
+                expect(setup).not.toHaveBeenCalled();
+                expect(startClient.mock.calls[0][0]?.slidingSync).toBeUndefined();
+                // The saved rooms read while the stores opened are let go.
+                expect(discard).toHaveBeenCalled();
+            });
+
+            it("decides at once from the answer kept from last time, and reloads if the server has since dropped it", async () => {
+                // The answer kept from last time, then the new one once the server has answered.
+                vi.spyOn(SlidingSyncManager.instance, "knownServerSupport")
+                    .mockReturnValueOnce(true)
+                    .mockReturnValue(false);
+                const answer = Promise.withResolvers<boolean | undefined>();
+                vi.spyOn(SlidingSyncManager.instance, "serverOffersSlidingSync").mockReturnValue(answer.promise);
+                const setup = vi.spyOn(SlidingSyncManager.instance, "setup").mockResolvedValue(undefined);
+                vi.spyOn(SlidingSyncManager.instance, "isActiveFor").mockReturnValue(true);
+                const reload = vi.fn();
+                vi.spyOn(PlatformPeg, "get").mockReturnValue({ reload } as unknown as BasePlatform);
+                // Starting does not wait for the server's answer.
+                await testPeg.start();
+                expect(setup).toHaveBeenCalledOnce();
+                answer.resolve(false);
+                await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce());
+            });
+
+            it("does not reload when the server's new answer could not be kept, which would reload every time", async () => {
+                // The old answer still reads back, as when storage is full.
+                vi.spyOn(SlidingSyncManager.instance, "knownServerSupport").mockReturnValue(true);
+                vi.spyOn(SlidingSyncManager.instance, "serverOffersSlidingSync").mockResolvedValue(false);
+                vi.spyOn(SlidingSyncManager.instance, "setup").mockResolvedValue(undefined);
+                vi.spyOn(SlidingSyncManager.instance, "isActiveFor").mockReturnValue(true);
+                const reload = vi.fn();
+                vi.spyOn(PlatformPeg, "get").mockReturnValue({ reload } as unknown as BasePlatform);
+                await testPeg.start();
+                for (let i = 0; i < 5; i++) await Promise.resolve();
+                expect(reload).not.toHaveBeenCalled();
+            });
+
+            it.each([true, undefined])(
+                "uses sliding sync where the server offers it, or cannot be asked (%s)",
+                async (offers) => {
+                    vi.spyOn(SlidingSyncManager.instance, "serverOffersSlidingSync").mockResolvedValue(offers);
+                    const setup = vi.spyOn(SlidingSyncManager.instance, "setup").mockResolvedValue(undefined);
+                    await testPeg.start();
+                    expect(setup).toHaveBeenCalledOnce();
+                    expect(setup.mock.calls[0][0]).toBe(testPeg.safeGet());
+                },
+            );
         });
 
         it("passes the rooms saved by the last sliding sync session to the client", async () => {

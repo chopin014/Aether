@@ -308,9 +308,19 @@ class MatrixClientPegClass implements IMatrixClientPeg {
             throw new UserFriendlyError("sliding_sync_legacy_no_longer_supported");
         }
 
-        // If the user has enabled the labs feature for sliding sync, set it up
-        // otherwise check if the feature is supported
-        if (SettingsStore.getValue("feature_simplified_sliding_sync")) {
+        // Sliding sync is used when it is turned on and the server offers it. A server that says it does not gets
+        // regular sync instead, as sliding sync cannot work there. One that cannot be asked, such as while offline,
+        // keeps sliding sync, so the rooms saved last time still show.
+        const slidingSyncOn = SettingsStore.getValue("feature_simplified_sliding_sync");
+        const serverOffersSlidingSync = slidingSyncOn
+            ? await this.serverOffersSlidingSync(this.matrixClient)
+            : undefined;
+        if (slidingSyncOn && serverOffersSlidingSync === false) {
+            logger.warn("MatrixClientPeg: the server offers no sliding sync; using regular sync");
+            // The saved rooms read early are not needed.
+            SlidingSyncManager.instance.discardPrefetchedSnapshot();
+        }
+        if (slidingSyncOn && serverOffersSlidingSync !== false) {
             opts.slidingSync = await SlidingSyncManager.instance.setup(
                 this.matrixClient,
                 this.getInitialRoomId(),
@@ -318,7 +328,7 @@ class MatrixClientPegClass implements IMatrixClientPeg {
             );
             // Show the rooms this device saved last time while the first request is under way.
             opts.slidingSyncSnapshot = SlidingSyncManager.instance.snapshotLoader(this.matrixClient);
-        } else {
+        } else if (!slidingSyncOn) {
             void SlidingSyncManager.instance.checkSupport(this.matrixClient);
         }
 
@@ -328,6 +338,30 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         MatrixClientBackedController.matrixClient = this.matrixClient;
 
         return opts;
+    }
+
+    /**
+     * Whether the server offers sliding sync. The answer it gave last time decides at once, and is checked again in
+     * the background; a server that has stopped offering it while sliding sync runs is moved to regular sync by
+     * reloading. Without an answer from before, it waits for the server, as starting sync does anyway.
+     */
+    private async serverOffersSlidingSync(client: MatrixClient): Promise<boolean | undefined> {
+        const manager = SlidingSyncManager.instance;
+        const known = manager.knownServerSupport(client);
+        const asking = manager.serverOffersSlidingSync(client);
+        if (known === undefined) return asking;
+        void asking.then((offers) => {
+            if (offers !== false || !manager.isActiveFor(client)) return;
+            // Reloading only helps once the next start will not read the old answer again, or it would reload
+            // every time.
+            if (manager.knownServerSupport(client) === true) {
+                logger.warn("MatrixClientPeg: the server no longer offers sliding sync, but that could not be kept");
+                return;
+            }
+            logger.warn("MatrixClientPeg: the server no longer offers sliding sync; reloading to use regular sync");
+            PlatformPeg.get()?.reload();
+        });
+        return known;
     }
 
     /** Prioritize the destination before the UI can select a room from the first sync response. */
