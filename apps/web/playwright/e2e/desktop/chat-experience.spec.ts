@@ -170,6 +170,31 @@ test("keeps the composer's encryption icon in line with its controls", async ({ 
     await capture(composer, testInfo, "composer.png");
 });
 
+test("adds files and polls from the composer's plus menu", async ({ page, app }, testInfo) => {
+    const roomId = await app.client.createRoom({ name: "plans" });
+    await app.viewRoomById(roomId);
+
+    const composer = app.getComposer();
+    await expect(composer.getByRole("textbox", { name: "Message #plans" })).toBeVisible();
+    // Everything else is out in the bar: there is no overflow menu.
+    await expect(composer.getByRole("button", { name: "More options" })).toHaveCount(0);
+    await expect(composer.getByRole("button", { name: "Emoji" })).toBeVisible();
+
+    await composer.getByRole("button", { name: "Add to message", exact: true }).click();
+    const menu = page.getByRole("menu");
+    // Location sharing loads on demand, so wait for it before the picture.
+    await expect(menu.getByRole("menuitem")).toHaveText(["Upload file", "Poll", "Location"]);
+    await capture(page.locator("body"), testInfo, "composer-plus-menu.png");
+
+    await menu.getByRole("menuitem", { name: "Poll" }).click();
+    await expect(page.getByRole("dialog").getByRole("heading", { name: "Create poll" })).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await composer.getByRole("button", { name: "Emoji" }).click();
+    await expect(page.getByRole("tablist", { name: "Categories" })).toBeVisible();
+    await capture(page.locator("body"), testInfo, "composer-emoji-picker.png");
+});
+
 test("lists a server's channels with an even rhythm and a flat server rail", async ({ page, app, user }, testInfo) => {
     const via = { via: [user.homeServer] };
     const { content_uri: icon } = await app.client.uploadContent(await readFile(getSampleFilePath("element.png")), {
@@ -243,7 +268,8 @@ test("sends several files with text from the composer's attachment tray", async 
 
     const composer = app.getComposer();
     const chooser = page.waitForEvent("filechooser");
-    await composer.getByRole("button", { name: "Attachment", exact: true }).click();
+    await composer.getByRole("button", { name: "Add to message", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Upload file", exact: true }).click();
     await (await chooser).setFiles([getSampleFilePath("riot.png"), getSampleFilePath("element.png")]);
 
     const tray = composer.getByRole("list", { name: "2 files to send" });
@@ -507,7 +533,8 @@ test("plays an encrypted video on the first press", async ({ page, app }, testIn
     await app.viewRoomById(roomId);
 
     const chooser = page.waitForEvent("filechooser");
-    await app.getComposer().getByRole("button", { name: "Attachment", exact: true }).click();
+    await app.getComposer().getByRole("button", { name: "Add to message", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Upload file", exact: true }).click();
     await (await chooser).setFiles([getSampleFilePath("5secvid.webm")]);
     await app.getComposerField().click();
     await page.keyboard.press("Enter");
