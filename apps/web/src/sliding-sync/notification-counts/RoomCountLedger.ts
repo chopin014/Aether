@@ -17,6 +17,11 @@ export enum CountConfidence {
     Exact = "exact",
     /** At least this many: the events counted are certainly unread, but some others could not be checked. */
     LowerBound = "lowerBound",
+    /**
+     * As last seen: some events counted were seen before a gap in what the ledger was given, and could have been
+     * redacted in it. The count is right unless that happened.
+     */
+    LastKnown = "lastKnown",
     /** Nothing is certainly unread, but some events could not be checked. */
     Unknown = "unknown",
 }
@@ -72,6 +77,20 @@ export type RunPlacement =
 
 type ReceiptKind = "public" | "private";
 
+/** One kind of receipt for one scope. */
+interface ReceiptPoints {
+    /** The latest receipt whose event the ledger had when it arrived. */
+    best?: string;
+    /** The latest receipt whose event the ledger did not have, which may be before or after `best`. */
+    dangling?: string;
+}
+
+/** Where the user's join is kept among the frontiers. */
+const JOIN = "\u0000join";
+
+/** How many redactions of events not seen yet are remembered, in case the events arrive later. */
+const MAX_PENDING_REDACTIONS = 500;
+
 interface Segment {
     /** Higher is newer. The newest segment holds the newest events of the room. */
     order: number;
@@ -84,6 +103,16 @@ interface LedgerEvent extends LedgerEventInput {
     position: number;
     contribution?: Contribution;
     redacted: boolean;
+}
+
+/** A scope's counts while they are worked out. */
+interface Tally {
+    total: number;
+    highlight: number;
+    /** Something that could count could not be checked. */
+    inexact: boolean;
+    /** Something counted was seen before a gap. */
+    stale: boolean;
 }
 
 /** Where a read receipt or similar point sits, if the ledger knows its event. */
@@ -106,21 +135,25 @@ const MAX_EVENTS = 2000;
  *
  * An event is unread in its scope when no read receipt for that scope is at or after it. Receipts sent without a
  * thread cover every scope; the user's own events and their join count as receipts too. A receipt whose event the
- * ledger has not been given sits before the newest segment: the server only sends receipts for events it has, and
- * the newest segment always reaches the newest event. Older segments may come before or after such a receipt, so
- * their events are neither read nor unread until more is known.
+ * ledger has not been given sits before the newest segment. The newest segment is unbroken up to the newest event,
+ * and every event that reaches the room through sync or its history arrives here, so a receipt for an event in the
+ * newest segment finds it. (Events fetched any other way, such as a thread's replies, come from before it.) Older
+ * segments may come before or after such a receipt, so their events are neither read nor unread until more is known.
  *
  * A count is exact when there is no gap between its scope's newest receipt and the newest event, every receipt is
- * known, and every unread event there has been evaluated. Otherwise it is a lower bound of what is certainly unread.
+ * known, and every unread event there has been evaluated. Otherwise it is a lower bound of what is certainly unread,
+ * or, when it counts events from before a gap that could have been redacted in it, what was last known.
  */
 export class RoomCountLedger {
     private readonly events = new Map<string, LedgerEvent>();
     private segments: Segment[] = [];
     private nextOrder = 0;
     /** By receipt scope ("main", a thread root or {@link UNTHREADED_RECEIPT}), then kind. */
-    private readonly receipts = new Map<string, Partial<Record<ReceiptKind, string>>>();
+    private readonly receipts = new Map<string, Partial<Record<ReceiptKind, ReceiptPoints>>>();
     private receiptsComplete = false;
     private joined = false;
+    /** Events redacted before the ledger was given them, oldest first. */
+    private readonly pendingRedactions = new Set<string>();
 
     /** How many events the ledger holds. */
     public get size(): number {
@@ -189,10 +222,28 @@ export class RoomCountLedger {
         for (const event of this.events.values()) event.contribution = undefined;
     }
 
-    /** Record that an event was redacted, or that a pending redaction of it was undone. */
+    /** Forget what one event adds, so it is evaluated again: for when it was decrypted. */
+    public forgetContribution(eventId: string): void {
+        const event = this.events.get(eventId);
+        if (event) event.contribution = undefined;
+    }
+
+    /**
+     * Record that an event was redacted, or that a pending redaction of it was undone. A redaction of an event the
+     * ledger does not have is remembered for when the event arrives.
+     */
     public setRedacted(eventId: string, redacted: boolean): void {
         const event = this.events.get(eventId);
-        if (event) event.redacted = redacted;
+        if (event) {
+            event.redacted = redacted;
+        } else if (redacted) {
+            this.pendingRedactions.add(eventId);
+            if (this.pendingRedactions.size > MAX_PENDING_REDACTIONS) {
+                this.pendingRedactions.delete(this.pendingRedactions.values().next().value!);
+            }
+        } else {
+            this.pendingRedactions.delete(eventId);
+        }
     }
 
     /**
@@ -203,13 +254,18 @@ export class RoomCountLedger {
      */
     public setReceipt(scope: string, kind: ReceiptKind, eventId: string): void {
         const byKind = this.receipts.get(scope) ?? {};
-        const previousId = byKind[kind];
-        const previous = previousId !== undefined ? this.events.get(previousId) : undefined;
+        const points = byKind[kind] ?? {};
         const next = this.events.get(eventId);
-        // A receipt never moves back. When both events are known, the later one stays; otherwise the newer receipt
-        // wins, as the server ignores receipts that would move one back.
-        if (previous && next && compare(next, previous) < 0) return;
-        byKind[kind] = eventId;
+        if (next) {
+            const best = points.best !== undefined ? this.events.get(points.best) : undefined;
+            // A receipt never moves back: of two known events, the later stays.
+            if (!best || compare(next, best) > 0) points.best = eventId;
+        } else {
+            // Kept beside the known one rather than replacing it: it cannot be placed against it, and an older one,
+            // such as one sent here for an event opened from a link, must not undo a newer one.
+            points.dangling = eventId;
+        }
+        byKind[kind] = points;
         this.receipts.set(scope, byKind);
     }
 
@@ -226,12 +282,15 @@ export class RoomCountLedger {
         this.joined = joined;
     }
 
-    /** Events that could count but have no contribution yet, newest first, so they can be evaluated. */
+    /**
+     * Events that could count and have not been evaluated, newest first, so they can be. One evaluated as far as it
+     * can be, such as an encrypted event not yet decrypted, waits until it is forgotten again.
+     */
     public unevaluated(): string[] {
         const result: string[] = [];
         const frontiers = this.frontiers();
         this.forEachNewestFirst((event) => {
-            if (event.own || event.redacted || event.contribution?.final) return;
+            if (event.own || event.redacted || event.contribution) return;
             if (this.readState(event, frontiers) !== "read") result.push(event.id);
         });
         return result;
@@ -240,24 +299,35 @@ export class RoomCountLedger {
     /** Work out the counts from what the ledger knows now. */
     public compute(): RoomCounts {
         const frontiers = this.frontiers();
-        const tallies = new Map<string, { total: number; highlight: number; inexact: boolean }>();
-        const tally = (scope: string): { total: number; highlight: number; inexact: boolean } => {
+        const live = this.liveSegment();
+        const tallies = new Map<string, Tally>();
+        const tally = (scope: string): Tally => {
             let entry = tallies.get(scope);
             if (!entry) {
-                entry = { total: 0, highlight: 0, inexact: false };
+                entry = { total: 0, highlight: 0, inexact: false, stale: false };
                 tallies.set(scope, entry);
             }
             return entry;
         };
         tally(MAIN_SCOPE);
+        // Whether an event that could count has no scope known yet, so could belong to any.
+        let unrouted = false;
 
         this.forEachNewestFirst((event) => {
             const routed = this.scopeOf(event);
-            // An event whose scope is not known yet, such as a reaction to an event not seen, is kept with the main
-            // timeline. If it could count, the main count is not exact.
-            const scope = routed ?? MAIN_SCOPE;
-            const entry = tally(scope);
-            if (event.own || event.redacted) return;
+            if (event.own || event.redacted) {
+                if (routed) tally(routed);
+                return;
+            }
+            if (!routed) {
+                // Such as a reaction to an event not seen: unless a receipt covering every scope reads it, it could
+                // count anywhere, so it counts nowhere until its scope is known.
+                if (this.readState(event, frontiers, UNTHREADED_RECEIPT) === "read") return;
+                const contribution = event.contribution;
+                if (!contribution?.final || contribution.notify || contribution.highlight) unrouted = true;
+                return;
+            }
+            const entry = tally(routed);
             const state = this.readState(event, frontiers);
             if (state === "read") return;
             const contribution = event.contribution;
@@ -265,31 +335,32 @@ export class RoomCountLedger {
                 entry.inexact = true;
                 return;
             }
-            if (!routed && (contribution.notify || contribution.highlight)) entry.inexact = true;
+            if (!contribution.notify && !contribution.highlight) return;
             if (state === "unresolved") {
-                if (contribution.notify || contribution.highlight) entry.inexact = true;
+                entry.inexact = true;
                 return;
             }
+            // Seen before a gap, it could have been redacted in the gap: it counts as last seen.
+            if (event.segment !== live) entry.stale = true;
             if (contribution.notify) entry.total++;
             if (contribution.highlight) entry.highlight++;
         });
 
-        const live = this.liveSegment();
         const result: RoomCounts = { main: emptyCounts(), threads: new Map() };
         for (const [scope, entry] of tallies) {
             const frontier = this.frontierFor(scope, frontiers);
             // Exact needs the newest receipt in the newest segment: then there is no gap after it.
             const covered = this.receiptsComplete && !!frontier.known && frontier.known.segment === live;
-            const exact = covered && !entry.inexact;
-            const counts: ScopeCounts = {
-                total: entry.total,
-                highlight: entry.highlight,
-                confidence: exact
-                    ? CountConfidence.Exact
-                    : entry.total > 0 || entry.highlight > 0
-                      ? CountConfidence.LowerBound
-                      : CountConfidence.Unknown,
-            };
+            const exact = covered && !entry.inexact && !entry.stale && !unrouted;
+            let confidence = CountConfidence.Unknown;
+            if (exact) {
+                confidence = CountConfidence.Exact;
+            } else if (entry.stale) {
+                confidence = CountConfidence.LastKnown;
+            } else if (entry.total > 0 || entry.highlight > 0) {
+                confidence = CountConfidence.LowerBound;
+            }
+            const counts: ScopeCounts = { total: entry.total, highlight: entry.highlight, confidence };
             if (scope === MAIN_SCOPE) {
                 result.main = counts;
             } else {
@@ -326,8 +397,10 @@ export class RoomCountLedger {
             result.set(scope, frontier);
         };
         for (const [scope, byKind] of this.receipts) {
-            note(scope, byKind.public);
-            note(scope, byKind.private);
+            for (const points of [byKind.public, byKind.private]) {
+                note(scope, points?.best);
+                note(scope, points?.dangling);
+            }
         }
         // The user's own events read everything before them in their scope.
         let join: LedgerEvent | undefined;
@@ -335,29 +408,38 @@ export class RoomCountLedger {
             if (event.own) note(this.scopeOf(event) ?? MAIN_SCOPE, event.id);
             if (event.joins && (!join || compare(event, join) > 0)) join = event;
         }
-        if (this.joined) {
-            if (join) {
-                note(UNTHREADED_RECEIPT, join.id);
-            } else {
-                const frontier = result.get(UNTHREADED_RECEIPT) ?? { dangling: false };
-                frontier.dangling = true;
-                result.set(UNTHREADED_RECEIPT, frontier);
-            }
-        }
+        if (this.joined) result.set(JOIN, { known: join, dangling: !join });
         return result;
     }
 
-    /** The combined frontier of a scope: its own receipts and those covering every scope. */
+    /**
+     * The combined frontier of a scope: its own receipts and those covering every scope, then the user's join. A join
+     * the ledger does not have only marks a start when nothing else does: a receipt or the user's own event shows
+     * they were joined then.
+     */
     private frontierFor(scope: string, frontiers: Map<string, Frontier>): Frontier {
         const own = frontiers.get(scope);
         const shared = frontiers.get(UNTHREADED_RECEIPT);
+        const join = frontiers.get(JOIN);
         let known = own?.known;
-        if (shared?.known && (!known || compare(shared.known, known) > 0)) known = shared.known;
-        return { known, dangling: !!own?.dangling || !!shared?.dangling };
+        for (const other of [shared?.known, join?.known]) {
+            if (other && (!known || compare(other, known) > 0)) known = other;
+        }
+        const dangling = !!own?.dangling || !!shared?.dangling || (!known && !!join?.dangling);
+        return { known, dangling };
     }
 
-    private readState(event: LedgerEvent, frontiers: Map<string, Frontier>): "read" | "unread" | "unresolved" {
-        const frontier = this.frontierFor(this.scopeOf(event) ?? MAIN_SCOPE, frontiers);
+    /**
+     * Whether an event is read in its scope.
+     * @param scope - The scope to judge it in, if not its own: {@link UNTHREADED_RECEIPT} judges it only by what
+     * covers every scope.
+     */
+    private readState(
+        event: LedgerEvent,
+        frontiers: Map<string, Frontier>,
+        scope = this.scopeOf(event) ?? MAIN_SCOPE,
+    ): "read" | "unread" | "unresolved" {
+        const frontier = this.frontierFor(scope, frontiers);
         if (frontier.known && compare(event, frontier.known) <= 0) return "read";
         // A receipt not known yet could be anywhere. So could the join, when nothing else marks a start.
         if (!this.receiptsComplete) return "unresolved";
@@ -384,7 +466,8 @@ export class RoomCountLedger {
     }
 
     private toEvent(input: LedgerEventInput, segment: Segment): LedgerEvent {
-        const event: LedgerEvent = { ...input, segment, position: 0, redacted: false };
+        const redacted = this.pendingRedactions.delete(input.id);
+        const event: LedgerEvent = { ...input, segment, position: 0, redacted };
         this.events.set(input.id, event);
         return event;
     }

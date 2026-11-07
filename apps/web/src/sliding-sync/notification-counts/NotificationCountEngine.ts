@@ -7,7 +7,10 @@ Please see LICENSE in the repository root for full details.
 
 import {
     ClientEvent,
+    ConditionKind,
     EventType,
+    type IPushRule,
+    type IPushRules,
     KnownMembership,
     type MatrixClient,
     type MatrixEvent,
@@ -56,6 +59,8 @@ export class NotificationCountEngine implements RoomHistoryObserver {
     /** The events each ledger has, so they can be evaluated when their counts are needed. */
     private readonly roomEvents = new Map<string, Map<string, MatrixEvent>>();
     private readonly published = new Map<string, RoomCounts>();
+    /** By room, what the push rules read besides each event when its events were evaluated. */
+    private readonly contexts = new Map<string, string>();
     private readonly dirty = new Set<string>();
     /** Rooms changed by the sync response being applied; published once it all is. */
     private readonly held = new Set<string>();
@@ -146,6 +151,10 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         }
         if (!ledger.addRun(inputs, placement)) return false;
         for (const event of events) {
+            // Read here rather than from the room, which may no longer have the event it redacts, such as one from
+            // before a gap.
+            const target = redactedBy(event);
+            if (target) ledger.setRedacted(target, true);
             const id = event.getId();
             // An event the room had already keeps the copy the room has.
             if (!id || known.has(id) || !ledger.has(id)) continue;
@@ -191,7 +200,7 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         const id = event.getId();
         if (!roomId || !id || !this.ledgers.get(roomId)?.has(id)) return;
         // Evaluated again with what it now shows.
-        this.ledgers.get(roomId)!.setContribution(id, NOT_YET_KNOWN);
+        this.ledgers.get(roomId)!.forgetContribution(id);
         this.markDirty(roomId);
     };
 
@@ -204,12 +213,12 @@ export class NotificationCountEngine implements RoomHistoryObserver {
     };
 
     private setRedacted(redaction: MatrixEvent, room: Room, redacted: boolean): void {
-        const target = redaction.event.redacts ?? redaction.getContent().redacts;
+        const target = redactedBy(redaction);
         const ledger = this.ledgers.get(room.roomId);
-        if (typeof target !== "string" || !ledger?.has(target)) return;
+        if (!target || !ledger) return;
         ledger.setRedacted(target, redacted);
         // Undone, it is evaluated again.
-        if (!redacted) ledger.setContribution(target, NOT_YET_KNOWN);
+        if (!redacted) ledger.forgetContribution(target);
         this.markDirty(room.roomId);
     }
 
@@ -227,6 +236,7 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         this.ledgers.delete(room.roomId);
         this.roomEvents.delete(room.roomId);
         this.published.delete(room.roomId);
+        this.contexts.delete(room.roomId);
         this.dirty.delete(room.roomId);
         room.setNotificationCounts({}, new Map());
     };
@@ -273,13 +283,25 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         ledger.setJoined(room.getMyMembership() === KnownMembership.Join);
         // Only events that could count are evaluated, and only once the push rules are there.
         if (this.client.pushRules) {
+            // What the push rules look at besides the event changed, such as the user's name in the room: what was
+            // evaluated before may be wrong now.
+            const context = this.pushContext(room);
+            const previous = this.contexts.get(roomId);
+            if (previous !== undefined && previous !== context) ledger.forgetContributions();
+            this.contexts.set(roomId, context);
             const events = this.eventsFor(roomId);
+            // Each pass evaluates what it reaches, so the list only shrinks and every event gets its turn.
             const pending = ledger.unevaluated();
             for (let i = 0; i < pending.length; i++) {
                 // A few at least, so a room always gets somewhere.
                 if (i >= MIN_EVALUATIONS && performance.now() > deadline) return false;
                 const event = events.get(pending[i]);
-                if (event) this.evaluate(ledger, event);
+                if (event) {
+                    this.evaluate(ledger, event);
+                } else {
+                    // Known only from what was saved, it cannot be evaluated again until it arrives again.
+                    ledger.setContribution(pending[i], NOT_YET_KNOWN);
+                }
             }
         }
         const counts = ledger.compute();
@@ -309,6 +331,20 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         ledger.setContribution(id, { notify: !!actions.notify, highlight: !!actions.tweaks?.highlight, final: true });
     }
 
+    /**
+     * What the push rules read about a room besides the event: the user's name there, the room's power levels, and
+     * which member count conditions it meets. Evaluations made with another context are made again.
+     */
+    private pushContext(room: Room): string {
+        const me = this.client.getUserId();
+        const name = me ? room.currentState.getMember(me)?.name : undefined;
+        const powerLevels = room.currentState.getStateEvents(EventType.RoomPowerLevels, "")?.getId();
+        const memberCount = room.getJoinedMemberCount();
+        const conditions = memberCountConditions(this.client.pushRules);
+        const meets = conditions.map((condition) => (meetsMemberCount(condition, memberCount) ? "1" : "0")).join("");
+        return [name ?? "", powerLevels ?? "", meets].join("\u0000");
+    }
+
     /** Let go of events the ledger no longer has. */
     private pruneEvents(roomId: string, ledger: RoomCountLedger): void {
         const events = this.roomEvents.get(roomId);
@@ -334,6 +370,55 @@ export class NotificationCountEngine implements RoomHistoryObserver {
             this.roomEvents.set(roomId, events);
         }
         return events;
+    }
+}
+
+/** The event a redaction redacts, wherever the room version puts it. */
+function redactedBy(event: MatrixEvent): string | undefined {
+    if (event.getType() !== EventType.RoomRedaction) return undefined;
+    const target = event.event.redacts ?? event.getContent().redacts;
+    return typeof target === "string" ? target : undefined;
+}
+
+const memberCountCache = new WeakMap<IPushRules, string[]>();
+
+/** The `is` values of the enabled room member count conditions in a set of push rules. */
+function memberCountConditions(rules: IPushRules | undefined): string[] {
+    if (!rules) return [];
+    let conditions = memberCountCache.get(rules);
+    if (!conditions) {
+        conditions = [];
+        for (const kind of Object.values(rules.global ?? {})) {
+            for (const rule of (kind as IPushRule[] | undefined) ?? []) {
+                if (!rule.enabled) continue;
+                for (const condition of rule.conditions ?? []) {
+                    if (condition.kind === ConditionKind.RoomMemberCount && typeof condition.is === "string") {
+                        conditions.push(condition.is);
+                    }
+                }
+            }
+        }
+        memberCountCache.set(rules, conditions);
+    }
+    return conditions;
+}
+
+/** Whether a member count meets a room member count condition, such as "2" or ">=10". */
+function meetsMemberCount(is: string, count: number): boolean {
+    const match = /^(==|<=|>=|<|>)?(\d+)$/.exec(is);
+    if (!match) return false;
+    const value = Number(match[2]);
+    switch (match[1]) {
+        case "<":
+            return count < value;
+        case ">":
+            return count > value;
+        case "<=":
+            return count <= value;
+        case ">=":
+            return count >= value;
+        default:
+            return count === value;
     }
 }
 

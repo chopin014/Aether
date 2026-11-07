@@ -75,7 +75,15 @@ const requiredState: MSC3575RoomData["required_state"] = [
 /** Every message notifies; one that says "alice" highlights too. */
 const pushRules: IPushRules = {
     global: {
-        [PushRuleKind.Override]: [],
+        [PushRuleKind.Override]: [
+            {
+                rule_id: ".m.rule.contains_display_name",
+                default: true,
+                enabled: true,
+                conditions: [{ kind: ConditionKind.ContainsDisplayName }],
+                actions: [PushRuleActionName.Notify, { set_tweak: TweakName.Highlight }],
+            },
+        ],
         [PushRuleKind.ContentSpecific]: [
             {
                 rule_id: "alice",
@@ -386,6 +394,83 @@ describe("NotificationCountEngine", () => {
 
         expect(counts()).toEqual({ total: 1, highlight: 1 });
         expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Exact);
+    });
+
+    it("applies a redaction of an event the room no longer has, such as one from before a gap", async () => {
+        const { respond, counts, engine } = await setup();
+        await respond({ initial: true, required_state: requiredState, timeline: [message("$a"), message("$b")] }, [
+            receipt("$a"),
+        ]);
+        // The room starts its timeline again at $d; the ledger keeps $b, as last seen.
+        await respond({ limited: true, prev_batch: "gap", timeline: [message("$d")] });
+        expect(counts().total).toBe(2);
+        expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.LastKnown);
+
+        const redaction: TimelineEvent = {
+            type: EventType.RoomRedaction,
+            sender: bob,
+            room_id: roomId,
+            event_id: "$redaction",
+            origin_server_ts: 1,
+            // Where room version 11 has it.
+            content: { redacts: "$b" },
+        };
+        await respond({ timeline: [redaction] });
+
+        expect(counts().total).toBe(1);
+    });
+
+    it("evaluates a room's messages again when what the push rules read about it changes", async () => {
+        const { respond, counts } = await setup();
+        const named = (name: string, id: string): MSC3575RoomData["required_state"][number] => ({
+            type: EventType.RoomMember,
+            state_key: me,
+            sender: me,
+            event_id: id,
+            origin_server_ts: 1,
+            content: { membership: "join", displayname: name },
+        });
+        await respond(
+            {
+                initial: true,
+                required_state: [...requiredState.slice(0, 1), named("Al", "$named")],
+                timeline: [message("$a"), message("$b", "hello Bobby")],
+            },
+            [receipt("$a")],
+        );
+        expect(counts()).toEqual({ total: 1, highlight: 0 });
+
+        // The user's name in the room becomes one the message mentions.
+        await respond({ required_state: [named("Bobby", "$renamed")] });
+
+        expect(counts()).toEqual({ total: 1, highlight: 1 });
+    });
+
+    it("asks to decrypt an event once, not again on every pass", async () => {
+        const { client, respond, counts, settle } = await setup();
+        const decrypt = vi.spyOn(client, "decryptEventIfNeeded").mockResolvedValue();
+        const encrypted = (id: string): TimelineEvent => ({
+            type: EventType.RoomMessageEncrypted,
+            sender: bob,
+            room_id: roomId,
+            event_id: id,
+            origin_server_ts: 1,
+            content: { algorithm: "m.megolm.v1.aes-sha2", ciphertext: "x" },
+        });
+        await respond(
+            {
+                initial: true,
+                required_state: requiredState,
+                timeline: [message("$a"), message("$b"), encrypted("$x"), encrypted("$y")],
+            },
+            [receipt("$a")],
+        );
+        const asked = decrypt.mock.calls.filter(([event]) => ["$x", "$y"].includes(event.getId()!)).length;
+        await respond({ timeline: [message("$c")] });
+        await settle();
+
+        expect(decrypt.mock.calls.filter(([event]) => ["$x", "$y"].includes(event.getId()!))).toHaveLength(asked);
+        expect(counts().total).toBe(2);
     });
 
     it("clears the counts of a room the user leaves", async () => {
