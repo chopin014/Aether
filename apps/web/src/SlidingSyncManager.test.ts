@@ -1282,6 +1282,87 @@ describe("SlidingSyncManager", () => {
             expect(sync.getRoomSubscriptions()).toContain("!d");
         });
 
+        it("reads changes made outside a sync response after a short pause, and others once applied", async () => {
+            vi.useFakeTimers();
+            const space = knownRoom("!server", "space");
+            manager.setActiveSpace("!server");
+            await vi.advanceTimersByTimeAsync(0);
+            // Rooms restored from this device before the first response, while the network may be down.
+            addChildren(space, ["!a"]);
+            await vi.advanceTimersByTimeAsync(10);
+            expect(sync.getRoomSubscriptions()).not.toContain("!a");
+            await vi.advanceTimersByTimeAsync(60);
+            expect(sync.getRoomSubscriptions()).toContain("!a");
+
+            // A response is being applied: its changes wait for it to finish, however long that takes.
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, {
+                pos: "p",
+                lists: {},
+                rooms: {},
+                extensions: {},
+            });
+            addChildren(space, ["!b"]);
+            await vi.advanceTimersByTimeAsync(500);
+            expect(sync.getRoomSubscriptions()).not.toContain("!b");
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, {
+                pos: "p",
+                lists: {},
+                rooms: {},
+                extensions: {},
+            });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(sync.getRoomSubscriptions()).toContain("!b");
+
+            // A failed request applies nothing, so changes after it are read after the pause again.
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null, new Error("offline"));
+            addChildren(space, ["!c"]);
+            await vi.advanceTimersByTimeAsync(60);
+            expect(sync.getRoomSubscriptions()).toContain("!c");
+        });
+
+        it("subscribes an unseen replacement of an upgraded subspace, and keeps the old one's channels", async () => {
+            const space = knownRoom("!server", "space");
+            const category = knownRoom("!category", "space");
+            category.updateMyMembership(KnownMembership.Join);
+            category.currentState.setStateEvents([
+                new MatrixEvent({
+                    type: EventType.RoomTombstone,
+                    state_key: "",
+                    event_id: "$tombstone!category",
+                    room_id: "!category",
+                    sender: client.getUserId()!,
+                    content: { replacement_room: "!new-category", body: "upgraded" },
+                }),
+            ]);
+            addChildren(category, ["!c"]);
+            addChildren(space, ["!category"]);
+            manager.setActiveSpace("!server");
+            await tick();
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!new-category", "!c"]));
+        });
+
+        it("keeps the first channels in the Space's own order when it has too many", async () => {
+            const space = knownRoom("!server", "space");
+            // Listed in reverse of their order, so the Space's order decides, not arrival.
+            const events = Array.from({ length: 250 }, (_, i) => 249 - i).map(
+                (i) =>
+                    new MatrixEvent({
+                        type: EventType.SpaceChild,
+                        state_key: `!channel${i}`,
+                        event_id: `$child${i}`,
+                        room_id: "!server",
+                        sender: client.getUserId()!,
+                        content: { via: ["example.org"], order: String(i).padStart(3, "0") },
+                    }),
+            );
+            space.currentState.setStateEvents(events);
+            manager.setActiveSpace("!server");
+            await tick();
+            expect(sync.getRoomSubscriptions()).toEqual(
+                new Set(["!server", ...Array.from({ length: 200 }, (_, i) => `!channel${i}`)]),
+            );
+        });
+
         it("leaves out channels the user has left or been banned from", async () => {
             const space = knownRoom("!server", "space");
             for (const [roomId, membership] of [
