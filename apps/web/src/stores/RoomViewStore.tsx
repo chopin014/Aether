@@ -470,7 +470,10 @@ export class RoomViewStore extends EventEmitter {
             if (prevRoomCall !== null && (!viewingCall || payload.room_id !== this.state.roomId))
                 prevRoomCall.presented = false;
 
-            if (SettingsStore.getValue("feature_simplified_sliding_sync") && this.state.roomId !== payload.room_id) {
+            if (
+                this.stores.slidingSyncManager.isActiveFor(MatrixClientPeg.get()) &&
+                this.state.roomId !== payload.room_id
+            ) {
                 this.setState({
                     subscribingRoomId: payload.room_id,
                     roomId: payload.room_id,
