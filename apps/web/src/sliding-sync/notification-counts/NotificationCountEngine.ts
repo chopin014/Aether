@@ -60,8 +60,6 @@ export class NotificationCountEngine implements RoomHistoryObserver {
     /** The events each ledger has, so they can be evaluated when their counts are needed. */
     private readonly roomEvents = new Map<string, Map<string, MatrixEvent>>();
     private readonly published = new Map<string, RoomCounts>();
-    /** By room, what the push rules read besides each event when its events were evaluated. */
-    private readonly contexts = new Map<string, string>();
     private readonly dirty = new Set<string>();
     /** Rooms changed by the sync response being applied; published once it all is. */
     private readonly held = new Set<string>();
@@ -73,8 +71,13 @@ export class NotificationCountEngine implements RoomHistoryObserver {
     /** Ledgers saved on this device by the last session, taken up as their rooms are restored. */
     private saved = new Map<string, SavedLedger>();
     private changeListener?: (roomId: string) => void;
-    /** The push rules changed since the saved ledgers were made: what they say each event adds is out of date. */
-    private savedRulesChanged = false;
+    /**
+     * Rooms restored from a saved ledger whose saved receipts the SDK is replaying: the ledger has them already,
+     * knowing which were made on this device, so the replay is not taken as the server's.
+     */
+    private readonly replaying = new Set<string>();
+    /** Rooms whose ledger was started from a saved one. */
+    private readonly restoredFromSaved = new Set<string>();
 
     public constructor(
         private readonly client: MatrixClient,
@@ -97,9 +100,13 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         this.client.on(RoomEvent.MyMembership, this.onMyMembership);
     }
 
-    /** Stop counting; the counts set so far stay on the rooms. */
+    /**
+     * Stop counting; the counts set so far stay on the rooms. What is ready to publish is published first, so it can
+     * be saved; a sync response half applied is left unfinished.
+     */
     public stop(): void {
         if (!this.started) return;
+        this.finishPending();
         this.started = false;
         if (this.client.getRoomHistoryObserver() === this) this.client.setRoomHistoryObserver(undefined);
         this.slidingSync.off(SlidingSyncEvent.Lifecycle, this.onLifecycle);
@@ -125,7 +132,19 @@ export class NotificationCountEngine implements RoomHistoryObserver {
      */
     public useSaved(saved: ReadonlyMap<string, SavedLedger>): void {
         this.saved = new Map(saved);
-        this.savedRulesChanged = false;
+    }
+
+    /**
+     * Publish at once every room whose counts are waiting, other than ones a sync response being applied changed:
+     * such as before the page closes, so what is done can be saved.
+     */
+    public finishPending(): void {
+        if (!this.started) return;
+        for (const roomId of this.dirty) {
+            if (this.held.has(roomId)) continue;
+            this.publish(roomId, Infinity);
+            this.dirty.delete(roomId);
+        }
     }
 
     /** Hear which rooms' counts were published, so their ledgers can be saved. */
@@ -134,11 +153,12 @@ export class NotificationCountEngine implements RoomHistoryObserver {
     }
 
     /**
-     * A room's ledger to save. "pending" while its counts are being worked out: a ledger is only saved as it was
-     * when its counts were published, so a restored room never shows a half-applied change.
+     * A room's ledger to save. A ledger is only saved as it was when its counts were published, so a restored room
+     * never shows a half-applied change: "pending" while its counts are being worked out, and "unfinished" once
+     * stopped before they were, when the room's last saved record should stand.
      */
-    public save(roomId: string): SavedLedger | undefined | "pending" {
-        if (this.dirty.has(roomId) || this.held.has(roomId)) return "pending";
+    public save(roomId: string): SavedLedger | undefined | "pending" | "unfinished" {
+        if (this.dirty.has(roomId) || this.held.has(roomId)) return this.started ? "pending" : "unfinished";
         return this.ledgers.get(roomId)?.save();
     }
 
@@ -152,6 +172,7 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         this.addEvents(room, events, placement);
         if (info.initial && !info.fromSnapshot) this.awaitingReceipts.add(room.roomId);
         if (info.fromSnapshot) {
+            if (this.restoredFromSaved.has(room.roomId)) this.replaying.add(room.roomId);
             // Published at once, so the room is announced with its saved counts rather than none.
             // The room is not in the client's store yet, so it is published as given.
             this.dirty.delete(room.roomId);
@@ -171,7 +192,8 @@ export class NotificationCountEngine implements RoomHistoryObserver {
     }
 
     public onSavedRoomApplied(room: Room): void {
-        // Its saved receipts may not have been all there were, so the room waits for the server's.
+        this.replaying.delete(room.roomId);
+        this.restoredFromSaved.delete(room.roomId);
         if (this.started) this.markDirty(room.roomId);
     }
 
@@ -220,9 +242,10 @@ export class NotificationCountEngine implements RoomHistoryObserver {
 
     private onReceipt = (event: MatrixEvent, room: Room, synthetic?: boolean): void => {
         const me = this.client.getUserId();
-        if (!me) return;
+        if (!me || this.replaying.has(room.roomId)) return;
         let mine = false;
-        const ledger = this.ledgerFor(room.roomId);
+        // Only the user's receipts matter: others', such as those the SDK makes up for each sender, start no ledger.
+        let ledger: RoomCountLedger | undefined;
         const content = event.getContent<Record<string, Record<string, Record<string, unknown>>>>();
         for (const [eventId, byType] of Object.entries(content)) {
             for (const [type, byUser] of Object.entries(byType ?? {})) {
@@ -230,6 +253,7 @@ export class NotificationCountEngine implements RoomHistoryObserver {
                 const receipt = byUser?.[me] as { thread_id?: unknown } | undefined;
                 if (!kind || !receipt || typeof receipt !== "object") continue;
                 const scope = typeof receipt.thread_id === "string" ? receipt.thread_id : UNTHREADED_RECEIPT;
+                ledger ??= this.ledgerFor(room.roomId);
                 ledger.setReceipt(scope, kind, eventId, !synthetic);
                 mine = true;
             }
@@ -264,18 +288,11 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         this.markDirty(room.roomId);
     }
 
-    private onAccountData = (event: MatrixEvent, previous?: MatrixEvent): void => {
+    private onAccountData = (event: MatrixEvent): void => {
         if (event.getType() !== EventType.PushRules) return;
-        // The server sends the rules again on every new connection: only a real change matters. Evaluating again
-        // needs each event, which saved ledgers do not all have.
-        if (previous && JSON.stringify(previous.getContent()) === JSON.stringify(event.getContent())) return;
-        // Every event is evaluated again with the new rules, as its counts are next needed. So is every event of the
-        // saved ledgers still to be restored, worked out with the old rules.
-        for (const [roomId, ledger] of this.ledgers) {
-            ledger.forgetContributions();
-            this.markDirty(roomId);
-        }
-        this.savedRulesChanged = this.saved.size > 0;
+        // Each room checks, as it is next published, whether the rules its events were evaluated with are these.
+        // The server sends them again on every new connection, which then changes nothing.
+        for (const roomId of this.ledgers.keys()) this.markDirty(roomId);
     };
 
     private onMyMembership = (room: Room, membership: string): void => {
@@ -283,7 +300,8 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         this.ledgers.delete(room.roomId);
         this.roomEvents.delete(room.roomId);
         this.published.delete(room.roomId);
-        this.contexts.delete(room.roomId);
+        this.replaying.delete(room.roomId);
+        this.restoredFromSaved.delete(room.roomId);
         this.dirty.delete(room.roomId);
         room.setNotificationCounts({}, new Map());
     };
@@ -330,12 +348,13 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         ledger.setJoined(room.getMyMembership() === KnownMembership.Join);
         // Only events that could count are evaluated, and only once the push rules are there.
         if (this.client.pushRules) {
-            // What the push rules look at besides the event changed, such as the user's name in the room: what was
-            // evaluated before may be wrong now.
-            const context = this.pushContext(room);
-            const previous = this.contexts.get(roomId);
-            if (previous !== undefined && previous !== context) ledger.forgetContributions();
-            this.contexts.set(roomId, context);
+            // What was evaluated with other rules, or with another view of the room, such as another name for the
+            // user there, may be wrong now: whether in this session or in the one that saved the ledger.
+            const evaluatedWith = `${rulesFingerprint(this.client.pushRules)}\u0001${this.pushContext(room)}`;
+            if (ledger.evaluatedWith !== evaluatedWith) {
+                ledger.forgetContributions();
+                ledger.evaluatedWith = evaluatedWith;
+            }
             const events = this.eventsFor(roomId);
             // Each pass evaluates what it reaches, so the list only shrinks and every event gets its turn.
             const pending = ledger.unevaluated();
@@ -407,7 +426,7 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         if (!ledger) {
             // A saved ledger that cannot be read is dropped: the room is counted afresh.
             const restored = RoomCountLedger.restore(this.saved.get(roomId));
-            if (restored && this.savedRulesChanged) restored.forgetContributions();
+            if (restored) this.restoredFromSaved.add(roomId);
             ledger = restored ?? new RoomCountLedger();
             this.saved.delete(roomId);
             this.ledgers.set(roomId, ledger);
@@ -430,6 +449,31 @@ function redactedBy(event: MatrixEvent): string | undefined {
     if (event.getType() !== EventType.RoomRedaction) return undefined;
     const target = event.event.redacts ?? event.getContent().redacts;
     return typeof target === "string" ? target : undefined;
+}
+
+const fingerprints = new WeakMap<IPushRules, string>();
+
+/** A short fingerprint of a set of push rules, the same however their keys are ordered. */
+function rulesFingerprint(rules: IPushRules): string {
+    let fingerprint = fingerprints.get(rules);
+    if (fingerprint === undefined) {
+        // FNV-1a over the rules with their keys sorted. A tweak without a value means true, and the SDK sets that
+        // on the rules themselves as it evaluates them, so both read the same.
+        let hash = 0x811c9dc5;
+        const text = JSON.stringify(rules, (_key, value: unknown) => {
+            if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+            const entries = Object.entries(value);
+            if ("set_tweak" in value && !("value" in value)) entries.push(["value", true]);
+            return Object.fromEntries(entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+        });
+        for (let i = 0; i < text.length; i++) {
+            hash ^= text.charCodeAt(i);
+            hash = Math.imul(hash, 0x01000193);
+        }
+        fingerprint = (hash >>> 0).toString(36);
+        fingerprints.set(rules, fingerprint);
+    }
+    return fingerprint;
 }
 
 const memberCountCache = new WeakMap<IPushRules, string[]>();

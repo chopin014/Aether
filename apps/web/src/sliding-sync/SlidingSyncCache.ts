@@ -45,10 +45,11 @@ interface CachedRoom {
 }
 
 /**
- * Gives a room's notification count ledger to save: undefined when there is none, or "pending" while its counts
- * are being worked out, so a half-applied change is never saved.
+ * Gives a room's notification count ledger to save: undefined when there is none, "pending" while its counts are
+ * being worked out, and "unfinished" when they never will be, such as once sync stopped half way through a response.
+ * A room is never written with a ledger that does not match it: its last written record stands instead.
  */
-export type CountsSource = (roomId: string) => SavedLedger | undefined | "pending";
+export type CountsSource = (roomId: string) => SavedLedger | undefined | "pending" | "unfinished";
 
 const SCHEMA_VERSION = 1;
 const DATABASE_PREFIX = "aether-sliding-sync:";
@@ -550,6 +551,7 @@ export class SlidingSyncCache {
     private readyRooms(): string[] {
         const ready: string[] = [];
         let waiting = false;
+        const unfinished: string[] = [];
         for (const roomId of this.dirtyRooms) {
             if (this.heldRooms.has(roomId)) continue;
             const saved = this.countsSource?.(roomId);
@@ -557,12 +559,16 @@ export class SlidingSyncCache {
                 waiting = true;
                 continue;
             }
+            if (saved === "unfinished") {
+                unfinished.push(roomId);
+                continue;
+            }
             const room = this.rooms.get(roomId);
             // A room not counted yet, such as one still to be restored, keeps the ledger saved with it.
             if (room && saved) room.counts = saved;
             ready.push(roomId);
         }
-        for (const roomId of ready) this.dirtyRooms.delete(roomId);
+        for (const roomId of [...ready, ...unfinished]) this.dirtyRooms.delete(roomId);
         if (waiting) this.scheduleWrite();
         return ready;
     }

@@ -239,6 +239,27 @@ describe("SlidingSyncCache", () => {
         await next.dispose();
     });
 
+    it("keeps a room's last record when its counts will never be finished, without trying again", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        let saved: SavedLedger | "unfinished" | undefined = undefined;
+        const source = vi.fn((): SavedLedger | "unfinished" | undefined => saved);
+        cache.setCountsSource(source);
+        cache.observeRoomData(roomId, data({ initial: true, timeline: [message("$a")] }));
+        await cache.flush();
+
+        // Sync stopped half way through a response that changed the room.
+        saved = "unfinished";
+        cache.observeRoomData(roomId, data({ timeline: [message("$b")] }));
+        await cache.flush();
+        const asked = source.mock.calls.length;
+        await cache.flush();
+        expect(source.mock.calls.length).toBe(asked);
+
+        const next = await reopen(cache);
+        expect((await next.load())!.rooms[roomId].timeline.map((event) => event.event_id)).toEqual(["$a"]);
+        await next.dispose();
+    });
+
     it("writes a room a sync response changed only once the whole response is applied", async () => {
         const cache = new SlidingSyncCache(userId, deviceId);
         cache.observeRoomData(roomId, data({ initial: true, timeline: [message("$a")] }));

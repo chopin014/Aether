@@ -110,6 +110,8 @@ export interface SavedLedger {
     /** By receipt scope, then kind. */
     receipts: Record<string, Partial<Record<ReceiptKind, ReceiptPoints>>>;
     receiptsComplete: boolean;
+    /** What the events were evaluated with: see {@link RoomCountLedger.evaluatedWith}. */
+    evaluatedWith?: string;
 }
 
 const SAVED_VERSION = 1;
@@ -193,6 +195,12 @@ export class RoomCountLedger {
     private joined = false;
     /** Events redacted before the ledger was given them, oldest first. */
     private readonly pendingRedactions = new Set<string>();
+    /**
+     * What the events' contributions were worked out with, such as a fingerprint of the push rules and of what they
+     * read about the room, as set by whoever evaluates them. Saved and restored with the ledger, so a change while
+     * away is noticed.
+     */
+    public evaluatedWith?: string;
 
     /**
      * A ledger as saved by {@link save}, or undefined when what was saved cannot be read, such as one saved by an
@@ -236,12 +244,15 @@ export class RoomCountLedger {
                 kinds[kind] = {
                     best: typeof points.best === "string" ? points.best : undefined,
                     dangling: typeof points.dangling === "string" ? points.dangling : undefined,
-                    unsettled: points.unsettled === true || undefined,
+                    local: Array.isArray(points.local)
+                        ? points.local.filter((id): id is string => typeof id === "string")
+                        : undefined,
                 };
             }
             ledger.receipts.set(scope, kinds);
         }
         ledger.receiptsComplete = saved.receiptsComplete === true;
+        ledger.evaluatedWith = typeof saved.evaluatedWith === "string" ? saved.evaluatedWith : undefined;
         return ledger;
     }
 
@@ -261,10 +272,17 @@ export class RoomCountLedger {
         for (const [scope, byKind] of this.receipts) {
             receipts[scope] = {};
             for (const kind of ["public", "private"] as const) {
-                if (byKind[kind]) receipts[scope][kind] = { ...byKind[kind] };
+                const points = byKind[kind];
+                if (points) receipts[scope][kind] = { ...points, local: points.local && [...points.local] };
             }
         }
-        return { version: SAVED_VERSION, segments, receipts, receiptsComplete: this.receiptsComplete };
+        return {
+            version: SAVED_VERSION,
+            segments,
+            receipts,
+            receiptsComplete: this.receiptsComplete,
+            evaluatedWith: this.evaluatedWith,
+        };
     }
 
     /** How many events the ledger holds. */

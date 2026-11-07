@@ -599,33 +599,19 @@ describe("NotificationCountEngine", () => {
         expect(client.hasLocalNotificationCounts()).toBe(true);
     });
 
-    it("announces a restored room with its saved counts, before the server answers", async () => {
+    /** A second session restoring what the first saved, as at the next start, with a server that never answers. */
+    function restoreSession(saved: SavedLedger, snapshot: SlidingSyncSnapshot) {
         const client: MatrixClient = createClientWithCreds({
             homeserverUrl: "https://example.org",
             userId: me,
             accessToken: "token",
         });
-        client.setPushRules(pushRules);
-        vi.spyOn(client, "getPushRules").mockResolvedValue(pushRules);
-        // The server never answers.
+        // As the real one does: the rules are processed as the client sets them.
+        vi.spyOn(client, "getPushRules").mockImplementation(async () => {
+            client.setPushRules(pushRules);
+            return client.pushRules!;
+        });
         vi.spyOn(client.http, "authedRequest").mockImplementation(() => new Promise(() => {}));
-        // Saved by the last session: two unread messages after the receipt, one a mention.
-        const previous = new RoomCountLedger();
-        previous.addRun(
-            ["$a", "$b", "$c"].map((id) => ({ id, own: false })),
-            { kind: "live", continuesTip: false },
-        );
-        previous.setContribution("$b", { notify: true, highlight: false, final: true });
-        previous.setContribution("$c", { notify: true, highlight: true, final: true });
-        previous.setReceipt("main", "public", "$a");
-        previous.setReceiptsComplete();
-        // The saved room keeps only its newest event; the saved ledger knows the rest.
-        const snapshot: SlidingSyncSnapshot = {
-            rooms: {
-                [roomId]: { name: "Saved", required_state: requiredState, timeline: [message("$c", "hi alice")] },
-            },
-            accountData: [],
-        };
         const sync = new SlidingSync("https://example.org", new Map(), {}, client, 20_000);
         const api = new SlidingSyncSdk(
             sync,
@@ -635,46 +621,91 @@ describe("NotificationCountEngine", () => {
         );
         const engine = new NotificationCountEngine(client, sync);
         engine.start();
-        engine.useSaved(new Map([[roomId, previous.save()]]));
+        engine.useSaved(new Map([[roomId, saved]]));
         stops.push(() => {
             engine.stop();
             api.stop();
         });
+        const read = (room: Room): { total: number; highlight: number } => ({
+            total: room.getRoomUnreadNotificationCount(NotificationCountType.Total),
+            highlight: room.getRoomUnreadNotificationCount(NotificationCountType.Highlight),
+        });
         const announced = Promise.withResolvers<{ total: number; highlight: number }>();
-        client.on(ClientEvent.Room, (room) =>
-            announced.resolve({
-                total: room.getRoomUnreadNotificationCount(NotificationCountType.Total),
-                highlight: room.getRoomUnreadNotificationCount(NotificationCountType.Highlight),
-            }),
-        );
-
+        client.on(ClientEvent.Room, (room) => announced.resolve(read(room)));
+        // Once the room's saved account data and receipts are applied too.
+        const applied = Promise.withResolvers<void>();
+        const onSavedRoomApplied = engine.onSavedRoomApplied.bind(engine);
+        vi.spyOn(engine, "onSavedRoomApplied").mockImplementation((room) => {
+            onSavedRoomApplied(room);
+            applied.resolve();
+        });
         void api.sync();
+        return { client, engine, announced: announced.promise, applied: applied.promise, read };
+    }
+
+    it("announces a restored room with its saved counts, before the server answers", async () => {
+        // The last session: two unread messages after the receipt, one a mention.
+        const first = await setup();
+        await first.respond(
+            {
+                initial: true,
+                required_state: requiredState,
+                timeline: [message("$a"), message("$b"), message("$c", "hi alice")],
+            },
+            [receipt("$a")],
+        );
+        const saved = first.engine.save(roomId) as SavedLedger;
+
+        // The saved room keeps only its newest event; the saved ledger knows the rest. Its saved push rules are
+        // applied again too, which changes nothing.
+        const { engine, announced } = restoreSession(saved, {
+            rooms: {
+                [roomId]: { name: "Saved", required_state: requiredState, timeline: [message("$c", "hi alice")] },
+            },
+            accountData: [{ type: EventType.PushRules, content: pushRules }],
+        });
 
         // Already there when the room is announced.
-        await expect(announced.promise).resolves.toEqual({ total: 2, highlight: 1 });
+        await expect(announced).resolves.toEqual({ total: 2, highlight: 1 });
         expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Exact);
     });
 
-    it("evaluates saved ledgers restored after the push rules changed", async () => {
-        const { client, engine, counts, settle } = await setup();
-        const previous = new RoomCountLedger();
-        previous.addRun(
-            ["$a", "$b"].map((id) => ({ id, own: false })),
-            { kind: "live", continuesTip: false },
+    it("keeps a restored room's receipts made here as they were, though the SDK replays them as saved", async () => {
+        const first = await setup();
+        await first.respond(
+            { initial: true, required_state: requiredState, timeline: [message("$a"), message("$b")] },
+            [receipt("$a")],
         );
-        previous.setContribution("$b", { notify: true, highlight: false, final: true });
-        previous.setReceipt("main", "public", "$a");
-        previous.setReceiptsComplete();
-        engine.useSaved(new Map([[roomId, previous.save()]]));
+        // Read here up to a message opened from a link, which sync had not brought.
+        first.client.getRoom(roomId)!.addLocalEchoReceipt(me, new MatrixEvent(message("$n")), ReceiptType.Read, true);
+        await first.settle();
+        const saved = first.engine.save(roomId) as SavedLedger;
 
-        // The rules change before the room is restored: nothing notifies any more.
-        const silent: IPushRules = { global: { ...pushRules.global, [PushRuleKind.Underride]: [] } };
-        client.setPushRules(silent);
-        client.emit(
-            ClientEvent.AccountData,
-            new MatrixEvent({ type: EventType.PushRules, content: silent }),
-            new MatrixEvent({ type: EventType.PushRules, content: pushRules }),
+        // The rooms' saved receipts include it, without saying it was made here.
+        const { client, engine, applied, read } = restoreSession(saved, {
+            rooms: { [roomId]: { name: "Saved", required_state: requiredState, timeline: [message("$b")] } },
+            accountData: [],
+            receipts: { [roomId]: { type: EventType.Receipt, content: { $n: { "m.read": { [me]: { ts: 2 } } } } } },
+        });
+        await applied;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(read(client.getRoom(roomId)!)).toEqual({ total: 0, highlight: 0 });
+        expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Unknown);
+    });
+
+    it("evaluates a saved ledger again once restored with other push rules", async () => {
+        const first = await setup();
+        await first.respond(
+            { initial: true, required_state: requiredState, timeline: [message("$a"), message("$b")] },
+            [receipt("$a")],
         );
+        const saved = first.engine.save(roomId) as SavedLedger;
+        const { client, engine, counts, settle } = await setup();
+        engine.useSaved(new Map([[roomId, saved]]));
+
+        // The rules changed while away: nothing notifies any more.
+        client.setPushRules({ global: { ...pushRules.global, [PushRuleKind.Underride]: [] } });
         const room = new Room(roomId, client, me);
         room.updateMyMembership("join");
         client.store.storeRoom(room);
@@ -687,6 +718,32 @@ describe("NotificationCountEngine", () => {
         await settle();
 
         expect(counts().total).toBe(0);
+    });
+
+    it("publishes what is ready when asked, or when stopped, and leaves a half-applied response unfinished", async () => {
+        const { client, engine, respond, sync, counts } = await setup();
+        await respond({ initial: true, required_state: requiredState, timeline: [message("$a"), message("$b")] }, [
+            receipt("$a"),
+        ]);
+        // Read here: published at the next task, unless asked to before, such as when the page closes.
+        const room = client.getRoom(roomId)!;
+        room.addLocalEchoReceipt(me, room.findEventById("$b")!, ReceiptType.Read, true);
+        expect(engine.save(roomId)).toBe("pending");
+        engine.finishPending();
+        expect(counts().total).toBe(0);
+        expect(engine.save(roomId)).not.toBe("pending");
+
+        // Half way through a response when sync stops: its room is never finished.
+        const response: MSC3575SlidingSyncResponse = { pos: "2", lists: {}, rooms: {}, extensions: {} };
+        sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, response);
+        engine.onSyncTimeline(room, [new MatrixEvent(message("$c"))], {
+            limited: false,
+            initial: false,
+            expanded: false,
+            fromSnapshot: false,
+        });
+        engine.stop();
+        expect(engine.save(roomId)).toBe("unfinished");
     });
 
     it("gives a room's ledger to save only as it was when its counts were published", async () => {

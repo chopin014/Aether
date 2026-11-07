@@ -1326,11 +1326,17 @@ export class SlidingSyncManager {
         const onRoomAccountData = (event: MatrixEvent, room: Room): void =>
             cache.observeRoomAccountData(room.roomId, event);
         const onReceipt = (event: MatrixEvent, room: Room): void => cache.observeReceipt(room.roomId, event);
-        // Hidden or closing pages may not run another task, so the write starts in this one.
-        const onPageHidden = (): void => {
-            if (document.visibilityState === "hidden") cache.flushNow();
+        const countEngine = this.countEngine;
+        // Hidden or closing pages may not run another task, so the write starts in this one, with the counts that
+        // are ready published first so they are saved with their rooms.
+        const flushNow = (): void => {
+            countEngine?.finishPending();
+            cache.flushNow();
         };
-        const onPageHide = (): void => cache.flushNow();
+        const onPageHidden = (): void => {
+            if (document.visibilityState === "hidden") flushNow();
+        };
+        const onPageHide = (): void => flushNow();
         // Account data and receipts are watched from the first Prepared state onwards. Restoring the saved
         // session announces the same events, which need not be saved again.
         let watchingClient = false;
@@ -1363,7 +1369,6 @@ export class SlidingSyncManager {
         document.addEventListener("visibilitychange", onPageHidden);
         window.addEventListener("pagehide", onPageHide);
         // Each room's notification count ledger is saved with it, as its counts were last published.
-        const countEngine = this.countEngine;
         cache.setCountsSource((roomId) => countEngine?.save(roomId));
         countEngine?.setChangeListener((roomId) => cache.observeCounts(roomId));
         // A room changed by a response is written once the whole response is applied, receipts included.
@@ -1374,7 +1379,8 @@ export class SlidingSyncManager {
         slidingSync.on(SlidingSyncEvent.Lifecycle, onResponse);
         slidingSync.on(SlidingSyncEvent.Applied, onApplied);
         this.detachCache = (): void => {
-            cache.setCountsSource(undefined);
+            // The last write still checks each room's counts are ready: those that are, are published first.
+            countEngine?.finishPending();
             countEngine?.setChangeListener(undefined);
             slidingSync.off(SlidingSyncEvent.Lifecycle, onResponse);
             slidingSync.off(SlidingSyncEvent.Applied, onApplied);
@@ -1386,7 +1392,7 @@ export class SlidingSyncManager {
             client.off(RoomEvent.Receipt, onReceipt);
             document.removeEventListener("visibilitychange", onPageHidden);
             window.removeEventListener("pagehide", onPageHide);
-            void cache.dispose();
+            void cache.dispose().finally(() => cache.setCountsSource(undefined));
         };
     }
 
