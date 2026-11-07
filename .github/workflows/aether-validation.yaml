@@ -61,6 +61,8 @@ jobs:
                   src/models/Call.test.ts
                   src/viewmodels/room-list
                   src/stores/space-layout
+                  src/stores/notifications/TimedMutes.test.ts
+                  src/stores/notifications/ServerNotifications.test.ts
                   src/utils/space.test.ts
                   src/viewmodels/settings/MicrophoneSettingsViewModel.test.ts
                   src/viewmodels/settings/DesktopUpdatesViewModel.test.ts

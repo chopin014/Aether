@@ -39,6 +39,9 @@ import { CallStore, CallStoreEvent } from "../../stores/CallStore";
 import { CallEvent, type Call } from "../../models/Call";
 import { RoomListItemViewModel } from "./RoomListItemViewModel";
 import * as RoomNotifs from "../../RoomNotifs";
+import { RoomNotifState as ElementRoomNotifState } from "../../RoomNotifs";
+import { PROPERTY_UPDATED } from "../../stores/local-echo/GenericEchoChamber";
+import { EchoChamber } from "../../stores/local-echo/EchoChamber";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import { VoiceUserPreferences, VoiceUserPreferencesEvent } from "../../audio/desktop/VoiceUserPreferences";
 import { mediaFromMxc } from "../../customisations/Media";
@@ -234,6 +237,14 @@ describe("RoomListItemViewModel", () => {
             unread.mockReturnValue(0);
             notificationState.emit(NotificationStateEvents.Update);
             expect(viewModel.getSnapshot().mentionCount).toBe(1);
+        });
+
+        it("follows the room's notification level when it changes elsewhere", () => {
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            const echo = EchoChamber.forRoom(room);
+            vi.spyOn(echo, "notificationVolume", "get").mockReturnValue(ElementRoomNotifState.Mute);
+            echo.emit(PROPERTY_UPDATED);
+            expect(viewModel.getSnapshot().notification.muted).toBe(true);
         });
 
         it("follows a channel's mention count when only that count changes", () => {

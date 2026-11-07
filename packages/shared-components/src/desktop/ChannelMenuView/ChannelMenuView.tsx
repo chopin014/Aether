@@ -21,8 +21,6 @@ import {
     LinkIcon,
     LockSolidIcon,
     MarkAsReadIcon,
-    NotificationsIcon,
-    NotificationsOffIcon,
     PollsIcon,
     ErrorIcon,
     PlusIcon,
@@ -34,6 +32,7 @@ import { _t } from "../../core/i18n/i18n";
 import { useViewModel, type ViewModel } from "../../core/viewmodel";
 import { RoomNotifState } from "../../room-list/VirtualizedRoomListView/RoomListItemWrapper/RoomListItemView/RoomNotifs";
 import styles from "./ChannelMenuView.module.css";
+import { MuteMenu } from "../MuteMenu";
 
 /** Who can read the channel's history, as Matrix reports it. */
 export type ChannelHistoryVisibility = "shared" | "invited" | "joined" | "world_readable";
@@ -84,6 +83,8 @@ export interface ChannelMenuViewSnapshot {
      * a null id is the top of the list, outside any category.
      */
     categories?: { id: string | null; name: string; isCurrent: boolean }[];
+    /** When the channel's mute ends, if it is muted for a while. */
+    mutedUntil?: number;
 }
 
 /** What choosing an entry in the channel menu does. */
@@ -98,6 +99,10 @@ export interface ChannelMenuViewActions {
     onCopyLink: () => void;
     /** Change how the channel notifies the user. */
     onSetNotifState: (state: RoomNotifState) => void;
+    /** Mute the channel for this many milliseconds, or until it is turned back on for null. */
+    onMute?: (duration: number | null) => void;
+    /** Turn the channel back to how it notified before it was muted. */
+    onUnmute?: () => void;
     /** Open the channel's settings. */
     onEditChannel: () => void;
     /** Open the settings where the topic is edited. */
@@ -255,12 +260,15 @@ export function ChannelMenuContent({ vm, showInfo = false }: ChannelMenuContentP
             {s.canChangeNotifications && (
                 <>
                     <Separator />
-                    <MenuItem
-                        Icon={isMuted ? NotificationsIcon : NotificationsOffIcon}
-                        label={isMuted ? _t("desktop|channel_menu|unmute") : _t("desktop|channel_menu|mute")}
-                        onSelect={() => vm.onSetNotifState(isMuted ? RoomNotifState.AllMessages : RoomNotifState.Mute)}
-                        onClick={stop}
-                        hideChevron
+                    <MuteMenu
+                        muteLabel={_t("desktop|channel_menu|mute")}
+                        unmuteLabel={_t("desktop|channel_menu|unmute")}
+                        isMuted={isMuted}
+                        mutedUntil={s.mutedUntil}
+                        onMute={(duration) =>
+                            vm.onMute ? vm.onMute(duration) : vm.onSetNotifState(RoomNotifState.Mute)
+                        }
+                        onUnmute={() => (vm.onUnmute ? vm.onUnmute() : vm.onSetNotifState(RoomNotifState.AllMessages))}
                     />
                     <SubMenu
                         trigger={

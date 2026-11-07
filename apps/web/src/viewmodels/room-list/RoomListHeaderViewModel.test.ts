@@ -8,7 +8,7 @@
 // @vitest-environment happy-dom
 
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
-import { JoinRule, type MatrixClient, type Room, RoomEvent, RoomType } from "matrix-js-sdk/src/matrix";
+import { JoinRule, type MatrixClient, MatrixEvent, type Room, RoomEvent, RoomType } from "matrix-js-sdk/src/matrix";
 import { createTestClient, mkSpace, TestSDKContext } from "test-utils";
 
 import { RoomListHeaderViewModel } from "./RoomListHeaderViewModel";
@@ -24,6 +24,7 @@ import PosthogTrackers from "../../PosthogTrackers";
 import { ReleaseAnnouncementStore } from "../../stores/ReleaseAnnouncementStore";
 import { SpaceLayoutStore, SpaceLayoutStoreEvent } from "../../stores/space-layout/SpaceLayoutStore";
 import * as serverCategories from "./serverCategories";
+import * as serverNotifications from "../../stores/notifications/ServerNotifications";
 
 vi.mock("../../PosthogTrackers", () => ({
     default: {
@@ -464,7 +465,12 @@ describe("RoomListHeaderViewModel", () => {
 
         it("offers to create a category and hide muted channels in a server", () => {
             vm = new RoomListHeaderViewModel({ matrixClient, spaceStore: sdkContext.spaceStore });
-            expect(vm.getSnapshot().serverMenu).toEqual({ canCreateCategory: true, hideMutedChannels: false });
+            expect(vm.getSnapshot().serverMenu).toEqual({
+                canCreateCategory: true,
+                hideMutedChannels: false,
+                isMuted: false,
+                notificationLevel: "all",
+            });
         });
 
         it("follows changes to the server's layout and preferences", () => {
@@ -478,6 +484,40 @@ describe("RoomListHeaderViewModel", () => {
             vi.spyOn(sdkContext.spaceStore, "activeSpaceRoom", "get").mockReturnValue(null);
             vm = new RoomListHeaderViewModel({ matrixClient, spaceStore: sdkContext.spaceStore });
             expect(vm.getSnapshot().serverMenu).toBeUndefined();
+        });
+
+        it("shows the server's own mute and notification level, following changes", () => {
+            const mute = vi.spyOn(serverNotifications, "getServerMute").mockReturnValue({ until: 4_000 });
+            vi.spyOn(serverNotifications, "getServerNotificationLevel").mockReturnValue("mentions");
+            vm = new RoomListHeaderViewModel({ matrixClient, spaceStore: sdkContext.spaceStore });
+            expect(vm.getSnapshot().serverMenu).toMatchObject({
+                isMuted: true,
+                mutedUntil: 4_000,
+                notificationLevel: "mentions",
+            });
+            mute.mockReturnValue(undefined);
+            matrixClient.emit(
+                RoomEvent.AccountData,
+                new MatrixEvent({ type: serverNotifications.SERVER_NOTIFICATIONS_ACCOUNT_DATA_TYPE }),
+                mockSpace,
+            );
+            expect(vm.getSnapshot().serverMenu?.isMuted).toBe(false);
+        });
+
+        it("runs the server menu's notification actions on the open server", () => {
+            const read = vi.spyOn(serverNotifications, "markServerAsRead").mockResolvedValue();
+            const mute = vi.spyOn(serverNotifications, "muteServer").mockResolvedValue();
+            const unmute = vi.spyOn(serverNotifications, "unmuteServer").mockResolvedValue();
+            const level = vi.spyOn(serverNotifications, "setServerNotificationLevel").mockResolvedValue();
+            vm = new RoomListHeaderViewModel({ matrixClient, spaceStore: sdkContext.spaceStore });
+            vm.markServerAsRead();
+            vm.muteServer(null);
+            vm.unmuteServer();
+            vm.setServerNotificationLevel("all");
+            expect(read).toHaveBeenCalledWith(mockSpace);
+            expect(mute).toHaveBeenCalledWith(mockSpace, null);
+            expect(unmute).toHaveBeenCalledWith(mockSpace);
+            expect(level).toHaveBeenCalledWith(mockSpace, "all");
         });
 
         it("creates a category and hides muted channels in the open server", () => {

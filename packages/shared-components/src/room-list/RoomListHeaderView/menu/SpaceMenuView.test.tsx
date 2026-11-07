@@ -165,9 +165,20 @@ describe("<SpaceMenuView />", () => {
     });
 
     describe("server entries", () => {
-        function makeVm(serverMenu = { canCreateCategory: true, hideMutedChannels: false }) {
-            return Object.assign(new MockedViewModel({ ...defaultSnapshot, canCreateRoom: true, serverMenu }), {
+        const serverMenu = {
+            canCreateCategory: true,
+            isMuted: false,
+            notificationLevel: "all" as const,
+            hideMutedChannels: false,
+        };
+
+        function makeVm(menu = serverMenu) {
+            return Object.assign(new MockedViewModel({ ...defaultSnapshot, canCreateRoom: true, serverMenu: menu }), {
                 createCategory: vi.fn(),
+                markServerAsRead: vi.fn(),
+                muteServer: vi.fn(),
+                unmuteServer: vi.fn(),
+                setServerNotificationLevel: vi.fn(),
                 toggleHideMutedChannels: vi.fn(),
             });
         }
@@ -209,7 +220,12 @@ describe("<SpaceMenuView />", () => {
 
         it("leaves out creating categories for people who can't", async () => {
             const user = userEvent.setup();
-            render(<SpaceMenuView vm={makeVm({ canCreateCategory: false, hideMutedChannels: true })} fullWidth />);
+            render(
+                <SpaceMenuView
+                    vm={makeVm({ ...serverMenu, canCreateCategory: false, hideMutedChannels: true })}
+                    fullWidth
+                />,
+            );
             await user.click(screen.getByRole("button", { name: "Open server menu" }));
             expect(screen.queryByRole("menuitem", { name: "Create category" })).toBeNull();
             expect(screen.getByRole("menuitemcheckbox", { name: "Hide muted channels" })).toBeChecked();
@@ -220,6 +236,56 @@ describe("<SpaceMenuView />", () => {
             render(<SpaceMenuView vm={new MockedViewModel(defaultSnapshot)} fullWidth />);
             await user.click(screen.getByRole("button", { name: "Open server menu" }));
             expect(screen.queryByRole("menuitemcheckbox", { name: "Hide muted channels" })).toBeNull();
+        });
+
+        it("offers Discord's server notification entries", async () => {
+            const user = userEvent.setup();
+            const vm = makeVm();
+            render(<SpaceMenuView vm={vm} fullWidth />);
+            await user.click(screen.getByRole("button", { name: "Open server menu" }));
+
+            await user.click(screen.getByRole("menuitem", { name: "Mark as read" }));
+            expect(vm.markServerAsRead).toHaveBeenCalled();
+
+            await user.click(screen.getByRole("button", { name: "Open server menu" }));
+            await user.click(screen.getByRole("menuitemcheckbox", { name: "Hide muted channels" }));
+            expect(vm.toggleHideMutedChannels).toHaveBeenCalled();
+
+            await user.click(screen.getByRole("button", { name: "Open server menu" }));
+            await user.click(screen.getByRole("menuitem", { name: "Notification settings" }));
+            expect(await screen.findByRole("menuitemradio", { name: "All messages" })).toBeChecked();
+            // Choose with the keyboard: the pointer would leave the submenu on its way there in this unstyled test.
+            screen.getByRole("menuitemradio", { name: "Only @mentions" }).focus();
+            await user.keyboard("{Enter}");
+            expect(vm.setServerNotificationLevel).toHaveBeenCalledWith("mentions");
+        });
+
+        it("mutes the server for a while", async () => {
+            const user = userEvent.setup();
+            const vm = makeVm();
+            render(<SpaceMenuView vm={vm} fullWidth />);
+            await user.click(screen.getByRole("button", { name: "Open server menu" }));
+            await user.click(screen.getByRole("menuitem", { name: "Mute server" }));
+            (await screen.findByRole("menuitem", { name: "For 8 hours" })).focus();
+            await user.keyboard("{Enter}");
+            expect(vm.muteServer).toHaveBeenCalledWith(8 * 60 * 60_000);
+        });
+
+        it("offers to unmute a muted server", async () => {
+            const user = userEvent.setup();
+            const vm = makeVm({ ...serverMenu, isMuted: true });
+            render(<SpaceMenuView vm={vm} fullWidth />);
+            await user.click(screen.getByRole("button", { name: "Open server menu" }));
+            await user.click(screen.getByRole("menuitem", { name: "Unmute server" }));
+            expect(vm.unmuteServer).toHaveBeenCalled();
+        });
+
+        it("leaves the entries out outside a server", async () => {
+            const user = userEvent.setup();
+            render(<SpaceMenuView vm={new MockedViewModel(defaultSnapshot)} fullWidth />);
+            await user.click(screen.getByRole("button", { name: "Open server menu" }));
+            expect(screen.queryByRole("menuitem", { name: "Mute server" })).toBeNull();
+            expect(screen.queryByRole("menuitem", { name: "Mark as read" })).toBeNull();
         });
     });
 });

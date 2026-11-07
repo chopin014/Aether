@@ -18,6 +18,7 @@ import {
 import { _t } from "../../../core/i18n/i18n";
 import { useViewModel } from "../../../core/viewmodel";
 import { type RoomListSectionHeaderViewModel } from "./RoomListSectionHeaderView";
+import { MuteMenu } from "../../../desktop/MuteMenu";
 
 /** Props for {@link CategoryContextMenu}. */
 export interface CategoryContextMenuProps {
@@ -62,6 +63,19 @@ export function CategoryContextMenu({ vm, children }: CategoryContextMenuProps):
                     onSelect={vm.collapseAllCategories}
                     hideChevron
                 />
+            )}
+            {vm.muteCategory && vm.unmuteCategory && (
+                <>
+                    <Separator />
+                    <MuteMenu
+                        muteLabel={_t("desktop|category_menu|mute")}
+                        unmuteLabel={_t("desktop|category_menu|unmute")}
+                        isMuted={!!categoryMenu.isMuted}
+                        mutedUntil={categoryMenu.mutedUntil}
+                        onMute={vm.muteCategory}
+                        onUnmute={vm.unmuteCategory}
+                    />
+                </>
             )}
             {(canAdd || categoryMenu.canEdit) && <Separator />}
             {canAdd && (
