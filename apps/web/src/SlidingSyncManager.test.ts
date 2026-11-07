@@ -37,6 +37,7 @@ import { waitFor } from "test-utils-rtl";
 import { mkStubRoom, stubClient } from "test-utils";
 
 import { SlidingSyncManager } from "./SlidingSyncManager";
+import { SlidingSyncCache } from "./sliding-sync/SlidingSyncCache";
 import { CATALOG_STATE } from "./sliding-sync/roomStateProfiles";
 import { type RoomSubscriptionLeases } from "./sliding-sync/RoomSubscriptionLeases";
 import { JitsiCallMemberEventType } from "./call-types";
@@ -1693,6 +1694,29 @@ describe("SlidingSyncManager", () => {
                 rooms: {},
                 priorityRoomIds: ["!room", "!space"],
             });
+        });
+
+        it("starts reading the saved rooms before set-up, and uses that cache and read once", async () => {
+            const load = vi.spyOn(SlidingSyncCache.prototype, "load").mockResolvedValue({ rooms: {} });
+            manager.prefetchSnapshot(client);
+            expect(load).toHaveBeenCalledTimes(1);
+            await manager.setup(client);
+            const internals = manager as unknown as { cache: SlidingSyncCache; prefetched?: unknown };
+            expect(load.mock.contexts[0]).toBe(internals.cache);
+            await expect(manager.snapshotLoader(client)!()).resolves.toEqual({ rooms: {}, priorityRoomIds: [] });
+            expect(load).toHaveBeenCalledTimes(1);
+            // A later start reads afresh.
+            await manager.snapshotLoader(client)!();
+            expect(load).toHaveBeenCalledTimes(2);
+        });
+
+        it("does not use an early read made for another client", async () => {
+            const load = vi.spyOn(SlidingSyncCache.prototype, "load").mockResolvedValue(null);
+            manager.prefetchSnapshot(stubClient());
+            await manager.setup(client);
+            await manager.snapshotLoader(client)!();
+            expect(load).toHaveBeenCalledTimes(2);
+            expect(load.mock.contexts[1]).toBe((manager as unknown as { cache: SlidingSyncCache }).cache);
         });
 
         it("keeps no saved rooms for a session without a device", async () => {

@@ -277,6 +277,12 @@ export class SlidingSyncManager {
 
     // What this device keeps of the session's rooms, shown at the next start before the server answers.
     private cache?: SlidingSyncCache;
+    // A cache whose saved rooms are already being read, before the client is set up, and that read.
+    private prefetched?: {
+        client: MatrixClient;
+        cache: SlidingSyncCache;
+        snapshot: Promise<SlidingSyncSnapshot | null>;
+    };
     private detachCache?: () => void;
 
     public static get instance(): SlidingSyncManager {
@@ -1135,12 +1141,30 @@ export class SlidingSyncManager {
     public snapshotLoader(client: MatrixClient): (() => Promise<SlidingSyncSnapshot | null>) | undefined {
         const cache = this.cache;
         if (!cache || this.client !== client) return undefined;
+        // A read started early is used once; a later start reads afresh.
+        const prefetched = this.prefetched?.cache === cache ? this.prefetched.snapshot : undefined;
+        this.prefetched = undefined;
         return async () => {
-            const snapshot = await cache.load();
+            const snapshot = await (prefetched ?? cache.load());
             // The room and Space the app opens at start are shown before the rest.
             if (snapshot) snapshot.priorityRoomIds = [...this.roomsShownFirst];
             return snapshot;
         };
+    }
+
+    /**
+     * Start reading the rooms this device saved, while the client's stores and crypto are still being opened, so
+     * they are ready to show as soon as sync starts. {@link setup} then uses the same cache.
+     * @param client - The client about to be set up.
+     */
+    public prefetchSnapshot(client: MatrixClient): void {
+        const userId = client.getUserId();
+        const deviceId = client.getDeviceId();
+        if (!userId || !deviceId) return;
+        // An earlier read nobody used is dropped; the cache in use stays.
+        if (this.prefetched && this.prefetched.cache !== this.cache) void this.prefetched.cache.dispose();
+        const cache = new SlidingSyncCache(userId, deviceId);
+        this.prefetched = { client, cache, snapshot: cache.load() };
     }
 
     /** Keep what this connection learns on this device, for the next start. */
@@ -1148,8 +1172,9 @@ export class SlidingSyncManager {
         const userId = client.getUserId();
         const deviceId = client.getDeviceId();
         const previous = this.cache;
-        void previous?.dispose();
-        this.cache = userId && deviceId ? new SlidingSyncCache(userId, deviceId) : undefined;
+        const prefetched = this.prefetched?.client === client ? this.prefetched.cache : undefined;
+        if (previous !== prefetched) void previous?.dispose();
+        this.cache = prefetched ?? (userId && deviceId ? new SlidingSyncCache(userId, deviceId) : undefined);
         const cache = this.cache;
         if (!cache) return;
 
