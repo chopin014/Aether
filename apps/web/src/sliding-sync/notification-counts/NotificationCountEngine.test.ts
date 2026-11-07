@@ -350,9 +350,20 @@ describe("NotificationCountEngine", () => {
         ]);
         expect(counts().total).toBe(1);
 
+        const before = new MatrixEvent({ type: EventType.PushRules, content: pushRules });
+        // The same rules again, as on a new connection: nothing is evaluated again.
+        const evaluate = vi.spyOn(client.pushProcessor, "actionsForEvent");
+        client.emit(
+            ClientEvent.AccountData,
+            new MatrixEvent({ type: EventType.PushRules, content: pushRules }),
+            before,
+        );
+        await settle();
+        expect(evaluate).not.toHaveBeenCalled();
+
         const silent: IPushRules = { global: { ...pushRules.global, [PushRuleKind.Underride]: [] } };
         client.setPushRules(silent);
-        client.emit(ClientEvent.AccountData, new MatrixEvent({ type: EventType.PushRules, content: silent }));
+        client.emit(ClientEvent.AccountData, new MatrixEvent({ type: EventType.PushRules, content: silent }), before);
         await settle();
 
         expect(counts().total).toBe(0);

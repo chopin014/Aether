@@ -222,8 +222,11 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         this.markDirty(room.roomId);
     }
 
-    private onAccountData = (event: MatrixEvent): void => {
+    private onAccountData = (event: MatrixEvent, previous?: MatrixEvent): void => {
         if (event.getType() !== EventType.PushRules) return;
+        // The server sends the rules again on every new connection: only a real change matters. Evaluating again
+        // needs each event, which saved ledgers do not all have.
+        if (previous && JSON.stringify(previous.getContent()) === JSON.stringify(event.getContent())) return;
         // Every event is evaluated again with the new rules, as its counts are next needed.
         for (const [roomId, ledger] of this.ledgers) {
             ledger.forgetContributions();
