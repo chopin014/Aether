@@ -235,6 +235,39 @@ describe("serialiseRichField", () => {
         });
     });
 
+    it("keeps an animated banner's framing and an animated nameplate through a save", () => {
+        const profile: RichProfile = {
+            ...EMPTY_RICH_PROFILE,
+            bannerMxc: "mxc://example.org/banner",
+            bannerAnimated: true,
+            bannerFrame: { x: 0, y: 0.123456, width: 1, height: 0.5 },
+            nameplate: { mxc: "mxc://example.org/plate", animated: true },
+        };
+        const field = serialiseRichField(profile);
+        expect(field).toMatchObject({
+            banner_frame: { x: 0, y: 0.1235, width: 1, height: 0.5 },
+            nameplate: { mxc: "mxc://example.org/plate", animated: true },
+        });
+        expect(
+            parseRichProfile({ [BANNER_FIELD]: "mxc://example.org/banner", [RICH_PROFILE_FIELD]: field }),
+        ).toMatchObject({
+            bannerFrame: { x: 0, y: 0.1235, width: 1, height: 0.5 },
+            nameplate: { mxc: "mxc://example.org/plate", animated: true },
+        });
+    });
+
+    it("drops a banner frame that is malformed, outside the image or too small to show, or has no banner", () => {
+        const read = (frame: unknown, banner: string | null = "mxc://example.org/banner"): unknown =>
+            parseRichProfile({ [BANNER_FIELD]: banner ?? undefined, [RICH_PROFILE_FIELD]: { banner_frame: frame } })
+                .bannerFrame;
+        expect(read({ x: 0.1, y: 0.1, width: 0.5, height: 0.3 })).toEqual({ x: 0.1, y: 0.1, width: 0.5, height: 0.3 });
+        expect(read({ x: "0", y: 0, width: 1, height: 1 })).toBeUndefined();
+        expect(read({ x: 0.6, y: 0, width: 0.6, height: 1 })).toBeUndefined();
+        expect(read({ x: 0, y: 0, width: 0.01, height: 0.01 })).toBeUndefined();
+        expect(read({ x: 0, y: 0, width: Infinity, height: 1 })).toBeUndefined();
+        expect(read({ x: 0, y: 0, width: 1, height: 1 }, null)).toBeUndefined();
+    });
+
     it("keeps fields a newer client wrote and it does not understand", () => {
         const field = serialiseRichField(decorated, { future_thing: { a: 1 }, decoration: "orbit" });
         expect(field).toMatchObject({ future_thing: { a: 1 }, decoration: "halo" });

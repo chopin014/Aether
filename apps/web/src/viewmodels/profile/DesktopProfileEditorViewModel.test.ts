@@ -12,7 +12,7 @@ import { MatrixError, TypedEventEmitter, type MatrixClient } from "matrix-js-sdk
 import { DesktopProfileEditorViewModel } from "./DesktopProfileEditorViewModel";
 import { BANNER_FIELD, BIO_FIELD_MSC4440, RICH_PROFILE_FIELD, STATUS_FIELD } from "../../profile/richProfile";
 import { RichProfileStore } from "../../profile/RichProfileStore";
-import { editImage } from "../../components/views/dialogs/ImageCropDialog";
+import { editImage, frameImage } from "../../components/views/dialogs/ImageCropDialog";
 
 vi.mock("../../customisations/Media", () => ({
     mediaFromMxc: (mxc: string) => ({
@@ -23,6 +23,7 @@ vi.mock("../../customisations/Media", () => ({
 
 vi.mock("../../components/views/dialogs/ImageCropDialog", () => ({
     editImage: vi.fn(async (file: File) => file),
+    frameImage: vi.fn(async (file: File) => ({ file })),
 }));
 
 const ME = "@me:example.org";
@@ -124,7 +125,7 @@ describe("DesktopProfileEditorViewModel", () => {
             });
 
             const vm = new DesktopProfileEditorViewModel({ client });
-            vm.chooseNameplateImage(new File(["x"], "plate.png", { type: "image/png" }));
+            await vm.chooseNameplateImage(new File(["x"], "plate.png", { type: "image/png" }));
             read.resolve({});
             await vi.waitFor(() => expect(client.getExtendedProfile).toHaveBeenCalled());
             await Promise.resolve();
@@ -310,7 +311,7 @@ describe("DesktopProfileEditorViewModel", () => {
             await vm.chooseAvatar(avatar);
             await vm.chooseBanner(banner);
             expect(editImage).toHaveBeenCalledWith(avatar, "avatar");
-            expect(editImage).toHaveBeenCalledWith(banner, "banner");
+            expect(frameImage).toHaveBeenCalledWith(banner, "banner");
             expect(vm.getSnapshot()).toMatchObject({ hasAvatar: true, hasBanner: true });
         });
 
@@ -401,6 +402,40 @@ describe("DesktopProfileEditorViewModel", () => {
             expect(client.setExtendedProfileProperty).toHaveBeenCalledWith(
                 RICH_PROFILE_FIELD,
                 expect.objectContaining({ banner_animated: true }),
+            );
+        });
+
+        it("keeps an animated banner moving and stores where to frame it", async () => {
+            const client = makeClient({});
+            const vm = await ready(client);
+            const frame = { x: 0, y: 0.123456, width: 1, height: 0.5 };
+            const gif = new File(["x"], "b.gif", { type: "image/gif" });
+            vi.mocked(frameImage).mockResolvedValueOnce({ file: gif, frame });
+            await vm.chooseBanner(gif);
+            expect(vm.getSnapshot().preview.appearance?.bannerFrame).toEqual(frame);
+            await vm.save();
+            expect(client.uploadContent).toHaveBeenCalledWith(gif);
+            expect(client.setExtendedProfileProperty).toHaveBeenCalledWith(
+                RICH_PROFILE_FIELD,
+                expect.objectContaining({
+                    banner_animated: true,
+                    banner_frame: { x: 0, y: 0.1235, width: 1, height: 0.5 },
+                }),
+            );
+            // Once saved, the preview plays the original rather than a still thumbnail of it.
+            expect(vm.getSnapshot().preview.appearance?.bannerAnimatedUrl).toBe(
+                "http://media/mxc://example.org/uploaded",
+            );
+        });
+
+        it("marks an animated nameplate image so rows can play it", async () => {
+            const client = makeClient({});
+            const vm = await ready(client);
+            await vm.chooseNameplateImage(new File(["x"], "n.gif", { type: "image/gif" }));
+            await vm.save();
+            expect(client.setExtendedProfileProperty).toHaveBeenCalledWith(
+                RICH_PROFILE_FIELD,
+                expect.objectContaining({ nameplate: { mxc: "mxc://example.org/uploaded", animated: true } }),
             );
         });
 

@@ -53,3 +53,20 @@ export function clampCropCentre(frame: ImageCropFrame, centreX: number, centreY:
     const clamp = (value: number, half: number): number => Math.min(1 - half, Math.max(half, value));
     return { x: clamp(centreX, size.width / 2), y: clamp(centreY, size.height / 2) };
 }
+
+/** A part of an image as fractions of its width and height, from its top-left corner. */
+export interface ImageCropRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+/**
+ * The kept area as a rectangle of the image. Only meaningful for an unturned image: it describes framing that is
+ * applied when the image is shown, which keeps an animated image moving.
+ */
+export function cropRect(frame: ImageCropFrame, centreX: number, centreY: number): ImageCropRect {
+    const size = cropSize(frame);
+    return { x: centreX - size.width / 2, y: centreY - size.height / 2, width: size.width, height: size.height };
+}

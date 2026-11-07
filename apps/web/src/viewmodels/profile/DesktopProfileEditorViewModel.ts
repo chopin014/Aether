@@ -14,6 +14,7 @@ import {
     type DesktopProfileEditorViewActions,
     type DesktopProfileEditorViewSnapshot,
     type DesktopProfileIdentitySnapshot,
+    type ProfileImageFrame,
 } from "@element-hq/web-shared-components";
 import { MatrixError, type Capabilities, type MatrixClient } from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
@@ -38,7 +39,8 @@ import { RichProfileStore } from "../../profile/RichProfileStore";
 import { nameStyleFromRichProfile } from "../../profile/richProfileView";
 import { spaceTagOptions } from "../../profile/spaceTag";
 import { clearAllUserStatus, setUserStatus } from "../../utils/userStatus";
-import { editImage, type ImageCropPurpose } from "../../components/views/dialogs/ImageCropDialog";
+import { editImage, frameImage } from "../../components/views/dialogs/ImageCropDialog";
+import { isAnimatedImage } from "../../utils/image/imageCrop";
 
 /** Images a profile can use. Animated formats are shown from the original file, not a still thumbnail. */
 const ANIMATED_TYPES = new Set(["image/gif", "image/webp", "image/apng"]);
@@ -65,6 +67,8 @@ function fieldPermission(
 interface PendingImage {
     file: File;
     previewUrl: string;
+    /** The file moves. */
+    animated?: boolean;
 }
 
 /** A board tile in the editor, whose image may not be uploaded yet. */
@@ -99,8 +103,11 @@ export class DesktopProfileEditorViewModel
     private pendingAvatar?: PendingImage;
     private bannerMxc?: string;
     private bannerAnimated?: boolean;
+    /** The part of an animated banner to show; a still banner is cropped into its file instead. */
+    private bannerFrame?: ProfileImageFrame;
     private pendingBanner?: PendingImage;
     private nameplateMxc?: string;
+    private nameplateAnimated?: boolean;
     private pendingNameplate?: PendingImage;
     private board: EditorBoardItem[] = [];
     private nextId = 0;
@@ -248,6 +255,7 @@ export class DesktopProfileEditorViewModel
             merged.nameplate = after.nameplate;
             merged.hasNameplateImage = after.hasNameplateImage;
             this.nameplateMxc = nameplateMxcOf(this.baseline);
+            this.nameplateAnimated = nameplateAnimatedOf(this.baseline);
         }
         merged.links = mergeEdits(
             before.draft.links,
@@ -260,6 +268,7 @@ export class DesktopProfileEditorViewModel
         if (!this.pendingBanner && this.bannerMxc === before.bannerMxc) {
             this.bannerMxc = this.baseline.bannerMxc;
             this.bannerAnimated = this.baseline.bannerAnimated;
+            this.bannerFrame = this.baseline.bannerFrame;
         }
         // Board tiles are told apart by their image; a tile still being uploaded is always one of ours.
         this.board = mergeEdits<EditorBoardItem>(
@@ -315,7 +324,9 @@ export class DesktopProfileEditorViewModel
         this.avatarMxc = this.baselineAvatarMxc;
         this.bannerMxc = profile.bannerMxc;
         this.bannerAnimated = profile.bannerAnimated;
+        this.bannerFrame = profile.bannerFrame;
         this.nameplateMxc = nameplateMxcOf(profile);
+        this.nameplateAnimated = nameplateAnimatedOf(profile);
         this.board = this.boardFromBaseline();
         this.publish(this.baselineDraft(), { error: undefined });
     }
@@ -342,8 +353,9 @@ export class DesktopProfileEditorViewModel
         const nameStyle = draft.nameStyle;
         const bannerMxc = this.bannerMxc;
         let nameplate: RichNameplate | undefined;
-        if (draft.hasNameplateImage && this.nameplateMxc) nameplate = { mxc: this.nameplateMxc };
-        else if (draft.nameplate) nameplate = { preset: draft.nameplate };
+        if (draft.hasNameplateImage && this.nameplateMxc) {
+            nameplate = { mxc: this.nameplateMxc, ...(this.nameplateAnimated ? { animated: true } : {}) };
+        } else if (draft.nameplate) nameplate = { preset: draft.nameplate };
         const board: RichBoardItem[] = this.board.map((item) => ({
             title: item.title.trim(),
             caption: item.caption.trim() || undefined,
@@ -353,6 +365,7 @@ export class DesktopProfileEditorViewModel
             ...this.baseline,
             bannerMxc,
             bannerAnimated: bannerMxc ? this.bannerAnimated : undefined,
+            bannerFrame: bannerMxc ? this.bannerFrame : undefined,
             animatedAvatarMxc:
                 this.avatarMxc && this.avatarMxc === this.baseline.animatedAvatarMxc ? this.avatarMxc : undefined,
             bio: draft.bio.trim() || undefined,
@@ -438,6 +451,12 @@ export class DesktopProfileEditorViewModel
                 (this.bannerMxc
                     ? (mediaFromMxc(this.bannerMxc).getThumbnailOfSourceHttp(960, 384, "scale") ?? undefined)
                     : undefined),
+            // A picked file plays from its preview already; a saved animated banner plays from its original.
+            bannerAnimatedUrl:
+                !this.pendingBanner && this.bannerMxc && this.bannerAnimated
+                    ? (mediaFromMxc(this.bannerMxc).srcHttp ?? undefined)
+                    : undefined,
+            bannerFrame: this.bannerFrame,
             theme: draft.theme,
             decoration: draft.decoration,
             effect: draft.effect,
@@ -448,6 +467,10 @@ export class DesktopProfileEditorViewModel
                           (this.nameplateMxc
                               ? (mediaFromMxc(this.nameplateMxc).getThumbnailOfSourceHttp(480, 96, "scale") ?? "")
                               : ""),
+                      animatedUrl:
+                          !this.pendingNameplate && this.nameplateMxc && this.nameplateAnimated
+                              ? (mediaFromMxc(this.nameplateMxc).srcHttp ?? undefined)
+                              : undefined,
                   }
                 : draft.nameplate
                   ? { preset: draft.nameplate }
@@ -495,16 +518,11 @@ export class DesktopProfileEditorViewModel
         return { file, previewUrl: URL.createObjectURL(file) };
     }
 
-    /** Let the person frame the image, then accept what they chose. Nothing comes back if they cancel. */
-    private async editAndTakeImage(file: File, purpose: ImageCropPurpose): Promise<PendingImage | undefined> {
-        if (!this.checkImageType(file)) return undefined;
-        const edited = await editImage(file, purpose);
-        if (!edited || this.isDisposed) return undefined;
-        return this.takeImage(edited);
-    }
-
     public chooseAvatar = async (file: File): Promise<void> => {
-        const image = await this.editAndTakeImage(file, "avatar");
+        if (!this.checkImageType(file)) return;
+        const edited = await editImage(file, "avatar");
+        if (!edited || this.isDisposed) return;
+        const image = this.takeImage(edited);
         if (!image) return;
         if (this.pendingAvatar) URL.revokeObjectURL(this.pendingAvatar.previewUrl);
         this.pendingAvatar = image;
@@ -518,11 +536,20 @@ export class DesktopProfileEditorViewModel
         this.publish(this.snapshot.current.draft);
     };
 
+    /**
+     * Let the person frame a banner. A still one is cropped into a new file; an animated one stays as it is, so it keeps
+     * moving, and the framing is stored beside it.
+     */
     public chooseBanner = async (file: File): Promise<void> => {
-        const image = await this.editAndTakeImage(file, "banner");
+        if (!this.checkImageType(file)) return;
+        const framed = await frameImage(file, "banner");
+        if (!framed || this.isDisposed) return;
+        const image = this.takeImage(framed.file);
         if (!image) return;
         if (this.pendingBanner) URL.revokeObjectURL(this.pendingBanner.previewUrl);
-        this.pendingBanner = image;
+        this.pendingBanner = { ...image, animated: await isAnimatedImage(framed.file) };
+        this.bannerFrame = framed.frame;
+        if (this.isDisposed) return;
         this.publish(this.snapshot.current.draft);
     };
 
@@ -531,14 +558,17 @@ export class DesktopProfileEditorViewModel
         this.pendingBanner = undefined;
         this.bannerMxc = undefined;
         this.bannerAnimated = undefined;
+        this.bannerFrame = undefined;
         this.publish(this.snapshot.current.draft);
     };
 
-    public chooseNameplateImage = (file: File): void => {
+    public chooseNameplateImage = async (file: File): Promise<void> => {
         const image = this.takeImage(file);
         if (!image) return;
+        const animated = await isAnimatedImage(file);
+        if (this.isDisposed) return URL.revokeObjectURL(image.previewUrl);
         if (this.pendingNameplate) URL.revokeObjectURL(this.pendingNameplate.previewUrl);
-        this.pendingNameplate = image;
+        this.pendingNameplate = { ...image, animated };
         this.publish({ ...this.snapshot.current.draft, nameplate: undefined, hasNameplateImage: true });
     };
 
@@ -607,7 +637,11 @@ export class DesktopProfileEditorViewModel
         const { client } = this.props;
         if (this.pendingBanner) {
             const { content_uri: uri } = await client.uploadContent(this.pendingBanner.file);
-            this.bannerAnimated = ANIMATED_TYPES.has(this.pendingBanner.file.type) || undefined;
+            // Checked from the file itself: a PNG or WebP may or may not move, whatever its type says.
+            this.bannerAnimated =
+                (this.pendingBanner.animated ?? ANIMATED_TYPES.has(this.pendingBanner.file.type)) || undefined;
+            // Framing only applies to the file it was chosen for; a still banner was cropped into its file.
+            if (!this.bannerAnimated) this.bannerFrame = undefined;
             this.bannerMxc = uri;
             URL.revokeObjectURL(this.pendingBanner.previewUrl);
             this.pendingBanner = undefined;
@@ -615,6 +649,7 @@ export class DesktopProfileEditorViewModel
         if (this.pendingNameplate) {
             const { content_uri: uri } = await client.uploadContent(this.pendingNameplate.file);
             this.nameplateMxc = uri;
+            this.nameplateAnimated = this.pendingNameplate.animated || undefined;
             URL.revokeObjectURL(this.pendingNameplate.previewUrl);
             this.pendingNameplate = undefined;
         }
@@ -796,6 +831,10 @@ function mergeEdits<T>(
 
 function nameplateMxcOf(profile: RichProfile): string | undefined {
     return profile.nameplate && "mxc" in profile.nameplate ? profile.nameplate.mxc : undefined;
+}
+
+function nameplateAnimatedOf(profile: RichProfile): boolean | undefined {
+    return profile.nameplate && "mxc" in profile.nameplate ? profile.nameplate.animated : undefined;
 }
 
 function saveErrorMessage(error: unknown): string {
