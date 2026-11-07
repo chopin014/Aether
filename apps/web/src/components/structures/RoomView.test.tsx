@@ -1173,6 +1173,48 @@ describe("RoomView", () => {
             rooms.delete(room.roomId);
         });
 
+        describe("while sliding sync looks for the room", () => {
+            beforeEach(() => {
+                cli.clientRunning = true;
+                cli.getRoomSummary.mockResolvedValue({
+                    room_id: room.roomId,
+                    join_rule: JoinRule.Public,
+                    membership: KnownMembership.Leave,
+                    world_readable: false,
+                    guest_can_join: false,
+                    num_joined_members: 3,
+                });
+            });
+
+            it("asks for no summary of a room sliding sync then finds, such as one restored from this device", async () => {
+                const loading = vi.spyOn(stores.roomViewStore, "isRoomLoading").mockReturnValue(true);
+                await mountRoomView();
+                await flushPromises();
+                expect(cli.getRoomSummary).not.toHaveBeenCalled();
+                // The saved room is restored, joined.
+                vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+                rooms.set(room.roomId, room);
+                loading.mockReturnValue(false);
+                await act(async () => {
+                    stores.roomViewStore.emit(UPDATE_EVENT);
+                });
+                await flushPromises();
+                expect(cli.getRoomSummary).not.toHaveBeenCalled();
+            });
+
+            it("asks for the summary once sliding sync stops looking without finding the room", async () => {
+                const loading = vi.spyOn(stores.roomViewStore, "isRoomLoading").mockReturnValue(true);
+                await mountRoomView();
+                await flushPromises();
+                expect(cli.getRoomSummary).not.toHaveBeenCalled();
+                loading.mockReturnValue(false);
+                await act(async () => {
+                    stores.roomViewStore.emit(UPDATE_EVENT);
+                });
+                await waitFor(() => expect(cli.getRoomSummary).toHaveBeenCalledWith(room.roomId, expect.anything()));
+            });
+        });
+
         describe("public Space previews", () => {
             beforeEach(() => {
                 cli.clientRunning = true;
