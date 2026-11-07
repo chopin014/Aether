@@ -215,7 +215,8 @@ describe("SlidingSyncManager", () => {
             complete(sync, {});
             await vi.waitFor(() => expect(sync.getListParams("recent")?.timeline_limit).toBe(20));
             complete(sync, {});
-            await vi.waitFor(() => expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(0));
+            // Only the manager's own tracking of responses stays.
+            await vi.waitFor(() => expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(1));
             const select = vi.spyOn(sync, "useCustomSubscription");
             const visible = manager.setRoomVisible(roomId);
             await vi.waitFor(() => expect(select).toHaveBeenCalledWith(roomId, "bootstrap"));
@@ -232,7 +233,7 @@ describe("SlidingSyncManager", () => {
             complete(sync, { [roomId]: response });
             await expect(preparation).resolves.toBe(true);
             expect(select).toHaveBeenLastCalledWith(roomId, "room");
-            expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(0);
+            expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(1);
             sync.stop();
         });
 
@@ -665,7 +666,8 @@ describe("SlidingSyncManager", () => {
             await vi.waitFor(() => expect(sync.getListParams("recent")?.timeline_limit).toBe(20));
             sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, null);
             await new Promise((resolve) => setTimeout(resolve, 60));
-            expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(0);
+            // Only the manager's own tracking of responses stays.
+            expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(1);
             const roomId = "!new:example.org";
             const selectSubscription = vi.spyOn(sync, "useCustomSubscription");
             const visible = manager.setRoomVisible(roomId);
@@ -1317,6 +1319,76 @@ describe("SlidingSyncManager", () => {
             sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null, new Error("offline"));
             addChildren(space, ["!c"]);
             await vi.advanceTimersByTimeAsync(60);
+            expect(sync.getRoomSubscriptions()).toContain("!c");
+        });
+
+        it("reads changes once a response is given up on, and stops reading when the connection stops", async () => {
+            vi.useFakeTimers();
+            const space = knownRoom("!server", "space");
+            manager.setActiveSpace("!server");
+            await vi.advanceTimersByTimeAsync(0);
+            // A response whose processing fails never completes.
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, {
+                pos: "p",
+                lists: {},
+                rooms: {},
+                extensions: {},
+            });
+            addChildren(space, ["!a"]);
+            await vi.advanceTimersByTimeAsync(5_000);
+            expect(sync.getRoomSubscriptions()).not.toContain("!a");
+            await vi.advanceTimersByTimeAsync(11_000);
+            expect(sync.getRoomSubscriptions()).toContain("!a");
+
+            // Nothing is read after the connection stops.
+            addChildren(space, ["!b"]);
+            const modify = vi.spyOn(sync, "modifyRoomSubscriptions");
+            sync.stop();
+            await vi.advanceTimersByTimeAsync(20_000);
+            expect(modify).not.toHaveBeenCalled();
+            expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(0);
+        });
+
+        it("waits for a response that began before the first Space was selected", async () => {
+            vi.useFakeTimers();
+            const space = knownRoom("!server", "space");
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, {
+                pos: "p",
+                lists: {},
+                rooms: {},
+                extensions: {},
+            });
+            manager.setActiveSpace("!server");
+            addChildren(space, ["!a"]);
+            await vi.advanceTimersByTimeAsync(1_000);
+            expect(sync.getRoomSubscriptions()).not.toContain("!a");
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, {
+                pos: "p",
+                lists: {},
+                rooms: {},
+                extensions: {},
+            });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(sync.getRoomSubscriptions()).toContain("!a");
+        });
+
+        it("sorts a Space's children once while they stay the same", async () => {
+            const space = knownRoom("!server", "space");
+            addChildren(space, ["!b", "!a"]);
+            manager.setActiveSpace("!server");
+            await tick();
+            const internals = manager as unknown as {
+                refreshSpaceChannels(): void;
+                sortedChildren: Map<string, { sorted: MatrixEvent[] }>;
+            };
+            const sorted = internals.sortedChildren.get("!server")?.sorted;
+            expect(sorted?.map((event) => event.getStateKey())).toEqual(["!a", "!b"]);
+            internals.refreshSpaceChannels();
+            expect(internals.sortedChildren.get("!server")?.sorted).toBe(sorted);
+            // A changed child is sorted again.
+            addChildren(space, ["!c"]);
+            await applied();
+            expect(internals.sortedChildren.get("!server")?.sorted).not.toBe(sorted);
             expect(sync.getRoomSubscriptions()).toContain("!c");
         });
 
