@@ -845,8 +845,14 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         // observe the new state but we don't want to put it in the setState
         // callback because this would prevent the setStates from being batched,
         // ie. cause it to render RoomView twice rather than the once that is necessary.
-        if (initial && !newState.joining) {
-            await this.setupRoom(newState.room, newState.roomId, !!newState.shouldPeek);
+        // A summary held back while sliding sync looked for the room is asked for once it stops looking.
+        const summaryDue =
+            this.summaryWaitingFor !== undefined && this.summaryWaitingFor === newState.roomId && !roomLoading;
+        if ((initial || summaryDue) && !newState.joining) {
+            this.summaryWaitingFor = undefined;
+            // Only an initial update carries the room; one that sliding sync found meanwhile is known by now.
+            const room = newState.room ?? this.context.client?.getRoom(newState.roomId) ?? undefined;
+            await this.setupRoom(room, newState.roomId, !!newState.shouldPeek);
         }
 
         // We don't block the initial setup but we want to make it early to not block the timeline rendering
@@ -908,6 +914,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         return this.permalinkCreators[room.roomId];
     }
 
+    // The room whose summary waits for sliding sync to stop looking for it.
+    private summaryWaitingFor?: string;
+
     private stopAllPermalinkCreators(): void {
         if (!this.permalinkCreators) return;
         for (const roomId of Object.keys(this.permalinkCreators)) {
@@ -929,6 +938,12 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         // We don't have a roomId to set up a room for, so we can't do anything
         if (!roomId) return;
         if (!this.state.matrixClientIsReady && !client.clientRunning) return;
+        // Sliding sync is still looking for this room, such as one it is restoring from this device. A summary is
+        // only needed if it does not find it, so asking for one waits until it stops looking.
+        if (this.roomViewStore.isRoomLoading()) {
+            this.summaryWaitingFor = roomId;
+            return;
+        }
 
         // if this is an unknown room then we're in one of these states:
         // - We are already joined, but sync has not caught up with the room yet. (we can /peek)

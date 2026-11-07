@@ -37,6 +37,7 @@ import { waitFor } from "test-utils-rtl";
 import { mkStubRoom, stubClient } from "test-utils";
 
 import { SlidingSyncManager } from "./SlidingSyncManager";
+import { SlidingSyncCache } from "./sliding-sync/SlidingSyncCache";
 import { CATALOG_STATE } from "./sliding-sync/roomStateProfiles";
 import { type RoomSubscriptionLeases } from "./sliding-sync/RoomSubscriptionLeases";
 import { JitsiCallMemberEventType } from "./call-types";
@@ -1185,9 +1186,15 @@ describe("SlidingSyncManager", () => {
             addChildren(space, ["!a"]);
             await applied();
             expect(sync.getRoomSubscriptions()).not.toContain("!a");
+            // The response that brings the Space is still being applied.
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, {
+                pos: "p",
+                lists: {},
+                rooms: {},
+                extensions: {},
+            });
             rooms.set("!server", space);
             client.emit(ClientEvent.Room, space);
-            // The rest of the response is still being processed.
             await tick();
             expect(sync.getRoomSubscriptions()).not.toContain("!a");
             await applied();
@@ -1213,8 +1220,14 @@ describe("SlidingSyncManager", () => {
             addChildren(space, ["!category"]);
             await applied();
             expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!c"]));
-            // Leaving: sync announces the member event, and works out the membership only after processing more of
-            // the response. Nothing is read until the response has been applied.
+            // Leaving: a response arrives, sync announces the member event while applying it, and works out the
+            // membership only after processing more of it. Nothing is read until the response has been applied.
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, {
+                pos: "p",
+                lists: {},
+                rooms: {},
+                extensions: {},
+            });
             client.emit(
                 RoomStateEvent.Events,
                 new MatrixEvent({
@@ -1678,6 +1691,9 @@ describe("SlidingSyncManager", () => {
     });
 
     describe("rooms saved on this device", () => {
+        // Several tests replace how the cache reads; each starts from the real one.
+        afterEach(() => vi.restoreAllMocks());
+
         it("offers the saved rooms only to the client it was set up for", async () => {
             await manager.setup(client);
             expect(manager.snapshotLoader(client)).toBeInstanceOf(Function);
@@ -1693,6 +1709,89 @@ describe("SlidingSyncManager", () => {
                 rooms: {},
                 priorityRoomIds: ["!room", "!space"],
             });
+        });
+
+        it("starts reading the saved rooms before set-up, and uses that cache and read once", async () => {
+            const load = vi.spyOn(SlidingSyncCache.prototype, "load").mockResolvedValue({ rooms: {} });
+            manager.prefetchSnapshot(client);
+            expect(load).toHaveBeenCalledTimes(1);
+            await manager.setup(client);
+            const internals = manager as unknown as { cache: SlidingSyncCache; prefetched?: unknown };
+            expect(load.mock.contexts[0]).toBe(internals.cache);
+            await expect(manager.snapshotLoader(client)!()).resolves.toEqual({ rooms: {}, priorityRoomIds: [] });
+            expect(load).toHaveBeenCalledTimes(1);
+            // A later start reads afresh.
+            await manager.snapshotLoader(client)!();
+            expect(load).toHaveBeenCalledTimes(2);
+        });
+
+        it("does not use an early read made for another client", async () => {
+            const load = vi.spyOn(SlidingSyncCache.prototype, "load").mockResolvedValue(null);
+            manager.prefetchSnapshot(stubClient());
+            await manager.setup(client);
+            await manager.snapshotLoader(client)!();
+            expect(load).toHaveBeenCalledTimes(2);
+            expect(load.mock.contexts[1]).toBe((manager as unknown as { cache: SlidingSyncCache }).cache);
+        });
+
+        it("reads afresh, rather than adopt an early read whose saved data was deleted before set-up", async () => {
+            vi.spyOn(SlidingSyncCache.prototype, "load").mockResolvedValue({ rooms: { "!a": {} as never } });
+            manager.prefetchSnapshot(client);
+            const early = (manager as unknown as { prefetched: { cache: SlidingSyncCache } }).prefetched.cache;
+            await SlidingSyncCache.deleteAll();
+            await manager.setup(client);
+            // The deleted cache is not adopted, and its rooms are not shown.
+            expect((manager as unknown as { cache: SlidingSyncCache }).cache).not.toBe(early);
+            await expect(manager.snapshotLoader(client)!()).resolves.toEqual({
+                rooms: { "!a": {} },
+                priorityRoomIds: [],
+            });
+        });
+
+        it("drops saved rooms read early when the cache is deleted while the client starts", async () => {
+            const read = Promise.withResolvers<{ rooms: Record<string, never> }>();
+            vi.spyOn(SlidingSyncCache.prototype, "load").mockReturnValue(read.promise as never);
+            manager.prefetchSnapshot(client);
+            await manager.setup(client);
+            const loader = manager.snapshotLoader(client)!;
+            await SlidingSyncCache.deleteAll();
+            read.resolve({ rooms: { "!a": {} as never } });
+            await expect(loader()).resolves.toBeNull();
+        });
+
+        it("shows no saved rooms when set-up overlaps deleting them, with a write still under way", async () => {
+            const saved = new SlidingSyncCache(client.getUserId()!, client.getDeviceId()!);
+            const room = (name: string) => ({ name, required_state: [], timeline: [] }) as unknown as MSC3575RoomData;
+            saved.observeRoomData("!a", room("A"));
+            await saved.flush();
+            saved.observeRoomData("!b", room("B"));
+            const writing = saved.flush();
+            manager.prefetchSnapshot(client);
+            const deletion = SlidingSyncCache.deleteAll();
+            await manager.setup(client);
+            const loaded = manager.snapshotLoader(client)!();
+            await Promise.all([writing, deletion]);
+            await expect(loaded).resolves.toBeNull();
+        });
+
+        it("lets go of an early read made for another client", async () => {
+            const dispose = vi.spyOn(SlidingSyncCache.prototype, "dispose");
+            vi.spyOn(SlidingSyncCache.prototype, "load").mockResolvedValue(null);
+            manager.prefetchSnapshot(stubClient());
+            const early = (manager as unknown as { prefetched: { cache: SlidingSyncCache } }).prefetched.cache;
+            await manager.setup(client);
+            expect(dispose.mock.contexts).toContain(early);
+        });
+
+        it("writes what it keeps at once when the page is hidden or closed", async () => {
+            await manager.setup(client);
+            const cache = (manager as unknown as { cache: { flushNow(): void } }).cache;
+            const flushNow = vi.spyOn(cache, "flushNow");
+            window.dispatchEvent(new Event("pagehide"));
+            expect(flushNow).toHaveBeenCalledTimes(1);
+            vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+            document.dispatchEvent(new Event("visibilitychange"));
+            expect(flushNow).toHaveBeenCalledTimes(2);
         });
 
         it("keeps no saved rooms for a session without a device", async () => {

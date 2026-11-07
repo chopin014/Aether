@@ -85,6 +85,8 @@ function transactionDone(transaction: IDBTransaction): Promise<void> {
 export class SlidingSyncCache {
     /** Caches in use in this window, so deleting the saved data can stop them first. */
     private static readonly live = new Set<SlidingSyncCache>();
+    /** A deletion under way, which caches created meanwhile wait for. */
+    private static deletion?: Promise<void>;
 
     private readonly rooms = new Map<string, CachedRoom>();
     private readonly accountData = new Map<string, IMinimalEvent>();
@@ -92,6 +94,8 @@ export class SlidingSyncCache {
     private readonly removedRooms = new Set<string>();
     private accountDataDirty = false;
     private database?: Promise<IDBDatabase | null>;
+    // The database once open, so a write can be started in the calling task.
+    private openDatabase?: IDBDatabase;
     private writeTimer?: ReturnType<typeof setTimeout>;
     private writing: Promise<void> = Promise.resolve();
     private loadedRoomIds: ReadonlySet<string> = new Set();
@@ -99,6 +103,9 @@ export class SlidingSyncCache {
     // dropped from here before then is never shown.
     private loadedSnapshot?: SlidingSyncSnapshot;
     private disposed = false;
+    // The deletion under way when this cache was created, which it waits for before opening its database. Caches
+    // that exist when a deletion starts are stopped by it instead, so they never wait for it.
+    private deletionUnderWay?: Promise<void>;
 
     /**
      * @param userId - Whose session this is.
@@ -109,6 +116,7 @@ export class SlidingSyncCache {
         private readonly deviceId: string,
     ) {
         SlidingSyncCache.live.add(this);
+        this.deletionUnderWay = SlidingSyncCache.deletion;
     }
 
     /** The database name for a session. */
@@ -121,8 +129,23 @@ export class SlidingSyncCache {
      * had yet to write, so nothing is written back afterwards. Caches in other windows stop when their database is
      * deleted.
      */
-    public static async deleteAll(): Promise<void> {
-        await Promise.all([...SlidingSyncCache.live].map((cache) => cache.invalidate()));
+    public static deleteAll(): Promise<void> {
+        // The caches in use stop at once, so none writes again. Deletions follow one another, and caches created
+        // from now on wait for this one before opening their database.
+        const stopping = Promise.all([...SlidingSyncCache.live].map((cache) => cache.invalidate()));
+        const deletion = (SlidingSyncCache.deletion ?? Promise.resolve()).then(async () => {
+            await stopping;
+            await SlidingSyncCache.deleteDatabases();
+        });
+        const finished = deletion.catch(() => undefined);
+        SlidingSyncCache.deletion = finished;
+        void finished.then(() => {
+            if (SlidingSyncCache.deletion === finished) SlidingSyncCache.deletion = undefined;
+        });
+        return deletion;
+    }
+
+    private static async deleteDatabases(): Promise<void> {
         if (typeof indexedDB === "undefined" || typeof indexedDB.databases !== "function") return;
         const databases = await indexedDB.databases();
         await Promise.all(
@@ -156,6 +179,11 @@ export class SlidingSyncCache {
             logger.warn("SlidingSyncCache: could not read saved rooms", error);
             return null;
         }
+    }
+
+    /** Whether this cache has stopped, such as because its saved data was deleted at logout. */
+    public get isClosed(): boolean {
+        return this.disposed;
     }
 
     /** The rooms {@link load} found saved. */
@@ -393,12 +421,36 @@ export class SlidingSyncCache {
         }
     }
 
+    /**
+     * Write pending changes in the calling task, as when the page is being closed: a write that starts later, after
+     * another task has run, may never happen. Before the database is open, this is {@link flush}.
+     */
+    public flushNow(): void {
+        if (this.writeTimer !== undefined) clearTimeout(this.writeTimer);
+        this.writeTimer = undefined;
+        const database = this.openDatabase;
+        if (!database || this.disposed) {
+            void this.flush();
+            return;
+        }
+        // Write transactions on the same stores commit in the order they are created, so this lands after any write
+        // already under way, which took the changes before these.
+        const written = this.writePending(database);
+        this.writing = this.writing.then(() => written);
+    }
+
     private async write(): Promise<void> {
         if (this.disposed) return;
         if (this.dirtyRooms.size === 0 && this.removedRooms.size === 0 && !this.accountDataDirty) return;
         const database = await this.open();
         // Stopped while the database opened, such as by a logout deleting it.
         if (!database || this.disposed) return;
+        await this.writePending(database);
+    }
+
+    /** Put the pending changes in a transaction straight away, and wait for it to finish. */
+    private async writePending(database: IDBDatabase): Promise<void> {
+        if (this.dirtyRooms.size === 0 && this.removedRooms.size === 0 && !this.accountDataDirty) return;
         this.trimQuietRooms();
         const dirty = [...this.dirtyRooms];
         const removed = [...this.removedRooms];
@@ -415,6 +467,8 @@ export class SlidingSyncCache {
             }
             for (const roomId of removed) rooms.delete(roomId);
             if (accountDataDirty) transaction.objectStore(META).put([...this.accountData.values()], "accountData");
+            // Nothing more is added, so it can commit now rather than at the end of the task.
+            transaction.commit?.();
             await transactionDone(transaction);
         } catch (error) {
             // Writing again later would hit the same problem; the next session starts from the server instead.
@@ -425,6 +479,15 @@ export class SlidingSyncCache {
     private open(): Promise<IDBDatabase | null> {
         // A stopped cache never opens, or reopens, the database: that would recreate deleted data.
         if (this.disposed) return Promise.resolve(null);
+        // A cache created during a deletion opens once it has finished, so it never reads deleted data. Only the
+        // open request itself is kept, so a later deletion stopping this cache never waits for itself.
+        const deletion = this.deletionUnderWay;
+        if (deletion) {
+            return deletion.then(() => {
+                this.deletionUnderWay = undefined;
+                return this.open();
+            });
+        }
         this.database ??= new Promise<IDBDatabase | null>((resolve) => {
             if (typeof indexedDB === "undefined") {
                 resolve(null);
@@ -450,8 +513,10 @@ export class SlidingSyncCache {
                 // anything more, so the data is not recreated.
                 database.onversionchange = (): void => {
                     database.close();
+                    this.openDatabase = undefined;
                     void this.invalidate();
                 };
+                this.openDatabase = database;
                 resolve(database);
             };
             request.onerror = (): void => {
