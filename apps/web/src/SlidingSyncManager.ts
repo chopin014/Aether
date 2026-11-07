@@ -1175,6 +1175,12 @@ export class SlidingSyncManager {
         this.prefetched = { client, cache, snapshot: cache.load() };
     }
 
+    /** Let go of the saved rooms read before set-up, such as when the client syncs without sliding sync after all. */
+    public discardPrefetchedSnapshot(): void {
+        if (this.prefetched && this.prefetched.cache !== this.cache) void this.prefetched.cache.dispose();
+        this.prefetched = undefined;
+    }
+
     /** Keep what this connection learns on this device, for the next start. */
     private attachCache(client: MatrixClient, slidingSync: SlidingSync): void {
         const userId = client.getUserId();

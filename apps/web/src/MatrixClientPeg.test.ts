@@ -176,10 +176,13 @@ describe("MatrixClientPeg", () => {
             it("uses regular sync where the server offers no sliding sync", async () => {
                 vi.spyOn(SlidingSyncManager.instance, "serverOffersSlidingSync").mockResolvedValue(false);
                 const setup = vi.spyOn(SlidingSyncManager.instance, "setup");
+                const discard = vi.spyOn(SlidingSyncManager.instance, "discardPrefetchedSnapshot");
                 const startClient = vi.spyOn(testPeg.safeGet(), "startClient").mockResolvedValue(undefined);
                 await testPeg.start();
                 expect(setup).not.toHaveBeenCalled();
                 expect(startClient.mock.calls[0][0]?.slidingSync).toBeUndefined();
+                // The saved rooms read while the stores opened are let go.
+                expect(discard).toHaveBeenCalled();
             });
 
             it("decides at once from the answer kept from last time, and reloads if the server has since dropped it", async () => {

@@ -312,6 +312,8 @@ class MatrixClientPegClass implements IMatrixClientPeg {
             : undefined;
         if (slidingSyncOn && serverOffersSlidingSync === false) {
             logger.warn("MatrixClientPeg: the server offers no sliding sync; using regular sync");
+            // The saved rooms read early are not needed.
+            SlidingSyncManager.instance.discardPrefetchedSnapshot();
         }
         if (slidingSyncOn && serverOffersSlidingSync !== false) {
             opts.slidingSync = await SlidingSyncManager.instance.setup(

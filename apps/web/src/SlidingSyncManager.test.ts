@@ -1834,6 +1834,16 @@ describe("SlidingSyncManager", () => {
             await expect(loaded).resolves.toBeNull();
         });
 
+        it("lets go of an early read when the client syncs without sliding sync after all", async () => {
+            const dispose = vi.spyOn(SlidingSyncCache.prototype, "dispose");
+            vi.spyOn(SlidingSyncCache.prototype, "load").mockResolvedValue(null);
+            manager.prefetchSnapshot(client);
+            const early = (manager as unknown as { prefetched: { cache: SlidingSyncCache } }).prefetched.cache;
+            manager.discardPrefetchedSnapshot();
+            expect(dispose.mock.contexts).toContain(early);
+            expect((manager as unknown as { prefetched?: unknown }).prefetched).toBeUndefined();
+        });
+
         it("lets go of an early read made for another client", async () => {
             const dispose = vi.spyOn(SlidingSyncCache.prototype, "dispose");
             vi.spyOn(SlidingSyncCache.prototype, "load").mockResolvedValue(null);
