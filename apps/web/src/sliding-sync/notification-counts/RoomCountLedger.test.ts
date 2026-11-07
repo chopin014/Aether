@@ -329,16 +329,41 @@ describe("RoomCountLedger", () => {
         expect(ledger.compute().main).toEqual({ total: 2, highlight: 0, confidence: CountConfidence.Exact });
     });
 
-    it("places a receipt made here for an event it does not have only once a later response is applied", () => {
+    it("reads nothing for certain with a receipt made here for an event it does not have, until the server's", () => {
         const ledger = ledgerWith(["a", "b", "c"]);
         ledger.setReceipt(MAIN_SCOPE, "public", "a");
         // Such as for a newer event opened from a link while sync is behind: it may read "b" and "c" already.
         ledger.setReceipt(MAIN_SCOPE, "public", "newer-than-anything-known", false);
         expect(ledger.compute().main).toEqual({ total: 0, highlight: 0, confidence: CountConfidence.Unknown });
 
-        // Sync has caught up without bringing it: it is older than what is known.
-        ledger.settleReceipts();
+        // The server's receipt of that kind takes its place: here, it kept "a".
+        ledger.setReceipt(MAIN_SCOPE, "public", "a");
         expect(ledger.compute().main).toEqual({ total: 2, highlight: 0, confidence: CountConfidence.Exact });
+    });
+
+    it("keeps a receipt made here waiting while others come and go", () => {
+        const ledger = ledgerWith(["a", "b", "c"]);
+        ledger.addRun([{ id: "reply", own: false, threadRoot: "c" }], { kind: "live", continuesTip: true });
+        ledger.setContribution("reply", NOTIFY);
+        ledger.setReceipt("c", "public", "c");
+        ledger.setReceipt("c", "public", "unseen-reply", false);
+        // The user's own messages bring receipts made here too, for events that arrive straight after.
+        for (const id of ["mine1", "mine2"]) {
+            ledger.setReceipt(MAIN_SCOPE, "public", id, false);
+            ledger.addRun([{ id, own: true }], { kind: "live", continuesTip: true });
+        }
+        // The other kind's receipts say nothing about this one.
+        ledger.setReceipt("c", "private", "c");
+        expect(ledger.compute().threads.get("c")?.confidence).toBe(CountConfidence.Unknown);
+
+        // Once the room is sent afresh with every receipt, ones it did not include were not kept.
+        ledger.dropLocalReceipts();
+        expect(ledger.compute().threads.get("c")).toEqual({
+            total: 1,
+            highlight: 0,
+            confidence: CountConfidence.Exact,
+        });
+        expect(ledger.compute().main).toEqual({ total: 0, highlight: 0, confidence: CountConfidence.Exact });
     });
 
     it("does not take the user's own relation to an event not seen as reading the main timeline", () => {

@@ -484,7 +484,7 @@ describe("NotificationCountEngine", () => {
         expect(counts().total).toBe(2);
     });
 
-    it("does not place a receipt made here for an event sync has not brought until a later response", async () => {
+    it("does not place a receipt made here for an event sync has not brought, until sync brings it", async () => {
         const { client, respond, counts, engine, settle } = await setup();
         await respond(
             { initial: true, required_state: requiredState, timeline: [message("$a"), message("$b"), message("$c")] },
@@ -499,9 +499,34 @@ describe("NotificationCountEngine", () => {
         expect(counts().total).toBe(0);
         expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Unknown);
 
-        // Sync brings it: everything up to it is read.
-        await respond({ timeline: [message("$n")] });
+        // Neither a response made before the receipt reached the server, nor one without this room, places it.
+        await respond({ timeline: [message("$d")] });
+        await respond({});
         expect(counts().total).toBe(0);
+        expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Unknown);
+
+        // Sync brings it, with the server's echo of the receipt: everything up to it is read.
+        await respond({ timeline: [message("$n")] }, [receipt("$n")]);
+        expect(counts().total).toBe(0);
+        expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Exact);
+    });
+
+    it("lets the server's receipt take the place of one made here that it did not keep", async () => {
+        const { client, respond, counts, engine, settle } = await setup();
+        await respond(
+            { initial: true, required_state: requiredState, timeline: [message("$a"), message("$b"), message("$c")] },
+            [receipt("$b")],
+        );
+        const room = client.getRoom(roomId)!;
+        // Read here up to an old message opened from a link: the server keeps its newer receipt.
+        room.addLocalEchoReceipt(me, new MatrixEvent(message("$old")), ReceiptType.Read, true);
+        // The user's own messages meanwhile do not hold it up.
+        await respond({ timeline: [message("$mine", "hello", me)] });
+        await settle();
+        expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Unknown);
+
+        await respond({ timeline: [message("$d")] }, [receipt("$b")]);
+        expect(counts().total).toBe(1);
         expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Exact);
     });
 

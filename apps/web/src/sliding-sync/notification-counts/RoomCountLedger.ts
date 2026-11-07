@@ -81,11 +81,17 @@ type ReceiptKind = "public" | "private";
 interface ReceiptPoints {
     /** The latest receipt whose event the ledger had when it arrived. */
     best?: string;
-    /** The latest receipt whose event the ledger did not have, which may be before or after `best`. */
+    /** The latest receipt from the server whose event the ledger did not have: before the newest segment. */
     dangling?: string;
-    /** `dangling` was made on this device and has not been settled: see {@link RoomCountLedger.setReceipt}. */
-    unsettled?: boolean;
+    /**
+     * Receipts made on this device for events the ledger did not have, oldest first. Each could be anywhere, even
+     * after the newest event known, until its event arrives or the server's receipts supersede it.
+     */
+    local?: string[];
 }
+
+/** How many receipts made on this device for events not seen are kept, per scope and kind. */
+const MAX_LOCAL_RECEIPTS = 4;
 
 /** Where the user's join is kept among the frontiers. */
 const JOIN = "\u0000join";
@@ -255,46 +261,59 @@ export class RoomCountLedger {
      * @param scope - The receipt's thread: "main", a thread root, or {@link UNTHREADED_RECEIPT}.
      * @param kind - Public (`m.read`) or private (`m.read.private`). Both mark events read.
      * @param eventId - The event read up to.
-     * @param settled - False for a receipt made on this device: one for an event the ledger does not have could
-     * then be anywhere until {@link settleReceipts}. The server's receipts come with the events they could be for.
+     * @param fromServer - False for a receipt made on this device. The server sends its receipts with the events they
+     * could be for, so one whose event the ledger does not have is before the newest segment. One made here is for
+     * an event this device showed, which could be newer than anything sync brought, such as one opened from a link
+     * while sync was behind: it reads nothing for certain until its event arrives, or the server sends its own
+     * receipt of that kind for the scope, which takes the place of every one made here (an echo of it, or a newer
+     * one that the server kept instead).
      */
-    public setReceipt(scope: string, kind: ReceiptKind, eventId: string, settled = true): void {
+    public setReceipt(scope: string, kind: ReceiptKind, eventId: string, fromServer = true): void {
         const byKind = this.receipts.get(scope) ?? {};
         const points = byKind[kind] ?? {};
-        const keepLater = (id: string | undefined): void => {
-            const event = id !== undefined ? this.events.get(id) : undefined;
+        const keepLater = (id: string): void => {
+            const event = this.events.get(id);
             const best = points.best !== undefined ? this.events.get(points.best) : undefined;
             // A receipt never moves back: of two known events, the later stays.
             if (event && (!best || compare(event, best) > 0)) points.best = id;
         };
-        // One that could not be placed when it came may have been since, such as by history filling a gap: it is
-        // kept as a known one before anything replaces it.
+        // Ones that could not be placed when they came may have been since, such as by history filling a gap: they
+        // are kept as known ones before anything replaces them.
         if (points.dangling !== undefined && this.events.has(points.dangling)) {
             keepLater(points.dangling);
             points.dangling = undefined;
-            points.unsettled = undefined;
         }
+        points.local = points.local?.filter((id) => {
+            if (!this.events.has(id)) return true;
+            keepLater(id);
+            return false;
+        });
+        if (fromServer) points.local = undefined;
         if (this.events.has(eventId)) {
             keepLater(eventId);
-        } else {
-            // Kept beside the known one rather than replacing it: it cannot be placed against it, and an older one,
-            // such as one sent here for an event opened from a link, must not undo a newer one.
+        } else if (fromServer) {
+            // Kept beside the known one rather than replacing it: it cannot be placed against it.
             points.dangling = eventId;
-            points.unsettled = settled ? undefined : true;
+        } else {
+            // Kept beside the others too: an older one, such as for an event opened from a link, must not undo a
+            // newer one.
+            const local = (points.local ?? []).filter((id) => id !== eventId);
+            local.push(eventId);
+            points.local = local.slice(-MAX_LOCAL_RECEIPTS);
         }
+        if (points.local?.length === 0) points.local = undefined;
         byKind[kind] = points;
         this.receipts.set(scope, byKind);
     }
 
     /**
-     * Settle the receipts made on this device for events the ledger does not have. Until a sync response sent after
-     * them is applied, such an event could be newer than anything the ledger was given, such as one opened from a
-     * link while sync was behind; once it is, the event would have arrived if it were.
+     * Drop the receipts made on this device for events not seen: the server has just sent every receipt the user
+     * has in the room, which would include them had it kept them.
      */
-    public settleReceipts(): void {
+    public dropLocalReceipts(): void {
         for (const byKind of this.receipts.values()) {
             for (const points of [byKind.public, byKind.private]) {
-                if (points) points.unsettled = undefined;
+                if (points) points.local = undefined;
             }
         }
     }
@@ -416,13 +435,16 @@ export class RoomCountLedger {
     /** The receipts, own events and join, gathered by scope. */
     private frontiers(): Map<string, Frontier> {
         const result = new Map<string, Frontier>();
-        const note = (scope: string, eventId: string | undefined, unsettled = false): void => {
+        const note = (scope: string, eventId: string | undefined, local = false): void => {
             if (eventId === undefined) return;
             const frontier = result.get(scope) ?? { dangling: false };
             const event = this.events.get(eventId);
             if (!event) {
-                frontier.dangling = true;
-                if (unsettled) frontier.anywhere = true;
+                if (local) {
+                    frontier.anywhere = true;
+                } else {
+                    frontier.dangling = true;
+                }
             } else if (!frontier.known || compare(event, frontier.known) > 0) {
                 frontier.known = event;
             }
@@ -431,7 +453,8 @@ export class RoomCountLedger {
         for (const [scope, byKind] of this.receipts) {
             for (const points of [byKind.public, byKind.private]) {
                 note(scope, points?.best);
-                note(scope, points?.dangling, points?.unsettled);
+                note(scope, points?.dangling);
+                for (const id of points?.local ?? []) note(scope, id, true);
             }
         }
         // The user's own events read everything before them in their scope.
