@@ -10,7 +10,9 @@ Please see LICENSE files in the repository root for full details.
 
 import { vi, describe, it, expect, beforeEach, type Mocked } from "vitest";
 import {
+    ConditionKind,
     PushRuleActionName,
+    PushRuleKind,
     TweakName,
     NotificationCountType,
     Room,
@@ -19,6 +21,7 @@ import {
     type MatrixEvent,
     PendingEventOrdering,
     type MatrixClient,
+    type IPushRule,
 } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { mkEvent, mkRoom, mkRoomMember, muteRoom, stubClient, upsertRoomStateEvents } from "test-utils";
@@ -27,6 +30,7 @@ import { mkThread } from "test-utils/threads";
 import {
     getRoomNotifsState,
     RoomNotifState,
+    setRoomNotifsState,
     getUnreadNotificationCount,
     determineUnreadState,
     getUnsentMessages,
@@ -155,6 +159,89 @@ describe("RoomNotifs test", () => {
             actions: [{ set_tweak: TweakName.Sound, value: "default" }],
         });
         expect(getRoomNotifsState(client, "!roomId:server")).toBe(RoomNotifState.AllMessagesLoud);
+    });
+
+    describe("with push rules fetched from the server", () => {
+        const roomId = "!roomId:server";
+        const muteRule: IPushRule = {
+            rule_id: roomId,
+            enabled: true,
+            default: false,
+            conditions: [{ kind: ConditionKind.EventMatch, key: "room_id", pattern: roomId }],
+            actions: [PushRuleActionName.DontNotify],
+        };
+        const mentionsRule: IPushRule = {
+            rule_id: roomId,
+            enabled: true,
+            default: false,
+            actions: [PushRuleActionName.DontNotify],
+        };
+
+        beforeEach(() => {
+            // The synced rules say the room notifies for everything.
+            client.pushRules = { global: { override: [], room: [] } };
+            client.deletePushRule = vi.fn().mockResolvedValue({});
+            client.addPushRule = vi.fn().mockResolvedValue({});
+        });
+
+        it("reads the state from them instead of the synced rules", () => {
+            expect(getRoomNotifsState(client, roomId, { global: { override: [muteRule] } })).toBe(RoomNotifState.Mute);
+            expect(getRoomNotifsState(client, roomId, { global: { room: [mentionsRule] } })).toBe(
+                RoomNotifState.MentionsOnly,
+            );
+            expect(getRoomNotifsState(client, roomId, { global: {} })).toBe(RoomNotifState.AllMessages);
+        });
+
+        it("removes the rules found in them when changing the state", async () => {
+            await setRoomNotifsState(client, roomId, RoomNotifState.AllMessages, {
+                global: { override: [muteRule], room: [mentionsRule] },
+            });
+            expect(client.deletePushRule).toHaveBeenCalledWith("global", PushRuleKind.Override, roomId);
+            expect(client.deletePushRule).toHaveBeenCalledWith("global", PushRuleKind.RoomSpecific, roomId);
+
+            vi.mocked(client.deletePushRule).mockClear();
+            await setRoomNotifsState(client, roomId, RoomNotifState.Mute, { global: { room: [mentionsRule] } });
+            expect(client.deletePushRule).toHaveBeenCalledWith("global", PushRuleKind.RoomSpecific, roomId);
+            expect(client.addPushRule).toHaveBeenCalledWith(
+                "global",
+                PushRuleKind.Override,
+                roomId,
+                expect.objectContaining({ actions: [PushRuleActionName.DontNotify] }),
+            );
+        });
+
+        it("waits for every request of a change before failing", async () => {
+            let finish!: () => void;
+            vi.mocked(client.deletePushRule).mockRejectedValue(new Error("offline"));
+            vi.mocked(client.addPushRule).mockReturnValue(new Promise((resolve) => (finish = () => resolve({}))));
+            let failed = false;
+            const muting = setRoomNotifsState(client, roomId, RoomNotifState.Mute, {
+                global: { room: [mentionsRule] },
+            }).catch(() => (failed = true));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(failed).toBe(false);
+            finish();
+            await muting;
+            expect(failed).toBe(true);
+        });
+
+        it("removes every rule muting the room, whoever added it", async () => {
+            const foreign = { ...muteRule, rule_id: "other.client.mute" };
+            await setRoomNotifsState(client, roomId, RoomNotifState.AllMessages, {
+                global: { override: [muteRule, foreign] },
+            });
+            expect(client.deletePushRule).toHaveBeenCalledWith("global", PushRuleKind.Override, roomId);
+            expect(client.deletePushRule).toHaveBeenCalledWith("global", PushRuleKind.Override, "other.client.mute");
+        });
+
+        it("takes a rule that is already gone as deleted", async () => {
+            vi.mocked(client.deletePushRule).mockRejectedValue(
+                Object.assign(new Error("Not found"), { errcode: "M_NOT_FOUND" }),
+            );
+            await expect(
+                setRoomNotifsState(client, roomId, RoomNotifState.AllMessages, { global: { override: [muteRule] } }),
+            ).resolves.toBeUndefined();
+        });
     });
 
     describe("getUnreadNotificationCount", () => {
