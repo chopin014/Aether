@@ -14,6 +14,7 @@ import { EventType, MatrixEvent } from "matrix-js-sdk/src/matrix";
 import { type MSC3575RoomData } from "matrix-js-sdk/src/sliding-sync";
 
 import { SlidingSyncCache } from "./SlidingSyncCache";
+import { type SavedEvent, type SavedLedger } from "./notification-counts/RoomCountLedger";
 
 const userId = "@alice:example.org";
 const deviceId = "DEVICE";
@@ -191,6 +192,50 @@ describe("SlidingSyncCache", () => {
         expect(snapshot.rooms["!r301:example.org"].timeline).toHaveLength(2);
         expect(snapshot.rooms["!r0:example.org"].timeline.map((event) => event.event_id)).toEqual(["$0b"]);
         expect(snapshot.rooms["!r0:example.org"].prev_batch).toBeUndefined();
+    });
+
+    it("saves each room's notification count ledger as its source gives it", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        const ledger: SavedLedger = {
+            version: 1,
+            segments: [[["$a", 8 | 16 | 64]]],
+            receipts: { main: { public: "$z" } },
+            receiptsComplete: true,
+        };
+        let saved: SavedLedger | "pending" = "pending";
+        cache.setCountsSource((id) => (id === roomId ? saved : undefined));
+        cache.observeRoomData(roomId, data({ initial: true, timeline: [message("$a")] }));
+        cache.observeCounts(roomId);
+        // Not ready yet: the room is written without it, and it is asked for again.
+        await cache.flush();
+        saved = ledger;
+        await cache.flush();
+        // A room the cache does not keep has no ledger saved either.
+        cache.observeCounts("!unknown:example.org");
+
+        const next = await reopen(cache);
+        await next.load();
+        expect(next.restoredCounts).toEqual(new Map([[roomId, ledger]]));
+        await next.dispose();
+    });
+
+    it("keeps only the newest events of a quiet room's notification count ledger", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        const events = Array.from({ length: 50 }, (_, i): SavedEvent => [`$e${i}`, 0]);
+        cache.setCountsSource(() => ({ version: 1, segments: [events], receipts: {}, receiptsComplete: true }));
+        for (let i = 0; i < 302; i++) {
+            const id = `!r${i}:example.org`;
+            cache.observeRoomData(id, data({ bump_stamp: i, timeline: [message(`$${i}a`)] }));
+            cache.observeCounts(id);
+        }
+        const next = await reopen(cache);
+        await next.load();
+
+        expect(next.restoredCounts.get("!r301:example.org")?.segments[0]).toHaveLength(50);
+        expect(next.restoredCounts.get("!r0:example.org")?.segments[0].map(([id]) => id)).toEqual(
+            events.slice(-30).map(([id]) => id),
+        );
+        await next.dispose();
     });
 
     it("forgets rooms on request, and keeps sessions apart", async () => {

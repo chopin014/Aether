@@ -1271,6 +1271,8 @@ export class SlidingSyncManager {
             const read = await (prefetched ?? cache.load());
             // Deleted meanwhile, such as by a logout in another window: nothing saved is shown.
             const snapshot = cache.isClosed ? null : read;
+            // Restored rooms show the counts they had, worked out from what was saved with them.
+            if (snapshot && this.client === client) this.countEngine?.useSaved(cache.restoredCounts);
             // The room and Space the app opens at start are shown before the rest.
             if (snapshot) snapshot.priorityRoomIds = [...this.roomsShownFirst];
             return snapshot;
@@ -1360,7 +1362,13 @@ export class SlidingSyncManager {
         client.on(ClientEvent.Sync, onSync);
         document.addEventListener("visibilitychange", onPageHidden);
         window.addEventListener("pagehide", onPageHide);
+        // Each room's notification count ledger is saved with it, as its counts were last published.
+        const countEngine = this.countEngine;
+        cache.setCountsSource((roomId) => countEngine?.save(roomId));
+        countEngine?.setChangeListener((roomId) => cache.observeCounts(roomId));
         this.detachCache = (): void => {
+            cache.setCountsSource(undefined);
+            countEngine?.setChangeListener(undefined);
             slidingSync.off(SlidingSyncEvent.RoomData, onRoomData);
             slidingSync.off(SlidingSyncEvent.Lifecycle, onComplete);
             client.off(ClientEvent.Sync, onSync);

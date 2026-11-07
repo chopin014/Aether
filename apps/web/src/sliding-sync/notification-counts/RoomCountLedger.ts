@@ -72,6 +72,35 @@ export type RunPlacement =
 
 type ReceiptKind = "public" | "private";
 
+/** One event as saved: its ID, then {@link SavedFlag}s, then its thread root and the event it relates to. */
+export type SavedEvent = [id: string, flags: number, threadRoot?: string, relatesTo?: string];
+
+/** What a ledger saves on this device, to be restored at the next start: see {@link RoomCountLedger.save}. */
+export interface SavedLedger {
+    version: typeof SAVED_VERSION;
+    /** The newest events, by segment, oldest first. */
+    segments: SavedEvent[][];
+    /** By receipt scope, then kind. */
+    receipts: Record<string, Partial<Record<ReceiptKind, string>>>;
+    receiptsComplete: boolean;
+}
+
+const SAVED_VERSION = 1;
+
+/** The facts kept about a saved event, as bits. */
+enum SavedFlag {
+    Own = 1,
+    Joins = 2,
+    Redacted = 4,
+    Evaluated = 8,
+    Notify = 16,
+    Highlight = 32,
+    Final = 64,
+}
+
+/** How many of a room's newest events are saved. */
+const SAVED_EVENTS = 300;
+
 interface Segment {
     /** Higher is newer. The newest segment holds the newest events of the room. */
     order: number;
@@ -121,6 +150,67 @@ export class RoomCountLedger {
     private readonly receipts = new Map<string, Partial<Record<ReceiptKind, string>>>();
     private receiptsComplete = false;
     private joined = false;
+
+    /**
+     * A ledger as saved by {@link save}, or undefined when what was saved cannot be read, such as one saved by an
+     * older version.
+     */
+    public static restore(saved: SavedLedger | undefined): RoomCountLedger | undefined {
+        if (saved?.version !== SAVED_VERSION || !Array.isArray(saved.segments)) return undefined;
+        const ledger = new RoomCountLedger();
+        for (const events of saved.segments) {
+            const segment = ledger.newSegment();
+            for (const [id, flags, threadRoot, relatesTo] of events) {
+                if (typeof id !== "string" || ledger.events.has(id)) continue;
+                const event = ledger.toEvent(
+                    {
+                        id,
+                        own: (flags & SavedFlag.Own) !== 0,
+                        joins: (flags & SavedFlag.Joins) !== 0 || undefined,
+                        threadRoot: threadRoot || undefined,
+                        relatesTo: relatesTo || undefined,
+                    },
+                    segment,
+                );
+                event.redacted = (flags & SavedFlag.Redacted) !== 0;
+                if (flags & SavedFlag.Evaluated) {
+                    event.contribution = {
+                        notify: (flags & SavedFlag.Notify) !== 0,
+                        highlight: (flags & SavedFlag.Highlight) !== 0,
+                        final: (flags & SavedFlag.Final) !== 0,
+                    };
+                }
+                segment.events.push(event);
+            }
+            renumber(segment);
+        }
+        ledger.segments = ledger.segments.filter((segment) => segment.events.length > 0);
+        for (const [scope, byKind] of Object.entries(saved.receipts ?? {})) {
+            const kinds: Partial<Record<ReceiptKind, string>> = {};
+            if (typeof byKind?.public === "string") kinds.public = byKind.public;
+            if (typeof byKind?.private === "string") kinds.private = byKind.private;
+            ledger.receipts.set(scope, kinds);
+        }
+        ledger.receiptsComplete = saved.receiptsComplete === true;
+        return ledger;
+    }
+
+    /**
+     * What to save of this ledger: the newest events and every receipt. Older events are left out as {@link trim}
+     * lets them go, from the oldest end, so a restored ledger never claims more than it knows.
+     */
+    public save(): SavedLedger {
+        const segments: SavedEvent[][] = [];
+        let room = SAVED_EVENTS;
+        for (let s = this.segments.length - 1; s >= 0 && room > 0; s--) {
+            const events = this.segments[s].events.slice(-room);
+            room -= events.length;
+            segments.unshift(events.map(saveEvent));
+        }
+        const receipts: SavedLedger["receipts"] = {};
+        for (const [scope, byKind] of this.receipts) receipts[scope] = { ...byKind };
+        return { version: SAVED_VERSION, segments, receipts, receiptsComplete: this.receiptsComplete };
+    }
 
     /** How many events the ledger holds. */
     public get size(): number {
@@ -448,6 +538,40 @@ export class RoomCountLedger {
 
 function emptyCounts(): ScopeCounts {
     return { total: 0, highlight: 0, confidence: CountConfidence.Unknown };
+}
+
+/**
+ * A saved ledger with only its newest events, dropped from the oldest end as a ledger lets them go.
+ * @param saved - The saved ledger.
+ * @param limit - How many events to keep.
+ */
+export function trimSavedLedger(saved: SavedLedger, limit: number): SavedLedger {
+    let room = limit;
+    const segments: SavedEvent[][] = [];
+    for (let s = saved.segments.length - 1; s >= 0 && room > 0; s--) {
+        const events = saved.segments[s].slice(-room);
+        room -= events.length;
+        segments.unshift(events);
+    }
+    return { ...saved, segments };
+}
+
+function saveEvent(event: LedgerEvent): SavedEvent {
+    let flags = 0;
+    if (event.own) flags |= SavedFlag.Own;
+    if (event.joins) flags |= SavedFlag.Joins;
+    if (event.redacted) flags |= SavedFlag.Redacted;
+    const contribution = event.contribution;
+    if (contribution) {
+        flags |= SavedFlag.Evaluated;
+        if (contribution.notify) flags |= SavedFlag.Notify;
+        if (contribution.highlight) flags |= SavedFlag.Highlight;
+        if (contribution.final) flags |= SavedFlag.Final;
+    }
+    const saved: SavedEvent = [event.id, flags];
+    if (event.threadRoot || event.relatesTo) saved.push(event.threadRoot ?? "");
+    if (event.relatesTo) saved.push(event.relatesTo);
+    return saved;
 }
 
 function renumber(segment: Segment): void {

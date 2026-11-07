@@ -10,6 +10,8 @@ import { type MSC3575RoomData, type SlidingSyncSnapshot } from "matrix-js-sdk/sr
 
 import { logger } from "matrix-js-sdk/src/logger";
 
+import { type SavedLedger, trimSavedLedger } from "./notification-counts/RoomCountLedger";
+
 type RoomEventJson = NonNullable<MSC3575RoomData["timeline"]>[number];
 
 /** What is kept of one room, merged from every response that described it. */
@@ -38,7 +40,15 @@ interface CachedRoom {
     accountData: Record<string, IMinimalEvent>;
     /** The user's own receipts: receipt type and thread, then the event and timestamp. */
     receipts: Record<string, { eventId: string; type: string; threadId?: string; ts: number }>;
+    /** What the room's notification counts were worked out from, when they are worked out on this device. */
+    counts?: SavedLedger;
 }
+
+/**
+ * Gives a room's notification count ledger to save: undefined when there is none, or "pending" while its counts
+ * are being worked out, so a half-applied change is never saved.
+ */
+export type CountsSource = (roomId: string) => SavedLedger | undefined | "pending";
 
 const SCHEMA_VERSION = 1;
 const DATABASE_PREFIX = "aether-sliding-sync:";
@@ -49,6 +59,8 @@ const META = "meta";
 const TIMELINE_LIMIT = 30;
 /** Rooms beyond this many, by recent activity, keep only their latest event: enough for the room list. */
 const ROOMS_WITH_HISTORY = 300;
+/** Events of a quiet room's notification count ledger that are kept. */
+const QUIET_ROOM_COUNT_EVENTS = 30;
 /** How long changes are held before being written together. */
 const WRITE_DELAY_MS = 1500;
 
@@ -92,6 +104,10 @@ export class SlidingSyncCache {
     private readonly accountData = new Map<string, IMinimalEvent>();
     private readonly dirtyRooms = new Set<string>();
     private readonly removedRooms = new Set<string>();
+    /** Rooms whose notification count ledger changed since it was last saved. */
+    private readonly countsChanged = new Set<string>();
+    private countsSource?: CountsSource;
+    private loadedCounts: ReadonlyMap<string, SavedLedger> = new Map();
     private accountDataDirty = false;
     private database?: Promise<IDBDatabase | null>;
     // The database once open, so a write can be started in the calling task.
@@ -172,6 +188,9 @@ export class SlidingSyncCache {
             for (const event of meta ?? [])
                 if (!this.accountData.has(event.type)) this.accountData.set(event.type, event);
             this.loadedRoomIds = new Set(rooms.map((room) => room.roomId));
+            this.loadedCounts = new Map(
+                rooms.filter((room) => room.counts).map((room) => [room.roomId, room.counts!] as const),
+            );
             if (rooms.length === 0) return null;
             this.loadedSnapshot = this.snapshot(rooms);
             return this.loadedSnapshot;
@@ -189,6 +208,26 @@ export class SlidingSyncCache {
     /** The rooms {@link load} found saved. */
     public get restoredRoomIds(): ReadonlySet<string> {
         return this.loadedRoomIds;
+    }
+
+    /** The notification count ledgers {@link load} found saved, by room. */
+    public get restoredCounts(): ReadonlyMap<string, SavedLedger> {
+        return this.loadedCounts;
+    }
+
+    /** Where to read each room's notification count ledger from when saving it. */
+    public setCountsSource(source: CountsSource | undefined): void {
+        this.countsSource = source;
+    }
+
+    /**
+     * Save a room's notification count ledger again, read from the {@link setCountsSource} when written.
+     * @param roomId - The room.
+     */
+    public observeCounts(roomId: string): void {
+        if (this.disposed || !this.rooms.has(roomId)) return;
+        this.countsChanged.add(roomId);
+        this.markRoom(roomId);
     }
 
     /**
@@ -310,6 +349,7 @@ export class SlidingSyncCache {
         for (const roomId of roomIds) {
             this.rooms.delete(roomId);
             this.dirtyRooms.delete(roomId);
+            this.countsChanged.delete(roomId);
             this.removedRooms.add(roomId);
             delete this.loadedSnapshot?.rooms[roomId];
         }
@@ -345,6 +385,7 @@ export class SlidingSyncCache {
         this.writeTimer = undefined;
         this.dirtyRooms.clear();
         this.removedRooms.clear();
+        this.countsChanged.clear();
         this.accountDataDirty = false;
         this.rooms.clear();
         this.accountData.clear();
@@ -414,6 +455,7 @@ export class SlidingSyncCache {
             (a, b) => (b.summary.bump_stamp ?? 0) - (a.summary.bump_stamp ?? 0),
         );
         for (const room of byActivity.slice(ROOMS_WITH_HISTORY)) {
+            if (room.counts) room.counts = trimSavedLedger(room.counts, QUIET_ROOM_COUNT_EVENTS);
             if (room.timeline.length <= 1) continue;
             room.timeline = room.timeline.slice(-1);
             room.prevBatch = null;
@@ -441,7 +483,7 @@ export class SlidingSyncCache {
 
     private async write(): Promise<void> {
         if (this.disposed) return;
-        if (this.dirtyRooms.size === 0 && this.removedRooms.size === 0 && !this.accountDataDirty) return;
+        if (!this.hasPendingWrites()) return;
         const database = await this.open();
         // Stopped while the database opened, such as by a logout deleting it.
         if (!database || this.disposed) return;
@@ -450,7 +492,8 @@ export class SlidingSyncCache {
 
     /** Put the pending changes in a transaction straight away, and wait for it to finish. */
     private async writePending(database: IDBDatabase): Promise<void> {
-        if (this.dirtyRooms.size === 0 && this.removedRooms.size === 0 && !this.accountDataDirty) return;
+        if (!this.hasPendingWrites()) return;
+        this.readCounts();
         this.trimQuietRooms();
         const dirty = [...this.dirtyRooms];
         const removed = [...this.removedRooms];
@@ -474,6 +517,33 @@ export class SlidingSyncCache {
             // Writing again later would hit the same problem; the next session starts from the server instead.
             logger.warn("SlidingSyncCache: could not save rooms", error);
         }
+    }
+
+    private hasPendingWrites(): boolean {
+        return (
+            this.dirtyRooms.size > 0 ||
+            this.removedRooms.size > 0 ||
+            this.countsChanged.size > 0 ||
+            this.accountDataDirty
+        );
+    }
+
+    /** Take the changed notification count ledgers. One being worked out waits for the next write. */
+    private readCounts(): void {
+        let pending = false;
+        for (const roomId of this.countsChanged) {
+            const room = this.rooms.get(roomId);
+            const saved = this.countsSource?.(roomId);
+            if (saved === "pending") {
+                pending = true;
+                continue;
+            }
+            this.countsChanged.delete(roomId);
+            if (!room) continue;
+            room.counts = saved;
+            this.dirtyRooms.add(roomId);
+        }
+        if (pending) this.scheduleWrite();
     }
 
     private open(): Promise<IDBDatabase | null> {

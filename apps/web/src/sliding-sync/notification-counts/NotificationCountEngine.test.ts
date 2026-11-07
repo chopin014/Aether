@@ -37,7 +37,7 @@ import { SlidingSyncSdk } from "matrix-js-sdk/src/sliding-sync-sdk";
 
 import { createClientWithCreds } from "../../utils/createMatrixClient";
 import { NotificationCountEngine } from "./NotificationCountEngine";
-import { CountConfidence } from "./RoomCountLedger";
+import { CountConfidence, RoomCountLedger, type SavedLedger } from "./RoomCountLedger";
 
 const roomId = "!room:example.org";
 const me = "@alice:example.org";
@@ -342,9 +342,20 @@ describe("NotificationCountEngine", () => {
         ]);
         expect(counts().total).toBe(1);
 
+        const before = new MatrixEvent({ type: EventType.PushRules, content: pushRules });
+        // The same rules again, as on a new connection: nothing is evaluated again.
+        const evaluate = vi.spyOn(client.pushProcessor, "actionsForEvent");
+        client.emit(
+            ClientEvent.AccountData,
+            new MatrixEvent({ type: EventType.PushRules, content: pushRules }),
+            before,
+        );
+        await settle();
+        expect(evaluate).not.toHaveBeenCalled();
+
         const silent: IPushRules = { global: { ...pushRules.global, [PushRuleKind.Underride]: [] } };
         client.setPushRules(silent);
-        client.emit(ClientEvent.AccountData, new MatrixEvent({ type: EventType.PushRules, content: silent }));
+        client.emit(ClientEvent.AccountData, new MatrixEvent({ type: EventType.PushRules, content: silent }), before);
         await settle();
 
         expect(counts().total).toBe(0);
@@ -397,6 +408,62 @@ describe("NotificationCountEngine", () => {
 
         expect(counts().total).toBe(0);
         expect(client.hasLocalNotificationCounts()).toBe(true);
+    });
+
+    it("shows a restored room's saved counts as soon as it is restored, before the server answers", async () => {
+        const { client, engine, counts } = await setup();
+        // Saved by the last session: two unread messages after the receipt, one a mention.
+        const previous = new RoomCountLedger();
+        previous.addRun(
+            ["$a", "$b", "$c"].map((id) => ({ id, own: false })),
+            { kind: "live", continuesTip: false },
+        );
+        previous.setContribution("$b", { notify: true, highlight: false, final: true });
+        previous.setContribution("$c", { notify: true, highlight: true, final: true });
+        previous.setReceipt("main", "public", "$a");
+        previous.setReceiptsComplete();
+        engine.useSaved(new Map([[roomId, previous.save()]]));
+        const room = new Room(roomId, client, me);
+        room.updateMyMembership("join");
+        client.store.storeRoom(room);
+
+        // The saved room keeps only its newest event; the saved ledger knows the rest.
+        engine.onSyncTimeline(room, [new MatrixEvent(message("$c", "hi alice"))], {
+            limited: false,
+            initial: true,
+            expanded: false,
+            fromSnapshot: true,
+        });
+
+        // At once, without waiting for another task.
+        expect(counts()).toEqual({ total: 2, highlight: 1 });
+        expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Exact);
+    });
+
+    it("gives a room's ledger to save only as it was when its counts were published", async () => {
+        const { client, engine, respond, sync } = await setup();
+        const changed = vi.fn();
+        engine.setChangeListener(changed);
+        await respond({ initial: true, required_state: requiredState, timeline: [message("$a"), message("$b")] }, [
+            receipt("$a"),
+        ]);
+        expect(changed).toHaveBeenCalledWith(roomId);
+        const saved = engine.save(roomId) as SavedLedger;
+        expect(RoomCountLedger.restore(saved)?.compute().main.total).toBe(1);
+
+        // Half way through a response, the room's ledger waits.
+        const response: MSC3575SlidingSyncResponse = { pos: "2", lists: {}, rooms: {}, extensions: {} };
+        sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, response);
+        engine.onSyncTimeline(client.getRoom(roomId)!, [new MatrixEvent(message("$c"))], {
+            limited: false,
+            initial: false,
+            expanded: false,
+            fromSnapshot: false,
+        });
+        expect(engine.save(roomId)).toBe("pending");
+        sync.emit(SlidingSyncEvent.Applied, response);
+        expect(engine.save(roomId)).not.toBe("pending");
+        expect(engine.save("!unknown:example.org")).toBeUndefined();
     });
 
     it("lets go of the client when stopped", async () => {
