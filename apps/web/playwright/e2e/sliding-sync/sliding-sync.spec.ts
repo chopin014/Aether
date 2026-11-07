@@ -198,25 +198,27 @@ test.describe("Sliding Sync", () => {
         await checkOrder(["Apple", "Orange", "Pineapple", "Test Room"], page);
     });
 
-    test.skip("should show the right unread notifications", async ({ page, user, joinedBot: bob, testRoom }) => {
-        // send a message in the test room: unread notification count should increment
+    test("should count unread messages and mentions", async ({ page, user, joinedBot: bob, testRoom }) => {
+        const room = page.getByRole("option", { name: /^Open room Test Room/ });
+
+        // Synapse sends no real counts over sliding sync: these are worked out by the client.
         await bob.sendMessage(testRoom.roomId, "Hello World");
+        await expect(room.getByTestId("notification-decoration")).toHaveText("1");
+        await expect(room).toHaveAccessibleName("Open room Test Room with 1 unread message.");
 
-        const itemLocator1 = page.getByRole("option", { name: "Open room David Langley with 1 unread message." });
-        await expect(itemLocator1.getByTestId("notification-decoration")).toHaveText("1");
-
-        // send an @mention: highlight count (red) should be 2.
+        // A mention highlights the room.
         await bob.sendMessage(testRoom.roomId, `Hello ${user.displayName}`);
-        const itemLocator2 = page.getByRole("treeitem", {
-            name: "Open room Test Room 2 unread messages including mentions.",
-        });
-        await expect(itemLocator2.getByTestId("notification-decoration")).toHaveText("2");
+        await expect(room.getByTestId("notification-decoration")).toHaveText("2");
+        await expect(room).toHaveAccessibleName("Open room Test Room with 2 unread mentions.");
 
-        // click on the room, the notif counts should disappear
-        await page.getByRole("option", { name: "Open room Test Room 2 unread messages including mentions." }).click();
-        await expect(
-            page.getByRole("option", { name: "Open room Test Room" }).getByTestId("notification-decoration"),
-        ).not.toBeAttached();
+        // Opening the room reads it.
+        await room.click();
+        await expect(room.getByTestId("notification-decoration")).not.toBeAttached();
+
+        // Read stays read when the client starts again and works the counts out afresh.
+        await page.reload();
+        await expect(page.getByRole("option", { name: "Open room Test Room" })).toBeVisible();
+        await expect(room.getByTestId("notification-decoration")).not.toBeAttached();
     });
 
     test("should show unread indicators", async ({ page, app, joinedBot: bot, testRoom }) => {
