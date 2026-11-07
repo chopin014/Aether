@@ -108,6 +108,12 @@ export class DesktopProfileEditorViewModel
     private pendingBanner?: PendingImage;
     private nameplateMxc?: string;
     private nameplateAnimated?: boolean;
+    /**
+     * Bumped whenever the banner or nameplate image changes by other means (another pick, removal, reset, closing),
+     * so a pick still being examined gives up rather than overwrite what came after it.
+     */
+    private bannerPick = 0;
+    private nameplatePick = 0;
     private pendingNameplate?: PendingImage;
     private board: EditorBoardItem[] = [];
     private nextId = 0;
@@ -336,6 +342,8 @@ export class DesktopProfileEditorViewModel
     }
 
     private revokePreviews(): void {
+        this.bannerPick++;
+        this.nameplatePick++;
         const images = [
             this.pendingAvatar,
             this.pendingBanner,
@@ -498,6 +506,8 @@ export class DesktopProfileEditorViewModel
     }
 
     public update = (patch: Partial<DesktopProfileEditorDraft>): void => {
+        // Choosing a built-in nameplate overtakes an image still being examined.
+        if ("nameplate" in patch || "hasNameplateImage" in patch) this.nameplatePick++;
         this.publish({ ...this.snapshot.current.draft, ...patch });
     };
 
@@ -542,18 +552,22 @@ export class DesktopProfileEditorViewModel
      */
     public chooseBanner = async (file: File): Promise<void> => {
         if (!this.checkImageType(file)) return;
+        const pick = ++this.bannerPick;
         const framed = await frameImage(file, "banner");
-        if (!framed || this.isDisposed) return;
+        if (!framed || this.isDisposed || pick !== this.bannerPick) return;
+        // Examined before a preview exists, so nothing is left to release if this pick is overtaken meanwhile.
+        const animated = await isAnimatedImage(framed.file);
+        if (this.isDisposed || pick !== this.bannerPick) return;
         const image = this.takeImage(framed.file);
         if (!image) return;
         if (this.pendingBanner) URL.revokeObjectURL(this.pendingBanner.previewUrl);
-        this.pendingBanner = { ...image, animated: await isAnimatedImage(framed.file) };
+        this.pendingBanner = { ...image, animated };
         this.bannerFrame = framed.frame;
-        if (this.isDisposed) return;
         this.publish(this.snapshot.current.draft);
     };
 
     public removeBanner = (): void => {
+        this.bannerPick++;
         if (this.pendingBanner) URL.revokeObjectURL(this.pendingBanner.previewUrl);
         this.pendingBanner = undefined;
         this.bannerMxc = undefined;
@@ -563,10 +577,12 @@ export class DesktopProfileEditorViewModel
     };
 
     public chooseNameplateImage = async (file: File): Promise<void> => {
+        if (!this.checkImageType(file)) return;
+        const pick = ++this.nameplatePick;
+        const animated = await isAnimatedImage(file);
+        if (this.isDisposed || pick !== this.nameplatePick) return;
         const image = this.takeImage(file);
         if (!image) return;
-        const animated = await isAnimatedImage(file);
-        if (this.isDisposed) return URL.revokeObjectURL(image.previewUrl);
         if (this.pendingNameplate) URL.revokeObjectURL(this.pendingNameplate.previewUrl);
         this.pendingNameplate = { ...image, animated };
         this.publish({ ...this.snapshot.current.draft, nameplate: undefined, hasNameplateImage: true });

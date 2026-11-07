@@ -13,6 +13,7 @@ import { DesktopProfileEditorViewModel } from "./DesktopProfileEditorViewModel";
 import { BANNER_FIELD, BIO_FIELD_MSC4440, RICH_PROFILE_FIELD, STATUS_FIELD } from "../../profile/richProfile";
 import { RichProfileStore } from "../../profile/RichProfileStore";
 import { editImage, frameImage } from "../../components/views/dialogs/ImageCropDialog";
+import { isAnimatedImage } from "../../utils/image/imageCrop";
 
 vi.mock("../../customisations/Media", () => ({
     mediaFromMxc: (mxc: string) => ({
@@ -20,6 +21,11 @@ vi.mock("../../customisations/Media", () => ({
         getThumbnailOfSourceHttp: () => `http://thumb/${mxc}`,
     }),
 }));
+
+vi.mock("../../utils/image/imageCrop", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("../../utils/image/imageCrop")>();
+    return { ...actual, isAnimatedImage: vi.fn(actual.isAnimatedImage) };
+});
 
 vi.mock("../../components/views/dialogs/ImageCropDialog", () => ({
     editImage: vi.fn(async (file: File) => file),
@@ -59,6 +65,13 @@ async function ready(client: MatrixClient): Promise<DesktopProfileEditorViewMode
     return vm;
 }
 
+/** A promise the test settles when it chooses. */
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((r) => (resolve = r));
+    return { promise, resolve };
+}
+
 describe("DesktopProfileEditorViewModel", () => {
     beforeEach(() => {
         URL.createObjectURL = vi.fn(() => "blob:preview");
@@ -67,12 +80,6 @@ describe("DesktopProfileEditorViewModel", () => {
     });
 
     describe("showing a cached profile", () => {
-        function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
-            let resolve!: (value: T) => void;
-            const promise = new Promise<T>((r) => (resolve = r));
-            return { promise, resolve };
-        }
-
         it("is ready at once from the last known profile, then follows the server", async () => {
             const read = deferred<Record<string, unknown>>();
             const client = makeClient({}, { getExtendedProfile: vi.fn(() => read.promise) });
@@ -437,6 +444,30 @@ describe("DesktopProfileEditorViewModel", () => {
                 RICH_PROFILE_FIELD,
                 expect.objectContaining({ nameplate: { mxc: "mxc://example.org/uploaded", animated: true } }),
             );
+        });
+
+        it("makes no preview for a banner still being examined when the editor closes", async () => {
+            const vm = await ready(makeClient({}));
+            const examined = deferred<boolean>();
+            vi.mocked(isAnimatedImage).mockReturnValueOnce(examined.promise);
+            vi.mocked(URL.createObjectURL).mockClear();
+            const choosing = vm.chooseBanner(new File(["x"], "b.gif", { type: "image/gif" }));
+            await vi.waitFor(() => expect(isAnimatedImage).toHaveBeenCalled());
+            vm.dispose();
+            examined.resolve(true);
+            await choosing;
+            expect(URL.createObjectURL).not.toHaveBeenCalled();
+        });
+
+        it("lets a later choice win over a nameplate image still being examined", async () => {
+            const vm = await ready(makeClient({}));
+            const examined = deferred<boolean>();
+            vi.mocked(isAnimatedImage).mockReturnValueOnce(examined.promise);
+            const choosing = vm.chooseNameplateImage(new File(["x"], "n.gif", { type: "image/gif" }));
+            vm.update({ nameplate: "aurora", hasNameplateImage: false });
+            examined.resolve(true);
+            await choosing;
+            expect(vm.getSnapshot().draft).toMatchObject({ nameplate: "aurora", hasNameplateImage: false });
         });
 
         it("removes a banner", async () => {
