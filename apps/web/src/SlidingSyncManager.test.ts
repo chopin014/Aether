@@ -56,6 +56,8 @@ class MockSlidingSync extends EventEmitter {
     getListData = vi.fn();
     extensions = vi.fn();
     desiredRoomSubscriptions = vi.fn();
+    hasSavedRoom = vi.fn().mockReturnValue(false);
+    restoreSavedRooms = vi.fn().mockResolvedValue(undefined);
 }
 
 describe("SlidingSyncManager", () => {
@@ -715,6 +717,10 @@ describe("SlidingSyncManager", () => {
         expect(previous.getListParams("untagged")?.timeline_limit).toBe(1);
     });
 
+    it("expects no room to arrive without sliding sync", () => {
+        expect(new SlidingSyncManager().mayStillArrive("!room:id")).toBe(false);
+    });
+
     describe("setRoomVisible", () => {
         it("adds a subscription for the room", async () => {
             const roomId = "!room:id";
@@ -1002,6 +1008,7 @@ describe("SlidingSyncManager", () => {
             const visible = manager.setRoomVisible("!missing");
             await tick();
             expect(nameOf("!missing")).toBe("bootstrap");
+            expect(manager.mayStillArrive("!missing")).toBe(true);
             // A response to an older request, before the subscription was acknowledged, proves nothing.
             sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, {
                 pos: "1",
@@ -1019,6 +1026,23 @@ describe("SlidingSyncManager", () => {
             await expect(visible).resolves.toBe("absent");
             expect((manager as unknown as { bootstrapRooms: Set<string> }).bootstrapRooms.has("!missing")).toBe(false);
             expect(manager.initialTimelinePreparation(client, "!missing")).toBeUndefined();
+            expect(manager.mayStillArrive("!missing")).toBe(false);
+            // Once it has arrived after all, it is no longer taken to be missing.
+            client.emit(ClientEvent.Room, knownRoom("!missing"));
+            rooms.delete("!missing");
+            expect(manager.mayStillArrive("!missing")).toBe(true);
+        });
+
+        it("opens a room from this device's saved data, without waiting for the server", async () => {
+            const restore = vi.fn(async (roomIds: string[]) => {
+                for (const roomId of roomIds) client.emit(ClientEvent.Room, knownRoom(roomId));
+            });
+            sync.setSavedRooms({ has: (roomId) => roomId === "!saved" && !rooms.has(roomId), restore });
+            expect(manager.mayStillArrive("!saved")).toBe(true);
+            await expect(manager.setRoomVisible("!saved")).resolves.toBe("known");
+            expect(restore).toHaveBeenCalledExactlyOnceWith(["!saved"], false);
+            await tick();
+            expect(nameOf("!saved")).toBe("room");
         });
 
         it("stops waiting for a room the server has not answered for in time", async () => {
@@ -1546,6 +1570,24 @@ describe("SlidingSyncManager", () => {
             ).startSpidering(sync, 10, 1);
             await applied();
             await vi.waitFor(() => expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!unseen"])));
+            // A room the lists did not bring is not the user's, unless this device saved it and has not applied it.
+            expect(manager.mayStillArrive("!elsewhere")).toBe(false);
+            sync.setSavedRooms({ has: (roomId) => roomId === "!elsewhere", restore: async () => {} });
+            expect(manager.mayStillArrive("!elsewhere")).toBe(true);
+        });
+
+        it("applies the open Space's saved channels while the page is idle, asking once for each", async () => {
+            const space = knownRoom("!server", "space");
+            addChildren(space, ["!a", "!b"]);
+            const restore = vi.fn(async () => {});
+            sync.setSavedRooms({ has: (roomId) => roomId === "!a", restore });
+            manager.setActiveSpace("!server");
+            await tick();
+            expect(restore).toHaveBeenCalledExactlyOnceWith(["!a"], true);
+            addChildren(space, ["!c"]);
+            await applied();
+            await vi.waitFor(() => expect(sync.getRoomSubscriptions()).toContain("!c"));
+            expect(restore).toHaveBeenCalledTimes(1);
         });
 
         it("subscribes joined channels again when a list outgrows its range after spidering", async () => {

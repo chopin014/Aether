@@ -264,6 +264,10 @@ export class SlidingSyncManager {
     private spaceTreeChanged = false;
     // Whether every list has grown to cover the whole account, so known rooms are kept up to date by the lists.
     private listsCoverAccount = false;
+    // Rooms the server answered a subscription without, until they arrive after all.
+    private readonly absentRooms = new Set<string>();
+    // Saved channels already asked to be applied in the background, so each is asked for once.
+    private readonly savedChannelsAsked = new Set<string>();
     // When the sync response being applied arrived, and the pending read of changes made outside one.
     private applyingSince?: number;
     private spaceTreeTimer?: ReturnType<typeof setTimeout>;
@@ -317,6 +321,8 @@ export class SlidingSyncManager {
         this.callLeases.clear();
         this.activeSpaceId = undefined;
         this.listsCoverAccount = false;
+        this.absentRooms.clear();
+        this.savedChannelsAsked.clear();
         this.spaceTree = new Set();
         this.spaceChannels = new Set();
         this.stopFollowingSpaceTree();
@@ -638,7 +644,14 @@ export class SlidingSyncManager {
             previous?.release();
         }
 
-        const room = client.getRoom(roomId);
+        let room = client.getRoom(roomId);
+        if (!room && slidingSync.hasSavedRoom(roomId)) {
+            // This device's saved data for the room still waits its turn, such as a Space's channel restored in
+            // the background. Applying it now shows the room without waiting for the server.
+            await slidingSync.restoreSavedRooms([roomId]);
+            if (this.client !== client || this.slidingSync !== slidingSync) return "replaced";
+            room = client.getRoom(roomId);
+        }
         if (room) {
             // The crypto layer remembers encryption even if the room's state is incomplete or was removed.
             if (!room.hasEncryptionStateEvent() && (await client.getCrypto()?.isEncryptionEnabledInRoom(roomId))) {
@@ -693,6 +706,7 @@ export class SlidingSyncManager {
                 if (!slidingSync.isRoomSubscriptionConfirmed(roomId) || response.rooms?.[roomId]) return;
                 // The server has answered this subscription without the room. Stop asking for its history.
                 logger.log("SlidingSync setRoomVisible: the server did not send", roomId);
+                this.absentRooms.add(roomId);
                 this.bootstrapRooms.delete(roomId);
                 this.settleInitialTimeline(roomId, false);
                 settle("absent");
@@ -716,6 +730,20 @@ export class SlidingSyncManager {
         if (!this.slidingSync || !roomId.startsWith("!")) return;
         if (this.viewLease?.roomId === roomId) return;
         this.leases.prefetch(roomId);
+    }
+
+    /**
+     * Whether sliding sync may still bring a room this client does not know yet, such as a channel its lists have
+     * not reached, or one this device saved that is not applied yet.
+     * @param roomId - The room.
+     * @returns False without sliding sync, for a room the client knows, and for one the server answered without.
+     */
+    public mayStillArrive(roomId: string): boolean {
+        const client = this.client;
+        const slidingSync = this.slidingSync;
+        if (!client || !slidingSync || client.getRoom(roomId)) return false;
+        if (slidingSync.hasSavedRoom(roomId)) return true;
+        return !this.listsCoverAccount && !this.absentRooms.has(roomId);
     }
 
     /**
@@ -817,7 +845,10 @@ export class SlidingSyncManager {
         }
     };
 
-    private readonly onRoomStored = (room: Room): void => this.markSpaceTreeChanged(room.roomId);
+    private readonly onRoomStored = (room: Room): void => {
+        this.absentRooms.delete(room.roomId);
+        this.markSpaceTreeChanged(room.roomId);
+    };
 
     private readonly onMyMembership = (room: Room): void => this.markSpaceTreeChanged(room.roomId);
 
@@ -940,6 +971,15 @@ export class SlidingSyncManager {
             }
         }
         this.spaceTree = tree;
+        // Channels this device saved, but has not applied yet, are applied while the page is idle, so the Space's
+        // channel list fills without waiting for the server.
+        const slidingSync = this.slidingSync;
+        const saved = [...channels].filter(
+            (roomId) =>
+                !this.savedChannelsAsked.has(roomId) && !client?.getRoom(roomId) && slidingSync?.hasSavedRoom(roomId),
+        );
+        for (const roomId of saved) this.savedChannelsAsked.add(roomId);
+        if (saved.length > 0) void slidingSync!.restoreSavedRooms(saved, true);
         // Only the Spaces in the tree keep their order, so visiting many Spaces does not grow it.
         for (const spaceId of this.sortedChildren.keys()) {
             if (!walked.has(spaceId)) this.sortedChildren.delete(spaceId);
