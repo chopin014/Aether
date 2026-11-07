@@ -222,6 +222,13 @@
             "title": "Channel actions",
             "unmute": "Unmute channel"
         },
+        "channel_row": {
+            "edit": "Edit channel",
+            "edit_named": "Edit %(channel)s",
+            "invite": "Create invite",
+            "invite_to": "Invite people to %(channel)s",
+            "private_label": "%(label)s Private channel."
+        },
         "choose_channels": {
             "description": {
                 "one": "%(server)s has %(count)s channel. Choose the ones you want; you can browse the rest later from the server's overview.",

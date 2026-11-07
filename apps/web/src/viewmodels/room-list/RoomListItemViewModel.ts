@@ -19,6 +19,7 @@ import {
     ClientEvent,
     MatrixEventEvent,
     EventType,
+    JoinRule,
     KnownMembership,
     RoomEvent,
     RoomStateEvent,
@@ -396,14 +397,18 @@ export class RoomListItemViewModel
         this.updateItem();
     };
 
-    /** A desktop channel shows the room avatar as its icon, and its edit entry follows power level changes. */
+    /**
+     * A desktop channel shows the room avatar as its icon, its edit entry follows power level changes, and its lock
+     * follows its join rule.
+     */
     private readonly onRoomStateEvent = (...args: unknown[]): void => {
         if (!this.snapshot.current.channelKind) return;
         // trackListener types its listeners loosely; RoomStateEvent.Events passes the event first.
         const [event] = args as [MatrixEvent];
         const type = event.getType();
-        if (type === EventType.RoomAvatar || type === EventType.RoomPowerLevels) this.updateItem();
-        else if (type === VOICE_STATE_EVENT_TYPE) this.onVoiceActivityChanged();
+        if (type === EventType.RoomAvatar || type === EventType.RoomPowerLevels || type === EventType.RoomJoinRules) {
+            this.updateItem();
+        } else if (type === VOICE_STATE_EVENT_TYPE) this.onVoiceActivityChanged();
     };
 
     private channelMenu?: ChannelMenuViewModel;
@@ -603,6 +608,9 @@ export class RoomListItemViewModel
             : undefined;
         const canEditChannel =
             !!channelKind && room.currentState.maySendStateEvent(EventType.RoomName, client.getSafeUserId());
+        // A server's channels are open to its members; one that takes an invitation or a request to join is private.
+        const isPrivateChannel =
+            !!channelKind && [JoinRule.Invite, JoinRule.Knock, JoinRule.Private].includes(room.getJoinRule());
 
         return {
             id: room.roomId,
@@ -630,6 +638,7 @@ export class RoomListItemViewModel
             channelKind,
             channelIconUrl,
             canEditChannel,
+            isPrivateChannel,
             callParticipants,
             callStartedAt: callParticipants?.length
                 ? getCallSessionStart(room, client.matrixRTC.getRoomSession(room).memberships)

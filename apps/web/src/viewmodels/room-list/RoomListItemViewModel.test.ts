@@ -14,6 +14,7 @@ import {
     MatrixEvent,
     MatrixEventEvent,
     EventType,
+    JoinRule,
     KnownMembership,
     Room,
     RoomEvent,
@@ -207,6 +208,33 @@ describe("RoomListItemViewModel", () => {
             expect(maySend).toHaveBeenCalledWith(EventType.RoomName, matrixClient.getSafeUserId());
         });
 
+        it.each([
+            [JoinRule.Invite, true],
+            [JoinRule.Knock, true],
+            [JoinRule.Private, true],
+            [JoinRule.Restricted, false],
+            [JoinRule.Public, false],
+        ])("marks a channel with the %s join rule as private: %s", (joinRule, isPrivate) => {
+            vi.spyOn(room, "getJoinRule").mockReturnValue(joinRule);
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            expect(viewModel.getSnapshot().isPrivateChannel).toBe(isPrivate);
+        });
+
+        it("follows a channel's join rule as it changes", () => {
+            const joinRule = vi.spyOn(room, "getJoinRule").mockReturnValue(JoinRule.Restricted);
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            expect(viewModel.getSnapshot().isPrivateChannel).toBe(false);
+
+            joinRule.mockReturnValue(JoinRule.Invite);
+            room.emit(
+                RoomStateEvent.Events,
+                new MatrixEvent({ type: EventType.RoomJoinRules, state_key: "" }),
+                room.currentState,
+                null,
+            );
+            expect(viewModel.getSnapshot().isPrivateChannel).toBe(true);
+        });
+
         it("opens the channel's general settings to edit it", () => {
             const dispatch = vi.spyOn(dispatcher, "dispatch");
             viewModel = new RoomListItemViewModel({ room, client: matrixClient });
@@ -229,7 +257,11 @@ describe("RoomListItemViewModel", () => {
             vi.mocked(DMRoomMap.shared().getUserIdForRoomId).mockReturnValue("@alice:server");
             vi.spyOn(room, "getMxcAvatarUrl").mockReturnValue("mxc://example.org/alice");
             viewModel = new RoomListItemViewModel({ room, client: matrixClient });
-            expect(viewModel.getSnapshot()).toMatchObject({ channelIconUrl: undefined, canEditChannel: false });
+            expect(viewModel.getSnapshot()).toMatchObject({
+                channelIconUrl: undefined,
+                canEditChannel: false,
+                isPrivateChannel: false,
+            });
         });
     });
 

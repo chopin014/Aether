@@ -100,6 +100,8 @@ export interface RoomListItemViewSnapshot {
     channelKind?: "text" | "voice";
     /** The real Matrix thread currently open beneath this channel. */
     activeThread?: { id: string; title: string };
+    /** Whether the desktop channel is private: people join it by invitation rather than through its server. */
+    isPrivateChannel?: boolean;
     /** A desktop channel's custom icon, taken from its room avatar, replacing the channel symbol. */
     channelIconUrl?: string;
     /** Whether the user may rename the channel and change its icon. */
@@ -327,7 +329,10 @@ export const RoomListItemView = memo(function RoomListItemView({
     };
 
     // Generate a11y label from notification state and room name
-    const a11yLabel = getA11yLabel(item.name, item.notification);
+    const notificationLabel = getA11yLabel(item.name, item.notification);
+    const a11yLabel = item.isPrivateChannel
+        ? _t("desktop|channel_row|private_label", { label: notificationLabel })
+        : notificationLabel;
 
     const roomItem = (
         <RoomListItemContextMenu vm={vm}>

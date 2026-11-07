@@ -269,10 +269,93 @@
     transition: color 120ms ease-out;
 }
 
-.roomListItem:hover .channelIcon,
-.roomListItem.keyboardActive .channelIcon,
-.selected .channelIcon {
+.roomListItem:hover :is(.channelIcon, .channelLock),
+.roomListItem.keyboardActive :is(.channelIcon, .channelLock),
+.selected :is(.channelIcon, .channelLock) {
     color: var(--cpd-color-icon-secondary);
+}
+
+/* The kind symbol of one channel, with a lock in its corner when the channel is private. */
+.channelSymbol {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+}
+
+/* Clear the corner the lock sits in, so the two marks stay apart on any row background. */
+.privateChannel .channelIcon {
+    mask-image: radial-gradient(circle at calc(100% - 3px) 4px, transparent 6px, #000 6.5px);
+}
+
+.channelLock {
+    position: absolute;
+    top: -2px;
+    inset-inline-end: -3px;
+    width: 11px;
+    height: 11px;
+    color: var(--cpd-color-icon-tertiary);
+    transition: color 120ms ease-out;
+}
+
+/* A muted channel is dimmed, as in Discord, instead of carrying a bell. Opening it brings it back to full strength. */
+.mutedChannel :is(.channelSymbols, .roomName) {
+    opacity: 0.5;
+}
+
+.selected .mutedChannel :is(.channelSymbols, .roomName) {
+    opacity: 1;
+}
+
+/* Unread activity in a channel: a short marker against the sidebar's edge, beside the bold name. */
+.unreadMarker {
+    position: absolute;
+    inset-inline-start: 0;
+    top: 50%;
+    width: 4px;
+    height: 8px;
+    margin-top: -4px;
+    border-radius: 0 4px 4px 0;
+    background-color: var(--cpd-color-text-primary);
+}
+
+.selected .unreadMarker {
+    display: none;
+}
+
+/* How many times the person was mentioned in a channel. */
+.mentionBadge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 5px;
+    box-sizing: border-box;
+    border-radius: 8px;
+    background-color: var(--cpd-color-bg-critical-primary);
+    /* Compound's text on solid colours is dark in the dark theme; the desktop shell keeps badge text white. */
+    color: var(--mx-desktop-badge-text, var(--cpd-color-text-on-solid-primary));
+    font: var(--cpd-font-body-xs-semibold);
+    font-variant-numeric: tabular-nums;
+}
+
+/* The buttons sit at the row's end, beside its (then empty) badge area. */
+.channelActions {
+    margin-inline-start: auto;
+}
+
+/* A selected channel keeps its invite and edit buttons in view, unless a badge needs the space. */
+.selected .channelActions:not(.withDecoration) {
+    display: flex;
+}
+
+/* Dimmer than other hover menus, brightening under the pointer. */
+.hoverMenu.channelActions svg {
+    fill: var(--cpd-color-icon-secondary);
+}
+
+.hoverMenu.channelActions button:hover svg {
+    fill: var(--cpd-color-icon-primary);
 }
 
 .notificationDecoration {

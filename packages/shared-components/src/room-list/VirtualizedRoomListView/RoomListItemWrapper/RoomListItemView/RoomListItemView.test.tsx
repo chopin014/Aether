@@ -35,6 +35,12 @@ const {
     DesktopVoiceParticipantsSilent,
     DesktopVoiceParticipantsMultipleSpeaking,
     DesktopVoiceParticipantsMutedAndDeafened,
+    DesktopPrivateChannel,
+    DesktopPrivateVoiceChannel,
+    DesktopMutedChannel,
+    DesktopUnreadChannel,
+    DesktopChannelWithMentions,
+    DesktopSelectedChannel,
 } = composeStories(stories);
 
 describe("<RoomListItemView />", () => {
@@ -154,8 +160,75 @@ describe("<RoomListItemView />", () => {
         const icon = container.querySelector("img");
         expect(icon).toHaveAttribute("src", DesktopChannelWithIcon.args.channelIconUrl);
         // Any image can belong to either kind of channel, so the symbol still says which one it is
-        expect(icon?.previousElementSibling).toBe(screen.getByTestId(`channel-kind-${kind}`));
+        expect(icon?.previousElementSibling).toContainElement(screen.getByTestId(`channel-kind-${kind}`));
         expect(icon?.parentElement?.nextElementSibling).toHaveTextContent("General");
+    });
+
+    it.each([
+        ["text", DesktopPrivateChannel],
+        ["voice", DesktopPrivateVoiceChannel],
+    ] as const)("marks a private %s channel with a lock and says so", (kind, Story) => {
+        render(<Story />);
+        const symbol = screen.getByTestId(`channel-kind-${kind}`).parentElement;
+        expect(symbol).toContainElement(screen.getByTestId("channel-private"));
+        expect(screen.getByRole("option")).toHaveAccessibleName(/Private channel\.$/);
+    });
+
+    it("leaves an open channel without a lock", () => {
+        render(<Default channelKind="text" />);
+        expect(screen.queryByTestId("channel-private")).toBeNull();
+        expect(screen.getByRole("option")).not.toHaveAccessibleName(/Private channel/);
+    });
+
+    it("dims a muted channel instead of showing a bell", () => {
+        render(<DesktopMutedChannel />);
+        expect(screen.getByTestId("room-name").closest("[class*='mutedChannel']")).not.toBeNull();
+        expect(screen.queryByTestId("notification-decoration")).toBeNull();
+    });
+
+    it("marks an unread channel at its edge without a count", () => {
+        render(<DesktopUnreadChannel />);
+        expect(screen.getByTestId("channel-unread")).toBeInTheDocument();
+        expect(screen.queryByTestId("channel-mentions")).toBeNull();
+        expect(screen.queryByTestId("notification-decoration")).toBeNull();
+    });
+
+    it("counts mentions in a channel", () => {
+        render(<DesktopChannelWithMentions />);
+        expect(screen.getByTestId("channel-mentions")).toHaveTextContent("3");
+    });
+
+    it("caps a channel's mention count", () => {
+        render(
+            <DesktopChannelWithMentions
+                notification={{ ...DesktopChannelWithMentions.args.notification!, count: 250 }}
+            />,
+        );
+        expect(screen.getByTestId("channel-mentions")).toHaveTextContent("99+");
+    });
+
+    it("invites to and edits a channel from its row without opening it", async () => {
+        const user = userEvent.setup();
+        const { container } = render(<DesktopSelectedChannel />);
+        // The row's own role makes its buttons presentational, so they are found by their label.
+        await user.click(container.querySelector('[aria-label="Invite people to boas-vindas"]')!);
+        expect(DesktopSelectedChannel.args.onInvite).toHaveBeenCalled();
+        await user.click(container.querySelector('[aria-label="Edit boas-vindas"]')!);
+        expect(DesktopSelectedChannel.args.onEditChannel).toHaveBeenCalled();
+        expect(DesktopSelectedChannel.args.onOpenRoom).not.toHaveBeenCalled();
+    });
+
+    it("offers only the channel actions the person may take", () => {
+        const { container } = render(<DesktopSelectedChannel canInvite={false} canEditChannel={false} />);
+        expect(container.querySelector('[aria-label^="Invite people"]')).toBeNull();
+        expect(container.querySelector('[aria-label="Edit boas-vindas"]')).toBeNull();
+    });
+
+    it("replaces the room options menus on a channel row", () => {
+        const { container } = render(<DesktopSelectedChannel showMoreOptionsMenu={true} showNotificationMenu={true} />);
+        expect(container.querySelector('[aria-label="More Options"]')).toBeNull();
+        expect(container.querySelector('[aria-label="Notification options"]')).toBeNull();
+        expect(container.querySelector('[aria-label="Invite people to boas-vindas"]')).not.toBeNull();
     });
 
     it("marks an occupied voice channel with a custom icon through its symbol", () => {
