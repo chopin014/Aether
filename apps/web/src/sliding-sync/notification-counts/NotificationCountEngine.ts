@@ -147,6 +147,14 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         this.flushTimer = undefined;
     }
 
+    /**
+     * Let history be fetched to make counts exact, once the room list has found every room: before then it would
+     * slow that down, and the rooms it is for are not all known.
+     */
+    public allowRecovery(): void {
+        this.recovery.allow();
+    }
+
     /** The counts last set on a room, with how far they can be trusted. */
     public getCounts(roomId: string): RoomCounts | undefined {
         return this.published.get(roomId);

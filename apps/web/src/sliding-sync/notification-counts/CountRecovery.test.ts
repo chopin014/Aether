@@ -37,6 +37,7 @@ function raw(roomId: string, id: string): IRoomEvent {
 /** A room whose live timeline starts at `first`, with a token for the history before it. */
 function roomWith(client: MatrixClient, roomId: string, first: string, token: string | null = "before"): Room {
     const room = new Room(roomId, client, me);
+    room.updateMyMembership("join");
     client.store.storeRoom(room);
     room.getLiveTimeline().setPaginationToken(token, EventTimeline.BACKWARDS);
     void room.addLiveEvents([client.getEventMapper()(raw(roomId, first))], { addToState: false });
@@ -84,6 +85,7 @@ describe("CountRecovery", () => {
         };
         host.set(room.roomId, "$d");
         const recovery = new CountRecovery(client, host);
+        recovery.allow();
 
         recovery.request(room, "$d");
         await vi.waitFor(() => expect(host.pages.get(room.roomId)).toEqual([["$b", "$c"]]));
@@ -109,6 +111,7 @@ describe("CountRecovery", () => {
         };
         host.set(room.roomId, "$z");
         const recovery = new CountRecovery(client, host, { pagesPerGap: 2 });
+        recovery.allow();
 
         recovery.request(room, "$z");
         await vi.waitFor(() => expect(host.pages.get(room.roomId)).toHaveLength(2));
@@ -140,6 +143,7 @@ describe("CountRecovery", () => {
         > & { set: (roomId: string, anchor: string) => void };
         for (const room of rooms) host.set(room.roomId, room.getLiveTimeline().getEvents()[0].getId()!);
         const recovery = new CountRecovery(client, host, { concurrent: 2, sessionPages: 3 });
+        recovery.allow();
 
         for (const room of rooms) recovery.request(room, room.getLiveTimeline().getEvents()[0].getId()!);
         await vi.waitFor(() => expect(pending).toHaveLength(2));
@@ -173,6 +177,7 @@ describe("CountRecovery", () => {
             };
             host.set(room.roomId, "$d");
             const recovery = new CountRecovery(client, host);
+            recovery.allow();
 
             recovery.request(room, "$d");
             await vi.advanceTimersByTimeAsync(1000);
@@ -186,19 +191,119 @@ describe("CountRecovery", () => {
         }
     });
 
-    it("fetches nothing for a gap it has no token for, nor once stopped", async () => {
+    it("fetches nothing for a gap it has no token for yet, and does once it has one", async () => {
         const { client } = setup();
-        const request = vi.spyOn(client, "createMessagesRequest");
-        const host = hostFor(new Map());
+        const request = vi
+            .spyOn(client, "createMessagesRequest")
+            .mockResolvedValue({ chunk: [raw("!a:example.org", "$old")], start: "later" });
+        const host = hostFor(new Map([["!a:example.org", "$old"]])) as ReturnType<typeof hostFor> & {
+            set: (roomId: string, anchor: string) => void;
+        };
         const recovery = new CountRecovery(client, host);
+        recovery.allow();
+        const room = roomWith(client, "!a:example.org", "$a", null);
+        host.set(room.roomId, "$a");
 
-        recovery.request(roomWith(client, "!a:example.org", "$a", null), "$a");
-        // An anchor that does not start its timeline has no token either.
-        recovery.request(roomWith(client, "!b:example.org", "$b"), "$elsewhere");
+        recovery.request(room, "$a");
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(request).not.toHaveBeenCalled();
+
+        // Such as a later response giving the timeline a token.
+        room.getLiveTimeline().setPaginationToken("later", EventTimeline.BACKWARDS);
+        recovery.request(room, "$a");
+        await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    });
+
+    it("fetches nothing until allowed, nor once stopped", async () => {
+        const { client } = setup();
+        const request = vi.spyOn(client, "createMessagesRequest").mockResolvedValue({ chunk: [], start: "t" });
+        const host = hostFor(new Map()) as ReturnType<typeof hostFor> & {
+            set: (roomId: string, anchor: string) => void;
+        };
+        const recovery = new CountRecovery(client, host);
+        const room = roomWith(client, "!a:example.org", "$a");
+        host.set(room.roomId, "$a");
+
+        // While the room list is still finding the account's rooms.
+        recovery.request(room, "$a");
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(request).not.toHaveBeenCalled();
+
         recovery.stop();
-        recovery.request(roomWith(client, "!c:example.org", "$c"), "$c");
+        recovery.allow();
+        recovery.request(roomWith(client, "!b:example.org", "$b"), "$b");
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(request).not.toHaveBeenCalled();
+    });
+
+    it("takes the most recently active rooms first, and drops work no longer needed without spending on it", async () => {
+        const { client } = setup();
+        const quiet = roomWith(client, "!quiet:example.org", "$q");
+        const busy = roomWith(client, "!busy:example.org", "$b");
+        const left = roomWith(client, "!left:example.org", "$l");
+        const read = roomWith(client, "!read:example.org", "$r");
+        quiet.setBumpStamp(1);
+        busy.setBumpStamp(9);
+        left.setBumpStamp(8);
+        read.setBumpStamp(7);
+        const asked: string[] = [];
+        const request = vi.spyOn(client, "createMessagesRequest").mockImplementation(async (roomId) => {
+            asked.push(roomId);
+            return { chunk: [raw(roomId, `$old-${roomId}`)], start: "before" };
+        });
+        const host = hostFor(new Map([quiet, busy, left, read].map((room) => [room.roomId, `$old-${room.roomId}`])));
+        const set = (host as unknown as { set: (roomId: string, anchor: string) => void }).set;
+        for (const [room, anchor] of [
+            [quiet, "$q"],
+            [busy, "$b"],
+            [left, "$l"],
+            [read, "$r"],
+        ] as const) {
+            set(room.roomId, anchor);
+        }
+        const recovery = new CountRecovery(client, host, { concurrent: 1, sessionPages: 2 });
+        for (const [room, anchor] of [
+            [quiet, "$q"],
+            [busy, "$b"],
+            [left, "$l"],
+            [read, "$r"],
+        ] as const) {
+            recovery.request(room, anchor);
+        }
+        // Meanwhile, the user leaves one room and reads another up to its newest message.
+        left.updateMyMembership("leave");
+        set(read.roomId, "");
+
+        recovery.allow();
+        await vi.waitFor(() => expect(asked).toHaveLength(2));
         await new Promise((resolve) => setTimeout(resolve, 0));
 
-        expect(request).not.toHaveBeenCalled();
+        expect(asked).toEqual([busy.roomId, quiet.roomId]);
+        expect(request).toHaveBeenCalledTimes(2);
+    });
+
+    it("carries on past a page with no events, and stops at the session's byte allowance", async () => {
+        const { client } = setup();
+        const room = roomWith(client, "!r:example.org", "$d");
+        const request = vi
+            .spyOn(client, "createMessagesRequest")
+            // Nothing the client sees, but history goes on.
+            .mockResolvedValueOnce({ chunk: [], start: "before", end: "t1" })
+            .mockResolvedValueOnce({ chunk: [raw(room.roomId, "$big")], start: "t1", end: "t2" });
+        const host = hostFor(new Map([[room.roomId, "$never"]])) as ReturnType<typeof hostFor> & {
+            set: (roomId: string, anchor: string) => void;
+        };
+        host.set(room.roomId, "$d");
+        // The second page uses up the bytes: no third is asked for, though the gap remains.
+        const recovery = new CountRecovery(client, host, { pagesPerGap: 5, sessionBytes: 50 });
+        recovery.allow();
+
+        recovery.request(room, "$d");
+        await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(request.mock.calls[1][1]).toBe("t1");
+        expect(host.pages.get(room.roomId)).toEqual([["$big"]]);
+        expect(request).toHaveBeenCalledTimes(2);
     });
 });

@@ -297,8 +297,10 @@ describe("NotificationCountEngine", () => {
         expect(counts()).toEqual({ total: 1, highlight: 0 });
     });
 
-    it("fetches a little history to fill a gap by itself, once sync is live", async () => {
+    it("fetches a little history to fill a gap by itself, once allowed and sync is live", async () => {
         const { client, respond, counts, engine } = await setup({ pagesPerGap: 2 });
+        // As once the room list has found every room.
+        engine.allowRecovery();
         const request = vi.spyOn(client, "createMessagesRequest").mockResolvedValue({
             chunk: [message("$c", "alice"), message("$b"), message("$a")],
             start: "gap",

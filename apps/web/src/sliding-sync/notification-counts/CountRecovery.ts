@@ -8,6 +8,7 @@ Please see LICENSE in the repository root for full details.
 import {
     Direction,
     EventTimeline,
+    KnownMembership,
     type MatrixClient,
     MatrixError,
     type MatrixEvent,
@@ -26,9 +27,18 @@ export interface CountRecoveryLimits {
     pagesPerGap: number;
     /** Requests in all for a session: rooms past it keep counts that are not exact. */
     sessionPages: number;
+    /** Roughly how much history in all for a session, in bytes of event JSON. */
+    sessionBytes: number;
 }
 
-const DEFAULT_LIMITS: CountRecoveryLimits = { concurrent: 2, pageSize: 50, pagesPerGap: 2, sessionPages: 200 };
+const DEFAULT_LIMITS: CountRecoveryLimits = {
+    concurrent: 2,
+    pageSize: 50,
+    pagesPerGap: 2,
+    sessionPages: 20,
+    sessionBytes: 5 * 1024 * 1024,
+};
+
 /** How long to wait after the server asks to slow down, when it does not say, in milliseconds. */
 const DEFAULT_BACKOFF_MS = 5000;
 
@@ -42,7 +52,7 @@ export interface CountRecoveryHost {
 
 interface Job {
     roomId: string;
-    /** The event the next page comes just before. */
+    /** The event the next page comes just before, which starts the room's newest segment while the gap is open. */
     anchor: string;
     /** The pagination token for history before `anchor`. */
     token: string;
@@ -54,9 +64,11 @@ interface Job {
  * of, with a little of its history. The pages go only to the count, not to the room's timeline, so nothing is
  * shown or notified again.
  *
- * It does a bounded amount of work: a few pages per gap, a couple of requests at a time, and a budget for the
- * session, so a large account never fetches the history of every room. Rooms past the budget keep a count that
- * says it is not exact.
+ * It does a bounded amount of work, and only once {@link allow}ed, after the room list has found every room: the
+ * most recently active rooms first, a few pages per gap, a couple of requests at a time, and a small allowance of
+ * pages and bytes for the session, so a large account never fetches the history of every room. Rooms past the
+ * allowance keep a count that says it is not exact. Work queued for a gap that has gone, or a room the user left,
+ * is dropped without spending any of it.
  */
 export class CountRecovery {
     private readonly queue: Job[] = [];
@@ -67,6 +79,8 @@ export class CountRecovery {
     private running = 0;
     private readonly limits: CountRecoveryLimits;
     private pagesLeft: number;
+    private bytesLeft: number;
+    private allowed = false;
     private pausedUntil = 0;
     private stopped = false;
     private wakeTimer?: ReturnType<typeof setTimeout>;
@@ -78,19 +92,24 @@ export class CountRecovery {
     ) {
         this.limits = { ...DEFAULT_LIMITS, ...limits };
         this.pagesLeft = this.limits.sessionPages;
+        this.bytesLeft = this.limits.sessionBytes;
+    }
+
+    /** Start fetching: until then, gaps asked for wait, so finding the account's rooms is not slowed down. */
+    public allow(): void {
+        this.allowed = true;
+        this.pump();
     }
 
     /** Ask for a room's gap to be filled, if it is worth it and not asked for already. */
     public request(room: Room, anchor: string): void {
-        if (this.stopped || this.pagesLeft <= 0) return;
+        if (this.stopped || this.exhausted()) return;
         if (this.active.has(room.roomId) || this.settled.get(room.roomId) === anchor) return;
         // Asked for a gap that has gone meanwhile, such as one a page already filled.
         if (this.host.recoveryAnchor(room.roomId) !== anchor) return;
         const token = backwardToken(room, anchor);
-        if (!token) {
-            this.settled.set(room.roomId, anchor);
-            return;
-        }
+        // Without a token now, it may have one when asked again, such as after the server's next response.
+        if (!token) return;
         this.active.set(room.roomId, anchor);
         this.queue.push({ roomId: room.roomId, anchor, token, pages: 0 });
         this.pump();
@@ -100,12 +119,17 @@ export class CountRecovery {
     public stop(): void {
         this.stopped = true;
         this.queue.length = 0;
+        this.active.clear();
         if (this.wakeTimer !== undefined) clearTimeout(this.wakeTimer);
         this.wakeTimer = undefined;
     }
 
+    private exhausted(): boolean {
+        return this.pagesLeft <= 0 || this.bytesLeft <= 0;
+    }
+
     private pump(): void {
-        if (this.stopped) return;
+        if (this.stopped || !this.allowed) return;
         const wait = this.pausedUntil - Date.now();
         if (wait > 0) {
             this.wakeTimer ??= setTimeout(() => {
@@ -114,8 +138,12 @@ export class CountRecovery {
             }, wait);
             return;
         }
-        while (this.running < this.limits.concurrent && this.queue.length > 0 && this.pagesLeft > 0) {
-            const job = this.queue.shift()!;
+        while (this.running < this.limits.concurrent && this.queue.length > 0 && !this.exhausted()) {
+            const job = this.takeNext();
+            if (!this.stillNeeded(job)) {
+                this.active.delete(job.roomId);
+                continue;
+            }
             this.running++;
             this.pagesLeft--;
             void this.fetch(job).finally(() => {
@@ -125,12 +153,33 @@ export class CountRecovery {
         }
     }
 
-    private async fetch(job: Job): Promise<void> {
+    /** The queued job of the most recently active room. */
+    private takeNext(): Job {
+        let best = 0;
+        let bestActivity = -Infinity;
+        this.queue.forEach((job, index) => {
+            const activity = this.activity(job.roomId);
+            if (activity > bestActivity) {
+                best = index;
+                bestActivity = activity;
+            }
+        });
+        return this.queue.splice(best, 1)[0];
+    }
+
+    private activity(roomId: string): number {
+        const room = this.client.getRoom(roomId);
+        return room?.getBumpStamp() ?? room?.getLastActiveTimestamp() ?? 0;
+    }
+
+    /** Whether the user is still in the room and its gap is still the one the job is for. */
+    private stillNeeded(job: Job): boolean {
         const room = this.client.getRoom(job.roomId);
-        if (!room) {
-            this.active.delete(job.roomId);
-            return;
-        }
+        if (room?.getMyMembership() !== KnownMembership.Join) return false;
+        return this.host.recoveryAnchor(job.roomId) === job.anchor;
+    }
+
+    private async fetch(job: Job): Promise<void> {
         let events: MatrixEvent[];
         let next: string | undefined;
         try {
@@ -140,11 +189,13 @@ export class CountRecovery {
                 this.limits.pageSize,
                 Direction.Backward,
             );
+            this.bytesLeft -= JSON.stringify(response.chunk).length;
             const mapper = this.client.getEventMapper();
             // Newest first from the server: the ledger takes them oldest first.
             events = response.chunk.filter(noUnsafeEventProps).map(mapper).reverse();
             next = response.end && response.end !== job.token ? response.end : undefined;
         } catch (error) {
+            this.active.delete(job.roomId);
             if (error instanceof MatrixError && error.isRateLimitError()) {
                 // Asked to slow down: this room waits its turn again.
                 let retryAfter: number | null = null;
@@ -155,41 +206,39 @@ export class CountRecovery {
                 }
                 this.pausedUntil = Date.now() + (retryAfter ?? DEFAULT_BACKOFF_MS);
                 this.pagesLeft++;
+                this.active.set(job.roomId, job.anchor);
                 this.queue.unshift(job);
                 return;
             }
+            // Asked for again as the room's counts are next published, within the same allowance.
             logger.warn(`Notification counts: could not fetch history of ${job.roomId}`, error);
-            this.settle(job);
             return;
         }
-        if (this.stopped) return;
+        this.active.delete(job.roomId);
+        // Stopped, or left meanwhile: the page is not wanted.
+        const room = this.client.getRoom(job.roomId);
+        if (this.stopped || room?.getMyMembership() !== KnownMembership.Join) return;
         if (events.length > 0) this.host.addHistory(room, events, job.anchor);
         job.pages++;
         const anchor = this.host.recoveryAnchor(job.roomId);
-        this.active.delete(job.roomId);
         // Filled, or no longer needed.
         if (anchor === undefined) return;
-        // The page joined the newest segment and the gap is still before it: carry on before its oldest event.
-        const oldest = events[0]?.getId();
-        if (anchor === oldest && next) {
-            if (job.pages < this.limits.pagesPerGap) {
-                this.active.set(job.roomId, anchor);
-                this.queue.push({ ...job, anchor, token: next });
-            } else {
-                this.settled.set(job.roomId, anchor);
-            }
+        // The page joined the newest segment, which now starts with its oldest event; a page with no events the
+        // client sees leaves the anchor where it was. Either way, the gap is still just before it.
+        const expected = events[0]?.getId() ?? job.anchor;
+        if (anchor !== expected) {
+            // Another gap now, such as one a newer sync made: asked for again as the room's counts are published.
+            if (anchor !== job.anchor) return;
+            this.settled.set(job.roomId, anchor);
             return;
         }
-        // Another gap now, such as one a newer sync made: asked for again as the room's counts are published.
-        if (anchor !== job.anchor && anchor !== oldest) return;
-        this.settle(job);
-    }
-
-    /** Give up on a room's gap until it changes. */
-    private settle(job: Job): void {
-        this.active.delete(job.roomId);
-        const anchor = this.host.recoveryAnchor(job.roomId);
-        if (anchor !== undefined) this.settled.set(job.roomId, anchor);
+        if (next && job.pages < this.limits.pagesPerGap && !this.exhausted()) {
+            this.active.set(job.roomId, anchor);
+            this.queue.push({ ...job, anchor, token: next });
+            return;
+        }
+        // History ends here, or this gap has had its pages: given up on until it changes.
+        this.settled.set(job.roomId, anchor);
     }
 }
 
