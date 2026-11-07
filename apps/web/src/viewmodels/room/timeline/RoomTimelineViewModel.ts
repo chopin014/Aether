@@ -113,11 +113,15 @@ const PAGINATE_DECRYPT_WAIT_MS = 500;
 /**
  * Discriminated union describing the initial scroll target for {@link RoomTimelineViewModel.load}.
  *
- * - `live`      — scroll to the live end of the room.
+ * - `live`      — scroll to the live end of the room. With `keepHighlight`, a highlighted message still in the
+ *                 window stays highlighted.
  * - `permalink` — centre on `eventId` and highlight it.
  * - `restore`   — scroll to the saved `eventId` without highlighting.
  */
-type LoadTarget = { kind: "live" } | { kind: "permalink"; eventId: string } | { kind: "restore"; eventId: string };
+type LoadTarget =
+    | { kind: "live"; keepHighlight?: boolean }
+    | { kind: "permalink"; eventId: string }
+    | { kind: "restore"; eventId: string };
 
 /**
  * What the room timeline publishes to its view: the shared snapshot, plus the per-message detail
@@ -484,13 +488,7 @@ export class RoomTimelineViewModel
      */
     private onTimelineReset = (_room: Room | undefined, timelineSet: EventTimelineSet): void => {
         if (this.isDisposed || timelineSet !== this.opts.room.getUnfilteredTimelineSet()) return;
-        // A navigation still loading or being placed is where the reader is going, wherever the list is now.
-        // Otherwise a reader at the newest messages follows on, even after navigating and scrolling back down.
-        const navigating =
-            this.navigationEventId !== null && (this.loading || this.snapshot.current.pendingAnchor !== null);
-        const readingHistory =
-            navigating ||
-            (!this.isAtLiveBottom && (this.navigationEventId !== null || this.lastBottomEventId !== null));
+        const readingHistory = this.readingHistory;
         debug(`[TimelineVM] onTimelineReset — readingHistory=${readingHistory}`);
         if (!readingHistory) {
             void this.load({ kind: "live" });
@@ -500,6 +498,19 @@ export class RoomTimelineViewModel
         // no longer reaches new messages until the live end is loaded again.
         this.mergeSnapshot({ atLiveEnd: this.windowReachesLive() }, "timeline-reset");
     };
+
+    /**
+     * Whether reloading the newest messages would take the reader away from where they are: a navigation still
+     * loading or being placed, or older messages they navigated or scrolled to. A reader at the newest messages is
+     * not, even after navigating somewhere and scrolling back down.
+     */
+    private get readingHistory(): boolean {
+        const navigating =
+            this.navigationEventId !== null && (this.loading || this.snapshot.current.pendingAnchor !== null);
+        return (
+            navigating || (!this.isAtLiveBottom && (this.navigationEventId !== null || this.lastBottomEventId !== null))
+        );
+    }
 
     /**
      * Whether the window ends in a timeline the SDK no longer leads to new messages from: one dropped when sync
@@ -835,10 +846,10 @@ export class RoomTimelineViewModel
         const deferredBackward = this.backwardAfterInitialTimeline;
         this.backwardAfterInitialTimeline = false;
         if (this.isDisposed) return;
-        // Expanded native history is prepended to the SDK cache, outside the existing window.
-        // Reload only the initial live view; preserve a reader's navigation or scroll position.
-        if (expanded && this.navigationEventId === null && (!this.lastBottomEventId || this.isAtBottom)) {
-            await this.load({ kind: "live" });
+        // Expanded native history is prepended to the SDK cache, outside the existing window. Reload the live view
+        // to show it unless that would move the reader. A message they went to stays highlighted.
+        if (expanded && !this.readingHistory) {
+            await this.load({ kind: "live", keepHighlight: true });
         } else if (deferredBackward) {
             this.triggerBackwardPaginate();
         }
@@ -929,6 +940,9 @@ export class RoomTimelineViewModel
                 debug(`[TimelineVM] load() — live-end anchor key=${pendingAnchor.targetKey}`);
             }
 
+            const highlighted = this.snapshot.current.highlightedEventId;
+            const keepHighlight =
+                target.kind === "live" && target.keepHighlight && items.some((item) => item.key === highlighted);
             this.baseItems = items;
             this.backwardSpinnerVisible = false;
             this.forwardSpinnerVisible = false;
@@ -938,7 +952,7 @@ export class RoomTimelineViewModel
                 // so exhausting older history cannot move the messages back to the top.
                 alignToBottom: target.kind === "live" && this.timelineWindow.canPaginate(Direction.Backward),
                 pendingAnchor,
-                highlightedEventId: target.kind === "permalink" ? target.eventId : null,
+                highlightedEventId: target.kind === "permalink" ? target.eventId : keepHighlight ? highlighted : null,
                 canJumpToReadMarker: this.computeCanJumpToReadMarker(items),
             });
 

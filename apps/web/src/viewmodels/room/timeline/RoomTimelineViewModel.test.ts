@@ -247,6 +247,27 @@ describe("RoomTimelineViewModel", () => {
             }
         });
 
+        it("shows expanded history once the reader comes back down from a jump to the unread line", async () => {
+            const preparation = Promise.withResolvers<boolean>();
+            vi.spyOn(SlidingSyncManager.instance, "initialTimelinePreparation").mockReturnValue(preparation.promise);
+            seedTimeline([makeMessage("$a"), makeMessage("$b"), makeMessage("$c")]);
+            room.addAccountData([
+                new MatrixEvent({ type: EventType.FullyRead, room_id: ROOM_ID, content: { event_id: "$a" } }),
+            ]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onAtBottomStateChange(true);
+            vm.jumpToReadMarker();
+            vm.onAnchorReached("read-marker");
+            vm.onAtBottomStateChange(false);
+            // The reader scrolls back down to the newest messages before the history arrives.
+            vm.onAtBottomStateChange(true);
+            room.addEventsToTimeline([makeMessage("$expanded")], true, false, room.getLiveTimeline(), "older-again");
+            preparation.resolve(true);
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$expanded"));
+        });
+
         it.each([false, true])("preserves exact anchored loads (permalink=%s)", async (permalink) => {
             const prepare = vi.spyOn(SlidingSyncManager.instance, "initialTimelinePreparation");
             seedTimeline([makeMessage("$target")]);
