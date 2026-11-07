@@ -295,6 +295,73 @@ describe("CountRecovery", () => {
         expect(request).toHaveBeenCalledTimes(1);
     });
 
+    it("never fetches a room twice at once when jobs end together", async () => {
+        const { client } = setup();
+        const rooms = ["!a:example.org", "!b:example.org"].map((id, i) => roomWith(client, id, `$first${i}`));
+        // The second goes first whenever both wait, so the first's ending is what starts the second's next page.
+        rooms[0].setBumpStamp(1);
+        rooms[1].setBumpStamp(9);
+        const answers: Array<() => void> = [];
+        const inFlight = new Map<string, number>();
+        let overlapped = false;
+        let most = 0;
+        const request = vi.spyOn(client, "createMessagesRequest").mockImplementation(async (roomId, token) => {
+            const now = (inFlight.get(roomId) ?? 0) + 1;
+            inFlight.set(roomId, now);
+            if (now > 1) overlapped = true;
+            most = Math.max(
+                most,
+                [...inFlight.values()].reduce((a, b) => a + b, 0),
+            );
+            await new Promise<void>((resolve) => answers.push(resolve));
+            inFlight.set(roomId, (inFlight.get(roomId) ?? 1) - 1);
+            // Nothing the client sees, but history goes on: each room carries on with a next page.
+            return { chunk: [], start: token!, end: `${token}+` };
+        });
+        const host = hostFor(new Map()) as ReturnType<typeof hostFor> & {
+            set: (roomId: string, anchor: string) => void;
+        };
+        const recovery = new CountRecovery(client, host, { concurrent: 2, pagesPerGap: 2 });
+        recovery.allow();
+        rooms.forEach((room, i) => {
+            host.set(room.roomId, `$first${i}`);
+            recovery.request(room, `$first${i}`);
+        });
+        await vi.waitFor(() => expect(answers).toHaveLength(2));
+
+        // Both answer in the same turn.
+        answers.splice(0).forEach((answer) => answer());
+        await vi.waitFor(() => expect(answers).toHaveLength(2));
+        answers.splice(0).forEach((answer) => answer());
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(overlapped).toBe(false);
+        expect(most).toBeLessThanOrEqual(2);
+        // Two pages per room, no more.
+        expect(request).toHaveBeenCalledTimes(4);
+    });
+
+    it("does not try again at once after a request fails, only when asked again", async () => {
+        const { client } = setup();
+        const room = roomWith(client, "!r:example.org", "$d");
+        const request = vi.spyOn(client, "createMessagesRequest").mockRejectedValue(new Error("server unwell"));
+        const host = hostFor(new Map()) as ReturnType<typeof hostFor> & {
+            set: (roomId: string, anchor: string) => void;
+        };
+        host.set(room.roomId, "$d");
+        const recovery = new CountRecovery(client, host);
+        recovery.allow();
+
+        recovery.request(room, "$d");
+        await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(request).toHaveBeenCalledTimes(1);
+
+        // As the room's counts are published again.
+        recovery.request(room, "$d");
+        await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    });
+
     it("fetches nothing until allowed, nor once stopped", async () => {
         const { client } = setup();
         const request = vi.spyOn(client, "createMessagesRequest").mockResolvedValue({ chunk: [], start: "t" });
