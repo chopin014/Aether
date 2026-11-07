@@ -13,6 +13,17 @@ import { mockPlatformPeg } from "test-utils";
 
 import { createClientWithCreds } from "./createMatrixClient";
 import PlatformPeg from "../PlatformPeg";
+import { persistTokens } from "./tokens/tokens.ts";
+import {
+    ACCESS_TOKEN_EXPIRY_STORAGE_KEY,
+    AccessTokenRenewal,
+    RENEW_BEFORE_EXPIRY_MS,
+} from "./tokens/AccessTokenRenewal.ts";
+
+vi.mock("./tokens/tokens.ts", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("./tokens/tokens.ts")>()),
+    persistTokens: vi.fn().mockResolvedValue(undefined),
+}));
 
 describe("createMatrixClient", () => {
     let client: MatrixClient;
@@ -200,6 +211,50 @@ describe("createMatrixClient", () => {
                     clientId: "test-client-id",
                 }),
             );
+        });
+
+        it("keeps refreshed tokens and their expiry, and renews them before they expire", async () => {
+            vi.useFakeTimers();
+            try {
+                client = createClientWithCreds(
+                    {
+                        homeserverUrl: "https://test.dummy",
+                        userId: "@user:test.dummy",
+                        accessToken: "access_token",
+                        refreshToken: "refresh_token",
+                        pickleKey: "pickle",
+                    },
+                    "test-client-id",
+                );
+                const refresh = vi.spyOn(client.http, "refreshAccessToken").mockResolvedValue(true);
+                AccessTokenRenewal.start(client);
+                const expiry = new Date(Date.now() + 5 * 60_000);
+                const tokens = { accessToken: "new_access", refreshToken: "new_refresh", expiry };
+                await client.http.opts.onTokenRefresh!(tokens);
+                expect(persistTokens).toHaveBeenCalledWith("pickle", tokens);
+                expect(localStorage.setItem).toHaveBeenCalledWith(
+                    ACCESS_TOKEN_EXPIRY_STORAGE_KEY,
+                    String(expiry.getTime()),
+                );
+                await vi.advanceTimersByTimeAsync(5 * 60_000 - RENEW_BEFORE_EXPIRY_MS);
+                expect(refresh).toHaveBeenCalledOnce();
+                AccessTokenRenewal.stop(client);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it("does not renew the tokens of a session that cannot refresh them", () => {
+            vi.mocked(localStorage.getItem).mockReturnValue("0");
+            client = createClientWithCreds({
+                homeserverUrl: "https://test.dummy",
+                userId: "@user:test.dummy",
+                accessToken: "access_token",
+                refreshToken: "refresh_token",
+            });
+            const refresh = vi.spyOn(client.http, "refreshAccessToken");
+            AccessTokenRenewal.start(client);
+            expect(refresh).not.toHaveBeenCalled();
         });
     });
 });

@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 import {
+    type AccessTokens,
     type MatrixClient,
     createClient,
     type ICreateClientOpts,
@@ -27,6 +28,7 @@ import IdentityAuthClient from "../IdentityAuthClient";
 import { _t } from "../languageHandler";
 import { formatList } from "./FormattingUtils";
 import { persistTokens } from "./tokens/tokens.ts";
+import { AccessTokenRenewal, persistAccessTokenExpiry } from "./tokens/AccessTokenRenewal.ts";
 
 const localStorage = window.localStorage;
 
@@ -122,12 +124,18 @@ export function createClientWithCreds(creds: IMatrixClientCreds, oauthClientId?:
         logger.warn("Have a refresh token but no stored OAuth2 client ID: tokens will not be refreshed");
     }
 
+    let renewal: AccessTokenRenewal | undefined;
     const opts: ICreateClientOpts = {
         baseUrl: creds.homeserverUrl,
         idBaseUrl: creds.identityServerUrl,
         accessToken: creds.accessToken,
         refreshToken: creds.refreshToken,
-        onTokenRefresh: persistTokens.bind(null, creds.pickleKey),
+        onTokenRefresh: async (tokens: AccessTokens): Promise<void> => {
+            renewal?.noteExpiry(tokens.expiry);
+            await persistTokens(creds.pickleKey, tokens);
+            // Kept once the tokens it describes are.
+            persistAccessTokenExpiry(tokens.expiry);
+        },
         oauthClientId,
         userId: creds.userId,
         deviceId: creds.deviceId,
@@ -150,6 +158,8 @@ export function createClientWithCreds(creds: IMatrixClientCreds, oauthClientId?:
 
     const newCli = createMatrixClient(opts);
     newCli.setGuest(Boolean(creds.guest));
+    // The SDK refreshes the tokens of an OAuth2 session, so they can also be renewed before they expire.
+    if (creds.refreshToken && oauthClientId) renewal = AccessTokenRenewal.create(newCli);
 
     const notifTimelineSet = new EventTimelineSet(undefined, {
         timelineSupport: true,

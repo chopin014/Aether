@@ -63,6 +63,7 @@ import { messageForLoginError } from "./utils/ErrorUtils";
 import { completeOAuthLogin, type CompleteOAuthLoginResponse } from "./utils/oauth/authorize";
 import { getOAuthErrorMessage } from "./utils/oauth/error";
 import { getStoredOAuthClientId, persistOAuthClientId } from "./utils/oauth/persistOAuthSettings";
+import { AccessTokenRenewal } from "./utils/tokens/AccessTokenRenewal";
 import {
     ACCESS_TOKEN_NAME,
     ACCESS_TOKEN_STORAGE_KEY,
@@ -1324,6 +1325,7 @@ export function stopMatrixClient(unsetClient = true): void {
     if (cli) {
         // Before stopping, so profile lookups finishing later cannot write this account's data back.
         RichProfileStore.endSession(cli);
+        AccessTokenRenewal.stop(cli);
         cli.stopClient();
         cli.removeAllListeners();
 

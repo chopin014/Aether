@@ -20,6 +20,7 @@ import MatrixActionCreators from "./actions/MatrixActionCreators";
 import Modal from "./Modal";
 import MatrixClientBackedSettingsHandler from "./settings/handlers/MatrixClientBackedSettingsHandler";
 import * as StorageManager from "./utils/StorageManager";
+import { AccessTokenRenewal } from "./utils/tokens/AccessTokenRenewal";
 import { SlidingSyncManager } from "./SlidingSyncManager";
 import { _t, UserFriendlyError } from "./languageHandler";
 import MatrixClientBackedController from "./settings/controllers/MatrixClientBackedController";
@@ -245,6 +246,10 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         if (!this.matrixClient) {
             throw new Error("createClient must be called first");
         }
+
+        // An access token that has expired, or soon will, is renewed while the stores open. Requests made meanwhile,
+        // such as for the push rules below, wait for it rather than fail with an unknown token first.
+        AccessTokenRenewal.start(this.matrixClient);
 
         // The SDK needs server capabilities before starting sync. Fetch them while local stores
         // open; getVersions shares its cached request with later SDK feature checks.
