@@ -1425,6 +1425,36 @@ describe("SlidingSyncManager", () => {
             expect([...internals.sortedChildren.keys()]).toEqual(["!other"]);
         });
 
+        it("follows a child event redacted locally, and the redaction being cancelled", async () => {
+            const space = knownRoom("!server", "space");
+            addChildren(space, ["!a", "!b"]);
+            manager.setActiveSpace("!server");
+            await tick();
+            const child = space.currentState.getStateEvents(EventType.SpaceChild, "!b")!;
+            const redaction = new MatrixEvent({
+                type: EventType.RoomRedaction,
+                event_id: "~local-redaction",
+                room_id: "!server",
+                sender: client.getUserId()!,
+                redacts: child.getId(),
+                content: {},
+            });
+            // A redaction being sent changes the child in place, with no state event.
+            child.markLocallyRedacted(redaction);
+            client.emit(RoomEvent.Redaction, redaction, space);
+            await applied();
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!a"]));
+            // Another child arrives while the redaction is still pending.
+            addChildren(space, ["!c"]);
+            await applied();
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!a", "!c"]));
+            // Sending the redaction failed and it is cancelled: the child is back.
+            child.unmarkLocallyRedacted();
+            client.emit(RoomEvent.RedactionCancelled, redaction, space);
+            await applied();
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!a", "!b", "!c"]));
+        });
+
         it("subscribes an unseen replacement of an upgraded subspace, and keeps the old one's channels", async () => {
             const space = knownRoom("!server", "space");
             const category = knownRoom("!category", "space");

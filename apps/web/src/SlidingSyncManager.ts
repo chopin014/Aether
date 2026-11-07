@@ -288,10 +288,14 @@ export class SlidingSyncManager {
         this.client?.off(RoomStateEvent.Events, this.onSpaceState);
         this.client?.off(ClientEvent.Room, this.onRoomStored);
         this.client?.off(RoomEvent.MyMembership, this.onMyMembership);
+        this.client?.off(RoomEvent.Redaction, this.onSpaceRedaction);
+        this.client?.off(RoomEvent.RedactionCancelled, this.onSpaceRedaction);
         this.client = client;
         client.on(RoomStateEvent.Events, this.onSpaceState);
         client.on(ClientEvent.Room, this.onRoomStored);
         client.on(RoomEvent.MyMembership, this.onMyMembership);
+        client.on(RoomEvent.Redaction, this.onSpaceRedaction);
+        client.on(RoomEvent.RedactionCancelled, this.onSpaceRedaction);
         this.bootstrapRooms.clear();
         this.encryptedRooms.clear();
         this.expectedSpaces.clear();
@@ -805,6 +809,12 @@ export class SlidingSyncManager {
     private readonly onRoomStored = (room: Room): void => this.markSpaceTreeChanged(room.roomId);
 
     private readonly onMyMembership = (room: Room): void => this.markSpaceTreeChanged(room.roomId);
+
+    /** Redacting a child event, even locally, or cancelling a local redaction, changes it in place. */
+    private readonly onSpaceRedaction = (_redaction: MatrixEvent, room: Room): void => {
+        this.sortedChildren.delete(room.roomId);
+        this.markSpaceTreeChanged(room.roomId);
+    };
 
     private readonly onResponseApplied = (state: SlidingSyncState, _response: unknown, error?: Error): void => {
         if (state === SlidingSyncState.RequestFinished) {
