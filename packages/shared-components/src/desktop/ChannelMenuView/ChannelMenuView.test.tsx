@@ -216,4 +216,31 @@ describe("ChannelMenuContent", () => {
         expect(screen.getByRole("menuitem", { name: "Not encrypted" })).toBeVisible();
         expect(screen.getByRole("menuitem", { name: "Anyone can read the history" })).toBeVisible();
     });
+
+    describe("Move to category", () => {
+        const categories = [
+            { id: null, name: "", isCurrent: false },
+            { id: "builtin.text", name: "Text Channels", isCurrent: true },
+            { id: "c_7e50cc0b-4fb5-4ed0-89db-769fb11c837e", name: "Governo", isCurrent: false },
+        ];
+
+        it("moves the channel into the chosen category", async () => {
+            const user = userEvent.setup();
+            const onMoveToCategory = vi.fn();
+            const vm = Object.assign(makeVm({ categories }), { onMoveToCategory });
+            render(<ChannelMenuView vm={vm} open onOpenChange={() => {}} trigger={<button type="button">general</button>} />);
+            await user.click(screen.getByRole("menuitem", { name: "Move to category" }));
+            expect(await screen.findByRole("menuitem", { name: "No category" })).toBeVisible();
+            expect(screen.getByRole("menuitem", { name: "Text Channels" })).toHaveAttribute("aria-selected", "true");
+            // Choose it with the keyboard: the pointer would leave the submenu on its way there in this unstyled test.
+            screen.getByRole("menuitem", { name: "Governo" }).focus();
+            await user.keyboard("{Enter}");
+            expect(onMoveToCategory).toHaveBeenCalledWith("c_7e50cc0b-4fb5-4ed0-89db-769fb11c837e");
+        });
+
+        it("is left out for people who can't change the server's layout", () => {
+            renderContent();
+            expect(screen.queryByRole("menuitem", { name: "Move to category" })).not.toBeInTheDocument();
+        });
+    });
 });
