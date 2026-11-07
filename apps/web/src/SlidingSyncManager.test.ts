@@ -17,6 +17,7 @@ import {
 } from "matrix-js-sdk/src/sliding-sync";
 import { ClientEvent, EventType, createClient, type MatrixClient, MatrixEvent, Room } from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
+import { KnownMembership } from "matrix-js-sdk/src/types";
 import { MatrixRTCSessionManagerEvents } from "matrix-js-sdk/src/matrixrtc";
 // The real SDK adapter verifies state-to-call discovery, beyond checking request parameters.
 // oxlint-disable-next-line no-restricted-imports
@@ -1111,6 +1112,128 @@ describe("SlidingSyncManager", () => {
                 idle.prefetchRoom("!a");
                 idle.setCallRooms(["!a"]);
             }).not.toThrow();
+        });
+    });
+
+    describe("rooms saved on this device", () => {
+        it("offers the saved rooms only to the client it was set up for", async () => {
+            await manager.setup(client);
+            expect(manager.snapshotLoader(client)).toBeInstanceOf(Function);
+            expect(manager.snapshotLoader(stubClient())).toBeUndefined();
+            await expect(manager.snapshotLoader(client)!()).resolves.toBeNull();
+        });
+
+        it("keeps no saved rooms for a session without a device", async () => {
+            vi.mocked(client.getDeviceId).mockReturnValue(null);
+            await manager.setup(client);
+            expect(manager.snapshotLoader(client)).toBeUndefined();
+        });
+
+        it("marks saved rooms the user is no longer in as left, from the server's list of joined rooms", async () => {
+            const sync = (await manager.setup(client))!;
+            const cache = (
+                manager as unknown as { cache: { restoredRoomIds: ReadonlySet<string>; forgetRooms: () => void } }
+            ).cache;
+            vi.spyOn(cache, "restoredRoomIds", "get").mockReturnValue(
+                new Set(["!kept:example.org", "!invited:example.org", "!gone:example.org"]),
+            );
+            const forget = vi.spyOn(cache, "forgetRooms");
+            const rooms = new Map(
+                [
+                    ["!kept:example.org", KnownMembership.Join],
+                    ["!invited:example.org", KnownMembership.Invite],
+                    ["!gone:example.org", KnownMembership.Join],
+                ].map(([roomId, membership]) => {
+                    const room = new Room(roomId, client, client.getUserId()!);
+                    room.updateMyMembership(membership);
+                    return [roomId, room] as const;
+                }),
+            );
+            vi.mocked(client.getRoom).mockImplementation((roomId) => rooms.get(roomId!) ?? null);
+            const joinedRooms = vi
+                .fn()
+                .mockRejectedValueOnce(new Error("offline"))
+                .mockResolvedValue({ joined_rooms: ["!kept:example.org"] });
+            client.getJoinedRooms = joinedRooms;
+            const respond = (): void => {
+                sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, {
+                    pos: "p",
+                    lists: {},
+                    rooms: {},
+                    extensions: {},
+                });
+            };
+
+            // The first check fails and is tried again with the next response.
+            respond();
+            await vi.waitFor(() => expect(joinedRooms).toHaveBeenCalledTimes(1));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(forget).not.toHaveBeenCalled();
+            respond();
+            await vi.waitFor(() => expect(forget).toHaveBeenCalledExactlyOnceWith(["!gone:example.org"]));
+            expect(rooms.get("!gone:example.org")!.getMyMembership()).toBe(KnownMembership.Leave);
+            expect(rooms.get("!kept:example.org")!.getMyMembership()).toBe(KnownMembership.Join);
+            expect(rooms.get("!invited:example.org")!.getMyMembership()).toBe(KnownMembership.Invite);
+            // Checked once per connection.
+            respond();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(joinedRooms).toHaveBeenCalledTimes(2);
+            sync.stop();
+        });
+
+        it("checks again saved rooms that sliding sync reports while the joined rooms are fetched", async () => {
+            const sync = (await manager.setup(client))!;
+            const cache = (
+                manager as unknown as { cache: { restoredRoomIds: ReadonlySet<string>; forgetRooms: () => void } }
+            ).cache;
+            vi.spyOn(cache, "restoredRoomIds", "get").mockReturnValue(
+                new Set(["!rejoined:example.org", "!left:example.org", "!gone:example.org"]),
+            );
+            const forget = vi.spyOn(cache, "forgetRooms");
+            const rooms = new Map(
+                ["!rejoined:example.org", "!left:example.org", "!gone:example.org"].map((roomId) => {
+                    const room = new Room(roomId, client, client.getUserId()!);
+                    room.updateMyMembership(KnownMembership.Join);
+                    return [roomId, room] as const;
+                }),
+            );
+            vi.mocked(client.getRoom).mockImplementation((roomId) => rooms.get(roomId!) ?? null);
+            const first = Promise.withResolvers<{ joined_rooms: string[] }>();
+            const joinedRooms = vi
+                .fn()
+                .mockReturnValueOnce(first.promise)
+                .mockResolvedValue({ joined_rooms: ["!rejoined:example.org"] });
+            client.getJoinedRooms = joinedRooms;
+            const respond = (): void => {
+                sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, {
+                    pos: "p",
+                    lists: {},
+                    rooms: {},
+                    extensions: {},
+                });
+            };
+
+            respond();
+            await vi.waitFor(() => expect(joinedRooms).toHaveBeenCalledTimes(1));
+            // While the list is fetched, sliding sync reports a room rejoined after the list was made, and older
+            // data for a room left before it was made. Neither can be decided from this list.
+            sync.emit(SlidingSyncEvent.RoomData, "!rejoined:example.org", { name: "Rejoined" } as MSC3575RoomData);
+            sync.emit(SlidingSyncEvent.RoomData, "!left:example.org", { name: "Left" } as MSC3575RoomData);
+            first.resolve({ joined_rooms: [] });
+            await vi.waitFor(() => expect(forget).toHaveBeenCalledExactlyOnceWith(["!gone:example.org"]));
+            expect(rooms.get("!rejoined:example.org")!.getMyMembership()).toBe(KnownMembership.Join);
+            expect(rooms.get("!left:example.org")!.getMyMembership()).toBe(KnownMembership.Join);
+
+            // The next response checks those two again.
+            respond();
+            await vi.waitFor(() => expect(forget).toHaveBeenLastCalledWith(["!left:example.org"]));
+            expect(rooms.get("!left:example.org")!.getMyMembership()).toBe(KnownMembership.Leave);
+            expect(rooms.get("!rejoined:example.org")!.getMyMembership()).toBe(KnownMembership.Join);
+            // Then the check is over.
+            respond();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(joinedRooms).toHaveBeenCalledTimes(2);
+            sync.stop();
         });
     });
 

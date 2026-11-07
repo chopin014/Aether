@@ -1,0 +1,249 @@
+/*
+Copyright 2026 Gabriel
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+// @vitest-environment happy-dom
+
+import "fake-indexeddb/auto";
+
+import { afterEach, describe, expect, it } from "vitest";
+import { EventType, MatrixEvent } from "matrix-js-sdk/src/matrix";
+import { type MSC3575RoomData } from "matrix-js-sdk/src/sliding-sync";
+
+import { SlidingSyncCache } from "./SlidingSyncCache";
+
+const userId = "@alice:example.org";
+const deviceId = "DEVICE";
+const roomId = "!room:example.org";
+
+type TimelineEvent = NonNullable<MSC3575RoomData["timeline"]>[number];
+
+const message = (id: string, ts = 1): TimelineEvent => ({
+    type: EventType.RoomMessage,
+    event_id: id,
+    sender: "@bob:example.org",
+    origin_server_ts: ts,
+    content: { msgtype: "m.text", body: id },
+});
+
+const member = (membership: string): TimelineEvent => ({
+    type: EventType.RoomMember,
+    state_key: userId,
+    event_id: `$member-${membership}`,
+    sender: userId,
+    origin_server_ts: 1,
+    content: { membership },
+});
+
+const roomName = (name: string, id = `$name-${name}`): TimelineEvent => ({
+    type: EventType.RoomName,
+    state_key: "",
+    event_id: id,
+    sender: userId,
+    origin_server_ts: 1,
+    content: { name },
+});
+
+const data = (fields: Partial<MSC3575RoomData>): MSC3575RoomData =>
+    ({ name: "Room", required_state: [], timeline: [], ...fields }) as MSC3575RoomData;
+
+/** Write the first cache, then read it back with a second one, as the next start would. */
+async function reopen(cache: SlidingSyncCache): Promise<SlidingSyncCache> {
+    await cache.flush();
+    await cache.dispose();
+    return new SlidingSyncCache(userId, deviceId);
+}
+
+describe("SlidingSyncCache", () => {
+    afterEach(async () => {
+        await SlidingSyncCache.deleteAll();
+    });
+
+    it("has nothing to show before anything was saved", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        await expect(cache.load()).resolves.toBeNull();
+        expect(cache.restoredRoomIds.size).toBe(0);
+        await cache.dispose();
+    });
+
+    it("saves what the server said about a room and returns it as the SDK restores it", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        cache.observeRoomData(
+            roomId,
+            data({
+                name: "General",
+                initial: true,
+                limited: true,
+                prev_batch: "token",
+                notification_count: 3,
+                bump_stamp: 7,
+                required_state: [member("join") as never, roomName("General") as never],
+                timeline: [message("$a"), message("$b")],
+            }),
+        );
+        // A later incremental update appends, and a renaming state event in the timeline updates the state.
+        cache.observeRoomData(
+            roomId,
+            data({ timeline: [message("$b"), message("$c"), roomName("Lounge", "$rename")] }),
+        );
+
+        const next = await reopen(cache);
+        const snapshot = (await next.load())!;
+        const room = snapshot.rooms[roomId];
+        expect(room.timeline.map((event) => event.event_id)).toEqual(["$a", "$b", "$c", "$rename"]);
+        expect(room.prev_batch).toBe("token");
+        expect(room.limited).toBe(true);
+        expect(room.notification_count).toBe(3);
+        expect(room.bump_stamp).toBe(7);
+        const names = room.required_state.filter((event) => event.type === EventType.RoomName);
+        expect(names.map((event) => event.content.name)).toEqual(["Lounge"]);
+        expect(next.restoredRoomIds).toEqual(new Set([roomId]));
+    });
+
+    it("replaces the kept events with a fresh view, and forgets the token when it no longer points before them", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        cache.observeRoomData(roomId, data({ limited: true, prev_batch: "old", timeline: [message("$a")] }));
+        cache.observeRoomData(roomId, data({ limited: true, prev_batch: "new", timeline: [message("$x")] }));
+        let snapshot = (await (await reopen(cache)).load())!;
+        expect(snapshot.rooms[roomId].timeline.map((event) => event.event_id)).toEqual(["$x"]);
+        expect(snapshot.rooms[roomId].prev_batch).toBe("new");
+
+        const busy = new SlidingSyncCache(userId, deviceId);
+        await busy.load();
+        busy.observeRoomData(roomId, data({ timeline: Array.from({ length: 40 }, (_, i) => message(`$m${i}`)) }));
+        snapshot = (await (await reopen(busy)).load())!;
+        expect(snapshot.rooms[roomId].timeline).toHaveLength(30);
+        expect(snapshot.rooms[roomId].timeline.at(-1)?.event_id).toBe("$m39");
+        expect(snapshot.rooms[roomId].prev_batch).toBeUndefined();
+        expect(snapshot.rooms[roomId].limited).toBe(false);
+    });
+
+    it("keeps no invites, keeps a room once it is joined, and drops rooms the user left", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        cache.observeRoomData(roomId, data({ invite_state: [member("invite") as never] }));
+        cache.observeRoomData("!left:example.org", data({ required_state: [member("join") as never] }));
+        cache.observeRoomData("!left:example.org", data({ timeline: [member("leave")] }));
+        let next = await reopen(cache);
+        await expect(next.load()).resolves.toBeNull();
+
+        next.observeRoomData(roomId, data({ required_state: [member("join") as never], timeline: [message("$a")] }));
+        next = await reopen(next);
+        const snapshot = (await next.load())!;
+        expect(Object.keys(snapshot.rooms)).toEqual([roomId]);
+        await next.dispose();
+    });
+
+    it("keeps account data and only the user's own receipts", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        cache.observeRoomData(roomId, data({ timeline: [message("$a")] }));
+        cache.observeAccountData(
+            new MatrixEvent({ type: EventType.Direct, content: { "@bob:example.org": [roomId] } }),
+        );
+        cache.observeRoomAccountData(
+            roomId,
+            new MatrixEvent({ type: EventType.FullyRead, content: { event_id: "$a" }, room_id: roomId }),
+        );
+        cache.observeReceipt(
+            roomId,
+            new MatrixEvent({
+                type: EventType.Receipt,
+                content: {
+                    $a: {
+                        "m.read": { [userId]: { ts: 5 }, "@bob:example.org": { ts: 6 } },
+                    },
+                },
+            }),
+        );
+        // An older receipt does not replace a newer one.
+        cache.observeReceipt(
+            roomId,
+            new MatrixEvent({ type: EventType.Receipt, content: { $older: { "m.read": { [userId]: { ts: 1 } } } } }),
+        );
+
+        const snapshot = (await (await reopen(cache)).load())!;
+        expect(snapshot.accountData).toEqual([{ type: EventType.Direct, content: { "@bob:example.org": [roomId] } }]);
+        expect(snapshot.roomAccountData?.[roomId]).toEqual([
+            { type: EventType.FullyRead, content: { event_id: "$a" } },
+        ]);
+        expect(snapshot.receipts?.[roomId]).toEqual({
+            type: EventType.Receipt,
+            content: { $a: { "m.read": { [userId]: { ts: 5 } } } },
+        });
+    });
+
+    it("keeps only the latest event of quiet rooms on big accounts", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        for (let i = 0; i < 302; i++) {
+            cache.observeRoomData(
+                `!r${i}:example.org`,
+                data({
+                    bump_stamp: i,
+                    limited: true,
+                    prev_batch: `t${i}`,
+                    timeline: [message(`$${i}a`), message(`$${i}b`)],
+                }),
+            );
+        }
+        const snapshot = (await (await reopen(cache)).load())!;
+        expect(snapshot.rooms["!r301:example.org"].timeline).toHaveLength(2);
+        expect(snapshot.rooms["!r0:example.org"].timeline.map((event) => event.event_id)).toEqual(["$0b"]);
+        expect(snapshot.rooms["!r0:example.org"].prev_batch).toBeUndefined();
+    });
+
+    it("forgets rooms on request, and keeps sessions apart", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        cache.observeRoomData(roomId, data({ timeline: [message("$a")] }));
+        cache.observeRoomData("!other:example.org", data({ timeline: [message("$b")] }));
+        cache.forgetRooms([roomId]);
+        const snapshot = (await (await reopen(cache)).load())!;
+        expect(Object.keys(snapshot.rooms)).toEqual(["!other:example.org"]);
+
+        const otherSession = new SlidingSyncCache(userId, "OTHER");
+        await expect(otherSession.load()).resolves.toBeNull();
+        await otherSession.dispose();
+    });
+
+    it("writes nothing more once its saved data has been deleted, such as at logout", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        await cache.load();
+        cache.observeRoomData(roomId, data({ timeline: [message("$private")] }));
+        await SlidingSyncCache.deleteAll();
+        // Pending writes, later changes and page-hide flushes must not recreate the data.
+        cache.observeRoomData(roomId, data({ timeline: [message("$later")] }));
+        await cache.flush();
+        await new Promise((resolve) => setTimeout(resolve, 1600));
+        const next = new SlidingSyncCache(userId, deviceId);
+        await expect(next.load()).resolves.toBeNull();
+        await next.dispose();
+    });
+
+    it("stops writing when another window deletes the saved data", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        cache.observeRoomData(roomId, data({ timeline: [message("$a")] }));
+        await cache.flush();
+        cache.observeRoomData(roomId, data({ timeline: [message("$b")] }));
+        // Another window deletes the database directly, without this window's cache knowing.
+        await new Promise<void>((resolve, reject) => {
+            const request = indexedDB.deleteDatabase(SlidingSyncCache.databaseName(userId, deviceId));
+            request.onsuccess = (): void => resolve();
+            request.onerror = (): void => reject(request.error);
+        });
+        await cache.flush();
+        const next = new SlidingSyncCache(userId, deviceId);
+        await expect(next.load()).resolves.toBeNull();
+        await next.dispose();
+    });
+
+    it("deletes every session's saved data", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        cache.observeRoomData(roomId, data({ timeline: [message("$a")] }));
+        await cache.dispose();
+        await SlidingSyncCache.deleteAll();
+        const next = new SlidingSyncCache(userId, deviceId);
+        await expect(next.load()).resolves.toBeNull();
+        await next.dispose();
+    });
+});

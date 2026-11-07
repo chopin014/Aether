@@ -8,7 +8,16 @@ Please see LICENSE in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { EventTimeline, EventType, MatrixError, RoomEvent, type MatrixClient } from "matrix-js-sdk/src/matrix";
+import {
+    ClientEvent,
+    EventTimeline,
+    EventTimelineSet,
+    EventType,
+    MatrixError,
+    RoomEvent,
+    SyncState,
+    type MatrixClient,
+} from "matrix-js-sdk/src/matrix";
 import { type QueryDict } from "matrix-js-sdk/src/utils";
 import { logger } from "matrix-js-sdk/src/logger";
 import {
@@ -18,6 +27,7 @@ import {
     type Extension,
     type MSC3575RoomData,
     type MSC3575SlidingSyncResponse,
+    type SlidingSyncSnapshot,
 } from "matrix-js-sdk/src/sliding-sync";
 // These tests cover Aether's patch to the SDK's sliding sync, so they use the real implementation.
 // oxlint-disable-next-line no-restricted-imports
@@ -327,5 +337,166 @@ describe("sliding sync requests", () => {
         sync.stop();
         await new Promise((resolve) => setTimeout(resolve, 50));
         expect(requests).toHaveLength(1);
+    });
+});
+
+describe("sliding sync restoring a saved snapshot", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    function setup(load: () => Promise<SlidingSyncSnapshot | null>, prepare?: (client: MatrixClient) => void) {
+        const client = makeClient();
+        prepare?.(client);
+        vi.spyOn(client, "getPushRules").mockResolvedValue({ global: {} } as never);
+        const responses: ((response: Partial<MSC3575SlidingSyncResponse>) => void)[] = [];
+        vi.spyOn(client.http, "authedRequest").mockImplementation(((
+            _method: unknown,
+            _path: unknown,
+            _qps: unknown,
+            _body: unknown,
+            opts: { abortSignal?: AbortSignal },
+        ) => {
+            const { promise, resolve, reject } = Promise.withResolvers<MSC3575SlidingSyncResponse>();
+            opts.abortSignal?.addEventListener("abort", () => {
+                const error = new Error("aborted");
+                error.name = "AbortError";
+                reject(error);
+            });
+            responses.push((response) => resolve({ pos: "1", lists: {}, rooms: {}, extensions: {}, ...response }));
+            return promise;
+        }) as never);
+        const sync = new SlidingSync("https://example.org", new Map(), {}, client, 20_000);
+        const api = new SlidingSyncSdk(sync, client, { lazyLoadMembers: true, slidingSyncSnapshot: load }, { logger });
+        const states: SyncState[] = [];
+        client.on(ClientEvent.Sync, (state) => states.push(state));
+        void api.sync();
+        const timelineIds = (): string[] =>
+            client
+                .getRoom(roomId)!
+                .getLiveTimeline()
+                .getEvents()
+                .filter((event) => event.getType() === EventType.RoomMessage)
+                .map((event) => event.getId()!);
+        return { client, api, responses, states, timelineIds };
+    }
+
+    const saved = (fields: Partial<MSC3575RoomData> = {}): SlidingSyncSnapshot => ({
+        rooms: {
+            [roomId]: {
+                name: "Saved",
+                required_state: requiredState,
+                timeline: [message("$a", 1), message("$b", 2)],
+                limited: true,
+                prev_batch: "saved",
+                notification_count: 2,
+                ...fields,
+            } as MSC3575RoomData,
+        },
+        accountData: [{ type: EventType.Direct, content: { "@bob:example.org": [roomId] } }],
+        receipts: {
+            [roomId]: { type: EventType.Receipt, content: { $b: { "m.read": { [userId]: { ts: 2 } } } } },
+        },
+    });
+
+    it("shows the saved rooms before the first response, and announces Prepared once", async () => {
+        const { client, api, responses, states, timelineIds } = setup(async () => saved());
+        await vi.waitFor(() => expect(states).toEqual([SyncState.Prepared]));
+        expect(timelineIds()).toEqual(["$a", "$b"]);
+        const room = client.getRoom(roomId)!;
+        expect(room.getLiveTimeline().getPaginationToken(EventTimeline.BACKWARDS)).toBe("saved");
+        expect(room.getUnreadNotificationCount()).toBe(2);
+        expect(room.getEventReadUpTo(userId)).toBe("$b");
+        expect(client.getAccountData(EventType.Direct)?.getContent()).toEqual({ "@bob:example.org": [roomId] });
+
+        await vi.waitFor(() => expect(responses).toHaveLength(1));
+        responses[0]({ rooms: { [roomId]: { name: "Saved", required_state: [], timeline: [message("$c", 3)] } } });
+        await vi.waitFor(() => expect(timelineIds()).toEqual(["$a", "$b", "$c"]));
+        expect(states).toEqual([SyncState.Prepared, SyncState.Syncing]);
+        api.stop();
+    });
+
+    it("adds no saved events to the notifications", async () => {
+        const notifications = new EventTimelineSet(undefined, { timelineSupport: true }, makeClient());
+        const { client, api, responses, states } = setup(
+            async () => saved(),
+            (client) => {
+                client.setNotifTimelineSet(notifications);
+                vi.spyOn(client, "getPushActionsForEvent").mockReturnValue({
+                    notify: true,
+                    tweaks: { highlight: true },
+                } as never);
+            },
+        );
+        await vi.waitFor(() => expect(states).toContain(SyncState.Prepared));
+        await vi.waitFor(() => expect(responses).toHaveLength(1));
+        responses[0]({ rooms: { [roomId]: { name: "Saved", required_state: [], timeline: [message("$c", 3)] } } });
+        await vi.waitFor(() => expect(states).toContain(SyncState.Syncing));
+        expect(
+            notifications
+                .getLiveTimeline()
+                .getEvents()
+                .map((event) => event.getId()),
+        ).toEqual(["$c"]);
+        expect(client.getRoom(roomId)).not.toBeNull();
+        api.stop();
+    });
+
+    it("sends the first request while the snapshot loads, and applies its response on top of the saved rooms", async () => {
+        const loading = Promise.withResolvers<SlidingSyncSnapshot | null>();
+        const { client, api, responses, states, timelineIds } = setup(() => loading.promise);
+        await vi.waitFor(() => expect(responses).toHaveLength(1));
+        responses[0]({
+            rooms: {
+                [roomId]: {
+                    name: "Fresh",
+                    required_state: [],
+                    timeline: [message("$b", 2), message("$c", 3)],
+                    limited: true,
+                    prev_batch: "fresh",
+                },
+            },
+        });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        // Nothing is processed until the saved rooms are in place.
+        expect(client.getRoom(roomId)).toBeNull();
+        loading.resolve(saved());
+        await vi.waitFor(() => expect(timelineIds()).toEqual(["$a", "$b", "$c"]));
+        expect(states.slice(0, 2)).toEqual([SyncState.Prepared, SyncState.Syncing]);
+        api.stop();
+    });
+
+    it("gives a restored timeline without a token the token of a response that reaches its first event", async () => {
+        const { client, api, responses, timelineIds } = setup(async () =>
+            saved({ limited: false, prev_batch: undefined }),
+        );
+        await vi.waitFor(() => expect(client.getRoom(roomId)).not.toBeNull());
+        const timeline = client.getRoom(roomId)!.getLiveTimeline();
+        expect(timeline.getPaginationToken(EventTimeline.BACKWARDS)).toBeNull();
+        await vi.waitFor(() => expect(responses).toHaveLength(1));
+        responses[0]({
+            rooms: {
+                [roomId]: {
+                    name: "Fresh",
+                    initial: true,
+                    limited: true,
+                    prev_batch: "fresh",
+                    required_state: [],
+                    timeline: [message("$a", 1), message("$b", 2), message("$c", 3)],
+                },
+            },
+        });
+        await vi.waitFor(() => expect(timelineIds()).toEqual(["$a", "$b", "$c"]));
+        expect(client.getRoom(roomId)!.getLiveTimeline().getPaginationToken(EventTimeline.BACKWARDS)).toBe("fresh");
+        api.stop();
+    });
+
+    it("starts normally when the snapshot cannot be loaded", async () => {
+        const { api, responses, states } = setup(async () => {
+            throw new Error("storage broken");
+        });
+        await vi.waitFor(() => expect(responses).toHaveLength(1));
+        expect(states).toEqual([]);
+        responses[0]({});
+        await vi.waitFor(() => expect(states).toEqual([SyncState.Prepared, SyncState.Syncing]));
+        api.stop();
     });
 });

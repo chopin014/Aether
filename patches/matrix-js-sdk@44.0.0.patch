@@ -31,7 +31,21 @@ diff --git a/src/matrixrtc/RTCEncryptionManager.ts b/src/matrixrtc/RTCEncryption
 diff --git a/src/client.ts b/src/client.ts
 --- a/src/client.ts
 +++ b/src/client.ts
-@@ -507,6 +507,12 @@
+@@ -201,7 +201,12 @@
+ } from "./@types/auth.ts";
+ import { TypedEventEmitter } from "./models/typed-event-emitter.ts";
+ import { MAIN_ROOM_TIMELINE, ReceiptType } from "./@types/read_receipts.ts";
+-import { type MSC3575SlidingSyncRequest, type MSC3575SlidingSyncResponse, type SlidingSync } from "./sliding-sync.ts";
++import {
++    type MSC3575SlidingSyncRequest,
++    type MSC3575SlidingSyncResponse,
++    type SlidingSync,
++    type SlidingSyncSnapshot,
++} from "./sliding-sync.ts";
+ import { SlidingSyncSdk } from "./sliding-sync-sdk.ts";
+ import {
+     determineFeatureSupport,
+@@ -507,6 +512,12 @@
       */
      initialSyncLimit?: number;
  
@@ -44,6 +58,20 @@ diff --git a/src/client.ts b/src/client.ts
      /**
       * True to put `archived=true</code> on the <code>/initialSync` request. Default: false.
       */
+@@ -567,6 +578,13 @@
+      */
+     slidingSync?: SlidingSync;
+ 
++    /**
++     * Loads room and account data saved from an earlier sliding sync session. When it returns a snapshot, the
++     * client shows it and reports {@link SyncState.Prepared} before the first sliding sync response arrives.
++     * @experimental
++     */
++    slidingSyncSnapshot?: () => Promise<SlidingSyncSnapshot | null>;
++
+     /**
+      * Include user profiles in sync responses.
+      * Will only work if the server supports MSC4429.
 diff --git a/src/models/room.ts b/src/models/room.ts
 --- a/src/models/room.ts
 +++ b/src/models/room.ts
@@ -183,23 +211,111 @@ diff --git a/src/sync.ts b/src/sync.ts
 diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 --- a/src/sliding-sync-sdk.ts
 +++ b/src/sliding-sync-sdk.ts
-@@ -428,6 +428,7 @@
+@@ -49,6 +49,7 @@
+     type MSC3575SlidingSyncResponse,
+     type SlidingSync,
+     SlidingSyncEvent,
++    type SlidingSyncSnapshot,
+     SlidingSyncState,
+ } from "./sliding-sync.ts";
+ import { EventType } from "./@types/event.ts";
+@@ -254,28 +255,46 @@
+     }
+ 
+     private processGlobalAccountData(globalAccountData: IMinimalEvent[]): void {
+-        const events = mapEvents(this.client, undefined, globalAccountData);
+-        const prevEventsMap = events.reduce<Record<string, MatrixEvent | undefined>>((m, c) => {
+-            m[c.getType()] = this.client.store.getAccountData(c.getType());
+-            return m;
+-        }, {});
+-        this.client.store.storeAccountDataEvents(events);
+-        events.forEach((accountDataEvent) => {
+-            // Honour push rules that come down the sync stream but also
+-            // honour push rules that were previously cached. Base rules
+-            // will be updated when we receive push rules via getPushRules
+-            // (see sync) before syncing over the network.
+-            if (accountDataEvent.getType() === EventType.PushRules) {
+-                const rules = accountDataEvent.getContent<IPushRules>();
+-                this.client.setPushRules(rules);
+-            }
+-            const prevEvent = prevEventsMap[accountDataEvent.getType()];
+-            this.client.emit(ClientEvent.AccountData, accountDataEvent, prevEvent);
+-            return accountDataEvent;
+-        });
++        applyGlobalAccountData(this.client, globalAccountData);
+     }
+ }
+ 
++/** Store global account data events and announce them, as sync does. */
++function applyGlobalAccountData(client: MatrixClient, globalAccountData: IMinimalEvent[]): void {
++    const events = mapEvents(client, undefined, globalAccountData);
++    const prevEventsMap = events.reduce<Record<string, MatrixEvent | undefined>>((m, c) => {
++        m[c.getType()] = client.store.getAccountData(c.getType());
++        return m;
++    }, {});
++    client.store.storeAccountDataEvents(events);
++    events.forEach((accountDataEvent) => {
++        // Honour push rules that come down the sync stream but also
++        // honour push rules that were previously cached. Base rules
++        // will be updated when we receive push rules via getPushRules
++        // (see sync) before syncing over the network.
++        if (accountDataEvent.getType() === EventType.PushRules) {
++            const rules = accountDataEvent.getContent<IPushRules>();
++            client.setPushRules(rules);
++        }
++        const prevEvent = prevEventsMap[accountDataEvent.getType()];
++        client.emit(ClientEvent.AccountData, accountDataEvent, prevEvent);
++        return accountDataEvent;
++    });
++}
++
++/** Let other work run, without the delay nested timers impose. */
++function yieldToEventLoop(): Promise<void> {
++    return new Promise<void>((resolve) => {
++        const { port1, port2 } = new MessageChannel();
++        port1.onmessage = (): void => {
++            port1.close();
++            port2.close();
++            resolve();
++        };
++        port2.postMessage(null);
++    });
++}
++
+ type ExtensionTypingRequest = {
+     enabled: boolean;
+ };
+@@ -428,6 +447,11 @@
      private syncStateData?: ISyncStateData;
      private lastPos: string | null = null;
      private failCount = 0;
 +    private stopped = false;
++    // Set while a saved snapshot is applied, so its events raise no notifications.
++    private restoring = false;
++    // Set once a saved snapshot has been announced as Prepared, so the first response does not announce it again.
++    private preparedFromSnapshot = false;
      private notifEvents: MatrixEvent[] = []; // accumulator of sync events in the current sync response
  
      public constructor(
-@@ -669,6 +670,7 @@
+@@ -490,7 +514,7 @@
+                     break;
+                 }
+                 // Element won't stop showing the initial loading spinner unless we fire SyncState.Prepared
+-                if (!this.lastPos) {
++                if (!this.lastPos && !this.preparedFromSnapshot) {
+                     this.updateSyncState(SyncState.Prepared, {
+                         oldSyncToken: undefined,
+                         nextSyncToken: resp.pos,
+@@ -669,6 +693,8 @@
          // necessarily set `initial` in the latter case, so without checking `expanded_timeline` the older events would
          // be appended after the newer ones we already have.
          const expandedTimeline = roomData.expanded_timeline || roomData.unstable_expanded_timeline;
 +        const liveEventCountBefore = room.getLiveTimeline().getEvents().length;
++        const liveFrontEventId = room.getLiveTimeline().getEvents()[0]?.getId();
          if (roomData.limited || roomData.initial || expandedTimeline) {
              // we should not know about any of these timeline entries if this is a genuinely new room.
              // If we do, then we've effectively done scrollback.
-@@ -703,10 +705,19 @@
+@@ -703,10 +729,19 @@
                      newEvents.unshift(recvEvent);
                  }
              }
@@ -223,29 +339,90 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              }
          }
  
-@@ -750,9 +761,11 @@
+@@ -750,9 +785,15 @@
              return;
          }
  
 -        if (roomData.limited) {
-+        if (roomData.limited && liveEventCountBefore === 0) {
++        const coversLiveFront =
++            liveFrontEventId !== undefined && (roomData.timeline ?? []).some((event) => event.event_id === liveFrontEventId);
++        if (roomData.limited && (liveEventCountBefore === 0 || coversLiveFront)) {
              // set the back-pagination token. Do this *before* adding any
              // events so that clients can start back-paginating.
-+            // A timeline that already had events keeps its own token: either it continues it, or it was reset above
-+            // with this token.
++            // The token belongs to the start of this response's timeline. It is right for the live timeline when that
++            // was empty, or when this response reaches back to the live timeline's first event (such as one restored
++            // from a saved snapshot without a token). Otherwise the live timeline keeps its own token: it either
++            // continues it, or it was reset above with this token.
              room.getLiveTimeline().setPaginationToken(roomData.prev_batch ?? null, EventTimeline.BACKWARDS);
          }
  
-@@ -991,12 +1004,23 @@
+@@ -991,12 +1032,80 @@
      public async sync(): Promise<void> {
          this.syncOpts.logger.debug("Sliding sync init loop");
  
 -        //   1) We need to get push rules so we can check if events should bing as we get
 -        //      them from /sync.
 -        while (!this.client.isGuest()) {
-+        // Fetch the first response alongside push rules, but keep notification and crypto
-+        // processing behind the rule gate.
-+        await this.slidingSync.start(this.preparePushRules());
++        // Show what the last session saved while the first request is under way. The response is processed once
++        // the saved rooms are in place and push rules have loaded, so notification and crypto processing stay behind
++        // the rule gate and new data always lands on top of the saved data.
++        const restored = this.restoreSnapshot();
++        await this.slidingSync.start(Promise.all([this.preparePushRules(), restored]).then(() => undefined));
++    }
++
++    /**
++     * Apply the room and account data an earlier session saved, then announce {@link SyncState.Prepared} so the
++     * client can be used while the new session starts. Rooms are applied most recently active first, yielding
++     * between groups so the page stays responsive. A snapshot that fails to load is skipped.
++     */
++    private async restoreSnapshot(): Promise<void> {
++        const load = this.opts.slidingSyncSnapshot;
++        if (!load) return;
++        let snapshot: SlidingSyncSnapshot | null;
++        try {
++            snapshot = await load();
++        } catch (error) {
++            this.syncOpts.logger.warn("Sliding sync: could not load the saved snapshot", error);
++            return;
++        }
++        if (!snapshot || this.stopped) return;
++        const rooms = Object.entries(snapshot.rooms).sort(
++            ([, a], [, b]) => (b.bump_stamp ?? 0) - (a.bump_stamp ?? 0),
++        );
++        this.restoring = true;
++        try {
++            if (snapshot.accountData?.length) applyGlobalAccountData(this.client, snapshot.accountData);
++            for (let i = 0; i < rooms.length; i++) {
++                if (i > 0 && i % 8 === 0) {
++                    await yieldToEventLoop();
++                    if (this.stopped) return;
++                }
++                const [roomId, data] = rooms[i];
++                await this.onRoomData(roomId, { ...data, initial: true });
++            }
++            for (const [roomId, events] of Object.entries(snapshot.roomAccountData ?? {})) {
++                const room = this.client.getRoom(roomId);
++                if (!room) continue;
++                room.addAccountData(mapEvents(this.client, roomId, events));
++            }
++            for (const [roomId, receipt] of Object.entries(snapshot.receipts ?? {})) {
++                if (this.client.getRoom(roomId)) processEphemeralEvents(this.client, roomId, [receipt]);
++            }
++        } catch (error) {
++            this.syncOpts.logger.warn("Sliding sync: could not apply the saved snapshot", error);
++        } finally {
++            this.restoring = false;
++            this.notifEvents = [];
++        }
++        if (this.stopped) return;
++        this.syncOpts.logger.info(`Sliding sync: showing ${rooms.length} saved rooms while the session starts`);
++        this.preparedFromSnapshot = true;
++        this.updateSyncState(SyncState.Prepared, {
++            oldSyncToken: undefined,
++            nextSyncToken: undefined,
++            catchingUp: true,
++            fromCache: true,
++        });
 +    }
 +
 +    private async preparePushRules(): Promise<void> {
@@ -264,7 +441,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                  this.syncOpts.logger.debug("Got push rules");
                  this.client.pushRules = result;
                  break;
-@@ -1007,9 +1031,6 @@
+@@ -1007,9 +1116,6 @@
                  }
              }
          }
@@ -274,7 +451,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      /**
-@@ -1017,6 +1038,7 @@
+@@ -1017,6 +1123,7 @@
       */
      public stop(): void {
          this.syncOpts.logger.debug("SyncApi.stop");
@@ -282,11 +459,26 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          this.slidingSync.stop();
      }
  
+@@ -1041,8 +1148,8 @@
+      * is earlier in time. Higher index is later.
+      */
+     private addNotifications(timelineEventList: MatrixEvent[]): void {
+-        // gather our notifications into this.notifEvents
+-        if (!this.client.getNotifTimelineSet()) {
++        // gather our notifications into this.notifEvents. Saved events were notified about when they arrived.
++        if (!this.client.getNotifTimelineSet() || this.restoring) {
+             return;
+         }
+         for (const timelineEvent of timelineEventList) {
 diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 --- a/src/sliding-sync.ts
 +++ b/src/sliding-sync.ts
-@@ -19,7 +19,7 @@
- import { type IRoomEvent, type IStateEvent } from "./sync-accumulator.ts";
+@@ -16,10 +16,10 @@
+ 
+ import { logger } from "./logger.ts";
+ import { type MatrixClient } from "./client.ts";
+-import { type IRoomEvent, type IStateEvent } from "./sync-accumulator.ts";
++import { type IMinimalEvent, type IRoomEvent, type IStateEvent } from "./sync-accumulator.ts";
  import { TypedEventEmitter } from "./models/typed-event-emitter.ts";
  import { sleep } from "./utils.ts";
 -import { type HTTPError } from "./http-api/index.ts";
@@ -294,7 +486,29 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
  
  // /sync requests allow you to set a timeout= but the request may continue
  // beyond that and wedge forever, so we need to track how long we are willing
-@@ -317,8 +317,12 @@
+@@ -55,6 +55,21 @@
+     not_tags?: string[];
+ }
+ 
++/**
++ * Room and account data saved from an earlier sliding sync session. Shown, and announced as
++ * {@link SyncState.Prepared}, before the first response of the new session arrives.
++ */
++export interface SlidingSyncSnapshot {
++    /** Each room's data as the server last described it, with `initial` implied. */
++    rooms: Record<string, MSC3575RoomData>;
++    /** Global account data events. */
++    accountData?: IMinimalEvent[];
++    /** Each room's account data events. */
++    roomAccountData?: Record<string, IMinimalEvent[]>;
++    /** Each room's `m.receipt` event, holding at least the user's own receipts. */
++    receipts?: Record<string, IMinimalEvent>;
++}
++
+ /**
+  * Represents a list subscription.
+  */
+@@ -317,8 +332,12 @@
      private lists: Map<string, SlidingList>;
      private listModifiedCount = 0;
      private terminated = false;
@@ -307,7 +521,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      // map of extension name to req/resp handler
      private extensions: Record<string, Extension<any, any>> = {};
  
-@@ -465,6 +469,16 @@
+@@ -465,6 +484,16 @@
          return new Set(Array.from(this.desiredRoomSubscriptions));
      }
  
@@ -324,7 +538,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      /**
       * Modify the room subscriptions for the sync API. Calling this function will interrupt the
       * /sync request to resend new subscriptions. If the /sync stream has not started, this will
-@@ -569,6 +583,7 @@
+@@ -569,6 +598,7 @@
       */
      public resend(): void {
          this.needsResend = true;
@@ -332,7 +546,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
          this.abortController?.abort();
          this.abortController = new AbortController();
      }
-@@ -578,12 +593,21 @@
+@@ -578,12 +608,21 @@
       */
      public stop(): void {
          this.terminated = true;
@@ -354,7 +568,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      /**
       * Re-setup this connection e.g in the event of an expired session.
       */
-@@ -600,15 +624,41 @@
+@@ -600,15 +639,41 @@
  
      /**
       * Start syncing with the server. Blocks until stopped.
@@ -398,7 +612,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  const reqLists: Record<string, MSC3575List> = {};
                  this.lists.forEach((l: SlidingList, key: string) => {
                      reqLists[key] = l.getList(true);
-@@ -616,9 +666,9 @@
+@@ -616,9 +681,9 @@
                  const reqBody: MSC3575SlidingSyncRequest = {
                      lists: reqLists,
                      pos: currentPos,
@@ -411,7 +625,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  };
                  // check if we are (un)subscribing to a room and modify request this one time for it
                  const newSubscriptions = difference(this.desiredRoomSubscriptions, this.confirmedRoomSubscriptions);
-@@ -637,8 +687,15 @@
+@@ -637,8 +702,15 @@
                          reqBody.room_subscriptions[roomId] = sub;
                      }
                  }
@@ -427,7 +641,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  currentPos = resp.pos;
                  // update what we think we're subscribed to.
                  for (const roomId of newSubscriptions) {
-@@ -664,25 +721,43 @@
+@@ -664,25 +736,43 @@
                  });
                  this.invokeLifecycleListeners(SlidingSyncState.RequestFinished, resp);
              } catch (err) {

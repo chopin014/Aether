@@ -23,6 +23,7 @@ import { logger } from "matrix-js-sdk/src/logger";
 
 import { MatrixClientPeg, type MatrixClientPegAssignOpts } from "./MatrixClientPeg";
 import EventIndexPeg from "./indexing/EventIndexPeg";
+import { SlidingSyncCache } from "./sliding-sync/SlidingSyncCache";
 import { createMatrixClient, createClientWithCreds, type IMatrixClientCreds } from "./utils/createMatrixClient";
 import UserActivity from "./UserActivity";
 import Presence from "./Presence";
@@ -1292,6 +1293,11 @@ export async function clearStorage(opts?: { deleteEverything?: boolean }): Promi
 
     await EventIndexPeg.deleteEventIndex();
     await cli.clearStores();
+    try {
+        await SlidingSyncCache.deleteAll();
+    } catch (e) {
+        logger.error("Could not delete saved sliding sync data", e);
+    }
 }
 
 /**
