@@ -1097,7 +1097,8 @@ describe("SlidingSyncManager", () => {
                         event_id: `$child${space.roomId}${childId}${JSON.stringify(content)}`,
                         room_id: space.roomId,
                         sender: client.getUserId()!,
-                        content,
+                        // Each event has its own content: redacting one empties its content in place.
+                        content: structuredClone(content),
                     }),
             );
             space.currentState.setStateEvents(events);
@@ -1390,6 +1391,38 @@ describe("SlidingSyncManager", () => {
             await applied();
             expect(internals.sortedChildren.get("!server")?.sorted).not.toBe(sorted);
             expect(sync.getRoomSubscriptions()).toContain("!c");
+        });
+
+        it("drops a channel whose child event is redacted, and forgets the order of Spaces left behind", async () => {
+            const space = knownRoom("!server", "space");
+            addChildren(space, ["!a", "!b"]);
+            manager.setActiveSpace("!server");
+            await tick();
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!a", "!b"]));
+            // Redacting a child event changes the same object, so it is not a new event.
+            const child = space.currentState.getStateEvents(EventType.SpaceChild, "!b")!;
+            child.makeRedacted(
+                new MatrixEvent({
+                    type: EventType.RoomRedaction,
+                    event_id: "$redaction",
+                    room_id: "!server",
+                    sender: client.getUserId()!,
+                    redacts: child.getId(),
+                    content: {},
+                }),
+                space,
+            );
+            space.currentState.setStateEvents([child]);
+            client.emit(RoomStateEvent.Events, child, space.currentState, null);
+            await applied();
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!a"]));
+
+            const internals = manager as unknown as { sortedChildren: Map<string, unknown> };
+            const other = knownRoom("!other", "space");
+            addChildren(other, ["!c"]);
+            manager.setActiveSpace("!other");
+            await tick();
+            expect([...internals.sortedChildren.keys()]).toEqual(["!other"]);
         });
 
         it("subscribes an unseen replacement of an upgraded subspace, and keeps the old one's channels", async () => {

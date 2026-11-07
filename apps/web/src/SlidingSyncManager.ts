@@ -795,6 +795,8 @@ export class SlidingSyncManager {
 
     private readonly onSpaceState = (event: MatrixEvent): void => {
         const type = event.getType();
+        // A child event can change without being replaced, such as when it is redacted, so the order is dropped.
+        if (type === EventType.SpaceChild) this.sortedChildren.delete(event.getRoomId()!);
         if (type === EventType.SpaceChild || type === EventType.RoomCreate || type === EventType.RoomTombstone) {
             this.markSpaceTreeChanged(event.getRoomId());
         }
@@ -898,6 +900,10 @@ export class SlidingSyncManager {
             }
         }
         this.spaceTree = tree;
+        // Only the Spaces in the tree keep their order, so visiting many Spaces does not grow it.
+        for (const spaceId of this.sortedChildren.keys()) {
+            if (!walked.has(spaceId)) this.sortedChildren.delete(spaceId);
+        }
         if (channels.size === this.spaceChannels.size && [...channels].every((id) => this.spaceChannels.has(id))) {
             return;
         }
