@@ -29,6 +29,8 @@ export type RoomListSection = {
     id: string;
     /** Array of room IDs that belong to this section */
     roomIds: string[];
+    /** Whether the person may reorder this section's rooms by dropping one beside another, as in a server category */
+    canReorder?: boolean;
 };
 
 /**
@@ -111,8 +113,13 @@ export interface RoomListViewActions {
     changeRoomSection: (roomId: string, tag: string) => void;
     /** Called to change the order of sections */
     changeSectionOrder: (sourceTag: string, targetTag: string) => void;
-    /** Called when a section drag starts — collapses all sections */
-    onSectionOrRoomDragStart: () => void;
+    /** Called to move a room before or after another room, into that room's section. */
+    moveRoomBeside?: (roomId: string, targetRoomId: string, side: "before" | "after") => void;
+    /**
+     * Called when a drag starts. Dragging a section collapses every section; so does dragging a room, except where
+     * rooms can be dropped beside each other, which needs them in view.
+     */
+    onSectionOrRoomDragStart: (isSectionDrag?: boolean) => void;
     /** Called when a section drag ends (drop or cancel) — restores expansion states */
     onSectionOrRoomDragEnd: () => void;
     /** Hide or show the muted channels of the server whose channels are listed. */

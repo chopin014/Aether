@@ -6,10 +6,11 @@ Please see LICENSE in the repository root for full details.
 */
 
 import React, { type JSX, type ReactNode } from "react";
-import { Menu, MenuItem, Separator, SubMenu, ToggleMenuItem } from "@vector-im/compound-web";
+import { Menu, MenuItem, RadioMenuItem, Separator, SubMenu, ToggleMenuItem } from "@vector-im/compound-web";
 import {
     CheckIcon,
     EditIcon,
+    FolderIcon,
     ExportArchiveIcon,
     ExtensionsIcon,
     FavouriteIcon,
@@ -78,6 +79,11 @@ export interface ChannelMenuViewSnapshot {
      * instead, and leaving one channel stays in the channel's settings.
      */
     canLeave: boolean;
+    /**
+     * The server categories the channel can move to, for the people who may edit the server's layout. The entry with
+     * a null id is the top of the list, outside any category.
+     */
+    categories?: { id: string | null; name: string; isCurrent: boolean }[];
 }
 
 /** What choosing an entry in the channel menu does. */
@@ -100,6 +106,8 @@ export interface ChannelMenuViewActions {
     onOpenSecuritySettings: () => void;
     /** Create another text channel in the same Space. */
     onCreateChannel: () => void;
+    /** Move the channel into a server category, or to the top of the list for null, for everyone in the server. */
+    onMoveToCategory?: (categoryId: string | null) => void;
     /** Leave the channel, after the usual confirmation. */
     onLeave: () => void;
     /** Confirm deletion of the channel for everyone. */
@@ -276,7 +284,7 @@ export function ChannelMenuContent({ vm, showInfo = false }: ChannelMenuContentP
                     </SubMenu>
                 </>
             )}
-            {(s.canEditChannel || s.canCreateChannel) && <Separator />}
+            {(s.canEditChannel || s.canCreateChannel || !!s.categories) && <Separator />}
             {s.canEditChannel && (
                 <MenuItem
                     Icon={EditIcon}
@@ -294,6 +302,29 @@ export function ChannelMenuContent({ vm, showInfo = false }: ChannelMenuContentP
                     onClick={stop}
                     hideChevron
                 />
+            )}
+            {s.categories && vm.onMoveToCategory && (
+                <SubMenu
+                    trigger={
+                        <MenuItem
+                            Icon={FolderIcon}
+                            label={_t("desktop|channel_menu|move_to_category")}
+                            onSelect={null}
+                        />
+                    }
+                >
+                    {/* The menu sits inside the channel's row, which a click inside it must not open. */}
+                    <div role="none" onClick={stop}>
+                        {s.categories.map((category) => (
+                            <RadioMenuItem
+                                key={category.id ?? ""}
+                                label={category.id === null ? _t("desktop|channel_menu|no_category") : category.name}
+                                checked={category.isCurrent}
+                                onSelect={() => vm.onMoveToCategory?.(category.id)}
+                            />
+                        ))}
+                    </div>
+                </SubMenu>
             )}
             <Separator />
             {s.hasMessages && (

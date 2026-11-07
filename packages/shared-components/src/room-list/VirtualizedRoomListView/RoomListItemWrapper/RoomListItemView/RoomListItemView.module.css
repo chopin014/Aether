@@ -207,6 +207,26 @@
     opacity: 0.6;
 }
 
+/* Where a dragged channel will land: a line along the top or bottom edge of the channel it is over. */
+.dropBefore .container::after,
+.dropAfter .container::after {
+    content: "";
+    position: absolute;
+    inset-inline: var(--mx-desktop-room-margin, var(--cpd-space-3x));
+    height: 2px;
+    border-radius: 1px;
+    background-color: var(--cpd-color-border-accent-primary);
+    pointer-events: none;
+}
+
+.dropBefore .container::after {
+    top: 0;
+}
+
+.dropAfter .container::after {
+    bottom: 0;
+}
+
 .content {
     flex: 1;
     min-width: 0;

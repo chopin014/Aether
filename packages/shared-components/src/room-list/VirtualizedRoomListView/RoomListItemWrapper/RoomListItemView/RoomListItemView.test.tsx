@@ -257,6 +257,11 @@ describe("<RoomListItemView />", () => {
         expect(container.querySelector('[aria-label="Invite people to boas-vindas"]')).not.toBeNull();
     });
 
+    it.each(["before", "after"] as const)("shows where a dragged channel would land: %s", (side) => {
+        render(<DesktopSelectedChannel dropIndicator={side} />);
+        expect(screen.getByRole("option").className).toMatch(side === "before" ? /dropBefore/ : /dropAfter/);
+    });
+
     it("marks an occupied voice channel with a custom icon through its symbol", () => {
         render(
             <DesktopVoiceChannelOccupied

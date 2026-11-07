@@ -8,7 +8,7 @@ Please see LICENSE in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EventType, MatrixEvent, Room, type MatrixClient } from "matrix-js-sdk/src/matrix";
+import { EventType, KnownMembership, MatrixEvent, Room, type MatrixClient } from "matrix-js-sdk/src/matrix";
 import { BaseViewModel, RoomNotifState, type RoomListItemViewSnapshot } from "@element-hq/web-shared-components";
 import { stubClient, TestSDKContext } from "test-utils";
 import { logger } from "matrix-js-sdk/src/logger";
@@ -26,6 +26,9 @@ import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDial
 import { DeleteChannelDialog } from "../../components/views/dialogs/DeleteChannelDialog";
 import { MemberListStore } from "../../stores/MemberListStore";
 import SettingsStore from "../../settings/SettingsStore";
+import * as layoutActions from "../../stores/space-layout/spaceLayoutActions";
+import * as SpaceLayout from "../../stores/space-layout/SpaceLayout";
+import { SpaceLayoutStore, SpaceLayoutStoreEvent } from "../../stores/space-layout/SpaceLayoutStore";
 
 vi.mock("../../Modal");
 
@@ -449,6 +452,54 @@ describe("ChannelMenuViewModel", () => {
             const setCard = vi.spyOn(RightPanelStore.instance, "setCard").mockImplementation(() => {});
             create().onExtensions();
             expect(setCard).toHaveBeenCalledWith({ phase: RightPanelPhases.Extensions });
+        });
+    });
+
+    describe("server categories", () => {
+        beforeEach(() => {
+            spaceStore.activeSpaceRoom = space;
+            vi.spyOn(space, "getMyMembership").mockReturnValue(KnownMembership.Join);
+            Object.assign(space, { client });
+        });
+
+        it("offers the server's categories to the people who may change its layout", () => {
+            vi.spyOn(space.currentState, "maySendStateEvent").mockReturnValue(true);
+            const vm = create();
+            expect(vm.getSnapshot().categories).toEqual([
+                { id: null, name: "", isCurrent: false },
+                { id: "builtin.text", name: "Text Channels", isCurrent: true },
+                { id: "builtin.voice", name: "Voice Channels", isCurrent: false },
+            ]);
+        });
+
+        it("offers no categories to everyone else", () => {
+            vi.spyOn(space.currentState, "maySendStateEvent").mockReturnValue(false);
+            expect(create().getSnapshot().categories).toBeUndefined();
+        });
+
+        it("leaves the channel where it is when its own category is chosen", () => {
+            vi.spyOn(space.currentState, "maySendStateEvent").mockReturnValue(true);
+            const move = vi.spyOn(layoutActions, "moveChannel").mockResolvedValue();
+            create().onMoveToCategory("builtin.text");
+            expect(move).not.toHaveBeenCalled();
+        });
+
+        it("refreshes its categories only for its own server's layout", () => {
+            vi.spyOn(space.currentState, "maySendStateEvent").mockReturnValue(true);
+            const vm = create();
+            const project = vi.spyOn(SpaceLayout, "projectLayout");
+            SpaceLayoutStore.instance.emit(SpaceLayoutStoreEvent.Changed, "!elsewhere:example.org");
+            expect(project).not.toHaveBeenCalled();
+            SpaceLayoutStore.instance.emit(SpaceLayoutStoreEvent.Changed, space.roomId);
+            expect(project).toHaveBeenCalled();
+            vm.dispose();
+        });
+
+        it("moves the channel for everyone in the server", () => {
+            vi.spyOn(space.currentState, "maySendStateEvent").mockReturnValue(true);
+            const move = vi.spyOn(layoutActions, "moveChannel").mockResolvedValue();
+            create().onMoveToCategory(null);
+            expect(move).toHaveBeenCalledWith(space, ROOM_ID, null);
         });
     });
 });
