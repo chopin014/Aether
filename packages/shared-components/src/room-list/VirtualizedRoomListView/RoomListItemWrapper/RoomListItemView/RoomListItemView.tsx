@@ -100,6 +100,10 @@ export interface RoomListItemViewSnapshot {
     channelKind?: "text" | "voice";
     /** The real Matrix thread currently open beneath this channel. */
     activeThread?: { id: string; title: string };
+    /** Whether the desktop channel is private: people join it by invitation rather than through its server. */
+    isPrivateChannel?: boolean;
+    /** How many times the person was mentioned in a desktop channel since they last read it. */
+    mentionCount?: number;
     /** A desktop channel's custom icon, taken from its room avatar, replacing the channel symbol. */
     channelIconUrl?: string;
     /** Whether the user may rename the channel and change its icon. */
@@ -347,6 +351,8 @@ export const RoomListItemView = memo(function RoomListItemView({
                 align="stretch"
                 type="button"
                 aria-label={a11yLabel}
+                // Said after the name, so the room keeps the same name whether or not it is private.
+                aria-description={item.isPrivateChannel ? _t("desktop|channel_row|private") : undefined}
                 onClick={vm.onOpenRoom}
                 onPointerEnter={vm.onIntentToOpen}
                 onFocus={onItemFocus}

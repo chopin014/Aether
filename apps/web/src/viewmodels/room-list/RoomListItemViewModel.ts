@@ -19,7 +19,9 @@ import {
     ClientEvent,
     MatrixEventEvent,
     EventType,
+    JoinRule,
     KnownMembership,
+    NotificationCountType,
     RoomEvent,
     RoomStateEvent,
 } from "matrix-js-sdk/src/matrix";
@@ -37,7 +39,7 @@ import SettingsStore from "../../settings/SettingsStore";
 import { NotificationLevel } from "../../stores/notifications/NotificationLevel";
 import { hasAccessToNotificationMenu, hasAccessToOptionsMenu } from "./utils";
 import { EchoChamber } from "../../stores/local-echo/EchoChamber";
-import { RoomNotifState as ElementRoomNotifState } from "../../RoomNotifs";
+import { getUnreadNotificationCount, RoomNotifState as ElementRoomNotifState } from "../../RoomNotifs";
 import { shouldShowComponent } from "../../customisations/helpers/UIComponents";
 import { UIComponent } from "../../settings/UIFeature";
 import { CallStore, CallStoreEvent } from "../../stores/CallStore";
@@ -170,6 +172,8 @@ export class RoomListItemViewModel
 
         // Subscribe to room-specific events
         this.disposables.trackListener(props.room, RoomEvent.Name, this.onRoomChanged);
+        // A channel's badge counts mentions, which can change while its overall notification state does not.
+        this.disposables.trackListener(props.room, RoomEvent.UnreadNotifications, this.onUnreadNotifications);
         this.disposables.trackListener(props.room, RoomEvent.Tags, this.onRoomChanged);
         this.disposables.trackListener(props.room, RoomStateEvent.Members, this.onParticipantProfileChanged);
         this.disposables.trackListener(props.room, RoomStateEvent.Events, this.onRoomStateEvent);
@@ -396,14 +400,22 @@ export class RoomListItemViewModel
         this.updateItem();
     };
 
-    /** A desktop channel shows the room avatar as its icon, and its edit entry follows power level changes. */
+    private readonly onUnreadNotifications = (): void => {
+        if (this.snapshot.current.channelKind) this.updateItem();
+    };
+
+    /**
+     * A desktop channel shows the room avatar as its icon, its edit entry follows power level changes, and its lock
+     * follows its join rule.
+     */
     private readonly onRoomStateEvent = (...args: unknown[]): void => {
         if (!this.snapshot.current.channelKind) return;
         // trackListener types its listeners loosely; RoomStateEvent.Events passes the event first.
         const [event] = args as [MatrixEvent];
         const type = event.getType();
-        if (type === EventType.RoomAvatar || type === EventType.RoomPowerLevels) this.updateItem();
-        else if (type === VOICE_STATE_EVENT_TYPE) this.onVoiceActivityChanged();
+        if (type === EventType.RoomAvatar || type === EventType.RoomPowerLevels || type === EventType.RoomJoinRules) {
+            this.updateItem();
+        } else if (type === VOICE_STATE_EVENT_TYPE) this.onVoiceActivityChanged();
     };
 
     private channelMenu?: ChannelMenuViewModel;
@@ -603,6 +615,14 @@ export class RoomListItemViewModel
             : undefined;
         const canEditChannel =
             !!channelKind && room.currentState.maySendStateEvent(EventType.RoomName, client.getSafeUserId());
+        // A server's channels are open to its members; one that takes an invitation or a request to join is private.
+        const isPrivateChannel =
+            !!channelKind && [JoinRule.Invite, JoinRule.Knock, JoinRule.Private].includes(room.getJoinRule());
+        // A channel's badge counts mentions only, not every message that notifies, as in Discord.
+        const mentionCount =
+            channelKind && notifState.isMention
+                ? Math.max(1, getUnreadNotificationCount(room, NotificationCountType.Highlight, true))
+                : undefined;
 
         return {
             id: room.roomId,
@@ -630,6 +650,8 @@ export class RoomListItemViewModel
             channelKind,
             channelIconUrl,
             canEditChannel,
+            isPrivateChannel,
+            mentionCount,
             callParticipants,
             callStartedAt: callParticipants?.length
                 ? getCallSessionStart(room, client.matrixRTC.getRoomSession(room).memberships)
