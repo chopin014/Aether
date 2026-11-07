@@ -246,6 +246,45 @@ describe("<TimelineView />", () => {
         );
     });
 
+    it.each(["end", "center", "start"] as const)(
+        "places a %s anchor before the first paint, at the heights its rows measure",
+        (align) => {
+            const index = align === "end" ? 49 : 35;
+            const { vm, actions } = makeFakeVm({
+                items: eventItems(50),
+                pendingAnchor: { targetKey: `evt-${index}`, align },
+                atLiveEnd: align === "end",
+            });
+            // Where the target sits when the timeline is revealed, inside the commit and so before any paint.
+            let offset: number | undefined;
+            actions.onAnchorReached.mockImplementation(() => {
+                const edge = (box: DOMRect): number =>
+                    align === "start" ? box.top : align === "center" ? (box.top + box.bottom) / 2 : box.bottom;
+                const viewport = screen.getByTestId("timeline-scroller").getBoundingClientRect();
+                offset = edge(screen.getByTestId(`row-evt-${index}`).getBoundingClientRect()) - edge(viewport);
+            });
+            render(
+                <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                    <TimelineView
+                        vm={vm}
+                        renderItem={(item) => (
+                            // Heights differ from the estimate, so placing the anchor needs the measured ones.
+                            <div
+                                data-testid={`row-${item.key}`}
+                                style={{ height: ROW_HEIGHT + (Number(item.key.slice("evt-".length)) % 5) * 7 }}
+                            >
+                                {item.key}
+                            </div>
+                        )}
+                    />
+                </div>,
+            );
+            expect(screen.getByTestId("timeline-scroller")).toHaveStyle({ visibility: "visible" });
+            expect(actions.onAnchorReached).toHaveBeenCalledExactlyOnceWith(`evt-${index}`);
+            expect(Math.abs(offset!)).toBeLessThan(1);
+        },
+    );
+
     it("stays hidden behind the cover then reveals after the anchor settles, when it cannot be placed at once", async () => {
         // Without ResizeObserver rows are measured as they mount, so placement settles over frames.
         vi.stubGlobal("ResizeObserver", undefined);

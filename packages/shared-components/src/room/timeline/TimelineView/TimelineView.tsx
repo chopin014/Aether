@@ -124,6 +124,9 @@ function placeBeforePaint(
         if (rowIndex >= 0) virtualizer.resizeItem(rowIndex, heights[i]);
         measured.add(element);
     });
+    // Row positions are worked out again only when asked for. The total size asks, so the offset below and the
+    // check after it use the heights just measured.
+    virtualizer.getTotalSize();
     const target = virtualizer.getOffsetForIndex(index, align);
     if (!target) return false;
     scroller.scrollTop = target[0];
@@ -133,9 +136,9 @@ function placeBeforePaint(
     const bottom = top + scroller.clientHeight;
     const mountedIndexes = new Set(mounted.map((element) => virtualizer.indexFromElement(element)));
     // Every row now on screen must be one that was measured above, or it would show at an estimated height.
-    return virtualizer
-        .getMeasurements()
-        .every((row) => row.end <= top || row.start >= bottom || mountedIndexes.has(row.index));
+    return virtualizer.measurementsCache.every(
+        (row) => row.end <= top || row.start >= bottom || mountedIndexes.has(row.index),
+    );
 }
 
 export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewProps): JSX.Element {
