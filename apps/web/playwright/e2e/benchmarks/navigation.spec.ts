@@ -127,13 +127,21 @@ async function seedAccount(api: Api, serverName: string): Promise<SeededAccount>
         const spaceId = await api.createRoom({ name, preset: "private_chat", creation_content: { type: "m.space" } });
         const channels: SeededAccount["spaces"][number]["channels"] = [];
         await inBatches(
-            Array.from({ length: CHANNELS_PER_SPACE }, (_, c) => `server ${s} channel ${c}`),
+            Array.from({ length: CHANNELS_PER_SPACE }, (_, c) => c),
             6,
-            async (channelName) => {
+            async (index) => {
+                const channelName = `server ${s} channel ${index}`;
                 const roomId = await seedRoom(api, channelName);
-                await api.sendState(spaceId, "m.space.child", roomId, { via: [serverName] });
+                // The Space lists its channels in this order whatever order the requests finish in, so the channel
+                // a Space opens first is the first here.
+                const order = String(index).padStart(3, "0");
+                await api.sendState(spaceId, "m.space.child", roomId, { via: [serverName], order });
                 await api.sendState(roomId, "m.space.parent", spaceId, { via: [serverName], canonical: true });
-                channels.push({ roomId, name: channelName, text: `${channelName} message ${MESSAGES_PER_ROOM - 1}` });
+                channels[index] = {
+                    roomId,
+                    name: channelName,
+                    text: `${channelName} message ${MESSAGES_PER_ROOM - 1}`,
+                };
             },
         );
         spaces.push({ roomId: spaceId, name, channels });
@@ -437,8 +445,11 @@ for (const protocol of ["regular", "sliding"] as const) {
                 const space = seeded.spaces[0];
                 await dismissToasts(page);
                 await rail.getByLabel(space.name, { exact: true }).first().click({ timeout: CLICK_TIMEOUT });
-                // The Space reopens the channel last opened in it.
-                current = space.channels[(RUNS - 1) % SERVER_SWITCH_CHANNELS].name;
+                // The Space reopens the channel last opened in it. Check, so a different choice cannot slip an open
+                // channel into the measurements.
+                const reopened = space.channels[(RUNS - 1) % SERVER_SWITCH_CHANNELS];
+                await expect(page.locator(".mx_EventTile_body", { hasText: reopened.text }).first()).toBeVisible();
+                current = reopened.name;
                 for (let run = 0; run < 2; run++) {
                     for (const channel of space.channels) {
                         // Clicking the channel already open measures nothing.
