@@ -100,7 +100,7 @@ Please see LICENSE in the repository root for full details.
 
     /* The chevron dips toward the menu it opens. */
     &:hover:not([aria-expanded="true"]) svg {
-        translate: 0 12%;
+        translate: 0 8%;
     }
 
     &[aria-expanded="true"] {

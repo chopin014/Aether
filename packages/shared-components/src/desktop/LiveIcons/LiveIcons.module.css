@@ -12,7 +12,7 @@ Please see LICENSE in the repository root for full details.
  */
 
 .live {
-    --live-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --live-spring: cubic-bezier(0.34, 1.3, 0.64, 1);
 
     transition: scale 320ms var(--live-spring);
 }
@@ -175,7 +175,7 @@ Please see LICENSE in the repository root for full details.
 
     /* Pressing squishes the icon; releasing lets it spring back. */
     :is(button, [role="button"]):active:not(:disabled, [aria-disabled="true"]) .live {
-        scale: 0.82;
+        scale: 0.9;
         transition: scale 90ms ease-out;
     }
 
@@ -183,15 +183,15 @@ Please see LICENSE in the repository root for full details.
         /* The microphone sways as if spoken into, the headphones bob to a beat, and the camera looks around. */
         .deviceIcon[data-device="microphone"] > svg {
             transform-origin: 50% 90%;
-            animation: live-sway 560ms ease-in-out;
+            animation: live-sway 480ms ease-in-out;
         }
 
         .deviceIcon[data-device="headphones"] > svg {
-            animation: live-bop 620ms ease-in-out;
+            animation: live-bop 560ms ease-in-out;
         }
 
         .deviceIcon[data-device="camera"] > svg {
-            animation: live-look-around 640ms ease-in-out;
+            animation: live-look-around 560ms ease-in-out;
         }
 
         /* The bars dip and rise in a sweep, like a signal being found. */
@@ -213,40 +213,40 @@ Please see LICENSE in the repository root for full details.
 
         /* The waveform jumps about as noise, then is pressed flat before settling. */
         .noise line {
-            animation: live-noise 780ms ease-in-out;
+            animation: live-noise 680ms ease-in-out;
         }
 
         .noise line:nth-of-type(1) {
-            --live-peak: 2.6;
-            --live-dip: 0.8;
-            --live-peak-2: 1.9;
+            --live-peak: 1.8;
+            --live-dip: 0.9;
+            --live-peak-2: 1.45;
         }
 
         .noise line:nth-of-type(2) {
-            --live-peak: 1.5;
-            --live-dip: 0.5;
-            --live-peak-2: 1.4;
+            --live-peak: 1.25;
+            --live-dip: 0.75;
+            --live-peak-2: 1.2;
         }
 
         .noise line:nth-of-type(3) {
-            --live-peak: 0.7;
-            --live-dip: 1.1;
-            --live-peak-2: 0.55;
+            --live-peak: 0.85;
+            --live-dip: 1.05;
+            --live-peak-2: 0.78;
         }
 
         .noise line:nth-of-type(4) {
-            --live-peak: 1.45;
-            --live-dip: 0.7;
-            --live-peak-2: 1.55;
+            --live-peak: 1.23;
+            --live-dip: 0.85;
+            --live-peak-2: 1.27;
         }
 
         .noise line:nth-of-type(5) {
-            --live-peak: 2.2;
-            --live-dip: 1.1;
-            --live-peak-2: 2.8;
+            --live-peak: 1.6;
+            --live-dip: 1.05;
+            --live-peak-2: 1.9;
         }
 
-        /* The handset lifts, then is put down hard. */
+        /* The handset lifts, then is put down. */
         .hangUp > path {
             transform-origin: 12px 12px;
             animation: live-hang-up 620ms ease-in-out;
@@ -291,18 +291,18 @@ Please see LICENSE in the repository root for full details.
         }
 
         .popperConfetti:nth-of-type(1) {
-            --live-dx: 2px;
-            --live-dy: -9px;
+            --live-dx: 1.5px;
+            --live-dy: -6px;
         }
 
         .popperConfetti:nth-of-type(2) {
-            --live-dx: 7px;
-            --live-dy: -6px;
+            --live-dx: 5px;
+            --live-dy: -4px;
             animation-delay: 190ms;
         }
 
         .popperConfetti:nth-of-type(3) {
-            --live-dx: 9px;
+            --live-dx: 6px;
             --live-dy: 0;
             animation-delay: 230ms;
         }
@@ -373,14 +373,11 @@ Please see LICENSE in the repository root for full details.
     100% {
         transform: none;
     }
-    25% {
-        transform: rotate(-12deg);
+    35% {
+        transform: rotate(-7deg);
     }
-    55% {
-        transform: rotate(9deg);
-    }
-    80% {
-        transform: rotate(-4deg);
+    70% {
+        transform: rotate(4deg);
     }
 }
 
@@ -391,10 +388,10 @@ Please see LICENSE in the repository root for full details.
         transform: none;
     }
     25% {
-        transform: translateY(-12%) rotate(-6deg) scale(1.05);
+        transform: translateY(-6%) rotate(-3deg);
     }
     75% {
-        transform: translateY(-8%) rotate(5deg) scale(1.03);
+        transform: translateY(-3%) rotate(2deg);
     }
 }
 
@@ -403,11 +400,11 @@ Please see LICENSE in the repository root for full details.
     100% {
         transform: none;
     }
-    28% {
-        transform: translateX(-8%) rotate(-10deg);
+    30% {
+        transform: translateX(-4%) rotate(-5deg);
     }
-    62% {
-        transform: translateX(7%) rotate(8deg);
+    65% {
+        transform: translateX(3%) rotate(3deg);
     }
 }
 
@@ -426,11 +423,11 @@ Please see LICENSE in the repository root for full details.
     100% {
         transform: none;
     }
-    35% {
-        transform: scaleY(0.5);
+    40% {
+        transform: scaleY(0.7);
     }
-    70% {
-        transform: scaleY(1.12);
+    75% {
+        transform: scaleY(1.04);
     }
 }
 
@@ -449,7 +446,7 @@ Please see LICENSE in the repository root for full details.
         transform: scaleY(var(--live-peak-2));
     }
     70% {
-        transform: scaleY(0.4);
+        transform: scaleY(0.6);
     }
 }
 
@@ -458,17 +455,11 @@ Please see LICENSE in the repository root for full details.
     100% {
         transform: none;
     }
-    24% {
-        transform: translateY(-2.5px) rotate(-14deg);
+    30% {
+        transform: translateY(-1.5px) rotate(-9deg);
     }
-    50% {
-        transform: translateY(1.8px) rotate(7deg);
-    }
-    68% {
-        transform: translateY(-0.6px) rotate(-3deg);
-    }
-    84% {
-        transform: translateY(0.3px) rotate(1deg);
+    60% {
+        transform: translateY(0.8px) rotate(3deg);
     }
 }
 
@@ -478,11 +469,11 @@ Please see LICENSE in the repository root for full details.
         opacity: 1;
     }
     38% {
-        transform: translateY(-6px);
+        transform: translateY(-4px);
         opacity: 0;
     }
     39% {
-        transform: translateY(5px);
+        transform: translateY(3px);
         opacity: 0;
     }
     100% {
@@ -496,11 +487,11 @@ Please see LICENSE in the repository root for full details.
     100% {
         transform: none;
     }
-    30% {
-        transform: rotate(-12deg) scale(1.06);
+    35% {
+        transform: rotate(-7deg) scale(1.03);
     }
-    65% {
-        transform: rotate(7deg);
+    70% {
+        transform: rotate(3deg);
     }
 }
 
@@ -523,7 +514,7 @@ Please see LICENSE in the repository root for full details.
         transform: none;
     }
     45% {
-        transform: scale(1.2);
+        transform: scale(1.1);
     }
 }
 
@@ -532,14 +523,11 @@ Please see LICENSE in the repository root for full details.
     100% {
         transform: none;
     }
-    25% {
-        transform: rotate(-14deg);
+    30% {
+        transform: rotate(-8deg);
     }
-    55% {
-        transform: rotate(8deg);
-    }
-    80% {
-        transform: rotate(-3deg);
+    65% {
+        transform: rotate(4deg);
     }
 }
 
@@ -549,10 +537,10 @@ Please see LICENSE in the repository root for full details.
         transform: none;
     }
     30% {
-        transform: scale(0.3) rotate(-45deg);
+        transform: scale(0.6) rotate(-25deg);
     }
     65% {
-        transform: scale(1.4) rotate(20deg);
+        transform: scale(1.2) rotate(10deg);
     }
 }
 

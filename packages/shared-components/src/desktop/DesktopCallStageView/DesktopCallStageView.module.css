@@ -876,7 +876,7 @@ Please see LICENSE in the repository root for full details.
 
 /* The chevron dips while hovered, and turns over to point at its menu while the menu is open. */
 .chevronButton:hover:not(:disabled, [aria-expanded="true"]) svg {
-    translate: 0 14%;
+    translate: 0 8%;
 }
 
 .chevronButton[aria-expanded="true"] svg {
