@@ -35,6 +35,12 @@ import { getTopic } from "../../hooks/room/useTopic";
 import { DeleteChannelDialog } from "../../components/views/dialogs/DeleteChannelDialog";
 import { canDeleteChannel } from "../../utils/room/canDeleteChannel";
 import { hasCreateRoomRights } from "../room-list/utils";
+import { categoryTitle } from "../room-list/DesktopChannelSections";
+import { reportLayoutError } from "../room-list/serverCategories";
+import { projectLayout } from "../../stores/space-layout/SpaceLayout";
+import { SpaceLayoutStore, SpaceLayoutStoreEvent } from "../../stores/space-layout/SpaceLayoutStore";
+import { moveChannel } from "../../stores/space-layout/spaceLayoutActions";
+import { keepIfSame } from "../../utils/keepIfSame";
 
 /** The part of a room list item's view model that the channel menu reuses for its Matrix actions. */
 export type ChannelMenuItemSource = ViewModel<
@@ -79,6 +85,8 @@ export class ChannelMenuViewModel
         this.disposables.trackListener(props.room.currentState, RoomStateEvent.Members, this.refresh);
         const space = (props.spaceStore ?? SDKContextClass.instance.spaceStore).activeSpaceRoom;
         if (space) this.disposables.trackListener(space.currentState, RoomStateEvent.Events, this.refresh);
+        // Moves being sent show in the server's layout, and so in the menu's categories, before the server confirms them.
+        this.disposables.trackListener(SpaceLayoutStore.instance, SpaceLayoutStoreEvent.Changed, this.refresh);
         if (!props.room.membersLoaded()) {
             // Native encrypted subscriptions do not mark the SDK's full-membership readiness.
             // Share its hydration with crypto so deletion never relies on an incomplete bootstrap roster.
@@ -127,11 +135,29 @@ export class ChannelMenuViewModel
             canDeleteChannel: room.membersLoaded() && canDeleteChannel(room, activeSpace, userId),
             // A server's channels are left by leaving the server; one-off leaving stays in the channel's settings.
             canLeave: !inActiveSpace && room.currentState.getStateEvents(EventType.SpaceParent).length === 0,
+            categories: inActiveSpace ? ChannelMenuViewModel.categoriesFor(room, activeSpace) : undefined,
         };
     }
 
+    /** Where the channel can move in its server's layout, for the people who may change it. */
+    private static categoriesFor(room: Room, space: Room): ChannelMenuViewSnapshot["categories"] {
+        const store = SpaceLayoutStore.instance;
+        if (!store.canEditLayout(space)) return undefined;
+        const layout = projectLayout(store.reader(space), space, [room]);
+        const current = layout.categories.find((category) => category.rooms.includes(room))?.id ?? null;
+        return [
+            { id: null, name: "", isCurrent: current === null },
+            ...layout.categories.map((category) => ({
+                id: category.id,
+                name: categoryTitle(category),
+                isCurrent: category.id === current,
+            })),
+        ];
+    }
+
     private refresh = (): void => {
-        this.snapshot.merge(ChannelMenuViewModel.compute(this.props));
+        const next = ChannelMenuViewModel.compute(this.props);
+        this.snapshot.merge({ ...next, categories: keepIfSame(this.snapshot.current.categories, next.categories) });
     };
 
     public onMarkAsRead = (): void => this.props.item.onMarkAsRead();
@@ -165,6 +191,12 @@ export class ChannelMenuViewModel
             initial_tab_id: initialTabId,
         });
     }
+
+    public onMoveToCategory = (categoryId: string | null): void => {
+        const space = (this.props.spaceStore ?? SDKContextClass.instance.spaceStore).activeSpaceRoom;
+        if (!space || !this.snapshot.current.categories) return;
+        moveChannel(space, this.props.room.roomId, categoryId).catch(reportLayoutError);
+    };
 
     public onCreateChannel = (): void => {
         const parentSpace = (this.props.spaceStore ?? SDKContextClass.instance.spaceStore).activeSpaceRoom;
