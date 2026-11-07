@@ -6,13 +6,14 @@
  */
 
 import React, { type JSX, useState, useId } from "react";
-import { IconButton, Menu, MenuItem, Separator } from "@vector-im/compound-web";
+import { CheckboxMenuItem, IconButton, Menu, MenuItem, Separator } from "@vector-im/compound-web";
 import ChevronDownIcon from "@vector-im/compound-design-tokens/assets/web/icons/chevron-down";
 import HomeIcon from "@vector-im/compound-design-tokens/assets/web/icons/home";
 import SettingsIcon from "@vector-im/compound-design-tokens/assets/web/icons/settings";
 import ChatNewIcon from "@vector-im/compound-design-tokens/assets/web/icons/chat-new";
 import AudioIcon from "@vector-im/compound-design-tokens/assets/web/icons/audio";
 import UserAddIcon from "@vector-im/compound-design-tokens/assets/web/icons/user-add";
+import FolderIcon from "@vector-im/compound-design-tokens/assets/web/icons/folder";
 
 import styles from "./SpaceMenuView.module.css";
 import { useViewModel } from "../../../core/viewmodel";
@@ -40,7 +41,8 @@ interface SpaceMenuViewProps {
  */
 export function SpaceMenuView({ vm, fullWidth = false }: SpaceMenuViewProps): JSX.Element {
     const { translate: _t } = useI18n();
-    const { canInviteInSpace, canAccessSpaceSettings, canCreateRoom, canCreateVideoRoom, title } = useViewModel(vm);
+    const { canInviteInSpace, canAccessSpaceSettings, canCreateRoom, canCreateVideoRoom, title, serverMenu } =
+        useViewModel(vm);
     const [open, setOpen] = useState(false);
     const titleId = useId();
 
@@ -113,6 +115,21 @@ export function SpaceMenuView({ vm, fullWidth = false }: SpaceMenuViewProps): JS
                     )}
                     <Separator kind="secondary" />
                 </>
+            )}
+            {fullWidth && serverMenu?.canCreateCategory && vm.createCategory && (
+                <MenuItem
+                    Icon={FolderIcon}
+                    label={_t("desktop|channel_list_menu|create_category")}
+                    onSelect={vm.createCategory}
+                    hideChevron
+                />
+            )}
+            {fullWidth && serverMenu && vm.toggleHideMutedChannels && (
+                <CheckboxMenuItem
+                    label={_t("desktop|channel_list_menu|hide_muted")}
+                    checked={serverMenu.hideMutedChannels}
+                    onSelect={vm.toggleHideMutedChannels}
+                />
             )}
             {canAccessSpaceSettings && (
                 <MenuItem

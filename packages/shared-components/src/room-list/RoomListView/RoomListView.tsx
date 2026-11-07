@@ -15,6 +15,11 @@ import { VirtualizedRoomListView, type RoomListViewState } from "../VirtualizedR
 import { type Room, type RoomListItemViewModel } from "../VirtualizedRoomListView/RoomListItemWrapper/RoomListItemView";
 import { type RoomListSectionHeaderViewModel } from "../VirtualizedRoomListView/RoomListSectionHeaderView";
 import { type ToastType, RoomListToast } from "./RoomListToast";
+import {
+    ChannelListContextMenu,
+    type ChannelListMenuActions,
+    type ChannelListMenuSnapshot,
+} from "./ChannelListContextMenu";
 import styles from "./RoomListView.module.css";
 import { Flex } from "../../core/utils/Flex";
 import { AutoHideScrollbar } from "../../core/utils/Scrollbar";
@@ -40,6 +45,8 @@ export type RoomListViewSnapshot = {
     hidePrimaryFilters?: boolean;
     /** Whether this lists channels in a desktop server, with server-specific empty actions. */
     isSpaceChannelList?: boolean;
+    /** The menu right-clicking the empty part of a server's channel list opens; absent outside a server. */
+    channelListMenu?: ChannelListMenuSnapshot;
     /** Currently active filter ID (if any) */
     activeFilterId?: FilterId;
     /** Room list state */
@@ -108,6 +115,14 @@ export interface RoomListViewActions {
     onSectionOrRoomDragStart: () => void;
     /** Called when a section drag ends (drop or cancel) — restores expansion states */
     onSectionOrRoomDragEnd: () => void;
+    /** Hide or show the muted channels of the server whose channels are listed. */
+    toggleHideMutedChannels?: ChannelListMenuActions["toggleHideMutedChannels"];
+    /** Create a text channel in the server. */
+    createChannel?: ChannelListMenuActions["createChannel"];
+    /** Create a category in the server. */
+    createCategory?: ChannelListMenuActions["createCategory"];
+    /** Invite people to the server. */
+    inviteToServer?: ChannelListMenuActions["inviteToServer"];
 }
 
 /**
@@ -142,6 +157,17 @@ export const RoomListView: React.FC<RoomListViewProps> = ({ vm, renderAvatar, on
         listBody = <VirtualizedRoomListView vm={vm} renderAvatar={renderAvatar} onKeyDown={onKeyDown} />;
     }
 
+    const list = (
+        <Flex direction="column" className={styles.list}>
+            <AutoHideScrollbar className={styles.scrollbar}>
+                {listBody}
+                {snapshot.toast && (
+                    <RoomListToast type={snapshot.toast} onClose={vm.closeToast} onClick={vm.scrollToUnreadActivity} />
+                )}
+            </AutoHideScrollbar>
+        </Flex>
+    );
+
     return (
         <>
             {!snapshot.hidePrimaryFilters && (
@@ -153,18 +179,24 @@ export const RoomListView: React.FC<RoomListViewProps> = ({ vm, renderAvatar, on
                     />
                 </div>
             )}
-            <Flex direction="column" className={styles.list}>
-                <AutoHideScrollbar className={styles.scrollbar}>
-                    {listBody}
-                    {snapshot.toast && (
-                        <RoomListToast
-                            type={snapshot.toast}
-                            onClose={vm.closeToast}
-                            onClick={vm.scrollToUnreadActivity}
-                        />
-                    )}
-                </AutoHideScrollbar>
-            </Flex>
+            {snapshot.channelListMenu ? (
+                <ChannelListContextMenu menu={snapshot.channelListMenu} actions={channelListActions(vm)}>
+                    {list}
+                </ChannelListContextMenu>
+            ) : (
+                list
+            )}
         </>
     );
 };
+
+/** The channel list menu's actions, doing nothing where the view model offers none. */
+function channelListActions(vm: RoomListViewModel): ChannelListMenuActions {
+    const none = (): void => {};
+    return {
+        toggleHideMutedChannels: vm.toggleHideMutedChannels ?? none,
+        createChannel: vm.createChannel ?? none,
+        createCategory: vm.createCategory ?? none,
+        inviteToServer: vm.inviteToServer ?? none,
+    };
+}

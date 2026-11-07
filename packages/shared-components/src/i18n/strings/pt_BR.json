@@ -381,6 +381,30 @@
             "tag_from": "Tag de %(space)s",
             "view_full_bio": "Ver biografia completa"
         },
+        "category_dialog": {
+            "create": "Criar categoria",
+            "create_title": "Criar categoria",
+            "name_label": "Nome da categoria",
+            "name_placeholder": "Nova categoria",
+            "rename_title": "Editar categoria",
+            "save": "Salvar"
+        },
+        "category_menu": {
+            "collapse": "Recolher categoria",
+            "collapse_all": "Recolher todas as categorias",
+            "create_channel": "Criar canal",
+            "delete": "Excluir categoria",
+            "edit": "Editar categoria",
+            "mark_read": "Marcar como lida",
+            "title": "Opções de %(category)s"
+        },
+        "channel_list_menu": {
+            "create_category": "Criar categoria",
+            "create_channel": "Criar canal",
+            "hide_muted": "Ocultar canais silenciados",
+            "invite": "Convidar para o servidor",
+            "title": "Opções da lista de canais"
+        },
         "channel_menu": {
             "title": "Ações do canal",
             "mark_read": "Marcar como lido",

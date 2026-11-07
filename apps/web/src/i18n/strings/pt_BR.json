@@ -4379,6 +4379,16 @@
         },
         "voice_user_menu": {
             "invite_failed_title": "Não foi possível convidar para o servidor"
+        },
+        "categories": {
+            "create": "Criar categoria",
+            "delete": "Excluir categoria",
+            "delete_description": "Tem certeza que deseja excluir %(category)s? Os canais dela vão para o topo da lista. Isso não pode ser desfeito.",
+            "delete_title": "Excluir categoria",
+            "edit": "Editar categoria",
+            "error_description": "O servidor não aceitou a mudança na lista de canais. Confira se você ainda pode gerenciá-la e tente de novo.",
+            "error_title": "Não foi possível alterar a lista de canais",
+            "save_failed": "Não foi possível salvar a categoria. Tente de novo."
         }
     },
     "create_section_dialog": {

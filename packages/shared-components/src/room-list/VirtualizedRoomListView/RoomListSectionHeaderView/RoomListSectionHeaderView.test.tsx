@@ -18,7 +18,8 @@ import { RoomListSectionHeaderView, type RoomListSectionHeaderViewSnapshot } fro
 import { useMockedViewModel } from "../../../core/viewmodel";
 import { type RoomDragData } from "../dragAndDrop";
 
-const { Default, Collapsed, DesktopChannelCategory } = composeStories(stories);
+const { Default, Collapsed, DesktopChannelCategory, DesktopServerCategory, DesktopUncategorized } =
+    composeStories(stories);
 
 const HEADER_NAME = "Toggle Favourites section";
 
@@ -53,6 +54,66 @@ describe("<RoomListSectionHeaderView /> stories", () => {
         await user.click(screen.getByRole("button", { name: "Create channel in Voice Channels" }));
         expect(createChannel).toHaveBeenCalled();
         expect(onClick).not.toHaveBeenCalled();
+    });
+
+    it("draws only a gap for a section without a header", () => {
+        const { container } = render(<DesktopUncategorized />);
+        expect(screen.queryByRole("button")).toBeNull();
+        expect(container.querySelector('[role="presentation"]')).not.toBeNull();
+    });
+
+    it("opens a server category's menu on right click", async () => {
+        const user = userEvent.setup();
+        const args = DesktopServerCategory.args as Record<string, Mock>;
+        for (const action of [
+            "markCategoryAsRead",
+            "collapseAllCategories",
+            "editCategory",
+            "deleteCategory",
+            "onClick",
+        ]) {
+            args[action].mockClear();
+        }
+        render(<DesktopServerCategory />);
+        const header = screen.getByRole("button", { name: "Toggle Governo section with unread rooms" });
+
+        await user.pointer({ keys: "[MouseRight]", target: header });
+        await user.click(screen.getByRole("menuitem", { name: "Mark as read" }));
+        expect(args.markCategoryAsRead).toHaveBeenCalled();
+
+        await user.pointer({ keys: "[MouseRight]", target: header });
+        expect(screen.getByRole("menuitemcheckbox", { name: "Collapse category" })).not.toBeChecked();
+        await user.click(screen.getByRole("menuitem", { name: "Edit category" }));
+        expect(args.editCategory).toHaveBeenCalled();
+
+        await user.pointer({ keys: "[MouseRight]", target: header });
+        await user.click(screen.getByRole("menuitem", { name: "Delete category" }));
+        expect(args.deleteCategory).toHaveBeenCalled();
+
+        await user.pointer({ keys: "[MouseRight]", target: header });
+        await user.click(screen.getByRole("menuitem", { name: "Collapse all categories" }));
+        expect(args.collapseAllCategories).toHaveBeenCalled();
+        expect(args.onClick).not.toHaveBeenCalled();
+    });
+
+    it("leaves editing out of the menu of a category the person may not edit", async () => {
+        const user = userEvent.setup();
+        render(<DesktopServerCategory categoryMenu={{ canEdit: false }} isUnread={false} />);
+        await user.pointer({
+            keys: "[MouseRight]",
+            target: screen.getByRole("button", { name: "Toggle Governo section" }),
+        });
+        expect(screen.getByRole("menuitemcheckbox", { name: "Collapse category" })).toBeInTheDocument();
+        expect(screen.queryByRole("menuitem", { name: "Edit category" })).toBeNull();
+        expect(screen.queryByRole("menuitem", { name: "Delete category" })).toBeNull();
+        expect(screen.queryByRole("menuitem", { name: "Mark as read" })).toBeNull();
+    });
+
+    it("has no right-click menu outside a server", async () => {
+        const user = userEvent.setup();
+        render(<Default />);
+        await user.pointer({ keys: "[MouseRight]", target: screen.getByRole("button", { name: HEADER_NAME }) });
+        expect(screen.queryByRole("menuitemcheckbox", { name: "Collapse category" })).toBeNull();
     });
 
     it("offers no channel creation in an ordinary section", () => {

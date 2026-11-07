@@ -27,6 +27,10 @@ import { SortingAlgorithm } from "../../stores/room-list-v3/skip-list/sorters";
 import { SettingLevel } from "../../settings/SettingLevel";
 import { createRoom, hasCreateRoomRights } from "./utils";
 import { ReleaseAnnouncementStore } from "../../stores/ReleaseAnnouncementStore";
+import { keepIfSame } from "../../utils/keepIfSame";
+import { SpaceLayoutStore, SpaceLayoutStoreEvent } from "../../stores/space-layout/SpaceLayoutStore";
+import { reportLayoutError, showCreateCategory } from "./serverCategories";
+import { isDesktopChannelList } from "./DesktopChannelSections";
 
 export interface Props {
     /**
@@ -90,7 +94,42 @@ export class RoomListHeaderViewModel
             "releaseAnnouncementChanged",
             this.onReleaseAnnouncementChanged,
         );
+
+        // Who may change the server's layout, and whether its muted channels are hidden, show in its menu.
+        this.disposables.trackListener(
+            SpaceLayoutStore.instance,
+            SpaceLayoutStoreEvent.Changed,
+            this.refreshServerMenu,
+        );
+        this.refreshServerMenu();
     }
+
+    /** The server whose menu this is, when a desktop server is open. */
+    private get server(): Room | null {
+        const space = this.props.spaceStore.activeSpaceRoom;
+        return space && isDesktopChannelList(space.roomId) ? space : null;
+    }
+
+    private readonly refreshServerMenu = (): void => {
+        const space = this.server;
+        const store = SpaceLayoutStore.instance;
+        const serverMenu = space
+            ? { canCreateCategory: store.canEditLayout(space), hideMutedChannels: store.isHidingMutedChannels(space) }
+            : undefined;
+        this.snapshot.merge({ serverMenu: keepIfSame(this.snapshot.current.serverMenu, serverMenu) });
+    };
+
+    public createCategory = (): void => {
+        const space = this.server;
+        if (space) showCreateCategory(space);
+    };
+
+    public toggleHideMutedChannels = (): void => {
+        const space = this.server;
+        if (!space) return;
+        const store = SpaceLayoutStore.instance;
+        store.setHidingMutedChannels(space, !store.isHidingMutedChannels(space)).catch(reportLayoutError);
+    };
 
     /**
      * Handles space change events.
@@ -109,6 +148,7 @@ export class RoomListHeaderViewModel
         this.snapshot.merge({
             ...computeHeaderSpaceState(this.props.spaceStore, this.props.matrixClient),
         });
+        this.refreshServerMenu();
     };
 
     /**

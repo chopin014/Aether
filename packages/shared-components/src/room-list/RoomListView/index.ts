@@ -18,3 +18,9 @@ export { RoomListEmptyStateView } from "./RoomListEmptyStateView";
 export type { RoomListEmptyStateViewProps } from "./RoomListEmptyStateView";
 export * from "../VirtualizedRoomListView/RoomListItemWrapper/RoomListItemView";
 export * from "./RoomListToast";
+export { ChannelListContextMenu } from "./ChannelListContextMenu";
+export type {
+    ChannelListContextMenuProps,
+    ChannelListMenuActions,
+    ChannelListMenuSnapshot,
+} from "./ChannelListContextMenu";
