@@ -278,6 +278,38 @@ describe("NotificationCountEngine", () => {
         expect(counts().total).toBe(59);
     });
 
+    it("highlights an @room from someone who may notify everyone, as the room's listed state says", async () => {
+        const { respond, counts } = await setup();
+        const levels = {
+            type: EventType.RoomPowerLevels,
+            state_key: "",
+            sender: me,
+            event_id: "$levels",
+            origin_server_ts: 0,
+            content: { users: { [bob]: 50 }, notifications: { room: 50 } },
+        };
+        // The lists ask for the members who sent the events they send.
+        const bobMember = {
+            type: EventType.RoomMember,
+            state_key: bob,
+            sender: bob,
+            event_id: "$bob-member",
+            origin_server_ts: 0,
+            content: { membership: "join" },
+        };
+
+        await respond(
+            {
+                initial: true,
+                required_state: [...requiredState, levels, bobMember],
+                timeline: [message("$a"), message("$b", "@room hello", bob, { "m.mentions": { room: true } })],
+            },
+            [receipt("$a")],
+        );
+
+        expect(counts()).toEqual({ total: 1, highlight: 1 });
+    });
+
     it("stops counting at the user's own message", async () => {
         const { respond, counts } = await setup();
 
