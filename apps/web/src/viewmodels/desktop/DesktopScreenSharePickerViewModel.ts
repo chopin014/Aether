@@ -12,6 +12,7 @@ import {
     type DesktopCallStageQualityState,
 } from "@element-hq/web-shared-components";
 
+import { getPendingDisplayMediaAudio } from "../../audio/desktop/DesktopAudioCapture";
 import { DesktopVoicePipeline } from "../../audio/desktop/DesktopVoicePipeline";
 import { getScreenSharePolicyLimits, resolveScreenShareQuality } from "../../audio/desktop/ScreenShareQuality";
 
@@ -43,7 +44,8 @@ export class DesktopScreenSharePickerViewModel
                 ...DesktopVoicePipeline.instance.getScreenShareQuality(),
                 includeSystemAudio:
                     !!window.electron?.desktopAudio &&
-                    DesktopVoicePipeline.instance.getScreenShareQuality().includeSystemAudio,
+                    (getPendingDisplayMediaAudio() ??
+                        DesktopVoicePipeline.instance.getScreenShareQuality().includeSystemAudio),
             },
             limits: getScreenSharePolicyLimits(),
         });
