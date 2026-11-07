@@ -429,6 +429,34 @@ describe("EmojiPicker", function () {
             });
         });
 
+        it("should navigate the category rail using the up and down arrow keys", async () => {
+            const { container } = render(<EmojiPicker onChoose={vi.fn()} onFinished={vi.fn()} />);
+
+            await waitFor(() => {
+                expect(container.querySelector('[data-category-id="people"]')).toBeInTheDocument();
+            });
+
+            const tablist = screen.getByRole("tablist");
+            expect(tablist).toHaveAttribute("aria-orientation", "vertical");
+
+            const peopleTab = container.querySelector<HTMLButtonElement>('[title*="Smileys"]')!;
+            peopleTab.focus();
+
+            // The rail follows the scroll position, so only check that focus moves to another category.
+            await userEvent.keyboard("[ArrowDown]");
+            await waitFor(() => {
+                expect(peopleTab).not.toHaveFocus();
+                expect(document.activeElement?.getAttribute("role")).toBe("tab");
+            });
+
+            const below = document.activeElement;
+            await userEvent.keyboard("[ArrowUp]");
+            await waitFor(() => {
+                expect(below).not.toHaveFocus();
+                expect(document.activeElement?.getAttribute("role")).toBe("tab");
+            });
+        });
+
         it("should navigate to first/last category using Home/End keys", async () => {
             const { container } = render(<EmojiPicker onChoose={vi.fn()} onFinished={vi.fn()} />);
 
