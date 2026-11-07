@@ -32,7 +32,7 @@ index c9065e73a2565430fc05ec61783490abc0a6d3c0..293ae7124a221f04f50d31e7ccfeb207
          (): VirtualItem[];
          updateDeps(newDeps: [number[], VirtualItem[]]): void;
 diff --git a/dist/esm/index.js b/dist/esm/index.js
-index dcba044582148f2b8923163b1a431571230bdfef..a757e5cc589b34438eaf350f3d1f104d57b37f42 100644
+index dcba044582148f2b8923163b1a431571230bdfef..e49e447e9bee1cf2e193e91caf3e28b56ad0cbd8 100644
 --- a/dist/esm/index.js
 +++ b/dist/esm/index.js
 @@ -331,7 +331,24 @@ class Virtualizer {
@@ -123,7 +123,7 @@ index dcba044582148f2b8923163b1a431571230bdfef..a757e5cc589b34438eaf350f3d1f104d
          );
          const shouldAdjustScroll = ((_d = this.scrollState) == null ? void 0 : _d.behavior) !== "smooth" && (this.shouldAdjustScrollPositionOnItemSizeChange !== void 0 ? this.shouldAdjustScrollPositionOnItemSizeChange(
            // The callback expects a VirtualItem; build one lazily only
-@@ -1249,6 +1295,31 @@ class Virtualizer {
+@@ -1249,6 +1295,33 @@ class Virtualizer {
        }
        this.options.scrollToFn(offset, { behavior, adjustments }, this);
      };
@@ -149,13 +149,15 @@ index dcba044582148f2b8923163b1a431571230bdfef..a757e5cc589b34438eaf350f3d1f104d
 +    // scrollToOffset it would wait for the read-back, and the steering would hold the old pixel offset.
 +    // Element-web patch, pending upstream.
 +    this.scrollToOffsetNow = (offset) => {
++      // As scrollToOffset does: an iOS correction held for the end of a touch scroll is already in this offset.
++      this._iosDeferredAdjustment = 0;
 +      this.scrollState = null;
 +      this._scrollToOffset(offset, { adjustments: void 0, behavior: "auto" });
 +    };
      this.measure = () => {
        this.pendingMin = null;
        this.itemSizeCache.clear();
-@@ -1274,16 +1345,19 @@ class Virtualizer {
+@@ -1274,16 +1347,19 @@ class Virtualizer {
        }
        return false;
      } else {

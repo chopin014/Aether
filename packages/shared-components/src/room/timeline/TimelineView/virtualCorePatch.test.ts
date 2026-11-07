@@ -66,6 +66,18 @@ describe("virtual-core patch", () => {
         virtualizer.scroller.remove();
     });
 
+    it("drops an iOS correction held for the end of a touch scroll when scrolling to an offset at once", () => {
+        const virtualizer = makeVirtualizer(() => {}, 50);
+        // On iOS, compensation for a row that grew during a touch scroll waits for the scroll to end. The offset
+        // scrolled to already allows for that growth, so applying it later would move the view twice.
+        const internals = virtualizer as unknown as { _iosDeferredAdjustment: number };
+        internals._iosDeferredAdjustment = 100;
+        virtualizer.scrollToOffsetNow(1000);
+        expect(internals._iosDeferredAdjustment).toBe(0);
+        expect(virtualizer.scroller.scrollTop).toBe(1000);
+        virtualizer.scroller.remove();
+    });
+
     it("tells its listener nothing when no size changed", () => {
         const onChange = vi.fn();
         const virtualizer = makeVirtualizer(onChange);
