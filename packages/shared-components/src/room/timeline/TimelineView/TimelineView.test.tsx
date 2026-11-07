@@ -233,20 +233,39 @@ describe("<TimelineView />", () => {
         },
     );
 
-    it("stays hidden behind the cover then reveals after the anchor settles", async () => {
-        // A list taller than the viewport so there is a real scroll offset to settle on.
+    it("places the first load and shows it before the first paint, when its rows are already mounted", () => {
         const { vm, actions } = makeFakeVm({ items: eventItems(30) });
         renderTimeline(vm);
-
+        // No animation frame has run: the list was measured and scrolled in the commit that rendered it.
         const scroller = screen.getByTestId("timeline-scroller");
-        // Cover is up initially: the scroller is hidden and the anchor hasn't settled.
-        expect(scroller).toHaveStyle({ visibility: "hidden" });
-        expect(actions.onAnchorReached).not.toHaveBeenCalled();
+        expect(scroller).toHaveStyle({ visibility: "visible" });
+        expect(actions.onAnchorReached).toHaveBeenCalledExactlyOnceWith(null);
+        expect(screen.getByTestId("row-evt-29").getBoundingClientRect().bottom).toBeCloseTo(
+            scroller.getBoundingClientRect().bottom,
+            0,
+        );
+    });
 
-        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalledTimes(1), { timeout: 5000 });
-        // Placed at the end without an anchor, so it reports none: an anchor set meanwhile must stay.
-        expect(actions.onAnchorReached).toHaveBeenCalledWith(null);
-        await waitFor(() => expect(scroller).toHaveStyle({ visibility: "visible" }));
+    it("stays hidden behind the cover then reveals after the anchor settles, when it cannot be placed at once", async () => {
+        // Without ResizeObserver rows are measured as they mount, so placement settles over frames.
+        vi.stubGlobal("ResizeObserver", undefined);
+        try {
+            // A list taller than the viewport so there is a real scroll offset to settle on.
+            const { vm, actions } = makeFakeVm({ items: eventItems(30) });
+            renderTimeline(vm);
+
+            const scroller = screen.getByTestId("timeline-scroller");
+            // Cover is up initially: the scroller is hidden and the anchor hasn't settled.
+            expect(scroller).toHaveStyle({ visibility: "hidden" });
+            expect(actions.onAnchorReached).not.toHaveBeenCalled();
+
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalledTimes(1), { timeout: 5000 });
+            // Placed at the end without an anchor, so it reports none: an anchor set meanwhile must stay.
+            expect(actions.onAnchorReached).toHaveBeenCalledWith(null);
+            await waitFor(() => expect(scroller).toHaveStyle({ visibility: "visible" }));
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 
     it("reveals measured tall rows without synchronous row height reads", async () => {
@@ -512,15 +531,17 @@ describe("<TimelineView />", () => {
             await settle();
             scroller.scrollTop = 200;
             await waitFor(() => expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(false));
+            // Rows the first load did not render are measured as the reader scrolls to them, and the scroll
+            // position absorbs their real heights so nothing on screen moves. Read where that left it.
             await settle();
-            expect(scroller.scrollTop).toBe(200);
+            const readerPosition = scroller.scrollTop;
 
             resize(VIEWPORT_HEIGHT - 60);
 
             await waitFor(() => expect(scroller.clientHeight).toBe(VIEWPORT_HEIGHT - 60));
             // Give the view time to scroll, in case it wrongly does.
             await settle();
-            expect(scroller.scrollTop).toBe(200);
+            expect(scroller.scrollTop).toBe(readerPosition);
         });
 
         it("keeps a reader at the bottom when the window shrinks and some rows shrink with it", async () => {
