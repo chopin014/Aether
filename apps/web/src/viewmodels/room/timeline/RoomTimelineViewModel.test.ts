@@ -10,6 +10,7 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
     Direction,
+    TimelineWindow,
     EventStatus,
     EventType,
     MatrixEvent,
@@ -28,6 +29,7 @@ import { type TimelineItem } from "@element-hq/web-shared-components";
 import { createTestClient, mkMembership, mkMessage } from "test-utils";
 
 import SettingsStore from "../../../settings/SettingsStore";
+import UserActivity from "../../../UserActivity";
 import { SlidingSyncManager } from "../../../SlidingSyncManager";
 import { RoomTimelineViewModel } from "./RoomTimelineViewModel";
 
@@ -101,6 +103,8 @@ describe("RoomTimelineViewModel", () => {
         vms = [];
         client = createTestClient();
         room = new Room(ROOM_ID, client, USER_ID, { pendingEventOrdering: PendingEventOrdering.Detached });
+        // Rooms with an open timeline are joined, except when previewing; see the read receipt tests.
+        room.updateMyMembership(KnownMembership.Join);
         vi.spyOn(client, "getRoom").mockReturnValue(room);
 
         // The only two settings the view model reads, at their real-world defaults. A test that
@@ -111,6 +115,8 @@ describe("RoomTimelineViewModel", () => {
             return undefined;
         });
         vi.mocked(SettingsStore).watchSetting.mockReturnValue("watch-ref");
+        // The reader is at the keyboard unless a test says otherwise.
+        vi.spyOn(UserActivity.sharedInstance(), "userActiveNow").mockReturnValue(true);
         vi.mocked(SettingsStore).unwatchSetting.mockImplementation(() => {});
 
         localStorage.clear();
@@ -239,6 +245,27 @@ describe("RoomTimelineViewModel", () => {
                 await Promise.resolve();
                 expect(vm.getSnapshot()).toBe(before);
             }
+        });
+
+        it("shows expanded history once the reader comes back down from a jump to the unread line", async () => {
+            const preparation = Promise.withResolvers<boolean>();
+            vi.spyOn(SlidingSyncManager.instance, "initialTimelinePreparation").mockReturnValue(preparation.promise);
+            seedTimeline([makeMessage("$a"), makeMessage("$b"), makeMessage("$c")]);
+            room.addAccountData([
+                new MatrixEvent({ type: EventType.FullyRead, room_id: ROOM_ID, content: { event_id: "$a" } }),
+            ]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onAtBottomStateChange(true);
+            vm.jumpToReadMarker();
+            vm.onAnchorReached("read-marker");
+            vm.onAtBottomStateChange(false);
+            // The reader scrolls back down to the newest messages before the history arrives.
+            vm.onAtBottomStateChange(true);
+            room.addEventsToTimeline([makeMessage("$expanded")], true, false, room.getLiveTimeline(), "older-again");
+            preparation.resolve(true);
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$expanded"));
         });
 
         it.each([false, true])("preserves exact anchored loads (permalink=%s)", async (permalink) => {
@@ -675,6 +702,363 @@ describe("RoomTimelineViewModel", () => {
         });
     });
 
+    describe("when sync replaces the live timeline", () => {
+        /** Add a message to the room's current live timeline, as sync does. The SDK announces it. */
+        const arrive = (event: MatrixEvent): void => {
+            room.getUnfilteredTimelineSet().addLiveEvent(event, { addToState: false });
+        };
+
+        it("follows a reader at the newest messages on to the new live timeline", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onAtBottomStateChange(true);
+
+            room.resetLiveTimeline("gap", undefined);
+            arrive(makeMessage("$c", { user: OTHER_USER_ID }));
+
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$c"]));
+            expect(vm.getSnapshot().atLiveEnd).toBe(true);
+        });
+
+        it("keeps a reader of older messages in place, counts new ones, and loads them on request", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, indexOfKey(vm.getSnapshot().items, "$a"));
+            vm.onAtBottomStateChange(false);
+
+            room.resetLiveTimeline("gap", undefined);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]);
+            expect(vm.getSnapshot().atLiveEnd).toBe(false);
+
+            arrive(makeMessage("$c", { user: OTHER_USER_ID }));
+            await vi.waitFor(() => expect(vm.getSnapshot().numUnreadMessages).toBe(1));
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]);
+            expect(vm.getSnapshot().atLiveEnd).toBe(false);
+
+            vm.jumpToLive();
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$c"]));
+            expect(vm.getSnapshot().atLiveEnd).toBe(true);
+            expect(vm.getSnapshot().numUnreadMessages).toBe(0);
+        });
+
+        it("follows a reader of older messages on when regular sync keeps a token to the new timeline", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, indexOfKey(vm.getSnapshot().items, "$a"));
+            vm.onAtBottomStateChange(false);
+
+            // Regular sync keeps the old timeline, with a forward token leading to the new one.
+            const timelineSet = room.getUnfilteredTimelineSet();
+            const old = timelineSet.getLiveTimeline();
+            timelineSet.resetLiveTimeline("back", "forward");
+            const live = timelineSet.getLiveTimeline();
+            expect(vm.getSnapshot().atLiveEnd).toBe(false);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]);
+            // Paginating forward from the old timeline reaches the new live one, as the SDK links them.
+            vi.mocked(client.paginateEventTimeline).mockImplementation(async (timeline) => {
+                if (timeline !== old) return false;
+                old.setNeighbouringTimeline(live, Direction.Forward);
+                live.setNeighbouringTimeline(old, Direction.Backward);
+                old.setPaginationToken(null, Direction.Forward);
+                return true;
+            });
+
+            timelineSet.addLiveEvent(makeMessage("$c", { user: OTHER_USER_ID }), { addToState: false });
+            await vi.waitFor(() => expect(vm.getSnapshot().numUnreadMessages).toBe(1));
+            // Scrolling to the end pages forward through the gap into the new live timeline.
+            vm.onEndReached();
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b", "$c"]));
+            await vi.waitFor(() => expect(vm.getSnapshot().atLiveEnd).toBe(true));
+            // And keeps following new messages afterwards.
+            timelineSet.addLiveEvent(makeMessage("$d", { user: OTHER_USER_ID }), { addToState: false });
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$d"));
+        });
+
+        it("ignores resets of other timeline sets", async () => {
+            seedTimeline([makeMessage("$a")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const items = vm.getSnapshot().items;
+            const thread = room.getUnfilteredTimelineSet();
+            room.emit(RoomEvent.TimelineReset, room, { ...thread } as any, true);
+            expect(vm.getSnapshot().items).toBe(items);
+        });
+    });
+
+    describe("requests from the room view", () => {
+        it("scrolls to the newest loaded message, or loads the live end first", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.jumpToLive();
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$b", align: "end" });
+            vm.onAnchorReached();
+            expect(vm.getSnapshot().pendingAnchor).toBeNull();
+        });
+
+        it("shows and highlights a message in the open room, loading it when it is not in the window", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+
+            vm.showEvent("$a");
+            expect(vm.getSnapshot().highlightedEventId).toBe("$a");
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$a", align: "center" });
+
+            vm.onAnchorReached();
+            const load = vi.spyOn(TimelineWindow.prototype, "load").mockResolvedValue(undefined);
+            vm.showEvent("$elsewhere");
+            expect(load).toHaveBeenCalledWith("$elsewhere", expect.any(Number));
+        });
+
+        it("follows on after a sync gap once the reader has scrolled from a navigated message back to the newest", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.showEvent("$a");
+            vm.onAnchorReached("$a");
+            // While the placement is pending, reaching the bottom does not forget the navigation.
+            vm.onAtBottomStateChange(false);
+            // The reader scrolls back down to the newest message themselves.
+            vm.onAtBottomStateChange(true);
+
+            room.resetLiveTimeline("gap", undefined);
+            room.getUnfilteredTimelineSet().addLiveEvent(makeMessage("$c"), { addToState: false });
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$c"]));
+        });
+
+        it("keeps going to an older message when a sync gap arrives on the way", async () => {
+            const events = Array.from({ length: 250 }, (_, i) => makeMessage(`$m${i}`));
+            seedTimeline(events);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onAtBottomStateChange(true);
+            const realLoad = TimelineWindow.prototype.load;
+            const slow = Promise.withResolvers<void>();
+            vi.spyOn(TimelineWindow.prototype, "load").mockImplementation(async function (
+                this: TimelineWindow,
+                eventId?: string,
+                size?: number,
+            ) {
+                await realLoad.call(this, eventId, size);
+                if (eventId === "$m0") await slow.promise;
+            });
+            vm.showEvent("$m0");
+            // A gap in sync after the message is found, while the load is still running.
+            await vi.waitFor(() =>
+                expect(TimelineWindow.prototype.load).toHaveBeenCalledWith("$m0", expect.any(Number)),
+            );
+            room.resetLiveTimeline("gap", undefined);
+            slow.resolve();
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$m0"));
+            expect(vm.getSnapshot().highlightedEventId).toBe("$m0");
+        });
+
+        it("keeps the unread line or a loaded message it is moving to when a sync gap arrives first", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b"), makeMessage("$c")]);
+            room.addAccountData([
+                new MatrixEvent({ type: EventType.FullyRead, room_id: ROOM_ID, content: { event_id: "$a" } }),
+            ]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onAtBottomStateChange(true);
+
+            vm.jumpToReadMarker();
+            room.resetLiveTimeline("gap", undefined);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "read-marker", align: "center" });
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b", "$c"]);
+            expect(vm.getSnapshot().atLiveEnd).toBe(false);
+        });
+
+        it("keeps a loaded message it brings into view when a sync gap arrives before it is placed", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b"), makeMessage("$c")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const items = vm.getSnapshot().items;
+            vm.onVisibleRangeChanged(indexOfKey(items, "$b"), indexOfKey(items, "$c"));
+            vm.onAtBottomStateChange(true);
+
+            vm.scrollToEventIfNeeded("$a");
+            room.resetLiveTimeline("gap", undefined);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$a", align: "center" });
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b", "$c"]);
+        });
+
+        it("keeps a message navigated to in a short room while native history is still being expanded", async () => {
+            const preparation = Promise.withResolvers<boolean>();
+            vi.spyOn(SlidingSyncManager.instance, "initialTimelinePreparation").mockReturnValue(preparation.promise);
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.showEvent("$a");
+            vm.onAnchorReached("$a");
+            // The whole room fits on screen, so the list reports reaching the bottom by itself.
+            vm.onAtBottomStateChange(true);
+            preparation.resolve(true);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            expect(vm.getSnapshot().highlightedEventId).toBe("$a");
+        });
+
+        it("forgets an abandoned navigation when the jump-to-latest button is used", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const realLoad = TimelineWindow.prototype.load;
+            const slow = Promise.withResolvers<void>();
+            vi.spyOn(TimelineWindow.prototype, "load").mockImplementation(async function (
+                this: TimelineWindow,
+                eventId?: string,
+                size?: number,
+            ) {
+                if (eventId === "$elsewhere") await slow.promise;
+                return realLoad.call(this, eventId, size);
+            });
+            vm.showEvent("$elsewhere");
+            const scrollNow = vi.fn();
+            vm.onJumpToLive(scrollNow);
+            expect(scrollNow).toHaveBeenCalledWith({ targetKey: "$b", align: "end" });
+            expect(vm.getSnapshot().highlightedEventId).toBeNull();
+
+            // The reader is at the newest messages again, so a gap in sync follows them on.
+            vm.onAtBottomStateChange(true);
+            room.resetLiveTimeline("gap", undefined);
+            room.getUnfilteredTimelineSet().addLiveEvent(makeMessage("$c"), { addToState: false });
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$c"]));
+            slow.resolve();
+        });
+
+        it("keeps a message navigated to while the first placement settles", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            const initial = vm.getSnapshot().pendingAnchor!;
+            vm.showEvent("$a");
+            // The view reports the placement it started, for the earlier anchor.
+            vm.onAnchorReached(initial.targetKey);
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$a", align: "center" });
+            vm.onAnchorReached("$a");
+            expect(vm.getSnapshot().pendingAnchor).toBeNull();
+        });
+
+        it("brings a loaded message into view only when it is not visible", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b"), makeMessage("$c")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const items = vm.getSnapshot().items;
+            vm.onVisibleRangeChanged(indexOfKey(items, "$b"), indexOfKey(items, "$c"));
+
+            vm.scrollToEventIfNeeded("$c");
+            vm.scrollToEventIfNeeded("$unknown");
+            expect(vm.getSnapshot().pendingAnchor).toBeNull();
+
+            vm.scrollToEventIfNeeded("$a");
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$a", align: "center" });
+        });
+
+        it("reports whether the reader is at the newest message", async () => {
+            seedTimeline([makeMessage("$a")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            expect(vm.isAtLiveBottom).toBe(false);
+            vm.onAtBottomStateChange(true);
+            expect(vm.isAtLiveBottom).toBe(true);
+            expect(vm.canJumpToReadMarker).toBe(false);
+        });
+
+        it("sends a receipt straight away when asked, such as when the window regains focus", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            vm.sendReadReceiptNow();
+            expect(client.sendReadReceipt).toHaveBeenCalledTimes(1);
+            expect(vi.mocked(client.sendReadReceipt).mock.calls[0][0]?.getId()).toBe("$b");
+        });
+
+        it("keeps a newer load's window when an older load of other messages finishes later", async () => {
+            // More than one window holds, so the permalink's window and the live one differ.
+            const events = Array.from({ length: 250 }, (_, i) => makeMessage(`$m${i}`));
+            seedTimeline(events);
+            const vm = new RoomTimelineViewModel({ client, room, initialEventId: "$m0" });
+            vms.push(vm);
+            const realLoad = TimelineWindow.prototype.load;
+            const permalink = Promise.withResolvers<void>();
+            vi.spyOn(TimelineWindow.prototype, "load").mockImplementation(async function (
+                this: TimelineWindow,
+                eventId?: string,
+                size?: number,
+            ) {
+                if (eventId === "$m0") await permalink.promise;
+                return realLoad.call(this, eventId, size);
+            });
+            vm.start();
+            vm.jumpToLive();
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$m249"));
+            vm.onAnchorReached();
+
+            permalink.resolve();
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            // A new live message still extends the live window, not the old permalink's.
+            room.getUnfilteredTimelineSet().addLiveEvent(makeMessage("$new"), { addToState: false });
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$new"));
+            expect(eventKeys(vm.getSnapshot().items)).not.toContain("$m0");
+            expect(vm.getSnapshot().highlightedEventId).toBeNull();
+        });
+
+        it("cancels a slower load when the reader navigates to messages already shown", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const realLoad = TimelineWindow.prototype.load;
+            const elsewhere = Promise.withResolvers<void>();
+            vi.spyOn(TimelineWindow.prototype, "load").mockImplementation(async function (
+                this: TimelineWindow,
+                eventId?: string,
+                size?: number,
+            ) {
+                if (eventId === "$elsewhere") await elsewhere.promise;
+                return realLoad.call(this, eventId === "$elsewhere" ? undefined : eventId, size);
+            });
+            vm.showEvent("$elsewhere");
+            // The reader presses Escape before that message has loaded.
+            vm.jumpToLive();
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$b", align: "end" });
+            vm.onAnchorReached("$b");
+
+            elsewhere.resolve();
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            expect(vm.getSnapshot().highlightedEventId).toBeNull();
+            expect(vm.getSnapshot().pendingAnchor).toBeNull();
+        });
+
+        it("does not let an overtaken load replace a newer one", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = new RoomTimelineViewModel({ client, room, initialEventId: "$a" });
+            vms.push(vm);
+            const window = (vm as any).timelineWindow;
+            const realLoad = window.load.bind(window);
+            const permalink = Promise.withResolvers<void>();
+            vi.spyOn(window, "load").mockImplementation(async (eventId?: unknown, size?: unknown) => {
+                if (eventId === "$a") await permalink.promise;
+                return realLoad(eventId, size);
+            });
+            vm.start();
+            // The reader jumps to the latest messages before the permalink has loaded.
+            vm.jumpToLive();
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]));
+            expect(vm.getSnapshot().highlightedEventId).toBeNull();
+
+            permalink.resolve();
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            expect(vm.getSnapshot().highlightedEventId).toBeNull();
+            expect(vm.getSnapshot().pendingAnchor).not.toEqual({ targetKey: "$a", align: "center" });
+        });
+    });
+
     describe("pagination", () => {
         it("asks for older messages when the top of the list is reached", async () => {
             seedTimeline([makeMessage("$a")]);
@@ -906,6 +1290,11 @@ describe("RoomTimelineViewModel", () => {
             vm.onJumpToReadMarker(scrollNow);
 
             expect(scrollNow).toHaveBeenCalledWith(expect.objectContaining({ targetKey: "read-marker" }));
+            // The reader is now reading at the marker, so a gap in sync keeps them there.
+            vm.onAtBottomStateChange(false);
+            room.resetLiveTimeline("gap", undefined);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b", "$c"]);
         });
 
         it("offers a jump when the marker is older than the loaded messages", async () => {
@@ -1038,6 +1427,77 @@ describe("RoomTimelineViewModel", () => {
 
             await flushReceiptDebounce();
             expect(client.sendReadReceipt).toHaveBeenCalledWith(expect.anything(), ReceiptType.ReadPrivate);
+        });
+
+        it("does not send receipts in a room the user has not joined, such as one being previewed", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            room.updateMyMembership(KnownMembership.Leave);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            vm.sendReadReceiptNow();
+            await new Promise((r) => setTimeout(r, 700));
+            expect(client.sendReadReceipt).not.toHaveBeenCalled();
+        });
+
+        it("holds receipts back while the user is away, and sends them once they are back", async () => {
+            const activity = UserActivity.sharedInstance();
+            vi.mocked(activity.userActiveNow).mockReturnValue(false);
+            let activeTimer: { start: () => void } | undefined;
+            vi.spyOn(activity, "timeWhileActiveNow").mockImplementation((timer) => {
+                activeTimer = timer;
+            });
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            await new Promise((r) => setTimeout(r, 700));
+            expect(client.sendReadReceipt).not.toHaveBeenCalled();
+
+            vi.mocked(activity.userActiveNow).mockReturnValue(true);
+            activeTimer!.start();
+            await vi.waitFor(() => expect(client.sendReadReceipt).toHaveBeenCalledTimes(1), { timeout: 2000 });
+            expect(vi.mocked(client.sendReadReceipt).mock.calls[0][0]?.getId()).toBe("$b");
+        });
+
+        it("waits for the user again when they go inactive before the held-back receipt is sent", async () => {
+            const activity = UserActivity.sharedInstance();
+            vi.mocked(activity.userActiveNow).mockReturnValue(false);
+            const waits: { start: () => unknown; abort: () => unknown }[] = [];
+            vi.spyOn(activity, "timeWhileActiveNow").mockImplementation((timer) => {
+                waits.push(timer);
+            });
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            await vi.waitFor(() => expect(waits).toHaveLength(1), { timeout: 2000 });
+
+            // Activity starts the wait, then stops before it is over, as UserActivity does.
+            waits[0].start();
+            waits[0].abort();
+            await vi.waitFor(() => expect(waits).toHaveLength(2));
+            vi.mocked(activity.userActiveNow).mockReturnValue(true);
+            waits[1].start();
+            await vi.waitFor(() => expect(client.sendReadReceipt).toHaveBeenCalledTimes(1), { timeout: 2000 });
+        });
+
+        it("lets go of a receipt wait that never started when it is disposed", async () => {
+            const activity = UserActivity.sharedInstance();
+            vi.mocked(activity.userActiveNow).mockReturnValue(false);
+            const waits: { finished: () => Promise<void> }[] = [];
+            vi.spyOn(activity, "timeWhileActiveNow").mockImplementation((timer) => {
+                waits.push(timer);
+            });
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            await vi.waitFor(() => expect(waits).toHaveLength(1), { timeout: 2000 });
+            const settled = waits[0].finished();
+            vm.dispose();
+            await expect(settled).rejects.toThrow();
+            expect(waits).toHaveLength(1);
         });
 
         it("does not move the receipt backwards when the user scrolls up", async () => {
@@ -1179,6 +1639,31 @@ describe("RoomTimelineViewModel", () => {
         beforeEach(() => {
             // The messages being sent are ours, as they are in the app.
             vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+        });
+
+        it("shows a send failure that happened while an abandoned load was running", async () => {
+            seedTimeline([makeMessage("$a")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const pending = addPendingMessage("~pending");
+            await vi.waitFor(() => expect(eventRow(vm, "~pending")?.sendState).toBe("sending"));
+            const realLoad = TimelineWindow.prototype.load;
+            const slow = Promise.withResolvers<void>();
+            vi.spyOn(TimelineWindow.prototype, "load").mockImplementation(async function (
+                this: TimelineWindow,
+                eventId?: string,
+                size?: number,
+            ) {
+                if (eventId === "$elsewhere") await slow.promise;
+                return realLoad.call(this, eventId === "$elsewhere" ? undefined : eventId, size);
+            });
+            vm.showEvent("$elsewhere");
+            room.updatePendingEvent(pending, EventStatus.NOT_SENT);
+            await settle();
+            // The reader presses Escape while that load is still running.
+            vm.jumpToLive();
+            await vi.waitFor(() => expect(eventRow(vm, "~pending")?.sendState).toBe("failed"));
+            slow.resolve();
         });
 
         it("shows a message as soon as it leaves the composer, after the confirmed ones", async () => {

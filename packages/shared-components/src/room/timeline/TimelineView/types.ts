@@ -178,8 +178,12 @@ export interface TimelineViewActions {
      * Report that the anchor placement has settled (the target has stabilised in
      * the visible range). The VM clears `pendingAnchor`, re-enabling
      * follow-on-append and normal scroll-position tracking.
+     *
+     * @param targetKey - The anchor that was placed, or null when the list was placed at its end without one. A
+     * `pendingAnchor` set to another target meanwhile must stay, so it is placed next. Omitted, any anchor is
+     * cleared.
      */
-    onAnchorReached(): void;
+    onAnchorReached(targetKey?: string | null): void;
 
     /**
      * Called on every visible-range change; the VM tracks the bottommost visible event
