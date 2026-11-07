@@ -1176,6 +1176,8 @@ export class SlidingSyncManager {
                 slidingSync.off(SlidingSyncEvent.Lifecycle, lifecycle);
                 // The open Space's channels the lists now cover need no subscription of their own.
                 this.listsCoverAccount = true;
+                // Every room is known: history may now be fetched to make their counts exact.
+                this.countEngine?.allowRecovery();
                 this.notifyArrivals();
                 if (this.activeSpaceId) this.refreshSpaceChannels();
             }

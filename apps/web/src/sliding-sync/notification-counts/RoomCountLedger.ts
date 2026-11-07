@@ -465,6 +465,28 @@ export class RoomCountLedger {
      * can be, such as an encrypted event not yet decrypted, waits until it is forgotten again.
      */
     public unevaluated(): string[] {
+        return this.collectUnevaluated();
+    }
+
+    /**
+     * Where history would make the main timeline's count exact: the first event of the newest segment, when a gap
+     * lies between it and the user's newest receipt there (one in an older segment, or one whose event the ledger
+     * does not have). History fetched just before it fills the gap, or reaches the receipt. Undefined when no gap
+     * matters, or while the receipts are not all known yet.
+     */
+    public recoveryAnchor(): string | undefined {
+        if (!this.receiptsComplete) return undefined;
+        const live = this.liveSegment();
+        if (!live) return undefined;
+        const frontier = this.frontierFor(MAIN_SCOPE, this.frontiers());
+        // A receipt made here for an event not seen settles otherwise.
+        if (frontier.anywhere) return undefined;
+        if (frontier.known?.segment === live) return undefined;
+        if (!frontier.known && !frontier.dangling) return undefined;
+        return live.events[0]?.id;
+    }
+
+    private collectUnevaluated(): string[] {
         const result: string[] = [];
         const frontiers = this.frontiers();
         this.forEachNewestFirst((event) => {
