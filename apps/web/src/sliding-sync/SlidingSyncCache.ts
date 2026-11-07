@@ -95,6 +95,9 @@ export class SlidingSyncCache {
     private writeTimer?: ReturnType<typeof setTimeout>;
     private writing: Promise<void> = Promise.resolve();
     private loadedRoomIds: ReadonlySet<string> = new Set();
+    // The snapshot handed to the SDK. It applies some rooms in the background, reading each at its turn, so a room
+    // dropped from here before then is never shown.
+    private loadedSnapshot?: SlidingSyncSnapshot;
     private disposed = false;
 
     /**
@@ -147,7 +150,8 @@ export class SlidingSyncCache {
                 if (!this.accountData.has(event.type)) this.accountData.set(event.type, event);
             this.loadedRoomIds = new Set(rooms.map((room) => room.roomId));
             if (rooms.length === 0) return null;
-            return this.snapshot(rooms);
+            this.loadedSnapshot = this.snapshot(rooms);
+            return this.loadedSnapshot;
         } catch (error) {
             logger.warn("SlidingSyncCache: could not read saved rooms", error);
             return null;
@@ -279,6 +283,7 @@ export class SlidingSyncCache {
             this.rooms.delete(roomId);
             this.dirtyRooms.delete(roomId);
             this.removedRooms.add(roomId);
+            delete this.loadedSnapshot?.rooms[roomId];
         }
         this.scheduleWrite();
     }
@@ -321,7 +326,7 @@ export class SlidingSyncCache {
     }
 
     private snapshot(rooms: CachedRoom[]): SlidingSyncSnapshot {
-        const snapshot: Required<SlidingSyncSnapshot> = {
+        const snapshot: Required<Omit<SlidingSyncSnapshot, "priorityRoomIds">> = {
             rooms: {},
             accountData: [...this.accountData.values()],
             roomAccountData: {},

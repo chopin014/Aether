@@ -206,6 +206,17 @@ describe("SlidingSyncCache", () => {
         await otherSession.dispose();
     });
 
+    it("drops a forgotten room from the snapshot it handed out, so a room restored later is not shown", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        cache.observeRoomData(roomId, data({ timeline: [message("$a")] }));
+        cache.observeRoomData("!other:example.org", data({ timeline: [message("$b")] }));
+        const reopened = await reopen(cache);
+        const snapshot = (await reopened.load())!;
+        reopened.forgetRooms([roomId]);
+        expect(Object.keys(snapshot.rooms)).toEqual(["!other:example.org"]);
+        await reopened.dispose();
+    });
+
     it("writes nothing more once its saved data has been deleted, such as at logout", async () => {
         const cache = new SlidingSyncCache(userId, deviceId);
         await cache.load();

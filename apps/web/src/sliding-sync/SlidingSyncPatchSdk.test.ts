@@ -489,6 +489,114 @@ describe("sliding sync restoring a saved snapshot", () => {
         api.stop();
     });
 
+    describe("with many saved rooms", () => {
+        const id = (i: number): string => `!r${i}:example.org`;
+        const savedRoom = (roomId: string, bump: number, space = false): MSC3575RoomData =>
+            ({
+                name: roomId,
+                bump_stamp: bump,
+                required_state: [
+                    { ...requiredState[0], room_id: roomId, content: space ? { type: "m.space" } : {} },
+                    { ...requiredState[1], room_id: roomId },
+                ],
+                timeline: space ? [] : [{ ...message(`$saved-${roomId}`, bump), room_id: roomId }],
+                limited: true,
+                prev_batch: "saved",
+            }) as MSC3575RoomData;
+        // 30 rooms, the most recent last; a Space that has been quiet; the room opened at start is the oldest.
+        const many = (): SlidingSyncSnapshot => ({
+            rooms: {
+                ...Object.fromEntries(Array.from({ length: 30 }, (_, i) => [id(i), savedRoom(id(i), i + 10)])),
+                "!space:example.org": savedRoom("!space:example.org", 0, true),
+            },
+            priorityRoomIds: [id(0)],
+        });
+        const messages = (client: MatrixClient, roomId: string): string[] =>
+            client
+                .getRoom(roomId)!
+                .getLiveTimeline()
+                .getEvents()
+                .filter((event) => event.getType() === EventType.RoomMessage)
+                .map((event) => event.getId()!);
+
+        it("shows the room opened at start, the Spaces and the most recent rooms before Prepared, then the rest", async () => {
+            let shownFirst: string[] = [];
+            const { client, api, states } = setup(async () => many());
+            client.on(ClientEvent.Sync, (state) => {
+                if (state === SyncState.Prepared) shownFirst = client.getRooms().map((room) => room.roomId);
+            });
+            await vi.waitFor(() => expect(states).toContain(SyncState.Prepared));
+            expect(new Set(shownFirst)).toEqual(
+                new Set([id(0), "!space:example.org", ...Array.from({ length: 20 }, (_, i) => id(29 - i))]),
+            );
+            await vi.waitFor(() => expect(client.getRooms()).toHaveLength(31));
+            expect(states.filter((state) => state === SyncState.Prepared)).toHaveLength(1);
+            api.stop();
+        });
+
+        it("applies a room's saved data before live data that arrives while it waits its turn", async () => {
+            const { client, api, responses, states } = setup(async () => many());
+            await vi.waitFor(() => expect(responses).toHaveLength(1));
+            responses[0]({
+                rooms: {
+                    [id(1)]: {
+                        name: id(1),
+                        required_state: [],
+                        timeline: [{ ...message("$live", 100), room_id: id(1) }],
+                    },
+                },
+            });
+            await vi.waitFor(() => expect(states).toContain(SyncState.Syncing));
+            expect(messages(client, id(1))).toEqual([`$saved-${id(1)}`, "$live"]);
+            api.stop();
+        });
+
+        it("does not show a room dropped from the snapshot before its turn", async () => {
+            const snapshot = many();
+            const { client, api, states } = setup(async () => snapshot);
+            client.on(ClientEvent.Sync, (state) => {
+                // The client learns the user left this room, before the background restore reaches it.
+                if (state === SyncState.Prepared) delete snapshot.rooms[id(1)];
+            });
+            await vi.waitFor(() => expect(states).toContain(SyncState.Prepared));
+            await vi.waitFor(() => expect(client.getRooms()).toHaveLength(30));
+            expect(client.getRoom(id(1))).toBeNull();
+            api.stop();
+        });
+
+        it("adds live events to the notifications while saved rooms are still being applied", async () => {
+            const notifications = new EventTimelineSet(undefined, { timelineSupport: true }, makeClient());
+            const { api, responses, states } = setup(
+                async () => many(),
+                (client) => {
+                    client.setNotifTimelineSet(notifications);
+                    vi.spyOn(client, "getPushActionsForEvent").mockReturnValue({
+                        notify: true,
+                        tweaks: { highlight: true },
+                    } as never);
+                },
+            );
+            await vi.waitFor(() => expect(responses).toHaveLength(1));
+            responses[0]({
+                rooms: {
+                    [id(29)]: {
+                        name: id(29),
+                        required_state: [],
+                        timeline: [{ ...message("$mention", 100), room_id: id(29) }],
+                    },
+                },
+            });
+            await vi.waitFor(() => expect(states).toContain(SyncState.Syncing));
+            expect(
+                notifications
+                    .getLiveTimeline()
+                    .getEvents()
+                    .map((event) => event.getId()),
+            ).toEqual(["$mention"]);
+            api.stop();
+        });
+    });
+
     it("starts normally when the snapshot cannot be loaded", async () => {
         const { api, responses, states } = setup(async () => {
             throw new Error("storage broken");
