@@ -94,6 +94,32 @@ describe("VoiceActivityIndex", () => {
         expect(index.roomOf("@robin:example.org")).toBe(undefined);
     });
 
+    it("forgets everyone when the store destroys its calls, as it does when the client stops", async () => {
+        const store = new FakeCallStore();
+        const lounge = new FakeCall("!lounge:example.org");
+        store.add(lounge);
+        const index = new VoiceActivityIndex(store as unknown as CallStore);
+        lounge.setPeople("@robin:example.org");
+        const listener = vi.fn();
+        index.subscribe(listener);
+
+        // The store tears calls down while they are still listed, then empties the list without saying so.
+        lounge.emit(CallEvent.Destroy);
+        store.calls.clear();
+        await Promise.resolve();
+        expect(index.roomOf("@robin:example.org")).toBeUndefined();
+        expect(listener).toHaveBeenCalledTimes(1);
+        // A destroyed call is no longer listened to.
+        lounge.setPeople("@robin:example.org");
+        expect(index.roomOf("@robin:example.org")).toBeUndefined();
+
+        // A new session's calls are picked up as usual.
+        const next = new FakeCall("!lounge:example.org");
+        store.add(next);
+        next.setPeople("@robin:example.org");
+        expect(index.roomOf("@robin:example.org")).toBe("!lounge:example.org");
+    });
+
     it("describes the channel for a profile card, with its Space and the first faces", () => {
         const store = new FakeCallStore();
         const call = new FakeCall("!lounge:example.org");

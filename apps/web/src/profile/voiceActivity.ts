@@ -32,7 +32,7 @@ export class VoiceActivityIndex {
 
     private rooms = new Map<string, string>();
     private readonly listeners = new Set<() => void>();
-    private readonly watched = new Map<Call, () => void>();
+    private readonly watched = new Set<Call>();
 
     public constructor(private readonly store: CallStore) {
         store.on(CallStoreEvent.Call, this.onCall);
@@ -53,26 +53,37 @@ export class VoiceActivityIndex {
     /** Stop watching calls. */
     public dispose(): void {
         this.store.off(CallStoreEvent.Call, this.onCall);
-        for (const [call, listener] of this.watched) call.off(CallEvent.Participants, listener);
-        this.watched.clear();
+        for (const call of this.watched) this.unwatch(call);
         this.listeners.clear();
         if (VoiceActivityIndex.current === this) VoiceActivityIndex.current = undefined;
     }
 
     private readonly onCall = (): void => this.rebuild();
 
+    private readonly onParticipants = (): void => this.rebuild();
+
+    /**
+     * A call ended. The store destroys every call when the client stops (logging out, for one) and clears its list
+     * afterwards without saying the list changed, so the list is read again once it has finished.
+     */
+    private readonly onDestroy = (): void => queueMicrotask(() => this.rebuild());
+
+    private unwatch(call: Call): void {
+        call.off(CallEvent.Participants, this.onParticipants);
+        call.off(CallEvent.Destroy, this.onDestroy);
+        this.watched.delete(call);
+    }
+
     private rebuild(): void {
         const calls = new Set(this.store.getAllCalls().values());
-        for (const [call, listener] of this.watched) {
-            if (calls.has(call)) continue;
-            call.off(CallEvent.Participants, listener);
-            this.watched.delete(call);
+        for (const call of this.watched) {
+            if (!calls.has(call)) this.unwatch(call);
         }
         for (const call of calls) {
             if (this.watched.has(call)) continue;
-            const listener = (): void => this.rebuild();
-            call.on(CallEvent.Participants, listener);
-            this.watched.set(call, listener);
+            call.on(CallEvent.Participants, this.onParticipants);
+            call.on(CallEvent.Destroy, this.onDestroy);
+            this.watched.add(call);
         }
         const rooms = new Map<string, string>();
         for (const call of calls) {
