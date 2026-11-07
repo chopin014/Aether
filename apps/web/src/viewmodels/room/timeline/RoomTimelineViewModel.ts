@@ -1184,6 +1184,15 @@ export class RoomTimelineViewModel
     // ── Requests from the room view ──────────────────────────────────
 
     /**
+     * Abandon any load still running, because the reader has navigated somewhere the rows already shown can serve.
+     * Without this, a slower load finishing later would take them back to where it was going.
+     */
+    private supersedeLoads(): void {
+        this.loadGeneration++;
+        this.loading = false;
+    }
+
+    /**
      * Show the newest message, loading it first when the window does not hold it. Used when sending a message, by
      * Escape, and by keyboard shortcuts.
      */
@@ -1194,12 +1203,15 @@ export class RoomTimelineViewModel
             void this.load({ kind: "live" });
             return;
         }
+        this.supersedeLoads();
+        this.navigationEventId = null;
         const items = this.snapshot.current.items;
         const last = items[items.length - 1];
         this.mergeSnapshot(
             {
                 numUnreadMessages: 0,
                 hasHighlights: false,
+                highlightedEventId: null,
                 pendingAnchor: last ? { targetKey: last.key, align: "end" } : null,
             },
             "jump-to-live-requested",
@@ -1215,6 +1227,7 @@ export class RoomTimelineViewModel
         if (this.isDisposed) return;
         const loaded = this.snapshot.current.items.some((item) => item.key === eventId);
         if (loaded) {
+            this.supersedeLoads();
             this.navigationEventId = eventId;
             this.mergeSnapshot(
                 { highlightedEventId: eventId, pendingAnchor: { targetKey: eventId, align: "center" } },
@@ -1229,6 +1242,7 @@ export class RoomTimelineViewModel
     public jumpToReadMarker(): void {
         const marker = this.snapshot.current.items.find((item) => item.kind === "read-marker");
         if (marker) {
+            this.supersedeLoads();
             this.mergeSnapshot({ pendingAnchor: { targetKey: marker.key, align: "center" } }, "jump-to-marker");
         } else if (this.frozenMarkerEventId) {
             void this.load({ kind: "permalink", eventId: this.frozenMarkerEventId });
@@ -1245,6 +1259,7 @@ export class RoomTimelineViewModel
         const index = items.findIndex((item) => item.key === eventId);
         if (index < 0) return;
         if (index >= this.visibleStartArrayIndex && index <= this.visibleEndArrayIndex) return;
+        this.supersedeLoads();
         this.mergeSnapshot({ pendingAnchor: { targetKey: eventId, align: "center" } }, "scroll-to-event");
     }
 
@@ -1257,20 +1272,24 @@ export class RoomTimelineViewModel
 
     /** Send the held-back receipt once the user has been active for a moment. */
     private sendReceiptWhenActive(): void {
-        if (this.receiptActivityTimer) return;
+        if (this.receiptActivityTimer || this.isDisposed) return;
         const timer = new Timer(READ_RECEIPT_DEBOUNCE_MS);
         this.receiptActivityTimer = timer;
-        UserActivity.sharedInstance().timeWhileActiveNow(timer);
-        timer.finished().then(
-            () => {
-                if (this.receiptActivityTimer !== timer) return;
-                this.receiptActivityTimer = undefined;
-                this.sendAutoReadReceipt();
-            },
-            () => {
-                // Aborted on dispose.
-            },
-        );
+        const wait = (): void => {
+            UserActivity.sharedInstance().timeWhileActiveNow(timer);
+            timer.finished().then(
+                () => {
+                    if (this.receiptActivityTimer !== timer) return;
+                    this.receiptActivityTimer = undefined;
+                    this.sendAutoReadReceipt();
+                },
+                () => {
+                    // The user went inactive again before the wait was over: wait for them to come back.
+                    if (this.receiptActivityTimer === timer && !this.isDisposed) wait();
+                },
+            );
+        };
+        wait();
     }
 
     /** Whether the reader is at the newest message of the live timeline. */
@@ -1301,6 +1320,7 @@ export class RoomTimelineViewModel
             debug(
                 `[TimelineVM] onJumpToReadMarker — marker in window at index ${rmIdx}, scrolling now key=${readMarkerKey}`,
             );
+            this.supersedeLoads();
             scrollNow({ targetKey: readMarkerKey, align: "center" });
         } else if (this.frozenMarkerEventId && this.timelineWindow.canPaginate(Direction.Backward)) {
             // Frozen marker is not in the current window — reload at it.
@@ -1340,6 +1360,7 @@ export class RoomTimelineViewModel
             void this.load({ kind: "live" });
         } else {
             // Already have the latest events — scroll to the last item now.
+            this.supersedeLoads();
             const items = this.snapshot.current.items;
             if (items.length > 0) {
                 const targetKey = items[items.length - 1].key;
@@ -1407,8 +1428,10 @@ export class RoomTimelineViewModel
             clearTimeout(this.readReceiptDebounceTimer);
             this.readReceiptDebounceTimer = null;
         }
-        this.receiptActivityTimer?.abort();
+        const receiptTimer = this.receiptActivityTimer;
         this.receiptActivityTimer = undefined;
+        // Settle the timer even if it never started, so UserActivity lets go of it.
+        receiptTimer?.start().abort();
         if (this.decryptDebounceTimer !== null) {
             clearTimeout(this.decryptDebounceTimer);
             this.decryptDebounceTimer = null;

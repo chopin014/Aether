@@ -730,10 +730,30 @@ describe("RoomTimelineViewModel", () => {
             vm.onAtBottomStateChange(false);
 
             // Regular sync keeps the old timeline, with a forward token leading to the new one.
-            room.getUnfilteredTimelineSet().resetLiveTimeline("back", "forward");
+            const timelineSet = room.getUnfilteredTimelineSet();
+            const old = timelineSet.getLiveTimeline();
+            timelineSet.resetLiveTimeline("back", "forward");
+            const live = timelineSet.getLiveTimeline();
             expect(vm.getSnapshot().atLiveEnd).toBe(false);
-            expect((vm as any).windowDetachedFromLive()).toBe(false);
             expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]);
+            // Paginating forward from the old timeline reaches the new live one, as the SDK links them.
+            vi.mocked(client.paginateEventTimeline).mockImplementation(async (timeline) => {
+                if (timeline !== old) return false;
+                old.setNeighbouringTimeline(live, Direction.Forward);
+                live.setNeighbouringTimeline(old, Direction.Backward);
+                old.setPaginationToken(null, Direction.Forward);
+                return true;
+            });
+
+            timelineSet.addLiveEvent(makeMessage("$c", { user: OTHER_USER_ID }), { addToState: false });
+            await vi.waitFor(() => expect(vm.getSnapshot().numUnreadMessages).toBe(1));
+            // Scrolling to the end pages forward through the gap into the new live timeline.
+            vm.onEndReached();
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b", "$c"]));
+            await vi.waitFor(() => expect(vm.getSnapshot().atLiveEnd).toBe(true));
+            // And keeps following new messages afterwards.
+            timelineSet.addLiveEvent(makeMessage("$d", { user: OTHER_USER_ID }), { addToState: false });
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$d"));
         });
 
         it("ignores resets of other timeline sets", async () => {
@@ -848,6 +868,32 @@ describe("RoomTimelineViewModel", () => {
             await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$new"));
             expect(eventKeys(vm.getSnapshot().items)).not.toContain("$m0");
             expect(vm.getSnapshot().highlightedEventId).toBeNull();
+        });
+
+        it("cancels a slower load when the reader navigates to messages already shown", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const realLoad = TimelineWindow.prototype.load;
+            const elsewhere = Promise.withResolvers<void>();
+            vi.spyOn(TimelineWindow.prototype, "load").mockImplementation(async function (
+                this: TimelineWindow,
+                eventId?: string,
+                size?: number,
+            ) {
+                if (eventId === "$elsewhere") await elsewhere.promise;
+                return realLoad.call(this, eventId === "$elsewhere" ? undefined : eventId, size);
+            });
+            vm.showEvent("$elsewhere");
+            // The reader presses Escape before that message has loaded.
+            vm.jumpToLive();
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$b", align: "end" });
+            vm.onAnchorReached("$b");
+
+            elsewhere.resolve();
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            expect(vm.getSnapshot().highlightedEventId).toBeNull();
+            expect(vm.getSnapshot().pendingAnchor).toBeNull();
         });
 
         it("does not let an overtaken load replace a newer one", async () => {
@@ -1268,6 +1314,46 @@ describe("RoomTimelineViewModel", () => {
             activeTimer!.start();
             await vi.waitFor(() => expect(client.sendReadReceipt).toHaveBeenCalledTimes(1), { timeout: 2000 });
             expect(vi.mocked(client.sendReadReceipt).mock.calls[0][0]?.getId()).toBe("$b");
+        });
+
+        it("waits for the user again when they go inactive before the held-back receipt is sent", async () => {
+            const activity = UserActivity.sharedInstance();
+            vi.mocked(activity.userActiveNow).mockReturnValue(false);
+            const waits: { start: () => unknown; abort: () => unknown }[] = [];
+            vi.spyOn(activity, "timeWhileActiveNow").mockImplementation((timer) => {
+                waits.push(timer);
+            });
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            await vi.waitFor(() => expect(waits).toHaveLength(1), { timeout: 2000 });
+
+            // Activity starts the wait, then stops before it is over, as UserActivity does.
+            waits[0].start();
+            waits[0].abort();
+            await vi.waitFor(() => expect(waits).toHaveLength(2));
+            vi.mocked(activity.userActiveNow).mockReturnValue(true);
+            waits[1].start();
+            await vi.waitFor(() => expect(client.sendReadReceipt).toHaveBeenCalledTimes(1), { timeout: 2000 });
+        });
+
+        it("lets go of a receipt wait that never started when it is disposed", async () => {
+            const activity = UserActivity.sharedInstance();
+            vi.mocked(activity.userActiveNow).mockReturnValue(false);
+            const waits: { finished: () => Promise<void> }[] = [];
+            vi.spyOn(activity, "timeWhileActiveNow").mockImplementation((timer) => {
+                waits.push(timer);
+            });
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            await vi.waitFor(() => expect(waits).toHaveLength(1), { timeout: 2000 });
+            const settled = waits[0].finished();
+            vm.dispose();
+            await expect(settled).rejects.toThrow();
+            expect(waits).toHaveLength(1);
         });
 
         it("does not move the receipt backwards when the user scrolls up", async () => {

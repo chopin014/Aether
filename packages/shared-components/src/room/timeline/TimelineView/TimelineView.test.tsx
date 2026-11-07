@@ -160,6 +160,8 @@ describe("<TimelineView />", () => {
         // Shrinking below the estimate until the list fits in the viewport can leave the
         // virtualizer's cached offset above zero even though the browser clamps scrollTop.
         await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 500 });
+        // It reports the anchor it placed.
+        expect(actions.onAnchorReached).toHaveBeenCalledWith("evt-7");
         const scroller = screen.getByTestId("timeline-scroller");
         expect(scroller.scrollTop).toBe(0);
         expect(screen.getByTestId("row-evt-7").getBoundingClientRect().bottom).toBeCloseTo(
@@ -242,6 +244,8 @@ describe("<TimelineView />", () => {
         expect(actions.onAnchorReached).not.toHaveBeenCalled();
 
         await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalledTimes(1), { timeout: 5000 });
+        // Placed at the end without an anchor, so it reports none: an anchor set meanwhile must stay.
+        expect(actions.onAnchorReached).toHaveBeenCalledWith(null);
         await waitFor(() => expect(scroller).toHaveStyle({ visibility: "visible" }));
     });
 
