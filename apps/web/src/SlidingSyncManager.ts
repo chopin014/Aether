@@ -270,6 +270,8 @@ export class SlidingSyncManager {
     // Each walked Space's children in the Space's order, with the child events they were sorted from.
     private readonly sortedChildren = new Map<string, { events: MatrixEvent[]; sorted: MatrixEvent[] }>();
     private pendingActiveSpace?: string;
+    // The rooms the app opens at start, restored from this device before the others.
+    private roomsShownFirst: string[] = [];
 
     private configureDefer = Promise.withResolvers<void>();
 
@@ -1070,6 +1072,9 @@ export class SlidingSyncManager {
         prefetch?: { roomId?: string; spaceId?: string },
     ): Promise<SlidingSync | undefined> {
         const slidingSync = this.configure(client, client.baseUrl, initialRoomId);
+        this.roomsShownFirst = [initialRoomId, prefetch?.roomId, prefetch?.spaceId].filter(
+            (roomId): roomId is string => !!roomId?.startsWith("!"),
+        );
         if (initialRoomId?.startsWith("!")) {
             this.beginInitialTimeline(initialRoomId);
             // The room view takes its own lease once it opens; this keeps the destination until then.
@@ -1130,7 +1135,12 @@ export class SlidingSyncManager {
     public snapshotLoader(client: MatrixClient): (() => Promise<SlidingSyncSnapshot | null>) | undefined {
         const cache = this.cache;
         if (!cache || this.client !== client) return undefined;
-        return () => cache.load();
+        return async () => {
+            const snapshot = await cache.load();
+            // The room and Space the app opens at start are shown before the rest.
+            if (snapshot) snapshot.priorityRoomIds = [...this.roomsShownFirst];
+            return snapshot;
+        };
     }
 
     /** Keep what this connection learns on this device, for the next start. */

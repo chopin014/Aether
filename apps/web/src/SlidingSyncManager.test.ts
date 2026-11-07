@@ -1685,6 +1685,16 @@ describe("SlidingSyncManager", () => {
             await expect(manager.snapshotLoader(client)!()).resolves.toBeNull();
         });
 
+        it("asks for the room and Space opened at start to be shown first", async () => {
+            await manager.setup(client, undefined, { roomId: "!room", spaceId: "!space" });
+            const cache = (manager as unknown as { cache: { load(): Promise<unknown> } }).cache;
+            vi.spyOn(cache, "load").mockResolvedValue({ rooms: {} });
+            await expect(manager.snapshotLoader(client)!()).resolves.toEqual({
+                rooms: {},
+                priorityRoomIds: ["!room", "!space"],
+            });
+        });
+
         it("keeps no saved rooms for a session without a device", async () => {
             vi.mocked(client.getDeviceId).mockReturnValue(null);
             await manager.setup(client);

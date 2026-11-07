@@ -35,6 +35,8 @@ import { SlidingSyncSdk } from "matrix-js-sdk/src/sliding-sync-sdk";
 
 import { createClientWithCreds } from "../utils/createMatrixClient";
 
+type SyncCryptoCallbacks = NonNullable<ConstructorParameters<typeof SlidingSyncSdk>[3]["cryptoCallbacks"]>;
+
 const roomId = "!room:example.org";
 const userId = "@alice:example.org";
 
@@ -343,7 +345,11 @@ describe("sliding sync requests", () => {
 describe("sliding sync restoring a saved snapshot", () => {
     afterEach(() => vi.restoreAllMocks());
 
-    function setup(load: () => Promise<SlidingSyncSnapshot | null>, prepare?: (client: MatrixClient) => void) {
+    function setup(
+        load: () => Promise<SlidingSyncSnapshot | null>,
+        prepare?: (client: MatrixClient) => void,
+        cryptoCallbacks?: SyncCryptoCallbacks,
+    ) {
         const client = makeClient();
         prepare?.(client);
         vi.spyOn(client, "getPushRules").mockResolvedValue({ global: {} } as never);
@@ -365,7 +371,12 @@ describe("sliding sync restoring a saved snapshot", () => {
             return promise;
         }) as never);
         const sync = new SlidingSync("https://example.org", new Map(), {}, client, 20_000);
-        const api = new SlidingSyncSdk(sync, client, { lazyLoadMembers: true, slidingSyncSnapshot: load }, { logger });
+        const api = new SlidingSyncSdk(
+            sync,
+            client,
+            { lazyLoadMembers: true, slidingSyncSnapshot: load },
+            { logger, cryptoCallbacks },
+        );
         const states: SyncState[] = [];
         client.on(ClientEvent.Sync, (state) => states.push(state));
         void api.sync();
@@ -487,6 +498,204 @@ describe("sliding sync restoring a saved snapshot", () => {
         await vi.waitFor(() => expect(timelineIds()).toEqual(["$a", "$b", "$c"]));
         expect(client.getRoom(roomId)!.getLiveTimeline().getPaginationToken(EventTimeline.BACKWARDS)).toBe("fresh");
         api.stop();
+    });
+
+    describe("with many saved rooms", () => {
+        const id = (i: number): string => `!r${i}:example.org`;
+        const savedRoom = (roomId: string, bump: number, space = false): MSC3575RoomData =>
+            ({
+                name: roomId,
+                bump_stamp: bump,
+                required_state: [
+                    { ...requiredState[0], room_id: roomId, content: space ? { type: "m.space" } : {} },
+                    { ...requiredState[1], room_id: roomId },
+                ],
+                timeline: space ? [] : [{ ...message(`$saved-${roomId}`, bump), room_id: roomId }],
+                limited: true,
+                prev_batch: "saved",
+            }) as MSC3575RoomData;
+        // 30 rooms, the most recent last; a Space that has been quiet; the room opened at start is the oldest.
+        const many = (): SlidingSyncSnapshot => ({
+            rooms: {
+                ...Object.fromEntries(Array.from({ length: 30 }, (_, i) => [id(i), savedRoom(id(i), i + 10)])),
+                "!space:example.org": savedRoom("!space:example.org", 0, true),
+            },
+            priorityRoomIds: [id(0)],
+        });
+        const messages = (client: MatrixClient, roomId: string): string[] =>
+            client
+                .getRoom(roomId)!
+                .getLiveTimeline()
+                .getEvents()
+                .filter((event) => event.getType() === EventType.RoomMessage)
+                .map((event) => event.getId()!);
+
+        it("shows the room opened at start, the Spaces and the most recent rooms before Prepared, then the rest", async () => {
+            let shownFirst: string[] = [];
+            let firstStored: string | undefined;
+            const { client, api, states } = setup(async () => many());
+            client.on(ClientEvent.Room, (room) => (firstStored ??= room.roomId));
+            client.on(ClientEvent.Sync, (state) => {
+                if (state === SyncState.Prepared) shownFirst = client.getRooms().map((room) => room.roomId);
+            });
+            await vi.waitFor(() => expect(states).toContain(SyncState.Prepared));
+            expect(new Set(shownFirst)).toEqual(
+                new Set([id(0), "!space:example.org", ...Array.from({ length: 20 }, (_, i) => id(29 - i))]),
+            );
+            // The room opened at start is applied before any other, though it is the least active.
+            expect(firstStored).toBe(id(0));
+            await vi.waitFor(() => expect(client.getRooms()).toHaveLength(31));
+            expect(states.filter((state) => state === SyncState.Prepared)).toHaveLength(1);
+            api.stop();
+        });
+
+        it("applies a room's saved data before live data that arrives while it waits its turn", async () => {
+            const { client, api, responses, states } = setup(async () => many());
+            await vi.waitFor(() => expect(responses).toHaveLength(1));
+            responses[0]({
+                rooms: {
+                    [id(1)]: {
+                        name: id(1),
+                        required_state: [],
+                        timeline: [{ ...message("$live", 100), room_id: id(1) }],
+                    },
+                },
+            });
+            await vi.waitFor(() => expect(states).toContain(SyncState.Syncing));
+            expect(messages(client, id(1))).toEqual([`$saved-${id(1)}`, "$live"]);
+            api.stop();
+        });
+
+        it("does not show a room dropped from the snapshot before its turn", async () => {
+            const snapshot = many();
+            const { client, api, states } = setup(async () => snapshot);
+            client.on(ClientEvent.Sync, (state) => {
+                // The client learns the user left this room, before the background restore reaches it.
+                if (state === SyncState.Prepared) delete snapshot.rooms[id(1)];
+            });
+            await vi.waitFor(() => expect(states).toContain(SyncState.Prepared));
+            await vi.waitFor(() => expect(client.getRooms()).toHaveLength(30));
+            expect(client.getRoom(id(1))).toBeNull();
+            api.stop();
+        });
+
+        /** A saved room that is encrypted, so applying it waits on the crypto layer. */
+        const encrypted = (roomId: string, bump: number): MSC3575RoomData => {
+            const data = savedRoom(roomId, bump);
+            data.required_state = [
+                ...data.required_state,
+                {
+                    type: EventType.RoomEncryption,
+                    state_key: "",
+                    sender: userId,
+                    room_id: roomId,
+                    event_id: `$encryption-${roomId}`,
+                    origin_server_ts: 0,
+                    content: { algorithm: "m.megolm.v1.aes-sha2" },
+                },
+            ];
+            return data;
+        };
+        /** Crypto callbacks that hold a room's encryption event until released. */
+        const holdCrypto = (heldRoomId: string): { callbacks: SyncCryptoCallbacks; release: () => void } => {
+            const held = Promise.withResolvers<void>();
+            const callbacks = {
+                onCryptoEvent: async (room: { roomId: string }) => {
+                    if (room.roomId === heldRoomId) await held.promise;
+                },
+                onSyncCompleted: () => {},
+                preprocessToDeviceMessages: async (events: unknown[]) => events,
+                processKeyCounts: async () => {},
+                processDeviceLists: async () => {},
+                onDeviceListsChanged: async () => {},
+                markAllTrackedUsersAsDirty: async () => {},
+            } as unknown as SyncCryptoCallbacks;
+            return { callbacks, release: () => held.resolve() };
+        };
+
+        it("applies nothing more to a client stopped while a saved room waits on the crypto layer", async () => {
+            const snapshot = many();
+            snapshot.rooms[id(0)] = encrypted(id(0), 10);
+            snapshot.roomAccountData = { [id(0)]: [{ type: "m.tag", content: { tags: { "u.work": {} } } }] };
+            const crypto = holdCrypto(id(0));
+            const { client, api, states } = setup(async () => snapshot, undefined, crypto.callbacks);
+            const heard: string[] = [];
+            client.on(ClientEvent.Event, (event) => heard.push(event.getId()!));
+            await vi.waitFor(() => expect(heard).toContain(`$encryption-${id(0)}`));
+            api.stop();
+            const afterStop = heard.length;
+            crypto.release();
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            // The saved message after the encryption event, the account data and the other rooms never arrive.
+            expect(heard).toHaveLength(afterStop);
+            expect(client.getRoom(id(0))?.getAccountData("m.tag")).toBeUndefined();
+            expect(states).not.toContain(SyncState.Prepared);
+            expect(client.getRooms().map((room) => room.roomId)).toEqual([id(0)]);
+        });
+
+        it("drops live data that waited on a saved room's restore when the client stops", async () => {
+            const snapshot = many();
+            snapshot.rooms[id(1)] = encrypted(id(1), 11);
+            const crypto = holdCrypto(id(1));
+            // Note live data as it arrives, so the client is stopped while it waits on the saved data.
+            type RoomDataHandler = (roomId: string, data: MSC3575RoomData, fromSnapshot?: boolean) => Promise<void>;
+            const prototype = SlidingSyncSdk.prototype as unknown as { onRoomData: RoomDataHandler };
+            const onRoomData = prototype.onRoomData;
+            const liveRooms: string[] = [];
+            vi.spyOn(prototype, "onRoomData").mockImplementation(function (this: unknown, roomId, data, fromSnapshot) {
+                if (!fromSnapshot) liveRooms.push(roomId);
+                return onRoomData.call(this, roomId, data, fromSnapshot);
+            });
+            const { client, api, responses } = setup(async () => snapshot, undefined, crypto.callbacks);
+            await vi.waitFor(() => expect(responses).toHaveLength(1));
+            // Live data for a room waiting its turn; applying its saved data waits on the crypto layer.
+            responses[0]({
+                rooms: {
+                    [id(1)]: {
+                        name: id(1),
+                        required_state: [],
+                        timeline: [{ ...message("$live", 100), room_id: id(1) }],
+                    },
+                },
+            });
+            await vi.waitFor(() => expect(liveRooms).toContain(id(1)));
+            api.stop();
+            crypto.release();
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            expect(messages(client, id(1))).not.toContain("$live");
+        });
+
+        it("adds live events to the notifications while saved rooms are still being applied", async () => {
+            const notifications = new EventTimelineSet(undefined, { timelineSupport: true }, makeClient());
+            const { api, responses, states } = setup(
+                async () => many(),
+                (client) => {
+                    client.setNotifTimelineSet(notifications);
+                    vi.spyOn(client, "getPushActionsForEvent").mockReturnValue({
+                        notify: true,
+                        tweaks: { highlight: true },
+                    } as never);
+                },
+            );
+            await vi.waitFor(() => expect(responses).toHaveLength(1));
+            responses[0]({
+                rooms: {
+                    [id(29)]: {
+                        name: id(29),
+                        required_state: [],
+                        timeline: [{ ...message("$mention", 100), room_id: id(29) }],
+                    },
+                },
+            });
+            await vi.waitFor(() => expect(states).toContain(SyncState.Syncing));
+            expect(
+                notifications
+                    .getLiveTimeline()
+                    .getEvents()
+                    .map((event) => event.getId()),
+            ).toEqual(["$mention"]);
+            api.stop();
+        });
     });
 
     it("starts normally when the snapshot cannot be loaded", async () => {
