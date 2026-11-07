@@ -809,13 +809,19 @@ describe("RoomTimelineViewModel", () => {
             await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$c"]));
         });
 
-        it("keeps a navigation that is still being placed when the list reports reaching the bottom", async () => {
+        it("keeps a message navigated to in a short room while native history is still being expanded", async () => {
+            const preparation = Promise.withResolvers<boolean>();
+            vi.spyOn(SlidingSyncManager.instance, "initialTimelinePreparation").mockReturnValue(preparation.promise);
             seedTimeline([makeMessage("$a"), makeMessage("$b")]);
             const vm = await createStartedViewModel();
             vm.onAnchorReached();
             vm.showEvent("$a");
+            vm.onAnchorReached("$a");
+            // The whole room fits on screen, so the list reports reaching the bottom by itself.
             vm.onAtBottomStateChange(true);
-            expect((vm as unknown as { navigationEventId: string | null }).navigationEventId).toBe("$a");
+            preparation.resolve(true);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            expect(vm.getSnapshot().highlightedEventId).toBe("$a");
         });
 
         it("forgets an abandoned navigation when the jump-to-latest button is used", async () => {
