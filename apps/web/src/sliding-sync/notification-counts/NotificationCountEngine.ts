@@ -28,6 +28,7 @@ import {
     RoomCountLedger,
     type RoomCounts,
     type RunPlacement,
+    type SavedLedger,
     UNTHREADED_RECEIPT,
 } from "./RoomCountLedger";
 
@@ -64,6 +65,9 @@ export class NotificationCountEngine implements RoomHistoryObserver {
     private inResponse = false;
     private flushTimer?: ReturnType<typeof setTimeout>;
     private started = false;
+    /** Ledgers saved on this device by the last session, taken up as their rooms are restored. */
+    private saved = new Map<string, SavedLedger>();
+    private changeListener?: (roomId: string) => void;
 
     public constructor(
         private readonly client: MatrixClient,
@@ -108,6 +112,28 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         return this.published.get(roomId);
     }
 
+    /**
+     * Start rooms from the ledgers the last session saved, so a room restored from this device shows its counts as
+     * they were, before the server answers. Call before the saved rooms are restored.
+     */
+    public useSaved(saved: ReadonlyMap<string, SavedLedger>): void {
+        this.saved = new Map(saved);
+    }
+
+    /** Hear which rooms' counts were published, so their ledgers can be saved. */
+    public setChangeListener(listener: ((roomId: string) => void) | undefined): void {
+        this.changeListener = listener;
+    }
+
+    /**
+     * A room's ledger to save. "pending" while its counts are being worked out: a ledger is only saved as it was
+     * when its counts were published, so a restored room never shows a half-applied change.
+     */
+    public save(roomId: string): SavedLedger | undefined | "pending" {
+        if (this.dirty.has(roomId) || this.held.has(roomId)) return "pending";
+        return this.ledgers.get(roomId)?.save();
+    }
+
     public onSyncTimeline(room: Room, events: MatrixEvent[], info: SyncTimelineInfo): void {
         if (!this.started) return;
         // A timeline that is neither a fresh start nor cut short follows on from the newest event known.
@@ -117,6 +143,12 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         };
         this.addEvents(room, events, placement);
         if (info.initial && !info.fromSnapshot) this.awaitingReceipts.add(room.roomId);
+        if (info.fromSnapshot) {
+            // Published at once, so the room is announced with its saved counts rather than none.
+            this.dirty.delete(room.roomId);
+            if (!this.publish(room.roomId, Infinity)) this.markDirty(room.roomId);
+            return;
+        }
         this.markDirty(room.roomId, true);
     }
 
@@ -213,8 +245,11 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         this.markDirty(room.roomId);
     }
 
-    private onAccountData = (event: MatrixEvent): void => {
+    private onAccountData = (event: MatrixEvent, previous?: MatrixEvent): void => {
         if (event.getType() !== EventType.PushRules) return;
+        // The server sends the rules again on every new connection: only a real change matters. Evaluating again
+        // needs each event, which saved ledgers do not all have.
+        if (previous && JSON.stringify(previous.getContent()) === JSON.stringify(event.getContent())) return;
         // Every event is evaluated again with the new rules, as its counts are next needed.
         for (const [roomId, ledger] of this.ledgers) {
             ledger.forgetContributions();
@@ -290,6 +325,7 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         }
         room.setNotificationCounts({ total: counts.main.total, highlight: counts.main.highlight }, threads);
         this.pruneEvents(roomId, ledger);
+        this.changeListener?.(roomId);
         return true;
     }
 
@@ -321,7 +357,9 @@ export class NotificationCountEngine implements RoomHistoryObserver {
     private ledgerFor(roomId: string): RoomCountLedger {
         let ledger = this.ledgers.get(roomId);
         if (!ledger) {
-            ledger = new RoomCountLedger();
+            // A saved ledger that cannot be read is dropped: the room is counted afresh.
+            ledger = RoomCountLedger.restore(this.saved.get(roomId)) ?? new RoomCountLedger();
+            this.saved.delete(roomId);
             this.ledgers.set(roomId, ledger);
         }
         return ledger;
