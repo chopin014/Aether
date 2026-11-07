@@ -92,8 +92,7 @@ type SpaceStoreActions =
     | ViewRoomPayload
     | ViewHomePagePayload
     | SwitchSpacePayload
-    | AfterLeaveRoomPayload
-    | { action: "leave_room"; room_id: string };
+    | AfterLeaveRoomPayload;
 
 export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
     // The spaces representing the roots of the various tree-like hierarchies
@@ -350,6 +349,15 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
             queue.push(...this.getChildSpaces(spaceId).map((subspace) => subspace.roomId));
         }
         return false;
+    }
+
+    /**
+     * Note that the user is leaving a room, by any means: a remembered channel being followed is no longer followed,
+     * as where they land after is the leave's to decide.
+     * @param roomId - The room being left.
+     */
+    public noteLeavingRoom(roomId: string): void {
+        if (roomId === this.followedChannel) this.stopFollowingRememberedChannel?.();
     }
 
     /**
@@ -1334,11 +1342,6 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
                     this.setActiveSpace(MetaSpace.Home, false);
                     window.localStorage.setItem(getSpaceContextKey(this.activeSpace), "");
                 }
-                break;
-
-            case "leave_room":
-                // Leaving the channel is the user's own doing, and where they land after is the leave's to decide.
-                if (payload.room_id === this.followedChannel) this.stopFollowingRememberedChannel?.();
                 break;
 
             case Action.AfterLeaveRoom:

@@ -81,6 +81,16 @@ describe("leaveRoomBehaviour", () => {
         defaultDispatcher.unregister(dispatcherRef);
     };
 
+    it("tells the Space store before leaving, so a channel it follows does not decide where the user lands", async () => {
+        const noted = vi.spyOn(SDKContextClass.instance.spaceStore, "noteLeavingRoom");
+        const leave = vi.spyOn(client, "leaveRoomChain");
+        viewRoom(room);
+        await leaveRoomBehaviour(client, room.roomId);
+        expect(noted).toHaveBeenCalledWith(room.roomId);
+        expect(leave).toHaveBeenCalled();
+        expect(noted.mock.invocationCallOrder[0]).toBeLessThan(leave.mock.invocationCallOrder[0]);
+    });
+
     it("hangs up legacy calls when leaving a room", async () => {
         const hangupSpy = vi
             .spyOn(SDKContextClass.instance.legacyCallHandler, "hangupOrReject")

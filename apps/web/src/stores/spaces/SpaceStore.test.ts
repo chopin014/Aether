@@ -1255,7 +1255,8 @@ describe("SpaceStore", () => {
                 store.setActiveSpace(space3);
                 roomView(orphan2, false);
                 const channel = arrive();
-                defaultDispatcher.dispatch({ action: "leave_room", room_id: orphan2 }, true);
+                // However they leave: the leave dialog, /part, or leaving the whole Space.
+                store.noteLeavingRoom(orphan2);
                 expect(arrivalListeners.size).toBe(0);
                 // Their leave reaches sync before the leave request finishes.
                 wasLeftWhileAway.mockReturnValue(true);
