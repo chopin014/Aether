@@ -40,7 +40,7 @@ import { type RendererRecovery, setupRendererRecovery } from "./renderer-recover
 import { getBuildConfig } from "./build-config.js";
 import { getAsarPath } from "./asar.js";
 import { getIconPath } from "./icon.js";
-import { getXdgDataHome, registerAppImageDesktopEntry } from "./appimage-desktop-entry.js";
+import { getXdgDataHome, registerAppImageDesktopEntry, removeAppImageDesktopEntry } from "./appimage-desktop-entry.js";
 import { getArgs } from "./args.js";
 import { devToolsAllowed } from "./devtools-policy.js";
 import { type ConfigOptions, loadConfig } from "./config.js";
@@ -304,17 +304,23 @@ app.on("ready", async () => {
 
     // A downloaded AppImage has no launcher, so without one the browser cannot hand sign-in links back to the app.
     // It must exist before the protocol handler registers it as the default for the app's links.
-    if (process.platform === "linux" && app.isPackaged && process.env.APPIMAGE) {
+    // A packaged install such as the .deb ships its own launcher, which an old AppImage launcher would hide.
+    if (process.platform === "linux" && app.isPackaged) {
+        const dataHome = getXdgDataHome(process.env, homedir());
         try {
-            await registerAppImageDesktopEntry({
-                appImagePath: process.env.APPIMAGE,
-                iconSource: await getIconPath(),
-                dataHome: getXdgDataHome(process.env, homedir()),
-                desktopName: buildConfig.desktopName,
-                protocol: buildConfig.protocol,
-            });
+            if (process.env.APPIMAGE) {
+                await registerAppImageDesktopEntry({
+                    appImagePath: process.env.APPIMAGE,
+                    iconSource: await getIconPath(),
+                    dataHome,
+                    desktopName: buildConfig.desktopName,
+                    protocol: buildConfig.protocol,
+                });
+            } else {
+                await removeAppImageDesktopEntry(dataHome, buildConfig.desktopName);
+            }
         } catch (e) {
-            console.error("Could not register the AppImage with the desktop", e);
+            console.error("Could not update the desktop launcher", e);
         }
     }
 
