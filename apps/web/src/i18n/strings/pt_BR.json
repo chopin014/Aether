@@ -594,6 +594,7 @@
         "voice_room": "Sala de voz"
     },
     "composer": {
+        "add_to_message": "Adicionar à mensagem",
         "autocomplete": {
             "@room_description": "Notifica a sala inteira",
             "command_a11y": "Preenchimento automático do comando",
@@ -632,6 +633,8 @@
         "mode_rich_text": "Mostrar formatação",
         "no_perms_notice": "Você não tem permissão para digitar nesta sala",
         "placeholder": "Enviar uma message não criptografada…",
+        "placeholder_channel": "Conversar em #%(name)s",
+        "placeholder_dm": "Conversar com @%(name)s",
         "placeholder_encrypted": "Enviar mensagem...",
         "placeholder_reply": "Envie uma resposta não criptografada…",
         "placeholder_reply_encrypted": "Enviar uma resposta…",

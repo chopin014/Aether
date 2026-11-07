@@ -7,7 +7,7 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import classNames from "classnames";
-import React, { type JSX, useContext } from "react";
+import React, { type JSX, type ReactNode, useContext } from "react";
 import { ReactionIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { _t } from "../../../languageHandler";
@@ -19,9 +19,11 @@ interface IEmojiButtonProps {
     addEmoji: (unicode: string) => boolean;
     menuPosition?: MenuProps;
     className?: string;
+    /** Replaces Compound's reaction icon, e.g. with one that comes alive on hover. */
+    icon?: ReactNode;
 }
 
-export function EmojiButton({ addEmoji, menuPosition, className }: IEmojiButtonProps): JSX.Element {
+export function EmojiButton({ addEmoji, menuPosition, className, icon }: IEmojiButtonProps): JSX.Element {
     const overflowMenuCloser = useContext(OverflowMenuContext);
     const [menuDisplayed, button, openMenu, closeMenu] = useContextMenu();
 
@@ -54,7 +56,7 @@ export function EmojiButton({ addEmoji, menuPosition, className }: IEmojiButtonP
                 title={_t("common|emoji")}
                 inputRef={button}
             >
-                <ReactionIcon />
+                {icon ?? <ReactionIcon />}
             </CollapsibleButton>
 
             {contextMenu}
