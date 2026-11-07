@@ -296,6 +296,106 @@ const ART: Record<ProfileDecorationId, (id: string) => ReactNode> = {
             </g>
         </>
     ),
+    "ringed": (id) => (
+        // A planetary ring, tilted like the Aether planet's. Its far half is hidden where the avatar covers it, so
+        // the ring passes behind the avatar and in front of it.
+        <>
+            <defs>
+                <linearGradient id={`${id}-ring`} x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0" stopColor="#8faef0" stopOpacity="0.2" />
+                    <stop offset="0.35" stopColor="#8ed8ea" />
+                    <stop offset="0.6" stopColor="#eceaf6" />
+                    <stop offset="1" stopColor="#8ed8ea" stopOpacity="0.3" />
+                </linearGradient>
+                <mask id={`${id}-behind`}>
+                    <rect width="120" height="120" fill="#ffffff" />
+                    <circle cx="60" cy="60" r="50" fill="#000000" />
+                </mask>
+            </defs>
+            <g transform="rotate(-16 60 60)">
+                <g mask={`url(#${id}-behind)`}>
+                    <path
+                        d="M2 64A58 15 0 0 1 118 64"
+                        fill="none"
+                        stroke={`url(#${id}-ring)`}
+                        strokeWidth="5"
+                        opacity="0.55"
+                    />
+                    <path d="M-4 64A64 17 0 0 1 124 64" fill="none" stroke="#cfe9f6" strokeWidth="1" opacity="0.5" />
+                </g>
+                <path d="M2 64A58 15 0 0 0 118 64" fill="none" stroke={`url(#${id}-ring)`} strokeWidth="5" />
+                <path d="M-4 64A64 17 0 0 0 124 64" fill="none" stroke="#cfe9f6" strokeWidth="1" opacity="0.8" />
+                <path
+                    className={styles.ringGlint}
+                    d="M2 64A58 15 0 0 0 118 64"
+                    fill="none"
+                    stroke="#ffffff"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    pathLength="100"
+                />
+            </g>
+            <circle className={styles.twinkle} cx="108" cy="30" r="2.4" fill="#eceaf6" />
+        </>
+    ),
+    "event-horizon": (id) => (
+        // The glowing disk of matter falling into a black hole, with its far side lensed over the top.
+        <>
+            <defs>
+                <linearGradient id={`${id}-disk`} x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stopColor="#eef8ff" />
+                    <stop offset="0.45" stopColor="#8ed8ea" />
+                    <stop offset="1" stopColor="#3a63c9" />
+                </linearGradient>
+                <filter id={`${id}-blur`} x="-30%" y="-30%" width="160%" height="160%">
+                    <feGaussianBlur stdDeviation="2.4" />
+                </filter>
+            </defs>
+            <circle
+                cx="60"
+                cy="60"
+                r="53"
+                fill="none"
+                stroke="#8ed8ea"
+                strokeWidth="6"
+                opacity="0.55"
+                filter={`url(#${id}-blur)`}
+            />
+            <g className={styles.spinSlow}>
+                <circle cx="60" cy="60" r="53" fill="none" stroke={`url(#${id}-disk)`} strokeWidth="3" />
+                <circle
+                    cx="60"
+                    cy="60"
+                    r="56"
+                    fill="none"
+                    stroke="#eef8ff"
+                    strokeWidth="1"
+                    strokeDasharray="22 9 6 14 30 11"
+                    opacity="0.8"
+                />
+            </g>
+            <g className={styles.spinStepReverse}>
+                <circle
+                    cx="60"
+                    cy="60"
+                    r="58.5"
+                    fill="none"
+                    stroke="#8faef0"
+                    strokeWidth="0.6"
+                    strokeDasharray="3 7"
+                    opacity="0.7"
+                />
+            </g>
+            <path
+                d="M18 44A44 40 0 0 1 102 44"
+                fill="none"
+                stroke="#eef8ff"
+                strokeWidth="1.4"
+                opacity="0.65"
+                filter={`url(#${id}-blur)`}
+            />
+        </>
+    ),
 };
 
 /** A built-in animated frame. Its parent decides the size; the artwork reaches beyond the avatar it surrounds. */

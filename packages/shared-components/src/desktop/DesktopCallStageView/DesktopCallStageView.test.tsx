@@ -280,7 +280,7 @@ describe("DesktopCallStageView", () => {
         const vm = new TestCallStageViewModel({ participants: [makeParticipant({ avatarUrl: canvas.toDataURL() })] });
         render(<DesktopCallStageView vm={vm} />);
         await waitFor(() =>
-            expect(screen.getByTestId("videoTile").style.getPropertyValue("--call-tile-colour")).toBe("rgb(32 64 96)"),
+            expect(screen.getByTestId("videoTile").style.getPropertyValue("--call-tile-colour")).toBe("#204060"),
         );
         expect(screen.getByRole("img", { name: "Alice" })).toBeVisible();
     });

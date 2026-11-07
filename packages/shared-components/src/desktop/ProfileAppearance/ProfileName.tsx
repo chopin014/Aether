@@ -17,23 +17,49 @@ interface ProfileNameProps {
     children: ReactNode;
 }
 
+/** Split text into what a reader sees as single characters, so an emoji or accented letter is never torn apart. */
+function graphemes(text: string): string[] {
+    if (typeof Intl.Segmenter !== "function") return [...text];
+    return [...new Intl.Segmenter().segment(text)].map((part) => part.segment);
+}
+
 /** A display name in the person's chosen font and colours. Without a style it is plain inherited text. */
 export function ProfileName({ nameStyle, className, children }: ProfileNameProps): JSX.Element {
     if (!nameStyle) return <span className={className}>{children}</span>;
     const start = nameStyle.colour;
+    const effect = start ? nameStyle.effect : "none";
     const style = {
         ...(start ? { "--name-start": start } : {}),
         ...(start ? { "--name-end": nameStyle.colourEnd ?? start } : {}),
     } as CSSProperties;
+    // Gummy letters each bounce on their own, so the name is drawn letter by letter, and read out whole.
+    const content =
+        effect === "gummy" && typeof children === "string" ? (
+            <>
+                <span className={styles.visuallyHidden}>{children}</span>
+                <span aria-hidden="true">
+                    {graphemes(children).map((letter, index) => (
+                        // A letter's place is its identity: the same letter repeats, and letters never move.
+                        // oxlint-disable-next-line react/no-array-index-key
+                        <span key={index} className={styles.gummyLetter} style={{ "--letter": index } as CSSProperties}>
+                            {/* A lone space in an inline block collapses to nothing, so it is kept as a fixed one. */}
+                            {letter === " " ? "\u00a0" : letter}
+                        </span>
+                    ))}
+                </span>
+            </>
+        ) : (
+            children
+        );
     return (
         <span
             className={classNames(styles.name, className)}
             data-font={nameStyle.font}
-            data-name-effect={start ? nameStyle.effect : "none"}
+            data-name-effect={effect}
             data-coloured={start ? "true" : undefined}
             style={style}
         >
-            {children}
+            {content}
         </span>
     );
 }

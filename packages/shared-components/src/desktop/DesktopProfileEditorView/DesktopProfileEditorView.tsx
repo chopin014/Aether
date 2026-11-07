@@ -35,6 +35,7 @@ import {
     ProfileName,
     ProfileNameplate,
     useProfileMotion,
+    ProfileLiveContext,
     type ProfileDecorationId,
     type ProfileEffectId,
     type ProfileNameEffect,
@@ -56,6 +57,8 @@ const DECORATION_LABELS: Record<ProfileDecorationId, TranslationKey> = {
     "cat-ears": _td("desktop|profile_editor|decorations|cat_ears"),
     "galaxy": _td("desktop|profile_editor|decorations|galaxy"),
     "glitch": _td("desktop|profile_editor|decorations|glitch"),
+    "ringed": _td("desktop|profile_editor|decorations|ringed"),
+    "event-horizon": _td("desktop|profile_editor|decorations|event_horizon"),
 };
 const EFFECT_LABELS: Record<ProfileEffectId, TranslationKey> = {
     snow: _td("desktop|profile_editor|effects|snow"),
@@ -66,6 +69,8 @@ const EFFECT_LABELS: Record<ProfileEffectId, TranslationKey> = {
     rain: _td("desktop|profile_editor|effects|rain"),
     aurora: _td("desktop|profile_editor|effects|aurora"),
     confetti: _td("desktop|profile_editor|effects|confetti"),
+    comets: _td("desktop|profile_editor|effects|comets"),
+    nebula: _td("desktop|profile_editor|effects|nebula"),
 };
 const NAMEPLATE_LABELS: Record<ProfileNameplateId, TranslationKey> = {
     moonlit: _td("desktop|profile_editor|nameplates|moonlit"),
@@ -76,6 +81,10 @@ const NAMEPLATE_LABELS: Record<ProfileNameplateId, TranslationKey> = {
     embers: _td("desktop|profile_editor|nameplates|embers"),
     tides: _td("desktop|profile_editor|nameplates|tides"),
     circuit: _td("desktop|profile_editor|nameplates|circuit"),
+    synthwave: _td("desktop|profile_editor|nameplates|synthwave"),
+    orbit: _td("desktop|profile_editor|nameplates|orbit"),
+    singularity: _td("desktop|profile_editor|nameplates|singularity"),
+    grove: _td("desktop|profile_editor|nameplates|grove"),
 };
 const FONT_LABELS: Record<ProfileNameFont, TranslationKey> = {
     default: _td("desktop|profile_editor|fonts|default"),
@@ -85,6 +94,12 @@ const FONT_LABELS: Record<ProfileNameFont, TranslationKey> = {
     scifi: _td("desktop|profile_editor|fonts|scifi"),
     rounded: _td("desktop|profile_editor|fonts|rounded"),
     horror: _td("desktop|profile_editor|fonts|horror"),
+    bubbly: _td("desktop|profile_editor|fonts|bubbly"),
+    slab: _td("desktop|profile_editor|fonts|slab"),
+    handwritten: _td("desktop|profile_editor|fonts|handwritten"),
+    rock: _td("desktop|profile_editor|fonts|rock"),
+    modern: _td("desktop|profile_editor|fonts|modern"),
+    jelly: _td("desktop|profile_editor|fonts|jelly"),
 };
 const NAME_EFFECT_LABELS: Record<ProfileNameEffect, TranslationKey> = {
     none: _td("desktop|profile_editor|name_effects|none"),
@@ -92,6 +107,11 @@ const NAME_EFFECT_LABELS: Record<ProfileNameEffect, TranslationKey> = {
     shimmer: _td("desktop|profile_editor|name_effects|shimmer"),
     neon: _td("desktop|profile_editor|name_effects|neon"),
     outline: _td("desktop|profile_editor|name_effects|outline"),
+    glow: _td("desktop|profile_editor|name_effects|glow"),
+    toon: _td("desktop|profile_editor|name_effects|toon"),
+    pop: _td("desktop|profile_editor|name_effects|pop"),
+    prism: _td("desktop|profile_editor|name_effects|prism"),
+    gummy: _td("desktop|profile_editor|name_effects|gummy"),
 };
 
 /** Theme pairs to start from. */
@@ -334,19 +354,21 @@ function PickerTile<Id extends string>({
 }): JSX.Element {
     const motion = useProfileMotion(false);
     return (
-        <label className={styles.tile} data-selected={selected} {...motion.bind}>
-            <input
-                className={styles.tileRadio}
-                type="radio"
-                name={name}
-                checked={selected}
-                onChange={() => onSelect(option.id)}
-            />
-            <span className={styles.tileArt} aria-hidden="true">
-                {option.art}
-            </span>
-            <span className={styles.tileLabel}>{option.label}</span>
-        </label>
+        <ProfileLiveContext.Provider value={motion.live}>
+            <label className={styles.tile} data-selected={selected} {...motion.bind}>
+                <input
+                    className={styles.tileRadio}
+                    type="radio"
+                    name={name}
+                    checked={selected}
+                    onChange={() => onSelect(option.id)}
+                />
+                <span className={styles.tileArt} aria-hidden="true">
+                    {option.art}
+                </span>
+                <span className={styles.tileLabel}>{option.label}</span>
+            </label>
+        </ProfileLiveContext.Provider>
     );
 }
 
@@ -380,10 +402,13 @@ function Picker<Id extends string>({
 /** The same row a member list draws, so a nameplate is judged where it will really be seen. */
 function MemberRowPreview({ identity }: { identity: DesktopProfileIdentitySnapshot }): JSX.Element {
     const motion = useProfileMotion(false);
+    const textRef = useRef<HTMLSpanElement>(null);
     const { appearance } = identity;
     return (
         <div className={styles.memberRow} {...motion.bind}>
-            {appearance?.nameplate && <ProfileNameplate nameplate={appearance.nameplate} />}
+            {appearance?.nameplate && (
+                <ProfileNameplate nameplate={appearance.nameplate} live={motion.live} textRef={textRef} />
+            )}
             <span className={styles.memberAvatar}>
                 <Avatar
                     id={identity.userId}
@@ -394,7 +419,7 @@ function MemberRowPreview({ identity }: { identity: DesktopProfileIdentitySnapsh
                 />
                 {appearance?.decoration && <ProfileDecoration id={appearance.decoration} />}
             </span>
-            <span className={styles.memberText}>
+            <span className={styles.memberText} ref={textRef}>
                 <span className={styles.memberName}>
                     <ProfileName nameStyle={appearance?.nameStyle}>{identity.displayName}</ProfileName>
                     {identity.tag && <DesktopProfileTagChip tag={identity.tag} />}

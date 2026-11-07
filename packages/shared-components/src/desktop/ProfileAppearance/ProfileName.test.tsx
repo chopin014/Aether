@@ -29,6 +29,17 @@ describe("ProfileName", () => {
         expect(screen.getByText("Robin")).toHaveAttribute("data-name-effect", "gradient");
     });
 
+    it("draws a gummy name letter by letter and still reads it out whole", () => {
+        const { container } = render(
+            <ProfileName nameStyle={{ font: "bubbly", effect: "gummy", colour: "#ff88cc", colourEnd: "#88ccff" }}>
+                Ro bin
+            </ProfileName>,
+        );
+        expect(screen.getByText("Ro bin")).toBeInTheDocument();
+        const letters = container.querySelectorAll("[aria-hidden='true'] > span");
+        expect([...letters].map((letter) => letter.textContent)).toEqual(["R", "o", "\u00a0", "b", "i", "n"]);
+    });
+
     // A taller line pushes the name off the centre of a member row, away from the plain names around it.
     it.each(PROFILE_NAME_FONTS)("does not make its line taller with the %s font", (font) => {
         const line = { font: "500 17px/24px sans-serif", width: "300px" };

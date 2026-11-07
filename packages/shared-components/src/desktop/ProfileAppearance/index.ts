@@ -12,3 +12,4 @@ export * from "./ProfileEffectLayer";
 export * from "./ProfileNameplate";
 export * from "./ProfileName";
 export * from "./useProfileMotion";
+export * from "./profilePalette";
