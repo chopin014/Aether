@@ -925,7 +925,7 @@ diff --git a/src/matrixrtc/MembershipManager.ts b/src/matrixrtc/MembershipManage
 diff --git a/src/http-api/fetch.ts b/src/http-api/fetch.ts
 --- a/src/http-api/fetch.ts
 +++ b/src/http-api/fetch.ts
-@@ -68,6 +68,15 @@
+@@ -68,6 +68,23 @@
          return this.tokenManager.revokeTokens();
      }
  
@@ -938,13 +938,21 @@ diff --git a/src/http-api/fetch.ts b/src/http-api/fetch.ts
 +        return this.tokenManager.refreshNow();
 +    }
 +
++    /**
++     * Wait for a token refresh under way, if any, to finish and store its tokens. See
++     * {@link TokenManager.whenRefreshSettled}.
++     */
++    public whenTokenRefreshSettled(): Promise<void> {
++        return this.tokenManager.whenRefreshSettled();
++    }
++
      public fetch(resource: URL | string, options?: RequestInit): ReturnType<typeof globalThis.fetch> {
          if (this.opts.fetchFn) {
              return this.opts.fetchFn(resource, options);
 diff --git a/src/http-api/refresh.ts b/src/http-api/refresh.ts
 --- a/src/http-api/refresh.ts
 +++ b/src/http-api/refresh.ts
-@@ -112,6 +112,17 @@
+@@ -112,6 +112,26 @@
          }
      }
  
@@ -957,6 +965,15 @@ diff --git a/src/http-api/refresh.ts b/src/http-api/refresh.ts
 +    public async refreshNow(): Promise<boolean> {
 +        if (!this.opts.refreshToken || !this.opts.oauth2ClientConfig) return false;
 +        return (await this._handleUnknownToken()) === TokenRefreshOutcome.Success;
++    }
++
++    /**
++     * Wait for a refresh under way, if any, to finish, including the {@link IHttpOpts.onTokenRefresh} callback that
++     * stores the new tokens. Use it before handing the session to another instance, so that it starts from the
++     * tokens the server last issued.
++     */
++    public async whenRefreshSettled(): Promise<void> {
++        await this.tokenRefreshPromise?.catch(() => undefined);
 +    }
 +
      /**

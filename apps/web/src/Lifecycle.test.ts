@@ -36,6 +36,7 @@ import * as StorageManager from "./utils/StorageManager.ts";
 import type BasePlatform from "./BasePlatform.ts";
 import * as createMatrixClientModule from "./utils/createMatrixClient";
 import { RichProfileStore } from "./profile/RichProfileStore";
+import { AccessTokenRenewal } from "./utils/tokens/AccessTokenRenewal";
 
 const { logout, restoreSessionFromStorage, setLoggedIn } = Lifecycle;
 
@@ -950,6 +951,23 @@ describe("Lifecycle", () => {
             expect(endProfiles).toHaveBeenCalledWith(mockClient);
 
             expect(mockClient.logout).toHaveBeenCalledWith(true);
+        });
+    });
+
+    describe("onSessionLockStolen()", () => {
+        afterEach(() => Lifecycle.setSessionLockNotStolen());
+
+        it("lets a token refresh under way store its tokens before stopping the client", async () => {
+            vi.spyOn(MatrixClientPeg, "get").mockReturnValue(mockClient);
+            const settled = Promise.withResolvers<void>();
+            const settle = vi.spyOn(AccessTokenRenewal, "settle").mockReturnValue(settled.promise);
+            const stopping = Lifecycle.onSessionLockStolen();
+            await flushPromises();
+            expect(settle).toHaveBeenCalledWith(mockClient);
+            expect(mockClient.stopClient).not.toHaveBeenCalled();
+            settled.resolve();
+            await stopping;
+            expect(mockClient.stopClient).toHaveBeenCalled();
         });
     });
 

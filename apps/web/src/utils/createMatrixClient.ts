@@ -28,7 +28,7 @@ import IdentityAuthClient from "../IdentityAuthClient";
 import { _t } from "../languageHandler";
 import { formatList } from "./FormattingUtils";
 import { persistTokens } from "./tokens/tokens.ts";
-import { AccessTokenRenewal, persistAccessTokenExpiry } from "./tokens/AccessTokenRenewal.ts";
+import { AccessTokenRenewal, isStoredSessionOf, persistAccessTokenExpiry } from "./tokens/AccessTokenRenewal.ts";
 
 const localStorage = window.localStorage;
 
@@ -125,12 +125,20 @@ export function createClientWithCreds(creds: IMatrixClientCreds, oauthClientId?:
     }
 
     let renewal: AccessTokenRenewal | undefined;
+    // The client being created, which the refresh callback needs.
+    const created: { client?: MatrixClient } = {};
     const opts: ICreateClientOpts = {
         baseUrl: creds.homeserverUrl,
         idBaseUrl: creds.identityServerUrl,
         accessToken: creds.accessToken,
         refreshToken: creds.refreshToken,
         onTokenRefresh: async (tokens: AccessTokens): Promise<void> => {
+            // A refresh that finishes after the user logged out, or logged in again as another session, must not
+            // write this session's tokens over what is stored now.
+            if (created.client && !isStoredSessionOf(created.client)) {
+                logger.warn("Not keeping refreshed tokens: the stored session is no longer this client's");
+                return;
+            }
             renewal?.noteExpiry(tokens.expiry);
             await persistTokens(creds.pickleKey, tokens);
             // Kept once the tokens it describes are.
@@ -157,6 +165,7 @@ export function createClientWithCreds(creds: IMatrixClientCreds, oauthClientId?:
     };
 
     const newCli = createMatrixClient(opts);
+    created.client = newCli;
     newCli.setGuest(Boolean(creds.guest));
     // The SDK refreshes the tokens of an OAuth2 session, so they can also be renewed before they expire.
     if (creds.refreshToken && oauthClientId) renewal = AccessTokenRenewal.create(newCli);

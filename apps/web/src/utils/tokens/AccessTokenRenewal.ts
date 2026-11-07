@@ -14,6 +14,12 @@ export const ACCESS_TOKEN_EXPIRY_STORAGE_KEY = "mx_access_token_expiry";
 /** How long before an access token expires it is renewed, so that no request has to wait for a refresh. */
 export const RENEW_BEFORE_EXPIRY_MS = 60_000;
 
+/** The shortest wait before renewing again after a refresh, so a very short-lived token cannot cause a storm. */
+export const MIN_RENEWAL_GAP_MS = 5000;
+
+/** How long handing the session to another instance waits for a refresh under way to store its tokens. */
+export const SETTLE_TIMEOUT_MS = 5000;
+
 // Browsers fire longer timeouts at once. A renewal further away is checked again after this long.
 const MAX_TIMER_MS = 2 ** 31 - 1;
 
@@ -44,9 +50,26 @@ export function getStoredAccessTokenExpiry(): number | undefined {
 }
 
 /**
+ * Whether the session stored on this device is still the one a client belongs to. It is not once the user has
+ * logged out, or logged in again as another session.
+ * @param client - The client.
+ */
+export function isStoredSessionOf(client: MatrixClient): boolean {
+    try {
+        return (
+            localStorage.getItem("mx_user_id") === client.getUserId() &&
+            (localStorage.getItem("mx_device_id") ?? null) === client.getDeviceId()
+        );
+    } catch {
+        return false;
+    }
+}
+
+/**
  * Renews an OAuth2 session's access token before a request finds it expired. A token that has expired, or soon will,
- * is renewed at once, such as at start-up while the stores open. Otherwise it is renewed shortly before it expires.
- * Each refresh, whether made here or by a request, gives the next expiry through {@link noteExpiry}.
+ * is renewed at once, such as at start-up while the stores open. Otherwise it is renewed shortly before it expires:
+ * a minute before, or halfway through the life of a token issued for less than two minutes. Each refresh, whether made
+ * here or by a request, gives the next expiry through {@link noteExpiry}.
  *
  * A renewal that fails is not acted on: a request that then finds the token unknown refreshes it, or logs out, as
  * it would without this.
@@ -57,7 +80,9 @@ export class AccessTokenRenewal {
     private timer?: ReturnType<typeof setTimeout>;
     private started = false;
     private stopped = false;
+    // The latest token's expiry, and how long it was issued for, once a refresh has reported them.
     private expiresAt?: number;
+    private lifetime?: number;
 
     private constructor(private readonly client: MatrixClient) {}
 
@@ -84,7 +109,32 @@ export class AccessTokenRenewal {
         const renewal = AccessTokenRenewal.byClient.get(client);
         if (!renewal || renewal.started) return;
         renewal.started = true;
-        renewal.plan(renewal.expiresAt ?? getStoredAccessTokenExpiry());
+        if (renewal.expiresAt !== undefined) {
+            // A refresh already happened, and planned from the token it issued.
+            renewal.plan(renewal.expiresAt, renewal.lifetime);
+            return;
+        }
+        const expiresAt = getStoredAccessTokenExpiry();
+        if (expiresAt !== undefined && expiresAt - RENEW_BEFORE_EXPIRY_MS <= Date.now()) {
+            renewal.renew();
+        } else {
+            renewal.plan(expiresAt, undefined);
+        }
+    }
+
+    /**
+     * Wait, briefly, for a refresh under way to store its tokens, such as before handing the session to another
+     * instance: a refresh replaces the refresh token, and the other instance must start from the new one.
+     * @param client - The client.
+     */
+    public static async settle(client: MatrixClient | null): Promise<void> {
+        if (!client || !AccessTokenRenewal.byClient.has(client)) return;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+            client.http.whenTokenRefreshSettled(),
+            new Promise<void>((resolve) => (timer = setTimeout(resolve, SETTLE_TIMEOUT_MS))),
+        ]);
+        clearTimeout(timer);
     }
 
     /**
@@ -107,20 +157,29 @@ export class AccessTokenRenewal {
     public noteExpiry(expiry: Date | undefined): void {
         const expiresAt = expiry?.getTime();
         this.expiresAt = expiresAt !== undefined && Number.isFinite(expiresAt) ? expiresAt : undefined;
-        if (this.started) this.plan(this.expiresAt);
+        this.lifetime = this.expiresAt !== undefined ? this.expiresAt - Date.now() : undefined;
+        if (this.started) this.plan(this.expiresAt, this.lifetime);
     }
 
-    private plan(expiresAt: number | undefined): void {
+    /**
+     * Plan the renewal of a token expiring at `expiresAt`. It is called while the refresh that issued the token is
+     * still finishing, so it never renews at once: renewing then would only join that refresh.
+     */
+    private plan(expiresAt: number | undefined, lifetime: number | undefined): void {
         clearTimeout(this.timer);
         this.timer = undefined;
         if (this.stopped || expiresAt === undefined) return;
-        const delay = expiresAt - RENEW_BEFORE_EXPIRY_MS - Date.now();
-        if (delay <= 0) {
-            this.renew();
-            return;
-        }
+        const margin = lifetime === undefined ? RENEW_BEFORE_EXPIRY_MS : Math.min(RENEW_BEFORE_EXPIRY_MS, lifetime / 2);
+        const delay = Math.max(expiresAt - margin - Date.now(), MIN_RENEWAL_GAP_MS);
         // Checked again when it fires, as a computer that slept may have passed the renewal time.
-        this.timer = setTimeout(() => this.plan(expiresAt), Math.min(delay, MAX_TIMER_MS));
+        this.timer = setTimeout(
+            () => {
+                this.timer = undefined;
+                if (expiresAt - margin - Date.now() > MIN_RENEWAL_GAP_MS) this.plan(expiresAt, lifetime);
+                else this.renew();
+            },
+            Math.min(delay, MAX_TIMER_MS),
+        );
     }
 
     private renew(): void {
@@ -128,7 +187,13 @@ export class AccessTokenRenewal {
         logger.debug("AccessTokenRenewal: renewing the access token before it expires");
         this.client.http.refreshAccessToken().then(
             (refreshed) => {
-                if (!refreshed) logger.warn("AccessTokenRenewal: could not renew the access token ahead of time");
+                if (!refreshed) {
+                    logger.warn("AccessTokenRenewal: could not renew the access token ahead of time");
+                    return;
+                }
+                // A renewal that joined a refresh already under way learns no expiry of its own, so nothing planned
+                // the next one. It is planned from the latest token.
+                if (this.started && this.timer === undefined) this.plan(this.expiresAt, this.lifetime);
             },
             (error) => logger.warn("AccessTokenRenewal: could not renew the access token ahead of time", error),
         );

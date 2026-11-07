@@ -131,6 +131,9 @@ export function setSessionLockNotStolen(): void {
  */
 export async function onSessionLockStolen(): Promise<void> {
     sessionLockStolen = true;
+    // A refresh under way replaces the refresh token. The instance taking over must read the new one, so it is
+    // stored before the session is handed over.
+    await AccessTokenRenewal.settle(MatrixClientPeg.get());
     stopMatrixClient();
 }
 

@@ -10,6 +10,7 @@ Please see LICENSE in the repository root for full details.
 import { describe, expect, it, vi } from "vitest";
 import {
     type AccessTokens,
+    type MatrixClient,
     ClientPrefix,
     type HttpApiEvent,
     type HttpApiEventHandlerMap,
@@ -18,6 +19,8 @@ import {
     TypedEventEmitter,
     type ValidatedAuthMetadata,
 } from "matrix-js-sdk/src/matrix";
+
+import { AccessTokenRenewal } from "./AccessTokenRenewal";
 
 const metadata = {
     issuer: "https://auth.example.org/",
@@ -31,7 +34,10 @@ const metadata = {
     response_types_supported: ["code"],
 } as unknown as ValidatedAuthMetadata;
 
-function setup(withOAuth = true): {
+function setup(
+    withOAuth = true,
+    onTokenRefresh?: (tokens: AccessTokens) => Promise<void>,
+): {
     http: MatrixHttpApi<{ baseUrl: string; prefix: ClientPrefix; onlyData: true }>;
     calls: string[];
     refreshed: AccessTokens[];
@@ -60,20 +66,21 @@ function setup(withOAuth = true): {
         oauth2ClientConfig: withOAuth ? { clientId: "client", deviceId: "DEVICE" } : undefined,
         authMetadataCallback: async () => metadata,
         fetchFn,
-        onTokenRefresh: (tokens) => {
+        onTokenRefresh: async (tokens) => {
             refreshed.push(tokens);
+            await onTokenRefresh?.(tokens);
         },
     });
     return { http, calls, refreshed, tokenResponse };
 }
 
-const tokens = (): Response =>
+const tokens = (expiresIn = 300): Response =>
     new Response(
         JSON.stringify({
             access_token: "new_access",
             refresh_token: "new_refresh",
             token_type: "Bearer",
-            expires_in: 300,
+            expires_in: expiresIn,
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
     );
@@ -100,6 +107,49 @@ describe("refreshing an access token ahead of time", () => {
         await expect(renewing).resolves.toBe(false);
         await http.authedRequest(Method.Get, "/pushrules/");
         expect(calls.at(-1)).toBe("/_matrix/client/v3/pushrules/ Bearer old_access");
+    });
+
+    it("settles once a refresh under way has stored its tokens", async () => {
+        const stored = Promise.withResolvers<void>();
+        const { http, refreshed, tokenResponse } = setup(true, () => stored.promise);
+        await http.whenTokenRefreshSettled();
+        const renewing = http.refreshAccessToken();
+        let settled = false;
+        const settling = http.whenTokenRefreshSettled().then(() => (settled = true));
+        tokenResponse.resolve(tokens());
+        await vi.waitFor(() => expect(refreshed).toHaveLength(1));
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(settled).toBe(false);
+        stored.resolve();
+        await settling;
+        await expect(renewing).resolves.toBe(true);
+    });
+
+    it("renews a 30 second token halfway through its life, after the refresh that issued it", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+        try {
+            const created: { renewal?: AccessTokenRenewal } = {};
+            const { http, calls, tokenResponse } = setup(true, async (issued) =>
+                created.renewal?.noteExpiry(issued.expiry),
+            );
+            const client = { http } as unknown as MatrixClient;
+            created.renewal = AccessTokenRenewal.create(client);
+            AccessTokenRenewal.start(client);
+            const renewing = http.refreshAccessToken();
+            tokenResponse.resolve(tokens(30));
+            await renewing;
+            expect(calls.filter((call) => call.startsWith("token"))).toHaveLength(1);
+            await vi.advanceTimersByTimeAsync(14_000);
+            expect(calls.filter((call) => call.startsWith("token"))).toHaveLength(1);
+            await vi.advanceTimersByTimeAsync(1_000);
+            expect(calls.filter((call) => call.startsWith("token"))).toEqual([
+                "token old_refresh",
+                "token new_refresh",
+            ]);
+            AccessTokenRenewal.stop(client);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it("does nothing for a session that cannot refresh", async () => {

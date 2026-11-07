@@ -15,8 +15,11 @@ import {
     ACCESS_TOKEN_EXPIRY_STORAGE_KEY,
     AccessTokenRenewal,
     getStoredAccessTokenExpiry,
+    isStoredSessionOf,
+    MIN_RENEWAL_GAP_MS,
     persistAccessTokenExpiry,
     RENEW_BEFORE_EXPIRY_MS,
+    SETTLE_TIMEOUT_MS,
 } from "./AccessTokenRenewal";
 
 const MINUTE = 60_000;
@@ -24,12 +27,18 @@ const MINUTE = 60_000;
 describe("AccessTokenRenewal", () => {
     let client: MatrixClient;
     let refreshAccessToken: ReturnType<typeof vi.fn<() => Promise<boolean>>>;
+    let whenTokenRefreshSettled: ReturnType<typeof vi.fn<() => Promise<void>>>;
 
     beforeEach(() => {
         vi.useFakeTimers({ now: 1_000_000_000 });
         localStorage.clear();
         refreshAccessToken = vi.fn<() => Promise<boolean>>().mockResolvedValue(true);
-        client = { http: { refreshAccessToken } } as unknown as MatrixClient;
+        whenTokenRefreshSettled = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+        client = {
+            http: { refreshAccessToken, whenTokenRefreshSettled },
+            getUserId: () => "@alice:example.org",
+            getDeviceId: () => "DEVICE",
+        } as unknown as MatrixClient;
     });
 
     afterEach(() => {
@@ -136,6 +145,72 @@ describe("AccessTokenRenewal", () => {
         expect(refreshAccessToken).toHaveBeenCalledOnce();
     });
 
+    it("renews a short-lived token halfway through its life, after the refresh that issued it", async () => {
+        const renewal = AccessTokenRenewal.create(client);
+        // Each refresh issues a token for 30 seconds, and reports it while it is still finishing.
+        refreshAccessToken.mockImplementation(async () => {
+            renewal.noteExpiry(new Date(Date.now() + 30_000));
+            return true;
+        });
+        AccessTokenRenewal.start(client);
+        renewal.noteExpiry(new Date(Date.now() + 30_000));
+        // Never at once: that would only join the refresh reporting the token.
+        expect(refreshAccessToken).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect(refreshAccessToken).toHaveBeenCalledOnce();
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect(refreshAccessToken).toHaveBeenCalledTimes(2);
+    });
+
+    it("plans the next renewal when it only joined a refresh already under way", async () => {
+        const renewal = AccessTokenRenewal.create(client);
+        AccessTokenRenewal.start(client);
+        renewal.noteExpiry(new Date(Date.now() + 2 * MINUTE));
+        // The refresh it joins reported its token before the renewal began, so it reports nothing more.
+        await vi.advanceTimersByTimeAsync(MINUTE);
+        expect(refreshAccessToken).toHaveBeenCalledOnce();
+        await vi.advanceTimersByTimeAsync(MIN_RENEWAL_GAP_MS);
+        expect(refreshAccessToken).toHaveBeenCalledTimes(2);
+    });
+
+    describe("settle", () => {
+        it("waits for a refresh under way to store its tokens", async () => {
+            const settled = Promise.withResolvers<void>();
+            whenTokenRefreshSettled.mockReturnValue(settled.promise);
+            AccessTokenRenewal.create(client);
+            let done = false;
+            const settling = AccessTokenRenewal.settle(client).then(() => (done = true));
+            await vi.advanceTimersByTimeAsync(SETTLE_TIMEOUT_MS - 1);
+            expect(done).toBe(false);
+            settled.resolve();
+            await settling;
+            expect(done).toBe(true);
+        });
+
+        it("gives up after a while, so handing the session over cannot hang", async () => {
+            whenTokenRefreshSettled.mockReturnValue(new Promise(() => {}));
+            AccessTokenRenewal.create(client);
+            const settling = AccessTokenRenewal.settle(client);
+            await vi.advanceTimersByTimeAsync(SETTLE_TIMEOUT_MS);
+            await expect(settling).resolves.toBeUndefined();
+        });
+
+        it("has nothing to wait for without renewal", async () => {
+            await AccessTokenRenewal.settle(client);
+            await AccessTokenRenewal.settle(null);
+            expect(whenTokenRefreshSettled).not.toHaveBeenCalled();
+        });
+    });
+
+    it("tells whether the stored session is still a client's", () => {
+        expect(isStoredSessionOf(client)).toBe(false);
+        localStorage.setItem("mx_user_id", "@alice:example.org");
+        localStorage.setItem("mx_device_id", "DEVICE");
+        expect(isStoredSessionOf(client)).toBe(true);
+        localStorage.setItem("mx_device_id", "OTHER");
+        expect(isStoredSessionOf(client)).toBe(false);
+    });
+
     it("only warns when a renewal fails, leaving the next request to refresh", async () => {
         const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
         refreshAccessToken.mockResolvedValueOnce(false).mockRejectedValueOnce(new Error("offline"));
@@ -144,7 +219,7 @@ describe("AccessTokenRenewal", () => {
         AccessTokenRenewal.start(client);
         await vi.advanceTimersByTimeAsync(0);
         renewal.noteExpiry(new Date(Date.now()));
-        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(MIN_RENEWAL_GAP_MS);
         expect(refreshAccessToken).toHaveBeenCalledTimes(2);
         expect(warn).toHaveBeenCalledTimes(2);
         // Nothing is tried again by itself.

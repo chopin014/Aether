@@ -215,6 +215,10 @@ describe("createMatrixClient", () => {
 
         it("keeps refreshed tokens and their expiry, and renews them before they expire", async () => {
             vi.useFakeTimers();
+            // The stored session is this client's.
+            vi.mocked(localStorage.getItem).mockImplementation((key) =>
+                key === "mx_user_id" ? "@user:test.dummy" : null,
+            );
             try {
                 client = createClientWithCreds(
                     {
@@ -242,6 +246,29 @@ describe("createMatrixClient", () => {
             } finally {
                 vi.useRealTimers();
             }
+        });
+
+        it("does not store tokens refreshed after the session was replaced or ended", async () => {
+            client = createClientWithCreds(
+                {
+                    homeserverUrl: "https://test.dummy",
+                    userId: "@user:test.dummy",
+                    accessToken: "access_token",
+                    refreshToken: "refresh_token",
+                },
+                "test-client-id",
+            );
+            // Another session is stored now, such as after logging in again.
+            vi.mocked(localStorage.getItem).mockImplementation((key) =>
+                key === "mx_user_id" ? "@other:test.dummy" : null,
+            );
+            await client.http.opts.onTokenRefresh!({
+                accessToken: "late_access",
+                refreshToken: "late_refresh",
+                expiry: new Date(Date.now() + 60_000),
+            });
+            expect(persistTokens).not.toHaveBeenCalled();
+            expect(localStorage.setItem).not.toHaveBeenCalledWith(ACCESS_TOKEN_EXPIRY_STORAGE_KEY, expect.anything());
         });
 
         it("does not renew the tokens of a session that cannot refresh them", () => {
