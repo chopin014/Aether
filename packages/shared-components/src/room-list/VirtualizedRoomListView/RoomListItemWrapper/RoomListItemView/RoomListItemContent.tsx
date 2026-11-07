@@ -49,7 +49,7 @@ export const RoomListItemContent = memo(function RoomListItemContent({
     // A channel shows what Discord shows: a mention count, an unsent message or a call. Plain unread activity is
     // the bold name and the marker at the row's edge, and a muted channel is dimmed rather than marked with a bell.
     const notification = isChannel ? channelNotification(item.notification, occupied) : item.notification;
-    const mentionCount = isChannel && item.notification.isMention ? item.notification.count || 1 : 0;
+    const mentionCount = isChannel && item.notification.isMention ? (item.mentionCount ?? 1) : 0;
     const hasDecoration = mentionCount > 0 || notification.isUnsentMessage || !!notification.callType;
 
     return (

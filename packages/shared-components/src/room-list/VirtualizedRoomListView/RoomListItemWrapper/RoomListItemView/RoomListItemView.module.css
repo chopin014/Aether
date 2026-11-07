@@ -182,8 +182,9 @@
         display: flex;
     }
 
-    /* When the menu is visible, hide the notification decoration to avoid clutter */
-    .notificationDecoration {
+    /* When the menu is visible, hide the notification decoration to avoid clutter. A row without a menu, such as a
+       channel the person can neither invite to nor edit, keeps its decoration. */
+    .content:has(> .hoverMenu) > .notificationDecoration {
         display: none;
     }
 }
@@ -287,6 +288,11 @@
     mask-image: radial-gradient(circle at calc(100% - 3px) 4px, transparent 6px, #000 6.5px);
 }
 
+/* The lock sits at the inline end, which is the left in right-to-left text. */
+.privateChannel:dir(rtl) .channelIcon {
+    mask-image: radial-gradient(circle at 3px 4px, transparent 6px, #000 6.5px);
+}
+
 .channelLock {
     position: absolute;
     top: -2px;
@@ -320,6 +326,20 @@
 
 .selected .unreadMarker {
     display: none;
+}
+
+/* Forced colours drop backgrounds, so the marker and the badge keep a system colour of their own. */
+@media (forced-colors: active) {
+    .unreadMarker {
+        forced-color-adjust: none;
+        background-color: CanvasText;
+    }
+
+    .mentionBadge {
+        forced-color-adjust: none;
+        background-color: Highlight;
+        color: HighlightText;
+    }
 }
 
 /* How many times the person was mentioned in a channel. */

@@ -200,12 +200,37 @@ describe("<RoomListItemView />", () => {
     });
 
     it("caps a channel's mention count", () => {
-        render(
-            <DesktopChannelWithMentions
-                notification={{ ...DesktopChannelWithMentions.args.notification!, count: 250 }}
-            />,
-        );
+        render(<DesktopChannelWithMentions mentionCount={250} />);
         expect(screen.getByTestId("channel-mentions")).toHaveTextContent("99+");
+    });
+
+    it("counts a mention it has no count for as one", () => {
+        render(<DesktopChannelWithMentions mentionCount={undefined} />);
+        expect(screen.getByTestId("channel-mentions")).toHaveTextContent("1");
+    });
+
+    it("keeps a channel's badge when it has no buttons to show instead", () => {
+        const { container } = render(
+            <DesktopChannelWithMentions canInvite={false} canEditChannel={false} showMoreOptionsMenu={true} />,
+        );
+        expect(container.querySelector("[class*='hoverMenu']")).toBeNull();
+        expect(screen.getByTestId("channel-mentions")).toBeInTheDocument();
+    });
+
+    it("names the row's buttons after the channel and runs them from the keyboard", async () => {
+        const user = userEvent.setup();
+        const onInvite = DesktopSelectedChannel.args.onInvite as ReturnType<typeof vi.fn>;
+        onInvite.mockClear();
+        const { container } = render(<DesktopSelectedChannel />);
+        const invite = container.querySelector<HTMLButtonElement>('[aria-label="Invite people to boas-vindas"]')!;
+        // Compound names an icon button by its tooltip, so the tooltip carries the channel's name too.
+        const labelledBy = invite.getAttribute("aria-labelledby");
+        if (labelledBy) {
+            expect(document.getElementById(labelledBy)?.textContent).toBe("Invite people to boas-vindas");
+        }
+        invite.focus();
+        await user.keyboard("{Enter}");
+        expect(onInvite).toHaveBeenCalled();
     });
 
     it("invites to and edits a channel from its row without opening it", async () => {

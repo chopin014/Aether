@@ -102,6 +102,8 @@ export interface RoomListItemViewSnapshot {
     activeThread?: { id: string; title: string };
     /** Whether the desktop channel is private: people join it by invitation rather than through its server. */
     isPrivateChannel?: boolean;
+    /** How many times the person was mentioned in a desktop channel since they last read it. */
+    mentionCount?: number;
     /** A desktop channel's custom icon, taken from its room avatar, replacing the channel symbol. */
     channelIconUrl?: string;
     /** Whether the user may rename the channel and change its icon. */

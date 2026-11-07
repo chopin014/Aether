@@ -16,6 +16,7 @@ import {
     EventType,
     JoinRule,
     KnownMembership,
+    NotificationCountType,
     Room,
     RoomEvent,
     RoomStateEvent,
@@ -37,6 +38,7 @@ import { Action } from "../../dispatcher/actions";
 import { CallStore, CallStoreEvent } from "../../stores/CallStore";
 import { CallEvent, type Call } from "../../models/Call";
 import { RoomListItemViewModel } from "./RoomListItemViewModel";
+import * as RoomNotifs from "../../RoomNotifs";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import { VoiceUserPreferences, VoiceUserPreferencesEvent } from "../../audio/desktop/VoiceUserPreferences";
 import { mediaFromMxc } from "../../customisations/Media";
@@ -218,6 +220,25 @@ describe("RoomListItemViewModel", () => {
             vi.spyOn(room, "getJoinRule").mockReturnValue(joinRule);
             viewModel = new RoomListItemViewModel({ room, client: matrixClient });
             expect(viewModel.getSnapshot().isPrivateChannel).toBe(isPrivate);
+        });
+
+        it("counts only a channel's mentions for its badge", () => {
+            vi.spyOn(notificationState, "isMention", "get").mockReturnValue(true);
+            vi.spyOn(notificationState, "count", "get").mockReturnValue(12);
+            const unread = vi.spyOn(RoomNotifs, "getUnreadNotificationCount").mockReturnValue(2);
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            expect(viewModel.getSnapshot().mentionCount).toBe(2);
+            expect(unread).toHaveBeenCalledWith(room, NotificationCountType.Highlight, true);
+
+            // A mention the server did not count still shows as one.
+            unread.mockReturnValue(0);
+            notificationState.emit(NotificationStateEvents.Update);
+            expect(viewModel.getSnapshot().mentionCount).toBe(1);
+        });
+
+        it("has no mention count without a mention", () => {
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            expect(viewModel.getSnapshot().mentionCount).toBeUndefined();
         });
 
         it("follows a channel's join rule as it changes", () => {

@@ -412,19 +412,20 @@ export const DesktopUnreadChannel: Story = {
     },
 };
 
-/** Mentions in a channel show their count in a red badge. */
+/** Mentions in a channel show their count in a red badge, not the count of every message that notified. */
 export const DesktopChannelWithMentions: Story = {
     args: {
         channelKind: "text",
         name: "chat-geral",
         isBold: true,
+        mentionCount: 3,
         notification: {
             ...defaultSnapshot.notification,
             hasAnyNotificationOrActivity: true,
             isMention: true,
             isNotification: true,
             hasUnreadCount: true,
-            count: 3,
+            count: 12,
         },
     },
 };

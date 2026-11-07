@@ -21,6 +21,7 @@ import {
     EventType,
     JoinRule,
     KnownMembership,
+    NotificationCountType,
     RoomEvent,
     RoomStateEvent,
 } from "matrix-js-sdk/src/matrix";
@@ -38,7 +39,7 @@ import SettingsStore from "../../settings/SettingsStore";
 import { NotificationLevel } from "../../stores/notifications/NotificationLevel";
 import { hasAccessToNotificationMenu, hasAccessToOptionsMenu } from "./utils";
 import { EchoChamber } from "../../stores/local-echo/EchoChamber";
-import { RoomNotifState as ElementRoomNotifState } from "../../RoomNotifs";
+import { getUnreadNotificationCount, RoomNotifState as ElementRoomNotifState } from "../../RoomNotifs";
 import { shouldShowComponent } from "../../customisations/helpers/UIComponents";
 import { UIComponent } from "../../settings/UIFeature";
 import { CallStore, CallStoreEvent } from "../../stores/CallStore";
@@ -611,6 +612,11 @@ export class RoomListItemViewModel
         // A server's channels are open to its members; one that takes an invitation or a request to join is private.
         const isPrivateChannel =
             !!channelKind && [JoinRule.Invite, JoinRule.Knock, JoinRule.Private].includes(room.getJoinRule());
+        // A channel's badge counts mentions only, not every message that notifies, as in Discord.
+        const mentionCount =
+            channelKind && notifState.isMention
+                ? Math.max(1, getUnreadNotificationCount(room, NotificationCountType.Highlight, true))
+                : undefined;
 
         return {
             id: room.roomId,
@@ -639,6 +645,7 @@ export class RoomListItemViewModel
             channelIconUrl,
             canEditChannel,
             isPrivateChannel,
+            mentionCount,
             callParticipants,
             callStartedAt: callParticipants?.length
                 ? getCallSessionStart(room, client.matrixRTC.getRoomSession(room).memberships)

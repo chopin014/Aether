@@ -52,7 +52,8 @@ export function ChannelRowActions({ vm, hasDecoration }: ChannelRowActionsProps)
                 <IconButton
                     size="20px"
                     style={{ padding: "2px" }}
-                    tooltip={_t("desktop|channel_row|invite")}
+                    // The tooltip names the button, so it carries the channel's name as well.
+                    tooltip={_t("desktop|channel_row|invite_to", { channel: name })}
                     aria-label={_t("desktop|channel_row|invite_to", { channel: name })}
                     onClick={run(vm.onInvite)}
                 >
@@ -63,7 +64,7 @@ export function ChannelRowActions({ vm, hasDecoration }: ChannelRowActionsProps)
                 <IconButton
                     size="20px"
                     style={{ padding: "2px" }}
-                    tooltip={_t("desktop|channel_row|edit")}
+                    tooltip={_t("desktop|channel_row|edit_named", { channel: name })}
                     aria-label={_t("desktop|channel_row|edit_named", { channel: name })}
                     onClick={run(vm.onEditChannel)}
                 >

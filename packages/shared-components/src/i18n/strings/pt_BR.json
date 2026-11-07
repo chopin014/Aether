@@ -1219,9 +1219,7 @@
             "verify": "Verificar"
         },
         "channel_row": {
-            "invite": "Criar convite",
             "invite_to": "Convidar pessoas para %(channel)s",
-            "edit": "Editar canal",
             "edit_named": "Editar %(channel)s",
             "private": "Canal privado"
         }
