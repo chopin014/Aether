@@ -359,6 +359,8 @@ describe("RoomListAccessibilityPlugin", () => {
         };
         const ROOM_NAMES: Record<string, string> = {
             "!room:server": "My Room",
+            "!rules:server": "rules",
+            "!memes:server": "memes",
         };
 
         function createMockVm(): RoomListViewModel {
@@ -423,6 +425,27 @@ describe("RoomListAccessibilityPlugin", () => {
             };
             expect(dragover!(event)).toBe("Fun will be dropped before Work");
             expect(dragend!(event)).toBe("Fun was dropped before Work");
+        });
+
+        const roomSource = (id: string, index: number): A11yData["operation"]["source"] =>
+            ({ id, data: { type: "room", isDm: false, index } }) as A11yData["operation"]["source"];
+        const roomSlot = (id: string, index: number): A11yData["operation"]["target"] =>
+            ({ id, data: { type: "slot", index } }) as A11yData["operation"]["target"];
+
+        it("names the channel a channel is dropped beside, and which side", () => {
+            const { dragover, dragend } = getAnnouncements(createMockVm());
+            const up: A11yData = {
+                operation: { source: roomSource("!rules:server", 5), target: roomSlot("!memes:server", 2) },
+                canceled: false,
+            };
+            expect(dragover!(up)).toBe("rules will be dropped before memes");
+            expect(dragend!(up)).toBe("rules was dropped before memes");
+            const down: A11yData = {
+                operation: { source: roomSource("!rules:server", 1), target: roomSlot("!memes:server", 2) },
+                canceled: false,
+            };
+            expect(dragover!(down)).toBe("rules will be dropped after memes");
+            expect(dragend!(down)).toBe("rules was dropped after memes");
         });
 
         it("announces cancellation even when there is no target", () => {
