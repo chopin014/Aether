@@ -241,6 +241,21 @@ describe("NotificationCountEngine", () => {
         expect(counts()).toEqual({ total: 0, highlight: 0 });
     });
 
+    it("spreads the evaluation of a long backlog over several tasks", async () => {
+        const { respond, counts, settle } = await setup();
+        // Each look at the clock is a millisecond later, so every pass soon runs out of time.
+        let now = 0;
+        vi.spyOn(performance, "now").mockImplementation(() => ++now);
+        const timeline = Array.from({ length: 60 }, (_, i) => message(`$m${i}`));
+
+        await respond({ initial: true, required_state: requiredState, timeline }, [receipt("$m0")]);
+        // Not published half evaluated.
+        expect(counts().total).toBe(0);
+
+        for (let i = 0; i < 10 && counts().total === 0; i++) await settle();
+        expect(counts().total).toBe(59);
+    });
+
     it("stops counting at the user's own message", async () => {
         const { respond, counts } = await setup();
 

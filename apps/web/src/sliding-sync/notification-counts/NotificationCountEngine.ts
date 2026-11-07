@@ -37,6 +37,9 @@ const NOT_YET_KNOWN: Contribution = { notify: false, highlight: false, final: fa
 /** How long one pass of work may take before letting the page paint, in milliseconds. */
 const SLICE_MS = 4;
 
+/** How many events a room has evaluated in a pass even when the pass is out of time. */
+const MIN_EVALUATIONS = 20;
+
 /**
  * Counts each room's notifications on this device, for sliding sync on servers that send no real counts (Synapse
  * sends zero). It hears every event the rooms gain through the SDK's {@link RoomHistoryObserver}, the user's own
@@ -248,25 +251,34 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         const deadline = performance.now() + SLICE_MS;
         for (const roomId of this.dirty) {
             if (this.held.has(roomId)) continue;
-            if (performance.now() > deadline) {
+            if (performance.now() > deadline) break;
+            if (this.publish(roomId, deadline)) this.dirty.delete(roomId);
+        }
+        for (const roomId of this.dirty) {
+            if (!this.held.has(roomId)) {
                 this.scheduleFlush();
                 return;
             }
-            this.dirty.delete(roomId);
-            this.publish(roomId);
         }
     }
 
-    private publish(roomId: string): void {
+    /**
+     * Evaluate what a room's counts need, then set them on the room.
+     * @returns false when the slice ran out first: the room is published once the rest is evaluated.
+     */
+    private publish(roomId: string, deadline: number): boolean {
         const room = this.client.getRoom(roomId);
         const ledger = this.ledgers.get(roomId);
-        if (!room || !ledger) return;
+        if (!room || !ledger) return true;
         ledger.setJoined(room.getMyMembership() === KnownMembership.Join);
         // Only events that could count are evaluated, and only once the push rules are there.
         if (this.client.pushRules) {
             const events = this.eventsFor(roomId);
-            for (const id of ledger.unevaluated()) {
-                const event = events.get(id);
+            const pending = ledger.unevaluated();
+            for (let i = 0; i < pending.length; i++) {
+                // A few at least, so a room always gets somewhere.
+                if (i >= MIN_EVALUATIONS && performance.now() > deadline) return false;
+                const event = events.get(pending[i]);
                 if (event) this.evaluate(ledger, event);
             }
         }
@@ -278,6 +290,7 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         }
         room.setNotificationCounts({ total: counts.main.total, highlight: counts.main.highlight }, threads);
         this.pruneEvents(roomId, ledger);
+        return true;
     }
 
     private evaluate(ledger: RoomCountLedger, event: MatrixEvent): void {
