@@ -818,8 +818,6 @@ export class SlidingSyncManager {
                 }
             });
             if (!hasSetRanges && this.bootstrapRooms.size === 0) {
-                // Every list has now been sent in full.
-                this.dropRoomsNoLongerListed(slidingSync);
                 // finish spidering
                 slidingSync.off(SlidingSyncEvent.Lifecycle, lifecycle);
             }
@@ -941,12 +939,26 @@ export class SlidingSyncManager {
         const onSync = (state: SyncState): void => {
             if (state === SyncState.Prepared || state === SyncState.Syncing) watchClient();
         };
+        let reconciled = false;
+        const onComplete = (
+            state: SlidingSyncState,
+            response: MSC3575SlidingSyncResponse | null,
+            error?: Error,
+        ): void => {
+            if (reconciled || state !== SlidingSyncState.Complete || error) return;
+            // Responses are processed only once saved rooms are restored, so by now it is known whether there were any.
+            if (cache.restoredRoomIds.size === 0) reconciled = true;
+            else if (response) reconciled = this.dropRoomsNoLongerListed(slidingSync, response);
+            if (reconciled) slidingSync.off(SlidingSyncEvent.Lifecycle, onComplete);
+        };
         slidingSync.on(SlidingSyncEvent.RoomData, onRoomData);
+        slidingSync.on(SlidingSyncEvent.Lifecycle, onComplete);
         client.on(ClientEvent.Sync, onSync);
         document.addEventListener("visibilitychange", onPageHidden);
         window.addEventListener("pagehide", onPageHide);
         this.detachCache = (): void => {
             slidingSync.off(SlidingSyncEvent.RoomData, onRoomData);
+            slidingSync.off(SlidingSyncEvent.Lifecycle, onComplete);
             client.off(ClientEvent.Sync, onSync);
             client.off(ClientEvent.AccountData, onAccountData);
             client.off(RoomEvent.AccountData, onRoomAccountData);
@@ -958,16 +970,28 @@ export class SlidingSyncManager {
     }
 
     /**
-     * After every list has been sent in full, treat saved rooms the server did not send as left: the user left
-     * them, was removed, or they were forgotten while this device was away. They are shown as left, as a regular
-     * sync shows rooms the user has left, and are not saved again.
+     * Once this connection has been sent every room the user is in, treat saved rooms it did not send as left: the
+     * user left them, was removed, or they were forgotten while this device was away. They are shown as left, as a
+     * regular sync shows rooms the user has left, and are not saved again.
+     *
+     * "Every room" is judged by the server's own count for the unfiltered list, against the rooms this connection
+     * has received that the user is still in, rather than by when list ranges were expanded: responses can overlap
+     * those changes. If the counts never meet, nothing is dropped.
+     * @returns Whether the check was made, so it need not be made again.
      */
-    private dropRoomsNoLongerListed(slidingSync: SlidingSync): void {
+    private dropRoomsNoLongerListed(slidingSync: SlidingSync, response: MSC3575SlidingSyncResponse): boolean {
         const cache = this.cache;
         const client = this.client;
-        if (!cache || !client || this.slidingSync !== slidingSync) return;
+        if (!cache || !client || this.slidingSync !== slidingSync) return true;
+        const total = response.lists?.untagged?.count;
+        if (total === undefined) return false;
+        const stillIn = [...this.seenRooms].filter((roomId) => {
+            const membership = client.getRoom(roomId)?.getMyMembership();
+            return membership === KnownMembership.Join || membership === KnownMembership.Invite;
+        });
+        if (stillIn.length < total) return false;
         const gone = [...cache.restoredRoomIds].filter((roomId) => !this.seenRooms.has(roomId));
-        if (gone.length === 0) return;
+        if (gone.length === 0) return true;
         logger.info(`SlidingSync: ${gone.length} saved rooms are no longer listed`);
         for (const roomId of gone) {
             const room = client.getRoom(roomId);
@@ -975,6 +999,7 @@ export class SlidingSyncManager {
                 room.updateMyMembership(KnownMembership.Leave);
         }
         cache.forgetRooms(gone);
+        return true;
     }
 
     /**

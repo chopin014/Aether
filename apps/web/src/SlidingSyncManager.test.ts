@@ -1129,30 +1129,54 @@ describe("SlidingSyncManager", () => {
             expect(manager.snapshotLoader(client)).toBeUndefined();
         });
 
-        it("marks saved rooms the server no longer lists as left, once every list has been sent", async () => {
+        it("marks saved rooms the server no longer lists as left, once it has sent every room the user is in", async () => {
             const sync = (await manager.setup(client))!;
             const cache = (
                 manager as unknown as { cache: { restoredRoomIds: ReadonlySet<string>; forgetRooms: () => void } }
             ).cache;
             vi.spyOn(cache, "restoredRoomIds", "get").mockReturnValue(
-                new Set(["!kept:example.org", "!gone:example.org"]),
+                new Set(["!kept:example.org", "!late:example.org", "!gone:example.org"]),
             );
             const forget = vi.spyOn(cache, "forgetRooms");
-            const gone = new Room("!gone:example.org", client, client.getUserId()!);
-            gone.updateMyMembership(KnownMembership.Join);
-            vi.mocked(client.getRoom).mockImplementation((roomId) => (roomId === gone.roomId ? gone : null));
+            const rooms = new Map(
+                ["!kept:example.org", "!late:example.org", "!gone:example.org"].map((roomId) => {
+                    const room = new Room(roomId, client, client.getUserId()!);
+                    room.updateMyMembership(KnownMembership.Join);
+                    return [roomId, room];
+                }),
+            );
+            vi.mocked(client.getRoom).mockImplementation((roomId) => rooms.get(roomId!) ?? null);
+            const respond = (count: number): void => {
+                sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, {
+                    pos: "p",
+                    lists: { untagged: { count } },
+                    rooms: {},
+                    extensions: {},
+                });
+            };
+            const receive = async (roomId: string): Promise<void> => {
+                await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, {
+                    name: roomId,
+                    required_state: [],
+                    timeline: [],
+                });
+            };
 
-            await sync.emitPromised(SlidingSyncEvent.RoomData, "!kept:example.org", {
-                name: "Kept",
-                required_state: [],
-                timeline: [],
-            });
-            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, null);
-            await vi.waitFor(() => expect(sync.getListParams("recent")?.timeline_limit).toBe(20));
+            await receive("!kept:example.org");
+            // The user is in two rooms; only one has been sent, however the list ranges have moved meanwhile.
+            respond(2);
+            respond(2);
             expect(forget).not.toHaveBeenCalled();
-            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, null);
-            await vi.waitFor(() => expect(forget).toHaveBeenCalledWith(["!gone:example.org"]));
-            expect(gone.getMyMembership()).toBe(KnownMembership.Leave);
+            expect(rooms.get("!late:example.org")!.getMyMembership()).toBe(KnownMembership.Join);
+
+            await receive("!late:example.org");
+            respond(2);
+            expect(forget).toHaveBeenCalledExactlyOnceWith(["!gone:example.org"]);
+            expect(rooms.get("!gone:example.org")!.getMyMembership()).toBe(KnownMembership.Leave);
+            expect(rooms.get("!late:example.org")!.getMyMembership()).toBe(KnownMembership.Join);
+            // Checked once per connection.
+            respond(1);
+            expect(forget).toHaveBeenCalledTimes(1);
             sync.stop();
         });
     });
