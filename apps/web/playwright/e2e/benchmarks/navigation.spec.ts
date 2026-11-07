@@ -32,6 +32,8 @@ const PLAIN_ROOMS = Number(process.env.AETHER_BENCHMARK_ROOMS ?? 120);
 const SPACES = 4;
 // Few enough that every channel fits on screen: the channel list is virtualised, so only rows on screen can be clicked.
 const CHANNELS_PER_SPACE = 6;
+// How many of each Space's channels the server switches open, leaving the rest for first channel visits.
+const SERVER_SWITCH_CHANNELS = 3;
 const MESSAGES_PER_ROOM = 15;
 // More labs flags to turn on, comma separated, such as the ones a desktop build enables.
 const EXTRA_LABS = (process.env.AETHER_BENCHMARK_LABS ?? "").split(",").filter(Boolean);
@@ -150,16 +152,28 @@ async function seedAccount(api: Api, serverName: string): Promise<SeededAccount>
 async function watchForText(page: Page, text: string): Promise<void> {
     await page.addInitScript((wanted) => {
         const win = window as unknown as { aetherBenchTextAt?: number };
+        // Shown means visible to the eye: not laid out under a hidden list while the timeline places it, and inside
+        // the timeline's viewport.
+        const shown = (): boolean =>
+            [...document.querySelectorAll(".mx_EventTile_body")].some((body) => {
+                if (!body.textContent?.includes(wanted) || getComputedStyle(body).visibility !== "visible")
+                    return false;
+                const rect = body.getBoundingClientRect();
+                const viewport = (
+                    body.closest("[data-testid='timeline-scroller'], .mx_RoomView_messagePanel") ??
+                    document.documentElement
+                ).getBoundingClientRect();
+                return rect.height > 0 && rect.bottom > viewport.top && rect.top < viewport.bottom;
+            });
         const check = (): void => {
             if (win.aetherBenchTextAt !== undefined) return;
-            for (const body of document.querySelectorAll(".mx_EventTile_body")) {
-                const rect = body.getBoundingClientRect();
-                if (body.textContent?.includes(wanted) && rect.height > 0 && rect.bottom > 0) {
-                    requestAnimationFrame(() => {
-                        win.aetherBenchTextAt ??= performance.now();
-                    });
-                    return;
-                }
+            // Painted on the frame after it was first seen shown, if it is still shown then.
+            if (shown()) {
+                requestAnimationFrame(() => {
+                    if (shown()) win.aetherBenchTextAt ??= performance.now();
+                    else requestAnimationFrame(check);
+                });
+                return;
             }
             requestAnimationFrame(check);
         };
@@ -185,36 +199,70 @@ async function startupMarks(page: Page): Promise<Record<string, number>> {
  */
 async function timeClickToText(page: Page, click: () => Promise<void>, text: string): Promise<number> {
     await page.evaluate((wanted) => {
-        const win = window as unknown as { aetherBenchClickAt?: number; aetherBenchShownAt?: number };
+        const win = window as unknown as {
+            aetherBenchClickAt?: number;
+            aetherBenchShownAt?: number;
+            aetherBenchCancel?: () => void;
+        };
+        // An earlier attempt that failed must not keep watching, or record into this one.
+        win.aetherBenchCancel?.();
         win.aetherBenchClickAt = undefined;
         win.aetherBenchShownAt = undefined;
-        document.addEventListener("pointerdown", () => (win.aetherBenchClickAt = performance.now()), {
-            capture: true,
-            once: true,
-        });
-        const check = (): void => {
-            if (win.aetherBenchClickAt !== undefined) {
-                for (const body of document.querySelectorAll(".mx_EventTile_body")) {
-                    if (body.textContent?.includes(wanted) && body.getBoundingClientRect().height > 0) {
-                        requestAnimationFrame(() => (win.aetherBenchShownAt = performance.now()));
-                        return;
-                    }
-                }
-            }
-            requestAnimationFrame(check);
+        let active = true;
+        let frame = 0;
+        const onPointerDown = (): void => {
+            win.aetherBenchClickAt ??= performance.now();
         };
-        requestAnimationFrame(check);
+        document.addEventListener("pointerdown", onPointerDown, { capture: true, once: true });
+        win.aetherBenchCancel = (): void => {
+            active = false;
+            cancelAnimationFrame(frame);
+            document.removeEventListener("pointerdown", onPointerDown, { capture: true });
+        };
+        // Shown as in watchForText: visible, and inside the timeline's viewport.
+        const shown = (): boolean =>
+            [...document.querySelectorAll(".mx_EventTile_body")].some((body) => {
+                if (!body.textContent?.includes(wanted) || getComputedStyle(body).visibility !== "visible")
+                    return false;
+                const rect = body.getBoundingClientRect();
+                const viewport = (
+                    body.closest("[data-testid='timeline-scroller'], .mx_RoomView_messagePanel") ??
+                    document.documentElement
+                ).getBoundingClientRect();
+                return rect.height > 0 && rect.bottom > viewport.top && rect.top < viewport.bottom;
+            });
+        const check = (): void => {
+            if (!active) return;
+            if (win.aetherBenchClickAt !== undefined && shown()) {
+                frame = requestAnimationFrame(() => {
+                    if (!active) return;
+                    if (shown()) {
+                        win.aetherBenchShownAt = performance.now();
+                        win.aetherBenchCancel?.();
+                    } else {
+                        frame = requestAnimationFrame(check);
+                    }
+                });
+                return;
+            }
+            frame = requestAnimationFrame(check);
+        };
+        frame = requestAnimationFrame(check);
     }, text);
-    await click();
-    await page.waitForFunction(
-        () => (window as unknown as { aetherBenchShownAt?: number }).aetherBenchShownAt !== undefined,
-        undefined,
-        { timeout: 30_000 },
-    );
-    return page.evaluate(() => {
-        const win = window as unknown as { aetherBenchClickAt: number; aetherBenchShownAt: number };
-        return Math.round(win.aetherBenchShownAt - win.aetherBenchClickAt);
-    });
+    try {
+        await click();
+        await page.waitForFunction(
+            () => (window as unknown as { aetherBenchShownAt?: number }).aetherBenchShownAt !== undefined,
+            undefined,
+            { timeout: 30_000 },
+        );
+        return await page.evaluate(() => {
+            const win = window as unknown as { aetherBenchClickAt: number; aetherBenchShownAt: number };
+            return Math.round(win.aetherBenchShownAt - win.aetherBenchClickAt);
+        });
+    } finally {
+        await page.evaluate(() => (window as unknown as { aetherBenchCancel?: () => void }).aetherBenchCancel?.());
+    }
 }
 
 /** Close the toasts that can cover the room list, such as "Verify this device". */
@@ -351,13 +399,18 @@ for (const protocol of ["regular", "sliding"] as const) {
                     progress(`${name} failed: ${failures[name]}`);
                 }
             };
-            // Switching servers, then opening channels inside one.
+            // Switching servers, then opening channels inside one. Server switches only use the first channels of
+            // each Space, so the channel switches below still have channels nobody has opened.
             const rail = page.getByRole("tree", { name: "Servers" });
+            const opened = new Set<string>();
+            let current: string | undefined;
             await step("server switches", async () => {
                 for (let run = 0; run < RUNS; run++) {
                     for (const space of seeded.spaces) {
-                        const channel = space.channels[run % space.channels.length];
+                        const channel = space.channels[run % SERVER_SWITCH_CHANNELS];
                         const firstVisit = run === 0;
+                        opened.add(channel.name);
+                        current = channel.name;
                         add(
                             samples,
                             firstVisit ? "server switch: first visit, first channel" : "server switch: visited",
@@ -384,11 +437,20 @@ for (const protocol of ["regular", "sliding"] as const) {
                 const space = seeded.spaces[0];
                 await dismissToasts(page);
                 await rail.getByLabel(space.name, { exact: true }).first().click({ timeout: CLICK_TIMEOUT });
+                // The Space reopens the channel last opened in it.
+                current = space.channels[(RUNS - 1) % SERVER_SWITCH_CHANNELS].name;
                 for (let run = 0; run < 2; run++) {
                     for (const channel of space.channels) {
+                        // Clicking the channel already open measures nothing.
+                        if (channel.name === current) continue;
+                        const metric = opened.has(channel.name)
+                            ? "channel switch: visited"
+                            : "channel switch: first visit";
+                        opened.add(channel.name);
+                        current = channel.name;
                         add(
                             samples,
-                            run === 0 ? "channel switch: first visit" : "channel switch: visited",
+                            metric,
                             await measureClick(
                                 page,
                                 () =>
