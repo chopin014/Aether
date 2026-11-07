@@ -50,6 +50,11 @@ function makeVm(snapshot: Partial<DesktopProfilePopoutViewSnapshot> = {}) {
     );
 }
 
+/** Compound's spacing scale, which the test page does not load. */
+const SPACING = Object.fromEntries(
+    [1, 1.5, 2, 3, 4, 5, 6, 8, 10, 12, 16].map((n) => [`--cpd-space-${String(n).replace(".", "-")}x`, `${n * 4}px`]),
+) as React.CSSProperties;
+
 describe("DesktopProfilePopoutView", () => {
     it("shows the Spaces you share and the voice channel the person is in, with a way to join them", async () => {
         const vm = makeVm({
@@ -262,5 +267,23 @@ describe("DesktopProfilePopoutView", () => {
         expect(measure(decoration).width).toBeCloseTo(measure(decoration).height, 1);
         expect(measure(decoration).top + measure(decoration).height / 2).toBeCloseTo(measure(box).top + 40, 1);
         expect(measure(decoration).left + measure(decoration).width / 2).toBeCloseTo(measure(box).left + 40, 1);
+    });
+
+    it("sets the presence dot on the edge of the avatar, as Discord does", () => {
+        // The test page has none of Compound's spacing tokens, so the ones the layout uses are given here.
+        render(
+            <div style={SPACING}>
+                <DesktopProfilePopoutView vm={makeVm()} />
+            </div>,
+        );
+        const dot = screen.getByRole("img", { name: "Online" }).getBoundingClientRect();
+        // The box that holds the avatar is exactly the avatar's size.
+        const avatar = document.querySelector('[class*="avatarBox"]')!.getBoundingClientRect();
+        const distance = Math.hypot(
+            dot.x + dot.width / 2 - (avatar.x + avatar.width / 2),
+            dot.y + dot.height / 2 - (avatar.y + avatar.height / 2),
+        );
+        expect(avatar.width).toBeCloseTo(80, 0);
+        expect(Math.abs(distance - 80 / 2)).toBeLessThan(2);
     });
 });

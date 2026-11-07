@@ -140,6 +140,8 @@ Please see LICENSE in the repository root for full details.
     --desktop-profile-banner-height: 112px;
     --desktop-profile-avatar-ring: var(--cpd-space-1-5x);
     --desktop-profile-avatar-size: 80px;
+    --desktop-profile-badge-dot: var(--cpd-space-4x);
+    --desktop-profile-badge-ring: var(--cpd-space-1x);
     --desktop-profile-below-banner: var(--cpd-space-10x);
     height: calc(var(--desktop-profile-banner-height) + var(--desktop-profile-below-banner));
 }
@@ -147,6 +149,8 @@ Please see LICENSE in the repository root for full details.
     --desktop-profile-banner-height: 196px;
     --desktop-profile-avatar-ring: var(--cpd-space-2x);
     --desktop-profile-avatar-size: 120px;
+    --desktop-profile-badge-dot: var(--cpd-space-6x);
+    --desktop-profile-badge-ring: var(--cpd-space-1-5x);
     --desktop-profile-below-banner: var(--cpd-space-16x);
     height: calc(var(--desktop-profile-banner-height) + var(--desktop-profile-below-banner));
 }
@@ -206,21 +210,32 @@ Please see LICENSE in the repository root for full details.
 .avatarBox:has(button):hover {
     filter: brightness(0.86);
 }
+/*
+ * The presence dot sits on the avatar's edge at the 45° point, as Discord's does, ringed in the card's colour so it
+ * reads as cut out of the avatar. 0.1464 is 0.5 × (1 − cos 45°): how far that point is in from the avatar's corner.
+ */
 .badge {
+    --desktop-profile-badge: calc(var(--desktop-profile-badge-dot) + var(--desktop-profile-badge-ring) * 2);
     position: absolute;
-    inset-inline-end: calc(var(--cpd-space-1x) * -0.5);
-    inset-block-end: calc(var(--cpd-space-1x) * -0.5);
+    inset-inline-end: calc(
+        var(--desktop-profile-avatar-ring) + var(--desktop-profile-avatar-size) * 0.1464 -
+            var(--desktop-profile-badge) / 2
+    );
+    inset-block-end: calc(
+        var(--desktop-profile-avatar-ring) + var(--desktop-profile-avatar-size) * 0.1464 -
+            var(--desktop-profile-badge) / 2
+    );
     z-index: 1;
     display: flex;
-    padding: var(--cpd-space-1x);
+    padding: var(--desktop-profile-badge-ring);
     border-radius: 50%;
     background: var(--desktop-profile-surface, var(--cpd-color-bg-subtle-secondary));
     color: var(--cpd-color-icon-secondary);
 }
 .badge svg {
     display: block;
-    width: var(--cpd-space-4x);
-    height: var(--cpd-space-4x);
+    width: var(--desktop-profile-badge-dot);
+    height: var(--desktop-profile-badge-dot);
 }
 .badge[data-presence="online"] {
     color: #2bbd7e;
