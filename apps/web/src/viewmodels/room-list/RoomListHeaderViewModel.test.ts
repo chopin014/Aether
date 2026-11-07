@@ -22,6 +22,8 @@ import { shouldShowSpaceSettings, showCreateNewRoom, showSpaceInvite, showSpaceS
 import { createRoom, hasCreateRoomRights } from "./utils";
 import PosthogTrackers from "../../PosthogTrackers";
 import { ReleaseAnnouncementStore } from "../../stores/ReleaseAnnouncementStore";
+import { SpaceLayoutStore, SpaceLayoutStoreEvent } from "../../stores/space-layout/SpaceLayoutStore";
+import * as serverCategories from "./serverCategories";
 
 vi.mock("../../PosthogTrackers", () => ({
     default: {
@@ -444,6 +446,48 @@ describe("RoomListHeaderViewModel", () => {
 
             expect(ReleaseAnnouncementStore.instance.nextReleaseAnnouncement).toHaveBeenCalled();
             expect(vm.getSnapshot().displaySectionReleaseAnnouncement).toBe(false);
+        });
+    });
+
+    describe("server menu", () => {
+        beforeEach(() => {
+            vi.mocked(SettingsStore.getValue).mockImplementation((settingName: string) => {
+                if (settingName === "feature_desktop_shell") return true;
+                if (settingName === "RoomList.preferredSorting") return SortingAlgorithm.Recency;
+                if (settingName === "RoomList.OrderedCustomSections") return [];
+                return false;
+            });
+            vi.spyOn(sdkContext.spaceStore, "activeSpaceRoom", "get").mockReturnValue(mockSpace);
+            vi.spyOn(SpaceLayoutStore.instance, "canEditLayout").mockReturnValue(true);
+            vi.spyOn(SpaceLayoutStore.instance, "isHidingMutedChannels").mockReturnValue(false);
+        });
+
+        it("offers to create a category and hide muted channels in a server", () => {
+            vm = new RoomListHeaderViewModel({ matrixClient, spaceStore: sdkContext.spaceStore });
+            expect(vm.getSnapshot().serverMenu).toEqual({ canCreateCategory: true, hideMutedChannels: false });
+        });
+
+        it("follows changes to the server's layout and preferences", () => {
+            vm = new RoomListHeaderViewModel({ matrixClient, spaceStore: sdkContext.spaceStore });
+            vi.mocked(SpaceLayoutStore.instance.isHidingMutedChannels).mockReturnValue(true);
+            SpaceLayoutStore.instance.emit(SpaceLayoutStoreEvent.Changed, mockSpace.roomId);
+            expect(vm.getSnapshot().serverMenu?.hideMutedChannels).toBe(true);
+        });
+
+        it("has no server menu outside a server", () => {
+            vi.spyOn(sdkContext.spaceStore, "activeSpaceRoom", "get").mockReturnValue(null);
+            vm = new RoomListHeaderViewModel({ matrixClient, spaceStore: sdkContext.spaceStore });
+            expect(vm.getSnapshot().serverMenu).toBeUndefined();
+        });
+
+        it("creates a category and hides muted channels in the open server", () => {
+            const create = vi.spyOn(serverCategories, "showCreateCategory").mockImplementation(() => {});
+            const hide = vi.spyOn(SpaceLayoutStore.instance, "setHidingMutedChannels").mockResolvedValue();
+            vm = new RoomListHeaderViewModel({ matrixClient, spaceStore: sdkContext.spaceStore });
+            vm.createCategory();
+            vm.toggleHideMutedChannels();
+            expect(create).toHaveBeenCalledWith(mockSpace);
+            expect(hide).toHaveBeenCalledWith(mockSpace, true);
         });
     });
 });

@@ -112,6 +112,8 @@ export interface LayoutCategory {
     /** The kind of channel a built-in category holds. */
     builtin?: "text" | "voice";
     rank: string;
+    /** Whether someone made or changed it, rather than it being a built-in category nobody touched. */
+    defined: boolean;
 }
 
 /** Where a channel sits. */
@@ -142,7 +144,7 @@ export function getCategories(reader: LayoutStateReader): LayoutCategory[] {
         [BUILTIN_TEXT_CATEGORY, "text"],
         [BUILTIN_VOICE_CATEGORY, "voice"],
     ] as const) {
-        if (!deleted.has(id)) categories.set(id, { id, builtin, rank: BUILTIN_RANKS[id] });
+        if (!deleted.has(id)) categories.set(id, { id, builtin, rank: BUILTIN_RANKS[id], defined: false });
     }
 
     for (const id of reader.keys(SPACE_CATEGORY_EVENT_TYPE)) {
@@ -155,7 +157,7 @@ export function getCategories(reader: LayoutStateReader): LayoutCategory[] {
         if (!name && !builtin) continue;
         const rank = isValidRank(content.order) ? content.order : (BUILTIN_RANKS[id] ?? undefined);
         if (!rank) continue;
-        categories.set(id, { id, name, builtin, rank });
+        categories.set(id, { id, name, builtin, rank, defined: true });
     }
 
     return [...categories.values()].sort((a, b) => compareRanks(a.rank, b.rank) || compareRanks(a.id, b.id));

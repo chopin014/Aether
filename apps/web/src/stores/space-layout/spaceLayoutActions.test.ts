@@ -21,7 +21,14 @@ import {
     SPACE_CHANNEL_EVENT_TYPE,
 } from "./SpaceLayout";
 import { SpaceLayoutStore } from "./SpaceLayoutStore";
-import { createCategory, deleteCategory, moveCategory, moveChannel, renameCategory } from "./spaceLayoutActions";
+import {
+    createCategory,
+    deleteCategory,
+    moveCategory,
+    moveChannel,
+    planInsert,
+    renameCategory,
+} from "./spaceLayoutActions";
 import { compareRanks } from "./rank";
 
 const CATEGORY = "c_7e50cc0b-4fb5-4ed0-89db-769fb11c837e";
@@ -173,6 +180,39 @@ describe("spaceLayoutActions", () => {
         void moveChannel(space, "!a:example.org", null);
         expect(sent[0].content).toEqual({ v: 1, category: null, order: expect.any(String), x: 1 });
         expect(layout().uncategorized.map((r) => r.roomId)).toEqual(["!a:example.org"]);
+    });
+
+    it("gives tied neighbours new keys before inserting between them", () => {
+        const ordered = [
+            { id: "a", rank: "k" },
+            { id: "b", rank: "s" },
+            { id: "c", rank: "s" },
+            { id: "d", rank: "w" },
+        ];
+        const plan = planInsert(ordered, { anchor: "b", side: "after" });
+        expect(plan.repairs.map((repair) => repair.id)).toEqual(["c"]);
+        const ranks = ["s", plan.rank, plan.repairs[0].rank, "w"];
+        expect([...ranks].sort(compareRanks)).toEqual(ranks);
+        expect(new Set(ranks).size).toBe(4);
+        // Nothing needs a new key when the neighbours differ, or at the ends.
+        expect(planInsert(ordered, { anchor: "a", side: "after" }).repairs).toEqual([]);
+        expect(planInsert(ordered, {}).repairs).toEqual([]);
+        expect(planInsert(ordered, { anchor: "b", side: "before" }).repairs).toEqual([]);
+    });
+
+    it("reorders after two categories created at the same moment got the same key", async () => {
+        const first = "c_00000000-0000-4000-8000-000000000001";
+        const second = "c_00000000-0000-4000-8000-000000000002";
+        setState(SPACE_CATEGORY_EVENT_TYPE, first, { v: 1, name: "First", order: "s" });
+        setState(SPACE_CATEGORY_EVENT_TYPE, second, { v: 1, name: "Second", order: "s" });
+        void moveCategory(space, BUILTIN_VOICE_CATEGORY, { anchor: first, side: "after" });
+        expect(getCategories(SpaceLayoutStore.instance.reader(space)).map((c) => c.id)).toEqual([
+            BUILTIN_TEXT_CATEGORY,
+            first,
+            BUILTIN_VOICE_CATEGORY,
+            second,
+        ]);
+        expect(sent.map((edit) => edit.stateKey)).toEqual([second, BUILTIN_VOICE_CATEGORY]);
     });
 
     it("refuses to move a channel into a category that does not exist", async () => {

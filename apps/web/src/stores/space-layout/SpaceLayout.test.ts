@@ -81,8 +81,8 @@ describe("SpaceLayout", () => {
 
     it("has the built-in text and voice categories until they are changed", () => {
         expect(getCategories(reader({}))).toEqual([
-            { id: BUILTIN_TEXT_CATEGORY, builtin: "text", rank: "V" },
-            { id: BUILTIN_VOICE_CATEGORY, builtin: "voice", rank: "k" },
+            { id: BUILTIN_TEXT_CATEGORY, builtin: "text", rank: "V", defined: false },
+            { id: BUILTIN_VOICE_CATEGORY, builtin: "voice", rank: "k", defined: false },
         ]);
     });
 
@@ -98,8 +98,8 @@ describe("SpaceLayout", () => {
             }),
         );
         expect(categories).toEqual([
-            { id: CATEGORY, name: "Governo", builtin: undefined, rank: "A" },
-            { id: BUILTIN_VOICE_CATEGORY, name: "Canais de Voz", builtin: "voice", rank: "z" },
+            { id: CATEGORY, name: "Governo", builtin: undefined, rank: "A", defined: true },
+            { id: BUILTIN_VOICE_CATEGORY, name: "Canais de Voz", builtin: "voice", rank: "z", defined: true },
         ]);
     });
 
