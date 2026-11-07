@@ -113,11 +113,6 @@ Please see LICENSE in the repository root for full details.
     white-space: nowrap;
 }
 
-.size {
-    font: var(--cpd-font-body-xs-regular);
-    color: var(--cpd-color-text-secondary);
-}
-
 /* Shown on hover or focus, at the card's top corner, over the preview. */
 .remove {
     position: absolute;

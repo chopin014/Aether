@@ -11,7 +11,6 @@ import { AudioIcon, DeleteIcon, DocumentIcon, PlaySolidIcon } from "@vector-im/c
 
 import { type ViewModel, useViewModel } from "../../../core/viewmodel";
 import { useI18n } from "../../../core/i18n/i18nContext";
-import { formatBytes } from "../../../core/utils/FormattingUtils";
 import styles from "./AttachmentTrayView.module.css";
 
 /** What kind of file an attachment is, which decides its preview. */
@@ -71,8 +70,8 @@ function Preview({ attachment }: Readonly<{ attachment: PendingAttachment }>): J
 }
 
 /**
- * The files waiting to go with the next message, shown above the composer's text: a picture of each, its name, and
- * a button that takes it out. Clicking a waiting image opens it at full size. Nothing is shown when the tray is empty.
+ * The files waiting to go with the next message, shown above the composer's text: a picture of each, its name (not
+ * its size, like Discord's), and a button that takes it out. Clicking a waiting image opens it at full size. Nothing is shown when the tray is empty.
  *
  * @example
  * ```tsx
@@ -108,7 +107,6 @@ export function AttachmentTrayView({ vm }: Readonly<AttachmentTrayViewProps>): J
                             <span className={styles.name} title={attachment.name}>
                                 {attachment.name}
                             </span>
-                            <span className={styles.size}>{formatBytes(attachment.size, 1)}</span>
                         </span>
                         <Tooltip label={removeLabel}>
                             <button

@@ -31,7 +31,7 @@ describe("AttachmentTrayView", () => {
         expect(container).toBeEmptyDOMElement();
     });
 
-    it("lists each waiting file with a preview, its name and size", () => {
+    it("lists each waiting file with a preview and its name, but not its size", () => {
         render(<AttachmentTrayView vm={new TestAttachmentTrayViewModel({ attachments: [photo, notes] })} />);
 
         const tray = screen.getByRole("list", { name: "2 files to send" });
@@ -39,7 +39,7 @@ describe("AttachmentTrayView", () => {
         expect(tray.querySelector("img")).toHaveAttribute("src", "blob:photo");
         expect(screen.getByText("photo.png")).toBeInTheDocument();
         expect(screen.getByText("notes.txt")).toBeInTheDocument();
-        expect(screen.getByText("2 KB")).toBeInTheDocument();
+        expect(screen.queryByText("2 KB")).not.toBeInTheDocument();
     });
 
     it("takes a file out when its remove button is pressed", () => {
