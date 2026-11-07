@@ -63,7 +63,7 @@ import { messageForLoginError } from "./utils/ErrorUtils";
 import { completeOAuthLogin, type CompleteOAuthLoginResponse } from "./utils/oauth/authorize";
 import { getOAuthErrorMessage } from "./utils/oauth/error";
 import { getStoredOAuthClientId, persistOAuthClientId } from "./utils/oauth/persistOAuthSettings";
-import { AccessTokenRenewal } from "./utils/tokens/AccessTokenRenewal";
+import { AccessTokenRenewal, claimStoredSession } from "./utils/tokens/AccessTokenRenewal";
 import {
     ACCESS_TOKEN_NAME,
     ACCESS_TOKEN_STORAGE_KEY,
@@ -944,6 +944,8 @@ async function doSetLoggedIn(
     if (localStorage) {
         try {
             await persistCredentials(credentials);
+            // Its session is now the stored one, so the tokens it refreshes are stored too.
+            claimStoredSession(client);
             // make sure we don't think that it's a fresh login any more
             sessionStorage.removeItem("mx_fresh_login");
         } catch (e) {
@@ -1328,7 +1330,8 @@ export function stopMatrixClient(unsetClient = true): void {
     if (cli) {
         // Before stopping, so profile lookups finishing later cannot write this account's data back.
         RichProfileStore.endSession(cli);
-        AccessTokenRenewal.stop(cli);
+        // Its session stops being the stored one, so tokens it refreshes later are not stored.
+        AccessTokenRenewal.release(cli);
         cli.stopClient();
         cli.removeAllListeners();
 

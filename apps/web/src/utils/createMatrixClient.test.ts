@@ -17,6 +17,7 @@ import { persistTokens } from "./tokens/tokens.ts";
 import {
     ACCESS_TOKEN_EXPIRY_STORAGE_KEY,
     AccessTokenRenewal,
+    claimStoredSession,
     RENEW_BEFORE_EXPIRY_MS,
 } from "./tokens/AccessTokenRenewal.ts";
 
@@ -215,10 +216,6 @@ describe("createMatrixClient", () => {
 
         it("keeps refreshed tokens and their expiry, and renews them before they expire", async () => {
             vi.useFakeTimers();
-            // The stored session is this client's.
-            vi.mocked(localStorage.getItem).mockImplementation((key) =>
-                key === "mx_user_id" ? "@user:test.dummy" : null,
-            );
             try {
                 client = createClientWithCreds(
                     {
@@ -231,18 +228,20 @@ describe("createMatrixClient", () => {
                     "test-client-id",
                 );
                 const refresh = vi.spyOn(client.http, "refreshAccessToken").mockResolvedValue(true);
+                // Its session is the stored one.
+                claimStoredSession(client);
                 AccessTokenRenewal.start(client);
                 const expiry = new Date(Date.now() + 5 * 60_000);
                 const tokens = { accessToken: "new_access", refreshToken: "new_refresh", expiry };
                 await client.http.opts.onTokenRefresh!(tokens);
-                expect(persistTokens).toHaveBeenCalledWith("pickle", tokens);
+                expect(persistTokens).toHaveBeenCalledWith("pickle", tokens, expect.any(Function));
                 expect(localStorage.setItem).toHaveBeenCalledWith(
                     ACCESS_TOKEN_EXPIRY_STORAGE_KEY,
                     String(expiry.getTime()),
                 );
                 await vi.advanceTimersByTimeAsync(5 * 60_000 - RENEW_BEFORE_EXPIRY_MS);
                 expect(refresh).toHaveBeenCalledOnce();
-                AccessTokenRenewal.stop(client);
+                AccessTokenRenewal.release(client);
             } finally {
                 vi.useRealTimers();
             }
@@ -258,16 +257,20 @@ describe("createMatrixClient", () => {
                 },
                 "test-client-id",
             );
-            // Another session is stored now, such as after logging in again.
-            vi.mocked(localStorage.getItem).mockImplementation((key) =>
-                key === "mx_user_id" ? "@other:test.dummy" : null,
-            );
-            await client.http.opts.onTokenRefresh!({
-                accessToken: "late_access",
-                refreshToken: "late_refresh",
-                expiry: new Date(Date.now() + 60_000),
-            });
+            const tokens = { accessToken: "late_access", refreshToken: "late_refresh", expiry: new Date() };
+            // Never claimed, or released since, such as after logging out.
+            await client.http.opts.onTokenRefresh!(tokens);
             expect(persistTokens).not.toHaveBeenCalled();
+
+            // Released while the tokens are being stored, such as when another session takes over meanwhile.
+            claimStoredSession(client);
+            let mayWrite: (() => boolean) | undefined;
+            vi.mocked(persistTokens).mockImplementationOnce(async (_key, _tokens, canWrite) => {
+                AccessTokenRenewal.release(client);
+                mayWrite = canWrite;
+            });
+            await client.http.opts.onTokenRefresh!(tokens);
+            expect(mayWrite?.()).toBe(false);
             expect(localStorage.setItem).not.toHaveBeenCalledWith(ACCESS_TOKEN_EXPIRY_STORAGE_KEY, expect.anything());
         });
 

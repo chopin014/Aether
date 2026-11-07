@@ -15,7 +15,8 @@ import {
     ACCESS_TOKEN_EXPIRY_STORAGE_KEY,
     AccessTokenRenewal,
     getStoredAccessTokenExpiry,
-    isStoredSessionOf,
+    claimStoredSession,
+    ownsStoredSession,
     MIN_RENEWAL_GAP_MS,
     persistAccessTokenExpiry,
     RENEW_BEFORE_EXPIRY_MS,
@@ -179,20 +180,24 @@ describe("AccessTokenRenewal", () => {
             whenTokenRefreshSettled.mockReturnValue(settled.promise);
             AccessTokenRenewal.create(client);
             let done = false;
-            const settling = AccessTokenRenewal.settle(client).then(() => (done = true));
+            const settling = AccessTokenRenewal.settle(client).then((result) => {
+                done = true;
+                return result;
+            });
             await vi.advanceTimersByTimeAsync(SETTLE_TIMEOUT_MS - 1);
             expect(done).toBe(false);
             settled.resolve();
-            await settling;
-            expect(done).toBe(true);
+            await expect(settling).resolves.toBe(true);
         });
 
         it("gives up after a while, so handing the session over cannot hang", async () => {
             whenTokenRefreshSettled.mockReturnValue(new Promise(() => {}));
             AccessTokenRenewal.create(client);
             const settling = AccessTokenRenewal.settle(client);
+            vi.spyOn(logger, "warn").mockImplementation(() => {});
             await vi.advanceTimersByTimeAsync(SETTLE_TIMEOUT_MS);
-            await expect(settling).resolves.toBeUndefined();
+            // It says the wait ran out.
+            await expect(settling).resolves.toBe(false);
         });
 
         it("has nothing to wait for without renewal", async () => {
@@ -202,13 +207,27 @@ describe("AccessTokenRenewal", () => {
         });
     });
 
-    it("tells whether the stored session is still a client's", () => {
-        expect(isStoredSessionOf(client)).toBe(false);
-        localStorage.setItem("mx_user_id", "@alice:example.org");
-        localStorage.setItem("mx_device_id", "DEVICE");
-        expect(isStoredSessionOf(client)).toBe(true);
-        localStorage.setItem("mx_device_id", "OTHER");
-        expect(isStoredSessionOf(client)).toBe(false);
+    it("lets a client store tokens only from claiming the stored session until it is released", () => {
+        expect(ownsStoredSession(client)).toBe(false);
+        claimStoredSession(client);
+        expect(ownsStoredSession(client)).toBe(true);
+        // Another client claiming it, such as after logging in again, takes it over.
+        const other = { http: client.http } as unknown as MatrixClient;
+        claimStoredSession(other);
+        expect(ownsStoredSession(client)).toBe(false);
+        AccessTokenRenewal.release(other);
+        expect(ownsStoredSession(other)).toBe(false);
+    });
+
+    it("stops renewing when released", async () => {
+        persistAccessTokenExpiry(new Date(Date.now() + 5 * MINUTE));
+        AccessTokenRenewal.create(client);
+        AccessTokenRenewal.start(client);
+        claimStoredSession(client);
+        AccessTokenRenewal.release(client);
+        expect(ownsStoredSession(client)).toBe(false);
+        await vi.advanceTimersByTimeAsync(10 * MINUTE);
+        expect(refreshAccessToken).not.toHaveBeenCalled();
     });
 
     it("only warns when a renewal fails, leaving the next request to refresh", async () => {

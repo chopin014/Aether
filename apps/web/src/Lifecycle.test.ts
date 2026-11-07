@@ -36,7 +36,7 @@ import * as StorageManager from "./utils/StorageManager.ts";
 import type BasePlatform from "./BasePlatform.ts";
 import * as createMatrixClientModule from "./utils/createMatrixClient";
 import { RichProfileStore } from "./profile/RichProfileStore";
-import { AccessTokenRenewal } from "./utils/tokens/AccessTokenRenewal";
+import { AccessTokenRenewal, ownsStoredSession } from "./utils/tokens/AccessTokenRenewal";
 
 const { logout, restoreSessionFromStorage, setLoggedIn } = Lifecycle;
 
@@ -268,6 +268,10 @@ describe("Lifecycle", () => {
 
                 it("should persist credentials", async () => {
                     expect(await restoreSessionFromStorage()).toEqual(true);
+                    // Its session is the stored one, so the tokens it refreshes are stored, until it stops.
+                    expect(ownsStoredSession(mockClient)).toBe(true);
+                    Lifecycle.stopMatrixClient();
+                    expect(ownsStoredSession(mockClient)).toBe(false);
 
                     expect(localStorage.getItem("mx_user_id")).toEqual(userId);
                     expect(localStorage.getItem("mx_has_access_token")).toEqual("true");
@@ -959,13 +963,13 @@ describe("Lifecycle", () => {
 
         it("lets a token refresh under way store its tokens before stopping the client", async () => {
             vi.spyOn(MatrixClientPeg, "get").mockReturnValue(mockClient);
-            const settled = Promise.withResolvers<void>();
+            const settled = Promise.withResolvers<boolean>();
             const settle = vi.spyOn(AccessTokenRenewal, "settle").mockReturnValue(settled.promise);
             const stopping = Lifecycle.onSessionLockStolen();
             await flushPromises();
             expect(settle).toHaveBeenCalledWith(mockClient);
             expect(mockClient.stopClient).not.toHaveBeenCalled();
-            settled.resolve();
+            settled.resolve(true);
             await stopping;
             expect(mockClient.stopClient).toHaveBeenCalled();
         });

@@ -117,6 +117,7 @@ export async function tryDecryptToken(
  *    unencrypted.
  * @param hasTokenStorageKey Localstorage key for an item which stores whether we expect to have a token in indexeddb,
  *    eg "mx_has_access_token".
+ * @param canWrite Asked just before anything is written, after encrypting; nothing is written if it says no.
  */
 async function persistTokenInStorage(
     storageKey: string,
@@ -124,15 +125,8 @@ async function persistTokenInStorage(
     token: string | undefined,
     pickleKey: string | undefined,
     hasTokenStorageKey: string,
+    canWrite?: () => boolean,
 ): Promise<void> {
-    // store whether we expect to find a token, to detect the case
-    // where IndexedDB is blown away
-    if (token) {
-        localStorage.setItem(hasTokenStorageKey, "true");
-    } else {
-        localStorage.removeItem(hasTokenStorageKey);
-    }
-
     let valueToStore: AESEncryptedSecretStoragePayload | string | undefined = token;
     if (pickleKey && token) {
         try {
@@ -145,6 +139,17 @@ async function persistTokenInStorage(
             // Warn about it, but fall back to storing the unencrypted token.
             logger.warn(`Could not encrypt token for ${tokenName}`, e);
         }
+    }
+
+    // Encrypting waits, and whoever stores tokens may have changed meanwhile, such as after a logout.
+    if (canWrite && !canWrite()) return;
+
+    // store whether we expect to find a token, to detect the case
+    // where IndexedDB is blown away
+    if (token) {
+        localStorage.setItem(hasTokenStorageKey, "true");
+    } else {
+        localStorage.removeItem(hasTokenStorageKey);
     }
 
     const fallbackStorageKey = getFallbackStorageKey(storageKey);
@@ -209,14 +214,21 @@ async function persistTokenInStorage(
  * @param tokens - The tokens to persist
  * @param pickleKey - Pickle key: used to derive the key used to encrypt token.
  *     If `undefined`, the token will be stored unencrypted.
+ * @param canWrite - Asked just before each token is written; a token is not written if it says no, such as for
+ *     tokens refreshed by a client whose session was replaced while they were being encrypted.
  */
-export async function persistTokens(pickleKey: string | undefined, tokens: AccessTokens): Promise<void> {
+export async function persistTokens(
+    pickleKey: string | undefined,
+    tokens: AccessTokens,
+    canWrite?: () => boolean,
+): Promise<void> {
     await persistTokenInStorage(
         ACCESS_TOKEN_STORAGE_KEY,
         ACCESS_TOKEN_NAME,
         tokens.accessToken,
         pickleKey,
         HAS_ACCESS_TOKEN_STORAGE_KEY,
+        canWrite,
     );
     await persistTokenInStorage(
         REFRESH_TOKEN_STORAGE_KEY,
@@ -224,5 +236,6 @@ export async function persistTokens(pickleKey: string | undefined, tokens: Acces
         tokens.refreshToken,
         pickleKey,
         HAS_REFRESH_TOKEN_STORAGE_KEY,
+        canWrite,
     );
 }

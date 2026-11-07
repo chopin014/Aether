@@ -81,5 +81,25 @@ describe("tokens", () => {
             expect(typeof encryptedPayload.iv).toBe("string");
             expect(typeof encryptedPayload.mac).toBe("string");
         });
+
+        it("writes nothing once it may no longer, such as when the session changed while it encrypted", async () => {
+            let mayWrite = true;
+            const writing = persistTokens(PICKLE_KEY, { accessToken: ACCESS_TOKEN, refreshToken: "refresh" }, () => {
+                return mayWrite;
+            });
+            // Encryption is under way; the session is replaced before anything is written.
+            mayWrite = false;
+            await writing;
+            expect(saved).toEqual({});
+            expect(localStorage.length).toBe(0);
+        });
+
+        it("asks before writing each token, so a later token is not written once the answer changes", async () => {
+            const answers = [true, false];
+            await persistTokens(undefined, { accessToken: ACCESS_TOKEN, refreshToken: "refresh" }, () =>
+                answers.shift()!,
+            );
+            expect(Object.keys(saved)).toEqual([ACCESS_TOKEN_STORAGE_KEY]);
+        });
     });
 });

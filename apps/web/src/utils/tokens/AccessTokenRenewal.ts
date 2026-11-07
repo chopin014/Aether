@@ -17,8 +17,12 @@ export const RENEW_BEFORE_EXPIRY_MS = 60_000;
 /** The shortest wait before renewing again after a refresh, so a very short-lived token cannot cause a storm. */
 export const MIN_RENEWAL_GAP_MS = 5000;
 
-/** How long handing the session to another instance waits for a refresh under way to store its tokens. */
-export const SETTLE_TIMEOUT_MS = 5000;
+/**
+ * How long handing the session to another instance waits for a refresh under way to store its tokens. A refresh that
+ * takes longer is cut off when the client stops, as closing the tab mid-refresh would; waiting without limit would
+ * leave the other instance stuck.
+ */
+export const SETTLE_TIMEOUT_MS = 15_000;
 
 // Browsers fire longer timeouts at once. A renewal further away is checked again after this long.
 const MAX_TIMER_MS = 2 ** 31 - 1;
@@ -49,20 +53,25 @@ export function getStoredAccessTokenExpiry(): number | undefined {
     }
 }
 
+// The client whose session is the one stored on this device, from when its credentials are stored until it stops.
+let storedSessionOwner: MatrixClient | null = null;
+
 /**
- * Whether the session stored on this device is still the one a client belongs to. It is not once the user has
- * logged out, or logged in again as another session.
+ * Note that a client's session is now the one stored on this device, once its credentials are stored. Tokens it
+ * refreshes are stored only while it is.
  * @param client - The client.
  */
-export function isStoredSessionOf(client: MatrixClient): boolean {
-    try {
-        return (
-            localStorage.getItem("mx_user_id") === client.getUserId() &&
-            (localStorage.getItem("mx_device_id") ?? null) === client.getDeviceId()
-        );
-    } catch {
-        return false;
-    }
+export function claimStoredSession(client: MatrixClient): void {
+    storedSessionOwner = client;
+}
+
+/**
+ * Whether the session stored on this device is a client's. It stops being when the client stops, such as at logout
+ * or before another session, or another tab, takes over.
+ * @param client - The client.
+ */
+export function ownsStoredSession(client: MatrixClient): boolean {
+    return storedSessionOwner === client;
 }
 
 /**
@@ -126,15 +135,18 @@ export class AccessTokenRenewal {
      * Wait, briefly, for a refresh under way to store its tokens, such as before handing the session to another
      * instance: a refresh replaces the refresh token, and the other instance must start from the new one.
      * @param client - The client.
+     * @returns Whether it settled, rather than the wait running out.
      */
-    public static async settle(client: MatrixClient | null): Promise<void> {
-        if (!client || !AccessTokenRenewal.byClient.has(client)) return;
+    public static async settle(client: MatrixClient | null): Promise<boolean> {
+        if (!client || !AccessTokenRenewal.byClient.has(client)) return true;
         let timer: ReturnType<typeof setTimeout> | undefined;
-        await Promise.race([
-            client.http.whenTokenRefreshSettled(),
-            new Promise<void>((resolve) => (timer = setTimeout(resolve, SETTLE_TIMEOUT_MS))),
+        const settled = await Promise.race([
+            client.http.whenTokenRefreshSettled().then(() => true),
+            new Promise<boolean>((resolve) => (timer = setTimeout(() => resolve(false), SETTLE_TIMEOUT_MS))),
         ]);
         clearTimeout(timer);
+        if (!settled) logger.warn("AccessTokenRenewal: handing the session over while a token refresh is under way");
+        return settled;
     }
 
     /**
@@ -148,6 +160,15 @@ export class AccessTokenRenewal {
         clearTimeout(renewal.timer);
         renewal.timer = undefined;
         AccessTokenRenewal.byClient.delete(client);
+    }
+
+    /**
+     * Stop a client's renewal, and stop it storing tokens it refreshes: its session stops being the stored one.
+     * @param client - The client.
+     */
+    public static release(client: MatrixClient): void {
+        AccessTokenRenewal.stop(client);
+        if (storedSessionOwner === client) storedSessionOwner = null;
     }
 
     /**
