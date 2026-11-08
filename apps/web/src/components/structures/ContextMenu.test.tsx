@@ -10,7 +10,7 @@ Please see LICENSE files in the repository root for full details.
 
 import React from "react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render } from "test-utils-rtl";
+import { act, render } from "test-utils-rtl";
 
 import ContextMenu, { toRightOf, ChevronFace } from "./ContextMenu";
 import UIStore from "../../stores/UIStore";
@@ -230,6 +230,43 @@ describe("ContextMenu", () => {
             expect(onFinished).not.toHaveBeenCalled();
             Modal.createDialog(BaseDialog);
             expect(onFinished).toHaveBeenCalled();
+        });
+
+        it("stays open when a modal is opened over a menu holding a form, as asked", async () => {
+            // Dialogs earlier tests left open would keep it under them.
+            Modal.forceCloseAllModals();
+            const onFinished = vi.fn();
+
+            render(
+                <ContextMenu top={0} left={0} onFinished={onFinished} stayOpenUnderDialogs={true}>
+                    <React.Fragment />
+                </ContextMenu>,
+            );
+
+            const wrapper = (): HTMLElement => document.querySelector<HTMLElement>(".mx_ContextualMenu_wrapper")!;
+            let dialog!: ReturnType<typeof Modal.createDialog>;
+            act(() => {
+                dialog = Modal.createDialog(BaseDialog);
+            });
+            expect(onFinished).not.toHaveBeenCalled();
+            // Hidden under the dialog, so it is the dialog that is seen and clicked, until it closes.
+            expect(wrapper().style.visibility).toBe("hidden");
+            await act(async () => {
+                await dialog.close();
+            });
+            expect(wrapper().style.visibility).toBe("");
+
+            // Every dialog closed at once, such as on signing out, puts it back above too.
+            act(() => {
+                Modal.createDialog(BaseDialog);
+            });
+            expect(wrapper().style.visibility).toBe("hidden");
+            await act(async () => {
+                Modal.forceCloseAllModals();
+            });
+            expect(wrapper().style.visibility).toBe("");
+            // An option of the menu, not an attribute of what it renders.
+            expect(document.querySelector("[stayopenunderdialogs]")).toBeNull();
         });
 
         it("should not automatically close when a modal is opened under the existing one", () => {

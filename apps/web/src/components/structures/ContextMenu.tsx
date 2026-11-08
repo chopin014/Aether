@@ -100,6 +100,10 @@ export interface IProps extends MenuProps {
     // call onFinished on any interaction with the menu
     "closeOnInteraction"?: boolean;
 
+    // If true, the menu stays open when a dialog opens over it, such as one it opened itself, rather than closing as
+    // menus do. For a menu holding a form someone is filling in.
+    "stayOpenUnderDialogs"?: boolean;
+
     // Function to be called on menu close
     "onFinished"(this: void): void;
     // on resize callback
@@ -112,6 +116,8 @@ export interface IProps extends MenuProps {
 
 interface IState {
     contextMenuElem?: HTMLDivElement;
+    // Whether a dialog is open over a menu that stays open under dialogs.
+    underDialog?: boolean;
 }
 
 // Generic ContextMenu Portal wrapper
@@ -136,16 +142,29 @@ export default class ContextMenu extends React.PureComponent<React.PropsWithChil
 
     public componentDidMount(): void {
         Modal.on(ModalManagerEvent.Opened, this.onModalOpen);
+        Modal.on(ModalManagerEvent.Closed, this.onModalClosed);
     }
 
     public componentWillUnmount(): void {
         Modal.off(ModalManagerEvent.Opened, this.onModalOpen);
+        Modal.off(ModalManagerEvent.Closed, this.onModalClosed);
         // return focus to the thing which had it before us
         this.initialFocus.focus();
     }
 
     private onModalOpen = (): void => {
+        if (this.props.stayOpenUnderDialogs) {
+            // It is hidden under the dialog, and lets it have the focus, until the dialog closes.
+            this.setState({ underDialog: Modal.hasDialogs() });
+            return;
+        }
         this.props.onFinished?.();
+    };
+
+    private onModalClosed = (): void => {
+        if (!this.props.stayOpenUnderDialogs) return;
+        // Closing every dialog at once announces each before letting go of them, so look once that is done.
+        queueMicrotask(() => this.setState({ underDialog: Modal.hasDialogs() }));
     };
 
     private collectContextMenuRect = (element: HTMLDivElement): void => {
@@ -433,6 +452,9 @@ export default class ContextMenu extends React.PureComponent<React.PropsWithChil
             menuStyle["zIndex"] = zIndex! + 1;
             wrapperStyle["zIndex"] = zIndex;
         }
+        // Menus are drawn in a container of their own after the dialogs', so no z-index puts one under a dialog: a
+        // menu that stays open is hidden while a dialog is over it, its contents kept, and shown again after.
+        if (this.state.underDialog) wrapperStyle["visibility"] = "hidden";
 
         let background: JSX.Element;
         if (hasBackground) {
@@ -456,11 +478,20 @@ export default class ContextMenu extends React.PureComponent<React.PropsWithChil
         );
 
         if (focusLock) {
-            body = <FocusLock returnFocus>{body}</FocusLock>;
+            body = (
+                <FocusLock returnFocus disabled={this.state.underDialog}>
+                    {body}
+                </FocusLock>
+            );
         }
 
         // filter props that are invalid for DOM elements
-        const { hasBackground: _hasBackground, onFinished: _onFinished, ...divProps } = props;
+        const {
+            hasBackground: _hasBackground,
+            onFinished: _onFinished,
+            stayOpenUnderDialogs: _stayOpenUnderDialogs,
+            ...divProps
+        } = props;
 
         return (
             <RovingTabIndexProvider handleHomeEnd handleUpDown onKeyDown={this.onKeyDown}>
