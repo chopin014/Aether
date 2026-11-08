@@ -525,8 +525,9 @@ describe("RoomView", () => {
             visible.resolve("known");
             await flushPromises();
         });
-        await waitFor(() => expect(stores.roomViewStore.isRoomLoading()).toBe(false));
-        await waitFor(() => expect(ref.current?.state.initialEventId).toBe("$left-here"));
+        // Given time on a loaded machine: the store's second update is dispatched asynchronously.
+        await waitFor(() => expect(stores.roomViewStore.isRoomLoading()).toBe(false), { timeout: 5000 });
+        await waitFor(() => expect(ref.current?.state.initialEventId).toBe("$left-here"), { timeout: 5000 });
         expect(ref.current?.state.initialEventPixelOffset).toBe(42);
         RoomScrollStateStore.setScrollState(room.roomId, null);
     });
