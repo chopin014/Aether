@@ -504,12 +504,13 @@ test(
             await remoteScreen.hover({ force: true });
             const streamMute = bobPage.getByRole("button", { name: "Mute Alice's stream audio", exact: true });
             await streamMute.hover();
-            const verticalVolume = bobPage.getByRole("slider", { name: "Stream volume for Alice", exact: true });
-            await expect(verticalVolume).toHaveAttribute("aria-orientation", "vertical");
-            await verticalVolume.press("Home");
-            for (let i = 0; i < 45; ++i) await verticalVolume.press("ArrowUp");
+            // A horizontal capsule beside the mute button, set from the keyboard.
+            const spotlightVolume = bobPage.getByRole("slider", { name: "Stream volume for Alice", exact: true });
+            await expect(spotlightVolume).not.toHaveAttribute("aria-orientation", "vertical");
+            await spotlightVolume.press("Home");
+            for (let i = 0; i < 45; ++i) await spotlightVolume.press("ArrowUp");
             await expect.poll(() => playbackGains(bobPage)).toMatchObject({ microphone: [0.08], stream: [0.45] });
-            await verticalVolume.blur();
+            await spotlightVolume.blur();
             await streamMute.hover();
             await bobPage.screenshot({ path: testInfo.outputPath("aether-focused-stream.png") });
             const framesBeforeNavigation = await decodedVideoFrames(bobPage);
