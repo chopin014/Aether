@@ -10,10 +10,15 @@ Please see LICENSE in the repository root for full details.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
     ClientEvent,
+    ContentHelpers,
     EventTimeline,
     EventTimelineSet,
     EventType,
+    M_BEACON,
+    M_BEACON_INFO,
     MatrixError,
+    MatrixEvent,
+    Room,
     RoomEvent,
     SyncState,
     type MatrixClient,
@@ -1375,5 +1380,41 @@ describe("polls under sliding sync", () => {
         await receive({ timeline: [pollStart("$older", 1), message("$latest", 5)], expanded_timeline: true });
 
         expect(room.polls.has("$older")).toBe(true);
+    });
+});
+
+describe("live locations", () => {
+    it("reads a location update that follows another event in the same batch", async () => {
+        // Sliding sync now hands each timeline to the beacon processing, as /sync v2 does, and a timeline mixes
+        // locations with everything else.
+        const client = makeClient();
+        const room = new Room(roomId, client, userId);
+        const now = Date.now();
+        room.currentState.setStateEvents([
+            new MatrixEvent({
+                type: M_BEACON_INFO.name,
+                state_key: userId,
+                sender: userId,
+                room_id: roomId,
+                event_id: "$share",
+                origin_server_ts: now,
+                content: ContentHelpers.makeBeaconInfoContent(3_600_000, true, "Walk", undefined, now),
+            }),
+        ]);
+        const [beacon] = room.currentState.beacons.values();
+        expect(beacon).toBeDefined();
+
+        const chat = new MatrixEvent({ ...message("$chat", now), room_id: roomId });
+        const location = new MatrixEvent({
+            type: M_BEACON.name,
+            sender: userId,
+            room_id: roomId,
+            event_id: "$location",
+            origin_server_ts: now,
+            content: ContentHelpers.makeBeaconContent("geo:51.5,-0.1", now, "$share"),
+        });
+        await room.currentState.processBeaconEvents([chat, location], client);
+
+        expect(beacon.latestLocationEvent?.getId()).toBe("$location");
     });
 });

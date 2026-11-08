@@ -1943,3 +1943,19 @@ diff --git a/src/models/thread.ts b/src/models/thread.ts
          throw new Error("Unsupported function on the thread model");
      }
  
+diff --git a/src/models/room-state.ts b/src/models/room-state.ts
+--- a/src/models/room-state.ts
++++ b/src/models/room-state.ts
+@@ -589,9 +589,9 @@
+ 
+         for (const event of events) {
+             const relatedToEventId = event.getRelation()?.event_id;
+-            // not related to a beacon we know about; discard
+-            if (!relatedToEventId || !beaconByEventIdDict[relatedToEventId]) return;
+-            if (!M_BEACON.matches(event.getType()) && !event.isEncrypted()) return;
++            // not related to a beacon we know about, or not a location: skip it, and keep looking through the rest
++            if (!relatedToEventId || !beaconByEventIdDict[relatedToEventId]) continue;
++            if (!M_BEACON.matches(event.getType()) && !event.isEncrypted()) continue;
+ 
+             try {
+                 await matrixClient.decryptEventIfNeeded(event);
