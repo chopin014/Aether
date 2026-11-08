@@ -8,8 +8,10 @@ Please see LICENSE files in the repository root for full details.
 
 // @vitest-environment happy-dom
 
-import { vi, describe, it, expect, beforeAll, beforeEach, afterEach, type MockInstance } from "vitest";
+import { vi, describe, it, expect, beforeAll, beforeEach, afterEach, type Mock, type MockInstance } from "vitest";
 import { type EventEmitter } from "node:events";
+import { createElement } from "react";
+import { fireEvent, render, screen } from "test-utils-rtl";
 import {
     EventType,
     RoomMember,
@@ -47,6 +49,8 @@ import { NotificationLevel } from "../notifications/NotificationLevel";
 import { storeRoomAliasInCache } from "../../RoomAliasCache.ts";
 import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
 import { UPDATE_EVENT } from "../AsyncStore";
+import { SDKContextClass } from "../../contexts/SDKContextClass";
+import LeaveSpaceDialog from "../../components/views/dialogs/LeaveSpaceDialog";
 
 vi.useFakeTimers();
 
@@ -1846,53 +1850,99 @@ describe("SpaceStore", () => {
             return room;
         };
         /** Each time the store works out the rooms of every Space. */
-        const rebuilds = (): MockInstance =>
-            vi.spyOn(store as unknown as { onRoomsUpdate: () => void }, "onRoomsUpdate");
+        const computes = (): MockInstance =>
+            vi.spyOn(store as unknown as { computeRooms: () => Set<string> }, "computeRooms");
 
         describe("with a Space waiting for its channels", () => {
+            let onSpace: Mock<() => void>;
+            let compute: MockInstance;
+
             beforeEach(async () => {
                 mkSpace(space1, [room1, room2]);
                 await run();
+                onSpace = vi.fn();
+                store.on(space1, onSpace);
+                compute = computes();
             });
 
-            it("works out the rooms that arrived while held once the hold ends", () => {
-                const onSpace = vi.fn();
-                store.on(space1, onSpace);
-                const release = store.holdRoomUpdates();
-                const rebuild = rebuilds();
+            afterEach(() => {
+                store.off(space1, onSpace);
+                compute.mockRestore();
+            });
 
+            it("tells about the rooms that arrived while held once, when the hold ends", () => {
+                const release = store.holdRoomUpdates();
                 arrive(room1);
                 arrive(room2);
-                // Nothing is worked out meanwhile, so the Space does not count them yet.
-                expect(rebuild).not.toHaveBeenCalled();
+                // Nothing is worked out or told meanwhile.
+                expect(compute).not.toHaveBeenCalled();
                 expect(onSpace).not.toHaveBeenCalled();
-                expect(store.isRoomInSpace(space1, room1)).toBe(false);
+                // The room list, told again later, reads the rooms as last worked out.
+                expect(store.isRoomInSpace(space1, room1, true, true)).toBe(false);
 
                 release();
-                expect(rebuild).toHaveBeenCalledTimes(1);
+                expect(compute).toHaveBeenCalledTimes(1);
+                expect(onSpace).toHaveBeenCalledTimes(1);
                 expect(store.isRoomInSpace(space1, room1)).toBe(true);
                 expect(store.isRoomInSpace(space1, room2)).toBe(true);
-                expect(onSpace).toHaveBeenCalled();
-                store.off(space1, onSpace);
-                rebuild.mockRestore();
             });
 
-            it("works out the held rooms first when the user opens a Space", () => {
-                // Another Space is open, so opening this one is a change.
-                mkSpace(space2);
-                store.setActiveSpace(space2);
-                expect(store.activeSpace).toBe(space2);
+            it("keeps what is read while held current, such as the rooms to leave with a Space", () => {
                 const release = store.holdRoomUpdates();
                 arrive(room1);
+                arrive(room2);
 
-                store.setActiveSpace(space1);
-                expect(store.isRoomInSpace(space1, room1)).toBe(true);
+                // A dialog taking the Space's rooms once, such as leaving it with all its rooms, gets them all.
+                expect(store.getSpaceFilteredRoomIds(space1)).toEqual(new Set([room1, room2]));
+                expect(store.isRoomInSpace(space1, room2)).toBe(true);
+                expect(store.getKnownParents(room1)).toEqual(new Set([space1]));
+                expect(compute).toHaveBeenCalledTimes(1);
+                // Only telling waits.
+                expect(onSpace).not.toHaveBeenCalled();
 
-                const rebuild = rebuilds();
                 release();
-                // Nothing was left to work out.
-                expect(rebuild).not.toHaveBeenCalled();
-                rebuild.mockRestore();
+                expect(onSpace).toHaveBeenCalledTimes(1);
+                // Nothing changed since it was read: it is told without working it out again.
+                expect(compute).toHaveBeenCalledTimes(1);
+            });
+
+            it("leaves every room of a Space whose leave dialog opened while held", () => {
+                const shared = SDKContextClass.instance;
+                // @ts-ignore The dialog reads the Space store through the shared context.
+                SDKContextClass.instance = sdkContext;
+                try {
+                    const release = store.holdRoomUpdates();
+                    arrive(room1);
+                    arrive(room2);
+                    const onFinished = vi.fn();
+                    render(createElement(LeaveSpaceDialog, { space: client.getRoom(space1)!, onFinished }));
+                    release();
+
+                    fireEvent.click(screen.getByRole("radio", { name: "Leave all rooms" }));
+                    fireEvent.click(screen.getByRole("button", { name: "Leave server" }));
+                    expect(onFinished).toHaveBeenCalledWith(true, [client.getRoom(room1), client.getRoom(room2)]);
+                } finally {
+                    // @ts-ignore Restoring the shared context.
+                    SDKContextClass.instance = shared;
+                }
+            });
+
+            it("tells about a Space's changed children along with the rest once the hold ends", () => {
+                const release = store.holdRoomUpdates();
+                arrive(room1);
+                const child = mkEvent({
+                    event: true,
+                    type: EventType.SpaceChild,
+                    room: space1,
+                    user: testUserId,
+                    skey: room1,
+                    content: { via: [] },
+                });
+                client.emit(RoomStateEvent.Events, child, client.getRoom(space1)!.currentState, null);
+                expect(onSpace).not.toHaveBeenCalled();
+
+                release();
+                expect(onSpace).toHaveBeenCalledTimes(1);
             });
 
             it("waits for every hold to end, and ending one twice does nothing more", () => {
@@ -1902,14 +1952,14 @@ describe("SpaceStore", () => {
 
                 first();
                 first();
-                expect(store.isRoomInSpace(space1, room1)).toBe(false);
+                expect(onSpace).not.toHaveBeenCalled();
 
                 second();
-                expect(store.isRoomInSpace(space1, room1)).toBe(true);
+                expect(onSpace).toHaveBeenCalledTimes(1);
             });
         });
 
-        it("is held while each sliding sync response is applied, until the store is reset", async () => {
+        it("is held while each batch of rooms sliding sync applies, until the store is reset", async () => {
             const stopHolding = vi.fn();
             const holdWhileApplying = vi
                 .spyOn(sdkContext.slidingSyncManager, "holdWhileApplyingRooms")
@@ -1917,14 +1967,18 @@ describe("SpaceStore", () => {
             mkSpace(space1, [room1]);
             await run();
             expect(holdWhileApplying).toHaveBeenCalledTimes(1);
+            const onSpace = vi.fn();
+            store.on(space1, onSpace);
 
-            // The manager starts the hold as a response arrives.
+            // The manager starts the hold as a batch starts.
             const release = holdWhileApplying.mock.calls[0][0]();
             arrive(room1);
-            expect(store.isRoomInSpace(space1, room1)).toBe(false);
+            expect(onSpace).not.toHaveBeenCalled();
             release();
+            expect(onSpace).toHaveBeenCalled();
             expect(store.isRoomInSpace(space1, room1)).toBe(true);
 
+            store.off(space1, onSpace);
             await testUtils.resetAsyncStoreWithClient(store);
             expect(stopHolding).toHaveBeenCalled();
             holdWhileApplying.mockRestore();
