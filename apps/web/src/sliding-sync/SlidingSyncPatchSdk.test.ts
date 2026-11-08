@@ -1626,7 +1626,10 @@ describe("encrypted rooms under sliding sync", () => {
                 return { clearEvent };
             },
         } as unknown as Parameters<MatrixEvent["attemptDecryption"]>[0];
+        // Every event the crypto layer was asked to decrypt.
+        const decrypting: MatrixEvent[] = [];
         vi.spyOn(client, "decryptEventIfNeeded").mockImplementation((event) => {
+            decrypting.push(event);
             if (event.shouldAttemptDecryption()) void event.attemptDecryption(crypto);
             return event.getDecryptionPromise() ?? Promise.resolve();
         });
@@ -1646,7 +1649,7 @@ describe("encrypted rooms under sliding sync", () => {
             withheld.delete(event.getId()!);
             await event.attemptDecryption(crypto, { isRetry: true });
         };
-        return { api, client, order, receive, keyArrives, withheld, clear };
+        return { api, client, order, receive, keyArrives, withheld, clear, decrypting };
     }
 
     it("sets up the room's encryption before its state says the room is encrypted", async () => {
@@ -1878,5 +1881,73 @@ describe("encrypted rooms under sliding sync", () => {
         const room = client.getRoom(roomId)!;
         expect(room.currentState.getStateEvents("org.example.foo", "x:")?.getId()).toBe("$undecryptable");
         expect(room.currentState.getStateEvents("org.example.foo:x", "")?.getId()).toBe("$other");
+    });
+
+    it("adds state whose keys arrive while its room is first being added", async () => {
+        const { client, receive, keyArrives, decrypting } = setup();
+        // The keys arrive while the room's events are being added, before the room is stored.
+        const addLiveEvents = Room.prototype.addLiveEvents;
+        vi.spyOn(Room.prototype, "addLiveEvents").mockImplementation(async function (
+            this: Room,
+            ...args: Parameters<Room["addLiveEvents"]>
+        ) {
+            const name = decrypting.find((event) => event.getId() === "$undecryptable");
+            if (name?.isDecryptionFailure()) await keyArrives(name);
+            return addLiveEvents.apply(this, args);
+        });
+
+        await receive({
+            initial: true,
+            required_state: [...requiredState, encryption, encryptedName("$undecryptable")],
+            timeline: [{ ...message("$a", 1), room_id: roomId }],
+        });
+
+        expect(client.getRoom(roomId)!.currentState.getStateEvents(EventType.RoomName, "")?.getId()).toBe(
+            "$undecryptable",
+        );
+    });
+
+    describe("given encrypted and plain state for the same in one response", () => {
+        // In a room that encrypts its state, the encrypted event is the one to trust.
+        const plainName = {
+            type: EventType.RoomName,
+            state_key: "",
+            sender: userId,
+            event_id: "$plain",
+            origin_server_ts: 2,
+            content: { name: "Plain" },
+        };
+        const both = (encryptedId: string, encryptedFirst: boolean): MSC3575RoomData["required_state"] =>
+            encryptedFirst ? [encryptedName(encryptedId), plainName] : [plainName, encryptedName(encryptedId)];
+
+        it.each([true, false])(
+            "keeps the encrypted one when its keys are here (encrypted first: %s)",
+            async (first) => {
+                const { client, receive } = setup();
+
+                await receive({
+                    initial: true,
+                    required_state: [...requiredState, encryption, ...both("$name", first)],
+                });
+
+                expect(client.getRoom(roomId)!.currentState.getStateEvents(EventType.RoomName, "")?.getId()).toBe(
+                    "$name",
+                );
+            },
+        );
+
+        it.each([true, false])("keeps the encrypted one once its keys arrive (encrypted first: %s)", async (first) => {
+            const { client, receive, keyArrives, decrypting } = setup();
+            await receive({
+                initial: true,
+                required_state: [...requiredState, encryption, ...both("$undecryptable", first)],
+            });
+            const room = client.getRoom(roomId)!;
+            expect(room.currentState.getStateEvents(EventType.RoomName, "")?.getId()).toBe("$plain");
+
+            await keyArrives(decrypting.find((event) => event.getId() === "$undecryptable")!);
+
+            expect(room.currentState.getStateEvents(EventType.RoomName, "")?.getId()).toBe("$undecryptable");
+        });
     });
 });
