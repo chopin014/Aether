@@ -243,6 +243,12 @@ export const ROOM_STATE_READ_TIMEOUT_MS = 15_000;
  */
 export const MAX_STATE_READ_ROOMS = 8;
 
+/**
+ * The most selectors added to one room's subscription for the state demanded of it, whatever the number of demands.
+ * Every request carries every subscription.
+ */
+export const MAX_DEMANDED_SELECTORS_PER_ROOM = 32;
+
 /** The bytes the account lists take in a request. */
 function listBytes(slidingSync: SlidingSync): number {
     let size = 0;
@@ -302,6 +308,8 @@ export class SlidingSyncManager {
     // demanded rooms. The connection holds the definition each name was last given.
     private readonly derivedSubscriptions = new Map<string, { subscription: MSC3575RoomSubscription; json: string }>();
     private readonly registeredDerived = new Map<string, MSC3575RoomSubscription>();
+    // Rooms whose demanded state the current subscriptions add, as given room by the last apply.
+    private admittedDemands = new Set<string>();
     // The state each subscribed room's last applied answer brought, from the request it answered.
     private readonly appliedCoverage = new Map<string, readonly (readonly string[])[]>();
     // Rooms with reads waiting for their state, with how many each, and reads waiting for a room to be free. A new
@@ -384,6 +392,7 @@ export class SlidingSyncManager {
         this.appliedNames.clear();
         this.registeredDerived.clear();
         this.derivedSubscriptions.clear();
+        this.admittedDemands = new Set();
         this.appliedCoverage.clear();
         this.stateDemands.cancelReads();
         this.stateDemands.reset();
@@ -607,16 +616,10 @@ export class SlidingSyncManager {
      */
     private subscriptionNameFor(roomId: string): string {
         const base = this.profileNameFor(roomId);
-        const demanded = this.stateDemands.selectorsFor(roomId);
-        if (demanded.length === 0) return base;
-        const profile = NAMED_SUBSCRIPTIONS.get(base)!;
-        const missing = new Map<string, [string, string]>();
-        for (const selector of demanded) {
-            if (requiredStateCovers(profile.required_state ?? [], selector)) continue;
-            const entry = requiredStateFor(selector);
-            missing.set(JSON.stringify(entry), entry);
-        }
+        if (!this.admittedDemands.has(roomId)) return base;
+        const missing = this.demandedAdditions(roomId, base);
         if (missing.size === 0) return base;
+        const profile = NAMED_SUBSCRIPTIONS.get(base)!;
         const keys = [...missing.keys()].sort();
         const subscription = {
             ...profile,
@@ -628,6 +631,18 @@ export class SlidingSyncManager {
         if (this.derivedSubscriptions.get(name)?.json !== json)
             this.derivedSubscriptions.set(name, { subscription, json });
         return name;
+    }
+
+    /** The `required_state` entries the state demanded of a room adds to a profile, by their JSON. */
+    private demandedAdditions(roomId: string, base: RoomSubscriptionName): Map<string, [string, string]> {
+        const profile = NAMED_SUBSCRIPTIONS.get(base)!;
+        const missing = new Map<string, [string, string]>();
+        for (const selector of this.stateDemands.selectorsFor(roomId)) {
+            if (requiredStateCovers(profile.required_state ?? [], selector)) continue;
+            const entry = requiredStateFor(selector);
+            missing.set(JSON.stringify(entry), entry);
+        }
+        return missing;
     }
 
     /** A subscription by name: a named profile, or one derived for demanded state. */
@@ -688,17 +703,31 @@ export class SlidingSyncManager {
             return subscriptionBytes(roomId, name, this.subscriptionNamed(name));
         };
         for (const roomId of desired) bytes += bytesFor(roomId);
-        // Rooms whose state is demanded come next, live demands such as ban lists first, while the request stays
-        // within its limits. A read that has no room fails rather than waiting; a live demand waits for room.
+        // The state demanded of rooms comes next, live demands such as ban lists first, while the request stays within
+        // its limits: what it adds to a room that is subscribed anyway counts as much as a room subscribed for it.
+        // Rooms subscribed anyway were measured above with their profile alone. A read that has no room fails rather
+        // than waiting; a live demand waits for room.
+        const wasAdmitted = this.admittedDemands;
+        this.admittedDemands = new Set();
         for (const roomId of this.stateDemands.roomIdsByPriority()) {
-            if (desired.has(roomId)) continue;
-            const size = bytesFor(roomId);
-            if (desired.size >= MAX_ROOM_SUBSCRIPTIONS || bytes + size > REQUEST_BUDGET_BYTES) {
+            const subscribed = desired.has(roomId);
+            const before = subscribed ? bytesFor(roomId) : 0;
+            const additions = this.demandedAdditions(roomId, this.profileNameFor(roomId)).size;
+            this.admittedDemands.add(roomId);
+            const after = bytesFor(roomId);
+            const fits =
+                additions <= MAX_DEMANDED_SELECTORS_PER_ROOM &&
+                (subscribed || desired.size < MAX_ROOM_SUBSCRIPTIONS) &&
+                bytes - before + after <= REQUEST_BUDGET_BYTES;
+            if (!fits) {
+                this.admittedDemands.delete(roomId);
                 this.stateDemands.overCapacity(roomId);
+                // What the room's demanded state brought stops being kept current.
+                if (wasAdmitted.has(roomId)) this.appliedCoverage.delete(roomId);
                 continue;
             }
             desired.add(roomId);
-            bytes += size;
+            bytes += after - before;
         }
         // The open Space's channels are sent as long as the request stays small, in the Space's order.
         for (const roomId of this.spaceChannels) {

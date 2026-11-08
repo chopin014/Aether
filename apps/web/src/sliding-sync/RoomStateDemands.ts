@@ -179,7 +179,8 @@ export class RoomStateDemands {
             waiters: new Set(),
         };
         entry.demands.add(demand);
-        if (!covered) this.onChange();
+        // Even state already here changes the room's place when requests are given room.
+        this.onChange();
         return {
             roomId,
             isReady: () => demand.ready,
@@ -208,12 +209,15 @@ export class RoomStateDemands {
 
     /**
      * Note that a request has no room for a room's state. Reads waiting for it fail; live demands keep waiting for
-     * room to free up.
+     * room to free up. What arrived before is no longer kept current, so a demand is ready again only once the state
+     * is asked for and answered anew.
      */
     public overCapacity(roomId: string): void {
         const entry = this.rooms.get(roomId);
         if (!entry) return;
+        for (const lingering of entry.lingering.values()) lingering.ready = false;
         for (const demand of entry.demands) {
+            demand.ready = false;
             if (demand.kind === "read") this.settle(demand, "capacity");
         }
     }
@@ -364,6 +368,8 @@ export class RoomStateDemands {
             if (this.lingeringOrder.size <= MAX_LINGERING_ROOMS) break;
             this.stopLingering(roomId);
         }
+        // A room kept only for a while comes after live demands and reads, which may now be given its room.
+        this.onChange();
     }
 
     /** Stop asking for a room's released state. */

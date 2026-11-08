@@ -102,15 +102,42 @@ describe("RoomStateDemands", () => {
             expect(demands.has("!room")).toBe(true);
             expect(demands.selectorsFor("!room")).toEqual([{ type: INSTALLATIONS }]);
 
-            vi.mocked(onChange).mockClear();
+            // Ready at once: the state is still asked for, and arrived.
             const again = demands.acquire("!room", [{ type: INSTALLATIONS, stateKey: "abc" }]);
             expect(again.isReady()).toBe(true);
-            expect(onChange).not.toHaveBeenCalled();
             again.release();
 
+            vi.mocked(onChange).mockClear();
             vi.advanceTimersByTime(DEMAND_LINGER_MS);
             expect(demands.has("!room")).toBe(false);
             expect(onChange).toHaveBeenCalledTimes(1);
+        });
+
+        it("tells of every change in what is asked for, so requests are given room afresh", () => {
+            // A released live demand becomes state kept for a while, which comes last when requests are given room.
+            vi.mocked(onChange).mockClear();
+            const demand = demands.acquire("!room", [{ type: INSTALLATIONS }]);
+            expect(onChange).toHaveBeenCalledTimes(1);
+            demand.release();
+            expect(onChange).toHaveBeenCalledTimes(2);
+        });
+
+        it("needs a new answer once a request has no room for the state", async () => {
+            // What arrived is no longer kept current while the room's state is not asked for.
+            const demand = demands.acquire("!room", [{ type: INSTALLATIONS }]);
+            demands.answered("!room", [[INSTALLATIONS, "*"]]);
+            expect(demand.isReady()).toBe(true);
+            demands.acquire("!room", [{ type: "org.example.other" }]).release();
+            demands.answered("!room", [
+                [INSTALLATIONS, "*"],
+                ["org.example.other", "*"],
+            ]);
+
+            demands.overCapacity("!room");
+            expect(demand.isReady()).toBe(false);
+            expect(demands.acquire("!room", [{ type: "org.example.other" }]).isReady()).toBe(false);
+            demands.answered("!room", [[INSTALLATIONS, "*"]]);
+            expect(demand.isReady()).toBe(true);
         });
 
         it("keeps only the most recently released rooms asked for", () => {

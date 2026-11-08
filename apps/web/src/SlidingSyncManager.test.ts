@@ -37,7 +37,7 @@ import EventEmitter from "node:events";
 import { waitFor } from "test-utils-rtl";
 import { mkStubRoom, stubClient } from "test-utils";
 
-import { MAX_STATE_READ_ROOMS, SlidingSyncManager } from "./SlidingSyncManager";
+import { MAX_DEMANDED_SELECTORS_PER_ROOM, MAX_STATE_READ_ROOMS, SlidingSyncManager } from "./SlidingSyncManager";
 import { SlidingSyncCache } from "./sliding-sync/SlidingSyncCache";
 import { CATALOG_STATE } from "./sliding-sync/roomStateProfiles";
 import { type RoomSubscriptionLeases } from "./sliding-sync/RoomSubscriptionLeases";
@@ -2159,6 +2159,55 @@ describe("SlidingSyncManager", () => {
                     reason: "capacity",
                 });
                 expect(sync.getRoomSubscriptions()).not.toContain("!read");
+            });
+
+            it("counts what demanded state adds to a room subscribed anyway against the request's limits", async () => {
+                knownRoom("!open");
+                await manager.setRoomVisible("!open");
+                // More selectors than one room may be given, from demands each within their own limit.
+                const types = Array.from({ length: MAX_DEMANDED_SELECTORS_PER_ROOM + 1 }, (_, i) => `org.example.${i}`);
+                for (let i = 0; i < types.length; i += 16) {
+                    manager.demandRoomState(
+                        "!open",
+                        types.slice(i, i + 16).map((type) => ({ type })),
+                    );
+                }
+                await tick();
+                // The room stays subscribed as an open room, without the state that does not fit.
+                expect(nameOf("!open")).toBe("room");
+                await expect(
+                    manager.readRoomState(client, "!open", { type: "org.example.read" }),
+                ).rejects.toMatchObject({ reason: "capacity" });
+            });
+
+            it("counts the bytes demanded state adds to a room subscribed anyway", async () => {
+                knownRoom("!open");
+                await manager.setRoomVisible("!open");
+                // Few selectors, but long enough together to outgrow a whole request.
+                const long = (i: number): { type: string } => ({ type: `org.example.${i}.${"x".repeat(3_000)}` });
+                for (let demand = 0; demand < 2; demand++) {
+                    manager.demandRoomState(
+                        "!open",
+                        Array.from({ length: 12 }, (_, i) => long(demand * 12 + i)),
+                    );
+                }
+                await tick();
+                expect(nameOf("!open")).toBe("room");
+            });
+
+            it("gives a waiting live demand room once another lets go", async () => {
+                const live = Array.from({ length: 120 }, (_, i) => `!live${i}`);
+                const demands = live.map((roomId) => {
+                    knownRoom(roomId);
+                    return manager.demandRoomState(roomId, [{ type: INSTALLATIONS }]);
+                });
+                await tick();
+                const before = sync.getRoomSubscriptions();
+                const waiting = live.find((roomId) => !before.has(roomId))!;
+                const admitted = live.findIndex((roomId) => before.has(roomId));
+                demands[admitted].release();
+                await tick();
+                expect(sync.getRoomSubscriptions()).toContain(waiting);
             });
 
             it("waits for the answer to be applied, not only confirmed", async () => {
