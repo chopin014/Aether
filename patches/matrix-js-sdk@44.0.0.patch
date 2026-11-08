@@ -2288,3 +2288,17 @@ diff --git a/src/models/room-state.ts b/src/models/room-state.ts
  
              try {
                  await matrixClient.decryptEventIfNeeded(event);
+diff --git a/src/matrixrtc/MatrixRTCSession.ts b/src/matrixrtc/MatrixRTCSession.ts
+--- a/src/matrixrtc/MatrixRTCSession.ts
++++ b/src/matrixrtc/MatrixRTCSession.ts
+@@ -920,9 +920,8 @@
+             // If anyone else joins the session it is no longer our responsibility to send the notification.
+             // (If we were the joiner we already did sent the notification in the block above.)
+             if (this.memberships.length > 0) this.pendingNotificationToSend = undefined;
+-        } else {
+-            this.logger.debug(`No membership changes detected for room ${this.roomSubset.roomId}`);
+         }
++        // Nothing is logged when nothing changed: that is every room without a call, each time the client loads it.
+         // This also needs to be done if `changed` = false
+         // A member might have updated their fingerprint (created_ts)
+         this.encryptionManager?.onMembershipsUpdate(oldMemberships);

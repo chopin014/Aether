@@ -41,6 +41,7 @@ import {
 // These tests cover Aether's patch to the SDK's sliding sync, so they use the real implementation.
 // oxlint-disable-next-line no-restricted-imports
 import { SlidingSyncSdk } from "matrix-js-sdk/src/sliding-sync-sdk";
+import { MatrixRTCSession } from "matrix-js-sdk/src/matrixrtc";
 
 import { createClientWithCreds } from "../utils/createMatrixClient";
 
@@ -1562,6 +1563,28 @@ describe("polls under sliding sync", () => {
         await receive({ timeline: [pollStart("$older", 1), message("$latest", 5)], expanded_timeline: true });
 
         expect(room.polls.has("$older")).toBe(true);
+    });
+});
+
+describe("calls under sliding sync", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it("logs nothing for a room whose call memberships did not change", async () => {
+        // Sync brings the whole account at start, and each room is looked at for a call: almost none has one.
+        const client = makeClient();
+        const room = new Room(roomId, client, userId);
+        const session = MatrixRTCSession.sessionForSlot(client, room, { application: "m.call", id: "" });
+        // The session's own logger, swapped before its first look at the room's memberships runs.
+        const sessionLogger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), trace: vi.fn() };
+        (session as unknown as { logger: typeof sessionLogger }).logger = sessionLogger;
+        const debug = sessionLogger.debug;
+
+        await session.ensureRecalculateSessionMembers();
+        await session.ensureRecalculateSessionMembers();
+
+        expect(session.memberships).toEqual([]);
+        expect(debug).not.toHaveBeenCalled();
+        await session.stop();
     });
 });
 
