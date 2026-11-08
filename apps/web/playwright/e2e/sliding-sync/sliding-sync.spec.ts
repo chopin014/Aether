@@ -204,6 +204,29 @@ test.describe("Sliding Sync", () => {
         });
     });
 
+    test("keeps the state read about rooms nobody has opened", async ({ app, user }) => {
+        // Only state a request asks for arrives: these are read for rooms in the list, such as which members are
+        // bots or where the widgets sit, so the list asks for them.
+        const roomId = await app.client.createRoom({ name: "Unopened" });
+        const state: Array<[string, object]> = [
+            ["im.vector.web.settings", { "aether.example": true }],
+            ["io.element.functional_members", { service_members: [`@bot:${user.homeServer}`] }],
+            ["io.element.widgets.layout", { widgets: {} }],
+            ["org.matrix.room.preview_urls", { disable: true }],
+        ];
+        for (const [type, content] of state) await app.client.sendStateEvent(roomId, type, content, "");
+
+        await expect
+            .poll(() =>
+                app.client.evaluate(
+                    (client, { roomId, types }) =>
+                        types.filter((type) => !client.getRoom(roomId)?.currentState.getStateEvents(type, "")),
+                    { roomId, types: state.map(([type]) => type) },
+                ),
+            )
+            .toEqual([]);
+    });
+
     test("should move rooms around as new events arrive", async ({ page, app, testRoom }) => {
         // create rooms and check room names are correct
         const roomIds: string[] = [];
