@@ -1606,11 +1606,13 @@ describe("encrypted rooms under sliding sync", () => {
             onDeviceListsChanged: async () => {},
             markAllTrackedUsersAsDirty: async () => {},
         } as unknown as SyncCryptoCallbacks;
-        // Decrypts the room's name a moment later, as the crypto layer does. It has no key for `$undecryptable`.
+        // Decrypts the room's name a moment later, as the crypto layer does. Until it is given the key for
+        // `$undecryptable`, it cannot decrypt that event.
+        const withheld = new Set(["$undecryptable"]);
         const crypto = {
             decryptEvent: async (event: MatrixEvent) => {
                 await new Promise((resolve) => setTimeout(resolve, 0));
-                if (event.getId() === "$undecryptable") throw new Error("no key");
+                if (withheld.has(event.getId()!)) throw new Error("no key");
                 return { clearEvent: { type: EventType.RoomName, state_key: "", content: { name: "Secret plans" } } };
             },
         } as unknown as Parameters<MatrixEvent["attemptDecryption"]>[0];
@@ -1619,7 +1621,7 @@ describe("encrypted rooms under sliding sync", () => {
             return event.getDecryptionPromise() ?? Promise.resolve();
         });
         const sync = new SlidingSync("https://example.org", new Map(), {}, client, 1000);
-        new SlidingSyncSdk(sync, client, { lazyLoadMembers: true }, { logger, cryptoCallbacks: callbacks });
+        const api = new SlidingSyncSdk(sync, client, { lazyLoadMembers: true }, { logger, cryptoCallbacks: callbacks });
         // The server has no name to send for a room whose name is encrypted.
         const receive = async (data: Partial<MSC3575RoomData>): Promise<void> => {
             await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, {
@@ -1629,7 +1631,12 @@ describe("encrypted rooms under sliding sync", () => {
                 name: "",
             });
         };
-        return { client, order, receive };
+        /** The key for an event arrives, and the crypto layer tries the event again, as it does. */
+        const keyArrives = async (event: MatrixEvent): Promise<void> => {
+            withheld.delete(event.getId()!);
+            await event.attemptDecryption(crypto, { isRetry: true });
+        };
+        return { api, client, order, receive, keyArrives };
     }
 
     it("sets up the room's encryption before its state says the room is encrypted", async () => {
@@ -1701,5 +1708,70 @@ describe("encrypted rooms under sliding sync", () => {
         expect(room.currentState.getStateEvents(EventType.RoomMessage)).toEqual([]);
         expect(room.currentState.getStateEvents(EventType.RoomName)).toEqual([]);
         expect(heard).toContain("$undecryptable");
+    });
+
+    it("adds a state event it could not decrypt to the room's state once its keys arrive", async () => {
+        const { client, receive, keyArrives } = setup();
+        const heard: MatrixEvent[] = [];
+        client.on(ClientEvent.Event, (event) => heard.push(event));
+        await receive({
+            initial: true,
+            required_state: [...requiredState, encryption, encryptedName("$undecryptable")],
+        });
+        const room = client.getRoom(roomId)!;
+        expect(room.currentState.getStateEvents(EventType.RoomName)).toEqual([]);
+
+        await keyArrives(heard.find((event) => event.getId() === "$undecryptable")!);
+
+        expect(room.currentState.getStateEvents(EventType.RoomName, "")?.getId()).toBe("$undecryptable");
+        expect(room.name).toBe("Secret plans");
+    });
+
+    it("keeps newer state over a state event whose keys arrive later", async () => {
+        const { client, receive, keyArrives } = setup();
+        const heard: MatrixEvent[] = [];
+        client.on(ClientEvent.Event, (event) => heard.push(event));
+        await receive({
+            initial: true,
+            required_state: [...requiredState, encryption, encryptedName("$undecryptable")],
+        });
+        const room = client.getRoom(roomId)!;
+
+        // The room is renamed, and the new name can be decrypted, before the key for the old one arrives.
+        await receive({ required_state: [encryptedName("$renamed")] });
+        expect(room.currentState.getStateEvents(EventType.RoomName, "")?.getId()).toBe("$renamed");
+        await keyArrives(heard.find((event) => event.getId() === "$undecryptable")!);
+
+        expect(room.currentState.getStateEvents(EventType.RoomName, "")?.getId()).toBe("$renamed");
+    });
+
+    it("adds no state whose keys arrive after the client stopped", async () => {
+        const { api, client, receive, keyArrives } = setup();
+        const heard: MatrixEvent[] = [];
+        client.on(ClientEvent.Event, (event) => heard.push(event));
+        await receive({
+            initial: true,
+            required_state: [...requiredState, encryption, encryptedName("$undecryptable")],
+        });
+
+        api.stop();
+        await keyArrives(heard.find((event) => event.getId() === "$undecryptable")!);
+
+        expect(client.getRoom(roomId)!.currentState.getStateEvents(EventType.RoomName)).toEqual([]);
+    });
+
+    it("tells listeners of no more of a room's events once one of them stops the client", async () => {
+        const { api, client, receive } = setup();
+        const heard: string[] = [];
+        client.on(ClientEvent.Event, (event) => {
+            heard.push(event.getId()!);
+            api.stop();
+        });
+        const decryptCriticalEvents = vi.spyOn(Room.prototype, "decryptCriticalEvents");
+
+        await receive({ initial: true, required_state: [...requiredState, encryption], timeline: [message("$a", 1)] });
+
+        expect(heard).toHaveLength(1);
+        expect(decryptCriticalEvents).not.toHaveBeenCalled();
     });
 });
