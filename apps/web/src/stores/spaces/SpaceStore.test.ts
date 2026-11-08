@@ -1837,4 +1837,76 @@ describe("SpaceStore", () => {
             expect(spyDispatcher).not.toHaveBeenCalledWith(expect.objectContaining({ action: "view_room" }));
         });
     });
+
+    describe("holding room updates", () => {
+        /** A joined room arriving, as sync stores it. */
+        const arrive = (roomId: string): Room => {
+            const room = mkRoom(roomId);
+            client.emit(ClientEvent.Room, room);
+            return room;
+        };
+        /** Each time the store works out the rooms of every Space. */
+        const rebuilds = (): MockInstance =>
+            vi.spyOn(store as unknown as { onRoomsUpdate: () => void }, "onRoomsUpdate");
+
+        describe("with a Space waiting for its channels", () => {
+            beforeEach(async () => {
+                mkSpace(space1, [room1, room2]);
+                await run();
+            });
+
+            it("works out the rooms that arrived while held once the hold ends", () => {
+                const onSpace = vi.fn();
+                store.on(space1, onSpace);
+                const release = store.holdRoomUpdates();
+                const rebuild = rebuilds();
+
+                arrive(room1);
+                arrive(room2);
+                // Nothing is worked out meanwhile, so the Space does not count them yet.
+                expect(rebuild).not.toHaveBeenCalled();
+                expect(onSpace).not.toHaveBeenCalled();
+                expect(store.isRoomInSpace(space1, room1)).toBe(false);
+
+                release();
+                expect(rebuild).toHaveBeenCalledTimes(1);
+                expect(store.isRoomInSpace(space1, room1)).toBe(true);
+                expect(store.isRoomInSpace(space1, room2)).toBe(true);
+                expect(onSpace).toHaveBeenCalled();
+                store.off(space1, onSpace);
+                rebuild.mockRestore();
+            });
+
+            it("works out the held rooms first when the user opens a Space", () => {
+                // Another Space is open, so opening this one is a change.
+                mkSpace(space2);
+                store.setActiveSpace(space2);
+                expect(store.activeSpace).toBe(space2);
+                const release = store.holdRoomUpdates();
+                arrive(room1);
+
+                store.setActiveSpace(space1);
+                expect(store.isRoomInSpace(space1, room1)).toBe(true);
+
+                const rebuild = rebuilds();
+                release();
+                // Nothing was left to work out.
+                expect(rebuild).not.toHaveBeenCalled();
+                rebuild.mockRestore();
+            });
+
+            it("waits for every hold to end, and ending one twice does nothing more", () => {
+                const first = store.holdRoomUpdates();
+                const second = store.holdRoomUpdates();
+                arrive(room1);
+
+                first();
+                first();
+                expect(store.isRoomInSpace(space1, room1)).toBe(false);
+
+                second();
+                expect(store.isRoomInSpace(space1, room1)).toBe(true);
+            });
+        });
+    });
 });

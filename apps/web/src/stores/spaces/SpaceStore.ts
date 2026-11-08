@@ -129,6 +129,10 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
     /** Whether the feature flag is set for MSC3946 */
     private _msc3946ProcessDynamicPredecessor: boolean = SettingsStore.getValue("feature_dynamic_room_predecessors");
     private _storeReadyDeferred = Promise.withResolvers<void>();
+    // Holds on working out the rooms of every Space, such as while sync applies a batch of rooms, and whether rooms
+    // changed meanwhile.
+    private readonly roomUpdateHolds = new Set<object>();
+    private roomUpdatesHeld = false;
 
     public constructor(
         dispatcher: MatrixDispatcher,
@@ -147,6 +151,36 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
      */
     public get storeReadyPromise(): Promise<void> {
         return this._storeReadyDeferred.promise;
+    }
+
+    /**
+     * Hold off working out the rooms of every Space as rooms arrive or change membership, until the returned function
+     * is called. Each time looks at every room, so a batch of rooms, such as a sliding sync response bringing the
+     * whole account, is worked out once at the end. Meanwhile the Spaces may not count the rooms that arrived; what
+     * the user does, such as opening a Space, works them out first. Holds can overlap.
+     * @returns A function ending the hold. Calling it again does nothing.
+     */
+    public holdRoomUpdates(): () => void {
+        const hold = {};
+        this.roomUpdateHolds.add(hold);
+        return () => {
+            if (!this.roomUpdateHolds.delete(hold)) return;
+            if (this.roomUpdateHolds.size === 0) this.applyHeldRoomUpdates();
+        };
+    }
+
+    /** Work out the rooms of every Space now if rooms changed while held, such as before acting for the user. */
+    private applyHeldRoomUpdates(): void {
+        if (this.roomUpdatesHeld) this.onRoomsUpdate();
+    }
+
+    /** Rooms arrived or changed: work out every Space's rooms, now or once the holds end. */
+    private onRoomsChanged(): void {
+        if (this.roomUpdateHolds.size > 0) {
+            this.roomUpdatesHeld = true;
+            return;
+        }
+        this.onRoomsUpdate();
     }
 
     public get invitedSpaces(): Room[] {
@@ -180,6 +214,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
     public setActiveRoomInSpace(space: SpaceKey): void {
         if (!isMetaSpace(space) && !this.matrixClient?.getRoom(space)?.isSpaceRoom()) return;
+        this.applyHeldRoomUpdates();
         if (space !== this.activeSpace) this.setActiveSpace(space, false);
 
         let roomId: string | undefined;
@@ -215,6 +250,8 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
      */
     public setActiveSpace(space: SpaceKey, contextSwitch = true, reopen = false): void {
         if (!space || !this.matrixClient || (space === this.activeSpace && !reopen)) return;
+        // Which rooms the Space has decides where the user lands.
+        this.applyHeldRoomUpdates();
 
         let cliSpace: Room | null = null;
         if (ModuleApi.instance.extras.spacePanelItems.has(space)) {
@@ -874,6 +911,8 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
     private onRoomsUpdate = (): void => {
         if (!this.matrixClient) return;
+        // Everything is worked out again, rooms changed while held included.
+        this.roomUpdatesHeld = false;
         const visibleRooms = this.matrixClient.getVisibleRooms(this._msc3946ProcessDynamicPredecessor);
 
         const prevRoomsBySpace = this.roomIdsBySpace;
@@ -1002,6 +1041,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
     private switchSpaceIfNeeded = (roomId = this.sdkContext.roomViewStore.getRoomId()): void => {
         if (!roomId) return;
+        this.applyHeldRoomUpdates();
         if (!this.isRoomInSpace(this.activeSpace, roomId) && !this.matrixClient?.getRoom(roomId)?.isSpaceRoom()) {
             this.switchToRelatedSpace(roomId);
         }
@@ -1041,7 +1081,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         const membership = newMembership || roomMembership;
 
         if (!room.isSpaceRoom()) {
-            this.onRoomsUpdate();
+            this.onRoomsChanged();
 
             if (membership === KnownMembership.Join) {
                 // the user just joined a room, remove it from the suggested list if it was there
@@ -1115,7 +1155,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
                         this.rebuildSpaceHierarchy();
                         this.emit(target.roomId);
                     } else {
-                        this.onRoomsUpdate();
+                        this.onRoomsChanged();
                     }
                     this.emit(room.roomId);
                 }
@@ -1137,19 +1177,19 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
                 if (room.isSpaceRoom()) {
                     this.rebuildSpaceHierarchy();
                 } else {
-                    this.onRoomsUpdate();
+                    this.onRoomsChanged();
                 }
                 this.emit(room.roomId);
                 break;
 
             case EventType.RoomPowerLevels:
                 if (room.isSpaceRoom()) {
-                    this.onRoomsUpdate();
+                    this.onRoomsChanged();
                 }
                 break;
             case EventType.RoomCreate:
                 // The room might become a video room. We need to tag it for that videoRooms space.
-                this.onRoomsUpdate();
+                this.onRoomsChanged();
                 break;
         }
     };
@@ -1234,6 +1274,8 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         this._suggestedRooms = [];
         this._invitedSpaces = new Set();
         this._enabledMetaSpaces = [];
+        this.roomUpdateHolds.clear();
+        this.roomUpdatesHeld = false;
     }
 
     protected async onNotReady(): Promise<void> {
