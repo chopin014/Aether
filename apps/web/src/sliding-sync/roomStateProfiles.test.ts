@@ -7,7 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import { describe, expect, it } from "vitest";
 import { EventType } from "matrix-js-sdk/src/matrix";
-import { MSC3575_WILDCARD } from "matrix-js-sdk/src/sliding-sync";
+import { MSC3575_STATE_KEY_ME, MSC3575_WILDCARD } from "matrix-js-sdk/src/sliding-sync";
 
 import {
     CATALOG_STATE,
@@ -56,6 +56,18 @@ describe("roomStateProfiles", () => {
         );
         const keys = CATALOG_STATE.map(([type, stateKey]) => `${type}|${stateKey}`);
         expect(new Set(keys).size).toBe(keys.length);
+    });
+
+    it("asks for the user's own live location shares in every room, and everyone's in an open room", () => {
+        // A share is sent under the stable name or, by older clients, the unstable one.
+        for (const type of ["m.beacon_info", "org.matrix.msc3672.beacon_info"]) {
+            // This device sends its location to its own shares until their state says they stopped.
+            expect(CATALOG_STATE).toContainEqual([type, MSC3575_STATE_KEY_ME]);
+            expect(SPACE_LIST_STATE).toContainEqual([type, MSC3575_STATE_KEY_ME]);
+            // The timeline shows a share as live from the room's state.
+            expect(ROOM_STATE).toContainEqual([type, MSC3575_WILDCARD]);
+            expect(CATALOG_STATE).not.toContainEqual([type, MSC3575_WILDCARD]);
+        }
     });
 
     it("asks for an open room's bridges, shown in its settings", () => {
