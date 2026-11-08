@@ -615,6 +615,17 @@ describe("sliding sync requests", () => {
         sync.stop();
     });
 
+    it("backs off when the server says it does not know a fresh connection either", async () => {
+        // Not a connection it forgot: the request carried no position, so sending it again at once would spin.
+        const { sync, nextRequest } = setup();
+        const first = await nextRequest(1);
+        expect(first.qps.pos).toBeUndefined();
+        first.fail(new MatrixError({ errcode: "M_UNKNOWN_POS", error: "Unknown position" }, 400));
+        const second = await nextRequest(2);
+        expect(second.at - first.at).toBeGreaterThanOrEqual(450);
+        sync.stop();
+    });
+
     it("backs off before starting afresh when the server keeps rejecting the request", async () => {
         const { sync, nextRequest } = setup();
         const first = await nextRequest(1);
