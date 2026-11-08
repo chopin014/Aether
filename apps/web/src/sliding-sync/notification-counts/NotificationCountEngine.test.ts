@@ -450,18 +450,17 @@ describe("NotificationCountEngine", () => {
         expect(announced).toHaveBeenCalledWith({ total: 1, highlight: 0 });
     });
 
-    it("marks a count as last seen across a gap as a lower bound too, as the gap could hold more", async () => {
+    it("does not mark a count as last seen across a gap as a lower bound, as what it counts may be redacted", async () => {
         const { client, respond, counts, engine } = await setup();
         await respond({ initial: true, required_state: requiredState, timeline: [message("$r"), message("$a")] }, [
             receipt("$r"),
         ]);
-        expect(isLowerBoundCount(client.getRoom(roomId)!)).toBe(false);
 
         await respond({ limited: true, prev_batch: "gap", timeline: [message("$d")] });
 
         expect(counts()).toEqual({ total: 2, highlight: 0 });
         expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.LastKnown);
-        expect(isLowerBoundCount(client.getRoom(roomId)!)).toBe(true);
+        expect(isLowerBoundCount(client.getRoom(roomId)!)).toBe(false);
     });
 
     it("marks which threads' counts are lower bounds, and forgets them when the user leaves", async () => {

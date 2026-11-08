@@ -508,11 +508,11 @@ export class NotificationCountEngine implements RoomHistoryObserver {
 }
 
 /**
- * Whether a count is shown as at least its value: whenever it is not exact. Even a count as last seen is, though an
- * event it counts could have been redacted since: what it counts was seen before a gap, and the gap could hold more.
+ * Whether a count is shown as at least its value: when it counts only what is certainly unread, and more could be.
+ * A count as last seen is shown as it is: an event it counts could have been redacted since, so it is no minimum.
  */
 function isLowerBound(counts: ScopeCounts): boolean {
-    return counts.confidence !== CountConfidence.Exact;
+    return counts.confidence === CountConfidence.LowerBound || counts.confidence === CountConfidence.Unknown;
 }
 
 /** Which of a room's counts badges show as lower bounds. */
