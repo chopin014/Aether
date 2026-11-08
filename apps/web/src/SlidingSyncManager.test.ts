@@ -1014,6 +1014,12 @@ describe("SlidingSyncManager", () => {
             sync.stop();
         });
 
+        it("lists rooms without asking for older rooms, which simplified sliding sync does not serve", () => {
+            for (const listName of ["recent", "spaces", "invites", "favourites", "dms", "untagged"]) {
+                expect(sync.getListParams(listName)).not.toHaveProperty("include_old_rooms");
+            }
+        });
+
         it("gives an opened room the state its views read, by kind of room", async () => {
             knownRoom("!plain", "plain");
             knownRoom("!secret", "encrypted");
