@@ -40,4 +40,24 @@ describe("buildConfigJson", () => {
 
         expect(buildConfigJson("https://hs.example").features?.feature_simplified_sliding_sync).toBeUndefined();
     });
+
+    it("turns the new timeline on or off for every client when asked to, as it does sliding sync", () => {
+        vi.stubEnv("AETHER_E2E_NEW_TIMELINE", "1");
+        expect(buildConfigJson("https://hs.example", {}, ["feature_something_else"]).features).toMatchObject({
+            feature_new_timeline: true,
+            feature_something_else: true,
+        });
+
+        vi.stubEnv("AETHER_E2E_NEW_TIMELINE", "0");
+        expect(buildConfigJson("https://hs.example").features?.feature_new_timeline).toBe(false);
+        // A test that asks for the new timeline itself keeps it.
+        expect(buildConfigJson("https://hs.example", {}, ["feature_new_timeline"]).features?.feature_new_timeline).toBe(
+            true,
+        );
+
+        vi.stubEnv("AETHER_E2E_NEW_TIMELINE", "");
+        expect(buildConfigJson("https://hs.example").features?.feature_new_timeline).toBeUndefined();
+        // Each is its own switch.
+        expect(buildConfigJson("https://hs.example").features?.feature_simplified_sliding_sync).toBeUndefined();
+    });
 });
