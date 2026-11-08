@@ -483,7 +483,9 @@ export class RoomViewStore extends EventEmitter {
             // more of its history, arrives in place. Its subscription is updated alongside.
             const shownAtOnce = slidingSync && !!MatrixClientPeg.get()?.getRoom(payload.room_id);
             if (shownAtOnce) {
-                void this.stores.slidingSyncManager.setRoomVisible(payload.room_id);
+                this.stores.slidingSyncManager
+                    .setRoomVisible(payload.room_id)
+                    .catch((error) => logger.warn(`Could not update the subscription of ${payload.room_id}`, error));
             } else if (slidingSync) {
                 this.setState({
                     subscribingRoomId: payload.room_id,
