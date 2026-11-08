@@ -893,7 +893,8 @@ export class SlidingSyncManager {
     /**
      * Ask the server for some of a room's state until the demand is released, such as a widget's state while it
      * runs. Sliding sync sends a room only the state its subscriptions name, so the room is subscribed with it. Under
-     * regular sync, or for state already here, the demand is ready at once.
+     * regular sync, or for state already here, the demand is ready at once. A demand made before sliding sync starts
+     * is asked for once it does.
      * @param roomId - The room.
      * @param selectors - The state, by concrete event type.
      * @returns The demand, to wait on and release.
@@ -901,10 +902,21 @@ export class SlidingSyncManager {
      */
     public demandRoomState(roomId: string, selectors: readonly RoomStateSelector[]): RoomStateDemand {
         for (const selector of selectors) requiredStateFor(selector);
-        if (!this.slidingSync || selectors.every((selector) => this.isStateHere(roomId, selector))) {
+        // Every list entry brings the catalog, so it needs no asking.
+        const needed = selectors.filter((selector) => !requiredStateCovers(CATALOG_STATE, selector));
+        if (needed.length === 0) {
             return { roomId, isReady: () => true, whenReady: () => Promise.resolve(), release: () => {} };
         }
-        return this.stateDemands.acquire(roomId, selectors);
+        // Held whether or not sliding sync runs yet, so a connection started later asks for it too.
+        const demand = this.stateDemands.acquire(roomId, needed);
+        const isReady = (): boolean =>
+            !this.slidingSync || demand.isReady() || needed.every((selector) => this.isStateHere(roomId, selector));
+        return {
+            roomId,
+            isReady,
+            whenReady: (timeoutMs) => (isReady() ? Promise.resolve() : demand.whenReady(timeoutMs)),
+            release: () => demand.release(),
+        };
     }
 
     /**

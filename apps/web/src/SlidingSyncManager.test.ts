@@ -2082,6 +2082,28 @@ describe("SlidingSyncManager", () => {
                 await expect(Promise.all(reads)).resolves.toHaveLength(roomIds.length);
             });
 
+            it("asks for state demanded before sliding sync started, once it has", async () => {
+                const fresh = new SlidingSyncManager();
+                const demand = fresh.demandRoomState("!early", [{ type: INSTALLATIONS }]);
+                // Without sliding sync the room's state is all here.
+                expect(demand.isReady()).toBe(true);
+                const freshSync = (await fresh.setup(client))!;
+                expect(freshSync.getRoomSubscriptions()).toContain("!early");
+                expect(demand.isReady()).toBe(false);
+                demand.release();
+                freshSync.stop();
+            });
+
+            it("asks nothing for state every list entry brings", async () => {
+                knownRoom("!listed");
+                const demand = manager.demandRoomState("!listed", [
+                    { type: "io.element.functional_members", stateKey: "" },
+                ]);
+                await tick();
+                expect(demand.isReady()).toBe(true);
+                expect(sync.getRoomSubscriptions()).not.toContain("!listed");
+            });
+
             it("refuses to ask for every event type", () => {
                 expect(() => manager.demandRoomState("!plain", [{ type: "*" }])).toThrow();
             });
