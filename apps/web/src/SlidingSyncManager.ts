@@ -264,6 +264,9 @@ export class SlidingSyncManager {
     private viewLease?: RoomSubscriptionLease;
     private spaceLease?: RoomSubscriptionLease;
     private readonly callLeases = new Map<string, RoomSubscriptionLease>();
+    // Rooms someone looks at outside the room view, such as in their settings, with how many holds each has. They
+    // outlive a connection: a new one subscribes them again.
+    private readonly roomHolds = new Map<string, { count: number; lease?: RoomSubscriptionLease }>();
     // Rooms the crypto layer says are encrypted, even before their encryption state has arrived.
     private readonly encryptedRooms = new Set<string>();
     // Rooms we were told are Spaces before we have seen them.
@@ -777,6 +780,34 @@ export class SlidingSyncManager {
         if (!this.slidingSync || !roomId.startsWith("!")) return;
         if (this.viewLease?.roomId === roomId) return;
         this.leases.prefetch(roomId);
+    }
+
+    /**
+     * Keep a room subscribed with the state of an open room while someone looks at it outside the room view, such
+     * as in its settings. A room that is only listed has a small part of its state, without its topic or history
+     * visibility. Holding it asks for the rest straight away and keeps it current until the hold is released.
+     * Works without sliding sync too, where it has no effect until a connection starts.
+     * @param roomId - The room.
+     * @returns A function that releases the hold. Releasing twice has no further effect.
+     */
+    public holdRoom(roomId: string): () => void {
+        if (!roomId.startsWith("!")) return () => {};
+        let hold = this.roomHolds.get(roomId);
+        if (!hold) {
+            hold = { count: 0 };
+            this.roomHolds.set(roomId, hold);
+        }
+        hold.count++;
+        if (this.slidingSync && !hold.lease) hold.lease = this.leases.acquire(roomId, "view");
+        let released = false;
+        return () => {
+            if (released) return;
+            released = true;
+            const current = this.roomHolds.get(roomId);
+            if (!current || --current.count > 0) return;
+            this.roomHolds.delete(roomId);
+            current.lease?.release();
+        };
     }
 
     /**
@@ -1325,6 +1356,11 @@ export class SlidingSyncManager {
             const spaceId = this.pendingActiveSpace;
             this.pendingActiveSpace = undefined;
             this.setActiveSpace(spaceId);
+        }
+        for (const [roomId, hold] of this.roomHolds) {
+            // A lease from the previous connection is already void; one taken since this one began is replaced.
+            hold.lease?.release();
+            hold.lease = this.leases.acquire(roomId, "view");
         }
         // The first request must carry the destination, so apply its subscription now rather than in a batch.
         this.applySubscriptions(slidingSync);

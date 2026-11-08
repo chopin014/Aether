@@ -24,6 +24,7 @@ import { type ButtonEvent } from "../components/views/elements/AccessibleButton"
 import PosthogTrackers from "../PosthogTrackers";
 import { showAddExistingSubspace, showCreateNewRoom } from "./space";
 import { SDKContextClass } from "../contexts/SDKContextClass";
+import { SlidingSyncManager } from "../SlidingSyncManager";
 
 /**
  * Auxiliary class to listen for dialog opening over the dispatcher and
@@ -47,14 +48,25 @@ export class DialogOpener {
         this.isRegistered = true;
     }
 
+    /**
+     * Settings show a room's topic, permissions and history visibility. Under sliding sync, a room someone has not
+     * opened has only the part of its state the room list needs, so it is kept subscribed while its settings are
+     * open.
+     */
+    private holdWhileOpen(roomId: string, finished: Promise<unknown>): void {
+        const release = SlidingSyncManager.instance.holdRoom(roomId);
+        void finished.finally(release);
+    }
+
     private onDispatch = (payload: ActionPayload): void => {
         if (!this.matrixClient) return;
         switch (payload.action) {
-            case "open_room_settings":
-                Modal.createDialog(
+            case "open_room_settings": {
+                const roomId = payload.room_id || SDKContextClass.instance.roomViewStore.getRoomId();
+                const { finished } = Modal.createDialog(
                     RoomSettingsDialog,
                     {
-                        roomId: payload.room_id || SDKContextClass.instance.roomViewStore.getRoomId(),
+                        roomId,
                         initialTabId: payload.initial_tab_id,
                         sdkContext: SDKContextClass.instance,
                     },
@@ -62,7 +74,9 @@ export class DialogOpener {
                     /*isPriority=*/ false,
                     /*isStatic=*/ true,
                 );
+                if (roomId) this.holdWhileOpen(roomId, finished);
                 break;
+            }
             case Action.OpenForwardDialog:
                 Modal.createDialog(ForwardDialog, {
                     matrixClient: this.matrixClient,
@@ -79,8 +93,8 @@ export class DialogOpener {
                     "mx_Dialog_reportEvent",
                 );
                 break;
-            case Action.OpenSpaceSettings:
-                Modal.createDialog(
+            case Action.OpenSpaceSettings: {
+                const { finished } = Modal.createDialog(
                     SpaceSettingsDialog,
                     {
                         matrixClient: payload.space.client,
@@ -90,7 +104,9 @@ export class DialogOpener {
                     /*isPriority=*/ false,
                     /*isStatic=*/ true,
                 );
+                this.holdWhileOpen(payload.space.roomId, finished);
                 break;
+            }
             case Action.OpenInviteDialog:
                 void Modal.createDialog(
                     InviteDialog,
