@@ -34,8 +34,10 @@ import {
     type RoomCounts,
     type RunPlacement,
     type SavedLedger,
+    type ScopeCounts,
     UNTHREADED_RECEIPT,
 } from "./RoomCountLedger";
+import { getLowerBoundCounts, type LowerBoundScopes, setLowerBoundCounts } from "./lowerBoundCounts";
 
 /** An encrypted event that has not been decrypted: what it adds is not known. */
 const NOT_YET_KNOWN: Contribution = { notify: false, highlight: false, final: false };
@@ -342,6 +344,7 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         this.replaying.delete(room.roomId);
         this.restoredFromSaved.delete(room.roomId);
         this.dirty.delete(room.roomId);
+        setLowerBoundCounts(room, undefined);
         room.setNotificationCounts({}, new Map());
     };
 
@@ -415,7 +418,24 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         for (const [threadId, thread] of counts.threads) {
             threads.set(threadId, { total: thread.total, highlight: thread.highlight });
         }
+        const before = getLowerBoundCounts(room);
+        const after = lowerBoundScopes(counts);
+        setLowerBoundCounts(room, after);
         room.setNotificationCounts({ total: counts.main.total, highlight: counts.main.highlight }, threads);
+        // The room announces counts that change. One that only becomes, or stops being, a lower bound is announced
+        // the same way, so its badge gains or loses its "+"; a badge shows that only with a count above zero.
+        if (hasPositiveCount(counts)) {
+            if (!!before?.main !== after.main) {
+                room.emit(RoomEvent.UnreadNotifications, {
+                    total: counts.main.total,
+                    highlight: counts.main.highlight,
+                });
+            }
+            for (const threadId of new Set([...(before?.threads ?? []), ...after.threads])) {
+                if (!!before?.threads.has(threadId) === after.threads.has(threadId)) continue;
+                room.emit(RoomEvent.UnreadNotifications, threads.get(threadId) ?? { total: 0, highlight: 0 }, threadId);
+            }
+        }
         this.pruneEvents(roomId, ledger);
         this.changeListener?.(roomId);
         // A gap keeps the main count from being exact: a little history may fill it.
@@ -485,6 +505,32 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         }
         return events;
     }
+}
+
+/**
+ * Whether a count is shown as at least its value: whenever it is not exact. Even a count as last seen is, though an
+ * event it counts could have been redacted since: what it counts was seen before a gap, and the gap could hold more.
+ */
+function isLowerBound(counts: ScopeCounts): boolean {
+    return counts.confidence !== CountConfidence.Exact;
+}
+
+/** Which of a room's counts badges show as lower bounds. */
+function lowerBoundScopes(counts: RoomCounts): LowerBoundScopes {
+    const threads = new Set<string>();
+    for (const [threadId, thread] of counts.threads) {
+        if (isLowerBound(thread)) threads.add(threadId);
+    }
+    return { main: isLowerBound(counts.main), threads };
+}
+
+/** Whether any of a room's counts is above zero. */
+function hasPositiveCount(counts: RoomCounts): boolean {
+    if (counts.main.total > 0 || counts.main.highlight > 0) return true;
+    for (const thread of counts.threads.values()) {
+        if (thread.total > 0 || thread.highlight > 0) return true;
+    }
+    return false;
 }
 
 /** The event a redaction redacts, wherever the room version puts it. */

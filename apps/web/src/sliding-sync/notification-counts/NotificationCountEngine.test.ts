@@ -43,6 +43,7 @@ import { createClientWithCreds } from "../../utils/createMatrixClient";
 import { type CountRecoveryLimits } from "./CountRecovery";
 import { NotificationCountEngine } from "./NotificationCountEngine";
 import { CountConfidence, RoomCountLedger, type SavedLedger } from "./RoomCountLedger";
+import { getLowerBoundCounts, isLowerBoundCount } from "./lowerBoundCounts";
 
 const roomId = "!room:example.org";
 const me = "@alice:example.org";
@@ -189,7 +190,7 @@ describe("NotificationCountEngine", () => {
     }
 
     it("counts the messages after the user's receipt, ignoring the server's dummy counts", async () => {
-        const { respond, counts, engine } = await setup();
+        const { client, respond, counts, engine } = await setup();
 
         await respond(
             {
@@ -204,6 +205,7 @@ describe("NotificationCountEngine", () => {
 
         expect(counts()).toEqual({ total: 2, highlight: 1 });
         expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Exact);
+        expect(getLowerBoundCounts(client.getRoom(roomId)!)).toBeUndefined();
     });
 
     it("publishes a response's counts only once its receipts are applied too", async () => {
@@ -421,6 +423,65 @@ describe("NotificationCountEngine", () => {
 
         expect(counts()).toEqual({ total: 3, highlight: 1 });
         expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Exact);
+    });
+
+    it("marks a count that is only a lower bound, and announces when it stops being one though it stays the same", async () => {
+        const { client, respond, counts, engine } = await setup();
+        await respond({ initial: true, required_state: requiredState, timeline: [message("$a")] }, [receipt("$a")]);
+        await respond({ limited: true, prev_batch: "gap", timeline: [message("$d")] });
+        const room = client.getRoom(roomId)!;
+        expect(isLowerBoundCount(room)).toBe(true);
+        const announced = vi.fn();
+        room.on(RoomEvent.UnreadNotifications, announced);
+
+        // The gap held only the user's own message, so $d is still the one unread message: now for certain.
+        vi.spyOn(client, "createMessagesRequest").mockResolvedValue({
+            chunk: [message("$c", "c", me), message("$b"), message("$a")],
+            start: "gap",
+            end: "older",
+        });
+        await client.paginateEventTimeline(room.getLiveTimeline(), { backwards: true, limit: 3 });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Exact);
+        expect(counts()).toEqual({ total: 1, highlight: 0 });
+        expect(isLowerBoundCount(room)).toBe(false);
+        expect(announced).toHaveBeenCalledTimes(1);
+        expect(announced).toHaveBeenCalledWith({ total: 1, highlight: 0 });
+    });
+
+    it("marks a count as last seen across a gap as a lower bound too, as the gap could hold more", async () => {
+        const { client, respond, counts, engine } = await setup();
+        await respond({ initial: true, required_state: requiredState, timeline: [message("$r"), message("$a")] }, [
+            receipt("$r"),
+        ]);
+        expect(isLowerBoundCount(client.getRoom(roomId)!)).toBe(false);
+
+        await respond({ limited: true, prev_batch: "gap", timeline: [message("$d")] });
+
+        expect(counts()).toEqual({ total: 2, highlight: 0 });
+        expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.LastKnown);
+        expect(isLowerBoundCount(client.getRoom(roomId)!)).toBe(true);
+    });
+
+    it("marks which threads' counts are lower bounds, and forgets them when the user leaves", async () => {
+        const { client, respond } = await setup();
+
+        // Never read: the join is older than what is known, so neither count is certain.
+        await respond({
+            initial: true,
+            required_state: requiredState,
+            timeline: [message("$root"), reply("$r1", "$root")],
+        });
+
+        const room = client.getRoom(roomId)!;
+        expect(room.getThreadUnreadNotificationCount("$root", NotificationCountType.Total)).toBe(1);
+        expect(isLowerBoundCount(room, "$root")).toBe(true);
+        expect(isLowerBoundCount(room, undefined, true)).toBe(true);
+
+        room.updateMyMembership("leave");
+
+        expect(getLowerBoundCounts(room)).toBeUndefined();
     });
 
     it("counts thread replies in their thread", async () => {
