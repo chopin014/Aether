@@ -1301,3 +1301,79 @@ describe("sliding sync restoring a saved snapshot", () => {
         api.stop();
     });
 });
+
+describe("polls under sliding sync", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    const bob = "@bob:example.org";
+    const pollStart = (id: string, ts: number): NonNullable<MSC3575RoomData["timeline"]>[number] => ({
+        type: "org.matrix.msc3381.poll.start",
+        sender: userId,
+        room_id: roomId,
+        event_id: id,
+        origin_server_ts: ts,
+        content: {
+            "org.matrix.msc3381.poll.start": {
+                question: { "org.matrix.msc1767.text": "Lunch?" },
+                kind: "org.matrix.msc3381.poll.disclosed",
+                max_selections: 1,
+                answers: [
+                    { "id": "yes", "org.matrix.msc1767.text": "Yes" },
+                    { "id": "no", "org.matrix.msc1767.text": "No" },
+                ],
+            },
+            "org.matrix.msc1767.text": "Lunch?",
+        },
+    });
+    const vote = (id: string, poll: string, answer: string): NonNullable<MSC3575RoomData["timeline"]>[number] => ({
+        type: "org.matrix.msc3381.poll.response",
+        sender: bob,
+        room_id: roomId,
+        event_id: id,
+        origin_server_ts: 10,
+        content: {
+            "m.relates_to": { rel_type: "m.reference", event_id: poll },
+            "org.matrix.msc3381.poll.response": { answers: [answer] },
+        },
+    });
+
+    async function setup(timeline: NonNullable<MSC3575RoomData["timeline"]>) {
+        const client = makeClient();
+        vi.spyOn(client, "relations").mockResolvedValue({ events: [], nextBatch: null, originalEvent: null });
+        const sync = new SlidingSync("https://example.org", new Map(), {}, client, 1000);
+        new SlidingSyncSdk(sync, client, { lazyLoadMembers: true }, { logger });
+        const receive = async (data: Partial<MSC3575RoomData>): Promise<void> => {
+            await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, {
+                required_state: [],
+                timeline: [],
+                ...data,
+                name: "Room",
+            });
+        };
+        await receive({ initial: true, required_state: requiredState, timeline });
+        return { client, room: client.getRoom(roomId)!, receive };
+    }
+
+    it("counts a vote that arrives while the poll is shown", async () => {
+        // As /sync v2 does, a poll's start and its responses are gathered from the timeline into the room's polls.
+        const { room, receive } = await setup([pollStart("$poll", 1)]);
+        const poll = room.polls.get("$poll");
+        expect(poll).toBeDefined();
+        const responses = await poll!.getResponses();
+        expect(responses.getRelations()).toHaveLength(0);
+
+        await receive({ timeline: [vote("$vote", "$poll", "yes")], num_live: 1 });
+
+        expect(responses.getRelations().map((event) => event.getId())).toEqual(["$vote"]);
+    });
+
+    it("finds a poll in older history the server sends for a room it already showed", async () => {
+        const { room, receive } = await setup([message("$latest", 5)]);
+        expect(room.polls.size).toBe(0);
+
+        // A larger timeline limit brings older events, before the one already shown.
+        await receive({ timeline: [pollStart("$older", 1), message("$latest", 5)], expanded_timeline: true });
+
+        expect(room.polls.has("$older")).toBe(true);
+    });
+});

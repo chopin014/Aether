@@ -883,7 +883,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          if (roomData.limited || roomData.initial || expandedTimeline) {
              // we should not know about any of these timeline entries if this is a genuinely new room.
              // If we do, then we've effectively done scrollback.
-@@ -703,20 +908,31 @@
+@@ -703,20 +908,33 @@
                      newEvents.unshift(recvEvent);
                  }
              }
@@ -903,6 +903,8 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +                if (oldEvents.length > 0) {
 +                    // old events are scrollback, insert them now
 +                    room.addEventsToTimeline(oldEvents, true, false, room.getLiveTimeline(), roomData.prev_batch);
++                    // As for history fetched by pagination: votes and location updates in it count.
++                    this.client.processAggregatedTimelineEvents(room, oldEvents);
 +                }
              }
          }
@@ -921,7 +923,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              // We track unread notifications ourselves in encrypted rooms, so don't
              // bother setting it here. We trust our calculations better than the
              // server's for this case, and therefore will assume that our non-zero
-@@ -739,6 +955,8 @@
+@@ -739,6 +957,8 @@
          if (roomData.invite_state) {
              const inviteStateEvents = mapEvents(this.client, room.roomId, roomData.invite_state);
              await this.injectRoomEvents(room, inviteStateEvents);
@@ -930,7 +932,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              if (roomData.initial) {
                  room.recalculate();
                  this.client.store.storeRoom(room);
-@@ -750,9 +968,15 @@
+@@ -750,9 +970,15 @@
              return;
          }
  
@@ -947,7 +949,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              room.getLiveTimeline().setPaginationToken(roomData.prev_batch ?? null, EventTimeline.BACKWARDS);
          }
  
-@@ -810,6 +1034,8 @@
+@@ -810,6 +1036,8 @@
          } */
  
          await this.injectRoomEvents(room, stateEvents, timelineEvents, roomData.num_live);
@@ -956,7 +958,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
          // we deliberately don't add ephemeral events to the timeline
          room.addEphemeralEvents(ephemeralEvents);
-@@ -825,6 +1051,19 @@
+@@ -825,6 +1053,19 @@
          room._unstable_addStickyEvents(timelineEvents.filter((e) => e.unstableStickyInfo !== undefined));
  
          room.recalculate();
@@ -976,7 +978,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          if (roomData.initial) {
              client.store.storeRoom(room);
              client.emit(ClientEvent.Room, room);
-@@ -832,9 +1071,12 @@
+@@ -832,9 +1073,12 @@
  
          // check if any timeline events should bing and add them to the notifEvents array:
          // we'll purge this once we've fully processed the sync response
@@ -990,7 +992,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              client.emit(ClientEvent.Event, e);
              if (e.isState() && e.getType() == EventType.RoomEncryption && this.syncOpts.cryptoCallbacks) {
                  await this.syncOpts.cryptoCallbacks.onCryptoEvent(room, e);
-@@ -843,6 +1085,7 @@
+@@ -843,6 +1087,7 @@
  
          await promiseMapSeries(stateEvents, processRoomEvent);
          await promiseMapSeries(timelineEvents, processRoomEvent);
@@ -998,7 +1000,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          ephemeralEvents.forEach(function (e) {
              client.emit(ClientEvent.Event, e);
          });
-@@ -887,20 +1130,11 @@
+@@ -887,20 +1132,11 @@
              liveTimeline.initialiseState(stateEventList);
          }
  
@@ -1023,7 +1025,16 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              room.oldState.setStateEvents(stateEventList);
              room.currentState.setStateEvents(stateEventList);
          }
-@@ -991,12 +1225,155 @@
+@@ -931,6 +1167,8 @@
+                 addToState: false,
+             });
+         }
++        // As /sync v2 does: poll responses and live location updates are aggregated onto what they refer to.
++        this.client.processAggregatedTimelineEvents(room, [...timelineEventList, ...liveTimelineEvents]);
+ 
+         room.recalculate();
+ 
+@@ -991,12 +1229,155 @@
      public async sync(): Promise<void> {
          this.syncOpts.logger.debug("Sliding sync init loop");
  
@@ -1183,7 +1194,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                  this.syncOpts.logger.debug("Got push rules");
                  this.client.pushRules = result;
                  break;
-@@ -1007,9 +1384,6 @@
+@@ -1007,9 +1388,6 @@
                  }
              }
          }
@@ -1193,7 +1204,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      /**
-@@ -1017,6 +1391,12 @@
+@@ -1017,6 +1395,12 @@
       */
      public stop(): void {
          this.syncOpts.logger.debug("SyncApi.stop");
