@@ -15,6 +15,7 @@ import {
     NotificationCountType,
     ReceiptType,
     RoomStateEvent,
+    M_BEACON_INFO,
     type EventTimelineSet,
     type IRoomTimelineData,
     type MatrixClient,
@@ -1985,7 +1986,93 @@ export class RoomTimelineViewModel
                 `filtered=${filteredCount}`,
         );
 
-        return this.compactMembershipItems(items);
+        return this.compactMembershipItems(this.groupRoomCreation(items, events, showHiddenEvents));
+    }
+
+    /**
+     * The events that set the room up, as the old timeline groups them: from `m.room.create`, the creator's own state
+     * events and their own join, until another day, another kind of event, someone else, a membership other than the
+     * creator's join, or a live location share. Events without a row of their own do not end the run.
+     * @returns The ids of the grouped events, and of the encryption events, which keep a row of their own, or nothing
+     *   when the room's start is not loaded or nothing would be grouped.
+     */
+    private creationRun(
+        events: MatrixEvent[],
+        showHiddenEvents: boolean,
+    ): { createId: string; grouped: Set<string>; ownRows: Set<string> } | undefined {
+        const start = events.findIndex((event) => event.getType() === EventType.RoomCreate);
+        if (start < 0) return undefined;
+        const create = events[start];
+        const creator = create.getSender();
+        const day = new Date(create.getTs()).toDateString();
+        const grouped = new Set<string>();
+        const ownRows = new Set<string>();
+        for (const event of events.slice(start + 1)) {
+            const id = event.getId();
+            if (!id || !this.shouldIncludeEvent(event, showHiddenEvents)) continue;
+            if (new Date(event.getTs()).toDateString() !== day) break;
+            const type = event.getType();
+            if (
+                type === EventType.RoomMember &&
+                (event.getStateKey() !== creator || event.getContent().membership !== KnownMembership.Join)
+            ) {
+                break;
+            }
+            if (M_BEACON_INFO.matches(type)) break;
+            if (!event.isState() || event.getSender() !== creator) break;
+            if (type === EventType.RoomEncryption) ownRows.add(id);
+            else grouped.add(id);
+        }
+        return grouped.size > 0 ? { createId: create.getId()!, grouped, ownRows } : undefined;
+    }
+
+    /**
+     * Collapse the events that set the room up into one summary row, as the old timeline does, with the room's
+     * introduction above it. Encryption being turned on keeps its own row, before the summary, and a read marker
+     * among the grouped events follows the summary. An event the reader is taken to, such as by a link, keeps the
+     * events ungrouped, so it has a row to land on.
+     */
+    private groupRoomCreation(items: TimelineItem[], events: MatrixEvent[], showHiddenEvents: boolean): TimelineItem[] {
+        const run = this.creationRun(events, showHiddenEvents);
+        if (!run) return items;
+        const targets = [
+            this.navigationEventId,
+            this.snapshot.current.highlightedEventId,
+            this.snapshot.current.pendingAnchor?.targetKey,
+        ];
+        if (targets.some((id) => id && run.grouped.has(id))) return items;
+
+        const result: TimelineItem[] = [];
+        const grouped: MatrixEvent[] = [];
+        const ownRows: TimelineItem[] = [];
+        let marker: TimelineItem | undefined;
+        let groupAt = -1;
+        for (const item of items) {
+            if (item.kind === "event" && run.grouped.has(item.key)) {
+                if (groupAt < 0) groupAt = result.length;
+                grouped.push(item.event as MatrixEvent);
+            } else if (
+                groupAt >= 0 &&
+                grouped.length < run.grouped.size &&
+                item.kind === "event" &&
+                run.ownRows.has(item.key)
+            ) {
+                ownRows.push(item);
+            } else if (groupAt >= 0 && grouped.length < run.grouped.size && item.kind === "read-marker") {
+                marker = item;
+            } else {
+                result.push(item);
+            }
+        }
+        if (groupAt < 0) return items;
+        result.splice(
+            groupAt,
+            0,
+            ...ownRows,
+            { kind: "event-group", key: `creation-${run.createId}`, events: grouped, variant: "creation" },
+            ...(marker ? [marker] : []),
+        );
+        return result;
     }
 
     /** The real events represented by a row, also used for receipts and saved positions. */
