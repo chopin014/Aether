@@ -7,7 +7,7 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import React, { type JSX, type ReactNode } from "react";
-import { type Room, type MatrixClient, type MatrixEvent } from "matrix-js-sdk/src/matrix";
+import { type Room, type MatrixClient, type MatrixEvent, RoomStateEvent } from "matrix-js-sdk/src/matrix";
 
 import { _t } from "../../../../../languageHandler";
 import BridgeTile from "../../BridgeTile";
@@ -29,6 +29,21 @@ interface IProps {
 export default class BridgeSettingsTab extends React.Component<IProps> {
     public static contextType = MatrixClientContext;
     declare public context: React.ContextType<typeof MatrixClientContext>;
+
+    public componentDidMount(): void {
+        this.context.on(RoomStateEvent.Events, this.onStateEvent);
+    }
+
+    public componentWillUnmount(): void {
+        this.context.removeListener(RoomStateEvent.Events, this.onStateEvent);
+    }
+
+    // Under sliding sync, a room nobody has opened gets its bridges after its settings open.
+    private onStateEvent = (event: MatrixEvent): void => {
+        if (event.getRoomId() === this.props.room.roomId && BRIDGE_EVENT_TYPES.includes(event.getType())) {
+            this.forceUpdate();
+        }
+    };
 
     private renderBridgeCard(event: MatrixEvent, room: Room | null): ReactNode {
         const content = event.getContent();
