@@ -1908,6 +1908,52 @@ describe("SlidingSyncManager", () => {
             freshSync.stop();
         });
 
+        it("keeps a room held for its settings subscribed as an open room, until the last hold is released", async () => {
+            vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+            knownRoom("!listed");
+            knownRoom("!server", "space");
+            const releaseRoom = manager.holdRoom("!listed");
+            const releaseAgain = manager.holdRoom("!listed");
+            const releaseSpace = manager.holdRoom("!server");
+            // Someone is waiting for the settings: the subscriptions go out with the next request.
+            await vi.advanceTimersByTimeAsync(0);
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!listed", "!server"]));
+            expect(nameOf("!listed")).toBe("room");
+            expect(nameOf("!server")).toBe("space");
+
+            releaseRoom();
+            releaseRoom();
+            releaseSpace();
+            await vi.advanceTimersByTimeAsync(60_200);
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!listed"]));
+            releaseAgain();
+            await vi.advanceTimersByTimeAsync(60_200);
+            expect(sync.getRoomSubscriptions()).toEqual(new Set());
+        });
+
+        it("ignores holds on room aliases", async () => {
+            const release = manager.holdRoom("#garden:example.org");
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(sync.getRoomSubscriptions()).toEqual(new Set());
+            expect(release).not.toThrow();
+        });
+
+        it("subscribes held rooms on a connection that starts later, and on one that replaces it", async () => {
+            vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+            const fresh = new SlidingSyncManager();
+            const release = fresh.holdRoom("!early");
+            const first = (await fresh.setup(client))!;
+            expect(first.getRoomSubscriptions()).toContain("!early");
+            const second = (await fresh.setup(client))!;
+            expect(second.getRoomSubscriptions()).toContain("!early");
+
+            release();
+            await vi.advanceTimersByTimeAsync(60_200);
+            expect(second.getRoomSubscriptions()).not.toContain("!early");
+            first.stop();
+            second.stop();
+        });
+
         it("does nothing for prefetches and calls without sliding sync", () => {
             const idle = new SlidingSyncManager();
             expect(() => {

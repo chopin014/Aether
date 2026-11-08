@@ -65,19 +65,9 @@ export default class SecurityRoomSettingsTab extends React.Component<IProps, ISt
     public constructor(props: IProps) {
         super(props);
 
-        const state = this.props.room.currentState;
-
         this.state = {
-            guestAccess: this.pullContentPropertyFromEvent<GuestAccess>(
-                state?.getStateEvents(EventType.RoomGuestAccess, ""),
-                "guest_access",
-                GuestAccess.Forbidden,
-            ),
-            history: this.pullContentPropertyFromEvent<HistoryVisibility>(
-                state?.getStateEvents(EventType.RoomHistoryVisibility, ""),
-                "history_visibility",
-                HistoryVisibility.Shared,
-            ),
+            guestAccess: this.currentGuestAccess(),
+            history: this.currentHistory(),
             hasAliases: false, // async loaded in componentDidMount
             encrypted: null, // async loaded in componentDidMount
             stateEncrypted: null, // async loaded in componentDidMount
@@ -101,6 +91,22 @@ export default class SecurityRoomSettingsTab extends React.Component<IProps, ISt
         return event?.getContent()[key] || defaultValue;
     }
 
+    private currentGuestAccess(): GuestAccess {
+        return this.pullContentPropertyFromEvent<GuestAccess>(
+            this.props.room.currentState?.getStateEvents(EventType.RoomGuestAccess, ""),
+            "guest_access",
+            GuestAccess.Forbidden,
+        );
+    }
+
+    private currentHistory(): HistoryVisibility {
+        return this.pullContentPropertyFromEvent<HistoryVisibility>(
+            this.props.room.currentState?.getStateEvents(EventType.RoomHistoryVisibility, ""),
+            "history_visibility",
+            HistoryVisibility.Shared,
+        );
+    }
+
     public componentWillUnmount(): void {
         this.context.removeListener(RoomStateEvent.Events, this.onStateEvent);
     }
@@ -113,6 +119,11 @@ export default class SecurityRoomSettingsTab extends React.Component<IProps, ISt
             EventType.RoomEncryption,
         ];
         if (refreshWhenTypes.includes(e.getType() as EventType)) this.forceUpdate();
+        // Under sliding sync, a room nobody has opened gets these after its settings open. Someone else may also
+        // change them while the settings are open.
+        if (e.getRoomId() !== this.props.room.roomId) return;
+        if (e.getType() === EventType.RoomGuestAccess) this.setState({ guestAccess: this.currentGuestAccess() });
+        if (e.getType() === EventType.RoomHistoryVisibility) this.setState({ history: this.currentHistory() });
     };
 
     private onEncryptionChange = async (): Promise<void> => {

@@ -179,6 +179,31 @@ test.describe("Sliding Sync", () => {
         await app.client.createRoom({ name: "Elsewhere" });
     });
 
+    test("shows the topic in the settings of a Space nobody has opened", async ({ page, app }) => {
+        // The server rail lists Spaces with only part of their state, without their topic: their settings ask for
+        // the rest.
+        await app.client.createSpace({ name: "Garden", topic: "Plants and trees" });
+        await (await app.getSpacePanelButton("Garden")).click({ button: "right" });
+        await page.getByRole("menuitem", { name: "Settings" }).click();
+
+        const dialog = page.getByRole("dialog", { name: "Settings - Garden" });
+        await expect(dialog.getByRole("textbox", { name: "Description" })).toHaveValue("Plants and trees");
+        await expect(dialog.getByRole("button", { name: "Cancel" })).toHaveAttribute("aria-disabled", "true");
+    });
+
+    test.describe("in the desktop shell", () => {
+        test.use({ config: { features: { feature_simplified_sliding_sync: true, feature_desktop_shell: true } } });
+
+        test("shows the topic in the settings of a channel nobody has opened", async ({ page, app }) => {
+            await app.client.createRoom({ name: "Greenhouse", topic: "Seedlings" });
+            await page.getByRole("option", { name: /^Open room Greenhouse/ }).click({ button: "right" });
+            await page.getByRole("menu").getByRole("menuitem", { name: "Edit channel" }).click();
+
+            const settings = page.getByRole("dialog", { name: "Channel settings for Greenhouse" });
+            await expect(settings.getByRole("textbox", { name: /topic/i })).toHaveValue("Seedlings");
+        });
+    });
+
     test("should move rooms around as new events arrive", async ({ page, app, testRoom }) => {
         // create rooms and check room names are correct
         const roomIds: string[] = [];

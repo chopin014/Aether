@@ -51,10 +51,14 @@ const SpaceSettingsVisibilityTab: React.FC<IProps> = ({ matrixClient: cli, space
 
     const joinRule = useRoomState(space, (state) => state.getJoinRule());
 
+    // Under sliding sync, a Space that has not been looked at gets these after its settings open.
+    const guestAccessEvent = useRoomState(space, (state) => state.getStateEvents(EventType.RoomGuestAccess, ""));
+    const historyVisibilityEvent = useRoomState(space, (state) =>
+        state.getStateEvents(EventType.RoomHistoryVisibility, ""),
+    );
+
     const [guestAccessEnabled, setGuestAccessEnabled] = useLocalEcho<boolean>(
-        () =>
-            space.currentState.getStateEvents(EventType.RoomGuestAccess, "")?.getContent()?.guest_access ===
-            GuestAccess.CanJoin,
+        () => guestAccessEvent?.getContent()?.guest_access === GuestAccess.CanJoin,
         (guestAccessEnabled) =>
             cli.sendStateEvent(
                 space.roomId,
@@ -65,15 +69,14 @@ const SpaceSettingsVisibilityTab: React.FC<IProps> = ({ matrixClient: cli, space
                 "",
             ),
         () => setError(_t("room_settings|visibility|error_update_guest_access")),
+        guestAccessEvent,
     );
     const onGuestAccessEnabledChanged = useCallback<ChangeEventHandler<HTMLInputElement>>(
         (e) => setGuestAccessEnabled(e.target.checked),
         [setGuestAccessEnabled],
     );
     const [historyVisibility, setHistoryVisibility] = useLocalEcho<HistoryVisibility>(
-        () =>
-            space.currentState.getStateEvents(EventType.RoomHistoryVisibility, "")?.getContent()?.history_visibility ||
-            HistoryVisibility.Shared,
+        () => historyVisibilityEvent?.getContent()?.history_visibility || HistoryVisibility.Shared,
         (historyVisibility) =>
             cli.sendStateEvent(
                 space.roomId,
@@ -84,6 +87,7 @@ const SpaceSettingsVisibilityTab: React.FC<IProps> = ({ matrixClient: cli, space
                 "",
             ),
         () => setError(_t("room_settings|visibility|error_update_history_visibility")),
+        historyVisibilityEvent,
     );
 
     const [showAdvancedSection, toggleAdvancedSection] = useStateToggle();
