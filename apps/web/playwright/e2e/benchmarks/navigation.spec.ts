@@ -10,7 +10,7 @@ Please see LICENSE in the repository root for full details.
  * and history. It runs only when AETHER_BENCHMARK is set, so the normal end-to-end suite stays quick:
  *
  *   AETHER_BENCHMARK=1 [AETHER_BENCHMARK_OUT=results.jsonl] [AETHER_BENCHMARK_RUNS=5] \
- *     [AETHER_BENCHMARK_LABS=feature_new_timeline] [AETHER_BENCHMARK_LATENCY_MS=150] \
+ *     [AETHER_BENCHMARK_LABS=feature_new_timeline] [AETHER_BENCHMARK_LATENCY_MS=150] [AETHER_BENCHMARK_APP_CACHED=1] \
  *     pnpm exec playwright test playwright/e2e/benchmarks --project=Chrome
  *
  * A step the build cannot do, such as opening a Space's channels, is recorded under `failures` and fails the test
@@ -42,6 +42,9 @@ const EXTRA_LABS = (process.env.AETHER_BENCHMARK_LABS ?? "").split(",").filter(B
 const LATENCY_MS = Number(process.env.AETHER_BENCHMARK_LATENCY_MS ?? 0);
 // How long the app is used before each restart, in milliseconds, so what it keeps on this device has been written.
 const SETTLE_MS = Number(process.env.AETHER_BENCHMARK_SETTLE_MS ?? 3000);
+// Whether the first start finds the app already opened on this device, as an installed or revisited app does: its
+// files and their compiled code are kept, and only the account is new. Otherwise the first start loads the app too.
+const APP_CACHED = Boolean(process.env.AETHER_BENCHMARK_APP_CACHED);
 
 /** One protocol's results: each metric's samples in milliseconds. */
 type Samples = Record<string, number[]>;
@@ -362,7 +365,19 @@ for (const protocol of ["regular", "sliding"] as const) {
                 });
             }
 
-            // Opening the account for the first time on this device: nothing is cached.
+            if (APP_CACHED) {
+                // The app is opened without the account in another page of the same browser, so its files are cached
+                // while nothing of the account is kept: the account is put in place for this page only. It is opened
+                // twice, as the browser keeps a script's compiled code only once it has run it from its cache.
+                const appOnly = await page.context().newPage();
+                for (let opening = 0; opening < 2; opening++) {
+                    await appOnly.goto("/");
+                    await appOnly.waitForLoadState("networkidle");
+                }
+                await appOnly.close();
+            }
+
+            // Opening the account for the first time on this device: nothing of it is kept here.
             await watchForText(page, seeded.destination.text);
             await page.goto(`/#/room/${seeded.destination.roomId}`);
             await page.waitForFunction(
@@ -484,6 +499,7 @@ for (const protocol of ["regular", "sliding"] as const) {
                 runs: RUNS,
                 latencyMs: LATENCY_MS,
                 settleMs: SETTLE_MS,
+                appCached: APP_CACHED,
                 homeserver: homeserver.baseUrl,
                 metrics: summarise(samples),
                 failures,
