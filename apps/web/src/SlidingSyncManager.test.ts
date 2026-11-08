@@ -2832,4 +2832,90 @@ describe("SlidingSyncManager", () => {
             expect(untypedManager.startSpidering).toHaveBeenCalled();
         });
     });
+
+    describe("holding work while a response is applied", () => {
+        it("holds what is registered from a response's arrival until it is applied", async () => {
+            const sync = (await manager.setup(client))!;
+            const release = vi.fn();
+            const hold = vi.fn(() => release);
+            const stopHolding = manager.holdWhileApplyingRooms(hold);
+
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+            expect(hold).toHaveBeenCalledTimes(1);
+            expect(release).not.toHaveBeenCalled();
+            sync.emit(SlidingSyncEvent.Applied, { pos: "1", lists: {}, rooms: {}, extensions: {} });
+            expect(release).toHaveBeenCalledTimes(1);
+
+            // A request that failed applies nothing, so nothing is held.
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null, new Error("offline"));
+            expect(hold).toHaveBeenCalledTimes(1);
+
+            stopHolding();
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+            expect(hold).toHaveBeenCalledTimes(1);
+            sync.stop();
+        });
+
+        it("holds for each batch of saved rooms the SDK applies, for a while at most", () => {
+            vi.useFakeTimers();
+            try {
+                const releases: ReturnType<typeof vi.fn>[] = [];
+                manager.holdWhileApplyingRooms(() => {
+                    const release = vi.fn();
+                    releases.push(release);
+                    return release;
+                });
+
+                const end = manager.holdForSavedRooms();
+                expect(releases).toHaveLength(1);
+                end();
+                end();
+                expect(releases[0]).toHaveBeenCalledTimes(1);
+
+                // A batch that never ends holds nothing for long.
+                manager.holdForSavedRooms();
+                vi.advanceTimersByTime(15_000);
+                expect(releases[1]).toHaveBeenCalledTimes(1);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it("ends the hold of a response that is cut short, replaced or never finishes applying", async () => {
+            vi.useFakeTimers();
+            try {
+                const sync = (await manager.setup(client))!;
+                const releases: ReturnType<typeof vi.fn>[] = [];
+                manager.holdWhileApplyingRooms(() => {
+                    const release = vi.fn();
+                    releases.push(release);
+                    return release;
+                });
+
+                // Failing after it arrived, such as on a server error.
+                sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+                sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null, new Error("offline"));
+                expect(releases[0]).toHaveBeenCalledTimes(1);
+
+                // Another response arriving first.
+                sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+                sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+                expect(releases[1]).toHaveBeenCalledTimes(1);
+                expect(releases[2]).not.toHaveBeenCalled();
+
+                // Never applied in full.
+                vi.advanceTimersByTime(15_000);
+                expect(releases[2]).toHaveBeenCalledTimes(1);
+
+                // Stopped while being applied.
+                sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+                sync.stop();
+                expect(releases[3]).toHaveBeenCalledTimes(1);
+                sync.emit(SlidingSyncEvent.Applied, { pos: "1", lists: {}, rooms: {}, extensions: {} });
+                expect(releases[3]).toHaveBeenCalledTimes(1);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+    });
 });

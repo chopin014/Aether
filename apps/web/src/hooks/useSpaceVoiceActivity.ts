@@ -81,10 +81,13 @@ export function useSpaceVoiceActivity(sdkContext: SDKContextClass, space?: Room)
         }
         const spaceStore = sdkContext.spaceStore;
         const observed = new Set<Call>();
+        // The voice channels listed now, whose call ending changes the list.
+        let listed = new Set<string>();
         const refresh = (): void => {
             // The store tells of every room that arrives or changes, such as while a new connection applies the
             // whole account, and the rail's tooltip is costly to draw again, so the same activity changes nothing.
             const next = getSpaceVoiceActivity(client, spaceStore, space);
+            listed = new Set(next.map((channel) => channel.roomId));
             setChannels((current) => (sameVoiceActivity(current, next) ? current : next));
             // Follow the participants of every call, so joins and leaves update the tooltip while it is open.
             for (const roomId of spaceStore.getSpaceFilteredRoomIds(space.roomId)) {
@@ -95,12 +98,18 @@ export function useSpaceVoiceActivity(sdkContext: SDKContextClass, space?: Room)
                 }
             }
         };
+        // The call store tells of every room it looks at, such as each room arriving as sync applies the whole account,
+        // most of them without a call. Such a room changes nothing, unless it is listed now and its call has ended;
+        // reading the Space's rooms for each would work them out again for every room of a batch.
+        const onCall = (call: Call | null, roomId: string): void => {
+            if (call || listed.has(roomId)) refresh();
+        };
         refresh();
-        CallStore.instance.on(CallStoreEvent.Call, refresh);
+        CallStore.instance.on(CallStoreEvent.Call, onCall);
         // The store names the Space in its event when the rooms in it change, such as once they first load.
         spaceStore.on(space.roomId, refresh);
         return () => {
-            CallStore.instance.off(CallStoreEvent.Call, refresh);
+            CallStore.instance.off(CallStoreEvent.Call, onCall);
             spaceStore.off(space.roomId, refresh);
             for (const call of observed) call.off(CallEvent.Participants, refresh);
         };
