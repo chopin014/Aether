@@ -503,12 +503,13 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  import {
      type IMinimalEvent,
      type IRoomEvent,
-@@ -49,13 +49,15 @@
+@@ -49,13 +49,16 @@
      type MSC3575SlidingSyncResponse,
      type SlidingSync,
      SlidingSyncEvent,
 +    type SlidingSyncSnapshot,
      SlidingSyncState,
++    yieldToEventLoop,
  } from "./sliding-sync.ts";
 -import { EventType } from "./@types/event.ts";
 +import { EventType, RoomType } from "./@types/event.ts";
@@ -520,7 +521,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
  // Number of consecutive failed syncs that will lead to a syncState of ERROR as opposed
  // to RECONNECTING. This is needed to inform the client of server issues when the
-@@ -83,6 +85,11 @@
+@@ -83,6 +86,11 @@
      private toDeviceEvents: IToDeviceEvent[] = [];
      private e2ee?: ExtensionE2EEResponse;
      private hasChanges = false;
@@ -532,7 +533,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
      public constructor(
          private readonly client: MatrixClient,
-@@ -99,13 +106,66 @@
+@@ -99,13 +107,66 @@
          this.hasChanges = true;
      }
  
@@ -600,7 +601,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          const toDeviceEvents = this.toDeviceEvents;
          const e2ee = this.e2ee;
          this.toDeviceEvents = [];
-@@ -127,10 +187,7 @@
+@@ -127,10 +188,7 @@
  }
  
  class ExtensionE2EE implements Extension<ExtensionE2EERequest, ExtensionE2EEResponse> {
@@ -612,7 +613,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
      public name(): string {
          return "e2ee";
-@@ -149,7 +206,9 @@
+@@ -149,7 +207,9 @@
              // to encrypt for new devices. This is an expensive call, so we should
              // really really remember `?pos=` wherever possible.
              logger.log("ExtensionE2EE: invalidating all device lists due to missing 'pos'");
@@ -623,7 +624,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          }
          return {
              enabled: true, // this is sticky so only send it on the initial request
-@@ -254,28 +313,65 @@
+@@ -254,28 +314,52 @@
      }
  
      private processGlobalAccountData(globalAccountData: IMinimalEvent[]): void {
@@ -692,23 +693,10 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +    return new Promise((resolve) => globalThis.requestIdleCallback(resolve, { timeout: 1000 }));
 +}
 +
-+/** Let other work run, without the delay nested timers impose. */
-+function yieldToEventLoop(): Promise<void> {
-+    return new Promise<void>((resolve) => {
-+        const { port1, port2 } = new MessageChannel();
-+        port1.onmessage = (): void => {
-+            port1.close();
-+            port2.close();
-+            resolve();
-+        };
-+        port2.postMessage(null);
-+    });
-+}
-+
  type ExtensionTypingRequest = {
      enabled: boolean;
  };
-@@ -375,6 +471,87 @@
+@@ -375,6 +459,87 @@
   * outside the list window. Sticky events already in a room's timeline are excluded here, so
   * `processRoomData` picks those up separately.
   */
@@ -796,7 +784,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  class ExtensionStickyEvents implements Extension<ExtensionStickyEventsRequest, ExtensionStickyEventsResponse> {
      private nextBatch?: string;
  
-@@ -428,7 +605,24 @@
+@@ -428,7 +593,24 @@
      private syncStateData?: ISyncStateData;
      private lastPos: string | null = null;
      private failCount = 0;
@@ -821,7 +809,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
      public constructor(
          private readonly slidingSync: SlidingSync,
-@@ -445,9 +639,11 @@
+@@ -445,9 +627,11 @@
  
          this.slidingSync.on(SlidingSyncEvent.Lifecycle, this.onLifecycle.bind(this));
          this.slidingSync.on(SlidingSyncEvent.RoomData, this.onRoomData.bind(this));
@@ -833,7 +821,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          const extensions: Extension<any, any>[] = [
              new ExtensionToDevice(e2eeCollector),
              new ExtensionAccountData(this.client),
-@@ -455,28 +651,41 @@
+@@ -455,28 +639,41 @@
              new ExtensionReceipts(this.client),
              new ExtensionStickyEvents(this.client),
          ];
@@ -889,7 +877,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      private onLifecycle(state: SlidingSyncState, resp: MSC3575SlidingSyncResponse | null, err?: Error): void {
-@@ -490,7 +699,7 @@
+@@ -490,7 +687,7 @@
                      break;
                  }
                  // Element won't stop showing the initial loading spinner unless we fire SyncState.Prepared
@@ -898,7 +886,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                      this.updateSyncState(SyncState.Prepared, {
                          oldSyncToken: undefined,
                          nextSyncToken: resp.pos,
-@@ -512,7 +721,8 @@
+@@ -512,7 +709,8 @@
                  if (err) {
                      this.failCount += 1;
                      this.updateSyncState(
@@ -908,7 +896,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                          {
                              error: new MatrixError(err),
                          },
-@@ -651,7 +861,12 @@
+@@ -651,7 +849,12 @@
          return false;
      }
  
@@ -922,7 +910,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          roomData = ensureNameEvent(client, room.roomId, roomData);
          const stateEvents = mapEvents(this.client, room.roomId, roomData.required_state);
          // Prevent events from being decrypted ahead of time
-@@ -659,6 +874,8 @@
+@@ -659,6 +862,8 @@
          // room::decryptCriticalEvent is in charge of decrypting all the events
          // required for a client to function properly
          let timelineEvents = mapEvents(this.client, room.roomId, roomData.timeline, false);
@@ -931,7 +919,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          const ephemeralEvents: MatrixEvent[] = []; // TODO this.mapSyncEventsFormat(joinObj.ephemeral);
  
          // TODO: handle threaded / beacon events
-@@ -669,6 +886,8 @@
+@@ -669,6 +874,8 @@
          // necessarily set `initial` in the latter case, so without checking `expanded_timeline` the older events would
          // be appended after the newer ones we already have.
          const expandedTimeline = roomData.expanded_timeline || roomData.unstable_expanded_timeline;
@@ -940,7 +928,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          if (roomData.limited || roomData.initial || expandedTimeline) {
              // we should not know about any of these timeline entries if this is a genuinely new room.
              // If we do, then we've effectively done scrollback.
-@@ -703,20 +922,33 @@
+@@ -703,20 +910,33 @@
                      newEvents.unshift(recvEvent);
                  }
              }
@@ -980,7 +968,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              // We track unread notifications ourselves in encrypted rooms, so don't
              // bother setting it here. We trust our calculations better than the
              // server's for this case, and therefore will assume that our non-zero
-@@ -738,7 +970,11 @@
+@@ -738,7 +958,11 @@
  
          if (roomData.invite_state) {
              const inviteStateEvents = mapEvents(this.client, room.roomId, roomData.invite_state);
@@ -992,7 +980,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              if (roomData.initial) {
                  room.recalculate();
                  this.client.store.storeRoom(room);
-@@ -750,9 +986,15 @@
+@@ -750,9 +974,15 @@
              return;
          }
  
@@ -1009,7 +997,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              room.getLiveTimeline().setPaginationToken(roomData.prev_batch ?? null, EventTimeline.BACKWARDS);
          }
  
-@@ -809,7 +1051,36 @@
+@@ -809,7 +1039,36 @@
              }
          } */
  
@@ -1047,7 +1035,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
          // we deliberately don't add ephemeral events to the timeline
          room.addEphemeralEvents(ephemeralEvents);
-@@ -825,6 +1096,19 @@
+@@ -825,6 +1084,19 @@
          room._unstable_addStickyEvents(timelineEvents.filter((e) => e.unstableStickyInfo !== undefined));
  
          room.recalculate();
@@ -1067,7 +1055,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          if (roomData.initial) {
              client.store.storeRoom(room);
              client.emit(ClientEvent.Room, room);
-@@ -832,17 +1116,15 @@
+@@ -832,17 +1104,15 @@
  
          // check if any timeline events should bing and add them to the notifEvents array:
          // we'll purge this once we've fully processed the sync response
@@ -1092,7 +1080,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          ephemeralEvents.forEach(function (e) {
              client.emit(ClientEvent.Event, e);
          });
-@@ -853,6 +1135,82 @@
+@@ -853,6 +1123,82 @@
          room.decryptCriticalEvents();
      }
  
@@ -1175,7 +1163,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      /**
       * Injects events into a room's model.
       * @param stateEventList - A list of state events. This is the state
-@@ -887,20 +1245,11 @@
+@@ -887,20 +1233,11 @@
              liveTimeline.initialiseState(stateEventList);
          }
  
@@ -1200,7 +1188,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              room.oldState.setStateEvents(stateEventList);
              room.currentState.setStateEvents(stateEventList);
          }
-@@ -931,6 +1280,13 @@
+@@ -931,6 +1268,13 @@
                  addToState: false,
              });
          }
@@ -1214,7 +1202,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
          room.recalculate();
  
-@@ -991,12 +1347,155 @@
+@@ -991,12 +1335,155 @@
      public async sync(): Promise<void> {
          this.syncOpts.logger.debug("Sliding sync init loop");
  
@@ -1374,7 +1362,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                  this.syncOpts.logger.debug("Got push rules");
                  this.client.pushRules = result;
                  break;
-@@ -1007,9 +1506,6 @@
+@@ -1007,9 +1494,6 @@
                  }
              }
          }
@@ -1384,7 +1372,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      /**
-@@ -1017,7 +1513,15 @@
+@@ -1017,7 +1501,15 @@
       */
      public stop(): void {
          this.syncOpts.logger.debug("SyncApi.stop");
@@ -1400,7 +1388,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      /**
-@@ -1099,6 +1603,22 @@
+@@ -1099,6 +1591,22 @@
      return roomData;
  }
  
@@ -1439,7 +1427,18 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
  
  // /sync requests allow you to set a timeout= but the request may continue
  // beyond that and wedge forever, so we need to track how long we are willing
-@@ -55,6 +55,34 @@
+@@ -27,6 +27,10 @@
+ // to determine the max time we're willing to wait.
+ const BUFFER_PERIOD_MS = 10 * 1000;
+ 
++// How long a response's rooms are applied before input and drawing get a turn. The first response of a new
++// connection can hold every room in the account, which would otherwise block the page until all are applied.
++const ROOMS_SLICE_MS = 16;
++
+ export const MSC3575_WILDCARD = "*";
+ export const MSC3575_STATE_KEY_ME = "$ME";
+ export const MSC3575_STATE_KEY_LAZY = "$LAZY";
+@@ -55,6 +59,34 @@
      not_tags?: string[];
  }
  
@@ -1474,7 +1473,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
  /**
   * Represents a list subscription.
   */
-@@ -296,6 +324,11 @@
+@@ -296,6 +328,11 @@
       *  - SlidingSyncState.Complete: Fires after the response has been processed.
       */
      Lifecycle = "SlidingSync.Lifecycle",
@@ -1486,7 +1485,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
  }
  
  export type SlidingSyncEventHandlerMap = {
-@@ -305,8 +338,35 @@
+@@ -305,8 +342,58 @@
          resp: MSC3575SlidingSyncResponse | null,
          err?: Error,
      ) => void;
@@ -1499,6 +1498,29 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 +    subscription: Readonly<MSC3575RoomSubscription>;
 +    /** The room's subscription revision when the request was sent. */
 +    revision: number;
++}
++
++/** Let other work run, without the delay nested timers impose. */
++export function yieldToEventLoop(): Promise<void> {
++    return new Promise<void>((resolve) => {
++        const { port1, port2 } = new MessageChannel();
++        port1.onmessage = (): void => {
++            port1.close();
++            port2.close();
++            resolve();
++        };
++        port2.postMessage(null);
++    });
++}
++
++/**
++ * Let input and drawing in, then carry on ahead of other waiting work where the platform can, so applying a response
++ * is not held up by everything else that is queued.
++ */
++function yieldToInput(): Promise<void> {
++    const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
++    if (typeof scheduler?.yield === "function") return scheduler.yield();
++    return yieldToEventLoop();
 +}
 +
 +/** A frozen deep copy of a value, so what was sent stays as it was whatever the caller does with its own. */
@@ -1522,7 +1544,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
  /**
   * SlidingSync is a high-level data structure which controls the majority of sliding sync.
   * It has no hooks into JS SDK except for needing a MatrixClient to perform the HTTP request.
-@@ -317,13 +377,24 @@
+@@ -317,13 +404,24 @@
      private lists: Map<string, SlidingList>;
      private listModifiedCount = 0;
      private terminated = false;
@@ -1548,7 +1570,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
  
      // map of custom subscription name to the subscription
      private customSubscriptions: Map<string, MSC3575RoomSubscription> = new Map();
-@@ -332,6 +403,8 @@
+@@ -332,6 +430,8 @@
  
      private pendingReq?: Promise<MSC3575SlidingSyncResponse>;
      private abortController?: AbortController;
@@ -1557,7 +1579,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
  
      /**
       * Create a new sliding sync instance
-@@ -363,11 +436,29 @@
+@@ -363,11 +463,29 @@
       * @param sub - The subscription information.
       */
      public addCustomSubscription(name: string, sub: MSC3575RoomSubscription): void {
@@ -1591,7 +1613,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      }
  
      /**
-@@ -378,14 +469,22 @@
+@@ -378,14 +496,22 @@
       * will be used.
       */
      public useCustomSubscription(roomId: string, name: string): void {
@@ -1621,7 +1643,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      }
  
      /**
-@@ -465,6 +564,54 @@
+@@ -465,6 +591,54 @@
          return new Set(Array.from(this.desiredRoomSubscriptions));
      }
  
@@ -1676,7 +1698,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      /**
       * Modify the room subscriptions for the sync API. Calling this function will interrupt the
       * /sync request to resend new subscriptions. If the /sync stream has not started, this will
-@@ -472,7 +619,18 @@
+@@ -472,7 +646,18 @@
       * @param s - The new desired room subscriptions.
       */
      public modifyRoomSubscriptions(s: Set<string>): void {
@@ -1696,7 +1718,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
          this.resend();
      }
  
-@@ -482,8 +640,11 @@
+@@ -482,8 +667,11 @@
       * @param rs - The new room subscription fields to fetch.
       */
      public modifyRoomSubscriptionInfo(rs: MSC3575RoomSubscription): void {
@@ -1709,7 +1731,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
          this.resend();
      }
  
-@@ -569,6 +730,7 @@
+@@ -569,6 +757,7 @@
       */
      public resend(): void {
          this.needsResend = true;
@@ -1717,7 +1739,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
          this.abortController?.abort();
          this.abortController = new AbortController();
      }
-@@ -578,12 +740,21 @@
+@@ -578,12 +767,21 @@
       */
      public stop(): void {
          this.terminated = true;
@@ -1739,7 +1761,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      /**
       * Re-setup this connection e.g in the event of an expired session.
       */
-@@ -593,22 +764,50 @@
+@@ -593,22 +791,50 @@
          this.lists.forEach((l) => {
              l.setModified(true);
          });
@@ -1793,7 +1815,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  const reqLists: Record<string, MSC3575List> = {};
                  this.lists.forEach((l: SlidingList, key: string) => {
                      reqLists[key] = l.getList(true);
-@@ -616,37 +815,50 @@
+@@ -616,37 +842,50 @@
                  const reqBody: MSC3575SlidingSyncRequest = {
                      lists: reqLists,
                      pos: currentPos,
@@ -1868,7 +1890,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  // mark all these lists as having been sent as sticky so we don't keep sending sticky params
                  this.lists.forEach((l) => {
                      l.setModified(false);
-@@ -664,25 +876,54 @@
+@@ -664,42 +903,74 @@
                  });
                  this.invokeLifecycleListeners(SlidingSyncState.RequestFinished, resp);
              } catch (err) {
@@ -1929,8 +1951,18 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 +            failedRequests = 0;
              await this.onPreExtensionsResponse(resp.extensions);
  
++            // Rooms are applied in order, in slices of time with input and drawing let in between.
++            let sliceStart = Date.now();
              // oxlint-disable-next-line guard-for-in
-@@ -692,14 +933,9 @@
+             for (const roomId in resp.rooms) {
++                if (Date.now() - sliceStart >= ROOMS_SLICE_MS) {
++                    await yieldToInput();
++                    // A connection stopped meanwhile applies nothing more.
++                    if (this.terminated) return;
++                    sliceStart = Date.now();
++                }
+                 await this.invokeRoomDataListeners(roomId, resp.rooms[roomId]);
+             }
  
              this.invokeLifecycleListeners(SlidingSyncState.Complete, resp);
              await this.onPostExtensionsResponse(resp.extensions);
