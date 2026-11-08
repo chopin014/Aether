@@ -187,6 +187,8 @@ describe("MatrixClientPeg", () => {
             });
 
             it("decides at once from the answer kept from last time, and reloads if the server has since dropped it", async () => {
+                // This device has rooms saved from sliding sync to show.
+                vi.spyOn(SlidingSyncManager.instance, "hasPrefetchedSnapshot").mockResolvedValue(true);
                 // The answer kept from last time, then the new one once the server has answered.
                 vi.spyOn(SlidingSyncManager.instance, "knownServerSupport")
                     .mockReturnValueOnce(true)
@@ -205,6 +207,7 @@ describe("MatrixClientPeg", () => {
             });
 
             it("does not reload when the server's new answer could not be kept, which would reload every time", async () => {
+                vi.spyOn(SlidingSyncManager.instance, "hasPrefetchedSnapshot").mockResolvedValue(true);
                 // The old answer still reads back, as when storage is full.
                 vi.spyOn(SlidingSyncManager.instance, "knownServerSupport").mockReturnValue(true);
                 vi.spyOn(SlidingSyncManager.instance, "serverOffersSlidingSync").mockResolvedValue(false);
@@ -215,6 +218,50 @@ describe("MatrixClientPeg", () => {
                 await testPeg.start();
                 for (let i = 0; i < 5; i++) await Promise.resolve();
                 expect(reload).not.toHaveBeenCalled();
+            });
+
+            it("waits for the server, though it offered sliding sync before, where no rooms are saved from it", async () => {
+                // Such as the first start after the switch to sliding sync, then offline: regular sync shows what it
+                // saved, where sliding sync would show nothing.
+                vi.spyOn(SlidingSyncManager.instance, "knownServerSupport").mockReturnValue(true);
+                vi.spyOn(SlidingSyncManager.instance, "hasPrefetchedSnapshot").mockResolvedValue(false);
+                vi.spyOn(SlidingSyncManager.instance, "serverOffersSlidingSync").mockResolvedValue(undefined);
+                const setup = vi.spyOn(SlidingSyncManager.instance, "setup");
+                await testPeg.start();
+                expect(setup).not.toHaveBeenCalled();
+            });
+
+            it("uses regular sync for a while where sliding sync failed lately, though offered", async () => {
+                vi.spyOn(SlidingSyncManager.instance, "isUnusable").mockReturnValue(true);
+                const asked = vi.spyOn(SlidingSyncManager.instance, "serverOffersSlidingSync");
+                const setup = vi.spyOn(SlidingSyncManager.instance, "setup");
+                await testPeg.start();
+                expect(setup).not.toHaveBeenCalled();
+                expect(asked).not.toHaveBeenCalled();
+            });
+
+            it.each([
+                ["reloads to regular sync", true],
+                ["does not reload, which would happen every time, when that could not be kept", false],
+            ])("%s when sliding sync fails on the server though offered", async (_, kept) => {
+                vi.spyOn(SlidingSyncManager.instance, "serverOffersSlidingSync").mockResolvedValue(true);
+                vi.spyOn(SlidingSyncManager.instance, "setup").mockResolvedValue(undefined);
+                vi.spyOn(SlidingSyncManager.instance, "isActiveFor").mockReturnValue(true);
+                const isUnusable = vi.spyOn(SlidingSyncManager.instance, "isUnusable").mockReturnValue(false);
+                let fails: () => void = () => {};
+                vi.spyOn(SlidingSyncManager.instance, "onUnusable").mockImplementation((listener) => {
+                    fails = listener;
+                    return () => {};
+                });
+                const reload = vi.fn();
+                vi.spyOn(PlatformPeg, "get").mockReturnValue({ reload } as unknown as BasePlatform);
+                await testPeg.start();
+                expect(reload).not.toHaveBeenCalled();
+
+                isUnusable.mockReturnValue(kept);
+                fails();
+
+                expect(reload).toHaveBeenCalledTimes(kept ? 1 : 0);
             });
 
             it("uses sliding sync where the server offers it", async () => {

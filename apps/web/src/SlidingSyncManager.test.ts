@@ -38,7 +38,12 @@ import EventEmitter from "node:events";
 import { waitFor } from "test-utils-rtl";
 import { mkStubRoom, stubClient } from "test-utils";
 
-import { MAX_DEMANDED_SELECTORS_PER_ROOM, MAX_STATE_READ_ROOMS, SlidingSyncManager } from "./SlidingSyncManager";
+import {
+    MAX_DEMANDED_SELECTORS_PER_ROOM,
+    MAX_STATE_READ_ROOMS,
+    SlidingSyncManager,
+    UNUSABLE_RETRY_MS,
+} from "./SlidingSyncManager";
 import SettingsStore from "./settings/SettingsStore";
 import { SlidingSyncCache } from "./sliding-sync/SlidingSyncCache";
 import { CATALOG_STATE } from "./sliding-sync/roomStateProfiles";
@@ -1184,6 +1189,84 @@ describe("SlidingSyncManager", () => {
             sync.emit(SlidingSyncEvent.RoomData, "!live", data);
             await applied();
             expect(manager.hasLiveData("!live")).toBe(true);
+        });
+
+        describe("sliding sync that fails though offered", () => {
+            const failed = (httpStatus: number, errcode: string): MatrixError =>
+                new MatrixError({ errcode, error: errcode }, httpStatus);
+
+            afterEach(() => {
+                localStorage.clear();
+            });
+
+            it("lets it go for a while where the server has no sliding sync endpoint", () => {
+                const told = vi.fn();
+                manager.onUnusable(told);
+                sync.emit(
+                    SlidingSyncEvent.Lifecycle,
+                    SlidingSyncState.RequestFinished,
+                    null,
+                    failed(404, "M_UNRECOGNIZED"),
+                );
+                expect(manager.isUnusable(client)).toBe(true);
+                expect(told).toHaveBeenCalledOnce();
+            });
+
+            it("lets it go once the server has rejected requests in a row before answering one", () => {
+                for (let i = 0; i < 2; i++) {
+                    sync.emit(
+                        SlidingSyncEvent.Lifecycle,
+                        SlidingSyncState.RequestFinished,
+                        null,
+                        failed(400, "M_BAD_JSON"),
+                    );
+                }
+                expect(manager.isUnusable(client)).toBe(false);
+                sync.emit(
+                    SlidingSyncEvent.Lifecycle,
+                    SlidingSyncState.RequestFinished,
+                    null,
+                    failed(400, "M_BAD_JSON"),
+                );
+                expect(manager.isUnusable(client)).toBe(true);
+            });
+
+            it("counts neither a forgotten connection nor a request that got no answer", () => {
+                for (let i = 0; i < 5; i++) {
+                    sync.emit(
+                        SlidingSyncEvent.Lifecycle,
+                        SlidingSyncState.RequestFinished,
+                        null,
+                        failed(400, "M_UNKNOWN_POS"),
+                    );
+                    sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null, new Error("offline"));
+                }
+                expect(manager.isUnusable(client)).toBe(false);
+            });
+
+            it("keeps it once the server has answered on this connection", () => {
+                sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+                sync.emit(
+                    SlidingSyncEvent.Lifecycle,
+                    SlidingSyncState.RequestFinished,
+                    null,
+                    failed(404, "M_UNRECOGNIZED"),
+                );
+                expect(manager.isUnusable(client)).toBe(false);
+            });
+
+            it("tries it again once a while has passed", () => {
+                sync.emit(
+                    SlidingSyncEvent.Lifecycle,
+                    SlidingSyncState.RequestFinished,
+                    null,
+                    failed(405, "M_UNRECOGNIZED"),
+                );
+                const now = Date.now();
+                vi.spyOn(Date, "now").mockReturnValue(now + UNUSABLE_RETRY_MS + 1);
+                expect(manager.isUnusable(client)).toBe(false);
+                vi.mocked(Date.now).mockRestore();
+            });
         });
 
         it("notes which rooms the server has sent on this connection, once the response is applied", async () => {

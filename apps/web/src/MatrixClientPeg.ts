@@ -312,7 +312,14 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         // regular sync instead, as sliding sync cannot work there. One that cannot be asked, such as while offline,
         // keeps sliding sync, so the rooms saved last time still show.
         const slidingSyncOn = SettingsStore.getValue("feature_simplified_sliding_sync");
-        let serverOffersSlidingSync = slidingSyncOn ? await this.serverOffersSlidingSync(this.matrixClient) : undefined;
+        let serverOffersSlidingSync: boolean | undefined;
+        if (slidingSyncOn && SlidingSyncManager.instance.isUnusable(this.matrixClient)) {
+            // Offered, but it failed here lately: regular sync is used for a while before it is tried again.
+            logger.warn("MatrixClientPeg: sliding sync failed on this server lately; using regular sync");
+            serverOffersSlidingSync = false;
+        } else if (slidingSyncOn) {
+            serverOffersSlidingSync = await this.serverOffersSlidingSync(this.matrixClient);
+        }
         if (slidingSyncOn && serverOffersSlidingSync === false) {
             logger.warn("MatrixClientPeg: the server offers no sliding sync; using regular sync");
         } else if (
@@ -341,6 +348,7 @@ class MatrixClientPegClass implements IMatrixClientPeg {
             );
             // Show the rooms this device saved last time while the first request is under way.
             opts.slidingSyncSnapshot = SlidingSyncManager.instance.snapshotLoader(this.matrixClient);
+            this.fallBackWhenSlidingSyncFails(this.matrixClient);
         } else if (!slidingSyncOn) {
             void SlidingSyncManager.instance.checkSupport(this.matrixClient);
         }
@@ -362,7 +370,9 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         const manager = SlidingSyncManager.instance;
         const known = manager.knownServerSupport(client);
         const asking = manager.serverOffersSlidingSync(client);
-        if (known === undefined) return asking;
+        // Without rooms saved from sliding sync to show, the server's answer now decides: one that cannot be asked, such
+        // as while offline, gets regular sync, which shows what it saved. Starting sync waits for the server anyway.
+        if (known === undefined || !(await manager.hasPrefetchedSnapshot(client))) return asking;
         void asking.then((offers) => {
             if (offers !== false || !manager.isActiveFor(client)) return;
             // Reloading only helps once the next start will not read the old answer again, or it would reload
@@ -375,6 +385,25 @@ class MatrixClientPegClass implements IMatrixClientPeg {
             PlatformPeg.get()?.reload();
         });
         return known;
+    }
+
+    /**
+     * Move to regular sync, by reloading, if sliding sync turns out to fail on the server though it is offered, such
+     * as an endpoint that is not there. The next start then uses regular sync for a while, so it does not try again
+     * at once; if that could not be kept, it stays rather than reload every time.
+     */
+    private fallBackWhenSlidingSyncFails(client: MatrixClient): void {
+        const manager = SlidingSyncManager.instance;
+        const stop = manager.onUnusable(() => {
+            stop();
+            if (!manager.isActiveFor(client)) return;
+            if (!manager.isUnusable(client)) {
+                logger.warn("MatrixClientPeg: sliding sync fails on this server, but that could not be kept");
+                return;
+            }
+            logger.warn("MatrixClientPeg: sliding sync fails on this server; reloading to use regular sync");
+            PlatformPeg.get()?.reload();
+        });
     }
 
     /** Prioritize the destination before the UI can select a room from the first sync response. */
