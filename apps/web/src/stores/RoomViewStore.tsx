@@ -83,6 +83,11 @@ interface State {
      */
     subscribingRoomId: string | null;
     /**
+     * Whether this view is the one sliding sync loaded the room for, rather than a later request: it goes on from the
+     * view made while the room loaded, such as the position restored then.
+     */
+    loadedForView: boolean;
+    /**
      * The event to scroll to when the room is first viewed
      */
     initialEventId: string | null;
@@ -129,6 +134,7 @@ const INITIAL_STATE: State = {
     roomId: null,
     threadId: null,
     subscribingRoomId: null,
+    loadedForView: false,
     initialEventId: null,
     initialEventPixelOffset: null,
     isInitialEventHighlighted: false,
@@ -476,6 +482,7 @@ export class RoomViewStore extends EventEmitter {
             ) {
                 this.setState({
                     subscribingRoomId: payload.room_id,
+                    loadedForView: false,
                     roomId: payload.room_id,
                     initialEventId: null,
                     initialEventPixelOffset: null,
@@ -500,8 +507,9 @@ export class RoomViewStore extends EventEmitter {
                 }
 
                 // Re-fire the payload: we won't re-process it because the prev room ID == payload room ID now
-                this.dis.dispatch({
+                this.dis.dispatch<ViewRoomPayload>({
                     ...payload,
+                    sliding_sync_loaded: true,
                 });
                 return;
             }
@@ -523,6 +531,7 @@ export class RoomViewStore extends EventEmitter {
                 viaServers: payload.via_servers ?? [],
                 wasContextSwitch: payload.context_switch ?? false,
                 viewingCall,
+                loadedForView: payload.sliding_sync_loaded === true,
             };
 
             // Allow being given an event to be replied to when switching rooms but sanity check its for this room
@@ -842,6 +851,13 @@ export class RoomViewStore extends EventEmitter {
     // Whether the current room is loading (true whilst resolving an alias)
     public isRoomLoading(): boolean {
         return this.state.roomLoading;
+    }
+
+    /**
+     * Whether the current view is the one sliding sync loaded the room for, rather than a later request to view it.
+     */
+    public isLoadedForView(): boolean {
+        return this.state.loadedForView;
     }
 
     // Any error that has occurred during loading
