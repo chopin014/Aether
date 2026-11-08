@@ -23,7 +23,11 @@ import { doesRoomHaveUnreadMessages, doesRoomOrThreadHaveUnreadMessages } from "
 import { EffectiveMembership, getEffectiveMembership, isKnockDenied } from "./utils/membership";
 import SettingsStore from "./settings/SettingsStore";
 import { getMarkedUnreadState } from "./utils/notifications";
-import { isLowerBoundCount } from "./sliding-sync/notification-counts/publishedCounts";
+import {
+    combineInexactCounts,
+    getInexactCount,
+    InexactCount,
+} from "./sliding-sync/notification-counts/publishedCounts";
 
 /**
  * Gets all pending events in a room that have a status of `EventStatus.NOT_SENT`
@@ -133,20 +137,27 @@ export function getUnreadNotificationCount(
 }
 
 /**
- * Whether the count {@link getUnreadNotificationCount} gives is only a lower bound: more could be unread than it
- * says, such as messages in history this device has not seen.
+ * How the count {@link getUnreadNotificationCount} gives is off, if it is not exact: only a lower bound when more
+ * could be unread than it says, such as messages in history this device has not seen; or approximate, as last seen.
  */
-export function isUnreadNotificationCountLowerBound(room: Room, includeThreads: boolean, threadId?: string): boolean {
-    if (isLowerBoundCount(room, threadId, includeThreads)) return true;
+export function getInexactUnreadNotificationCount(
+    room: Room,
+    includeThreads: boolean,
+    threadId?: string,
+): InexactCount | undefined {
+    const own = getInexactCount(room, threadId, includeThreads);
+    if (threadId) return own;
     // The old room adds its highlights, as above, and with them how far they can be trusted.
-    if (threadId) return false;
     const predecessor = room.findPredecessor(SettingsStore.getValue("feature_dynamic_room_predecessors"));
     const oldRoom = predecessor?.roomId ? room.client.getRoom(predecessor.roomId) : null;
-    if (!oldRoom) return false;
+    if (!oldRoom) return own;
     const oldHighlights = includeThreads
         ? oldRoom.getUnreadNotificationCount(NotificationCountType.Highlight)
         : oldRoom.getRoomUnreadNotificationCount(NotificationCountType.Highlight);
-    return oldHighlights > 0 && isLowerBoundCount(oldRoom, undefined, includeThreads);
+    return combineInexactCounts([
+        own,
+        oldHighlights > 0 ? getInexactCount(oldRoom, undefined, includeThreads) : undefined,
+    ]);
 }
 
 function setRoomNotifsStateMuted(cli: MatrixClient, roomId: string): Promise<any> {
@@ -273,14 +284,21 @@ function isMuteRule(rule: IPushRule): boolean {
  * @param threadId The thread to check the unread state of, or undefined to query the main thread
  * @param includeThreads If threadId is undefined, true to include threads other than the main thread, or
  *   false to exclude them. Ignored if threadId is specified.
- * @returns The level, the symbol or count shown, whether it is an invitation, and whether the count is only a
- *   lower bound: more could be unread than it says, as a badge shows "N+".
+ * @returns The level, the symbol or count shown, whether it is an invitation, and how the count can be off: only a
+ *   lower bound when more could be unread than it says, as a badge shows "N+", or approximate, as last seen.
  */
 export function determineUnreadState(
     room?: Room,
     threadId?: string,
     includeThreads?: boolean,
-): { level: NotificationLevel; symbol: string | null; count: number; invited: boolean; countIsLowerBound?: boolean } {
+): {
+    level: NotificationLevel;
+    symbol: string | null;
+    count: number;
+    invited: boolean;
+    countIsLowerBound?: boolean;
+    countIsApproximate?: boolean;
+} {
     if (!room) {
         return { symbol: null, count: 0, level: NotificationLevel.None, invited: false };
     }
@@ -320,8 +338,10 @@ export function determineUnreadState(
     const greyNotifs = getUnreadNotificationCount(room, NotificationCountType.Total, includeThreads ?? false, threadId);
 
     const trueCount = greyNotifs || redNotifs;
-    const countIsLowerBound =
-        trueCount > 0 && isUnreadNotificationCountLowerBound(room, includeThreads ?? false, threadId);
+    const inexact =
+        trueCount > 0 ? getInexactUnreadNotificationCount(room, includeThreads ?? false, threadId) : undefined;
+    const countIsLowerBound = inexact === InexactCount.LowerBound;
+    const countIsApproximate = inexact === InexactCount.Approximate;
     if (redNotifs > 0) {
         return {
             symbol: null,
@@ -329,6 +349,7 @@ export function determineUnreadState(
             level: NotificationLevel.Highlight,
             invited: false,
             countIsLowerBound,
+            countIsApproximate,
         };
     }
 
@@ -340,6 +361,7 @@ export function determineUnreadState(
             level: NotificationLevel.Notification,
             invited: false,
             countIsLowerBound,
+            countIsApproximate,
         };
     }
 

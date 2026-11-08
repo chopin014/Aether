@@ -14,6 +14,7 @@ import { arrayDiff } from "../../utils/arrays";
 import { type RoomNotificationState } from "./RoomNotificationState";
 import { NotificationState, NotificationStateEvents } from "./NotificationState";
 import { RoomNotificationStateStore } from "./RoomNotificationStateStore";
+import { CountCertaintySum } from "./CountCertaintySum";
 
 export class SpaceNotificationState extends NotificationState {
     public rooms: Room[] = []; // exposed only for tests
@@ -68,17 +69,18 @@ export class SpaceNotificationState extends NotificationState {
             const snapshot = this.snapshot();
 
             this._count = 0;
-            this._countIsLowerBound = false;
             this._level = NotificationLevel.None;
+            const certainty = new CountCertaintySum();
             for (const state of Object.values(this.states)) {
                 // We ignore unreads in LowPriority rooms, see https://github.com/vector-im/element-web/issues/16836
                 if (state.isLowPriorityActivity) continue;
 
                 this._count += state.count;
-                // A sum with one lower bound in it is one too.
-                if (state.count > 0 && state.countIsLowerBound) this._countIsLowerBound = true;
+                certainty.add(state);
                 this._level = Math.max(this.level, state.level);
             }
+            this._countIsLowerBound = certainty.countIsLowerBound;
+            this._countIsApproximate = certainty.countIsApproximate;
 
             // finally, publish an update if needed
             this.emitIfUpdated(snapshot);

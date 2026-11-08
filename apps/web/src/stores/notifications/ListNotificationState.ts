@@ -12,6 +12,7 @@ import { NotificationLevel } from "./NotificationLevel";
 import { arrayDiff } from "../../utils/arrays";
 import { type RoomNotificationState } from "./RoomNotificationState";
 import { NotificationState, NotificationStateEvents } from "./NotificationState";
+import { CountCertaintySum } from "./CountCertaintySum";
 
 export type FetchRoomFn = (room: Room) => RoomNotificationState;
 
@@ -77,7 +78,7 @@ export class ListNotificationState extends NotificationState {
     private calculateTotalState(): void {
         const snapshot = this.snapshot();
 
-        this._countIsLowerBound = false;
+        const certainty = new CountCertaintySum();
         if (this.byTileCount) {
             this._level = NotificationLevel.Highlight;
             this._count = this.rooms.length;
@@ -86,11 +87,12 @@ export class ListNotificationState extends NotificationState {
             this._level = NotificationLevel.None;
             for (const state of Object.values(this.states)) {
                 this._count += state.count;
-                // A sum with one lower bound in it is one too.
-                if (state.count > 0 && state.countIsLowerBound) this._countIsLowerBound = true;
+                certainty.add(state);
                 this._level = Math.max(this.level, state.level);
             }
         }
+        this._countIsLowerBound = certainty.countIsLowerBound;
+        this._countIsApproximate = certainty.countIsApproximate;
 
         // finally, publish an update if needed
         this.emitIfUpdated(snapshot);

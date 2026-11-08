@@ -17,6 +17,8 @@ export interface INotificationStateSnapshotParams {
     count: number;
     /** Whether the count is only a lower bound: more could be unread than it says. */
     countIsLowerBound: boolean;
+    /** Whether the count is approximate, as last seen: it could be too high, as well as too low. */
+    countIsApproximate: boolean;
     level: NotificationLevel;
     muted: boolean;
     knocked: boolean;
@@ -39,6 +41,7 @@ export abstract class NotificationState
     protected _symbol: string | null = null;
     protected _count = 0;
     protected _countIsLowerBound = false;
+    protected _countIsApproximate = false;
     protected _level: NotificationLevel = NotificationLevel.None;
     protected _muted = false;
     protected _knocked = false;
@@ -69,6 +72,15 @@ export abstract class NotificationState
      */
     public get countIsLowerBound(): boolean {
         return this._countIsLowerBound;
+    }
+
+    /**
+     * Whether {@link count} is approximate, as last seen: it could be too high, as well as too low, such as when a
+     * message it counts could have been redacted in history this device has not seen. Badges show it as it is, but
+     * a sum with it in is no lower bound.
+     */
+    public get countIsApproximate(): boolean {
+        return this._countIsApproximate;
     }
 
     public get level(): NotificationLevel {
@@ -148,6 +160,7 @@ export class NotificationStateSnapshot {
     private readonly symbol: string | null;
     private readonly count: number;
     private readonly countIsLowerBound: boolean;
+    private readonly countIsApproximate: boolean;
     private readonly level: NotificationLevel;
     private readonly muted: boolean;
     private readonly knocked: boolean;
@@ -157,6 +170,7 @@ export class NotificationStateSnapshot {
         this.symbol = state.symbol;
         this.count = state.count;
         this.countIsLowerBound = state.countIsLowerBound;
+        this.countIsApproximate = state.countIsApproximate;
         this.level = state.level;
         this.muted = state.muted;
         this.knocked = state.knocked;
@@ -176,6 +190,7 @@ export class NotificationStateSnapshot {
         return (
             this.count !== other.count ||
             this.countIsLowerBound !== other.countIsLowerBound ||
+            this.countIsApproximate !== other.countIsApproximate ||
             this.symbol !== other.symbol ||
             this.level !== other.level ||
             this.muted !== other.muted ||

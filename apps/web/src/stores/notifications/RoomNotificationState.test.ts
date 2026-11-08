@@ -29,7 +29,7 @@ import { NotificationStateEvents } from "./NotificationState";
 import { NotificationLevel } from "./NotificationLevel";
 import SettingsStore from "../../settings/SettingsStore";
 import * as UnreadModule from "../../Unread";
-import { setLowerBoundCounts } from "../../sliding-sync/notification-counts/publishedCounts";
+import { InexactCount, setInexactCounts } from "../../sliding-sync/notification-counts/publishedCounts";
 
 describe("RoomNotificationState", () => {
     let room: Room;
@@ -215,7 +215,7 @@ describe("RoomNotificationState", () => {
         const listener = vi.fn();
         roomNotifState.addListener(NotificationStateEvents.Update, listener);
 
-        setLowerBoundCounts(room, { main: true, threads: new Set() });
+        setInexactCounts(room, { main: InexactCount.LowerBound, threads: new Map() });
         room.emit(RoomEvent.UnreadNotifications, { total: 5, highlight: 0 });
 
         expect(roomNotifState.count).toBe(5);

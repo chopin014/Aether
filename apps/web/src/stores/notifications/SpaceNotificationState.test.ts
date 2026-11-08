@@ -14,7 +14,7 @@ import { stubClient } from "test-utils";
 import { SpaceNotificationState } from "./SpaceNotificationState";
 import { RoomNotificationState } from "./RoomNotificationState";
 import { RoomNotificationStateStore } from "./RoomNotificationStateStore";
-import { setLowerBoundCounts } from "../../sliding-sync/notification-counts/publishedCounts";
+import { InexactCount, setInexactCounts } from "../../sliding-sync/notification-counts/publishedCounts";
 
 describe("SpaceNotificationState", () => {
     afterEach(() => {
@@ -45,12 +45,19 @@ describe("SpaceNotificationState", () => {
         expect(space.count).toBe(5);
         expect(space.countIsLowerBound).toBe(false);
 
-        setLowerBoundCounts(second, { main: true, threads: new Set() });
+        setInexactCounts(second, { main: InexactCount.LowerBound, threads: new Map() });
         second.emit(RoomEvent.UnreadNotifications, { total: 3, highlight: 0 });
         vi.advanceTimersByTime(200);
 
         expect(space.count).toBe(5);
         expect(space.countIsLowerBound).toBe(true);
+
+        // A room whose count could be too high makes the sum no minimum.
+        setInexactCounts(first, { main: InexactCount.Approximate, threads: new Map() });
+        first.emit(RoomEvent.UnreadNotifications, { total: 2, highlight: 0 });
+        vi.advanceTimersByTime(200);
+
+        expect(space).toMatchObject({ count: 5, countIsLowerBound: false, countIsApproximate: true });
         space.destroy();
     });
 });

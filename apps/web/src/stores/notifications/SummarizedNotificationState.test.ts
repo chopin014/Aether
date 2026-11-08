@@ -13,11 +13,12 @@ import { SummarizedNotificationState } from "./SummarizedNotificationState";
 import { StaticNotificationState } from "./StaticNotificationState";
 import { NotificationLevel } from "./NotificationLevel";
 
-/** A count that is only a lower bound. */
-class LowerBoundState extends StaticNotificationState {
-    public constructor(count: number) {
+/** A count that is only a lower bound, or approximate. */
+class InexactState extends StaticNotificationState {
+    public constructor(count: number, approximate = false) {
         super(null, count, NotificationLevel.Notification);
-        this._countIsLowerBound = true;
+        this._countIsLowerBound = !approximate;
+        this._countIsApproximate = approximate;
     }
 }
 
@@ -45,10 +46,22 @@ describe("SummarizedNotificationState", () => {
         state.add(StaticNotificationState.forCount(12, NotificationLevel.Notification));
         expect(state.countIsLowerBound).toBe(false);
 
-        state.add(new LowerBoundState(3));
+        state.add(new InexactState(3));
 
         expect(state.count).toBe(15);
         expect(state.countIsLowerBound).toBe(true);
+    });
+
+    it("sums to an approximate count, no lower bound, when a count in it is approximate", () => {
+        const state = new SummarizedNotificationState();
+        state.add(new InexactState(2));
+        state.add(new InexactState(5, true));
+        // Added after, a lower bound does not make it one again.
+        state.add(new InexactState(1));
+
+        expect(state.count).toBe(8);
+        expect(state.countIsLowerBound).toBe(false);
+        expect(state.countIsApproximate).toBe(true);
     });
 
     it("still adopts an explicit symbol below the unsent level", () => {

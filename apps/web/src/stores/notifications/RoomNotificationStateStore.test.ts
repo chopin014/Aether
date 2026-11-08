@@ -19,7 +19,7 @@ import { DefaultTagID } from "../room-list-v3/skip-list/tag";
 import * as RoomNotifs from "../../RoomNotifs";
 import SettingsStore from "../../settings/SettingsStore";
 import { MatrixDispatcher } from "../../dispatcher/dispatcher";
-import { setLowerBoundCounts } from "../../sliding-sync/notification-counts/publishedCounts";
+import { InexactCount, setInexactCounts } from "../../sliding-sync/notification-counts/publishedCounts";
 
 describe("RoomNotificationStateStore", function () {
     let store: RoomNotificationStateStore;
@@ -93,14 +93,14 @@ describe("RoomNotificationStateStore", function () {
             expect(store.globalState.countIsLowerBound).toBe(false);
             vi.mocked(store.emit).mockClear();
 
-            setLowerBoundCounts(room, { main: true, threads: new Set() });
+            setInexactCounts(room, { main: InexactCount.LowerBound, threads: new Map() });
             room.emit(RoomEvent.UnreadNotifications, {});
             vi.advanceTimersByTime(100);
             expect(store.emit).toHaveBeenCalledWith(UPDATE_STATUS_INDICATOR, expect.anything(), "SYNCING");
             expect(store.globalState).toMatchObject({ count: 3, countIsLowerBound: true });
             vi.mocked(store.emit).mockClear();
 
-            setLowerBoundCounts(room, undefined);
+            setInexactCounts(room, undefined);
             room.emit(RoomEvent.UnreadNotifications, {});
             vi.advanceTimersByTime(100);
             expect(store.emit).toHaveBeenCalledWith(UPDATE_STATUS_INDICATOR, expect.anything(), "SYNCING");

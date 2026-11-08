@@ -40,9 +40,10 @@ import {
 } from "./RoomCountLedger";
 import {
     announceCountsChanged,
-    getLowerBoundCounts,
-    type LowerBoundScopes,
-    setLowerBoundCounts,
+    getInexactCounts,
+    InexactCount,
+    type InexactScopes,
+    setInexactCounts,
 } from "./publishedCounts";
 
 /** An encrypted event that has not been decrypted: what it adds is not known. */
@@ -350,7 +351,7 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         this.replaying.delete(room.roomId);
         this.restoredFromSaved.delete(room.roomId);
         this.dirty.delete(room.roomId);
-        setLowerBoundCounts(room, undefined);
+        setInexactCounts(room, undefined);
         room.setNotificationCounts({}, new Map());
         this.announce(room);
     };
@@ -426,16 +427,17 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         for (const [threadId, thread] of counts.threads) {
             threads.set(threadId, { total: thread.total, highlight: thread.highlight });
         }
-        const before = getLowerBoundCounts(room);
-        const after = lowerBoundScopes(counts);
-        setLowerBoundCounts(room, after);
+        const before = getInexactCounts(room);
+        const after = inexactScopes(counts);
+        setInexactCounts(room, after);
         room.setNotificationCounts({ total: counts.main.total, highlight: counts.main.highlight }, threads);
-        const mainFlagChanged = !!before?.main !== after.main;
-        const threadFlagsChanged = [...new Set([...(before?.threads ?? []), ...after.threads])].filter(
-            (threadId) => !!before?.threads.has(threadId) !== after.threads.has(threadId),
+        const mainFlagChanged = before?.main !== after.main;
+        const threadFlagsChanged = [...new Set([...(before?.threads.keys() ?? []), ...after.threads.keys()])].filter(
+            (threadId) => before?.threads.get(threadId) !== after.threads.get(threadId),
         );
-        // The room announces counts that change. One that only becomes, or stops being, a lower bound is announced
-        // the same way, so its badge gains or loses its "+"; a badge shows that only with a count above zero.
+        // The room announces counts that change. One whose numbers stay the same while how far they can be trusted
+        // changes is announced the same way, so its badge gains or loses its "+"; a badge shows that only with a
+        // count above zero.
         if (hasPositiveCount(counts)) {
             if (mainFlagChanged) {
                 room.emit(RoomEvent.UnreadNotifications, {
@@ -538,20 +540,30 @@ export class NotificationCountEngine implements RoomHistoryObserver {
 }
 
 /**
- * Whether a count is shown as at least its value: when it counts only what is certainly unread, and more could be.
- * A count as last seen is shown as it is: an event it counts could have been redacted since, so it is no minimum.
+ * How a count is off, if it is not exact. One that counts only what is certainly unread, while more could be, is a
+ * lower bound, shown as "N+". One as last seen is approximate, shown as it is: an event it counts could have been
+ * redacted since, so it is no minimum.
  */
-function isLowerBound(counts: ScopeCounts): boolean {
-    return counts.confidence === CountConfidence.LowerBound || counts.confidence === CountConfidence.Unknown;
+function inexactness(counts: ScopeCounts): InexactCount | undefined {
+    switch (counts.confidence) {
+        case CountConfidence.LowerBound:
+        case CountConfidence.Unknown:
+            return InexactCount.LowerBound;
+        case CountConfidence.LastKnown:
+            return InexactCount.Approximate;
+        default:
+            return undefined;
+    }
 }
 
-/** Which of a room's counts badges show as lower bounds. */
-function lowerBoundScopes(counts: RoomCounts): LowerBoundScopes {
-    const threads = new Set<string>();
+/** Which of a room's counts are not exact, and how. */
+function inexactScopes(counts: RoomCounts): InexactScopes {
+    const threads = new Map<string, InexactCount>();
     for (const [threadId, thread] of counts.threads) {
-        if (isLowerBound(thread)) threads.add(threadId);
+        const kind = inexactness(thread);
+        if (kind) threads.set(threadId, kind);
     }
-    return { main: isLowerBound(counts.main), threads };
+    return { main: inexactness(counts.main), threads };
 }
 
 /** Whether a room's counts are the same numbers as before, which of them are lower bounds aside. */

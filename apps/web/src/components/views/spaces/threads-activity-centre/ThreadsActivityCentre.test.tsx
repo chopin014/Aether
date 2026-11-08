@@ -23,7 +23,8 @@ import MatrixClientContext from "../../../../contexts/MatrixClientContext";
 import DMRoomMap from "../../../../utils/DMRoomMap";
 import {
     announceCountsChanged,
-    setLowerBoundCounts,
+    InexactCount,
+    setInexactCounts,
 } from "../../../../sliding-sync/notification-counts/publishedCounts";
 
 describe("ThreadsActivityCentre", () => {
@@ -281,7 +282,7 @@ describe("ThreadsActivityCentre", () => {
     it("should show a count that is only a lower bound as at least it, and keep up while open", async () => {
         cli.getVisibleRooms = vi.fn().mockReturnValue([roomWithManyNotifs]);
         const threadId = roomWithManyNotifs.getThreads()[0].id;
-        setLowerBoundCounts(roomWithManyNotifs, { main: false, threads: new Set([threadId]) });
+        setInexactCounts(roomWithManyNotifs, { threads: new Map([[threadId, InexactCount.LowerBound]]) });
         try {
             renderTAC();
             await userEvent.click(getTACButton());
@@ -293,12 +294,12 @@ describe("ThreadsActivityCentre", () => {
 
             // History fills the gap between syncs: the same count, now exact.
             act(() => {
-                setLowerBoundCounts(roomWithManyNotifs, undefined);
+                setInexactCounts(roomWithManyNotifs, undefined);
                 announceCountsChanged(roomWithManyNotifs);
             });
             await waitFor(() => expect(getRowDecoration()).toHaveTextContent(/^3$/), { timeout: 2000 });
         } finally {
-            setLowerBoundCounts(roomWithManyNotifs, undefined);
+            setInexactCounts(roomWithManyNotifs, undefined);
         }
     });
 

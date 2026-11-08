@@ -25,8 +25,8 @@ import { useSettingValue } from "../../../../hooks/useSettings";
 import { useMatrixClientContext } from "../../../../contexts/MatrixClientContext";
 import { useEventEmitter } from "../../../../hooks/useEventEmitter";
 import { isRoomVisible } from "../../../../stores/room-list-v3/isRoomVisible";
-import { getRoomNotifsState, isUnreadNotificationCountLowerBound, RoomNotifState } from "../../../../RoomNotifs";
-import { onCountsChanged } from "../../../../sliding-sync/notification-counts/publishedCounts";
+import { getInexactUnreadNotificationCount, getRoomNotifsState, RoomNotifState } from "../../../../RoomNotifs";
+import { InexactCount, onCountsChanged } from "../../../../sliding-sync/notification-counts/publishedCounts";
 
 const MIN_UPDATE_INTERVAL_MS = 500;
 
@@ -269,7 +269,7 @@ function evaluateThreadUnread(client: MatrixClient, room: Room, thread: Thread):
     return {
         notificationLevel,
         notificationCount: total,
-        countIsLowerBound: total > 0 && isUnreadNotificationCountLowerBound(room, false, thread.id),
+        countIsLowerBound: getInexactUnreadNotificationCount(room, false, thread.id) === InexactCount.LowerBound,
         hasServerNotifs,
         isRelevantToMe: thread.hasCurrentUserParticipated || highlight > 0,
     };

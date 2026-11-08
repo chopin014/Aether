@@ -44,6 +44,7 @@ import PosthogTrackers from "../../PosthogTrackers";
 import { CallStore, CallStoreEvent } from "../../stores/CallStore";
 import { type Call, CallEvent } from "../../models/Call";
 import throttle from "lodash/throttle";
+import { CountCertaintySum } from "../../stores/notifications/CountCertaintySum";
 
 /**
  * The kind of room the section with the given tag accepts. A room is in the People section because
@@ -279,7 +280,7 @@ export class RoomListSectionHeaderViewModel
         let hasUnreadCount = false;
         let invited = false;
         let count = 0;
-        let countIsLowerBound = false;
+        const certainty = new CountCertaintySum();
         let callType: "video" | "voice" | undefined = undefined;
 
         for (const state of this.roomNotificationStates) {
@@ -292,8 +293,7 @@ export class RoomListSectionHeaderViewModel
             // Mention, notification, Mark as unread are aggregated
             if (state.isMention || state.isNotification) {
                 count += state.count || 1;
-                // A sum with one lower bound in it is one too.
-                if (state.count > 0 && state.countIsLowerBound) countIsLowerBound = true;
+                certainty.add(state);
             }
             // An invitation reports neither a mention nor a notification, so count it as one room to
             // make a collapsed section show how many invitations it holds
@@ -318,7 +318,7 @@ export class RoomListSectionHeaderViewModel
             isNotification: isNotification || invited,
             hasUnreadCount,
             count,
-            countIsLowerBound,
+            countIsLowerBound: certainty.countIsLowerBound,
             callType,
             // The activity dot, the muted bell and the invitation icon are intentionally not
             // aggregated onto the section header, which reports the invitations as a count instead

@@ -44,7 +44,7 @@ import { createClientWithCreds } from "../../utils/createMatrixClient";
 import { type CountRecoveryLimits } from "./CountRecovery";
 import { NotificationCountEngine } from "./NotificationCountEngine";
 import { CountConfidence, RoomCountLedger, type SavedLedger } from "./RoomCountLedger";
-import { getLowerBoundCounts, isLowerBoundCount, onCountsChanged } from "./publishedCounts";
+import { getInexactCount, getInexactCounts, InexactCount, onCountsChanged } from "./publishedCounts";
 import { RoomNotificationState } from "../../stores/notifications/RoomNotificationState";
 
 const roomId = "!room:example.org";
@@ -207,7 +207,7 @@ describe("NotificationCountEngine", () => {
 
         expect(counts()).toEqual({ total: 2, highlight: 1 });
         expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Exact);
-        expect(getLowerBoundCounts(client.getRoom(roomId)!)).toBeUndefined();
+        expect(getInexactCounts(client.getRoom(roomId)!)).toBeUndefined();
     });
 
     it("publishes a response's counts only once its receipts are applied too", async () => {
@@ -432,7 +432,7 @@ describe("NotificationCountEngine", () => {
         await respond({ initial: true, required_state: requiredState, timeline: [message("$a")] }, [receipt("$a")]);
         await respond({ limited: true, prev_batch: "gap", timeline: [message("$d")] });
         const room = client.getRoom(roomId)!;
-        expect(isLowerBoundCount(room)).toBe(true);
+        expect(getInexactCount(room)).toBe(InexactCount.LowerBound);
         const announced = vi.fn();
         room.on(RoomEvent.UnreadNotifications, announced);
 
@@ -447,12 +447,12 @@ describe("NotificationCountEngine", () => {
 
         expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.Exact);
         expect(counts()).toEqual({ total: 1, highlight: 0 });
-        expect(isLowerBoundCount(room)).toBe(false);
+        expect(getInexactCount(room)).toBeUndefined();
         expect(announced).toHaveBeenCalledTimes(1);
         expect(announced).toHaveBeenCalledWith({ total: 1, highlight: 0 });
     });
 
-    it("does not mark a count as last seen across a gap as a lower bound, as what it counts may be redacted", async () => {
+    it("marks a count as last seen across a gap as approximate, not a lower bound, as it may be too high", async () => {
         const { client, respond, counts, engine } = await setup();
         await respond({ initial: true, required_state: requiredState, timeline: [message("$r"), message("$a")] }, [
             receipt("$r"),
@@ -462,7 +462,30 @@ describe("NotificationCountEngine", () => {
 
         expect(counts()).toEqual({ total: 2, highlight: 0 });
         expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.LastKnown);
-        expect(isLowerBoundCount(client.getRoom(roomId)!)).toBe(false);
+        expect(getInexactCount(client.getRoom(roomId)!)).toBe(InexactCount.Approximate);
+    });
+
+    it("does not take a room's count with an approximate part as a lower bound", async () => {
+        const { client, respond, engine } = await setup();
+        await respond({ initial: true, required_state: requiredState, timeline: [message("$r"), message("$a")] }, [
+            receipt("$r"),
+        ]);
+
+        // After a gap, a reply in a thread whose root, $a, was seen before it.
+        await respond({ limited: true, prev_batch: "gap", timeline: [reply("$t1", "$a")] });
+
+        const room = client.getRoom(roomId)!;
+        expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.LastKnown);
+        expect(engine.getCounts(roomId)?.threads.get("$a")?.confidence).toBe(CountConfidence.LowerBound);
+        expect(getInexactCount(room)).toBe(InexactCount.Approximate);
+        expect(getInexactCount(room, "$a")).toBe(InexactCount.LowerBound);
+        // Together: the main timeline's count could be too high, so the sum is no minimum.
+        expect(getInexactCount(room, undefined, true)).toBe(InexactCount.Approximate);
+        // The room sync made keeps its pending events in its timeline, which the state asks about.
+        vi.spyOn(room, "getPendingEvents").mockReturnValue([]);
+        const state = new RoomNotificationState(room, true);
+        stops.push(() => state.destroy());
+        expect(state).toMatchObject({ count: 2, countIsLowerBound: false, countIsApproximate: true });
     });
 
     it("announces the rooms whose counts change, and not those whose counts stay the same", async () => {
@@ -550,12 +573,12 @@ describe("NotificationCountEngine", () => {
 
         const room = client.getRoom(roomId)!;
         expect(room.getThreadUnreadNotificationCount("$root", NotificationCountType.Total)).toBe(1);
-        expect(isLowerBoundCount(room, "$root")).toBe(true);
-        expect(isLowerBoundCount(room, undefined, true)).toBe(true);
+        expect(getInexactCount(room, "$root")).toBe(InexactCount.LowerBound);
+        expect(getInexactCount(room, undefined, true)).toBe(InexactCount.LowerBound);
 
         room.updateMyMembership("leave");
 
-        expect(getLowerBoundCounts(room)).toBeUndefined();
+        expect(getInexactCounts(room)).toBeUndefined();
     });
 
     it("counts thread replies in their thread", async () => {
