@@ -10,10 +10,15 @@ Please see LICENSE in the repository root for full details.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
     ClientEvent,
+    ContentHelpers,
     EventTimeline,
     EventTimelineSet,
     EventType,
+    M_BEACON,
+    M_BEACON_INFO,
     MatrixError,
+    MatrixEvent,
+    Room,
     RoomEvent,
     SyncState,
     type MatrixClient,
@@ -1299,5 +1304,117 @@ describe("sliding sync restoring a saved snapshot", () => {
         responses[0]({});
         await vi.waitFor(() => expect(states).toEqual([SyncState.Prepared, SyncState.Syncing]));
         api.stop();
+    });
+});
+
+describe("polls under sliding sync", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    const bob = "@bob:example.org";
+    const pollStart = (id: string, ts: number): NonNullable<MSC3575RoomData["timeline"]>[number] => ({
+        type: "org.matrix.msc3381.poll.start",
+        sender: userId,
+        room_id: roomId,
+        event_id: id,
+        origin_server_ts: ts,
+        content: {
+            "org.matrix.msc3381.poll.start": {
+                question: { "org.matrix.msc1767.text": "Lunch?" },
+                kind: "org.matrix.msc3381.poll.disclosed",
+                max_selections: 1,
+                answers: [
+                    { "id": "yes", "org.matrix.msc1767.text": "Yes" },
+                    { "id": "no", "org.matrix.msc1767.text": "No" },
+                ],
+            },
+            "org.matrix.msc1767.text": "Lunch?",
+        },
+    });
+    const vote = (id: string, poll: string, answer: string): NonNullable<MSC3575RoomData["timeline"]>[number] => ({
+        type: "org.matrix.msc3381.poll.response",
+        sender: bob,
+        room_id: roomId,
+        event_id: id,
+        origin_server_ts: 10,
+        content: {
+            "m.relates_to": { rel_type: "m.reference", event_id: poll },
+            "org.matrix.msc3381.poll.response": { answers: [answer] },
+        },
+    });
+
+    async function setup(timeline: NonNullable<MSC3575RoomData["timeline"]>) {
+        const client = makeClient();
+        vi.spyOn(client, "relations").mockResolvedValue({ events: [], nextBatch: null, originalEvent: null });
+        const sync = new SlidingSync("https://example.org", new Map(), {}, client, 1000);
+        new SlidingSyncSdk(sync, client, { lazyLoadMembers: true }, { logger });
+        const receive = async (data: Partial<MSC3575RoomData>): Promise<void> => {
+            await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, {
+                required_state: [],
+                timeline: [],
+                ...data,
+                name: "Room",
+            });
+        };
+        await receive({ initial: true, required_state: requiredState, timeline });
+        return { client, room: client.getRoom(roomId)!, receive };
+    }
+
+    it("counts a vote that arrives while the poll is shown", async () => {
+        // As /sync v2 does, a poll's start and its responses are gathered from the timeline into the room's polls.
+        const { room, receive } = await setup([pollStart("$poll", 1)]);
+        const poll = room.polls.get("$poll");
+        expect(poll).toBeDefined();
+        const responses = await poll!.getResponses();
+        expect(responses.getRelations()).toHaveLength(0);
+
+        await receive({ timeline: [vote("$vote", "$poll", "yes")], num_live: 1 });
+
+        expect(responses.getRelations().map((event) => event.getId())).toEqual(["$vote"]);
+    });
+
+    it("finds a poll in older history the server sends for a room it already showed", async () => {
+        const { room, receive } = await setup([message("$latest", 5)]);
+        expect(room.polls.size).toBe(0);
+
+        // A larger timeline limit brings older events, before the one already shown.
+        await receive({ timeline: [pollStart("$older", 1), message("$latest", 5)], expanded_timeline: true });
+
+        expect(room.polls.has("$older")).toBe(true);
+    });
+});
+
+describe("live locations", () => {
+    it("reads a location update that follows another event in the same batch", async () => {
+        // Sliding sync now hands each timeline to the beacon processing, as /sync v2 does, and a timeline mixes
+        // locations with everything else.
+        const client = makeClient();
+        const room = new Room(roomId, client, userId);
+        const now = Date.now();
+        room.currentState.setStateEvents([
+            new MatrixEvent({
+                type: M_BEACON_INFO.name,
+                state_key: userId,
+                sender: userId,
+                room_id: roomId,
+                event_id: "$share",
+                origin_server_ts: now,
+                content: ContentHelpers.makeBeaconInfoContent(3_600_000, true, "Walk", undefined, now),
+            }),
+        ]);
+        const [beacon] = room.currentState.beacons.values();
+        expect(beacon).toBeDefined();
+
+        const chat = new MatrixEvent({ ...message("$chat", now), room_id: roomId });
+        const location = new MatrixEvent({
+            type: M_BEACON.name,
+            sender: userId,
+            room_id: roomId,
+            event_id: "$location",
+            origin_server_ts: now,
+            content: ContentHelpers.makeBeaconContent("geo:51.5,-0.1", now, "$share"),
+        });
+        await room.currentState.processBeaconEvents([chat, location], client);
+
+        expect(beacon.latestLocationEvent?.getId()).toBe("$location");
     });
 });
