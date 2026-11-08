@@ -9,6 +9,7 @@ Please see LICENSE files in the repository root for full details.
 import { type Page, expect, type TestInfo } from "@playwright/test";
 
 import { type Credentials, type HomeserverInstance } from "../../plugins/homeserver";
+import { isSyncRequest } from "../utils";
 
 /** Visit the login page, choose to log in with "OAuth test", register a new account, and redirect back to Element
  */
@@ -68,7 +69,7 @@ export async function doTokenRegistration(
  * Any further requests to /sync with the same access token are blocked.
  */
 export async function interceptRequestsWithSoftLogout(page: Page, user: Credentials): Promise<void> {
-    await page.route("**/_matrix/client/**/sync*", async (route, req) => {
+    await page.route(isSyncRequest, async (route, req) => {
         const accessToken = await req.headerValue("Authorization");
 
         // now, if the access token on this request matches the expired one, block it

@@ -6,13 +6,14 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import { expect, test as base } from "../../element-web-test";
+import { isSyncRequest } from "../utils";
 
 const test = base.extend({
     // Same as the base `user` fixture, but delays the first `/sync` response so we can inspect
     // the app's state while the client is still waiting for it to complete.
     user: async ({ pageWithCredentials: page, credentials }, use) => {
         let delayedOnce = false;
-        await page.route("**/_matrix/client/**/sync*", async (route) => {
+        await page.route(isSyncRequest, async (route) => {
             if (!delayedOnce) {
                 delayedOnce = true;
                 await new Promise((resolve) => setTimeout(resolve, 4000));
