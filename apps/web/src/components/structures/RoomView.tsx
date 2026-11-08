@@ -450,6 +450,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     private settingWatchers: string[] = [];
 
     private unmounted = false;
+    // Counts room view store updates, so one that waited on the server can tell that a newer one came meanwhile.
+    private storeUpdates = 0;
     private cancelMemberPreparation?: () => void;
     private permalinkCreators: Record<string, RoomPermalinkCreator> = {};
 
@@ -655,6 +657,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         if (this.unmounted) {
             return;
         }
+        const update = ++this.storeUpdates;
 
         const roomLoadError = this.roomViewStore.getRoomLoadError() ?? undefined;
         if (!initial && !roomLoadError && this.state.roomId !== this.roomViewStore.getRoomId()) {
@@ -729,7 +732,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             // becomes available to fetch a whole thread
             if (!initialEvent && this.context.client && roomId) {
                 initialEvent = (await fetchInitialEvent(this.context.client, roomId, initialEventId)) ?? undefined;
-                if (this.unmounted) return;
+                // A newer view, such as of the latest messages, came while the event was fetched: it stands.
+                if (this.unmounted || update !== this.storeUpdates) return;
             }
 
             // If we have an initial event, we want to reset the event pixel offset to ensure it ends up visible

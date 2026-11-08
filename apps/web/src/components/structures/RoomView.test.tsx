@@ -421,6 +421,45 @@ describe("RoomView", () => {
         expect(asFragment()).toMatchSnapshot();
     });
 
+    it("keeps a newer view when an older permalink's event arrives after it", async () => {
+        // The event of a permalink the client does not have is fetched first; someone may ask for the room's latest
+        // messages meanwhile.
+        const ref = createRef<RoomView>();
+        await mountRoomView(ref);
+        const fetched = Promise.withResolvers<Awaited<ReturnType<MatrixClient["fetchRoomEvent"]>>>();
+        cli.fetchRoomEvent = vi.fn().mockReturnValue(fetched.promise);
+
+        await act(async () => {
+            defaultDispatcher.dispatch<ViewRoomPayload>(
+                { action: Action.ViewRoom, room_id: room.roomId, event_id: "$elsewhere", metricsTrigger: undefined },
+                true,
+            );
+            await flushPromises();
+        });
+        await waitFor(() => expect(cli.fetchRoomEvent).toHaveBeenCalledWith(room.roomId, "$elsewhere"));
+        await act(async () => {
+            defaultDispatcher.dispatch<ViewRoomPayload>(
+                { action: Action.ViewRoom, room_id: room.roomId, metricsTrigger: undefined },
+                true,
+            );
+            await flushPromises();
+        });
+        expect(ref.current?.state.initialEventId).toBeUndefined();
+
+        await act(async () => {
+            fetched.resolve({
+                event_id: "$elsewhere",
+                room_id: room.roomId,
+                type: "m.room.message",
+                sender: "@other:example.org",
+                origin_server_ts: 1,
+                content: { body: "Old", msgtype: "m.text" },
+            });
+            await flushPromises();
+        });
+        expect(ref.current?.state.initialEventId).toBeUndefined();
+    });
+
     it("shares native sliding-sync roster hydration with the member list instead of importing cached members", async () => {
         await mountRoomView();
         const getValue = SettingsStore.getValue.bind(SettingsStore);
