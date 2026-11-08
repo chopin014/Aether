@@ -418,22 +418,31 @@ describe("sliding sync requests", () => {
         });
 
         it("applies nothing more once stopped between slices", async () => {
-            const { sync, nextRequest } = setup();
+            // Run after the rooms, so it must not run for a stopped connection.
+            const afterRooms = {
+                name: () => "org.example.after",
+                when: () => ExtensionState.PostProcess,
+                onRequest: async () => ({}),
+                onResponse: vi.fn(async () => {}),
+                onResponseComplete: vi.fn(async () => {}),
+            };
+            const { sync, nextRequest } = setup(afterRooms);
             const applied = applyTakingTime(sync);
-            const onLifecycle = vi.fn();
-            sync.on(SlidingSyncEvent.Lifecycle, onLifecycle);
-            const onApplied = vi.fn();
-            sync.on(SlidingSyncEvent.Applied, onApplied);
+            // Stopping removes the lifecycle listeners, so what is emitted is watched instead.
+            const emit = vi.spyOn(sync, "emit");
             const yieldToInput = vi.fn(async () => sync.stop());
             vi.stubGlobal("scheduler", { yield: yieldToInput });
 
-            (await nextRequest(1)).reply({ pos: "1", rooms });
+            (await nextRequest(1)).reply({ pos: "1", rooms, extensions: { "org.example.after": {} } });
 
             await vi.waitFor(() => expect(yieldToInput).toHaveBeenCalled());
             await new Promise((resolve) => setTimeout(resolve, 0));
             expect(applied).toEqual(Object.keys(rooms).slice(0, 2));
-            expect(onLifecycle).not.toHaveBeenCalledWith(SlidingSyncState.Complete, expect.anything());
-            expect(onApplied).not.toHaveBeenCalled();
+            const emitted = emit.mock.calls.map(([event, state]) => [event, state]);
+            expect(emitted).not.toContainEqual([SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete]);
+            expect(emitted.map(([event]) => event)).not.toContain(SlidingSyncEvent.Applied);
+            expect(afterRooms.onResponse).not.toHaveBeenCalled();
+            expect(afterRooms.onResponseComplete).not.toHaveBeenCalled();
         });
     });
 
