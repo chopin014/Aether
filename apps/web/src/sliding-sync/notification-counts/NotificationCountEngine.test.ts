@@ -678,6 +678,77 @@ describe("NotificationCountEngine", () => {
             expect(counts()).toEqual({ total: 1, highlight: 1 });
         });
 
+        it("is evaluated again with an encrypted message's unsigned data as it is now", async () => {
+            const { client, respond, settle } = await setup();
+            vi.spyOn(client, "decryptEventIfNeeded").mockResolvedValue();
+            // Highlights an event the server says was edited by Bob, from its unsigned data.
+            const editedByBob: IPushRule = {
+                rule_id: "edited-by-bob",
+                default: false,
+                enabled: true,
+                conditions: [
+                    { kind: ConditionKind.EventMatch, key: "unsigned.m\\.relations.m\\.replace.sender", pattern: bob },
+                ],
+                actions: [PushRuleActionName.Notify, { set_tweak: TweakName.Highlight }],
+            };
+            const rules = (extra: IPushRule[] = []): IPushRules => ({
+                global: {
+                    ...withSuppressedEdits.global,
+                    [PushRuleKind.Override]: [
+                        editedByBob,
+                        ...withSuppressedEdits.global[PushRuleKind.Override]!,
+                        ...extra,
+                    ],
+                },
+            });
+            client.setPushRules(rules());
+            await respond({
+                initial: true,
+                required_state: requiredState,
+                timeline: [
+                    message("$r", "r", me),
+                    {
+                        type: EventType.RoomMessageEncrypted,
+                        sender: bob,
+                        room_id: roomId,
+                        event_id: "$secret",
+                        origin_server_ts: 1,
+                        content: { algorithm: "m.megolm.v1.aes-sha2", ciphertext: "x" },
+                    },
+                ],
+            });
+            const secret = client.getRoom(roomId)!.findEventById("$secret")!;
+            // Decrypted with unsigned data from then, which the event's own replaces afterwards.
+            const crypto = {
+                decryptEvent: async () => ({
+                    clearEvent: {
+                        type: EventType.RoomMessage,
+                        content: { msgtype: "m.text", body: "hello" },
+                        unsigned: {},
+                    },
+                }),
+            } as unknown as Parameters<MatrixEvent["attemptDecryption"]>[0];
+            await secret.attemptDecryption(crypto);
+            await settle();
+            const room = client.getRoom(roomId)!;
+            expect(room.getRoomUnreadNotificationCount(NotificationCountType.Highlight)).toBe(0);
+
+            secret.setUnsigned({
+                "m.relations": { "m.replace": { event_id: "$e", sender: bob, origin_server_ts: 2 } },
+            });
+            secret.makeReplaced(new MatrixEvent(edit("$e", "$secret", "hello again")));
+            client.setPushRules(
+                rules([{ rule_id: "unused", default: false, enabled: false, conditions: [], actions: [] }]),
+            );
+            client.emit(
+                ClientEvent.AccountData,
+                new MatrixEvent({ type: EventType.PushRules, content: client.pushRules as object }),
+            );
+            await settle();
+
+            expect(room.getRoomUnreadNotificationCount(NotificationCountType.Highlight)).toBe(1);
+        });
+
         it("keeps the mention it was sent with when an edit removes it", async () => {
             const { client, respond, counts } = await setup();
             client.setPushRules(withSuppressedEdits);

@@ -593,9 +593,11 @@ function hasPositiveCount(counts: RoomCounts): boolean {
  */
 function asFirstSent(event: MatrixEvent): MatrixEvent {
     if (!event.replacingEvent()) return event;
-    // The effective event has the edit's content, so the content is put back: decrypted, as the rules read it.
+    // The event as it is now, such as its unsigned data, with the type and content the rules read: decrypted, and
+    // not the edit's.
     return new MatrixEvent({
-        ...event.getEffectiveEvent(),
+        ...event.event,
+        type: event.getType(),
         content: event.getOriginalContent(),
         room_id: event.getRoomId(),
     });
