@@ -10,6 +10,7 @@ Please see LICENSE in the repository root for full details.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
     ClientEvent,
+    ConnectionError,
     ContentHelpers,
     EventTimeline,
     EventTimelineSet,
@@ -1454,6 +1455,22 @@ describe("a lost sliding sync connection", () => {
         await vi.advanceTimersByTimeAsync(5_000);
         expect(requests).toHaveLength(4);
         expect(requests.map((at) => at - start)).toEqual([0, 2_000, 6_000, 11_000]);
+        api.stop();
+    });
+
+    it("is reported when requests fail without an answer, such as with no connection", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+        const client = makeClient();
+        vi.spyOn(client, "getPushRules").mockResolvedValue({ global: {} } as never);
+        vi.spyOn(client.http, "authedRequest").mockImplementation((() =>
+            Promise.reject(new ConnectionError("Network unreachable"))) as never);
+        const states: SyncState[] = [];
+        client.on(ClientEvent.Sync, (state) => states.push(state));
+        const sync = new SlidingSync("https://example.org", new Map(), {}, client, 20_000);
+        const api = new SlidingSyncSdk(sync, client, { lazyLoadMembers: true }, { logger });
+        void api.sync();
+        await vi.advanceTimersByTimeAsync(6_000);
+        expect(states).toEqual([SyncState.Reconnecting, SyncState.Reconnecting, SyncState.Error]);
         api.stop();
     });
 });

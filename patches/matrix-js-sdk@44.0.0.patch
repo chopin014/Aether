@@ -1624,9 +1624,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 +                    const canProcess = await Promise.race([ready, this.stopped.promise.then(() => false)]);
 +                    if (!canProcess || this.terminated) return;
 +                    ready = undefined;
-                 }
--                for (const roomId of unsubscriptions) {
--                    this.confirmedRoomSubscriptions.delete(roomId);
++                }
 +                if (this.terminated) return;
 +                // Cancelled after its answer arrived, such as by a change made while the answer waited for the
 +                // startup gate: the answer is to a request that no longer stands. The server keeps the position it
@@ -1634,7 +1632,9 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 +                if (signal.aborted) {
 +                    resp = undefined;
 +                    continue;
-+                }
+                 }
+-                for (const roomId of unsubscriptions) {
+-                    this.confirmedRoomSubscriptions.delete(roomId);
 +                currentPos = resp.pos;
 +                // The server has answered these subscriptions. A room unsubscribed meanwhile, subscribed afresh or
 +                // given another subscription is not confirmed by it.
@@ -1649,7 +1649,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  // mark all these lists as having been sent as sticky so we don't keep sending sticky params
                  this.lists.forEach((l) => {
                      l.setModified(false);
-@@ -664,25 +862,47 @@
+@@ -664,25 +862,51 @@
                  });
                  this.invokeLifecycleListeners(SlidingSyncState.RequestFinished, resp);
              } catch (err) {
@@ -1688,6 +1688,10 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 -                } else if (this.needsResend || (<Error>err).name === "AbortError") {
 +                } else if (requestSent && (this.needsResend || (<Error>err).name === "AbortError")) {
                      continue; // don't sleep as we caused this error by abort()ing the request.
++                } else {
++                    // A request that failed without an answer, such as with no connection, failed all the same: the
++                    // client counts it towards telling the user the connection is lost.
++                    this.invokeLifecycleListeners(SlidingSyncState.RequestFinished, null, <Error>err);
                  }
                  logger.error(err);
 -                await sleep(5000);
@@ -1704,7 +1708,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
              await this.onPreExtensionsResponse(resp.extensions);
  
              // oxlint-disable-next-line guard-for-in
-@@ -692,14 +912,9 @@
+@@ -692,14 +916,9 @@
  
              this.invokeLifecycleListeners(SlidingSyncState.Complete, resp);
              await this.onPostExtensionsResponse(resp.extensions);
