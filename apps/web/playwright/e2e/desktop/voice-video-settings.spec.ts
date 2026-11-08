@@ -198,6 +198,11 @@ test.describe("Voice & Video settings in the desktop shell", () => {
         await dialog.getByRole("button", { name: "Stop test" }).click();
         await expect(video).toHaveCount(0);
         await expect.poll(() => liveTracks(page, "video")).toBe(0);
+        // Only the microphone measured for the input sensitivity is left, and closing the settings releases it.
+        await expect.poll(() => liveTracks(page, "audio")).toBe(1);
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("dialog")).not.toBeVisible();
+        await expect.poll(() => liveTracks(page)).toBe(0);
     });
 
     test("switching input profiles updates the processing switches", async ({ page }) => {
