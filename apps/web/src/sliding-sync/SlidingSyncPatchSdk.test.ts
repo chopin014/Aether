@@ -1427,6 +1427,44 @@ describe("live locations", () => {
         await vi.waitFor(() => expect(beacon.latestLocationEvent?.getId()).toBe("$location"));
     });
 
+    it("does not give a location to a share that replaced the one it names while it was decrypted", async () => {
+        const client = makeClient();
+        const room = new Room(roomId, client, userId);
+        const now = Date.now();
+        const share = (eventId: string, start: number): MatrixEvent =>
+            new MatrixEvent({
+                type: M_BEACON_INFO.name,
+                state_key: userId,
+                sender: userId,
+                room_id: roomId,
+                event_id: eventId,
+                origin_server_ts: start,
+                content: ContentHelpers.makeBeaconInfoContent(3_600_000, true, "Walk", undefined, start),
+            });
+        room.currentState.setStateEvents([share("$first", now - 1000)]);
+        const [beacon] = room.currentState.beacons.values();
+        // The location for the first share takes a while to decrypt.
+        const decrypted = Promise.withResolvers<void>();
+        vi.spyOn(client, "decryptEventIfNeeded").mockReturnValue(decrypted.promise);
+        const location = new MatrixEvent({
+            type: M_BEACON.name,
+            sender: userId,
+            room_id: roomId,
+            event_id: "$location",
+            origin_server_ts: now + 10,
+            content: ContentHelpers.makeBeaconContent("geo:51.5,-0.1", now + 10, "$first"),
+        });
+        const processing = room.currentState.processBeaconEvents([location], client);
+
+        // A new share replaces the first, as the same person's share in the same room.
+        room.currentState.setStateEvents([share("$second", now)]);
+        decrypted.resolve();
+        await processing;
+
+        expect(beacon.beaconInfoId).toBe("$second");
+        expect(beacon.latestLocationEvent).toBeUndefined();
+    });
+
     it("reads a location update that follows another event in the same batch", async () => {
         // Sliding sync now hands each timeline to the beacon processing, as /sync v2 does, and a timeline mixes
         // locations with everything else.

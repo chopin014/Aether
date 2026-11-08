@@ -1999,7 +1999,17 @@ diff --git a/src/models/thread.ts b/src/models/thread.ts
 diff --git a/src/models/room-state.ts b/src/models/room-state.ts
 --- a/src/models/room-state.ts
 +++ b/src/models/room-state.ts
-@@ -589,9 +589,9 @@
+@@ -582,16 +582,18 @@
+ 
+             const beacon = beaconByEventIdDict[beaconInfoEventId];
+ 
+-            if (beacon) {
++            // The share may have been replaced or have ended while the location was being decrypted: a location
++            // belongs only to the share it names, while that share is still the room's.
++            if (beacon && beacon.beaconInfoId === beaconInfoEventId && this.beacons.get(beacon.identifier) === beacon) {
+                 beacon.addLocations([event]);
+             }
+         };
  
          for (const event of events) {
              const relatedToEventId = event.getRelation()?.event_id;
