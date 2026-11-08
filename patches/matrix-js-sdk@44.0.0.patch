@@ -234,7 +234,31 @@ diff --git a/src/models/room.ts b/src/models/room.ts
              this.clearNotificationsOnReceipt(event);
          }
      };
-@@ -1670,6 +1675,37 @@
+@@ -1506,6 +1511,23 @@
+         return this.timelineNeedsRefresh;
+     }
+ 
++    /**
++     * Find an event of the room's current state by its ID, such as one a relation is to that the timeline does not
++     * hold: a state event from before the user could see the room's history, which sliding sync sends as state only.
++     * Room members are not looked through, as there can be very many of them and nothing relates to them.
++     * @param eventId - The event ID.
++     * @returns The state event, if the room's current state has it.
++     */
++    private findCurrentStateEventById(eventId: string): MatrixEvent | undefined {
++        for (const [eventType, byStateKey] of this.currentState.events) {
++            if (eventType === EventType.RoomMember) continue;
++            for (const event of byStateKey.values()) {
++                if (event.getId() === eventId) return event;
++            }
++        }
++        return undefined;
++    }
++
+     /**
+      * Get an event which is stored in our unfiltered timeline set, or in a thread
+      *
+@@ -1670,6 +1692,37 @@
          return this.bumpStamp;
      }
  
@@ -272,7 +296,19 @@ diff --git a/src/models/room.ts b/src/models/room.ts
      /**
       * Set one of the notification counts for this room
       * @param type - The type of notification count to set.
-@@ -2760,7 +2796,7 @@
+@@ -2423,7 +2476,10 @@
+ 
+         let parentEvent: MatrixEvent | undefined;
+         if (parentEventId) {
+-            parentEvent = this.findEventById(parentEventId) ?? events?.find((e) => e.getId() === parentEventId);
++            parentEvent =
++                this.findEventById(parentEventId) ??
++                events?.find((e) => e.getId() === parentEventId) ??
++                this.findCurrentStateEventById(parentEventId);
+         }
+ 
+         // Treat non-thread-relations, redactions, and replies as extensions of their parents so evaluate parentEvent instead
+@@ -2760,7 +2816,7 @@
          // pointing to an event that wasn't yet in the timeline
          // Don't synthesize RR for m.room.redaction as this causes the RR to go missing.
          if (event.sender && event.getType() !== EventType.RoomRedaction) {
@@ -281,7 +317,7 @@ diff --git a/src/models/room.ts b/src/models/room.ts
  
              // Any live events from a user could be taken as implicit
              // presence information: evidence that they are currently active.
-@@ -3117,6 +3153,23 @@
+@@ -3117,6 +3173,23 @@
          // List of extra events to check for being parents of any relations encountered
          const neighbouringEvents = [...events];
  
@@ -305,7 +341,7 @@ diff --git a/src/models/room.ts b/src/models/room.ts
          for (const event of events) {
              // TODO: We should have a filter to say "only add state event types X Y Z to the timeline".
              this.processLiveEvent(event);
-@@ -3141,7 +3194,8 @@
+@@ -3141,7 +3214,8 @@
              if (!fromCache && !shouldLiveInThread && !shouldLiveInRoom && event.isRelation()) {
                  try {
                      const parentEvent = new MatrixEvent(
@@ -315,7 +351,7 @@ diff --git a/src/models/room.ts b/src/models/room.ts
                      );
                      neighbouringEvents.push(parentEvent);
                      if (parentEvent.threadRootId) {
-@@ -3237,7 +3291,7 @@
+@@ -3237,7 +3311,7 @@
       * @param event - The m.receipt event.
       * @param synthetic - True if this event is implicit.
       */
@@ -324,7 +360,7 @@ diff --git a/src/models/room.ts b/src/models/room.ts
          const content = event.getContent<ReceiptContent>();
  
          this.roomReceipts.add(content, synthetic);
-@@ -3274,7 +3328,12 @@
+@@ -3274,7 +3348,12 @@
                          // just read a message, not when we are e.g. receiving
                          // an event during the sync. More explanation at:
                          // https://github.com/matrix-org/matrix-js-sdk/issues/3684
@@ -338,7 +374,7 @@ diff --git a/src/models/room.ts b/src/models/room.ts
                              const lastEvent = receiptDestination.timeline[receiptDestination.timeline.length - 1];
                              if (lastEvent && eventId === lastEvent.getId() && userId === lastEvent.getSender()) {
                                  receiptDestination.setUnread(NotificationCountType.Total, 0);
-@@ -3308,7 +3367,7 @@
+@@ -3308,7 +3387,7 @@
  
          // send events after we've regenerated the structure & cache, otherwise things that
          // listened for the event would read stale data.
@@ -347,7 +383,7 @@ diff --git a/src/models/room.ts b/src/models/room.ts
      }
  
      /**
-@@ -4085,3 +4144,25 @@
+@@ -4085,3 +4164,25 @@
          }
      }
  }

@@ -76,6 +76,107 @@ function makeClient(): MatrixClient {
     return client;
 }
 
+describe("relations to events the room has only as state", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    // Someone else in the room, whose call membership is from before the user could see the room's history: sliding
+    // sync sends it as state only.
+    const bob = "@bob:example.org";
+    const callMember = {
+        type: "org.matrix.msc3401.call.member",
+        state_key: `_${bob}_DEVICE`,
+        sender: bob,
+        event_id: "$bob-call",
+        origin_server_ts: 0,
+        content: { application: "m.call", call_id: "" },
+    };
+
+    function reaction(id: string, target: string): NonNullable<MSC3575RoomData["timeline"]>[number] {
+        return {
+            type: EventType.Reaction,
+            sender: bob,
+            room_id: roomId,
+            event_id: id,
+            origin_server_ts: 5,
+            content: { "m.relates_to": { rel_type: "m.annotation", event_id: target, key: "🖐️" } },
+        };
+    }
+
+    async function setup() {
+        const client = makeClient();
+        // Threads decide where a relation lives, so they are on, as in the app.
+        vi.spyOn(client, "supportsThreads").mockReturnValue(true);
+        const sync = new SlidingSync("https://example.org", new Map(), {}, client, 1000);
+        const api = new SlidingSyncSdk(sync, client, { lazyLoadMembers: true }, { logger });
+        const receive = async (data: Partial<MSC3575RoomData>): Promise<void> => {
+            await sync.emitPromised(SlidingSyncEvent.RoomData, roomId, {
+                required_state: [],
+                timeline: [],
+                ...data,
+                name: "Room",
+            });
+        };
+        await receive({ initial: true, required_state: [...requiredState, callMember], timeline: [message("$a", 1)] });
+        const room = client.getRoom(roomId)!;
+        const timelineIds = (): string[] =>
+            room
+                .getLiveTimeline()
+                .getEvents()
+                .map((event) => event.getId()!);
+        return { api, client, room, receive, timelineIds };
+    }
+
+    it("keeps a reaction to a state event the timeline does not hold, such as a raised hand in a call", async () => {
+        const { api, room, receive, timelineIds } = await setup();
+        expect(room.findEventById("$bob-call")).toBeUndefined();
+        const onTimeline = vi.fn();
+        room.on(RoomEvent.Timeline, onTimeline);
+
+        await receive({ timeline: [reaction("$hand", "$bob-call")] });
+
+        expect(timelineIds()).toContain("$hand");
+        // Announced like any new event, which is how a call hears of it.
+        expect(onTimeline.mock.calls.some(([event]) => event.getId() === "$hand")).toBe(true);
+        const relations = room.relations.getChildEventsForEvent("$bob-call", "m.annotation", EventType.Reaction);
+        expect(relations?.getRelations().map((event) => event.getId())).toEqual(["$hand"]);
+        api.stop();
+    });
+
+    it("takes a live reaction to such an event as it is, fetching nothing and notifying nobody", async () => {
+        const { api, client, room, receive } = await setup();
+        // The default rules, under which a reaction does not notify.
+        client.setPushRules({ global: {} });
+        const fetch = vi.spyOn(client, "fetchRoomEvent");
+
+        await receive({ timeline: [reaction("$hand", "$bob-call")], num_live: 1 });
+
+        const hand = room.findEventById("$hand");
+        expect(hand).toBeDefined();
+        expect(fetch).not.toHaveBeenCalled();
+        expect(client.getPushActionsForEvent(hand!)?.notify).toBe(false);
+        api.stop();
+    });
+
+    it("still sets aside a relation to an event the room does not know at all", async () => {
+        const { api, receive, timelineIds } = await setup();
+
+        await receive({ timeline: [reaction("$lost", "$nowhere")] });
+
+        expect(timelineIds()).not.toContain("$lost");
+        api.stop();
+    });
+
+    it("does not look through the room's members for an event a relation is to", async () => {
+        const { api, receive, timelineIds } = await setup();
+
+        // The user's own membership is state the timeline does not hold, but members are not searched.
+        await receive({ timeline: [reaction("$odd", "$member")] });
+
+        expect(timelineIds()).not.toContain("$odd");
+        api.stop();
+    });
+});
+
 describe("sliding sync timelines with gaps", () => {
     afterEach(() => vi.restoreAllMocks());
 
