@@ -58,6 +58,12 @@ export const CATALOG_STATE: string[][] = [
 ];
 
 /**
+ * State for every Space the user is in, in the Spaces list: the catalog, and the Space's soundboard, which a voice
+ * channel offers from every Space the user has joined, not only the one being looked at.
+ */
+export const SPACE_LIST_STATE: string[][] = [...CATALOG_STATE, [SOUNDBOARD_EVENT, MSC3575_WILDCARD]];
+
+/**
  * State the room view, its header, composer and settings read, beyond the catalog. Without it, a room that was
  * first seen in a list would show no topic and no pinned messages.
  */

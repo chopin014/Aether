@@ -1014,6 +1014,15 @@ describe("SlidingSyncManager", () => {
             sync.stop();
         });
 
+        it("asks for every Space's soundboard, which a voice channel offers from every Space the user is in", () => {
+            expect(sync.getListParams("spaces")?.required_state).toContainEqual(["io.aether.soundboard.sound", "*"]);
+            // Rooms are listed with the catalog only.
+            expect(sync.getListParams("untagged")?.required_state).not.toContainEqual([
+                "io.aether.soundboard.sound",
+                "*",
+            ]);
+        });
+
         it("lists rooms without asking for older rooms, which simplified sliding sync does not serve", () => {
             for (const listName of ["recent", "spaces", "invites", "favourites", "dms", "untagged"]) {
                 expect(sync.getListParams(listName)).not.toHaveProperty("include_old_rooms");

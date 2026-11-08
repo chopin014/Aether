@@ -8,11 +8,18 @@ Please see LICENSE in the repository root for full details.
 import { describe, expect, it } from "vitest";
 import { EventType } from "matrix-js-sdk/src/matrix";
 
-import { CATALOG_STATE, NAMED_SUBSCRIPTIONS, ROOM_STATE } from "./roomStateProfiles";
+import { CATALOG_STATE, NAMED_SUBSCRIPTIONS, ROOM_STATE, SPACE_LIST_STATE } from "./roomStateProfiles";
 
 describe("roomStateProfiles", () => {
     it("asks for every listed room's power levels, so @room mentions highlight and notify there", () => {
         expect(CATALOG_STATE).toContainEqual([EventType.RoomPowerLevels, ""]);
+    });
+
+    it("lists every Space with its soundboard as well as the catalog, each asked for once", () => {
+        expect(SPACE_LIST_STATE).toEqual(expect.arrayContaining(CATALOG_STATE));
+        expect(SPACE_LIST_STATE).toContainEqual(["io.aether.soundboard.sound", "*"]);
+        const keys = SPACE_LIST_STATE.map(([type, stateKey]) => `${type}|${stateKey}`);
+        expect(new Set(keys).size).toBe(keys.length);
     });
 
     it("asks for no older rooms, which simplified sliding sync does not serve", () => {

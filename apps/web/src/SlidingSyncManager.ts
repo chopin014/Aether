@@ -72,6 +72,7 @@ import {
     ENCRYPTED_SUBSCRIPTION,
     NAMED_SUBSCRIPTIONS,
     RoomSubscriptionName,
+    SPACE_LIST_STATE,
 } from "./sliding-sync/roomStateProfiles";
 import { RoomSubscriptionLeases, type RoomSubscriptionLease } from "./sliding-sync/RoomSubscriptionLeases";
 import { SlidingSyncCache } from "./sliding-sync/SlidingSyncCache";
@@ -149,7 +150,7 @@ const sssLists: Record<string, MSC3575List> = {
     spaces: {
         ranges: [[0, 10]],
         timeline_limit: 0, // we don't care about the most recent message for spaces
-        required_state: CATALOG_STATE,
+        required_state: SPACE_LIST_STATE,
         filters: {
             room_types: ["m.space"],
         },
