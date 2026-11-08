@@ -14,6 +14,7 @@ import { act, fireEvent, render, waitFor } from "test-utils-rtl";
 import * as maplibregl from "maplibre-gl";
 import {
     BeaconEvent,
+    ClientEvent,
     getBeaconInfoIdentifier,
     RelationType,
     MatrixEvent,
@@ -210,6 +211,20 @@ describe("<MBeaconBody />", () => {
 
             act(() => {
                 room.currentState.setStateEvents([aliceBeaconInfo]);
+            });
+
+            expect(component.container).toHaveTextContent("Loading live location…");
+        });
+
+        it("shows a share in a room that becomes known after the event is shown", () => {
+            const aliceBeaconInfo = makeBeaconInfoEvent(aliceId, roomId, { isLive: true }, "$alice-room1-1");
+            mockClient.getRoom.mockReturnValue(null);
+            const component = getComponent({ mxEvent: aliceBeaconInfo });
+            expect(component.container).toHaveTextContent("Live location ended");
+
+            const room = makeRoomWithStateEvents([aliceBeaconInfo], { roomId, mockClient });
+            act(() => {
+                mockClient.emit(ClientEvent.Room, room);
             });
 
             expect(component.container).toHaveTextContent("Loading live location…");
