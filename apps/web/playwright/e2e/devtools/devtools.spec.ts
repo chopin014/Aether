@@ -40,4 +40,22 @@ test.describe("Devtools", () => {
         // expect EW NOT to reload
         await expect(page.getByText("Saved")).toBeVisible();
     });
+
+    test("explores all of a room's state", async ({ page, user: _user, app }) => {
+        await app.settings.setValue("developerMode", null, SettingLevel.ACCOUNT, true);
+        const roomId = await app.client.createRoom({ name: "Test Room" });
+        // State the app itself never reads, which sliding sync does not load.
+        await app.client.sendStateEvent(roomId, "org.example.board", { pinned: true }, "first");
+        await app.viewRoomByName("Test Room");
+
+        const composer = app.getComposer().locator("[contenteditable]");
+        await composer.fill("/devtools");
+        await composer.press("Enter");
+        const dialog = page.getByRole("dialog");
+        await dialog.getByRole("button", { name: "Explore room state" }).click();
+        await dialog.getByRole("button", { name: "org.example.board" }).click();
+        await dialog.getByRole("button", { name: "first" }).click();
+
+        await expect(dialog.getByText(/"pinned": true/)).toBeVisible();
+    });
 });
