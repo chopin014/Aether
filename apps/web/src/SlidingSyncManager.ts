@@ -56,7 +56,6 @@ import {
     type MSC3575SlidingSyncResponse,
     MSC3575_STATE_KEY_LAZY,
     MSC3575_STATE_KEY_ME,
-    MSC3575_WILDCARD,
     SlidingSync,
     SlidingSyncEvent,
     SlidingSyncState,
@@ -135,15 +134,13 @@ export type RoomVisibility =
 
 // the complete set of lists made in SSS. The manager will spider all of these lists depending
 // on the count for each one, except for the recent list which stays at its first page.
+// None asks for include_old_rooms: simplified sliding sync (MSC4186) has no such option and Synapse ignores it. An
+// older version of an upgraded room the user is still in comes through the lists like any other room.
 const sssLists: Record<string, MSC3575List> = {
     recent: {
         ranges: [[0, RECENT_ROOMS - 1]],
         timeline_limit: RECENT_TIMELINE_LIMIT,
         required_state: CATALOG_STATE,
-        include_old_rooms: {
-            timeline_limit: 0,
-            required_state: CATALOG_STATE,
-        },
         filters: {
             is_invite: false,
             not_room_types: ["m.space"],
@@ -153,10 +150,6 @@ const sssLists: Record<string, MSC3575List> = {
         ranges: [[0, 10]],
         timeline_limit: 0, // we don't care about the most recent message for spaces
         required_state: CATALOG_STATE,
-        include_old_rooms: {
-            timeline_limit: 0,
-            required_state: CATALOG_STATE,
-        },
         filters: {
             room_types: ["m.space"],
         },
@@ -165,10 +158,6 @@ const sssLists: Record<string, MSC3575List> = {
         ranges: [[0, 10]],
         timeline_limit: 1, // most recent message display
         required_state: CATALOG_STATE,
-        include_old_rooms: {
-            timeline_limit: 0,
-            required_state: CATALOG_STATE,
-        },
         filters: {
             is_invite: true,
         },
@@ -177,10 +166,6 @@ const sssLists: Record<string, MSC3575List> = {
         ranges: [[0, 10]],
         timeline_limit: LIST_TIMELINE_LIMIT,
         required_state: CATALOG_STATE,
-        include_old_rooms: {
-            timeline_limit: 0,
-            required_state: CATALOG_STATE,
-        },
         filters: {
             tags: ["m.favourite"],
         },
@@ -189,10 +174,6 @@ const sssLists: Record<string, MSC3575List> = {
         ranges: [[0, 10]],
         timeline_limit: LIST_TIMELINE_LIMIT,
         required_state: CATALOG_STATE,
-        include_old_rooms: {
-            timeline_limit: 0,
-            required_state: CATALOG_STATE,
-        },
         filters: {
             is_dm: true,
             is_invite: false,
@@ -205,10 +186,6 @@ const sssLists: Record<string, MSC3575List> = {
         ranges: [[0, 10]],
         timeline_limit: LIST_TIMELINE_LIMIT,
         required_state: CATALOG_STATE,
-        include_old_rooms: {
-            timeline_limit: 0,
-            required_state: CATALOG_STATE,
-        },
     },
 };
 
@@ -664,16 +641,6 @@ export class SlidingSyncManager {
                     [EventType.RoomMember, MSC3575_STATE_KEY_ME], // lets the client calculate that we are in fact in the room
                     [EventType.RoomMember, MSC3575_STATE_KEY_LAZY], // senders in the cached timeline
                 ],
-                include_old_rooms: {
-                    timeline_limit: 0,
-                    required_state: [
-                        [EventType.RoomCreate, ""],
-                        [EventType.RoomTombstone, ""], // lets JS SDK hide rooms which are dead
-                        [EventType.SpaceChild, MSC3575_WILDCARD], // all space children
-                        [EventType.SpaceParent, MSC3575_WILDCARD], // all space parents
-                        [EventType.RoomMember, MSC3575_STATE_KEY_ME], // lets the client calculate that we are in fact in the room
-                    ],
-                },
                 ...updateArgs,
             };
         } else {

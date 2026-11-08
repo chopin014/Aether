@@ -75,23 +75,22 @@ const ROOM_VIEW_STATE: string[][] = [
 /** The catalog plus the state of an open room. */
 export const ROOM_STATE: string[][] = [...CATALOG_STATE, ...ROOM_VIEW_STATE];
 
-/** The history older rooms in a chain of upgrades are fetched with: their state, without their timeline. */
-const OLD_ROOMS: MSC3575RoomSubscription = {
-    timeline_limit: 0,
-    required_state: CATALOG_STATE,
-};
-
 /** History loaded for a room someone has opened or is in a call in. */
 export const OPEN_ROOM_TIMELINE_LIMIT = 50;
 
 /** History loaded for a room someone is likely to open next, such as one they point at. */
 export const PREFETCH_TIMELINE_LIMIT = 20;
 
+/*
+ * No subscription asks for include_old_rooms: simplified sliding sync (MSC4186) has no such option and Synapse
+ * ignores it, while every request carries every subscription in full. An older version of an upgraded room is
+ * opened like any other room.
+ */
+
 /** An unencrypted room someone has opened. Members are loaded lazily, as their senders appear. */
 export const ROOM_SUBSCRIPTION: MSC3575RoomSubscription = {
     timeline_limit: OPEN_ROOM_TIMELINE_LIMIT,
     required_state: ROOM_STATE,
-    include_old_rooms: OLD_ROOMS,
 };
 
 /** An unencrypted room someone is likely to open next: the same state, with a shorter history. */
@@ -107,7 +106,6 @@ export const PREFETCH_SUBSCRIPTION: MSC3575RoomSubscription = {
 export const ENCRYPTED_SUBSCRIPTION: MSC3575RoomSubscription = {
     timeline_limit: OPEN_ROOM_TIMELINE_LIMIT,
     required_state: [[MSC3575_WILDCARD, MSC3575_WILDCARD]],
-    include_old_rooms: OLD_ROOMS,
 };
 
 /**
