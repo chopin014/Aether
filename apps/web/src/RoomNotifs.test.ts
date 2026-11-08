@@ -30,7 +30,9 @@ import {
     getUnreadNotificationCount,
     determineUnreadState,
     getUnsentMessages,
+    getInexactUnreadNotificationCount,
 } from "./RoomNotifs";
+import { InexactCount, setInexactCounts } from "./sliding-sync/notification-counts/publishedCounts";
 import { NotificationLevel } from "./stores/notifications/NotificationLevel";
 import SettingsStore from "./settings/SettingsStore";
 import { MatrixClientPeg } from "./MatrixClientPeg";
@@ -406,6 +408,100 @@ describe("RoomNotifs test", () => {
 
             expect(level).toBe(NotificationLevel.Highlight);
             expect(count).toBe(888);
+        });
+
+        it("says whether the count is only a lower bound", () => {
+            room.setUnreadNotificationCount(NotificationCountType.Total, 3);
+            expect(determineUnreadState(room).countIsLowerBound).toBe(false);
+
+            setInexactCounts(room, { main: InexactCount.LowerBound, threads: new Map() });
+            expect(determineUnreadState(room)).toMatchObject({
+                count: 3,
+                level: NotificationLevel.Notification,
+                countIsLowerBound: true,
+            });
+
+            room.setUnreadNotificationCount(NotificationCountType.Highlight, 1);
+            expect(determineUnreadState(room)).toMatchObject({
+                level: NotificationLevel.Highlight,
+                countIsLowerBound: true,
+            });
+        });
+
+        it("says whether the count is approximate, which is no lower bound", () => {
+            room.setUnreadNotificationCount(NotificationCountType.Total, 3);
+            setInexactCounts(room, { main: InexactCount.Approximate, threads: new Map() });
+
+            expect(determineUnreadState(room)).toMatchObject({
+                count: 3,
+                countIsLowerBound: false,
+                countIsApproximate: true,
+            });
+        });
+
+        it("says no count is a lower bound", () => {
+            setInexactCounts(room, { main: InexactCount.LowerBound, threads: new Map() });
+
+            expect(determineUnreadState(room).countIsLowerBound).toBeFalsy();
+        });
+
+        it("says a thread's count is a lower bound by its own", () => {
+            room.setUnreadNotificationCount(NotificationCountType.Total, 1);
+            room.setThreadUnreadNotificationCount("$thread", NotificationCountType.Total, 2);
+            setInexactCounts(room, { threads: new Map([["$thread", InexactCount.LowerBound]]) });
+
+            expect(determineUnreadState(room, "$thread")).toMatchObject({ count: 2, countIsLowerBound: true });
+            expect(determineUnreadState(room, undefined, false)).toMatchObject({ count: 1, countIsLowerBound: false });
+            // With its threads, the room's count is a lower bound too.
+            expect(determineUnreadState(room, undefined, true)).toMatchObject({ count: 3, countIsLowerBound: true });
+        });
+    });
+
+    describe("getInexactUnreadNotificationCount", () => {
+        const OLD_ROOM_ID = "!old:example.org";
+        let room: Room;
+        let oldRoom: Room;
+
+        beforeEach(async () => {
+            room = new Room("!new:example.org", client, client.getUserId()!);
+            oldRoom = new Room(OLD_ROOM_ID, client, client.getUserId()!);
+            client.getRoom.mockImplementation((roomId) => (roomId === OLD_ROOM_ID ? oldRoom : room));
+            await room.addLiveEvents(
+                [
+                    mkEvent({
+                        event: true,
+                        type: EventType.RoomCreate,
+                        room: room.roomId,
+                        user: "@zoe:localhost",
+                        skey: "",
+                        content: { predecessor: { room_id: OLD_ROOM_ID, event_id: "$tombstone" }, room_version: "5" },
+                    }),
+                ],
+                { addToState: true },
+            );
+        });
+
+        it("takes how far the old room's highlights can be trusted, when it has some", () => {
+            setInexactCounts(oldRoom, { main: InexactCount.LowerBound, threads: new Map() });
+            expect(getInexactUnreadNotificationCount(room, false)).toBeUndefined();
+
+            oldRoom.setUnreadNotificationCount(NotificationCountType.Highlight, 2);
+            expect(getInexactUnreadNotificationCount(room, false)).toBe(InexactCount.LowerBound);
+            // A thread does not continue into the new room.
+            expect(getInexactUnreadNotificationCount(room, false, "$thread")).toBeUndefined();
+
+            setInexactCounts(oldRoom, undefined);
+            expect(getInexactUnreadNotificationCount(room, false)).toBeUndefined();
+        });
+
+        it("takes the room's own count with the old room's highlights", () => {
+            room.setUnreadNotificationCount(NotificationCountType.Total, 1);
+            setInexactCounts(room, { main: InexactCount.LowerBound, threads: new Map() });
+            oldRoom.setUnreadNotificationCount(NotificationCountType.Highlight, 2);
+            setInexactCounts(oldRoom, { main: InexactCount.Approximate, threads: new Map() });
+
+            // The old room's highlights could be too high, so the sum is no minimum.
+            expect(getInexactUnreadNotificationCount(room, false)).toBe(InexactCount.Approximate);
         });
     });
 });

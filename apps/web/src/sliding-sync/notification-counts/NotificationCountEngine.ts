@@ -16,6 +16,7 @@ import {
     type MatrixEvent,
     MatrixEventEvent,
     type NotificationCount,
+    NotificationCountType,
     ReceiptType,
     type Room,
     RoomEvent,
@@ -34,8 +35,16 @@ import {
     type RoomCounts,
     type RunPlacement,
     type SavedLedger,
+    type ScopeCounts,
     UNTHREADED_RECEIPT,
 } from "./RoomCountLedger";
+import {
+    announceCountsChanged,
+    getInexactCounts,
+    InexactCount,
+    type InexactScopes,
+    setInexactCounts,
+} from "./publishedCounts";
 
 /** An encrypted event that has not been decrypted: what it adds is not known. */
 const NOT_YET_KNOWN: Contribution = { notify: false, highlight: false, final: false };
@@ -342,7 +351,9 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         this.replaying.delete(room.roomId);
         this.restoredFromSaved.delete(room.roomId);
         this.dirty.delete(room.roomId);
+        setInexactCounts(room, undefined);
         room.setNotificationCounts({}, new Map());
+        this.announce(room);
     };
 
     private markDirty(roomId: string, fromSync = false): void {
@@ -409,13 +420,36 @@ export class NotificationCountEngine implements RoomHistoryObserver {
                 }
             }
         }
+        const previous = this.published.get(roomId);
         const counts = ledger.compute();
         this.published.set(roomId, counts);
         const threads = new Map<string, NotificationCount>();
         for (const [threadId, thread] of counts.threads) {
             threads.set(threadId, { total: thread.total, highlight: thread.highlight });
         }
+        const before = getInexactCounts(room);
+        const after = inexactScopes(counts);
+        setInexactCounts(room, after);
         room.setNotificationCounts({ total: counts.main.total, highlight: counts.main.highlight }, threads);
+        const mainFlagChanged = before?.main !== after.main;
+        const threadFlagsChanged = [...new Set([...(before?.threads.keys() ?? []), ...after.threads.keys()])].filter(
+            (threadId) => before?.threads.get(threadId) !== after.threads.get(threadId),
+        );
+        // The room announces counts that change. One whose numbers stay the same while how far they can be trusted
+        // changes is announced the same way, so its badge gains or loses its "+"; a badge shows that only with a
+        // count above zero.
+        if (hasPositiveCount(counts)) {
+            if (mainFlagChanged) {
+                room.emit(RoomEvent.UnreadNotifications, {
+                    total: counts.main.total,
+                    highlight: counts.main.highlight,
+                });
+            }
+            for (const threadId of threadFlagsChanged) {
+                room.emit(RoomEvent.UnreadNotifications, threads.get(threadId) ?? { total: 0, highlight: 0 }, threadId);
+            }
+        }
+        if (mainFlagChanged || threadFlagsChanged.length > 0 || !sameNumbers(previous, counts)) this.announce(room);
         this.pruneEvents(roomId, ledger);
         this.changeListener?.(roomId);
         // A gap keeps the main count from being exact: a little history may fill it.
@@ -455,6 +489,24 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         return [name ?? "", powerLevels ?? "", meets].join("\u0000");
     }
 
+    /**
+     * Tell whoever shows many rooms' counts that a room's changed. The room it was upgraded into is told too, as its
+     * count adds this room's highlights. (A room naming its predecessor without the predecessor's tombstone, as
+     * the experimental dynamic predecessors allow, is not told: nothing here leads to it.)
+     */
+    private announce(room: Room): void {
+        announceCountsChanged(room);
+        const successorId = room.currentState
+            .getStateEvents(EventType.RoomTombstone, "")
+            ?.getContent<{ replacement_room?: unknown }>().replacement_room;
+        const successor = typeof successorId === "string" ? this.client.getRoom(successorId) : null;
+        if (!successor) return;
+        successor.emit(RoomEvent.UnreadNotifications, {
+            total: successor.getRoomUnreadNotificationCount(NotificationCountType.Total),
+            highlight: successor.getRoomUnreadNotificationCount(NotificationCountType.Highlight),
+        });
+    }
+
     /** Let go of events the ledger no longer has. */
     private pruneEvents(roomId: string, ledger: RoomCountLedger): void {
         const events = this.roomEvents.get(roomId);
@@ -485,6 +537,53 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         }
         return events;
     }
+}
+
+/**
+ * How a count is off, if it is not exact. One that counts only what is certainly unread, while more could be, is a
+ * lower bound, shown as "N+". One as last seen is approximate, shown as it is: an event it counts could have been
+ * redacted since, so it is no minimum.
+ */
+function inexactness(counts: ScopeCounts): InexactCount | undefined {
+    switch (counts.confidence) {
+        case CountConfidence.LowerBound:
+        case CountConfidence.Unknown:
+            return InexactCount.LowerBound;
+        case CountConfidence.LastKnown:
+            return InexactCount.Approximate;
+        default:
+            return undefined;
+    }
+}
+
+/** Which of a room's counts are not exact, and how. */
+function inexactScopes(counts: RoomCounts): InexactScopes {
+    const threads = new Map<string, InexactCount>();
+    for (const [threadId, thread] of counts.threads) {
+        const kind = inexactness(thread);
+        if (kind) threads.set(threadId, kind);
+    }
+    return { main: inexactness(counts.main), threads };
+}
+
+/** Whether a room's counts are the same numbers as before, which of them are lower bounds aside. */
+function sameNumbers(previous: RoomCounts | undefined, counts: RoomCounts): boolean {
+    const same = (a: ScopeCounts | undefined, b: ScopeCounts | undefined): boolean =>
+        (a?.total ?? 0) === (b?.total ?? 0) && (a?.highlight ?? 0) === (b?.highlight ?? 0);
+    if (!previous || !same(previous.main, counts.main)) return false;
+    for (const threadId of new Set([...previous.threads.keys(), ...counts.threads.keys()])) {
+        if (!same(previous.threads.get(threadId), counts.threads.get(threadId))) return false;
+    }
+    return true;
+}
+
+/** Whether any of a room's counts is above zero. */
+function hasPositiveCount(counts: RoomCounts): boolean {
+    if (counts.main.total > 0 || counts.main.highlight > 0) return true;
+    for (const thread of counts.threads.values()) {
+        if (thread.total > 0 || thread.highlight > 0) return true;
+    }
+    return false;
 }
 
 /** The event a redaction redacts, wherever the room version puts it. */

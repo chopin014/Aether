@@ -6,9 +6,17 @@
             "one": "1 unread message.",
             "other": "%(count)s unread messages."
         },
+        "n_unread_messages_at_least": {
+            "one": "At least 1 unread message.",
+            "other": "At least %(count)s unread messages."
+        },
         "n_unread_messages_mentions": {
             "one": "1 unread mention.",
             "other": "%(count)s unread messages including mentions."
+        },
+        "n_unread_messages_mentions_at_least": {
+            "one": "At least 1 unread mention.",
+            "other": "At least %(count)s unread messages including mentions."
         },
         "room_status_bar": "Room status bar",
         "seek_bar_label": "Audio seek bar",
@@ -3530,17 +3538,33 @@
                 "one": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with 1 unread mention.",
                 "other": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with %(count)s unread messages including mentions."
             },
+            "mention_at_least": {
+                "one": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with at least 1 unread mention.",
+                "other": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with at least %(count)s unread messages including mentions."
+            },
             "mention_no_sender": {
                 "one": "Open thread in %(roomName)s with 1 unread mention.",
                 "other": "Open thread in %(roomName)s with %(count)s unread messages including mentions."
+            },
+            "mention_no_sender_at_least": {
+                "one": "Open thread in %(roomName)s with at least 1 unread mention.",
+                "other": "Open thread in %(roomName)s with at least %(count)s unread messages including mentions."
             },
             "unread": {
                 "one": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with 1 unread message.",
                 "other": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with %(count)s unread messages."
             },
+            "unread_at_least": {
+                "one": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with at least 1 unread message.",
+                "other": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with at least %(count)s unread messages."
+            },
             "unread_no_sender": {
                 "one": "Open thread in %(roomName)s with 1 unread message.",
                 "other": "Open thread in %(roomName)s with %(count)s unread messages."
+            },
+            "unread_no_sender_at_least": {
+                "one": "Open thread in %(roomName)s with at least 1 unread message.",
+                "other": "Open thread in %(roomName)s with at least %(count)s unread messages."
             }
         },
         "header": "Threads activity",
