@@ -148,6 +148,15 @@ export const SPACE_SUBSCRIPTION: MSC3575RoomSubscription = {
 };
 
 /**
+ * A room whose state something outside the room view reads, such as an integration manager or a widget, and nobody
+ * has open: what a list entry gets, without history. The state read is added to it.
+ */
+export const STATE_SUBSCRIPTION: MSC3575RoomSubscription = {
+    timeline_limit: 0,
+    required_state: CATALOG_STATE,
+};
+
+/**
  * A room nobody has seen yet, such as one opened from a link. It is fetched with the open-room state so it can be
  * drawn straight away, and moves to its normal subscription once its encryption is known.
  */
@@ -169,6 +178,7 @@ export enum RoomSubscriptionName {
     Encrypted = "encrypted",
     Space = "space",
     Channel = "channel",
+    State = "state",
     Bootstrap = "bootstrap",
     ExpandedBootstrap = "bootstrap-expanded",
 }
@@ -180,6 +190,7 @@ export const NAMED_SUBSCRIPTIONS: ReadonlyMap<RoomSubscriptionName, MSC3575RoomS
     [RoomSubscriptionName.Encrypted, ENCRYPTED_SUBSCRIPTION],
     [RoomSubscriptionName.Space, SPACE_SUBSCRIPTION],
     [RoomSubscriptionName.Channel, CHANNEL_SUBSCRIPTION],
+    [RoomSubscriptionName.State, STATE_SUBSCRIPTION],
     [RoomSubscriptionName.Bootstrap, BOOTSTRAP_SUBSCRIPTION],
     [RoomSubscriptionName.ExpandedBootstrap, EXPANDED_BOOTSTRAP_SUBSCRIPTION],
 ]);

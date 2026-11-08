@@ -14,6 +14,7 @@ import {
     SlidingSyncEvent,
     SlidingSyncState,
     type MSC3575RoomData,
+    type MSC3575SlidingSyncResponse,
 } from "matrix-js-sdk/src/sliding-sync";
 import {
     ClientEvent,
@@ -40,6 +41,7 @@ import { SlidingSyncManager } from "./SlidingSyncManager";
 import { SlidingSyncCache } from "./sliding-sync/SlidingSyncCache";
 import { CATALOG_STATE } from "./sliding-sync/roomStateProfiles";
 import { type RoomSubscriptionLeases } from "./sliding-sync/RoomSubscriptionLeases";
+import { DEMAND_LINGER_MS, RoomStateUnavailableError } from "./sliding-sync/RoomStateDemands";
 import { JitsiCallMemberEventType } from "./call-types";
 
 class MockSlidingSync extends EventEmitter {
@@ -1952,6 +1954,143 @@ describe("SlidingSyncManager", () => {
             expect(second.getRoomSubscriptions()).not.toContain("!early");
             first.stop();
             second.stop();
+        });
+
+        describe("demanded room state", () => {
+            const INSTALLATIONS = "io.element.integrations.installations";
+
+            /** Apply an answer to a request that carried these rooms' current subscriptions. */
+            function answer(roomIds: string[], rooms: Record<string, object> = {}): void {
+                const response = { pos: "n", lists: {}, rooms, extensions: {} } as MSC3575SlidingSyncResponse;
+                vi.spyOn(sync, "getRequestForResponse").mockReturnValue({
+                    roomSubscriptions: new Map(roomIds.map((roomId) => [roomId, subscriptionOf(roomId)])),
+                });
+                sync.emit(SlidingSyncEvent.Applied, response);
+            }
+
+            it("subscribes a room only read from with a list entry's state and the demanded state", async () => {
+                knownRoom("!plain");
+                knownRoom("!secret", "encrypted");
+                manager.demandRoomState("!plain", [{ type: INSTALLATIONS }]);
+                manager.demandRoomState("!secret", [{ type: INSTALLATIONS, stateKey: "abc" }]);
+                await tick();
+                expect(sync.getRoomSubscriptions()).toEqual(new Set(["!plain", "!secret"]));
+                expect(subscriptionOf("!plain").timeline_limit).toBe(0);
+                expect(subscriptionOf("!plain").required_state).toEqual([...CATALOG_STATE, [INSTALLATIONS, "*"]]);
+                // An encrypted room is not given every member just to read some of its state.
+                expect(subscriptionOf("!secret").required_state).toContainEqual([INSTALLATIONS, "abc"]);
+                expect(subscriptionOf("!secret").required_state).not.toContainEqual(["*", "*"]);
+            });
+
+            it("adds demanded state to an open room's subscription, unless it brings it already", async () => {
+                knownRoom("!open");
+                knownRoom("!secret", "encrypted");
+                await manager.setRoomVisible("!open");
+                manager.setCallRooms(["!secret"]);
+                manager.demandRoomState("!open", [{ type: INSTALLATIONS }]);
+                manager.demandRoomState("!secret", [{ type: INSTALLATIONS }]);
+                await tick();
+                expect(subscriptionOf("!open").timeline_limit).toBe(50);
+                expect(subscriptionOf("!open").required_state).toContainEqual([INSTALLATIONS, "*"]);
+                expect(nameOf("!secret")).toBe("encrypted");
+            });
+
+            it("reads demanded state once an answer naming it has been applied, then lets go", async () => {
+                vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+                const room = knownRoom("!plain");
+                const read = manager.readRoomState(client, "!plain", { type: INSTALLATIONS, stateKey: "abc" });
+                await vi.advanceTimersByTimeAsync(0);
+                expect(sync.getRoomSubscriptions()).toContain("!plain");
+
+                // An answer to the request sent before the demand does not name its state.
+                vi.spyOn(sync, "getRequestForResponse").mockReturnValue({
+                    roomSubscriptions: new Map([["!plain", { timeline_limit: 0, required_state: CATALOG_STATE }]]),
+                });
+                sync.emit(SlidingSyncEvent.Applied, { pos: "o", lists: {}, rooms: {}, extensions: {} });
+                const event = new MatrixEvent({
+                    type: INSTALLATIONS,
+                    state_key: "abc",
+                    content: { foo: "bar" },
+                    room_id: "!plain",
+                    sender: client.getUserId()!,
+                    event_id: "$installation",
+                });
+                room.currentState.setStateEvents([event]);
+                answer(["!plain"]);
+                await expect(read).resolves.toEqual([event]);
+
+                await vi.advanceTimersByTimeAsync(DEMAND_LINGER_MS + 200);
+                expect(sync.getRoomSubscriptions()).not.toContain("!plain");
+            });
+
+            it("finds no state in a room the server does not serve", async () => {
+                const read = manager.readRoomState(client, "!unknown", { type: INSTALLATIONS });
+                await tick();
+                expect(sync.getRoomSubscriptions()).toContain("!unknown");
+                answer(["!unknown"]);
+                await expect(read).resolves.toEqual([]);
+            });
+
+            it("gives up when the server does not answer in time", async () => {
+                vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+                knownRoom("!plain");
+                const outcome = manager
+                    .readRoomState(client, "!plain", { type: INSTALLATIONS }, 1000)
+                    .catch((error: unknown) => error);
+                await vi.advanceTimersByTimeAsync(1000);
+                expect(await outcome).toBeInstanceOf(RoomStateUnavailableError);
+            });
+
+            it("reads a list entry's state at once", async () => {
+                knownRoom("!listed");
+                (manager as unknown as { liveRooms: Set<string> }).liveRooms.add("!listed");
+                const modify = vi.spyOn(sync, "modifyRoomSubscriptions");
+                await expect(
+                    manager.readRoomState(client, "!listed", {
+                        type: "io.element.functional_members",
+                        stateKey: "",
+                    }),
+                ).resolves.toEqual([]);
+                await tick();
+                expect(modify).not.toHaveBeenCalled();
+            });
+
+            it("refuses to ask for every event type", () => {
+                expect(() => manager.demandRoomState("!plain", [{ type: "*" }])).toThrow();
+            });
+
+            it("asks for demanded state again on a new connection", async () => {
+                knownRoom("!plain");
+                const demand = manager.demandRoomState("!plain", [{ type: INSTALLATIONS }]);
+                await tick();
+                answer(["!plain"]);
+                expect(demand.isReady()).toBe(true);
+
+                const next = (await manager.setup(client))!;
+                expect(demand.isReady()).toBe(false);
+                expect(next.getRoomSubscriptions()).toContain("!plain");
+                next.stop();
+            });
+        });
+
+        it("reads a client's state as it is without sliding sync", async () => {
+            const room = knownRoom("!plain");
+            const event = new MatrixEvent({
+                type: "io.element.integrations.installations",
+                state_key: "abc",
+                content: {},
+                room_id: "!plain",
+                sender: client.getUserId()!,
+                event_id: "$installation",
+            });
+            room.currentState.setStateEvents([event]);
+            const idle = new SlidingSyncManager();
+            await expect(
+                idle.readRoomState(client, "!plain", { type: "io.element.integrations.installations" }),
+            ).resolves.toEqual([event]);
+            expect(idle.demandRoomState("!plain", [{ type: "io.element.integrations.installations" }]).isReady()).toBe(
+                true,
+            );
         });
 
         it("does nothing for prefetches and calls without sliding sync", () => {
