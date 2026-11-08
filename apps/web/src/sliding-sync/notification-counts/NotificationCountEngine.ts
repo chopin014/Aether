@@ -13,7 +13,7 @@ import {
     type IPushRules,
     KnownMembership,
     type MatrixClient,
-    type MatrixEvent,
+    MatrixEvent,
     MatrixEventEvent,
     type NotificationCount,
     NotificationCountType,
@@ -471,7 +471,7 @@ export class NotificationCountEngine implements RoomHistoryObserver {
             if (event.shouldAttemptDecryption()) void this.client.decryptEventIfNeeded(event);
             return;
         }
-        const actions = this.client.pushProcessor.actionsForEvent(event);
+        const actions = this.client.pushProcessor.actionsForEvent(asFirstSent(event));
         ledger.setContribution(id, { notify: !!actions.notify, highlight: !!actions.tweaks?.highlight, final: true });
     }
 
@@ -584,6 +584,23 @@ function hasPositiveCount(counts: RoomCounts): boolean {
         if (thread.total > 0 || thread.highlight > 0) return true;
     }
     return false;
+}
+
+/**
+ * The event as it was first sent, for push rules to read. An edited message notifies as it first did: a mention an
+ * edit adds is the edit's own, and a mention an edit removes was still notified. The rules read an event's content
+ * as its latest edit has it, so an edited message is given to them as a copy without the edit.
+ */
+function asFirstSent(event: MatrixEvent): MatrixEvent {
+    if (!event.replacingEvent()) return event;
+    // The event as it is now, such as its unsigned data, with the type and content the rules read: decrypted, and
+    // not the edit's.
+    return new MatrixEvent({
+        ...event.event,
+        type: event.getType(),
+        content: event.getOriginalContent(),
+        room_id: event.getRoomId(),
+    });
 }
 
 /** The event a redaction redacts, wherever the room version puts it. */
