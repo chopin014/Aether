@@ -84,17 +84,24 @@ export function requiredStateFor(selector: RoomStateSelector): [string, string] 
     return [selector.type, stateKey === undefined || STATE_KEY_TOKENS.has(stateKey) ? MSC3575_WILDCARD : stateKey];
 }
 
-/** Whether a subscription's `required_state` brings a selector's state. */
-export function requiredStateCovers(
+/** Whether a subscription's `required_state` brings what one `required_state` entry asks for. */
+export function requiredStateIncludes(
     requiredState: readonly (readonly string[])[],
-    selector: RoomStateSelector,
+    [type, stateKey]: readonly string[],
 ): boolean {
-    const [type, stateKey] = requiredStateFor(selector);
     return requiredState.some(
         ([entryType, entryKey]) =>
             (entryType === MSC3575_WILDCARD && entryKey === MSC3575_WILDCARD) ||
             (entryType === type && (entryKey === MSC3575_WILDCARD || entryKey === stateKey)),
     );
+}
+
+/** Whether a subscription's `required_state` brings a selector's state. */
+export function requiredStateCovers(
+    requiredState: readonly (readonly string[])[],
+    selector: RoomStateSelector,
+): boolean {
+    return requiredStateIncludes(requiredState, requiredStateFor(selector));
 }
 
 interface Demand {

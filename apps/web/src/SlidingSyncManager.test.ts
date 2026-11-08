@@ -2210,6 +2210,45 @@ describe("SlidingSyncManager", () => {
                 expect(sync.getRoomSubscriptions()).toContain(waiting);
             });
 
+            it("keeps admitting the same demanded state on applies that change nothing", async () => {
+                knownRoom("!open");
+                await manager.setRoomVisible("!open");
+                // Large enough that counting it twice would not fit a request.
+                manager.demandRoomState("!open", [{ type: `org.example.${"x".repeat(35_000)}` }]);
+                await tick();
+                expect(nameOf("!open")).toBe("room+!open");
+                const apply = (manager as unknown as { applySubscriptions(sliding: SlidingSync): void })
+                    .applySubscriptions;
+                const modify = vi.spyOn(sync, "modifyRoomSubscriptions");
+                apply.call(manager, sync);
+                apply.call(manager, sync);
+                expect(nameOf("!open")).toBe("room+!open");
+                expect(modify).not.toHaveBeenCalled();
+            });
+
+            it("does not count state an answer brought once the room no longer asks for it", async () => {
+                knownRoom("!open");
+                await manager.setRoomVisible("!open");
+                const demand = manager.demandRoomState("!open", [{ type: INSTALLATIONS }]);
+                await tick();
+                const sentSubscription = subscriptionOf("!open");
+                // The demanded state outgrows what one room is given before the answer is applied.
+                const types = Array.from({ length: MAX_DEMANDED_SELECTORS_PER_ROOM }, (_, i) => `org.example.${i}`);
+                for (let i = 0; i < types.length; i += 16) {
+                    manager.demandRoomState(
+                        "!open",
+                        types.slice(i, i + 16).map((type) => ({ type })),
+                    );
+                }
+                await tick();
+                expect(nameOf("!open")).toBe("room");
+                vi.spyOn(sync, "getRequestForResponse").mockReturnValue({
+                    roomSubscriptions: new Map([["!open", sentSubscription]]),
+                });
+                sync.emit(SlidingSyncEvent.Applied, { pos: "n", lists: {}, rooms: {}, extensions: {} });
+                expect(demand.isReady()).toBe(false);
+            });
+
             it("waits for the answer to be applied, not only confirmed", async () => {
                 // The SDK confirms a subscription before it applies the answer's rooms.
                 knownRoom("!open");

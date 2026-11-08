@@ -84,6 +84,7 @@ import {
     RoomStateUnavailableError,
     requiredStateCovers,
     requiredStateFor,
+    requiredStateIncludes,
 } from "./sliding-sync/RoomStateDemands";
 import { SlidingSyncCache } from "./sliding-sync/SlidingSyncCache";
 import { NotificationCountEngine } from "./sliding-sync/notification-counts/NotificationCountEngine";
@@ -696,6 +697,9 @@ export class SlidingSyncManager {
         if (desired.size > MAX_ROOM_SUBSCRIPTIONS) {
             logger.warn(`SlidingSync: ${desired.size} rooms need a subscription, more than the protocol allows`);
         }
+        // Rooms subscribed anyway are measured with their profile alone: what demands add is given room below.
+        const wasAdmitted = this.admittedDemands;
+        this.admittedDemands = new Set();
         // Every request carries every subscription, so the request is measured as it will be sent.
         let bytes = listBytes(slidingSync);
         const bytesFor = (roomId: string): number => {
@@ -707,8 +711,6 @@ export class SlidingSyncManager {
         // its limits: what it adds to a room that is subscribed anyway counts as much as a room subscribed for it.
         // Rooms subscribed anyway were measured above with their profile alone. A read that has no room fails rather
         // than waiting; a live demand waits for room.
-        const wasAdmitted = this.admittedDemands;
-        this.admittedDemands = new Set();
         for (const roomId of this.stateDemands.roomIdsByPriority()) {
             const subscribed = desired.has(roomId);
             const before = subscribed ? bytesFor(roomId) : 0;
@@ -1249,16 +1251,23 @@ export class SlidingSyncManager {
         const slidingSync = this.slidingSync;
         const sent = slidingSync?.getRequestForResponse(response);
         if (!slidingSync || !sent) return;
+        // What an answer brought counts only as far as the room is still subscribed with it: the subscription may
+        // have narrowed, such as when its demanded state lost its room, while the answer was being applied.
+        const keptCurrent = (roomId: string, answered: readonly (readonly string[])[]): (readonly string[])[] => {
+            const name = this.appliedNames.get(roomId);
+            const current = (name && this.subscriptionNamed(name)?.required_state) || [];
+            return answered.filter((entry) => requiredStateIncludes(current, entry));
+        };
         for (const [roomId, subscription] of sent.roomSubscriptions) {
             if (this.client?.getRoom(roomId) && slidingSync.getRoomSubscriptions().has(roomId)) {
-                this.appliedCoverage.set(roomId, subscription.required_state ?? []);
+                this.appliedCoverage.set(roomId, keptCurrent(roomId, subscription.required_state ?? []));
             }
         }
         for (const roomId of this.stateDemands.roomIds()) {
             const subscription = sent.roomSubscriptions.get(roomId);
             if (!subscription) continue;
             if (this.client?.getRoom(roomId)) {
-                this.stateDemands.answered(roomId, subscription.required_state ?? []);
+                this.stateDemands.answered(roomId, keptCurrent(roomId, subscription.required_state ?? []));
             } else if (!response.rooms?.[roomId]) {
                 // Sliding sync serves only rooms the user is in.
                 this.stateDemands.absent(roomId);
