@@ -206,8 +206,8 @@ async function watchLongTasks(page: Page): Promise<void> {
 }
 
 /**
- * How the page answered in the {@link AFTER_START_MS} after the room it opened at start was shown: its longest task,
- * and how long input would have waited in all, beyond the first 50 ms of each long task.
+ * How the page answered in the {@link AFTER_START_MS} after the room it opened at start was shown: the longest task
+ * running then, whole, and the blocking time in that window, the part of each long task beyond its first 50 ms.
  */
 async function blockingAfterStart(page: Page): Promise<{ longest: number; blocking: number }> {
     await page.waitForTimeout(AFTER_START_MS);
@@ -217,12 +217,16 @@ async function blockingAfterStart(page: Page): Promise<{ longest: number; blocki
             aetherBenchLongTasks?: { start: number; duration: number }[];
         };
         const shownAt = win.aetherBenchTextAt!;
+        const end = shownAt + windowMs;
         const tasks = (win.aetherBenchLongTasks ?? []).filter(
-            (task) => task.start + task.duration > shownAt && task.start < shownAt + windowMs,
+            (task) => task.start + task.duration > shownAt && task.start < end,
         );
+        // Only the blocking inside the window counts, for a task that started before it or ends after it.
+        const blockingInWindow = (task: { start: number; duration: number }): number =>
+            Math.max(0, Math.min(task.start + task.duration, end) - Math.max(task.start + 50, shownAt));
         return {
             longest: Math.max(0, ...tasks.map((task) => task.duration)),
-            blocking: tasks.reduce((sum, task) => sum + Math.max(0, task.duration - 50), 0),
+            blocking: tasks.reduce((sum, task) => sum + blockingInWindow(task), 0),
         };
     }, AFTER_START_MS);
 }
