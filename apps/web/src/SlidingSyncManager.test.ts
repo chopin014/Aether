@@ -37,7 +37,7 @@ import EventEmitter from "node:events";
 import { waitFor } from "test-utils-rtl";
 import { mkStubRoom, stubClient } from "test-utils";
 
-import { SlidingSyncManager } from "./SlidingSyncManager";
+import { MAX_STATE_READ_ROOMS, SlidingSyncManager } from "./SlidingSyncManager";
 import { SlidingSyncCache } from "./sliding-sync/SlidingSyncCache";
 import { CATALOG_STATE } from "./sliding-sync/roomStateProfiles";
 import { type RoomSubscriptionLeases } from "./sliding-sync/RoomSubscriptionLeases";
@@ -2053,6 +2053,33 @@ describe("SlidingSyncManager", () => {
                 ).resolves.toEqual([]);
                 await tick();
                 expect(modify).not.toHaveBeenCalled();
+            });
+
+            it("reads every member as loaded, without asking for them all", async () => {
+                // As under regular sync, members are loaded lazily: asking for all of them would bring every
+                // member of a large room.
+                knownRoom("!large");
+                await expect(manager.readRoomState(client, "!large", { type: EventType.RoomMember })).resolves.toEqual(
+                    [],
+                );
+                await tick();
+                expect(sync.getRoomSubscriptions()).not.toContain("!large");
+            });
+
+            it("reads a few rooms at a time", async () => {
+                const roomIds = Array.from({ length: MAX_STATE_READ_ROOMS + 1 }, (_, i) => `!room${i}`);
+                for (const roomId of roomIds) knownRoom(roomId);
+                const reads = roomIds.map((roomId) => manager.readRoomState(client, roomId, { type: INSTALLATIONS }));
+                await tick();
+                expect(sync.getRoomSubscriptions().size).toBe(MAX_STATE_READ_ROOMS);
+                expect(sync.getRoomSubscriptions()).not.toContain(roomIds[MAX_STATE_READ_ROOMS]);
+
+                answer([roomIds[0]]);
+                await expect(reads[0]).resolves.toEqual([]);
+                await tick();
+                expect(sync.getRoomSubscriptions()).toContain(roomIds[MAX_STATE_READ_ROOMS]);
+                answer(roomIds);
+                await expect(Promise.all(reads)).resolves.toHaveLength(roomIds.length);
             });
 
             it("refuses to ask for every event type", () => {

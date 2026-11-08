@@ -234,6 +234,12 @@ function subscriptionBytes(roomId: string, name: string, subscription: MSC3575Ro
 /** How long a read of room state waits for the server, such as one an integration manager or widget asked for. */
 export const ROOM_STATE_READ_TIMEOUT_MS = 15_000;
 
+/**
+ * The most rooms whose state is being asked for by reads at once. A reader of every room, such as a widget allowed
+ * every room, reads them a few at a time instead of making one request carry them all.
+ */
+export const MAX_STATE_READ_ROOMS = 8;
+
 /** The bytes the account lists take in a request. */
 function listBytes(slidingSync: SlidingSync): number {
     let size = 0;
@@ -292,6 +298,9 @@ export class SlidingSyncManager {
     // it never changes meaning, and the current connection is given each one once.
     private readonly derivedSubscriptions = new Map<string, MSC3575RoomSubscription>();
     private readonly registeredDerived = new Set<string>();
+    // Rooms with reads waiting for their state, with how many each, and reads waiting for a room to be free.
+    private readonly readingRooms = new Map<string, number>();
+    private readonly readQueue: Array<() => void> = [];
     private flushQueued = false;
     private flushTimer?: ReturnType<typeof setTimeout>;
     // The Space whose channels are subscribed, the rooms met walking its tree, and the Space asked for before the
@@ -923,8 +932,13 @@ export class SlidingSyncManager {
         };
         requiredStateFor(selector);
         if (!this.isActiveFor(client)) return read();
+        // Every member of a room is loaded lazily, as under regular sync: asking for them all would bring every
+        // member of large rooms. One member is asked for like any other state.
+        if (selector.type === EventType.RoomMember && selector.stateKey === undefined) return read();
         // A room the server does not serve has no state to read, as under regular sync.
         if (!client.getRoom(roomId) && !this.mayStillArrive(roomId)) return [];
+        if (this.isStateHere(roomId, selector)) return read();
+        const leave = await this.enterRead(roomId);
         const demand = this.demandRoomState(roomId, [selector]);
         try {
             await demand.whenReady(timeoutMs);
@@ -933,9 +947,30 @@ export class SlidingSyncManager {
             throw error;
         } finally {
             demand.release();
+            leave();
         }
         if (!this.isActiveFor(client)) throw new RoomStateUnavailableError("released", roomId);
         return read();
+    }
+
+    /** Wait for a room to be read from: one already being read, or a free place among {@link MAX_STATE_READ_ROOMS}. */
+    private async enterRead(roomId: string): Promise<() => void> {
+        while (!this.readingRooms.has(roomId) && this.readingRooms.size >= MAX_STATE_READ_ROOMS) {
+            await new Promise<void>((resolve) => this.readQueue.push(resolve));
+        }
+        this.readingRooms.set(roomId, (this.readingRooms.get(roomId) ?? 0) + 1);
+        let left = false;
+        return () => {
+            if (left) return;
+            left = true;
+            const reads = this.readingRooms.get(roomId)! - 1;
+            if (reads > 0) {
+                this.readingRooms.set(roomId, reads);
+                return;
+            }
+            this.readingRooms.delete(roomId);
+            this.readQueue.shift()?.();
+        };
     }
 
     /**

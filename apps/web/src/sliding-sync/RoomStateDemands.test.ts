@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
     DEMAND_LINGER_MS,
+    MAX_LINGERING_ROOMS,
     RoomStateDemands,
     RoomStateUnavailableError,
     requiredStateCovers,
@@ -109,6 +110,13 @@ describe("RoomStateDemands", () => {
             vi.advanceTimersByTime(DEMAND_LINGER_MS);
             expect(demands.has("!room")).toBe(false);
             expect(onChange).toHaveBeenCalledTimes(1);
+        });
+
+        it("keeps only the most recently released rooms asked for", () => {
+            const roomIds = Array.from({ length: MAX_LINGERING_ROOMS + 1 }, (_, i) => `!room${i}`);
+            for (const roomId of roomIds) demands.acquire(roomId, [{ type: INSTALLATIONS }]).release();
+            expect(demands.has("!room0")).toBe(false);
+            for (const roomId of roomIds.slice(1)) expect(demands.has(roomId)).toBe(true);
         });
 
         it("rejects a released demand's wait", async () => {

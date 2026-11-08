@@ -51,6 +51,12 @@ export class RoomStateUnavailableError extends Error {
 /** How long a room's state is kept asked for after its last demand is released, so repeated reads are instant. */
 export const DEMAND_LINGER_MS = 30_000;
 
+/**
+ * The most rooms whose released state is kept asked for. Every request carries every subscription, so a reader of
+ * many rooms, one after another, must not leave them all subscribed: the longest released are let go first.
+ */
+export const MAX_LINGERING_ROOMS = 8;
+
 /** Protocol tokens that a state key cannot be sent as: such keys are asked for with every key, then picked out. */
 const STATE_KEY_TOKENS = new Set<string>([MSC3575_WILDCARD, MSC3575_STATE_KEY_ME, MSC3575_STATE_KEY_LAZY]);
 
@@ -113,6 +119,8 @@ const realClock: LeaseClock = {
  */
 export class RoomStateDemands {
     private readonly rooms = new Map<string, RoomEntry>();
+    // Rooms with released state still asked for, the longest released first.
+    private readonly lingeringOrder = new Set<string>();
 
     /**
      * @param onChange - Called when the rooms or selectors asked for change, to send the change.
@@ -221,6 +229,7 @@ export class RoomStateDemands {
             }
         }
         this.rooms.clear();
+        this.lingeringOrder.clear();
     }
 
     private isCovered(entry: RoomEntry, selectors: readonly RoomStateSelector[]): boolean {
@@ -271,11 +280,25 @@ export class RoomStateDemands {
             entry.lingering.set(key, { selector, ready });
         }
         if (entry.lingerTimer !== undefined) this.clock.clearTimeout(entry.lingerTimer);
-        entry.lingerTimer = this.clock.setTimeout(() => {
-            entry.lingerTimer = undefined;
-            entry.lingering.clear();
-            if (entry.demands.size === 0) this.rooms.delete(demand.roomId);
-            this.onChange();
-        }, DEMAND_LINGER_MS);
+        entry.lingerTimer = this.clock.setTimeout(() => this.stopLingering(demand.roomId), DEMAND_LINGER_MS);
+        // Most recently released last.
+        this.lingeringOrder.delete(demand.roomId);
+        this.lingeringOrder.add(demand.roomId);
+        for (const roomId of this.lingeringOrder) {
+            if (this.lingeringOrder.size <= MAX_LINGERING_ROOMS) break;
+            this.stopLingering(roomId);
+        }
+    }
+
+    /** Stop asking for a room's released state. */
+    private stopLingering(roomId: string): void {
+        this.lingeringOrder.delete(roomId);
+        const entry = this.rooms.get(roomId);
+        if (!entry) return;
+        if (entry.lingerTimer !== undefined) this.clock.clearTimeout(entry.lingerTimer);
+        entry.lingerTimer = undefined;
+        entry.lingering.clear();
+        if (entry.demands.size === 0) this.rooms.delete(roomId);
+        this.onChange();
     }
 }
