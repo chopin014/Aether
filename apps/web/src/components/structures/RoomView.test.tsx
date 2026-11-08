@@ -71,6 +71,7 @@ import { type LocalRoom, LocalRoomState } from "../../models/LocalRoom";
 import { DirectoryMember } from "../../utils/direct-messages";
 import { createDmLocalRoom } from "../../utils/dm/createDmLocalRoom";
 import { UPDATE_EVENT } from "../../stores/AsyncStore";
+import RoomScrollStateStore from "../../stores/RoomScrollStateStore";
 import { SDKContext } from "../../contexts/SDKContext";
 import WidgetUtils from "../../utils/WidgetUtils";
 import { WidgetType } from "../../widgets/WidgetType";
@@ -508,6 +509,26 @@ describe("RoomView", () => {
         await waitFor(() => expect(ref.current?.state.roomId).toBe(room.roomId));
         expect(ref.current?.state.room).toBe(room);
         expect(ref.current?.state.initialEventId).toBeUndefined();
+    });
+
+    it("returns to the position someone left a room at, once sliding sync has loaded it", async () => {
+        // Under sliding sync the room is named while its subscription loads, then again once it has.
+        RoomScrollStateStore.setScrollState(room.roomId, { focussedEvent: "$left-here", pixelOffset: 42 });
+        vi.spyOn(stores.slidingSyncManager, "isActiveFor").mockReturnValue(true);
+        const visible = Promise.withResolvers<"known">();
+        vi.spyOn(stores.slidingSyncManager, "setRoomVisible").mockReturnValue(visible.promise);
+        const ref = createRef<RoomView>();
+        await mountRoomView(ref);
+        expect(stores.roomViewStore.isRoomLoading()).toBe(true);
+
+        await act(async () => {
+            visible.resolve("known");
+            await flushPromises();
+        });
+        await waitFor(() => expect(stores.roomViewStore.isRoomLoading()).toBe(false));
+        await waitFor(() => expect(ref.current?.state.initialEventId).toBe("$left-here"));
+        expect(ref.current?.state.initialEventPixelOffset).toBe(42);
+        RoomScrollStateStore.setScrollState(room.roomId, null);
     });
 
     it("shares native sliding-sync roster hydration with the member list instead of importing cached members", async () => {
