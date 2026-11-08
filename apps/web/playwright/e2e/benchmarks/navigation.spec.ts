@@ -207,11 +207,20 @@ async function watchLongTasks(page: Page): Promise<void> {
 
 /**
  * How the page answered in the {@link AFTER_START_MS} after the room it opened at start was shown: the longest task
- * running then, whole, and the blocking time in that window, the part of each long task beyond its first 50 ms.
+ * running then, whole, the blocking time in that window, the part of each long task beyond its first 50 ms, and how
+ * long the main thread was busy with tasks in all, short ones included.
  */
-async function blockingAfterStart(page: Page): Promise<{ longest: number; blocking: number }> {
+async function blockingAfterStart(page: Page): Promise<{ longest: number; blocking: number; busy: number }> {
+    // Main-thread time spent on tasks, in seconds since the page was opened, as Chromium counts it.
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Performance.enable");
+    const taskTime = async (): Promise<number> =>
+        (await cdp.send("Performance.getMetrics")).metrics.find((metric) => metric.name === "TaskDuration")?.value ?? 0;
+    const busyBefore = await taskTime();
     await page.waitForTimeout(AFTER_START_MS);
-    return page.evaluate((windowMs) => {
+    const busy = Math.round(((await taskTime()) - busyBefore) * 1000);
+    await cdp.detach();
+    const blocked = await page.evaluate((windowMs) => {
         const win = window as unknown as {
             aetherBenchTextAt?: number;
             aetherBenchLongTasks?: { start: number; duration: number }[];
@@ -229,6 +238,7 @@ async function blockingAfterStart(page: Page): Promise<{ longest: number; blocki
             blocking: tasks.reduce((sum, task) => sum + blockingInWindow(task), 0),
         };
     }, AFTER_START_MS);
+    return { ...blocked, busy };
 }
 
 /** Startup marks recorded by the app, in milliseconds since navigation. */
@@ -422,6 +432,7 @@ for (const protocol of ["regular", "sliding"] as const) {
             const fresh = await blockingAfterStart(page);
             add(samples, "fresh: longest task after shown", fresh.longest);
             add(samples, "fresh: blocking after shown", fresh.blocking);
+            add(samples, "fresh: busy after shown", fresh.busy);
 
             progress("fresh start measured");
             // Coming back: the app restarts with whatever it keeps on this device.
@@ -442,6 +453,7 @@ for (const protocol of ["regular", "sliding"] as const) {
                 const warm = await blockingAfterStart(page);
                 add(samples, "warm: longest task after shown", warm.longest);
                 add(samples, "warm: blocking after shown", warm.blocking);
+                add(samples, "warm: busy after shown", warm.busy);
             }
 
             progress("warm starts measured");
