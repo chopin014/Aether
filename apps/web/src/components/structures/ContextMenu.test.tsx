@@ -10,7 +10,8 @@ Please see LICENSE files in the repository root for full details.
 
 import React from "react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { act, render } from "test-utils-rtl";
+import { act, render, screen } from "test-utils-rtl";
+import userEvent from "@testing-library/user-event";
 
 import ContextMenu, { toRightOf, ChevronFace } from "./ContextMenu";
 import UIStore from "../../stores/UIStore";
@@ -267,6 +268,72 @@ describe("ContextMenu", () => {
             expect(wrapper().style.visibility).toBe("");
             // An option of the menu, not an attribute of what it renders.
             expect(document.querySelector("[stayopenunderdialogs]")).toBeNull();
+        });
+
+        it("stays above the dialog it was opened from, hidden only under one opened over it", async () => {
+            Modal.forceCloseAllModals();
+            act(() => {
+                Modal.createDialog(BaseDialog);
+            });
+            render(
+                <ContextMenu top={0} left={0} onFinished={vi.fn()} stayOpenUnderDialogs={true}>
+                    <React.Fragment />
+                </ContextMenu>,
+            );
+            const wrapper = (): HTMLElement => document.querySelector<HTMLElement>(".mx_ContextualMenu_wrapper")!;
+            expect(wrapper().style.visibility).toBe("");
+
+            let over!: ReturnType<typeof Modal.createDialog>;
+            act(() => {
+                over = Modal.createDialog(BaseDialog);
+            });
+            expect(wrapper().style.visibility).toBe("hidden");
+            await act(async () => {
+                await over.close();
+            });
+            // The dialog it was opened from is still open, and it is above that one.
+            expect(wrapper().style.visibility).toBe("");
+            Modal.forceCloseAllModals();
+        });
+
+        it("keeps what was typed in it, and ignores the keys, while a dialog over it is open", async () => {
+            Modal.forceCloseAllModals();
+            const onFinished = vi.fn();
+            render(
+                <ContextMenu
+                    top={0}
+                    left={0}
+                    onFinished={onFinished}
+                    stayOpenUnderDialogs={true}
+                    focusLock={true}
+                    managed={false}
+                >
+                    <input aria-label="Name" />
+                </ContextMenu>,
+            );
+            const input = screen.getByRole("textbox", { name: "Name" });
+            await userEvent.type(input, "Riot");
+
+            act(() => {
+                Modal.createDialog(BaseDialog, { title: "Edit image" });
+            });
+            // Hidden under the dialog, the menu ignores its keys, even with the focus still in it.
+            await userEvent.keyboard("{Escape}");
+            expect(onFinished).not.toHaveBeenCalled();
+            expect(Modal.hasDialogs()).toBe(true);
+
+            // Escaped in the dialog, which has the focus in a browser.
+            act(() => screen.getByRole("dialog", { name: "Edit image" }).focus());
+            await act(async () => {
+                await userEvent.keyboard("{Escape}");
+            });
+
+            expect(onFinished).not.toHaveBeenCalled();
+            expect(Modal.hasDialogs()).toBe(false);
+            const wrapper = document.querySelector<HTMLElement>(".mx_ContextualMenu_wrapper")!;
+            expect(wrapper.style.visibility).toBe("");
+            // Where the focus goes back to is the focus locks' work, checked in a browser by the Space e2e tests.
+            expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Riot");
         });
 
         it("should not automatically close when a modal is opened under the existing one", () => {

@@ -177,6 +177,14 @@ export class ModalManager extends TypedEventEmitter<ModalManagerEvent, HandlerMa
         modal.hidden = !modal.hidden;
     }
 
+    /**
+     * The dialog on top, as an opaque value to tell whether it has changed, such as whether a dialog opened over a
+     * menu has closed again. Undefined when there is none.
+     */
+    public get topDialog(): unknown {
+        return this.getCurrentModal();
+    }
+
     public hasDialogs(): boolean {
         return !!this.priorityModal || !!this.staticModal || this.modals.length > 0;
     }

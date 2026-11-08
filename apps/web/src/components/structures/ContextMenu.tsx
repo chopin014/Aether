@@ -125,6 +125,8 @@ interface IState {
 // this will allow the ContextMenu to manage its own focus using arrow keys as per the ARIA guidelines.
 export default class ContextMenu extends React.PureComponent<React.PropsWithChildren<IProps>, IState> {
     private readonly initialFocus: HTMLElement;
+    // The dialog on top when the menu opened, such as the one it was opened from: the menu belongs above it.
+    private readonly dialogBelow = Modal.topDialog;
 
     public static defaultProps = {
         hasBackground: true,
@@ -155,7 +157,7 @@ export default class ContextMenu extends React.PureComponent<React.PropsWithChil
     private onModalOpen = (): void => {
         if (this.props.stayOpenUnderDialogs) {
             // It is hidden under the dialog, and lets it have the focus, until the dialog closes.
-            this.setState({ underDialog: Modal.hasDialogs() });
+            this.setState({ underDialog: this.isUnderDialog() });
             return;
         }
         this.props.onFinished?.();
@@ -164,8 +166,14 @@ export default class ContextMenu extends React.PureComponent<React.PropsWithChil
     private onModalClosed = (): void => {
         if (!this.props.stayOpenUnderDialogs) return;
         // Closing every dialog at once announces each before letting go of them, so look once that is done.
-        queueMicrotask(() => this.setState({ underDialog: Modal.hasDialogs() }));
+        queueMicrotask(() => this.setState({ underDialog: this.isUnderDialog() }));
     };
+
+    /** Whether a dialog opened since the menu did is on top of it. */
+    private isUnderDialog(): boolean {
+        const top = Modal.topDialog;
+        return !!top && top !== this.dialogBelow;
+    }
 
     private collectContextMenuRect = (element: HTMLDivElement): void => {
         // We don't need to clean up when unmounting, so ignore
@@ -235,6 +243,8 @@ export default class ContextMenu extends React.PureComponent<React.PropsWithChil
     // All of the item/option navigation is delegated to RovingTabIndex.
     private onKeyDown = (ev: React.KeyboardEvent): void => {
         ev.stopPropagation(); // prevent keyboard propagating out of the context menu, we're focus-locked
+        // Hidden under a dialog, its keys are the dialog's: Escape there must not close the menu too.
+        if (this.state.underDialog) return;
 
         const action = getKeyBindingsManager().getAccessibilityAction(ev);
 
