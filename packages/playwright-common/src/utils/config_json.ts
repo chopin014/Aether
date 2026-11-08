@@ -40,6 +40,9 @@ export function buildConfigJson(
             return obj;
         }, {}),
     };
+    // AETHER_E2E_SLIDING_SYNC=1 runs every client with Simplified Sliding Sync, to check it matches regular sync.
+    // Here, rather than in a fixture, so a test's own labs flags and second clients get it too.
+    if (process.env["AETHER_E2E_SLIDING_SYNC"] === "1") json["features"]["feature_simplified_sliding_sync"] = true;
     if (disablePresence) {
         json["enable_presence_by_hs_url"] = {
             [homeserverBaseUrl]: false,

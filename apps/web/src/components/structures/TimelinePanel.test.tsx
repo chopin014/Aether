@@ -493,6 +493,31 @@ describe("TimelinePanel", () => {
         });
     });
 
+    it("pages back to history added before the window after it loaded without a token", async () => {
+        const [client, room, events] = setupTestData();
+        // Restored from this device: the newest event only, and no token for history before it.
+        const [timeline, timelineSet] = mkTimeline(room, events.slice(1, 2));
+
+        await withScrollPanelMountSpy(async (mountSpy) => {
+            const { container } = render(
+                <TimelinePanel {...getProps(room, events)} timelineSet={timelineSet} />,
+                clientAndSDKContextRenderOptions(client, sdkContext),
+            );
+            await waitFor(() => expectEvents(container, [events[1]]));
+            const scrollPanel = mountSpy.mock.contexts[0] as ScrollPanel;
+            await expect(scrollPanel.props.onFillRequest!(true)).resolves.toBe(false);
+
+            // A sync response brings the older event, at the start of the timeline.
+            timeline.addEvent(events[0], { toStartOfTimeline: true, addToState: false });
+            await act(async () => {
+                client.emit(RoomEvent.Timeline, events[0], room, true, false, { timeline, liveEvent: false });
+            });
+            await expect(scrollPanel.props.onFillRequest!(true)).resolves.toBe(true);
+
+            await waitFor(() => expectEvents(container, [events[0], events[1]]));
+        });
+    });
+
     it("unpaginates", async () => {
         const [, room, events] = setupTestData();
 
