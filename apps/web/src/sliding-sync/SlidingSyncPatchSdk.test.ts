@@ -198,7 +198,7 @@ describe("sliding sync timelines with gaps", () => {
                 name: "Room",
             });
         };
-        await receive({ initial: true, required_state: requiredState, timeline: [message("$a", 1), message("$b", 2)] });
+        await receive({ initial: true, required_state: [...requiredState], timeline: [message("$a", 1), message("$b", 2)] });
         const room = client.getRoom(roomId)!;
         const timelineIds = (): string[] =>
             room
@@ -840,7 +840,7 @@ describe("sliding sync restoring a saved snapshot", () => {
         rooms: {
             [roomId]: {
                 name: "Saved",
-                required_state: requiredState,
+                required_state: [...requiredState],
                 timeline: [message("$a", 1), message("$b", 2)],
                 limited: true,
                 prev_batch: "saved",
@@ -1356,7 +1356,7 @@ describe("polls under sliding sync", () => {
                 name: "Room",
             });
         };
-        await receive({ initial: true, required_state: requiredState, timeline });
+        await receive({ initial: true, required_state: [...requiredState], timeline });
         return { client, room: client.getRoom(roomId)!, receive };
     }
 
