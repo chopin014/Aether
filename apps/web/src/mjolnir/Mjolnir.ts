@@ -6,7 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import { type MatrixEvent, RoomStateEvent, Preset } from "matrix-js-sdk/src/matrix";
+import { ClientEvent, type MatrixEvent, type Room, RoomStateEvent, Preset } from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
 
 import { MatrixClientPeg } from "../MatrixClientPeg";
@@ -22,6 +22,9 @@ import { SlidingSyncManager } from "../SlidingSyncManager";
 import { type RoomStateDemand } from "../sliding-sync/RoomStateDemands";
 
 // TODO: Move this and related files to the js-sdk or something once finalized.
+
+/** How long a ban list room's rules are waited for, to read the lists again once they arrive. */
+const LIST_RULES_TIMEOUT_MS = 5 * 60_000;
 
 export class Mjolnir {
     private static instance?: Mjolnir;
@@ -63,6 +66,7 @@ export class Mjolnir {
         if (!MatrixClientPeg.get()) return;
         this.updateLists(SettingsStore.getValue("mjolnirRooms"));
         MatrixClientPeg.get()!.on(RoomStateEvent.Events, this.onEvent);
+        MatrixClientPeg.get()!.on(ClientEvent.Room, this.onRoom);
     }
 
     public stop(): void {
@@ -73,6 +77,7 @@ export class Mjolnir {
         this.dispatcherRef = undefined;
 
         MatrixClientPeg.get()?.removeListener(RoomStateEvent.Events, this.onEvent);
+        MatrixClientPeg.get()?.removeListener(ClientEvent.Room, this.onRoom);
         this.holdListRooms([]);
     }
 
@@ -86,7 +91,16 @@ export class Mjolnir {
         for (const roomId of roomIds) {
             if (this.listDemands.has(roomId)) continue;
             const rules = ALL_RULE_TYPES.map((type) => ({ type }));
-            this.listDemands.set(roomId, SlidingSyncManager.instance.demandRoomState(roomId, rules));
+            const demand = SlidingSyncManager.instance.demandRoomState(roomId, rules);
+            this.listDemands.set(roomId, demand);
+            // The rules can arrive without a state event for an existing room, such as with the room itself: the
+            // lists are read again once they have.
+            demand.whenReady(LIST_RULES_TIMEOUT_MS).then(
+                () => {
+                    if (this.listDemands.get(roomId) === demand) this.updateLists(this._roomIds);
+                },
+                () => {},
+            );
         }
     }
 
@@ -141,6 +155,11 @@ export class Mjolnir {
         await SettingsStore.setValue("mjolnirRooms", null, SettingLevel.ACCOUNT, roomIds);
         this._lists = this._lists.filter((b) => b.roomId !== roomId);
     }
+
+    // A list room's state is told before the room is stored, when the client cannot give the room to read it from.
+    private onRoom = (room: Room): void => {
+        if (this._roomIds.includes(room.roomId)) this.updateLists(this._roomIds);
+    };
 
     private onEvent = (event: MatrixEvent): void => {
         if (!MatrixClientPeg.get()) return;

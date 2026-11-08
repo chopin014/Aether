@@ -7,6 +7,7 @@ Please see LICENSE in the repository root for full details.
 */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ClientEvent, EventType, MatrixEvent, Room, type MatrixClient } from "matrix-js-sdk/src/matrix";
 import { stubClient } from "test-utils";
 
 import { Mjolnir } from "./Mjolnir";
@@ -16,9 +17,10 @@ import { SlidingSyncManager } from "../SlidingSyncManager";
 
 describe("Mjolnir", () => {
     let held: Map<string, number>;
+    let client: MatrixClient;
 
     beforeEach(() => {
-        stubClient();
+        client = stubClient();
         held = new Map();
         vi.spyOn(SlidingSyncManager.instance, "demandRoomState").mockImplementation((roomId) => {
             held.set(roomId, (held.get(roomId) ?? 0) + 1);
@@ -68,5 +70,32 @@ describe("Mjolnir", () => {
 
         mjolnir.stop();
         expect(held.size).toBe(0);
+    });
+
+    it("reads a list's rules once its room is stored, when they arrived with the room", () => {
+        // The client tells of a new room's state before it stores the room, so the lists cannot read it then.
+        vi.spyOn(SettingsStore, "getValue").mockImplementation(((name: string) =>
+            name === "mjolnirRooms" ? ["!list:example.org"] : undefined) as unknown as typeof SettingsStore.getValue);
+        vi.mocked(client.getRoom).mockReturnValue(null);
+        const mjolnir = new Mjolnir();
+        mjolnir.setup();
+        expect(mjolnir.isUserBanned("@spammer:example.org")).toBe(false);
+
+        const room = new Room("!list:example.org", client, client.getSafeUserId());
+        room.currentState.setStateEvents([
+            new MatrixEvent({
+                type: EventType.PolicyRuleUser,
+                state_key: "rule-1",
+                sender: "@moderator:example.org",
+                room_id: room.roomId,
+                event_id: "$rule",
+                content: { entity: "@spammer:example.org", recommendation: "m.ban", reason: "spam" },
+            }),
+        ]);
+        vi.mocked(client.getRoom).mockImplementation((roomId) => (roomId === room.roomId ? room : null));
+        client.emit(ClientEvent.Room, room);
+
+        expect(mjolnir.isUserBanned("@spammer:example.org")).toBe(true);
+        mjolnir.stop();
     });
 });
