@@ -133,6 +133,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
     // changed meanwhile.
     private readonly roomUpdateHolds = new Set<object>();
     private roomUpdatesHeld = false;
+    private stopHoldingForBatches?: () => void;
 
     public constructor(
         dispatcher: MatrixDispatcher,
@@ -1287,6 +1288,8 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
             this.matrixClient.removeListener(RoomStateEvent.Members, this.onRoomStateMembers);
             this.matrixClient.removeListener(ClientEvent.AccountData, this.onAccountData);
         }
+        this.stopHoldingForBatches?.();
+        this.stopHoldingForBatches = undefined;
         await this.reset();
     }
 
@@ -1298,6 +1301,12 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         this.matrixClient.on(RoomStateEvent.Events, this.onRoomState);
         this.matrixClient.on(RoomStateEvent.Members, this.onRoomStateMembers);
         this.matrixClient.on(ClientEvent.AccountData, this.onAccountData);
+        // Sliding sync brings rooms in batches, such as a response bringing the whole account, or the rooms this
+        // device saved: each batch is worked out once it is applied.
+        this.stopHoldingForBatches?.();
+        this.stopHoldingForBatches = this.sdkContext.slidingSyncManager.holdWhileApplyingRooms(() =>
+            this.holdRoomUpdates(),
+        );
 
         const oldMetaSpaces = this._enabledMetaSpaces;
         const enabledMetaSpaces = SettingsStore.getValue("Spaces.enabledMetaSpaces");

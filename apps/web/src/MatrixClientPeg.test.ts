@@ -343,7 +343,13 @@ describe("MatrixClientPeg", () => {
             expect(prefetch).toHaveBeenCalledWith(testPeg.safeGet());
             expect(prefetch.mock.invocationCallOrder[0]).toBeLessThan(initCrypto.mock.invocationCallOrder[0]);
             expect(snapshotLoader).toHaveBeenCalledWith(testPeg.safeGet());
-            expect(startClient).toHaveBeenCalledWith(expect.objectContaining({ slidingSyncSnapshot: loader }));
+            expect(startClient).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    slidingSyncSnapshot: loader,
+                    // What depends on every room works the saved rooms out once for each batch the SDK applies.
+                    slidingSyncSavedRoomsBatch: SlidingSyncManager.instance.holdForSavedRooms,
+                }),
+            );
         });
 
         it("should initialise the rust crypto library by default", async () => {

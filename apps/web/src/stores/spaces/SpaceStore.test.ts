@@ -1908,5 +1908,26 @@ describe("SpaceStore", () => {
                 expect(store.isRoomInSpace(space1, room1)).toBe(true);
             });
         });
+
+        it("is held while each sliding sync response is applied, until the store is reset", async () => {
+            const stopHolding = vi.fn();
+            const holdWhileApplying = vi
+                .spyOn(sdkContext.slidingSyncManager, "holdWhileApplyingRooms")
+                .mockReturnValue(stopHolding);
+            mkSpace(space1, [room1]);
+            await run();
+            expect(holdWhileApplying).toHaveBeenCalledTimes(1);
+
+            // The manager starts the hold as a response arrives.
+            const release = holdWhileApplying.mock.calls[0][0]();
+            arrive(room1);
+            expect(store.isRoomInSpace(space1, room1)).toBe(false);
+            release();
+            expect(store.isRoomInSpace(space1, room1)).toBe(true);
+
+            await testUtils.resetAsyncStoreWithClient(store);
+            expect(stopHolding).toHaveBeenCalled();
+            holdWhileApplying.mockRestore();
+        });
     });
 });

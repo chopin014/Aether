@@ -371,6 +371,10 @@ export class SlidingSyncManager {
     private readonly leftWhileAway = new Set<string>();
     // Told when it changes whether a room may still arrive or has, such as for a channel opened before it arrived.
     private readonly arrivalListeners = new Set<() => void>();
+    // What is held while sync applies a batch of rooms, such as the Space store working out every Space's rooms once
+    // for all the rooms a response brings, and what releases the holds of the response being applied.
+    private readonly roomBatchHolds = new Set<() => () => void>();
+    private releaseResponseHolds?: () => void;
     // Whether the server has answered a request on the current connection; how many requests in a row failed as
     // sliding sync that does not work, since it last answered; and how many in a row it said it did not know.
     private answeredConnection = false;
@@ -479,6 +483,8 @@ export class SlidingSyncManager {
         this.slidingSync.on(SlidingSyncEvent.Lifecycle, this.onResponseApplied);
         this.slidingSync.on(SlidingSyncEvent.RoomData, this.onLiveRoomData);
         this.slidingSync.on(SlidingSyncEvent.Applied, this.onStateApplied);
+        // After what follows each response here, so what was held sees all of it.
+        this.slidingSync.on(SlidingSyncEvent.Applied, this.endResponseHolds);
         // The server's counts are not real (Synapse sends zero), so they are worked out here.
         this.countEngine?.stop();
         const countEngine = new NotificationCountEngine(client, this.slidingSync);
@@ -496,6 +502,9 @@ export class SlidingSyncManager {
             ownedSync.off(SlidingSyncEvent.Lifecycle, this.onResponseApplied);
             ownedSync.off(SlidingSyncEvent.RoomData, this.onLiveRoomData);
             ownedSync.off(SlidingSyncEvent.Applied, this.onStateApplied);
+            ownedSync.off(SlidingSyncEvent.Applied, this.endResponseHolds);
+            // A response cut short by stopping is never applied in full.
+            this.endResponseHolds();
             countEngine.stop();
             stop();
         };
@@ -1187,6 +1196,53 @@ export class SlidingSyncManager {
     }
 
     /**
+     * Hold something while sliding sync applies a batch of rooms: each response, and each batch of the rooms this
+     * device saved. `hold` is called as a batch starts, and what it returns once the batch is applied, or was cut short
+     * or never finishes.
+     * @param hold - Starts a hold and returns what ends it.
+     * @returns A function to stop holding for later batches.
+     */
+    public holdWhileApplyingRooms(hold: () => () => void): () => void {
+        this.roomBatchHolds.add(hold);
+        return () => this.roomBatchHolds.delete(hold);
+    }
+
+    /**
+     * Start every hold for a batch of saved rooms the SDK applies. Passed to the SDK as `slidingSyncSavedRoomsBatch`.
+     * @returns What ends the holds.
+     */
+    public readonly holdForSavedRooms = (): (() => void) => this.startRoomBatchHolds();
+
+    /**
+     * Start every hold, ended by the returned function, or after a while: a batch that never finishes, such as a
+     * response whose processing failed, holds nothing for long.
+     */
+    private startRoomBatchHolds(): () => void {
+        if (this.roomBatchHolds.size === 0) return () => {};
+        const releases = [...this.roomBatchHolds].map((hold) => hold());
+        let ended = false;
+        const end = (): void => {
+            if (ended) return;
+            ended = true;
+            clearTimeout(timer);
+            for (const release of releases) release();
+        };
+        const timer = setTimeout(end, RESPONSE_STALL_MS);
+        return end;
+    }
+
+    private beginResponseHolds(): void {
+        this.endResponseHolds();
+        this.releaseResponseHolds = this.startRoomBatchHolds();
+    }
+
+    private readonly endResponseHolds = (): void => {
+        const release = this.releaseResponseHolds;
+        this.releaseResponseHolds = undefined;
+        release?.();
+    };
+
+    /**
      * Keep the rooms of ongoing calls subscribed, so their state and chat stay current while someone reads other
      * rooms. Rooms no longer in a call are released.
      * @param roomIds - The rooms with a call this device is connected to.
@@ -1356,6 +1412,8 @@ export class SlidingSyncManager {
         if (state === SlidingSyncState.RequestFinished) {
             // A response is applied between its arrival and Complete. A failed request applies nothing.
             this.applyingSince = error ? undefined : Date.now();
+            if (error) this.endResponseHolds();
+            else this.beginResponseHolds();
             if (!error) {
                 this.answeredConnection = true;
                 this.failures = 0;
