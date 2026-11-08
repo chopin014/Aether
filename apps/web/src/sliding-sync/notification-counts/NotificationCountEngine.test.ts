@@ -64,6 +64,14 @@ function message(id: string, body = id, sender = bob, extra: Record<string, unkn
     };
 }
 
+/** An edit of `target`, replacing what it says with `body`. */
+function edit(id: string, target: string, body: string): TimelineEvent {
+    return message(id, `* ${body}`, bob, {
+        "m.new_content": { msgtype: "m.text", body },
+        "m.relates_to": { rel_type: "m.replace", event_id: target },
+    });
+}
+
 function reply(id: string, root: string): TimelineEvent {
     return message(id, id, bob, { "m.relates_to": { rel_type: "m.thread", event_id: root } });
 }
@@ -579,6 +587,110 @@ describe("NotificationCountEngine", () => {
         room.updateMyMembership("leave");
 
         expect(getInexactCounts(room)).toBeUndefined();
+    });
+
+    describe("an edited message", () => {
+        /** The rules above, with the default rule that keeps edits from notifying. */
+        const withSuppressedEdits: IPushRules = {
+            global: {
+                ...pushRules.global,
+                [PushRuleKind.Override]: [
+                    {
+                        rule_id: ".m.rule.suppress_edits",
+                        default: true,
+                        enabled: true,
+                        conditions: [
+                            {
+                                kind: ConditionKind.EventPropertyIs,
+                                key: "content.m\\.relates_to.rel_type",
+                                value: "m.replace",
+                            },
+                        ],
+                        actions: [],
+                    },
+                    ...pushRules.global[PushRuleKind.Override]!,
+                ],
+            },
+        };
+
+        it("does not gain a mention its edit adds", async () => {
+            const { client, respond, counts } = await setup();
+            client.setPushRules(withSuppressedEdits);
+
+            await respond({
+                initial: true,
+                required_state: requiredState,
+                timeline: [message("$r", "r", me), message("$a", "hello"), edit("$e", "$a", "hello alice")],
+            });
+
+            expect(client.getRoom(roomId)!.findEventById("$a")?.replacingEventId()).toBe("$e");
+            expect(counts()).toEqual({ total: 1, highlight: 0 });
+        });
+
+        it("is evaluated again as an encrypted message was first decrypted", async () => {
+            const { client, respond, counts, settle } = await setup();
+            client.setPushRules(withSuppressedEdits);
+            vi.spyOn(client, "decryptEventIfNeeded").mockResolvedValue();
+            await respond({
+                initial: true,
+                required_state: requiredState,
+                timeline: [
+                    message("$r", "r", me),
+                    {
+                        type: EventType.RoomMessageEncrypted,
+                        sender: bob,
+                        room_id: roomId,
+                        event_id: "$secret",
+                        origin_server_ts: 1,
+                        content: { algorithm: "m.megolm.v1.aes-sha2", ciphertext: "x" },
+                    },
+                ],
+            });
+            const secret = client.getRoom(roomId)!.findEventById("$secret")!;
+            const crypto = {
+                decryptEvent: async () => ({
+                    clearEvent: { type: EventType.RoomMessage, content: { msgtype: "m.text", body: "hello alice" } },
+                }),
+            } as unknown as Parameters<MatrixEvent["attemptDecryption"]>[0];
+            await secret.attemptDecryption(crypto);
+            await settle();
+            expect(counts()).toEqual({ total: 1, highlight: 1 });
+
+            // Edited to drop the mention, then evaluated again, as when the push rules change.
+            secret.makeReplaced(new MatrixEvent(edit("$e", "$secret", "hello")));
+            expect(secret.getContent().body).toBe("hello");
+            const reordered: IPushRules = {
+                global: {
+                    ...withSuppressedEdits.global,
+                    [PushRuleKind.Override]: [
+                        ...withSuppressedEdits.global[PushRuleKind.Override]!,
+                        { rule_id: "unused", default: false, enabled: false, conditions: [], actions: [] },
+                    ],
+                },
+            };
+            client.setPushRules(reordered);
+            client.emit(
+                ClientEvent.AccountData,
+                new MatrixEvent({ type: EventType.PushRules, content: client.pushRules as object }),
+            );
+            await settle();
+
+            expect(counts()).toEqual({ total: 1, highlight: 1 });
+        });
+
+        it("keeps the mention it was sent with when an edit removes it", async () => {
+            const { client, respond, counts } = await setup();
+            client.setPushRules(withSuppressedEdits);
+
+            await respond({
+                initial: true,
+                required_state: requiredState,
+                timeline: [message("$r", "r", me), message("$a", "hi alice"), edit("$e", "$a", "hi")],
+            });
+
+            expect(client.getRoom(roomId)!.findEventById("$a")?.replacingEventId()).toBe("$e");
+            expect(counts()).toEqual({ total: 1, highlight: 1 });
+        });
     });
 
     it("counts thread replies in their thread", async () => {
