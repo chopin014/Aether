@@ -531,6 +531,36 @@ describe("RoomView", () => {
         RoomScrollStateStore.setScrollState(room.roomId, null);
     });
 
+    it("opens the latest messages when asked again for the room while sliding sync loads it", async () => {
+        // Such as someone clicking the room again: a request for its live timeline, not the end of the first load.
+        RoomScrollStateStore.setScrollState(room.roomId, { focussedEvent: "$left-here", pixelOffset: 42 });
+        vi.spyOn(stores.slidingSyncManager, "isActiveFor").mockReturnValue(true);
+        const visible = Promise.withResolvers<"known">();
+        vi.spyOn(stores.slidingSyncManager, "setRoomVisible").mockReturnValue(visible.promise);
+        const ref = createRef<RoomView>();
+        await mountRoomView(ref);
+        expect(stores.roomViewStore.isRoomLoading()).toBe(true);
+
+        await act(async () => {
+            defaultDispatcher.dispatch<ViewRoomPayload>({
+                action: Action.ViewRoom,
+                room_id: room.roomId,
+                metricsTrigger: undefined,
+            });
+            await flushPromises();
+        });
+        await waitFor(() => expect(stores.roomViewStore.isRoomLoading()).toBe(false));
+        expect(ref.current?.state.initialEventId).toBeUndefined();
+
+        // The first request's load finishing later changes nothing: the newer request replaced it.
+        await act(async () => {
+            visible.resolve("known");
+            await flushPromises();
+        });
+        expect(ref.current?.state.initialEventId).toBeUndefined();
+        RoomScrollStateStore.setScrollState(room.roomId, null);
+    });
+
     it("shares native sliding-sync roster hydration with the member list instead of importing cached members", async () => {
         await mountRoomView();
         const getValue = SettingsStore.getValue.bind(SettingsStore);

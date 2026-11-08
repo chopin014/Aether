@@ -816,10 +816,14 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         }
 
         // The room is entered when it is first named. Under sliding sync it is named again once its subscription has
-        // loaded, and that update clears the position read before unless it is read again.
+        // loaded, and that update clears the position read before unless it is read again. A later request to view the
+        // room, such as one for its latest messages, is not that update.
         const enteringRoom =
             this.state.roomId === undefined ||
-            (this.state.roomLoading && !roomLoading && this.state.roomId === newState.roomId);
+            (this.state.roomLoading &&
+                !roomLoading &&
+                this.state.roomId === newState.roomId &&
+                roomViewStore.isLoadedForView());
         if (enteringRoom && newState.roomId !== undefined) {
             // Get the scroll state for the new room
 
