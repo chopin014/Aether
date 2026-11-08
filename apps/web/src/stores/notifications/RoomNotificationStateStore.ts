@@ -153,6 +153,7 @@ export class RoomNotificationStateStore extends AsyncStoreWithClient<EmptyObject
         if (
             this.globalState.symbol !== globalState.symbol ||
             this.globalState.count !== globalState.count ||
+            this.globalState.countIsLowerBound !== globalState.countIsLowerBound ||
             this.globalState.level !== globalState.level ||
             this.globalState.numUnreadStates !== globalState.numUnreadStates ||
             forceEmit
