@@ -163,7 +163,7 @@ describe("sliding sync requests", () => {
         at: number;
     }
 
-    function setup(extension?: Extension<object, object>) {
+    function setup(extension?: Extension<object, object>, processingReady?: Promise<void>) {
         const client = makeClient();
         const requests: Request[] = [];
         vi.spyOn(client.http, "authedRequest").mockImplementation(((
@@ -201,7 +201,7 @@ describe("sliding sync requests", () => {
             20_000,
         );
         if (extension) sync.registerExtension(extension);
-        void sync.start();
+        void sync.start(processingReady);
         return { sync, requests, nextRequest };
     }
 
@@ -294,29 +294,100 @@ describe("sliding sync requests", () => {
             sync.stop();
         });
 
-        it("does not let an answer to a request sent before a room was subscribed again confirm it", async () => {
+        it("discards an answer to a request cancelled before it was taken up, and asks again", async () => {
             const { sync, nextRequest } = setup();
             sync.modifyRoomSubscriptions(new Set([roomId]));
-            const first = await nextRequest(1);
-            first.reply({ pos: "1" });
+            (await nextRequest(1)).reply({ pos: "1" });
             const second = await nextRequest(2);
             expect(sync.isRoomSubscriptionConfirmed(roomId)).toBe(true);
+            const applied = vi.fn();
+            sync.on(SlidingSyncEvent.Applied, applied);
 
-            // Answered, then unsubscribed and subscribed again before the answer is taken up: that request carried
-            // the room's subscription from before, so it says nothing of the new one.
-            const applied = Promise.withResolvers<MSC3575SlidingSyncResponse>();
-            sync.once(SlidingSyncEvent.Applied, (response) => applied.resolve(response));
+            // Answered, then unsubscribed and subscribed again before the answer is taken up.
             second.reply({ pos: "2" });
             sync.modifyRoomSubscriptions(new Set());
             sync.modifyRoomSubscriptions(new Set([roomId]));
-            expect(sync.isRoomSubscriptionConfirmed(roomId)).toBe(false);
-            const response = await applied.promise;
-            expect(sync.getRequestForResponse(response)?.roomSubscriptions.has(roomId)).toBe(true);
             const third = await nextRequest(3);
+            // The answer was to a request that no longer stood: asked again from where it was sent.
+            expect(applied).not.toHaveBeenCalled();
+            expect(third.qps.pos).toBe("1");
             expect(sync.isRoomSubscriptionConfirmed(roomId)).toBe(false);
             third.reply({ pos: "3" });
             await nextRequest(4);
             expect(sync.isRoomSubscriptionConfirmed(roomId)).toBe(true);
+            sync.stop();
+        });
+
+        it("discards an answer cancelled while it waited for the startup gate", async () => {
+            const gate = Promise.withResolvers<void>();
+            const { sync, nextRequest } = setup(undefined, gate.promise);
+            const applied = vi.fn();
+            sync.on(SlidingSyncEvent.Applied, applied);
+            const first = await nextRequest(1);
+            first.reply({ pos: "1" });
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            // Changed while the answer waits for the client to be ready to apply it.
+            sync.modifyRoomSubscriptions(new Set([roomId]));
+            gate.resolve();
+            const second = await nextRequest(2);
+            expect(applied).not.toHaveBeenCalled();
+            expect(second.qps.pos).toBeUndefined();
+            expect(second.body.room_subscriptions).toHaveProperty([roomId]);
+            expect(sync.isRoomSubscriptionConfirmed(roomId)).toBe(false);
+            sync.stop();
+        });
+
+        it("confirms a room switched back to an earlier subscription only once that is answered again", async () => {
+            const { sync, nextRequest } = setup();
+            sync.addCustomSubscription("pinned", pinned);
+            sync.addCustomSubscription("channel", channel);
+            sync.useCustomSubscription(roomId, "pinned");
+            sync.modifyRoomSubscriptions(new Set([roomId]));
+            (await nextRequest(1)).reply({ pos: "1" });
+            await nextRequest(2);
+            expect(sync.isRoomSubscriptionConfirmed(roomId)).toBe(true);
+
+            sync.useCustomSubscription(roomId, "channel");
+            sync.useCustomSubscription(roomId, "pinned");
+            expect(sync.isRoomSubscriptionConfirmed(roomId)).toBe(false);
+            sync.modifyRoomSubscriptions(new Set([roomId]));
+            const third = await nextRequest(3);
+            third.reply({ pos: "2" });
+            await nextRequest(4);
+            expect(sync.isRoomSubscriptionConfirmed(roomId)).toBe(true);
+            sync.stop();
+        });
+
+        it("confirms a room on the default subscription again only once a changed default is answered", async () => {
+            const { sync, nextRequest } = setup();
+            sync.modifyRoomSubscriptions(new Set([roomId]));
+            (await nextRequest(1)).reply({ pos: "1" });
+            await nextRequest(2);
+            expect(sync.isRoomSubscriptionConfirmed(roomId)).toBe(true);
+
+            sync.modifyRoomSubscriptionInfo(pinned);
+            expect(sync.isRoomSubscriptionConfirmed(roomId)).toBe(false);
+            const third = await nextRequest(3);
+            expect(third.body.room_subscriptions).toEqual({ [roomId]: pinned });
+            third.reply({ pos: "2" });
+            await nextRequest(4);
+            expect(sync.isRoomSubscriptionConfirmed(roomId)).toBe(true);
+            sync.stop();
+        });
+
+        it("takes a custom subscription added after a room asked for it as a change of the room's", async () => {
+            const { sync, nextRequest } = setup();
+            sync.useCustomSubscription(roomId, "pinned");
+            sync.modifyRoomSubscriptions(new Set([roomId]));
+            const first = await nextRequest(1);
+            // Unknown until now, so the default was sent.
+            expect(first.body.room_subscriptions).toEqual({ [roomId]: {} });
+            first.reply({ pos: "1" });
+            await nextRequest(2);
+            expect(sync.isRoomSubscriptionConfirmed(roomId)).toBe(true);
+
+            sync.addCustomSubscription("pinned", pinned);
+            expect(sync.isRoomSubscriptionConfirmed(roomId)).toBe(false);
             sync.stop();
         });
 
@@ -331,9 +402,19 @@ describe("sliding sync requests", () => {
 
             const response = await applied.promise;
             expect(sync.getRequestForResponse(response)?.roomSubscriptions).toEqual(new Map([[roomId, pinned]]));
-            // Changed afterwards: what the request carried stays as it was.
+            // Changed afterwards, even the subscription itself: what the request carried stays as it was, frozen.
             sync.modifyRoomSubscriptions(new Set(["!other:example.org"]));
-            expect(sync.getRequestForResponse(response)?.roomSubscriptions).toEqual(new Map([[roomId, pinned]]));
+            pinned.timeline_limit = 1;
+            pinned.required_state.push(["m.room.topic", ""]);
+            try {
+                const carried = sync.getRequestForResponse(response)?.roomSubscriptions.get(roomId);
+                expect(carried).toEqual({ timeline_limit: 50, required_state: [["m.room.pinned_events", ""]] });
+                expect(Object.isFrozen(carried)).toBe(true);
+                expect(Object.isFrozen(carried?.required_state)).toBe(true);
+            } finally {
+                pinned.timeline_limit = 50;
+                pinned.required_state.pop();
+            }
             expect(sync.getRequestForResponse({ pos: "x", lists: {}, rooms: {}, extensions: {} })).toBeUndefined();
             sync.stop();
         });

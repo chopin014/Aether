@@ -1233,7 +1233,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
  }
  
  export type SlidingSyncEventHandlerMap = {
-@@ -305,8 +338,22 @@
+@@ -305,8 +338,35 @@
          resp: MSC3575SlidingSyncResponse | null,
          err?: Error,
      ) => void;
@@ -1242,21 +1242,34 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
  
 +/** A room subscription as a request carried it. */
 +interface SentRoomSubscription {
-+    subscription: MSC3575RoomSubscription;
-+    /** The room's epoch when the request was sent. */
-+    epoch: number;
++    /** A frozen copy of the subscription, as it was sent. */
++    subscription: Readonly<MSC3575RoomSubscription>;
++    /** The room's subscription revision when the request was sent. */
++    revision: number;
++}
++
++/** A frozen deep copy of a value, so what was sent stays as it was whatever the caller does with its own. */
++function frozenCopy<T>(value: T): T {
++    const freeze = (item: unknown): void => {
++        if (!item || typeof item !== "object") return;
++        for (const child of Object.values(item)) freeze(child);
++        Object.freeze(item);
++    };
++    const copy = structuredClone(value);
++    freeze(copy);
++    return copy;
 +}
 +
 +/** What a request carried, for whoever applies its response. */
 +export interface SlidingSyncSentRequest {
-+    /** Every room subscription the request carried, by room ID. */
-+    roomSubscriptions: ReadonlyMap<string, MSC3575RoomSubscription>;
++    /** Every room subscription the request carried, by room ID, frozen as it was sent. */
++    roomSubscriptions: ReadonlyMap<string, Readonly<MSC3575RoomSubscription>>;
 +}
 +
  /**
   * SlidingSync is a high-level data structure which controls the majority of sliding sync.
   * It has no hooks into JS SDK except for needing a MatrixClient to perform the HTTP request.
-@@ -317,13 +364,24 @@
+@@ -317,13 +377,24 @@
      private lists: Map<string, SlidingList>;
      private listModifiedCount = 0;
      private terminated = false;
@@ -1271,18 +1284,18 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
  
      private desiredRoomSubscriptions = new Set<string>(); // the *desired* room subscriptions
 -    private confirmedRoomSubscriptions = new Set<string>();
-+    // Each desired room's epoch. A room removed and added again starts a new one, so the answer to a request sent
-+    // before cannot confirm it.
-+    private subscriptionEpochs = new Map<string, number>();
-+    private nextSubscriptionEpoch = 0;
-+    // For each room, the subscription and epoch the last answered request carried.
-+    private confirmedRoomSubscriptions = new Map<string, SentRoomSubscription>();
++    // Each desired room's subscription revision. It changes when the room is subscribed afresh or its subscription
++    // changes, so the answer to a request sent before cannot confirm what the room is subscribed with now.
++    private subscriptionRevisions = new Map<string, number>();
++    private nextSubscriptionRevision = 0;
++    // For each room, the revision the last answered request carried.
++    private confirmedRoomSubscriptions = new Map<string, number>();
 +    // The room subscriptions each response's request carried.
 +    private readonly sentRequests = new WeakMap<MSC3575SlidingSyncResponse, SlidingSyncSentRequest>();
  
      // map of custom subscription name to the subscription
      private customSubscriptions: Map<string, MSC3575RoomSubscription> = new Map();
-@@ -332,6 +390,8 @@
+@@ -332,6 +403,8 @@
  
      private pendingReq?: Promise<MSC3575SlidingSyncResponse>;
      private abortController?: AbortController;
@@ -1291,7 +1304,18 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
  
      /**
       * Create a new sliding sync instance
-@@ -378,14 +438,15 @@
+@@ -368,6 +441,10 @@
+             return;
+         }
+         this.customSubscriptions.set(name, sub);
++        // Rooms already using the name were sent the default until now.
++        for (const [roomId, customSubName] of this.roomIdToCustomSubscription) {
++            if (customSubName === name) this.reviseSubscription(roomId);
++        }
+     }
+ 
+     /**
+@@ -378,14 +455,22 @@
       * will be used.
       */
      public useCustomSubscription(roomId: string, name: string): void {
@@ -1300,11 +1324,18 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 -        if (this.roomIdToCustomSubscription.get(roomId) === name) {
 -            return;
 -        }
-+        // A room's subscription counts as confirmed only while it is the one the server answered, so a change needs
-+        // nothing more here.
++        if (this.roomIdToCustomSubscription.get(roomId) === name) return;
          this.roomIdToCustomSubscription.set(roomId, name);
 -        // unconfirm this subscription so a resend() will send it up afresh.
 -        this.confirmedRoomSubscriptions.delete(roomId);
++        this.reviseSubscription(roomId);
++    }
++
++    /** Note that a room's subscription changed: it is confirmed again only by an answer to a request carrying it. */
++    private reviseSubscription(roomId: string): void {
++        if (this.desiredRoomSubscriptions.has(roomId)) {
++            this.subscriptionRevisions.set(roomId, ++this.nextSubscriptionRevision);
++        }
 +    }
 +
 +    /** The subscription a room is sent with: its custom one, or the default. */
@@ -1314,7 +1345,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      }
  
      /**
-@@ -465,6 +526,59 @@
+@@ -465,6 +550,54 @@
          return new Set(Array.from(this.desiredRoomSubscriptions));
      }
  
@@ -1326,13 +1357,8 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 +     * @returns True once the subscription, in its current form, has been acknowledged by a response.
 +     */
 +    public isRoomSubscriptionConfirmed(roomId: string): boolean {
-+        const confirmed = this.confirmedRoomSubscriptions.get(roomId);
-+        return (
-+            !!confirmed &&
-+            this.desiredRoomSubscriptions.has(roomId) &&
-+            confirmed.epoch === this.subscriptionEpochs.get(roomId) &&
-+            confirmed.subscription === this.subscriptionFor(roomId)
-+        );
++        const revision = this.subscriptionRevisions.get(roomId);
++        return revision !== undefined && this.confirmedRoomSubscriptions.get(roomId) === revision;
 +    }
 +
 +    /**
@@ -1374,19 +1400,19 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      /**
       * Modify the room subscriptions for the sync API. Calling this function will interrupt the
       * /sync request to resend new subscriptions. If the /sync stream has not started, this will
-@@ -472,7 +586,18 @@
+@@ -472,7 +605,18 @@
       * @param s - The new desired room subscriptions.
       */
      public modifyRoomSubscriptions(s: Set<string>): void {
 -        this.desiredRoomSubscriptions = s;
 +        for (const roomId of s) {
 +            if (!this.desiredRoomSubscriptions.has(roomId)) {
-+                this.subscriptionEpochs.set(roomId, ++this.nextSubscriptionEpoch);
++                this.subscriptionRevisions.set(roomId, ++this.nextSubscriptionRevision);
 +            }
 +        }
 +        for (const roomId of this.desiredRoomSubscriptions) {
 +            if (!s.has(roomId)) {
-+                this.subscriptionEpochs.delete(roomId);
++                this.subscriptionRevisions.delete(roomId);
 +                this.confirmedRoomSubscriptions.delete(roomId);
 +            }
 +        }
@@ -1394,15 +1420,20 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
          this.resend();
      }
  
-@@ -483,7 +608,6 @@
+@@ -482,8 +626,11 @@
+      * @param rs - The new room subscription fields to fetch.
       */
      public modifyRoomSubscriptionInfo(rs: MSC3575RoomSubscription): void {
++        const usingDefault = [...this.desiredRoomSubscriptions].filter(
++            (roomId) => this.subscriptionFor(roomId) === this.roomSubscriptionInfo,
++        );
          this.roomSubscriptionInfo = rs;
 -        this.confirmedRoomSubscriptions = new Set<string>();
++        for (const roomId of usingDefault) this.reviseSubscription(roomId);
          this.resend();
      }
  
-@@ -569,6 +693,7 @@
+@@ -569,6 +716,7 @@
       */
      public resend(): void {
          this.needsResend = true;
@@ -1410,7 +1441,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
          this.abortController?.abort();
          this.abortController = new AbortController();
      }
-@@ -578,12 +703,21 @@
+@@ -578,12 +726,21 @@
       */
      public stop(): void {
          this.terminated = true;
@@ -1432,7 +1463,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      /**
       * Re-setup this connection e.g in the event of an expired session.
       */
-@@ -593,22 +727,48 @@
+@@ -593,22 +750,48 @@
          this.lists.forEach((l) => {
              l.setModified(true);
          });
@@ -1484,7 +1515,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  const reqLists: Record<string, MSC3575List> = {};
                  this.lists.forEach((l: SlidingList, key: string) => {
                      reqLists[key] = l.getList(true);
-@@ -616,37 +776,42 @@
+@@ -616,37 +799,50 @@
                  const reqBody: MSC3575SlidingSyncRequest = {
                      lists: reqLists,
                      pos: currentPos,
@@ -1516,13 +1547,15 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 -                        }
 -                        reqBody.room_subscriptions[roomId] = sub;
 +                    for (const roomId of this.desiredRoomSubscriptions) {
-+                        const subscription = this.subscriptionFor(roomId);
++                        const subscription = frozenCopy(this.subscriptionFor(roomId));
 +                        reqBody.room_subscriptions[roomId] = subscription;
-+                        sent.set(roomId, { subscription, epoch: this.subscriptionEpochs.get(roomId)! });
++                        sent.set(roomId, { subscription, revision: this.subscriptionRevisions.get(roomId)! });
                      }
                  }
+-                this.pendingReq = this.client.slidingSync(reqBody, this.proxyBaseUrl, this.abortController.signal);
 +                requestSent = true;
-                 this.pendingReq = this.client.slidingSync(reqBody, this.proxyBaseUrl, this.abortController.signal);
++                const signal = this.abortController.signal;
++                this.pendingReq = this.client.slidingSync(reqBody, this.proxyBaseUrl, signal);
                  resp = await this.pendingReq;
 -                currentPos = resp.pos;
 -                // update what we think we're subscribed to.
@@ -1536,12 +1569,19 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 -                for (const roomId of unsubscriptions) {
 -                    this.confirmedRoomSubscriptions.delete(roomId);
 +                if (this.terminated) return;
++                // Cancelled after its answer arrived, such as by a change made while the answer waited for the
++                // startup gate: the answer is to a request that no longer stands. The server keeps the position it
++                // was sent from, so the next request asks again from there.
++                if (signal.aborted) {
++                    resp = undefined;
++                    continue;
++                }
 +                currentPos = resp.pos;
-+                // The server has answered these subscriptions. A room unsubscribed meanwhile, or subscribed again in
-+                // a new epoch, is not confirmed by it.
-+                for (const [roomId, subscription] of sent) {
-+                    if (this.subscriptionEpochs.get(roomId) === subscription.epoch) {
-+                        this.confirmedRoomSubscriptions.set(roomId, subscription);
++                // The server has answered these subscriptions. A room unsubscribed meanwhile, subscribed afresh or
++                // given another subscription is not confirmed by it.
++                for (const [roomId, { revision }] of sent) {
++                    if (this.subscriptionRevisions.get(roomId) === revision) {
++                        this.confirmedRoomSubscriptions.set(roomId, revision);
 +                    }
                  }
 +                this.sentRequests.set(resp, {
@@ -1550,7 +1590,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  // mark all these lists as having been sent as sticky so we don't keep sending sticky params
                  this.lists.forEach((l) => {
                      l.setModified(false);
-@@ -664,25 +829,43 @@
+@@ -664,25 +860,43 @@
                  });
                  this.invokeLifecycleListeners(SlidingSyncState.RequestFinished, resp);
              } catch (err) {
@@ -1601,7 +1641,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
              await this.onPreExtensionsResponse(resp.extensions);
  
              // oxlint-disable-next-line guard-for-in
-@@ -692,14 +875,9 @@
+@@ -692,14 +906,9 @@
  
              this.invokeLifecycleListeners(SlidingSyncState.Complete, resp);
              await this.onPostExtensionsResponse(resp.extensions);
