@@ -917,6 +917,7 @@ describe("sliding sync restoring a saved snapshot", () => {
         load: () => Promise<SlidingSyncSnapshot | null>,
         prepare?: (client: MatrixClient) => void,
         cryptoCallbacks?: SyncCryptoCallbacks,
+        opts?: Partial<ConstructorParameters<typeof SlidingSyncSdk>[2]>,
     ) {
         const client = makeClient();
         prepare?.(client);
@@ -942,7 +943,7 @@ describe("sliding sync restoring a saved snapshot", () => {
         const api = new SlidingSyncSdk(
             sync,
             client,
-            { lazyLoadMembers: true, slidingSyncSnapshot: load },
+            { lazyLoadMembers: true, slidingSyncSnapshot: load, ...opts },
             { logger, cryptoCallbacks },
         );
         const states: SyncState[] = [];
@@ -1114,6 +1115,57 @@ describe("sliding sync restoring a saved snapshot", () => {
             expect(firstStored).toBe(id(0));
             await vi.waitFor(() => expect(client.getRooms()).toHaveLength(31));
             expect(states.filter((state) => state === SyncState.Prepared)).toHaveLength(1);
+            api.stop();
+        });
+
+        it("tells the app about each batch of saved rooms it applies", async () => {
+            const batches: { rooms: string[]; ended: boolean }[] = [];
+            let overlapped = false;
+            const { client, api } = setup(async () => many(), undefined, undefined, {
+                slidingSyncSavedRoomsBatch: () => {
+                    if (batches.some((batch) => !batch.ended)) overlapped = true;
+                    const batch = { rooms: [] as string[], ended: false };
+                    batches.push(batch);
+                    return () => {
+                        batch.ended = true;
+                    };
+                },
+            });
+            client.on(ClientEvent.Room, (room) => batches.find((batch) => !batch.ended)?.rooms.push(room.roomId));
+
+            await vi.waitFor(() => expect(client.getRooms()).toHaveLength(31));
+            await vi.waitFor(() => expect(batches.every((batch) => batch.ended)).toBe(true));
+            // Every room was stored inside a batch, a few rooms at a time.
+            expect(batches.flatMap((batch) => batch.rooms).sort()).toEqual(
+                client
+                    .getRooms()
+                    .map((room) => room.roomId)
+                    .sort(),
+            );
+            expect(overlapped).toBe(false);
+            expect(batches.length).toBeGreaterThan(1);
+            // The rooms shown before Prepared go in batches of eight, letting the page draw between them.
+            expect(batches[0].rooms).toHaveLength(8);
+            api.stop();
+        });
+
+        it.each([
+            { when: "start", failStart: true },
+            { when: "end", failStart: false },
+        ])("applies every saved room though the app fails to $when a batch", async ({ failStart }) => {
+            const warn = vi.spyOn(logger, "warn");
+            const { client, api } = setup(async () => many(), undefined, undefined, {
+                slidingSyncSavedRoomsBatch: () => {
+                    if (failStart) throw new Error("app failed");
+                    return () => {
+                        throw new Error("app failed");
+                    };
+                },
+            });
+            await vi.waitFor(() => expect(client.getRooms()).toHaveLength(31));
+            // Told once for each batch, not for each of the 31 rooms.
+            expect(warn.mock.calls.length).toBeGreaterThan(0);
+            expect(warn.mock.calls.length).toBeLessThan(31);
             api.stop();
         });
 

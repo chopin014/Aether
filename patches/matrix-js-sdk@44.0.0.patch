@@ -96,7 +96,7 @@ diff --git a/src/client.ts b/src/client.ts
      /**
       * True to put `archived=true</code> on the <code>/initialSync` request. Default: false.
       */
-@@ -567,6 +610,13 @@
+@@ -567,6 +610,21 @@
       */
      slidingSync?: SlidingSync;
  
@@ -107,10 +107,18 @@ diff --git a/src/client.ts b/src/client.ts
 +     */
 +    slidingSyncSnapshot?: () => Promise<SlidingSyncSnapshot | null>;
 +
++    /**
++     * Called as the client starts applying a batch of rooms saved by an earlier sliding sync session, such as those
++     * applied in one idle period. The function it returns is called once the batch is applied. Lets the app work out
++     * what depends on every room once for the batch, rather than for each room.
++     * @experimental
++     */
++    slidingSyncSavedRoomsBatch?: () => () => void;
++
      /**
       * Include user profiles in sync responses.
       * Will only work if the server supports MSC4429.
-@@ -1317,6 +1367,8 @@
+@@ -1317,6 +1375,8 @@
      protected syncApi?: SlidingSyncSdk | SyncApi;
      public roomNameGenerator?: ICreateClientOpts["roomNameGenerator"];
      public pushRules?: IPushRules;
@@ -119,7 +127,7 @@ diff --git a/src/client.ts b/src/client.ts
      protected syncLeftRoomsPromise?: Promise<Room[]>;
      protected syncedLeftRooms = false;
      protected clientOpts?: IStoredClientOpts;
-@@ -4417,6 +4469,30 @@
+@@ -4417,6 +4477,30 @@
       * Useful when an event just got decrypted
       * @returns A dict of actions to perform.
       */
@@ -150,7 +158,7 @@ diff --git a/src/client.ts b/src/client.ts
      public getPushActionsForEvent(event: MatrixEvent, forceRecalculate = false): IActionsObject | null {
          if (!event.getPushActions() || forceRecalculate) {
              const { actions, rule } = this.pushProcessor.actionsAndRuleForEvent(event);
-@@ -5265,7 +5341,7 @@
+@@ -5265,7 +5349,7 @@
                          await thread?.processEvent(event);
                          const sender = event.getSender()!;
                          if (!backwards || thread?.getEventReadUpTo(sender) === null) {
@@ -159,7 +167,7 @@ diff --git a/src/client.ts b/src/client.ts
                          }
                      }
  
-@@ -5315,6 +5391,21 @@
+@@ -5315,6 +5399,21 @@
                      const matrixEvents = res.chunk.filter(noUnsafeEventProps).map(this.getEventMapper());
  
                      const timelineSet = eventTimeline.getTimelineSet();
@@ -181,7 +189,7 @@ diff --git a/src/client.ts b/src/client.ts
                      const [timelineEvents, , unknownRelations] = room.partitionThreadedEvents(matrixEvents);
                      timelineSet.addEventsToTimeline(timelineEvents, backwards, false, eventTimeline, token);
                      this.processAggregatedTimelineEvents(room, timelineEvents);
-@@ -6037,7 +6128,9 @@
+@@ -6037,7 +6136,9 @@
       * we have on record matches.
       */
      private fixupRoomNotifications = (): void => {
@@ -192,7 +200,7 @@ diff --git a/src/client.ts b/src/client.ts
              const unreadRooms = (this.getRooms() ?? []).filter((room) => {
                  return room.getUnreadNotificationCount(NotificationCountType.Total) > 0;
              });
-@@ -9153,6 +9246,8 @@
+@@ -9153,6 +9254,8 @@
   * accurate notification_count
   */
  export function fixNotificationCountOnDecryption(cli: MatrixClient, event: MatrixEvent): void {
@@ -1202,7 +1210,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
          room.recalculate();
  
-@@ -991,12 +1335,155 @@
+@@ -991,12 +1335,192 @@
      public async sync(): Promise<void> {
          this.syncOpts.logger.debug("Sliding sync init loop");
  
@@ -1294,20 +1302,57 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +    private async restoreRooms(roomIds: string[], background = false): Promise<void> {
 +        let deadline: IdleDeadline | undefined;
 +        let sinceWait = 0;
-+        for (let i = 0; i < roomIds.length; i++) {
-+            if (background) {
-+                // A busy page still gets a few rooms each second.
-+                const budgetLeft = deadline?.didTimeout ? sinceWait < 4 : (deadline?.timeRemaining() ?? 0) > 4;
-+                if (!budgetLeft) {
-+                    deadline = await waitForIdle();
-+                    sinceWait = 0;
++        // The rooms applied between two waits are a batch, which the app can work out once rather than for each room.
++        let endBatch: (() => void) | undefined;
++        const batchDone = (): void => {
++            endBatch?.();
++            endBatch = undefined;
++        };
++        try {
++            for (let i = 0; i < roomIds.length; i++) {
++                if (background) {
++                    // A busy page still gets a few rooms each second.
++                    const budgetLeft = deadline?.didTimeout ? sinceWait < 4 : (deadline?.timeRemaining() ?? 0) > 4;
++                    if (!budgetLeft) {
++                        batchDone();
++                        deadline = await waitForIdle();
++                        sinceWait = 0;
++                    }
++                } else if (i > 0 && i % 8 === 0) {
++                    batchDone();
++                    await yieldToEventLoop();
 +                }
-+            } else if (i > 0 && i % 8 === 0) {
-+                await yieldToEventLoop();
++                if (this.stopped) return;
++                endBatch ??= this.startSavedRoomsBatch();
++                await this.restoreRoom(roomIds[i]);
++                sinceWait++;
 +            }
-+            if (this.stopped) return;
-+            await this.restoreRoom(roomIds[i]);
-+            sinceWait++;
++        } finally {
++            batchDone();
++        }
++    }
++
++    /**
++     * Tell the app a batch of saved rooms is being applied, as {@link IStartClientOpts.slidingSyncSavedRoomsBatch}.
++     * A failing app callback only loses the batching: the rooms are applied all the same.
++     * @returns What ends the batch.
++     */
++    private startSavedRoomsBatch(): () => void {
++        const logger = this.syncOpts.logger;
++        const start = this.opts.slidingSyncSavedRoomsBatch;
++        if (!start) return () => {};
++        try {
++            const end = start();
++            return (): void => {
++                try {
++                    end();
++                } catch (error) {
++                    logger.warn("Sliding sync: could not end a batch of saved rooms", error);
++                }
++            };
++        } catch (error) {
++            logger.warn("Sliding sync: could not start a batch of saved rooms", error);
++            return () => {};
 +        }
 +    }
 +
@@ -1362,7 +1407,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                  this.syncOpts.logger.debug("Got push rules");
                  this.client.pushRules = result;
                  break;
-@@ -1007,9 +1494,6 @@
+@@ -1007,9 +1531,6 @@
                  }
              }
          }
@@ -1372,7 +1417,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      /**
-@@ -1017,7 +1501,15 @@
+@@ -1017,7 +1538,15 @@
       */
      public stop(): void {
          this.syncOpts.logger.debug("SyncApi.stop");
@@ -1388,7 +1433,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      /**
-@@ -1099,6 +1591,22 @@
+@@ -1099,6 +1628,22 @@
      return roomData;
  }
  
