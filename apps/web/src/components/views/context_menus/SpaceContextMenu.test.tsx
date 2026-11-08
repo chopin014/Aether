@@ -26,6 +26,7 @@ import {
 import { leaveSpace } from "../../../utils/leave-behaviour";
 import { shouldShowComponent } from "../../../customisations/helpers/UIComponents";
 import { UIComponent } from "../../../settings/UIFeature";
+import { SlidingSyncManager } from "../../../SlidingSyncManager";
 
 vi.mock("../../../customisations/helpers/UIComponents", () => ({
     shouldShowComponent: vi.fn(),
@@ -137,6 +138,13 @@ describe("<SpaceContextMenu />", () => {
 
         expect(showSpaceSettings).toHaveBeenCalledWith(defaultProps.space);
         expect(onFinished).toHaveBeenCalled();
+    });
+
+    it("fetches the rest of the Space's state while the menu is open, as its settings may be next", () => {
+        const prefetch = vi.spyOn(SlidingSyncManager.instance, "prefetchRoom").mockImplementation(() => {});
+        renderComponent({ space: makeMockSpace({ roomId: "!server:example.org" }) });
+        expect(prefetch).toHaveBeenCalledWith("!server:example.org");
+        expect(prefetch).toHaveBeenCalledTimes(1);
     });
 
     it("renders leave option when user does not have rights to see space settings", () => {

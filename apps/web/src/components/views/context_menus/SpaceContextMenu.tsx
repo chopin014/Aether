@@ -6,7 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import React, { type JSX, useContext } from "react";
+import React, { type JSX, useContext, useEffect } from "react";
 import { type Room, EventType, RoomType } from "matrix-js-sdk/src/matrix";
 import {
     HomeSolidIcon,
@@ -39,6 +39,7 @@ import { shouldShowComponent } from "../../../customisations/helpers/UIComponent
 import { UIComponent } from "../../../settings/UIFeature";
 import PosthogTrackers from "../../../PosthogTrackers";
 import { type ViewRoomPayload } from "../../../dispatcher/payloads/ViewRoomPayload";
+import { SlidingSyncManager } from "../../../SlidingSyncManager";
 
 interface IProps extends IContextMenuProps {
     space?: Room;
@@ -51,6 +52,13 @@ const SpaceContextMenu: React.FC<IProps> = ({ space, hideHeader, onFinished, ...
     const videoRoomsEnabled = useFeatureEnabled("feature_video_rooms");
     const desktopShellEnabled = useFeatureEnabled("feature_desktop_shell");
     const elementCallVideoRoomsEnabled = useFeatureEnabled("feature_element_call_video_rooms");
+
+    // Under sliding sync, a Space nobody has looked at has only what the server rail shows. Its settings may be
+    // next, so the rest of its state, such as its topic, is fetched while the menu is open.
+    const spaceId = space?.roomId;
+    useEffect(() => {
+        if (spaceId) SlidingSyncManager.instance.prefetchRoom(spaceId);
+    }, [spaceId]);
 
     if (!space) return null;
 
