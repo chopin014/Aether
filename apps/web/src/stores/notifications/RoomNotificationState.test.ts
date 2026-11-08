@@ -29,6 +29,7 @@ import { NotificationStateEvents } from "./NotificationState";
 import { NotificationLevel } from "./NotificationLevel";
 import SettingsStore from "../../settings/SettingsStore";
 import * as UnreadModule from "../../Unread";
+import { setLowerBoundCounts } from "../../sliding-sync/notification-counts/lowerBoundCounts";
 
 describe("RoomNotificationState", () => {
     let room: Room;
@@ -205,6 +206,21 @@ describe("RoomNotificationState", () => {
         expect(roomNotifState.level).toBe(NotificationLevel.Highlight);
         expect(roomNotifState.symbol).toBe(null);
         expect(roomNotifState.count).toBe(69);
+    });
+
+    it("says whether its count is only a lower bound, and updates when only that changes", () => {
+        setUnreads(room, 5, 0);
+        const roomNotifState = new RoomNotificationState(room, false);
+        expect(roomNotifState.countIsLowerBound).toBe(false);
+        const listener = vi.fn();
+        roomNotifState.addListener(NotificationStateEvents.Update, listener);
+
+        setLowerBoundCounts(room, { main: true, threads: new Set() });
+        room.emit(RoomEvent.UnreadNotifications, { total: 5, highlight: 0 });
+
+        expect(roomNotifState.count).toBe(5);
+        expect(roomNotifState.countIsLowerBound).toBe(true);
+        expect(listener).toHaveBeenCalledTimes(1);
     });
 
     it("includes threads", async () => {

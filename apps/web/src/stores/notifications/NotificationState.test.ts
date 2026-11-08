@@ -16,6 +16,7 @@ describe("NotificationStateSnapshot", () => {
     const idleState: INotificationStateSnapshotParams = {
         symbol: null,
         count: 0,
+        countIsLowerBound: false,
         level: NotificationLevel.None,
         muted: false,
         knocked: false,
@@ -31,6 +32,7 @@ describe("NotificationStateSnapshot", () => {
     it.each<[string, Partial<INotificationStateSnapshotParams>]>([
         ["symbol", { symbol: "!" }],
         ["count", { count: 1 }],
+        ["countIsLowerBound", { countIsLowerBound: true }],
         ["level", { level: NotificationLevel.Highlight }],
         ["muted", { muted: true }],
         ["knocked", { knocked: true }],

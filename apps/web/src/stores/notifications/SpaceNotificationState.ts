@@ -68,12 +68,15 @@ export class SpaceNotificationState extends NotificationState {
             const snapshot = this.snapshot();
 
             this._count = 0;
+            this._countIsLowerBound = false;
             this._level = NotificationLevel.None;
             for (const state of Object.values(this.states)) {
                 // We ignore unreads in LowPriority rooms, see https://github.com/vector-im/element-web/issues/16836
                 if (state.isLowPriorityActivity) continue;
 
                 this._count += state.count;
+                // A sum with one lower bound in it is one too.
+                if (state.count > 0 && state.countIsLowerBound) this._countIsLowerBound = true;
                 this._level = Math.max(this.level, state.level);
             }
 

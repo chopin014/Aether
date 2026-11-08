@@ -51,6 +51,8 @@ export class SummarizedNotificationState extends NotificationState {
         }
         if (other.count) {
             this._count += other.count;
+            // A sum with one lower bound in it is one too.
+            if (other.countIsLowerBound) this._countIsLowerBound = true;
         }
         if (other.level > this.level) {
             this._level = other.level;

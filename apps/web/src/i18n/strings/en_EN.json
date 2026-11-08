@@ -6,9 +6,17 @@
             "one": "1 unread message.",
             "other": "%(count)s unread messages."
         },
+        "n_unread_messages_at_least": {
+            "one": "At least 1 unread message.",
+            "other": "At least %(count)s unread messages."
+        },
         "n_unread_messages_mentions": {
             "one": "1 unread mention.",
             "other": "%(count)s unread messages including mentions."
+        },
+        "n_unread_messages_mentions_at_least": {
+            "one": "At least 1 unread mention.",
+            "other": "At least %(count)s unread messages including mentions."
         },
         "room_status_bar": "Room status bar",
         "seek_bar_label": "Audio seek bar",

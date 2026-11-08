@@ -30,7 +30,9 @@ import {
     getUnreadNotificationCount,
     determineUnreadState,
     getUnsentMessages,
+    isUnreadNotificationCountLowerBound,
 } from "./RoomNotifs";
+import { setLowerBoundCounts } from "./sliding-sync/notification-counts/lowerBoundCounts";
 import { NotificationLevel } from "./stores/notifications/NotificationLevel";
 import SettingsStore from "./settings/SettingsStore";
 import { MatrixClientPeg } from "./MatrixClientPeg";
@@ -406,6 +408,79 @@ describe("RoomNotifs test", () => {
 
             expect(level).toBe(NotificationLevel.Highlight);
             expect(count).toBe(888);
+        });
+
+        it("says whether the count is only a lower bound", () => {
+            room.setUnreadNotificationCount(NotificationCountType.Total, 3);
+            expect(determineUnreadState(room).countIsLowerBound).toBe(false);
+
+            setLowerBoundCounts(room, { main: true, threads: new Set() });
+            expect(determineUnreadState(room)).toMatchObject({
+                count: 3,
+                level: NotificationLevel.Notification,
+                countIsLowerBound: true,
+            });
+
+            room.setUnreadNotificationCount(NotificationCountType.Highlight, 1);
+            expect(determineUnreadState(room)).toMatchObject({
+                level: NotificationLevel.Highlight,
+                countIsLowerBound: true,
+            });
+        });
+
+        it("says no count is a lower bound", () => {
+            setLowerBoundCounts(room, { main: true, threads: new Set() });
+
+            expect(determineUnreadState(room).countIsLowerBound).toBeFalsy();
+        });
+
+        it("says a thread's count is a lower bound by its own", () => {
+            room.setUnreadNotificationCount(NotificationCountType.Total, 1);
+            room.setThreadUnreadNotificationCount("$thread", NotificationCountType.Total, 2);
+            setLowerBoundCounts(room, { main: false, threads: new Set(["$thread"]) });
+
+            expect(determineUnreadState(room, "$thread")).toMatchObject({ count: 2, countIsLowerBound: true });
+            expect(determineUnreadState(room, undefined, false)).toMatchObject({ count: 1, countIsLowerBound: false });
+            // With its threads, the room's count is a lower bound too.
+            expect(determineUnreadState(room, undefined, true)).toMatchObject({ count: 3, countIsLowerBound: true });
+        });
+    });
+
+    describe("isUnreadNotificationCountLowerBound", () => {
+        const OLD_ROOM_ID = "!old:example.org";
+        let room: Room;
+        let oldRoom: Room;
+
+        beforeEach(async () => {
+            room = new Room("!new:example.org", client, client.getUserId()!);
+            oldRoom = new Room(OLD_ROOM_ID, client, client.getUserId()!);
+            client.getRoom.mockImplementation((roomId) => (roomId === OLD_ROOM_ID ? oldRoom : room));
+            await room.addLiveEvents(
+                [
+                    mkEvent({
+                        event: true,
+                        type: EventType.RoomCreate,
+                        room: room.roomId,
+                        user: "@zoe:localhost",
+                        skey: "",
+                        content: { predecessor: { room_id: OLD_ROOM_ID, event_id: "$tombstone" }, room_version: "5" },
+                    }),
+                ],
+                { addToState: true },
+            );
+        });
+
+        it("takes how far the old room's highlights can be trusted, when it has some", () => {
+            setLowerBoundCounts(oldRoom, { main: true, threads: new Set() });
+            expect(isUnreadNotificationCountLowerBound(room, false)).toBe(false);
+
+            oldRoom.setUnreadNotificationCount(NotificationCountType.Highlight, 2);
+            expect(isUnreadNotificationCountLowerBound(room, false)).toBe(true);
+            // A thread does not continue into the new room.
+            expect(isUnreadNotificationCountLowerBound(room, false, "$thread")).toBe(false);
+
+            setLowerBoundCounts(oldRoom, undefined);
+            expect(isUnreadNotificationCountLowerBound(room, false)).toBe(false);
         });
     });
 });

@@ -279,6 +279,7 @@ export class RoomListSectionHeaderViewModel
         let hasUnreadCount = false;
         let invited = false;
         let count = 0;
+        let countIsLowerBound = false;
         let callType: "video" | "voice" | undefined = undefined;
 
         for (const state of this.roomNotificationStates) {
@@ -289,7 +290,11 @@ export class RoomListSectionHeaderViewModel
             if (state.hasUnreadCount) hasUnreadCount = true;
             if (state.invited) invited = true;
             // Mention, notification, Mark as unread are aggregated
-            if (state.isMention || state.isNotification) count += state.count || 1;
+            if (state.isMention || state.isNotification) {
+                count += state.count || 1;
+                // A sum with one lower bound in it is one too.
+                if (state.count > 0 && state.countIsLowerBound) countIsLowerBound = true;
+            }
             // An invitation reports neither a mention nor a notification, so count it as one room to
             // make a collapsed section show how many invitations it holds
             else if (state.invited) count += 1;
@@ -313,6 +318,7 @@ export class RoomListSectionHeaderViewModel
             isNotification: isNotification || invited,
             hasUnreadCount,
             count,
+            countIsLowerBound,
             callType,
             // The activity dot, the muted bell and the invitation icon are intentionally not
             // aggregated onto the section header, which reports the invitations as a count instead

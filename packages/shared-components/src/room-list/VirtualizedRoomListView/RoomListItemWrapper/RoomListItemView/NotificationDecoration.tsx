@@ -39,6 +39,8 @@ export interface NotificationDecorationData {
     hasUnreadCount: boolean;
     /** Notification count */
     count: number;
+    /** Whether the count is only a lower bound: more could be unread than it says. Shown as "N+". */
+    countIsLowerBound?: boolean;
     /** Whether notifications are muted */
     muted: boolean;
     /** Optional call type indicator */
@@ -63,6 +65,7 @@ export const NotificationDecoration: React.FC<NotificationDecorationProps> = ({
     isNotification,
     isActivityNotification,
     count,
+    countIsLowerBound,
 }) => {
     // Don't render anything if there's nothing to show
     if (!hasAnyNotificationOrActivity && !muted && !callType) {
@@ -82,7 +85,9 @@ export const NotificationDecoration: React.FC<NotificationDecorationProps> = ({
             )}
             {invited && <EmailSolidIcon width="20px" height="20px" fill="var(--cpd-color-icon-accent-primary)" />}
             {isMention && <MentionIcon width="20px" height="20px" fill="var(--cpd-color-icon-accent-primary)" />}
-            {(isMention || isNotification) && <UnreadCounter count={count || null} />}
+            {(isMention || isNotification) && (
+                <UnreadCounter count={count ? (countIsLowerBound ? `${count}+` : count) : null} />
+            )}
             {isActivityNotification && <Unread />}
             {muted && <NotificationsOffSolidIcon width="20px" height="20px" fill="var(--cpd-color-icon-tertiary)" />}
         </Flex>

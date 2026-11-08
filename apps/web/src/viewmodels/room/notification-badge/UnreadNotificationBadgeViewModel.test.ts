@@ -22,6 +22,7 @@ import { mkThread } from "test-utils/threads";
 
 import type { MatrixClient } from "matrix-js-sdk/src/matrix";
 import * as RoomNotifs from "../../../RoomNotifs";
+import { setLowerBoundCounts } from "../../../sliding-sync/notification-counts/lowerBoundCounts";
 import { NotificationLevel } from "../../../stores/notifications/NotificationLevel";
 import { UnreadNotificationBadgeViewModel } from "./UnreadNotificationBadgeViewModel";
 
@@ -111,6 +112,27 @@ describe("UnreadNotificationBadgeViewModel", () => {
             symbol: "1",
         });
         vm.dispose();
+    });
+
+    it("shows a count that is only a lower bound as at least it, in the room or a thread", () => {
+        setUnreads(3, 0);
+        room.setThreadUnreadNotificationCount("$thread", NotificationCountType.Total, 2);
+        setLowerBoundCounts(room, { main: false, threads: new Set(["$thread"]) });
+
+        const roomVm = new UnreadNotificationBadgeViewModel({ room });
+        const threadVm = new UnreadNotificationBadgeViewModel({ room, threadId: "$thread" });
+        expect(roomVm.getSnapshot()).toMatchObject({ symbol: "3" });
+        expect(threadVm.getSnapshot()).toMatchObject({ symbol: "2+" });
+
+        // Announced as a change of the counts, though they stay the same.
+        setLowerBoundCounts(room, { main: true, threads: new Set() });
+        room.emit(RoomEvent.UnreadNotifications, { total: 3, highlight: 0 });
+        room.emit(RoomEvent.UnreadNotifications, { total: 2, highlight: 0 }, "$thread");
+        expect(roomVm.getSnapshot()).toMatchObject({ symbol: "3+" });
+        expect(threadVm.getSnapshot()).toMatchObject({ symbol: "2" });
+
+        roomVm.dispose();
+        threadVm.dispose();
     });
 
     it("does not render when there are no unread notifications", () => {

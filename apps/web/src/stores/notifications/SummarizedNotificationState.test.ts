@@ -13,6 +13,14 @@ import { SummarizedNotificationState } from "./SummarizedNotificationState";
 import { StaticNotificationState } from "./StaticNotificationState";
 import { NotificationLevel } from "./NotificationLevel";
 
+/** A count that is only a lower bound. */
+class LowerBoundState extends StaticNotificationState {
+    public constructor(count: number) {
+        super(null, count, NotificationLevel.Notification);
+        this._countIsLowerBound = true;
+    }
+}
+
 describe("SummarizedNotificationState", () => {
     it("reports the unsent symbol when one of the summarized states failed to send", () => {
         const state = new SummarizedNotificationState();
@@ -30,6 +38,17 @@ describe("SummarizedNotificationState", () => {
         expect(state.level).toBe(NotificationLevel.Notification);
         expect(state.symbol).toBeNull();
         expect(state.count).toBe(12);
+    });
+
+    it("sums to a lower bound when a count in it is one", () => {
+        const state = new SummarizedNotificationState();
+        state.add(StaticNotificationState.forCount(12, NotificationLevel.Notification));
+        expect(state.countIsLowerBound).toBe(false);
+
+        state.add(new LowerBoundState(3));
+
+        expect(state.count).toBe(15);
+        expect(state.countIsLowerBound).toBe(true);
     });
 
     it("still adopts an explicit symbol below the unsent level", () => {

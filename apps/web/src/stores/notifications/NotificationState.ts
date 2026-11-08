@@ -15,6 +15,8 @@ import SettingsStore from "../../settings/SettingsStore";
 export interface INotificationStateSnapshotParams {
     symbol: string | null;
     count: number;
+    /** Whether the count is only a lower bound: more could be unread than it says. */
+    countIsLowerBound: boolean;
     level: NotificationLevel;
     muted: boolean;
     knocked: boolean;
@@ -36,6 +38,7 @@ export abstract class NotificationState
     //
     protected _symbol: string | null = null;
     protected _count = 0;
+    protected _countIsLowerBound = false;
     protected _level: NotificationLevel = NotificationLevel.None;
     protected _muted = false;
     protected _knocked = false;
@@ -58,6 +61,14 @@ export abstract class NotificationState
 
     public get count(): number {
         return this._count;
+    }
+
+    /**
+     * Whether {@link count} is only a lower bound: more could be unread than it says, such as messages in history
+     * this device has not seen. Badges show it as "N+".
+     */
+    public get countIsLowerBound(): boolean {
+        return this._countIsLowerBound;
     }
 
     public get level(): NotificationLevel {
@@ -136,6 +147,7 @@ export abstract class NotificationState
 export class NotificationStateSnapshot {
     private readonly symbol: string | null;
     private readonly count: number;
+    private readonly countIsLowerBound: boolean;
     private readonly level: NotificationLevel;
     private readonly muted: boolean;
     private readonly knocked: boolean;
@@ -144,6 +156,7 @@ export class NotificationStateSnapshot {
     public constructor(state: INotificationStateSnapshotParams) {
         this.symbol = state.symbol;
         this.count = state.count;
+        this.countIsLowerBound = state.countIsLowerBound;
         this.level = state.level;
         this.muted = state.muted;
         this.knocked = state.knocked;
@@ -162,6 +175,7 @@ export class NotificationStateSnapshot {
         // an unpaired key makes the two serialisations differ for every possible input.
         return (
             this.count !== other.count ||
+            this.countIsLowerBound !== other.countIsLowerBound ||
             this.symbol !== other.symbol ||
             this.level !== other.level ||
             this.muted !== other.muted ||
