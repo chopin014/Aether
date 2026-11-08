@@ -16,7 +16,7 @@ Please see LICENSE in the repository root for full details.
  * message retention, add it to every profile while they are on.
  */
 
-import { EventType, UNSTABLE_ELEMENT_FUNCTIONAL_USERS } from "matrix-js-sdk/src/matrix";
+import { EventType, M_BEACON_INFO, UNSTABLE_ELEMENT_FUNCTIONAL_USERS } from "matrix-js-sdk/src/matrix";
 import {
     MSC3575_STATE_KEY_LAZY,
     MSC3575_STATE_KEY_ME,
@@ -74,6 +74,9 @@ export const CATALOG_STATE: string[][] = [
     [WIDGET_LAYOUT_EVENT_TYPE, ""], // where the room's widgets sit, beside the widgets themselves
     [EventType.RoomPinnedEvents, ""], // pinned messages, such as a server notice's or one search filters on
     [EventType.RoomServerAcl, ""], // servers banned from the room, never used to route a link to it
+    // The user's own live location shares, in both names a share may be sent under. This device keeps sending its
+    // location to a share until the room's state says the share stopped, whether or not the room is open.
+    ...M_BEACON_INFO.names.map((type) => [type, MSC3575_STATE_KEY_ME]),
 ];
 
 /**
@@ -95,6 +98,8 @@ const ROOM_VIEW_STATE: string[][] = [
     [SOUNDBOARD_EVENT, MSC3575_WILDCARD],
     // The bridges a room is part of, shown in its settings.
     [BRIDGE_EVENT_TYPE, MSC3575_WILDCARD],
+    // Everyone's live location shares, which the timeline shows live from the room's state.
+    ...M_BEACON_INFO.names.map((type) => [type, MSC3575_WILDCARD]),
 ];
 
 /** The catalog plus the state of an open room. */

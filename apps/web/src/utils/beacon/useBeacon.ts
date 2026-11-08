@@ -7,20 +7,39 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import { useContext, useEffect, useState } from "react";
-import { type Beacon, BeaconEvent, type MatrixEvent, getBeaconInfoIdentifier } from "matrix-js-sdk/src/matrix";
+import {
+    type Beacon,
+    BeaconEvent,
+    ClientEvent,
+    type MatrixEvent,
+    type Room,
+    getBeaconInfoIdentifier,
+} from "matrix-js-sdk/src/matrix";
 
 import MatrixClientContext from "../../contexts/MatrixClientContext";
-import { useEventEmitterState } from "../../hooks/useEventEmitter";
+import { useEventEmitterState, useTypedEventEmitter } from "../../hooks/useEventEmitter";
 
 export const useBeacon = (beaconInfoEvent: MatrixEvent): Beacon | undefined => {
     const matrixClient = useContext(MatrixClientContext);
     const [beacon, setBeacon] = useState<Beacon>();
 
-    useEffect(() => {
-        const roomId = beaconInfoEvent.getRoomId();
-        const beaconIdentifier = getBeaconInfoIdentifier(beaconInfoEvent);
+    // The room may not be known yet when the event is shown, and the share can reach the room's state after its event:
+    // sliding sync sends a listed room's latest events before the state of the room once it is opened. Look again
+    // when the room arrives, and when its state gains or changes the share.
+    const [, setRoomArrivals] = useState(0);
+    useTypedEventEmitter(matrixClient ?? undefined, ClientEvent.Room, (arrived: Room) => {
+        if (arrived.roomId === beaconInfoEvent.getRoomId()) setRoomArrivals((count) => count + 1);
+    });
+    const room = matrixClient?.getRoom(beaconInfoEvent.getRoomId()) ?? undefined;
+    const [shareChanges, setShareChanges] = useState(0);
+    const onShareChanged = (_event: MatrixEvent, changed: Beacon): void => {
+        if (changed.identifier === getBeaconInfoIdentifier(beaconInfoEvent)) setShareChanges((count) => count + 1);
+    };
+    useTypedEventEmitter(room, BeaconEvent.New, onShareChanged);
+    useTypedEventEmitter(room, BeaconEvent.Update, onShareChanged);
 
-        const room = matrixClient?.getRoom(roomId);
+    useEffect(() => {
+        const beaconIdentifier = getBeaconInfoIdentifier(beaconInfoEvent);
         const beaconInstance = room?.currentState.beacons.get(beaconIdentifier);
 
         // TODO could this be less stupid?
@@ -39,7 +58,7 @@ export const useBeacon = (beaconInfoEvent: MatrixEvent): Beacon | undefined => {
         } else {
             setBeacon(undefined);
         }
-    }, [beaconInfoEvent, matrixClient]);
+    }, [beaconInfoEvent, room, shareChanges]);
 
     // beacon update will fire when this beacon is superseded
     // check the updated event id for equality to the matrix event

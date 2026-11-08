@@ -21,6 +21,7 @@ import {
     EventType,
     createClient,
     type MatrixClient,
+    MatrixError,
     MatrixEvent,
     Room,
     RoomEvent,
@@ -1161,6 +1162,28 @@ describe("SlidingSyncManager", () => {
             client.emit(ClientEvent.Room, knownRoom("!missing"));
             rooms.delete("!missing");
             expect(manager.mayStillArrive("!missing")).toBe(true);
+        });
+
+        it("counts no room as sent once the connection is started afresh, until it is sent again", async () => {
+            const changes = vi.fn();
+            manager.onArrivalChange(changes);
+            const data = { name: "Live", required_state: [], timeline: [] };
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+            sync.emit(SlidingSyncEvent.RoomData, "!live", data);
+            await applied();
+            expect(manager.hasLiveData("!live")).toBe(true);
+            changes.mockClear();
+
+            // The server forgot the connection: the SDK starts it afresh.
+            const forgotten = new MatrixError({ errcode: "M_UNKNOWN_POS", error: "Unknown pos" }, 400);
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null, forgotten);
+            expect(manager.hasLiveData("!live")).toBe(false);
+            expect(changes).toHaveBeenCalled();
+
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+            sync.emit(SlidingSyncEvent.RoomData, "!live", data);
+            await applied();
+            expect(manager.hasLiveData("!live")).toBe(true);
         });
 
         it("notes which rooms the server has sent on this connection, once the response is applied", async () => {
