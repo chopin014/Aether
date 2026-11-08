@@ -13,7 +13,10 @@ import {
     CATALOG_STATE,
     ENCRYPTED_SUBSCRIPTION,
     NAMED_SUBSCRIPTIONS,
+    NO_LABS,
     ROOM_STATE,
+    RoomSubscriptionName,
+    roomStateProfiles,
     SPACE_LIST_STATE,
 } from "./roomStateProfiles";
 
@@ -72,5 +75,40 @@ describe("roomStateProfiles", () => {
             });
         }
         expect(SPACE_LIST_STATE.map(([type]) => type)).not.toContain(MSC3575_WILDCARD);
+    });
+
+    describe("with labs features", () => {
+        const RETENTION = [
+            ["m.room.retention", ""],
+            ["org.matrix.msc1763.retention", ""],
+        ];
+
+        it("asks for nothing more while none is on", () => {
+            const profiles = roomStateProfiles(NO_LABS);
+            expect(profiles.catalog).toBe(CATALOG_STATE);
+            expect(profiles.spaceList).toBe(SPACE_LIST_STATE);
+            expect(profiles.named).toBe(NAMED_SUBSCRIPTIONS);
+            expect(CATALOG_STATE).not.toEqual(expect.arrayContaining([RETENTION[0]]));
+        });
+
+        it("asks every listed room for its retention policy while message retention is on", () => {
+            const profiles = roomStateProfiles({ retention: true });
+            expect(profiles.catalog).toEqual([...CATALOG_STATE, ...RETENTION]);
+            expect(profiles.spaceList).toEqual([...SPACE_LIST_STATE, ...RETENTION]);
+            for (const [name, subscription] of profiles.named) {
+                if (name === RoomSubscriptionName.Encrypted) {
+                    // It asks for all of a room's state already.
+                    expect(subscription).toBe(ENCRYPTED_SUBSCRIPTION);
+                    continue;
+                }
+                const named = NAMED_SUBSCRIPTIONS.get(name)!;
+                expect({ name, subscription }).toEqual({
+                    name,
+                    subscription: { ...named, required_state: [...named.required_state!, ...RETENTION] },
+                });
+            }
+            // The defaults are left as they are.
+            expect(CATALOG_STATE).not.toEqual(expect.arrayContaining([RETENTION[0]]));
+        });
     });
 });
