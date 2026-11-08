@@ -8,7 +8,13 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import React, { type ChangeEventHandler, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { type IContent, type MatrixClient, type MatrixEvent } from "matrix-js-sdk/src/matrix";
+import {
+    type IContent,
+    type MatrixClient,
+    type MatrixEvent,
+    MatrixEventEvent,
+    type Room,
+} from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
 import classNames from "classnames";
 import { Form, SettingsToggleInput } from "@vector-im/compound-web";
@@ -27,13 +33,18 @@ import { SlidingSyncManager } from "../../../../SlidingSyncManager";
 type RoomStateEvents = ReadonlyMap<string, ReadonlyMap<string, MatrixEvent>>;
 
 /**
- * Fetch all of a room's current state from the server. Encrypted state events are decrypted; one that cannot be is
- * listed under the type and state key it was sent with.
+ * Fetch all of a room's current state from the server, decrypting encrypted state events. The events are the
+ * explorer's own: the client neither keeps them nor tells its listeners about them.
  */
-async function fetchRoomState(cli: MatrixClient, roomId: string): Promise<RoomStateEvents> {
-    const mapper = cli.getEventMapper();
+async function fetchRoomState(cli: MatrixClient, roomId: string): Promise<MatrixEvent[]> {
+    const mapper = cli.getEventMapper({ preventReEmit: true, decrypt: false });
     const events = (await cli.roomState(roomId)).map((event) => mapper(event));
     await Promise.all(events.filter((event) => event.isEncrypted()).map((event) => cli.decryptEventIfNeeded(event)));
+    return events;
+}
+
+/** State events by event type, then state key. One that could not be decrypted is listed as it was sent. */
+function byTypeAndStateKey(events: MatrixEvent[]): RoomStateEvents {
     const byType = new Map<string, Map<string, MatrixEvent>>();
     for (const event of events) {
         const failed = event.isDecryptionFailure();
@@ -43,6 +54,13 @@ async function fetchRoomState(cli: MatrixClient, roomId: string): Promise<RoomSt
         byType.get(type)!.set(stateKey, event);
     }
     return byType;
+}
+
+/** A room's state as fetched from the server, or null when it could not be. */
+interface FetchedRoomState {
+    cli: MatrixClient;
+    room: Room;
+    events: MatrixEvent[] | null;
 }
 
 /**
@@ -55,17 +73,36 @@ function useRoomStateToExplore(): { events?: RoomStateEvents; loadedOnly: boolea
     const context = useContext(DevtoolsContext);
     const cli = useContext(MatrixClientContext);
     const fromServer = SlidingSyncManager.instance.isActiveFor(cli);
-    const fetched = useAsyncMemo<RoomStateEvents | null | undefined>(async () => {
+    const fetched = useAsyncMemo<FetchedRoomState | undefined>(async () => {
         if (!fromServer) return undefined;
+        const room = context.room;
         try {
-            return await fetchRoomState(cli, context.room.roomId);
+            return { cli, room, events: await fetchRoomState(cli, room.roomId) };
         } catch (error) {
             logger.warn("Devtools could not fetch the room's state", error);
-            return null;
+            return { cli, room, events: null };
         }
     }, [cli, context.room, fromServer]);
-    if (!fromServer || fetched === null) return { events: context.room.currentState.events, loadedOnly: fromServer };
-    return { events: fetched, loadedOnly: false };
+    // An answer about another room or client, kept while the next one is fetched, is not shown.
+    const current = fetched?.cli === cli && fetched.room === context.room ? fetched : undefined;
+
+    // An event that could not be decrypted is listed again under what it is once its keys arrive.
+    const events = current?.events ?? undefined;
+    const [grouping, setGrouping] = useState<{ events: MatrixEvent[]; byType: RoomStateEvents }>();
+    useEffect(() => {
+        if (!events) return;
+        const regroup = (): void => setGrouping({ events, byType: byTypeAndStateKey(events) });
+        regroup();
+        const waiting = events.filter((event) => event.isDecryptionFailure());
+        for (const event of waiting) event.on(MatrixEventEvent.Decrypted, regroup);
+        return () => {
+            for (const event of waiting) event.off(MatrixEventEvent.Decrypted, regroup);
+        };
+    }, [events]);
+
+    if (!fromServer) return { events: context.room.currentState.events, loadedOnly: false };
+    if (current?.events === null) return { events: context.room.currentState.events, loadedOnly: true };
+    return { events: grouping?.events === events ? grouping?.byType : undefined, loadedOnly: false };
 }
 
 const NO_EVENTS: ReadonlyMap<string, MatrixEvent> = new Map();
@@ -201,7 +238,9 @@ const RoomStateExplorerEventType: React.FC<IEventTypeProps> = ({ events, onBack 
                 {_t("devtools|see_history")}
             </button>
         );
-        return <EventViewer mxEvent={event} onBack={_onBack} Editor={StateEventEditor} extraButton={extraButton} />;
+        // An event that could not be decrypted has neither its type nor its content to edit.
+        const Editor = event.isDecryptionFailure() ? undefined : StateEventEditor;
+        return <EventViewer mxEvent={event} onBack={_onBack} Editor={Editor} extraButton={extraButton} />;
     }
 
     return (
@@ -231,10 +270,18 @@ const RoomStateExplorerEventType: React.FC<IEventTypeProps> = ({ events, onBack 
 };
 
 export const RoomStateExplorer: React.FC<IDevtoolsProps> = ({ onBack, setTool }) => {
+    const context = useContext(DevtoolsContext);
     const [query, setQuery] = useState("");
     const [eventType, setEventType] = useState<string | null>(null);
 
     const { events, loadedOnly } = useRoomStateToExplore();
+
+    // What was chosen in one room is not carried over to another.
+    const [shownRoom, setShownRoom] = useState(context.room);
+    if (shownRoom !== context.room) {
+        setShownRoom(context.room);
+        setEventType(null);
+    }
 
     if (events && eventType !== null) {
         const onBack = (): void => {
