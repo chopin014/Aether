@@ -106,6 +106,16 @@ const ROOM_DISCOVERY_TIMEOUT_MS = 10_000;
 const MAX_SPACE_CHANNELS = 200;
 // How many of a Space tree's children are looked at, so a huge Space costs little each time it changes.
 const MAX_SPACE_TREE_VISITS = 1000;
+// Of those channels, at most this many hold a subscription of their own at once, in the Space's order. Every request
+// carries every subscription in full, as the server keeps none from one request to the next, so each one costs
+// bytes on every request: the others wait for the lists to reach them.
+const MAX_CHANNEL_INTERESTS = 32;
+// Channels nobody has seen are asked about this many at a time.
+const MAX_FRESH_DISCOVERIES = 8;
+// The bytes a request's room subscriptions and lists are kept under, by holding back the open Space's channels.
+const REQUEST_BUDGET_BYTES = 64 * 1024;
+// The most room subscriptions a request carries, as MSC4186 allows.
+const MAX_ROOM_SUBSCRIPTIONS = 100;
 // Changes to the Space tree outside a sync response, such as rooms restored from this device, are read after this
 // pause, so a burst of them costs one walk.
 const SPACE_TREE_SETTLE_MS = 50;
@@ -222,6 +232,28 @@ export type PartialSlidingSyncRequest = {
  * dropped, so the subscriptions of a long session stay bounded.
  */
 /** Where the server's last answer about offering sliding sync is kept, per homeserver. */
+const profileBytes = new Map<RoomSubscriptionName, number>();
+
+/** The bytes a room's subscription takes in a request, as `"roomId":{...},`. */
+function subscriptionBytes(roomId: string, name: RoomSubscriptionName): number {
+    let size = profileBytes.get(name);
+    if (size === undefined) {
+        size = JSON.stringify(NAMED_SUBSCRIPTIONS.get(name) ?? {}).length;
+        profileBytes.set(name, size);
+    }
+    return roomId.length + size + 4;
+}
+
+/** The bytes the account lists take in a request. */
+function listBytes(slidingSync: SlidingSync): number {
+    let size = 0;
+    for (const listName in sssLists) {
+        const params = slidingSync.getListParams(listName);
+        if (params) size += listName.length + JSON.stringify(params).length + 4;
+    }
+    return size;
+}
+
 function supportKey(client: MatrixClient): string {
     return `mx_sliding_sync_offered:${client.baseUrl}`;
 }
@@ -272,6 +304,11 @@ export class SlidingSyncManager {
     private listsCoverAccount = false;
     // Rooms the server answered a subscription without, until they arrive after all.
     private readonly absentRooms = new Set<string>();
+    // Channels nobody has seen, asked about until a response to a request that carried them is applied.
+    private readonly discoveries = new Set<string>();
+    // Channels the server did not send when asked about, such as rooms the user has never been in, which sliding
+    // sync does not serve. They are not asked about again until there is news of them, such as someone opening one.
+    private readonly unsuppliedRooms = new Set<string>();
     // Saved channels already asked to be applied in the background, so each is asked for once.
     private readonly savedChannelsAsked = new Set<string>();
     // Rooms the server has sent data for on this connection, and saved rooms it turned out the user had left while
@@ -337,6 +374,8 @@ export class SlidingSyncManager {
         this.activeSpaceId = undefined;
         this.listsCoverAccount = false;
         this.absentRooms.clear();
+        this.discoveries.clear();
+        this.unsuppliedRooms.clear();
         this.savedChannelsAsked.clear();
         this.liveRooms.clear();
         this.arrivingLiveRooms.clear();
@@ -543,14 +582,9 @@ export class SlidingSyncManager {
         const room = this.client?.getRoom(roomId);
         if (this.expectedSpaces.has(roomId) || room?.isSpaceRoom()) return RoomSubscriptionName.Space;
         if (this.spaceChannels.has(roomId) && !this.bootstrapRooms.has(roomId) && !this.leases.has(roomId)) {
-            // Only listed because its Space is open. A room given more history keeps it: a smaller subscription
-            // would be sent again for nothing.
-            const applied = this.appliedNames.get(roomId);
-            return applied === RoomSubscriptionName.Room ||
-                applied === RoomSubscriptionName.Encrypted ||
-                applied === RoomSubscriptionName.Prefetch
-                ? applied
-                : RoomSubscriptionName.Channel;
+            // Only subscribed because its Space is open: what a list entry gets, whatever it was given before. Every
+            // request carries it again, so a larger one would cost bytes on every request.
+            return RoomSubscriptionName.Channel;
         }
         if (!room || this.bootstrapRooms.has(roomId)) return RoomSubscriptionName.Bootstrap;
         if (room.hasEncryptionStateEvent() || this.encryptedRooms.has(roomId)) return RoomSubscriptionName.Encrypted;
@@ -574,9 +608,22 @@ export class SlidingSyncManager {
     private applySubscriptions(slidingSync: SlidingSync): void {
         if (this.slidingSync !== slidingSync) return;
         const desired = new Set(this.leases.roomIds());
-        for (const roomId of this.spaceChannels) desired.add(roomId);
         for (const roomId of this.bootstrapRooms) desired.add(roomId);
         for (const roomId of this.initialTimelines.keys()) desired.add(roomId);
+        if (desired.size > MAX_ROOM_SUBSCRIPTIONS) {
+            logger.warn(`SlidingSync: ${desired.size} rooms need a subscription, more than the protocol allows`);
+        }
+        // The open Space's channels are sent as long as the request stays small, in the Space's order. Every request
+        // carries every subscription, so the request is measured as it will be sent.
+        let bytes = listBytes(slidingSync);
+        for (const roomId of desired) bytes += subscriptionBytes(roomId, this.subscriptionNameFor(roomId));
+        for (const roomId of this.spaceChannels) {
+            if (desired.has(roomId)) continue;
+            const size = subscriptionBytes(roomId, this.subscriptionNameFor(roomId));
+            if (desired.size >= MAX_ROOM_SUBSCRIPTIONS || bytes + size > REQUEST_BUDGET_BYTES) break;
+            desired.add(roomId);
+            bytes += size;
+        }
         let changed = false;
         for (const roomId of desired) {
             const name = this.subscriptionNameFor(roomId);
@@ -662,6 +709,9 @@ export class SlidingSyncManager {
      */
     public async setRoomVisible(roomId: string): Promise<RoomVisibility> {
         await this.configureDefer.promise;
+        // Opening a channel the server did not send before is news of it: as one of its Space's, it is asked about
+        // again.
+        if (this.unsuppliedRooms.delete(roomId)) this.markSpaceTreeChanged(roomId);
         const client = this.client!;
         const slidingSync = this.slidingSync!;
         if (this.viewLease?.roomId !== roomId) {
@@ -904,6 +954,7 @@ export class SlidingSyncManager {
 
     private readonly onRoomStored = (room: Room): void => {
         this.absentRooms.delete(room.roomId);
+        this.unsuppliedRooms.delete(room.roomId);
         this.markSpaceTreeChanged(room.roomId);
     };
 
@@ -937,7 +988,7 @@ export class SlidingSyncManager {
         this.markSpaceTreeChanged(room.roomId);
     };
 
-    private readonly onResponseApplied = (state: SlidingSyncState, _response: unknown, error?: Error): void => {
+    private readonly onResponseApplied = (state: SlidingSyncState, response: unknown, error?: Error): void => {
         if (state === SlidingSyncState.RequestFinished) {
             // A response is applied between its arrival and Complete. A failed request applies nothing.
             this.applyingSince = error ? undefined : Date.now();
@@ -948,6 +999,7 @@ export class SlidingSyncManager {
         } else if (state === SlidingSyncState.Complete) {
             this.applyingSince = undefined;
             this.publishLiveRooms();
+            if (response) this.settleDiscoveries(response as MSC3575SlidingSyncResponse);
             if (this.spaceTreeTimer !== undefined) clearTimeout(this.spaceTreeTimer);
             this.spaceTreeTimer = undefined;
             if (this.listsCoverAccount && this.slidingSync && this.listsOutgrown(this.slidingSync)) {
@@ -960,6 +1012,61 @@ export class SlidingSyncManager {
             if (this.spaceTreeChanged) this.refreshSpaceChannels();
         }
     };
+
+    /**
+     * Settle the channels this response was asked about: a channel it brought is known now, and one it did not is
+     * one the server will not send, such as a room the user has never been in.
+     */
+    private settleDiscoveries(response: MSC3575SlidingSyncResponse): void {
+        if (this.discoveries.size === 0) return;
+        const asked = this.slidingSync?.getRequestForResponse(response)?.roomSubscriptions;
+        if (!asked) return;
+        for (const roomId of this.discoveries) {
+            if (!asked.has(roomId)) continue;
+            this.discoveries.delete(roomId);
+            if (!this.client?.getRoom(roomId)) this.unsuppliedRooms.add(roomId);
+            this.spaceTreeChanged = true;
+        }
+    }
+
+    /**
+     * The channels to subscribe, of a Space's: those the lists do not keep up to date. A known channel holds a
+     * subscription until the lists cover the account, other than one the user is invited to or knocked on, which
+     * the invites list has. A channel nobody has seen is asked about once, a few at a time, as sliding sync serves
+     * no room the user has never been in. At most {@link MAX_CHANNEL_INTERESTS}, in the Space's order.
+     * @param candidates - The Space's channels, in its order.
+     */
+    private channelInterests(candidates: Iterable<string>): Set<string> {
+        const interests = new Set<string>();
+        let fresh = 0;
+        for (const roomId of candidates) {
+            if (interests.size >= MAX_CHANNEL_INTERESTS) break;
+            const room = this.client?.getRoom(roomId);
+            if (room) {
+                // The user's own member event decides, as the SDK reports "leave" for a room it has no membership
+                // for yet. Rooms the user has left are not candidates at all.
+                const userId = this.client?.getUserId();
+                const membership = userId
+                    ? room.currentState.getStateEvents(EventType.RoomMember, userId)?.getContent().membership
+                    : undefined;
+                const invited = membership === KnownMembership.Invite || membership === KnownMembership.Knock;
+                if (!invited && !this.listsCoverAccount) interests.add(roomId);
+                continue;
+            }
+            if (this.unsuppliedRooms.has(roomId)) continue;
+            if (!this.discoveries.has(roomId)) {
+                if (fresh >= MAX_FRESH_DISCOVERIES) continue;
+                fresh++;
+                this.discoveries.add(roomId);
+            }
+            interests.add(roomId);
+        }
+        // Those no longer wanted are not asked about.
+        for (const roomId of this.discoveries) {
+            if (!interests.has(roomId)) this.discoveries.delete(roomId);
+        }
+        return interests;
+    }
 
     /** Whether a list that grows to the whole account now has more rooms than its range covers. */
     private listsOutgrown(slidingSync: SlidingSync): boolean {
@@ -1067,10 +1174,11 @@ export class SlidingSyncManager {
         for (const spaceId of this.sortedChildren.keys()) {
             if (!walked.has(spaceId)) this.sortedChildren.delete(spaceId);
         }
-        if (channels.size === this.spaceChannels.size && [...channels].every((id) => this.spaceChannels.has(id))) {
+        const interests = this.channelInterests(channels);
+        if (interests.size === this.spaceChannels.size && [...interests].every((id) => this.spaceChannels.has(id))) {
             return;
         }
-        this.spaceChannels = channels;
+        this.spaceChannels = interests;
         // Sent with the next batch: the channel someone opens next is urgent, and carries these along with it.
         this.scheduleFlush(false);
     }

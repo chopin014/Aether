@@ -1602,7 +1602,7 @@ describe("SlidingSyncManager", () => {
             expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!new-category", "!c"]));
         });
 
-        it("keeps the first channels in the Space's own order when it has too many", async () => {
+        it("asks about the first channels nobody has seen in the Space's own order, a few at a time", async () => {
             const space = knownRoom("!server", "space");
             // Listed in reverse of their order, so the Space's order decides, not arrival.
             const events = Array.from({ length: 250 }, (_, i) => 249 - i).map(
@@ -1619,9 +1619,64 @@ describe("SlidingSyncManager", () => {
             space.currentState.setStateEvents(events);
             manager.setActiveSpace("!server");
             await tick();
-            expect(sync.getRoomSubscriptions()).toEqual(
-                new Set(["!server", ...Array.from({ length: 200 }, (_, i) => `!channel${i}`)]),
+            const first = Array.from({ length: 8 }, (_, i) => `!channel${i}`);
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", ...first]));
+
+            // Answered without them, as the server does not serve rooms the user has never been in: the next ones
+            // are asked about instead, and those are not asked about again.
+            const response = { pos: "p", lists: {}, rooms: {}, extensions: {} };
+            vi.spyOn(sync, "getRequestForResponse").mockImplementation((answered) =>
+                answered === response
+                    ? { roomSubscriptions: new Map(first.map((roomId) => [roomId, subscriptionOf(roomId)])) }
+                    : undefined,
             );
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, response);
+            await tick();
+            expect(sync.getRoomSubscriptions()).toEqual(
+                new Set(["!server", ...Array.from({ length: 8 }, (_, i) => `!channel${i + 8}`)]),
+            );
+        });
+
+        it("asks about a channel the server did not send again once someone opens it", async () => {
+            const space = knownRoom("!server", "space");
+            addChildren(space, ["!private"]);
+            manager.setActiveSpace("!server");
+            await tick();
+            expect(sync.getRoomSubscriptions()).toContain("!private");
+            const response = { pos: "p", lists: {}, rooms: {}, extensions: {} };
+            vi.spyOn(sync, "getRequestForResponse").mockImplementation((answered) =>
+                answered === response
+                    ? { roomSubscriptions: new Map([["!private", subscriptionOf("!private")]]) }
+                    : undefined,
+            );
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, response);
+            await tick();
+            expect(sync.getRoomSubscriptions()).not.toContain("!private");
+
+            void manager.setRoomVisible("!private");
+            await tick();
+            expect(sync.getRoomSubscriptions()).toContain("!private");
+            // Once the user has looked away, it is a channel to ask about again, as before.
+            expect((manager as unknown as { unsuppliedRooms: Set<string> }).unsuppliedRooms.has("!private")).toBe(
+                false,
+            );
+        });
+
+        it("asks about a channel that has arrived no more: it is a known channel", async () => {
+            const space = knownRoom("!server", "space");
+            addChildren(space, ["!new"]);
+            manager.setActiveSpace("!server");
+            await tick();
+            const response = { pos: "p", lists: {}, rooms: {}, extensions: {} };
+            vi.spyOn(sync, "getRequestForResponse").mockImplementation((answered) =>
+                answered === response ? { roomSubscriptions: new Map([["!new", subscriptionOf("!new")]]) } : undefined,
+            );
+            // It arrives in the response, so it stays subscribed as a known channel until the lists cover it.
+            client.emit(ClientEvent.Room, knownRoom("!new"));
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, response);
+            await tick();
+            expect(sync.getRoomSubscriptions()).toContain("!new");
+            expect(nameOf("!new")).toBe("channel");
         });
 
         it("sends a Space and its channels along with the channel opened next, in one request", async () => {
@@ -1741,7 +1796,7 @@ describe("SlidingSyncManager", () => {
             expect(lookups.mock.calls.length).toBeLessThan(2500);
         });
 
-        it("gives a channel someone points at the shorter history of a likely visit, and keeps it", async () => {
+        it("gives a channel someone points at the shorter history of a likely visit, then a channel's again", async () => {
             vi.useFakeTimers();
             const space = knownRoom("!server", "space");
             knownRoom("!a");
@@ -1751,8 +1806,9 @@ describe("SlidingSyncManager", () => {
             manager.prefetchRoom("!a");
             await vi.advanceTimersByTimeAsync(200);
             expect(nameOf("!a")).toBe("prefetch");
+            // Every request carries every subscription, so once the visit is no longer likely a channel's will do.
             await vi.advanceTimersByTimeAsync(60_000);
-            expect(nameOf("!a")).toBe("prefetch");
+            expect(nameOf("!a")).toBe("channel");
             expect(sync.getRoomSubscriptions()).toContain("!a");
         });
 
@@ -1777,7 +1833,7 @@ describe("SlidingSyncManager", () => {
             expect(sync.getRoomSubscriptions()).not.toContain("!elsewhere");
         });
 
-        it("gives an open channel its room subscription, and keeps it after the room is left", async () => {
+        it("gives an open channel its room subscription, then a channel's once its grace period ends", async () => {
             vi.useFakeTimers();
             const space = knownRoom("!server", "space");
             knownRoom("!a");
@@ -1790,19 +1846,36 @@ describe("SlidingSyncManager", () => {
             expect(nameOf("!a")).toBe("room");
             lease.release();
             await vi.advanceTimersByTimeAsync(120_000);
-            expect(nameOf("!a")).toBe("room");
+            expect(nameOf("!a")).toBe("channel");
             expect(sync.getRoomSubscriptions()).toContain("!a");
         });
 
-        it("subscribes no more than 200 channels of a Space", async () => {
+        it("subscribes no more than 32 channels of a Space, as every request carries them all", async () => {
             const space = knownRoom("!server", "space");
-            addChildren(
-                space,
-                Array.from({ length: 250 }, (_, i) => `!channel${i}`),
-            );
+            const channels = Array.from({ length: 250 }, (_, i) => `!channel${i}`);
+            for (const roomId of channels) knownRoom(roomId);
+            addChildren(space, channels);
             manager.setActiveSpace("!server");
             await tick();
-            expect(sync.getRoomSubscriptions().size).toBe(201);
+            // Without an order of their own, the Space orders them by room ID.
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", ...[...channels].sort().slice(0, 32)]));
+        });
+
+        it("holds back the Space's channels that would make a request too large, but not the open room", async () => {
+            const space = knownRoom("!server", "space");
+            const channels = Array.from({ length: 10 }, (_, i) => `!channel${i}`);
+            for (const roomId of channels) knownRoom(roomId);
+            addChildren(space, channels);
+            knownRoom("!open");
+            // Lists as large as the whole budget leave no room for optional subscriptions.
+            vi.spyOn(sync, "getListParams").mockReturnValue({
+                ranges: [[0, 0]],
+                required_state: [["x".repeat(64 * 1024), ""]],
+            });
+            await manager.setRoomVisible("!open");
+            manager.setActiveSpace("!server");
+            await tick();
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!open"]));
         });
 
         it("applies a Space selected before the connection existed", async () => {
