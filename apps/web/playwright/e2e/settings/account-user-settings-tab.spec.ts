@@ -130,10 +130,11 @@ test.describe("Account user settings tab", () => {
         await expect(page.getByRole("tooltip")).toHaveText("Account");
     });
 
-    test("should support adding and removing a profile picture", async ({ uut, page }) => {
+    test("should support adding and removing a profile picture", async ({ uut, page, app }) => {
         const profileSettings = uut.locator(".mx_UserProfileSettings");
-        // Upload a picture
+        // Upload a picture, as it is framed
         await profileSettings.getByAltText("Upload").setInputFiles(getSampleFilePath("riot.png"));
+        await app.applyImageCrop();
 
         // Image should be visible
         await expect(profileSettings.locator(".mx_AvatarSetting_avatar img")).toBeVisible();
