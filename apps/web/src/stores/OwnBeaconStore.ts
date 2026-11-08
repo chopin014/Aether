@@ -121,6 +121,8 @@ export class OwnBeaconStore extends AsyncStoreWithClient<OwnBeaconStoreState> {
     // Under sliding sync, the rooms this device shares its location in are kept subscribed, by the release of each,
     // so that a share stopped elsewhere is heard of promptly.
     private readonly roomHolds = new Map<Room["roomId"], () => void>();
+    // Live shares of this device whose room has not been sent again since it was restored or the connection restarted.
+    private awaitingState = new Set<BeaconIdentifier>();
     private stopWatchingArrivals?: () => void;
 
     public constructor() {
@@ -163,6 +165,7 @@ export class OwnBeaconStore extends AsyncStoreWithClient<OwnBeaconStoreState> {
         this.liveBeaconIds = [];
         this.beaconLocationPublishErrorCounts.clear();
         this.beaconUpdateErrors.clear();
+        this.awaitingState = new Set();
         this.holdRooms([]);
     }
 
@@ -331,7 +334,10 @@ export class OwnBeaconStore extends AsyncStoreWithClient<OwnBeaconStoreState> {
      */
     private get healthyLiveBeaconIds(): string[] {
         return this.liveBeaconIds.filter(
-            (beaconId) => !this.beaconHasLocationPublishError(beaconId) && !this.beaconUpdateErrors.has(beaconId),
+            (beaconId) =>
+                !this.beaconHasLocationPublishError(beaconId) &&
+                !this.beaconUpdateErrors.has(beaconId) &&
+                !this.awaitingState.has(beaconId),
         );
     }
 
@@ -397,10 +403,16 @@ export class OwnBeaconStore extends AsyncStoreWithClient<OwnBeaconStoreState> {
                 locallyCreatedBeaconEventIds.includes(beacon.beaconInfoId),
         );
         this.holdRooms(ownShares.map((beacon) => beacon.roomId));
-        this.liveBeaconIds = ownShares
-            .filter((beacon) => this.hasCurrentState(beacon.roomId))
-            .sort(sortBeaconsByLatestCreation)
-            .map((beacon) => beacon.identifier);
+        this.liveBeaconIds = ownShares.sort(sortBeaconsByLatestCreation).map((beacon) => beacon.identifier);
+        // A share whose room has not been sent again is shown, and can be stopped, but no location is shared to it
+        // until the room is sent. Once it is, the current location is shared straight away.
+        const wasAwaitingState = this.awaitingState;
+        this.awaitingState = new Set(
+            ownShares.filter((beacon) => !this.hasCurrentState(beacon.roomId)).map((beacon) => beacon.identifier),
+        );
+        const nowCurrent = [...wasAwaitingState].some(
+            (beaconId) => !this.awaitingState.has(beaconId) && this.liveBeaconIds.includes(beaconId),
+        );
 
         const diff = arrayDiff(prevLiveBeaconIds, this.liveBeaconIds);
 
@@ -417,7 +429,7 @@ export class OwnBeaconStore extends AsyncStoreWithClient<OwnBeaconStoreState> {
         // when there is no existing live monitor
         // it will be created below by togglePollingLocation
         // and publish first position quickly
-        if (diff.added.length && this.isMonitoringLiveLocation) {
+        if ((diff.added.length || nowCurrent) && this.isMonitoringLiveLocation) {
             void this.publishCurrentLocationToBeacons();
         }
 

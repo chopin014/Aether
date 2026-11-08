@@ -195,17 +195,47 @@ describe("OwnBeaconStore", () => {
             }
         });
 
-        it("shares to no share in a room the server has not sent again, and keeps that room subscribed", async () => {
+        it("shows a share whose room the server has not sent again, sharing its location only once it is", async () => {
             makeRoomsWithStateEvents([alicesRoom1BeaconInfo]);
             const store = await makeOwnBeaconStore();
-            expect(store.getLiveBeaconIds()).toEqual([]);
+            await flushPromisesWithFakeTimers();
+            // The share can be seen and stopped, and its room is kept subscribed, but nothing is sent to it.
+            expect(store.getLiveBeaconIds()).toEqual([getBeaconInfoIdentifier(alicesRoom1BeaconInfo)]);
             expect(releases.has(room1Id)).toBe(true);
+            expect(mockClient.sendEvent).not.toHaveBeenCalled();
 
             fresh.add(room1Id);
             announceArrivals();
+            await flushPromisesWithFakeTimers();
 
-            expect(store.getLiveBeaconIds()).toEqual([getBeaconInfoIdentifier(alicesRoom1BeaconInfo)]);
+            expect(mockClient.sendEvent).toHaveBeenCalledWith(
+                room1Id,
+                M_BEACON.name,
+                ContentHelpers.makeBeaconContent(defaultLocationUri, now, alicesRoom1BeaconInfo.getId()!),
+            );
             expect(releases.get(room1Id)).not.toHaveBeenCalled();
+        });
+
+        it("shares no location to a share once the connection restarts, until its room is sent again", async () => {
+            geolocation.watchPosition.mockImplementation(watchPositionMockImplementation([0, 6000, 6000]));
+            fresh.add(room1Id);
+            makeRoomsWithStateEvents([alicesRoom1BeaconInfo]);
+            const store = await makeOwnBeaconStore();
+            await flushPromisesWithFakeTimers();
+            expect(mockClient.sendEvent).toHaveBeenCalledTimes(1);
+
+            // The connection restarts, and the next location comes before the room is sent on the new connection.
+            fresh.delete(room1Id);
+            announceArrivals();
+            vi.advanceTimersByTime(6000);
+            await flushPromisesWithFakeTimers();
+            expect(mockClient.sendEvent).toHaveBeenCalledTimes(1);
+            expect(store.getLiveBeaconIds()).toHaveLength(1);
+
+            fresh.add(room1Id);
+            announceArrivals();
+            await flushPromisesWithFakeTimers();
+            expect(mockClient.sendEvent).toHaveBeenCalledTimes(2);
         });
 
         it("lets the room go once the share ends", async () => {
