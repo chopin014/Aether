@@ -93,6 +93,8 @@ const normalizeTurnServer = ({ urls, username, credential }: IClientTurnServer):
 // Replace with matrix-rust-sdk?
 export class ElementWidgetDriver extends WidgetDriver {
     private allowedCapabilities: Set<Capability>;
+    // Every capability the widget has been approved, as the widget API keeps them: renegotiation adds to them.
+    private readonly approvedCapabilities = new Set<Capability>();
 
     // TODO: Refactor widgetKind into the Widget class
     public constructor(
@@ -298,7 +300,13 @@ export class ElementWidgetDriver extends WidgetDriver {
             setRememberedCapabilitiesForWidget(this.forWidget, Array.from(allAllowed));
         }
 
+        for (const capability of allAllowed) this.approvedCapabilities.add(capability);
         return allAllowed;
+    }
+
+    /** The capabilities the widget has been approved so far, such as the state it may receive. */
+    public getApprovedCapabilities(): ReadonlySet<Capability> {
+        return this.approvedCapabilities;
     }
 
     private getSendEventTarget(roomId: string | null = null): { client: MatrixClient; roomId: string } {

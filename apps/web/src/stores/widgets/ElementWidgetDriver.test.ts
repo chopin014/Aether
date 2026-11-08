@@ -168,6 +168,19 @@ describe("ElementWidgetDriver", () => {
         expect(approvedCapabilities).toEqual(requestedCapabilities);
     });
 
+    it("remembers every capability approved, as renegotiation adds to them", async () => {
+        const driver = mkDefaultDriver();
+        const preapprove = vi.spyOn(ModuleApi.instance.widgetLifecycle, "preapproveCapabilities");
+        preapprove.mockResolvedValueOnce(new Set(["org.matrix.msc2931.navigate"]));
+        await driver.validateCapabilities(new Set(["org.matrix.msc2931.navigate"]));
+        const state = "org.matrix.msc2762.receive.state_event:org.example.layout";
+        preapprove.mockResolvedValueOnce(new Set([state]));
+        await driver.validateCapabilities(new Set([state]));
+        expect((driver as ElementWidgetDriver).getApprovedCapabilities()).toEqual(
+            new Set(["org.matrix.msc2931.navigate", state]),
+        );
+    });
+
     it("approves identity via new widget lifecycle API", async () => {
         const driver = mkDefaultDriver();
 
