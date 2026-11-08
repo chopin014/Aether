@@ -230,8 +230,12 @@ test(
         test.setTimeout(300_000);
         const jitsiRequests: string[] = [];
         const soundResponses = new Map<string, number>();
+        // The noise suppression is fetched once per page, possibly before this test turns it on: the microphone is
+        // prepared with the default Voice Isolation before the test switches to sending it unprocessed.
+        const denoiserStatuses: number[] = [];
         const onSound = (response: Response): void => {
             if (response.url().endsWith(".wav")) soundResponses.set(response.url(), response.status());
+            if (/aether-denoiser\.[^/]+\.wasm$/.test(response.url())) denoiserStatuses.push(response.status());
         };
         page.on("response", onSound);
         const checkRequest = (url: string): void => {
@@ -504,12 +508,13 @@ test(
             await remoteScreen.hover({ force: true });
             const streamMute = bobPage.getByRole("button", { name: "Mute Alice's stream audio", exact: true });
             await streamMute.hover();
-            const verticalVolume = bobPage.getByRole("slider", { name: "Stream volume for Alice", exact: true });
-            await expect(verticalVolume).toHaveAttribute("aria-orientation", "vertical");
-            await verticalVolume.press("Home");
-            for (let i = 0; i < 45; ++i) await verticalVolume.press("ArrowUp");
+            // A horizontal capsule beside the mute button, set from the keyboard.
+            const spotlightVolume = bobPage.getByRole("slider", { name: "Stream volume for Alice", exact: true });
+            await expect(spotlightVolume).not.toHaveAttribute("aria-orientation", "vertical");
+            await spotlightVolume.press("Home");
+            for (let i = 0; i < 45; ++i) await spotlightVolume.press("ArrowUp");
             await expect.poll(() => playbackGains(bobPage)).toMatchObject({ microphone: [0.08], stream: [0.45] });
-            await verticalVolume.blur();
+            await spotlightVolume.blur();
             await streamMute.hover();
             await bobPage.screenshot({ path: testInfo.outputPath("aether-focused-stream.png") });
             const framesBeforeNavigation = await decodedVideoFrames(bobPage);
@@ -606,9 +611,8 @@ test(
             const noisePanel = page.getByRole("dialog", { name: "ANS (Aether Noise Suppression)", exact: true });
             const suppression = noisePanel.getByRole("switch", { name: "Noise suppression", exact: true });
             await expect(suppression).not.toBeChecked();
-            const denoiser = page.waitForResponse((response) => /aether-denoiser\.[^/]+\.wasm$/.test(response.url()));
             await suppression.check();
-            expect((await denoiser).status()).toBe(200);
+            await expect.poll(() => denoiserStatuses).toContain(200);
             // ANS always runs at full strength, so there is nothing to tune.
             await expect(noisePanel.getByRole("slider")).toHaveCount(0);
             await expect
