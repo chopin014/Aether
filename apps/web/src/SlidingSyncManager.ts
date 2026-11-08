@@ -71,8 +71,10 @@ import { getChildOrder } from "./stores/spaces/childOrder";
 import {
     CATALOG_STATE,
     ENCRYPTED_SUBSCRIPTION,
-    NAMED_SUBSCRIPTIONS,
+    NO_LABS,
     RoomSubscriptionName,
+    roomStateProfiles,
+    type RoomStateProfiles,
     SPACE_LIST_STATE,
 } from "./sliding-sync/roomStateProfiles";
 import { RoomSubscriptionLeases, type RoomSubscriptionLease } from "./sliding-sync/RoomSubscriptionLeases";
@@ -220,17 +222,15 @@ export type PartialSlidingSyncRequest = {
  * looking at and the rooms they are about to open. Released rooms stay subscribed for a grace period and are then
  * dropped, so the subscriptions of a long session stay bounded.
  */
-/** Where the server's last answer about offering sliding sync is kept, per homeserver. */
-const profileBytes = new Map<string, number>();
+/** The bytes each subscription definition takes, measured once: a definition is never changed, only replaced. */
+const subscriptionSizes = new WeakMap<MSC3575RoomSubscription, number>();
 
 /** The bytes a room's subscription takes in a request, as `"roomId":{...},`. */
-function subscriptionBytes(roomId: string, name: string, subscription: MSC3575RoomSubscription | undefined): number {
-    // A named profile never changes; one derived for a room's demanded state does, and is measured each time.
-    const named = NAMED_SUBSCRIPTIONS.has(name as RoomSubscriptionName);
-    let size = named ? profileBytes.get(name) : undefined;
+function subscriptionBytes(roomId: string, subscription: MSC3575RoomSubscription | undefined): number {
+    let size = subscription ? subscriptionSizes.get(subscription) : undefined;
     if (size === undefined) {
         size = JSON.stringify(subscription ?? {}).length;
-        if (named) profileBytes.set(name, size);
+        if (subscription) subscriptionSizes.set(subscription, size);
     }
     return roomId.length + size + 4;
 }
@@ -318,6 +318,8 @@ export class SlidingSyncManager {
     // State that readers outside the room view ask for, such as integration managers and widgets. Demands outlive a
     // connection: a new one asks for their state again.
     private readonly stateDemands = new RoomStateDemands(() => this.scheduleFlush(true));
+    // The state each list and named subscription asks for on the current connection, with that of labs features on.
+    private profiles: RoomStateProfiles = roomStateProfiles(NO_LABS);
     // Subscriptions derived from a room's profile by adding its demanded state, one per room, by name, with its
     // content as JSON so a change is noticed. They go when no subscribed room uses them, so they never outgrow the
     // demanded rooms. The connection holds the definition each name was last given.
@@ -433,13 +435,15 @@ export class SlidingSyncManager {
         if (this.flushTimer !== undefined) clearTimeout(this.flushTimer);
         this.flushTimer = undefined;
         this.flushQueued = false;
+        // The client applies retention only if the setting was on when it was created, as it is now.
+        this.profiles = roomStateProfiles({ retention: SettingsStore.getValue("feature_retention") });
         // create the set of lists we will use.
         const lists = new Map();
         for (const listName in sssLists) {
             // A resolved destination takes priority over background room discovery on the first response.
             if (initialRoomId?.startsWith("!")) break;
             lists.set(listName, {
-                ...sssLists[listName],
+                ...this.listDefinition(listName),
                 ranges: [[0, 0]],
                 timeline_limit: listName === "spaces" ? 0 : 1,
             });
@@ -447,7 +451,7 @@ export class SlidingSyncManager {
         // by default use the encrypted subscription as that gets everything, which is a safer
         // default than potentially missing member events.
         this.slidingSync = new SlidingSync(proxyUrl, lists, ENCRYPTED_SUBSCRIPTION, client, SLIDING_SYNC_TIMEOUT_MS);
-        for (const [name, subscription] of NAMED_SUBSCRIPTIONS) {
+        for (const [name, subscription] of this.profiles.named) {
             this.slidingSync.addCustomSubscription(name, subscription);
         }
         this.trackInitialTimelines(this.slidingSync);
@@ -634,7 +638,7 @@ export class SlidingSyncManager {
         if (!this.admittedDemands.has(roomId)) return base;
         const missing = this.demandedAdditions(roomId, base);
         if (missing.size === 0) return base;
-        const profile = NAMED_SUBSCRIPTIONS.get(base)!;
+        const profile = this.profiles.named.get(base)!;
         const keys = [...missing.keys()].sort();
         const subscription = {
             ...profile,
@@ -650,7 +654,7 @@ export class SlidingSyncManager {
 
     /** The `required_state` entries the state demanded of a room adds to a profile, by their JSON. */
     private demandedAdditions(roomId: string, base: RoomSubscriptionName): Map<string, [string, string]> {
-        const profile = NAMED_SUBSCRIPTIONS.get(base)!;
+        const profile = this.profiles.named.get(base)!;
         const missing = new Map<string, [string, string]>();
         for (const selector of this.stateDemands.selectorsFor(roomId)) {
             if (requiredStateCovers(profile.required_state ?? [], selector)) continue;
@@ -666,10 +670,16 @@ export class SlidingSyncManager {
         return (name && this.subscriptionNamed(name)?.required_state) || [];
     }
 
+    /** A list as first asked for, with the state the current connection's profiles ask for. */
+    private listDefinition(listName: string): MSC3575List {
+        const requiredState = listName === "spaces" ? this.profiles.spaceList : this.profiles.catalog;
+        return { ...sssLists[listName], required_state: requiredState };
+    }
+
     /** A subscription by name: a named profile, or one derived for demanded state. */
     private subscriptionNamed(name: string): MSC3575RoomSubscription | undefined {
         return (
-            NAMED_SUBSCRIPTIONS.get(name as RoomSubscriptionName) ?? this.derivedSubscriptions.get(name)?.subscription
+            this.profiles.named.get(name as RoomSubscriptionName) ?? this.derivedSubscriptions.get(name)?.subscription
         );
     }
 
@@ -723,7 +733,7 @@ export class SlidingSyncManager {
         let bytes = listBytes(slidingSync);
         const bytesFor = (roomId: string): number => {
             const name = this.subscriptionNameFor(roomId);
-            return subscriptionBytes(roomId, name, this.subscriptionNamed(name));
+            return subscriptionBytes(roomId, this.subscriptionNamed(name));
         };
         for (const roomId of desired) bytes += bytesFor(roomId);
         // The state demanded of rooms comes next, live demands such as ban lists first, while the request stays within
@@ -1010,7 +1020,7 @@ export class SlidingSyncManager {
     ): RoomStateDemand {
         for (const selector of selectors) requiredStateFor(selector);
         // Every list entry brings the catalog, so it needs no asking once the room's entry has arrived.
-        const needed = selectors.filter((selector) => !requiredStateCovers(CATALOG_STATE, selector));
+        const needed = selectors.filter((selector) => !requiredStateCovers(this.profiles.catalog, selector));
         if (needed.length === 0 && this.liveRooms.has(roomId)) {
             return { roomId, isReady: () => true, whenReady: () => Promise.resolve(), release: () => {} };
         }
@@ -1109,7 +1119,7 @@ export class SlidingSyncManager {
      */
     private isStateHere(roomId: string, selector: RoomStateSelector): boolean {
         if (!this.liveRooms.has(roomId)) return false;
-        if (requiredStateCovers(CATALOG_STATE, selector)) return true;
+        if (requiredStateCovers(this.profiles.catalog, selector)) return true;
         const coverage = this.appliedCoverage.get(roomId);
         return !!coverage && requiredStateCovers(coverage, selector);
     }
@@ -1585,7 +1595,7 @@ export class SlidingSyncManager {
             if (bootstrap) {
                 bootstrap = false;
                 for (const [name, normal] of Object.entries(sssLists)) {
-                    const current = slidingSync.getListParams(name) ?? normal;
+                    const current = slidingSync.getListParams(name) ?? this.listDefinition(name);
                     const upperBound = FIXED_LISTS.has(name)
                         ? normal.ranges[0][1]
                         : Math.max(current.ranges[0][1], normal.ranges[0][1]);

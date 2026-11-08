@@ -38,6 +38,7 @@ import { waitFor } from "test-utils-rtl";
 import { mkStubRoom, stubClient } from "test-utils";
 
 import { MAX_DEMANDED_SELECTORS_PER_ROOM, MAX_STATE_READ_ROOMS, SlidingSyncManager } from "./SlidingSyncManager";
+import SettingsStore from "./settings/SettingsStore";
 import { SlidingSyncCache } from "./sliding-sync/SlidingSyncCache";
 import { CATALOG_STATE } from "./sliding-sync/roomStateProfiles";
 import { type RoomSubscriptionLeases } from "./sliding-sync/RoomSubscriptionLeases";
@@ -553,6 +554,58 @@ describe("SlidingSyncManager", () => {
         });
         expect(current.getRoomSubscriptions()).toEqual(new Set(["!selected:example.org"]));
         expect(current.getListParams("untagged")).toBeNull();
+    });
+
+    describe("message retention", () => {
+        const RETENTION = ["m.room.retention", ""];
+        const UNSTABLE_RETENTION = ["org.matrix.msc1763.retention", ""];
+        const LISTS = ["recent", "spaces", "invites", "favourites", "dms", "untagged"];
+
+        function retentionIs(on: boolean): void {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation(((name: string, ...rest: unknown[]) =>
+                name === "feature_retention"
+                    ? on
+                    : (getValue as (...args: unknown[]) => unknown)(name, ...rest)) as typeof SettingsStore.getValue);
+        }
+
+        afterEach(() => {
+            vi.mocked(SettingsStore.getValue).mockRestore();
+        });
+
+        it("asks every list and subscription for each room's retention policy while it is on", async () => {
+            retentionIs(true);
+            const sync = (await manager.setup(client))!;
+            for (const name of LISTS) {
+                expect({ name, state: sync.getListParams(name)?.required_state }).toEqual({
+                    name,
+                    state: expect.arrayContaining([RETENTION, UNSTABLE_RETENTION]),
+                });
+            }
+            const subscriptions = (
+                sync as unknown as { customSubscriptions: Map<string, { required_state: string[][] }> }
+            ).customSubscriptions;
+            expect(subscriptions.get("room")?.required_state).toEqual(expect.arrayContaining([RETENTION]));
+            // An encrypted room's subscription asks for all of its state already.
+            expect(subscriptions.get("encrypted")?.required_state).toEqual([["*", "*"]]);
+        });
+
+        it("asks for it in lists made after a room opened at start", async () => {
+            retentionIs(true);
+            const sync = (await manager.setup(client, "!selected:example.org"))!;
+            expect(sync.getListParams("untagged")).toBeNull();
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, null);
+            await vi.waitFor(() => expect(sync.getListParams("untagged")).not.toBeNull());
+            expect(sync.getListParams("untagged")?.required_state).toEqual(expect.arrayContaining([RETENTION]));
+        });
+
+        it("asks for no retention policy while it is off", async () => {
+            retentionIs(false);
+            const sync = (await manager.setup(client))!;
+            for (const name of LISTS) {
+                expect(sync.getListParams(name)?.required_state).not.toContainEqual(RETENTION);
+            }
+        });
     });
 
     it("starts with small lists then restores recent messages after the first response", async () => {

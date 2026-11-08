@@ -12,7 +12,8 @@ Please see LICENSE in the repository root for full details.
  * rail and a voice channel's occupancy. A room someone opens, joins a call in, or is about to open gets a
  * subscription with the state its views read: permissions, topic, pinned messages, Aether's own state and history.
  * Encrypted rooms load every state event, because sending needs the full membership. Spaces load their children and
- * the state of the server they represent, without history.
+ * the state of the server they represent, without history. Labs features that read state of their own, such as
+ * message retention, add it to every profile while they are on.
  */
 
 import { EventType, UNSTABLE_ELEMENT_FUNCTIONAL_USERS } from "matrix-js-sdk/src/matrix";
@@ -194,3 +195,58 @@ export const NAMED_SUBSCRIPTIONS: ReadonlyMap<RoomSubscriptionName, MSC3575RoomS
     [RoomSubscriptionName.Bootstrap, BOOTSTRAP_SUBSCRIPTION],
     [RoomSubscriptionName.ExpandedBootstrap, EXPANDED_BOOTSTRAP_SUBSCRIPTION],
 ]);
+
+/** Labs features whose room state is asked for only while they are on. */
+export interface RoomStateLabs {
+    /** Message retention (MSC1763), applied to every room on the account, so read for every listed room. */
+    retention: boolean;
+}
+
+/** No labs features on. */
+export const NO_LABS: RoomStateLabs = { retention: false };
+
+/** A room's retention policy, under both names its state is sent as. */
+const RETENTION_STATE: string[][] = [
+    [EventType.RetentionPolicy, ""],
+    [EventType.RetentionPolicyUnstable, ""],
+];
+
+/** The state each list and named subscription asks for, with the state of the labs features that are on. */
+export interface RoomStateProfiles {
+    /** State for every listed room. */
+    readonly catalog: string[][];
+    /** State for every Space in the Spaces list. */
+    readonly spaceList: string[][];
+    /** Every named subscription, for registering them with a new sliding sync connection. */
+    readonly named: ReadonlyMap<RoomSubscriptionName, MSC3575RoomSubscription>;
+}
+
+const DEFAULT_PROFILES: RoomStateProfiles = {
+    catalog: CATALOG_STATE,
+    spaceList: SPACE_LIST_STATE,
+    named: NAMED_SUBSCRIPTIONS,
+};
+
+/**
+ * The state each list and named subscription asks for while some labs features are on. Every profile but the
+ * encrypted one, which asks for all of a room's state, adds what those features read.
+ * @param labs - The labs features that are on.
+ */
+export function roomStateProfiles(labs: RoomStateLabs): RoomStateProfiles {
+    const additions = labs.retention ? RETENTION_STATE : [];
+    if (additions.length === 0) return DEFAULT_PROFILES;
+    const named = new Map<RoomSubscriptionName, MSC3575RoomSubscription>();
+    for (const [name, subscription] of NAMED_SUBSCRIPTIONS) {
+        named.set(
+            name,
+            subscription === ENCRYPTED_SUBSCRIPTION
+                ? subscription
+                : { ...subscription, required_state: [...(subscription.required_state ?? []), ...additions] },
+        );
+    }
+    return {
+        catalog: [...CATALOG_STATE, ...additions],
+        spaceList: [...SPACE_LIST_STATE, ...additions],
+        named,
+    };
+}
