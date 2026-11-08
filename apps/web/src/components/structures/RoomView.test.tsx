@@ -512,16 +512,19 @@ describe("RoomView", () => {
     });
 
     it("returns to the position someone left a room at, once sliding sync has loaded it", async () => {
-        // Under sliding sync the room is named while its subscription loads, then again once it has.
+        // Under sliding sync a room the client does not have yet is named while its subscription loads, then again
+        // once it has brought the room.
         RoomScrollStateStore.setScrollState(room.roomId, { focussedEvent: "$left-here", pixelOffset: 42 });
         vi.spyOn(stores.slidingSyncManager, "isActiveFor").mockReturnValue(true);
         const visible = Promise.withResolvers<"known">();
         vi.spyOn(stores.slidingSyncManager, "setRoomVisible").mockReturnValue(visible.promise);
+        rooms.delete(room.roomId);
         const ref = createRef<RoomView>();
         await mountRoomView(ref);
         expect(stores.roomViewStore.isRoomLoading()).toBe(true);
 
         await act(async () => {
+            rooms.set(room.roomId, room);
             visible.resolve("known");
             await flushPromises();
         });
@@ -538,6 +541,7 @@ describe("RoomView", () => {
         vi.spyOn(stores.slidingSyncManager, "isActiveFor").mockReturnValue(true);
         const visible = Promise.withResolvers<"known">();
         vi.spyOn(stores.slidingSyncManager, "setRoomVisible").mockReturnValue(visible.promise);
+        rooms.delete(room.roomId);
         const ref = createRef<RoomView>();
         await mountRoomView(ref);
         expect(stores.roomViewStore.isRoomLoading()).toBe(true);
@@ -555,10 +559,26 @@ describe("RoomView", () => {
 
         // The first request's load finishing later changes nothing: the newer request replaced it.
         await act(async () => {
+            rooms.set(room.roomId, room);
             visible.resolve("known");
             await flushPromises();
         });
         expect(ref.current?.state.initialEventId).toBeUndefined();
+        RoomScrollStateStore.setScrollState(room.roomId, null);
+    });
+
+    it("opens a room the client has at once under sliding sync, at the position it was left at", async () => {
+        RoomScrollStateStore.setScrollState(room.roomId, { focussedEvent: "$left-here", pixelOffset: 42 });
+        vi.spyOn(stores.slidingSyncManager, "isActiveFor").mockReturnValue(true);
+        // The room's subscription is still being updated.
+        vi.spyOn(stores.slidingSyncManager, "setRoomVisible").mockReturnValue(new Promise(() => {}));
+        const ref = createRef<RoomView>();
+        await mountRoomView(ref);
+
+        expect(stores.roomViewStore.isRoomLoading()).toBe(false);
+        await waitFor(() => expect(ref.current?.state.initialEventId).toBe("$left-here"));
+        expect(ref.current?.state.initialEventPixelOffset).toBe(42);
+        expect(ref.current?.state.room).toBe(room);
         RoomScrollStateStore.setScrollState(room.roomId, null);
     });
 

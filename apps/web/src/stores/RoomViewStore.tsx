@@ -476,10 +476,17 @@ export class RoomViewStore extends EventEmitter {
             if (prevRoomCall !== null && (!viewingCall || payload.room_id !== this.state.roomId))
                 prevRoomCall.presented = false;
 
-            if (
+            const slidingSync =
                 this.stores.slidingSyncManager.isActiveFor(MatrixClientPeg.get()) &&
-                this.state.roomId !== payload.room_id
-            ) {
+                this.state.roomId !== payload.room_id;
+            // A room the client has is shown at once, as under regular sync: what its subscription brings, such as
+            // more of its history, arrives in place. Its subscription is updated alongside.
+            const shownAtOnce = slidingSync && !!MatrixClientPeg.get()?.getRoom(payload.room_id);
+            if (shownAtOnce) {
+                this.stores.slidingSyncManager
+                    .setRoomVisible(payload.room_id)
+                    .catch((error) => logger.warn(`Could not update the subscription of ${payload.room_id}`, error));
+            } else if (slidingSync) {
                 this.setState({
                     subscribingRoomId: payload.room_id,
                     loadedForView: false,
@@ -531,7 +538,7 @@ export class RoomViewStore extends EventEmitter {
                 viaServers: payload.via_servers ?? [],
                 wasContextSwitch: payload.context_switch ?? false,
                 viewingCall,
-                loadedForView: payload.sliding_sync_loaded === true,
+                loadedForView: payload.sliding_sync_loaded === true || shownAtOnce,
             };
 
             // Allow being given an event to be replied to when switching rooms but sanity check its for this room
