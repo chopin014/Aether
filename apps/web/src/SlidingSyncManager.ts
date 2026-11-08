@@ -1328,6 +1328,12 @@ export class SlidingSyncManager {
             this.applyingSince = error ? undefined : Date.now();
             if (error) {
                 this.arrivingLiveRooms.clear();
+                // The server forgot or rejected the connection, which is then started afresh: no room counts as sent
+                // on it until the new connection sends it again.
+                if ((error as { httpStatus?: number }).httpStatus === 400 && this.liveRooms.size > 0) {
+                    this.liveRooms.clear();
+                    this.notifyArrivals();
+                }
                 this.scheduleSpaceTreeRead();
             }
         } else if (state === SlidingSyncState.Complete) {
