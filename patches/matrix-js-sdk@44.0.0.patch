@@ -234,10 +234,10 @@ diff --git a/src/models/room.ts b/src/models/room.ts
              this.clearNotificationsOnReceipt(event);
          }
      };
-@@ -1512,6 +1517,23 @@
-      * @param eventId - event ID to look for
-      * @returns the given event, or undefined if unknown
-      */
+@@ -1506,6 +1511,23 @@
+         return this.timelineNeedsRefresh;
+     }
+ 
 +    /**
 +     * Find an event of the room's current state by its ID, such as one a relation is to that the timeline does not
 +     * hold: a state event from before the user could see the room's history, which sliding sync sends as state only.
@@ -255,9 +255,9 @@ diff --git a/src/models/room.ts b/src/models/room.ts
 +        return undefined;
 +    }
 +
-     public findEventById(eventId: string): MatrixEvent | undefined {
-         let event = this.getUnfilteredTimelineSet().findEventById(eventId);
- 
+     /**
+      * Get an event which is stored in our unfiltered timeline set, or in a thread
+      *
 @@ -1670,6 +1692,37 @@
          return this.bumpStamp;
      }

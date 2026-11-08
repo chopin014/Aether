@@ -79,13 +79,14 @@ function makeClient(): MatrixClient {
 describe("relations to events the room has only as state", () => {
     afterEach(() => vi.restoreAllMocks());
 
-    const alice = "@alice:example.org";
-    // A call membership from before the user could see the room's history: sliding sync sends it as state only.
+    // Someone else in the room, whose call membership is from before the user could see the room's history: sliding
+    // sync sends it as state only.
+    const bob = "@bob:example.org";
     const callMember = {
         type: "org.matrix.msc3401.call.member",
-        state_key: `_${alice}_DEVICE`,
-        sender: alice,
-        event_id: "$alice-call",
+        state_key: `_${bob}_DEVICE`,
+        sender: bob,
+        event_id: "$bob-call",
         origin_server_ts: 0,
         content: { application: "m.call", call_id: "" },
     };
@@ -93,7 +94,7 @@ describe("relations to events the room has only as state", () => {
     function reaction(id: string, target: string): NonNullable<MSC3575RoomData["timeline"]>[number] {
         return {
             type: EventType.Reaction,
-            sender: alice,
+            sender: bob,
             room_id: roomId,
             event_id: id,
             origin_server_ts: 5,
@@ -122,22 +123,37 @@ describe("relations to events the room has only as state", () => {
                 .getLiveTimeline()
                 .getEvents()
                 .map((event) => event.getId()!);
-        return { api, room, receive, timelineIds };
+        return { api, client, room, receive, timelineIds };
     }
 
     it("keeps a reaction to a state event the timeline does not hold, such as a raised hand in a call", async () => {
         const { api, room, receive, timelineIds } = await setup();
-        expect(room.findEventById("$alice-call")).toBeUndefined();
+        expect(room.findEventById("$bob-call")).toBeUndefined();
         const onTimeline = vi.fn();
         room.on(RoomEvent.Timeline, onTimeline);
 
-        await receive({ timeline: [reaction("$hand", "$alice-call")] });
+        await receive({ timeline: [reaction("$hand", "$bob-call")] });
 
         expect(timelineIds()).toContain("$hand");
         // Announced like any new event, which is how a call hears of it.
         expect(onTimeline.mock.calls.some(([event]) => event.getId() === "$hand")).toBe(true);
-        const relations = room.relations.getChildEventsForEvent("$alice-call", "m.annotation", EventType.Reaction);
+        const relations = room.relations.getChildEventsForEvent("$bob-call", "m.annotation", EventType.Reaction);
         expect(relations?.getRelations().map((event) => event.getId())).toEqual(["$hand"]);
+        api.stop();
+    });
+
+    it("takes a live reaction to such an event as it is, fetching nothing and notifying nobody", async () => {
+        const { api, client, room, receive } = await setup();
+        // The default rules, under which a reaction does not notify.
+        client.setPushRules({ global: {} });
+        const fetch = vi.spyOn(client, "fetchRoomEvent");
+
+        await receive({ timeline: [reaction("$hand", "$bob-call")], num_live: 1 });
+
+        const hand = room.findEventById("$hand");
+        expect(hand).toBeDefined();
+        expect(fetch).not.toHaveBeenCalled();
+        expect(client.getPushActionsForEvent(hand!)?.notify).toBe(false);
         api.stop();
     });
 
