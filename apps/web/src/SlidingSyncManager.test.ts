@@ -2249,6 +2249,19 @@ describe("SlidingSyncManager", () => {
                 expect(demand.isReady()).toBe(false);
             });
 
+            it("counts state a wider answer brought for a room still asking for it", async () => {
+                // Such as an encrypted room's answer, with every state event, applied after its view was let go.
+                knownRoom("!secret", "encrypted");
+                const demand = manager.demandRoomState("!secret", [{ type: INSTALLATIONS }]);
+                await tick();
+                expect(nameOf("!secret")).toBe("state+!secret");
+                vi.spyOn(sync, "getRequestForResponse").mockReturnValue({
+                    roomSubscriptions: new Map([["!secret", { timeline_limit: 50, required_state: [["*", "*"]] }]]),
+                });
+                sync.emit(SlidingSyncEvent.Applied, { pos: "n", lists: {}, rooms: {}, extensions: {} });
+                expect(demand.isReady()).toBe(true);
+            });
+
             it("waits for the answer to be applied, not only confirmed", async () => {
                 // The SDK confirms a subscription before it applies the answer's rooms.
                 knownRoom("!open");

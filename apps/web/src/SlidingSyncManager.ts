@@ -1253,10 +1253,15 @@ export class SlidingSyncManager {
         if (!slidingSync || !sent) return;
         // What an answer brought counts only as far as the room is still subscribed with it: the subscription may
         // have narrowed, such as when its demanded state lost its room, while the answer was being applied.
+        // Both ways round: a wildcard answer brings every entry the current subscription names, and the current one
+        // may itself be the wider.
         const keptCurrent = (roomId: string, answered: readonly (readonly string[])[]): (readonly string[])[] => {
             const name = this.appliedNames.get(roomId);
             const current = (name && this.subscriptionNamed(name)?.required_state) || [];
-            return answered.filter((entry) => requiredStateIncludes(current, entry));
+            return [
+                ...answered.filter((entry) => requiredStateIncludes(current, entry)),
+                ...current.filter((entry) => requiredStateIncludes(answered, entry)),
+            ];
         };
         for (const [roomId, subscription] of sent.roomSubscriptions) {
             if (this.client?.getRoom(roomId) && slidingSync.getRoomSubscriptions().has(roomId)) {
