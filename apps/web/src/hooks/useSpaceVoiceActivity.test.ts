@@ -111,6 +111,26 @@ describe("useSpaceVoiceActivity", () => {
         expect(spaceStore.listenerCount(space.roomId)).toBe(0);
     });
 
+    it("keeps the same list while the activity stays the same", () => {
+        const { result } = renderHook(() => useSpaceVoiceActivity(sdkContext, space));
+        const first = result.current;
+        act(() => {
+            // Other rooms arriving or changing are told of as well.
+            CallStore.instance.emit(CallStoreEvent.Call);
+            spaceStore.emit(space.roomId);
+        });
+        expect(result.current).toBe(first);
+
+        // Someone changing their name is a change all the same.
+        act(() => {
+            calls.get("!arena:example.org")!.participants.clear();
+            calls.get("!arena:example.org")!.participants.set(member("@bob:example.org", "Robert"), {});
+            CallStore.instance.emit(CallStoreEvent.Call);
+        });
+        expect(result.current).not.toBe(first);
+        expect(result.current[0].people).toEqual([expect.objectContaining({ name: "Robert" })]);
+    });
+
     it("does nothing without a Space", () => {
         const { result } = renderHook(() => useSpaceVoiceActivity(sdkContext, undefined));
         expect(result.current).toEqual([]);

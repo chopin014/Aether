@@ -32,6 +32,7 @@ import {
     ExtensionState,
     SlidingSync,
     SlidingSyncEvent,
+    SlidingSyncState,
     type Extension,
     type MSC3575RoomData,
     type MSC3575SlidingSyncResponse,
@@ -265,7 +266,10 @@ describe("sliding sync timelines with gaps", () => {
 });
 
 describe("sliding sync requests", () => {
-    afterEach(() => vi.restoreAllMocks());
+    afterEach(() => {
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+    });
 
     interface Request {
         qps: QueryDict;
@@ -339,6 +343,107 @@ describe("sliding sync requests", () => {
         expect(sync.isRoomSubscriptionConfirmed(roomId)).toBe(true);
         expect(fourth.qps).toEqual({ pos: "2", timeout: 20_000 });
         sync.stop();
+    });
+
+    describe("applying a response with many rooms", () => {
+        const rooms: Record<string, MSC3575RoomData> = Object.fromEntries(
+            Array.from({ length: 6 }, (_, i) => [
+                `!room${i}:example.org`,
+                { name: `Room ${i}`, required_state: [], timeline: [] },
+            ]),
+        );
+
+        /** Each room takes 10 ms to apply, as told by the clock. */
+        function applyTakingTime(sync: SlidingSync): string[] {
+            let clock = 1_000_000;
+            vi.spyOn(Date, "now").mockImplementation(() => clock);
+            const applied: string[] = [];
+            sync.on(SlidingSyncEvent.RoomData, (id) => {
+                applied.push(id);
+                clock += 10;
+            });
+            return applied;
+        }
+
+        function completion(sync: SlidingSync, applied: string[]): Promise<number> {
+            return new Promise((resolve) =>
+                sync.on(SlidingSyncEvent.Lifecycle, (state) => {
+                    if (state === SlidingSyncState.Complete) resolve(applied.length);
+                }),
+            );
+        }
+
+        it("applies the rooms in order, letting input in after each slice of time", async () => {
+            const appliedAtYield: number[] = [];
+            const { sync, nextRequest } = setup();
+            const applied = applyTakingTime(sync);
+            vi.stubGlobal("scheduler", { yield: vi.fn(async () => void appliedAtYield.push(applied.length)) });
+            const completed = completion(sync, applied);
+
+            (await nextRequest(1)).reply({ pos: "1", rooms });
+
+            expect(await completed).toBe(6);
+            expect(applied).toEqual(Object.keys(rooms));
+            // 16 ms slices of 10 ms rooms: a turn for other work after every second room.
+            expect(appliedAtYield).toEqual([2, 4]);
+            sync.stop();
+        });
+
+        it("lets other work run between slices where the platform cannot put input first", async () => {
+            vi.stubGlobal("scheduler", undefined);
+            const { sync, nextRequest } = setup();
+            const applied = applyTakingTime(sync);
+            const completed = completion(sync, applied);
+            let appliedWhenOtherWorkRan: number | undefined;
+            let posted = false;
+            sync.on(SlidingSyncEvent.RoomData, () => {
+                if (posted) return;
+                posted = true;
+                const { port1, port2 } = new MessageChannel();
+                port1.onmessage = (): void => {
+                    appliedWhenOtherWorkRan = applied.length;
+                    port1.close();
+                    port2.close();
+                };
+                port2.postMessage(null);
+            });
+
+            (await nextRequest(1)).reply({ pos: "1", rooms });
+
+            expect(await completed).toBe(6);
+            expect(applied).toEqual(Object.keys(rooms));
+            // Work queued while the first room was applied ran before the last one was.
+            expect(appliedWhenOtherWorkRan).toBeLessThan(6);
+            sync.stop();
+        });
+
+        it("applies nothing more once stopped between slices", async () => {
+            // Run after the rooms, so it must not run for a stopped connection.
+            const afterRooms = {
+                name: () => "org.example.after",
+                when: () => ExtensionState.PostProcess,
+                onRequest: async () => ({}),
+                onResponse: vi.fn(async () => {}),
+                onResponseComplete: vi.fn(async () => {}),
+            };
+            const { sync, nextRequest } = setup(afterRooms);
+            const applied = applyTakingTime(sync);
+            // Stopping removes the lifecycle listeners, so what is emitted is watched instead.
+            const emit = vi.spyOn(sync, "emit");
+            const yieldToInput = vi.fn(async () => sync.stop());
+            vi.stubGlobal("scheduler", { yield: yieldToInput });
+
+            (await nextRequest(1)).reply({ pos: "1", rooms, extensions: { "org.example.after": {} } });
+
+            await vi.waitFor(() => expect(yieldToInput).toHaveBeenCalled());
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(applied).toEqual(Object.keys(rooms).slice(0, 2));
+            const emitted = emit.mock.calls.map(([event, state]) => [event, state]);
+            expect(emitted).not.toContainEqual([SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete]);
+            expect(emitted.map(([event]) => event)).not.toContain(SlidingSyncEvent.Applied);
+            expect(afterRooms.onResponse).not.toHaveBeenCalled();
+            expect(afterRooms.onResponseComplete).not.toHaveBeenCalled();
+        });
     });
 
     describe("room subscriptions", () => {

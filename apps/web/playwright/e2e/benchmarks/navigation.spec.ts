@@ -42,6 +42,9 @@ const EXTRA_LABS = (process.env.AETHER_BENCHMARK_LABS ?? "").split(",").filter(B
 const LATENCY_MS = Number(process.env.AETHER_BENCHMARK_LATENCY_MS ?? 0);
 // How long the app is used before each restart, in milliseconds, so what it keeps on this device has been written.
 const SETTLE_MS = Number(process.env.AETHER_BENCHMARK_SETTLE_MS ?? 3000);
+// How long after the app shows a room at start its long tasks are counted, in milliseconds: what is left to load
+// then, such as the rest of the account, must not keep the page from answering.
+const AFTER_START_MS = Number(process.env.AETHER_BENCHMARK_AFTER_START_MS ?? 5000);
 
 /** One protocol's results: each metric's samples in milliseconds. */
 type Samples = Record<string, number[]>;
@@ -187,6 +190,45 @@ async function watchForText(page: Page, text: string): Promise<void> {
         };
         requestAnimationFrame(check);
     }, text);
+}
+
+/** Record the page's long tasks from the moment each page load starts. */
+async function watchLongTasks(page: Page): Promise<void> {
+    await page.addInitScript(() => {
+        const win = window as unknown as { aetherBenchLongTasks?: { start: number; duration: number }[] };
+        win.aetherBenchLongTasks = [];
+        new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+                win.aetherBenchLongTasks!.push({ start: entry.startTime, duration: entry.duration });
+            }
+        }).observe({ type: "longtask", buffered: true });
+    });
+}
+
+/**
+ * How the page answered in the {@link AFTER_START_MS} after the room it opened at start was shown: the longest task
+ * running then, whole, and the blocking time in that window, the part of each long task beyond its first 50 ms.
+ */
+async function blockingAfterStart(page: Page): Promise<{ longest: number; blocking: number }> {
+    await page.waitForTimeout(AFTER_START_MS);
+    return page.evaluate((windowMs) => {
+        const win = window as unknown as {
+            aetherBenchTextAt?: number;
+            aetherBenchLongTasks?: { start: number; duration: number }[];
+        };
+        const shownAt = win.aetherBenchTextAt!;
+        const end = shownAt + windowMs;
+        const tasks = (win.aetherBenchLongTasks ?? []).filter(
+            (task) => task.start + task.duration > shownAt && task.start < end,
+        );
+        // Only the blocking inside the window counts, for a task that started before it or ends after it.
+        const blockingInWindow = (task: { start: number; duration: number }): number =>
+            Math.max(0, Math.min(task.start + task.duration, end) - Math.max(task.start + 50, shownAt));
+        return {
+            longest: Math.max(0, ...tasks.map((task) => task.duration)),
+            blocking: tasks.reduce((sum, task) => sum + blockingInWindow(task), 0),
+        };
+    }, AFTER_START_MS);
 }
 
 /** Startup marks recorded by the app, in milliseconds since navigation. */
@@ -364,6 +406,7 @@ for (const protocol of ["regular", "sliding"] as const) {
 
             // Opening the account for the first time on this device: nothing is cached.
             await watchForText(page, seeded.destination.text);
+            await watchLongTasks(page);
             await page.goto(`/#/room/${seeded.destination.roomId}`);
             await page.waitForFunction(
                 () => (window as unknown as { aetherBenchTextAt?: number }).aetherBenchTextAt !== undefined,
@@ -376,6 +419,9 @@ for (const protocol of ["regular", "sliding"] as const) {
                 await page.evaluate(() => (window as unknown as { aetherBenchTextAt?: number }).aetherBenchTextAt),
             );
             for (const [mark, ms] of Object.entries(await startupMarks(page))) add(samples, `fresh: ${mark}`, ms);
+            const fresh = await blockingAfterStart(page);
+            add(samples, "fresh: longest task after shown", fresh.longest);
+            add(samples, "fresh: blocking after shown", fresh.blocking);
 
             progress("fresh start measured");
             // Coming back: the app restarts with whatever it keeps on this device.
@@ -393,6 +439,9 @@ for (const protocol of ["regular", "sliding"] as const) {
                     await page.evaluate(() => (window as unknown as { aetherBenchTextAt?: number }).aetherBenchTextAt),
                 );
                 for (const [mark, ms] of Object.entries(await startupMarks(page))) add(samples, `warm: ${mark}`, ms);
+                const warm = await blockingAfterStart(page);
+                add(samples, "warm: longest task after shown", warm.longest);
+                add(samples, "warm: blocking after shown", warm.blocking);
             }
 
             progress("warm starts measured");
@@ -484,6 +533,7 @@ for (const protocol of ["regular", "sliding"] as const) {
                 runs: RUNS,
                 latencyMs: LATENCY_MS,
                 settleMs: SETTLE_MS,
+                afterStartMs: AFTER_START_MS,
                 homeserver: homeserver.baseUrl,
                 metrics: summarise(samples),
                 failures,
