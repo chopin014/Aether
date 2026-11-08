@@ -29,7 +29,7 @@ test.describe("Room Status Bar", () => {
     });
 
     test("should show an error when sync stops", { tag: "@screenshot" }, async ({ page, user, app, room, axe }) => {
-        await page.route("**/_matrix/client/*/sync*", async (route, req) => {
+        await page.route("**/_matrix/client/**/sync*", async (route, req) => {
             await route.fulfill({
                 status: 500,
                 contentType: "application/json",
@@ -43,7 +43,7 @@ test.describe("Room Status Bar", () => {
     });
     test("should NOT an error when a resource limit is hit", async ({ page, user, app, room, axe }) => {
         await app.viewRoomById(room.roomId);
-        await page.route("**/_matrix/client/*/sync*", async (route, req) => {
+        await page.route("**/_matrix/client/**/sync*", async (route, req) => {
             await route.fulfill({
                 status: 400,
                 contentType: "application/json",

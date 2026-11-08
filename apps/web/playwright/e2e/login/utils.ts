@@ -68,7 +68,7 @@ export async function doTokenRegistration(
  * Any further requests to /sync with the same access token are blocked.
  */
 export async function interceptRequestsWithSoftLogout(page: Page, user: Credentials): Promise<void> {
-    await page.route("**/_matrix/client/*/sync*", async (route, req) => {
+    await page.route("**/_matrix/client/**/sync*", async (route, req) => {
         const accessToken = await req.headerValue("Authorization");
 
         // now, if the access token on this request matches the expired one, block it

@@ -12,7 +12,7 @@ const test = base.extend({
     // the app's state while the client is still waiting for it to complete.
     user: async ({ pageWithCredentials: page, credentials }, use) => {
         let delayedOnce = false;
-        await page.route("**/_matrix/client/*/sync*", async (route) => {
+        await page.route("**/_matrix/client/**/sync*", async (route) => {
             if (!delayedOnce) {
                 delayedOnce = true;
                 await new Promise((resolve) => setTimeout(resolve, 4000));
