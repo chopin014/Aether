@@ -6,13 +6,14 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 /**
  * Show a value as changed as soon as someone changes it, while the change is sent.
  * @param currentFactory - Reads the current value.
  * @param setterFn - Sends a change.
- * @param errorFn - Told when sending a change fails. The value goes back to the current one.
+ * @param errorFn - Told when sending a change fails. Unless a later change has been made since, the value goes back
+ *     to the current one, as it is when the change fails.
  * @param source - What the current value is read from, such as a state event. When it changes, the value is read
  *     again: the room's state may arrive after the view opens, or someone else may change it.
  * @returns The value to show, and a function to change it.
@@ -29,12 +30,20 @@ export const useLocalEcho = <T, V extends T = T>(
         setReadFrom(source);
         setValue(currentFactory());
     }
+    // A change can fail after the state has moved on, so it goes back to the value read by the latest render.
+    const latestFactory = useRef(currentFactory);
+    useLayoutEffect(() => {
+        latestFactory.current = currentFactory;
+    });
+    const latestChange = useRef(0);
     const handler = async (value: V): Promise<void> => {
+        const change = ++latestChange.current;
         setValue(value);
         try {
             await setterFn(value);
         } catch (e) {
-            setValue(currentFactory());
+            // A later change is showing what the user chose since, and must not be undone by an older one failing.
+            if (change === latestChange.current) setValue(latestFactory.current());
             errorFn(e);
         }
     };

@@ -52,6 +52,59 @@ describe("useLocalEcho", () => {
         expect(result.current[0]).toBe("world_readable");
     });
 
+    it("goes back to the latest value when a change fails after the state has moved on", async () => {
+        const { promise, reject } = Promise.withResolvers<void>();
+        const onError = vi.fn();
+        const sources = { first: { value: "shared" }, second: { value: "invited" } };
+        const { result, rerender } = renderHook(
+            ({ source }) =>
+                useLocalEcho<string>(
+                    () => source.value,
+                    () => promise,
+                    onError,
+                    source,
+                ),
+            { initialProps: { source: sources.first } },
+        );
+        act(() => {
+            result.current[1]("world_readable");
+        });
+        rerender({ source: sources.second });
+        expect(result.current[0]).toBe("invited");
+
+        await act(async () => reject(new Error("no")));
+        expect(result.current[0]).toBe("invited");
+        expect(onError).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps a later change when an earlier one fails", async () => {
+        const first = Promise.withResolvers<void>();
+        const second = Promise.withResolvers<void>();
+        const sends = [first.promise, second.promise];
+        const onError = vi.fn();
+        const { result } = renderHook(() =>
+            useLocalEcho<string>(
+                () => "shared",
+                () => sends.shift()!,
+                onError,
+            ),
+        );
+        act(() => {
+            result.current[1]("invited");
+        });
+        act(() => {
+            result.current[1]("world_readable");
+        });
+
+        await act(async () => first.reject(new Error("no")));
+        expect(result.current[0]).toBe("world_readable");
+        expect(onError).toHaveBeenCalledTimes(1);
+
+        await act(async () => second.reject(new Error("no")));
+        expect(result.current[0]).toBe("shared");
+        expect(onError).toHaveBeenCalledTimes(2);
+    });
+
     it("keeps a change being sent while its source stays the same", () => {
         const source = { value: "shared" };
         const { result, rerender } = renderHook(() =>
