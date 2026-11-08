@@ -1622,6 +1622,13 @@ describe("SlidingSyncManager", () => {
             const first = Array.from({ length: 8 }, (_, i) => `!channel${i}`);
             expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", ...first]));
 
+            // The tree read again before an answer, such as when a child is added, asks about no more of them.
+            addChildren(space, ["!late"], { via: ["example.org"], order: "999" });
+            await tick();
+            addChildren(space, ["!later"], { via: ["example.org"], order: "999" });
+            await tick();
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", ...first]));
+
             // Answered without them, as the server does not serve rooms the user has never been in: the next ones
             // are asked about instead, and those are not asked about again.
             const response = { pos: "p", lists: {}, rooms: {}, extensions: {} };

@@ -110,8 +110,8 @@ const MAX_SPACE_TREE_VISITS = 1000;
 // carries every subscription in full, as the server keeps none from one request to the next, so each one costs
 // bytes on every request: the others wait for the lists to reach them.
 const MAX_CHANNEL_INTERESTS = 32;
-// Channels nobody has seen are asked about this many at a time.
-const MAX_FRESH_DISCOVERIES = 8;
+// Channels nobody has seen are asked about this many at a time, counting those still waiting for an answer.
+const MAX_DISCOVERIES = 8;
 // The bytes a request's room subscriptions and lists are kept under, by holding back the open Space's channels.
 const REQUEST_BUDGET_BYTES = 64 * 1024;
 // The most room subscriptions a request carries, as MSC4186 allows.
@@ -1038,7 +1038,7 @@ export class SlidingSyncManager {
      */
     private channelInterests(candidates: Iterable<string>): Set<string> {
         const interests = new Set<string>();
-        let fresh = 0;
+        let discovering = 0;
         for (const roomId of candidates) {
             if (interests.size >= MAX_CHANNEL_INTERESTS) break;
             const room = this.client?.getRoom(roomId);
@@ -1054,11 +1054,10 @@ export class SlidingSyncManager {
                 continue;
             }
             if (this.unsuppliedRooms.has(roomId)) continue;
-            if (!this.discoveries.has(roomId)) {
-                if (fresh >= MAX_FRESH_DISCOVERIES) continue;
-                fresh++;
-                this.discoveries.add(roomId);
-            }
+            // Those already asked about count too, so walking the tree again before an answer asks about no more.
+            if (discovering >= MAX_DISCOVERIES) continue;
+            discovering++;
+            this.discoveries.add(roomId);
             interests.add(roomId);
         }
         // Those no longer wanted are not asked about.
