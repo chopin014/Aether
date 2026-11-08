@@ -1760,6 +1760,21 @@ export class SlidingSyncManager {
         this.prefetched = { client, cache, snapshot: cache.load() };
     }
 
+    /**
+     * Whether this device has rooms saved from sliding sync for a client, as read early by {@link prefetchSnapshot}.
+     * @param client - The client.
+     * @returns False when nothing was read early for it, or nothing was saved.
+     */
+    public async hasPrefetchedSnapshot(client: MatrixClient): Promise<boolean> {
+        const prefetched = this.prefetched;
+        if (!prefetched || prefetched.client !== client) return false;
+        try {
+            return (await prefetched.snapshot) !== null;
+        } catch {
+            return false;
+        }
+    }
+
     /** Let go of the saved rooms read before set-up, such as when the client syncs without sliding sync after all. */
     public discardPrefetchedSnapshot(): void {
         if (this.prefetched && this.prefetched.cache !== this.cache) void this.prefetched.cache.dispose();

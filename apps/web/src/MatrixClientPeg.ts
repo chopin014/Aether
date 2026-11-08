@@ -312,11 +312,24 @@ class MatrixClientPegClass implements IMatrixClientPeg {
         // regular sync instead, as sliding sync cannot work there. One that cannot be asked, such as while offline,
         // keeps sliding sync, so the rooms saved last time still show.
         const slidingSyncOn = SettingsStore.getValue("feature_simplified_sliding_sync");
-        const serverOffersSlidingSync = slidingSyncOn
-            ? await this.serverOffersSlidingSync(this.matrixClient)
-            : undefined;
+        let serverOffersSlidingSync = slidingSyncOn ? await this.serverOffersSlidingSync(this.matrixClient) : undefined;
         if (slidingSyncOn && serverOffersSlidingSync === false) {
             logger.warn("MatrixClientPeg: the server offers no sliding sync; using regular sync");
+        } else if (
+            slidingSyncOn &&
+            serverOffersSlidingSync === undefined &&
+            !(await SlidingSyncManager.instance.hasPrefetchedSnapshot(this.matrixClient))
+        ) {
+            // Not known from here yet, and the server cannot be asked, such as on a first start while offline.
+            // Sliding sync goes on where this device has rooms saved from it to show. Otherwise regular sync does,
+            // which every server offers and which shows what it saved: a server without sliding sync must not leave
+            // the app with no sync at all. The next start knows the answer.
+            logger.warn(
+                "MatrixClientPeg: the server could not be asked about sliding sync; using regular sync this time",
+            );
+            serverOffersSlidingSync = false;
+        }
+        if (slidingSyncOn && serverOffersSlidingSync === false) {
             // The saved rooms read early are not needed.
             SlidingSyncManager.instance.discardPrefetchedSnapshot();
         }

@@ -2547,6 +2547,24 @@ describe("SlidingSyncManager", () => {
             await expect(loaded).resolves.toBeNull();
         });
 
+        it("says whether this device has rooms saved from sliding sync for a client, from the early read", async () => {
+            const load = vi.spyOn(SlidingSyncCache.prototype, "load");
+            await expect(manager.hasPrefetchedSnapshot(client)).resolves.toBe(false);
+
+            load.mockResolvedValueOnce(null);
+            manager.prefetchSnapshot(client);
+            await expect(manager.hasPrefetchedSnapshot(client)).resolves.toBe(false);
+
+            load.mockResolvedValueOnce({ rooms: {} });
+            manager.prefetchSnapshot(client);
+            await expect(manager.hasPrefetchedSnapshot(client)).resolves.toBe(true);
+            // Not for another client, nor when the read fails.
+            await expect(manager.hasPrefetchedSnapshot(stubClient())).resolves.toBe(false);
+            load.mockRejectedValueOnce(new Error("storage broken"));
+            manager.prefetchSnapshot(client);
+            await expect(manager.hasPrefetchedSnapshot(client)).resolves.toBe(false);
+        });
+
         it("lets go of an early read when the client syncs without sliding sync after all", async () => {
             const dispose = vi.spyOn(SlidingSyncCache.prototype, "dispose");
             vi.spyOn(SlidingSyncCache.prototype, "load").mockResolvedValue(null);
