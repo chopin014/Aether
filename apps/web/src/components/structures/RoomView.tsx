@@ -450,6 +450,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     private settingWatchers: string[] = [];
 
     private unmounted = false;
+    // Counts room view store updates, so one that waited on the server can tell that a newer one came meanwhile.
+    private storeUpdates = 0;
     private cancelMemberPreparation?: () => void;
     private permalinkCreators: Record<string, RoomPermalinkCreator> = {};
 
@@ -671,6 +673,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             // it was, it means we're about to be unmounted.
             return;
         }
+        // Only an update that goes on takes a number: one ignored above must not cancel one still waiting.
+        const update = ++this.storeUpdates;
         const roomViewStore = this.roomViewStore;
         const roomId = roomViewStore.getRoomId() ?? null;
         const roomAlias = roomViewStore.getRoomAlias() ?? undefined;
@@ -717,6 +721,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
 
         // A cleared target means return to the live timeline; retaining the old ID reopens that permalink.
         const initialEventId = this.roomViewStore.getInitialEventId();
+        // A newer view, such as of the latest messages, may come while the event is fetched: it stands. The first
+        // update still sets the room up, without the event, then shows what the store asks for by then.
+        let overtaken = false;
         if (initialEventId) {
             let initialEvent = room?.findEventById(initialEventId);
             // The event does not exist in the current sync data
@@ -730,6 +737,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             if (!initialEvent && this.context.client && roomId) {
                 initialEvent = (await fetchInitialEvent(this.context.client, roomId, initialEventId)) ?? undefined;
                 if (this.unmounted) return;
+                // Updates while this one is the first are ignored above, so the store's target is checked as well.
+                overtaken = update !== this.storeUpdates || this.roomViewStore.getInitialEventId() !== initialEventId;
+                if (overtaken && !initial) return;
             }
 
             // If we have an initial event, we want to reset the event pixel offset to ensure it ends up visible
@@ -738,7 +748,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             const thread = initialEvent?.getThread();
             // Handle the use case of a link to a thread message
             // ie: #/room/roomId/eventId (eventId of a thread message)
-            if (thread?.rootEvent && !initialEvent?.isThreadRoot) {
+            if (overtaken) {
+                // Leave the target to the newer view.
+            } else if (thread?.rootEvent && !initialEvent?.isThreadRoot) {
                 defaultDispatcher.dispatch<ShowThreadPayload>({
                     action: Action.ShowThread,
                     rootEvent: thread.rootEvent,
@@ -837,7 +849,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             this.context.rightPanelStore.setCard({ phase: RightPanelPhases.Timeline }, true, room.roomId);
         }
 
-        this.setState(newState as IRoomState);
+        // Once the room is set up, the newer view is no longer ignored: it is shown then.
+        this.setState(newState as IRoomState, overtaken ? () => void this.onRoomViewStoreUpdate() : undefined);
         // At this point, newState.roomId could be null (e.g. the alias might not
         // have been resolved yet) so anything called here must handle this case.
 
