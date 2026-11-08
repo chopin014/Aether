@@ -1907,6 +1907,56 @@ describe("encrypted rooms under sliding sync", () => {
         );
     });
 
+    it("gives a live location share decrypted once its keys arrive the locations already in the timeline", async () => {
+        const { client, receive, keyArrives, withheld, clear, decrypting } = setup();
+        const now = Date.now();
+        withheld.add("$share");
+        clear.set("$share", {
+            type: M_BEACON_INFO.name,
+            state_key: userId,
+            content: ContentHelpers.makeBeaconInfoContent(3_600_000, true, "Walk", undefined, now),
+        });
+        const location = {
+            type: M_BEACON.name,
+            sender: userId,
+            room_id: roomId,
+            event_id: "$location",
+            origin_server_ts: now,
+            content: ContentHelpers.makeBeaconContent("geo:51.5,-0.1", now, "$share"),
+        };
+        await receive({
+            initial: true,
+            required_state: [...requiredState, encryption, encryptedState("$share", `${M_BEACON_INFO.name}:${userId}`)],
+            timeline: [location],
+        });
+        const room = client.getRoom(roomId)!;
+        expect(room.currentState.beacons.size).toBe(0);
+
+        await keyArrives(decrypting.find((event) => event.getId() === "$share")!);
+
+        const [beacon] = room.currentState.beacons.values();
+        expect(beacon?.beaconInfoId).toBe("$share");
+        await vi.waitFor(() => expect(beacon.latestLocationEvent?.getId()).toBe("$location"));
+    });
+
+    it("lets go of a room that could not be added, changing nothing of it when its keys arrive", async () => {
+        const { client, receive, keyArrives, decrypting } = setup();
+        // Adding the room's events fails, before the room is stored.
+        const addLiveEvents = vi.spyOn(Room.prototype, "addLiveEvents").mockRejectedValueOnce(new Error("broken"));
+        await receive({
+            initial: true,
+            required_state: [...requiredState, encryption, encryptedName("$undecryptable")],
+            timeline: [{ ...message("$a", 1), room_id: roomId }],
+        });
+        const orphan = addLiveEvents.mock.contexts[0] as Room;
+        expect(orphan).toBeInstanceOf(Room);
+        expect(client.getRoom(roomId)).toBeNull();
+
+        await keyArrives(decrypting.find((event) => event.getId() === "$undecryptable")!);
+
+        expect(orphan.currentState.getStateEvents(EventType.RoomName)).toEqual([]);
+    });
+
     describe("given encrypted and plain state for the same in one response", () => {
         // In a room that encrypts its state, the encrypted event is the one to trust.
         const plainName = {
