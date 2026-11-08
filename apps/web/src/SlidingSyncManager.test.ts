@@ -2272,6 +2272,33 @@ describe("SlidingSyncManager", () => {
                 expect(again.isReady()).toBe(true);
             });
 
+            it("keeps counting state the room's profile asks for when its demanded state loses its room", async () => {
+                knownRoom("!open");
+                (manager as unknown as { liveRooms: Set<string> }).liveRooms.add("!open");
+                await manager.setRoomVisible("!open");
+                const demand = manager.demandRoomState("!open", [{ type: INSTALLATIONS }]);
+                await tick();
+                answer(["!open"]);
+                expect(demand.isReady()).toBe(true);
+
+                // More state is demanded than one room is given: the room falls back to its profile.
+                const types = Array.from({ length: MAX_DEMANDED_SELECTORS_PER_ROOM }, (_, i) => `org.example.${i}`);
+                for (let i = 0; i < types.length; i += 16) {
+                    manager.demandRoomState(
+                        "!open",
+                        types.slice(i, i + 16).map((type) => ({ type })),
+                    );
+                }
+                await tick();
+                expect(nameOf("!open")).toBe("room");
+
+                expect(demand.isReady()).toBe(false);
+                // The topic is part of the open-room profile, so it is still kept current.
+                await expect(
+                    manager.readRoomState(client, "!open", { type: EventType.RoomTopic, stateKey: "" }),
+                ).resolves.toEqual([]);
+            });
+
             it("counts state a wider answer brought for a room still asking for it", async () => {
                 // Such as an encrypted room's answer, with every state event, applied after its view was let go.
                 knownRoom("!secret", "encrypted");

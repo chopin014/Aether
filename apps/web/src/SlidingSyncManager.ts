@@ -718,7 +718,6 @@ export class SlidingSyncManager {
             logger.warn(`SlidingSync: ${desired.size} rooms need a subscription, more than the protocol allows`);
         }
         // Rooms subscribed anyway are measured with their profile alone: what demands add is given room below.
-        const wasAdmitted = this.admittedDemands;
         this.admittedDemands = new Set();
         // Every request carries every subscription, so the request is measured as it will be sent.
         let bytes = listBytes(slidingSync);
@@ -743,9 +742,9 @@ export class SlidingSyncManager {
                 bytes - before + after <= REQUEST_BUDGET_BYTES;
             if (!fits) {
                 this.admittedDemands.delete(roomId);
+                // What the room's demanded state brought stops being kept current; what its profile asks for is
+                // kept, as the subscriptions are compared with what answers brought below.
                 this.stateDemands.overCapacity(roomId);
-                // What the room's demanded state brought stops being kept current.
-                if (wasAdmitted.has(roomId)) this.appliedCoverage.delete(roomId);
                 continue;
             }
             desired.add(roomId);
