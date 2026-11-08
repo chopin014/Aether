@@ -90,7 +90,7 @@ describe("useSpaceVoiceActivity", () => {
 
         act(() => {
             calls.delete("!arena:example.org");
-            CallStore.instance.emit(CallStoreEvent.Call);
+            CallStore.instance.emit(CallStoreEvent.Call, null, "!arena:example.org");
         });
         expect(result.current.map((channel) => channel.name)).toEqual(["Lounge", "Quiet"]);
 
@@ -116,7 +116,7 @@ describe("useSpaceVoiceActivity", () => {
         const first = result.current;
         act(() => {
             // Other rooms arriving or changing are told of as well.
-            CallStore.instance.emit(CallStoreEvent.Call);
+            CallStore.instance.emit(CallStoreEvent.Call, calls.get("!quiet:example.org"), "!quiet:example.org");
             spaceStore.emit(space.roomId);
         });
         expect(result.current).toBe(first);
@@ -125,10 +125,30 @@ describe("useSpaceVoiceActivity", () => {
         act(() => {
             calls.get("!arena:example.org")!.participants.clear();
             calls.get("!arena:example.org")!.participants.set(member("@bob:example.org", "Robert"), {});
-            CallStore.instance.emit(CallStoreEvent.Call);
+            CallStore.instance.emit(CallStoreEvent.Call, calls.get("!arena:example.org"), "!arena:example.org");
         });
         expect(result.current).not.toBe(first);
         expect(result.current[0].people).toEqual([expect.objectContaining({ name: "Robert" })]);
+    });
+
+    it("does not read the Space's rooms for a room told of without a call, unless it is listed", () => {
+        const getRooms = vi.spyOn(spaceStore, "getSpaceFilteredRoomIds");
+        const { result } = renderHook(() => useSpaceVoiceActivity(sdkContext, space));
+        getRooms.mockClear();
+
+        // Rooms arriving, such as while sync applies the whole account, mostly have no call.
+        act(() => {
+            CallStore.instance.emit(CallStoreEvent.Call, null, "!geral:example.org");
+            CallStore.instance.emit(CallStoreEvent.Call, null, "!quiet:example.org");
+        });
+        expect(getRooms).not.toHaveBeenCalled();
+
+        // A listed channel's call ending takes it off the list.
+        act(() => {
+            calls.delete("!lounge:example.org");
+            CallStore.instance.emit(CallStoreEvent.Call, null, "!lounge:example.org");
+        });
+        expect(result.current.map((channel) => channel.name)).toEqual(["Arena"]);
     });
 
     it("does nothing without a Space", () => {
