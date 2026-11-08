@@ -966,6 +966,19 @@ describe("RoomViewStore", function () {
             },
         );
 
+        it("opens a room the client has at once, updating its subscription alongside", async () => {
+            // The subscription is still being updated when the room is shown.
+            const setRoomVisible = vi
+                .spyOn(slidingSyncManager, "setRoomVisible")
+                .mockReturnValue(new Promise(() => {}));
+            dis.dispatch({ action: Action.ViewRoom, room_id: room.roomId });
+            await untilDispatch(Action.ActiveRoomChanged, dis);
+            expect(roomViewStore.getRoomId()).toBe(room.roomId);
+            expect(roomViewStore.isRoomLoading()).toBe(false);
+            expect(roomViewStore.isLoadedForView()).toBe(true);
+            expect(setRoomVisible).toHaveBeenCalledWith(room.roomId);
+        });
+
         it("opens a room the server did not send, so the room view can offer to join it", async () => {
             vi.spyOn(slidingSyncManager, "setRoomVisible").mockResolvedValue("absent");
             dis.dispatch({ action: Action.ViewRoom, room_id: "!missing:localhost" });
