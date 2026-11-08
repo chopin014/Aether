@@ -5,6 +5,11 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
+/*
+ * What the count engine publishes besides the numbers it sets on rooms: which counts are only lower bounds, and
+ * which rooms' counts changed.
+ */
+
 import type { Room } from "matrix-js-sdk/src/matrix";
 
 /**
@@ -48,4 +53,21 @@ export function isLowerBoundCount(room: Room, threadId?: string, includeThreads 
     if (!scopes) return false;
     if (threadId) return scopes.threads.has(threadId);
     return scopes.main || (includeThreads && scopes.threads.size > 0);
+}
+
+const changeListeners = new Set<(room: Room) => void>();
+
+/**
+ * Hear of each room whose counts, or which of them are lower bounds, the count engine changed. A room announces
+ * its own changes, but the client does not pass them on, so this is how a view of many rooms' counts keeps up.
+ * @returns A function that stops the listener hearing.
+ */
+export function onCountsChanged(listener: (room: Room) => void): () => void {
+    changeListeners.add(listener);
+    return () => changeListeners.delete(listener);
+}
+
+/** Tell whoever listens that a room's counts, or which of them are lower bounds, changed. */
+export function announceCountsChanged(room: Room): void {
+    for (const listener of changeListeners) listener(room);
 }

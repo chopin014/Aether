@@ -29,7 +29,7 @@ import { NotificationStateEvents } from "./NotificationState";
 import { NotificationLevel } from "./NotificationLevel";
 import SettingsStore from "../../settings/SettingsStore";
 import * as UnreadModule from "../../Unread";
-import { setLowerBoundCounts } from "../../sliding-sync/notification-counts/lowerBoundCounts";
+import { setLowerBoundCounts } from "../../sliding-sync/notification-counts/publishedCounts";
 
 describe("RoomNotificationState", () => {
     let room: Room;

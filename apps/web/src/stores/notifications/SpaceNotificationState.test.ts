@@ -14,7 +14,7 @@ import { stubClient } from "test-utils";
 import { SpaceNotificationState } from "./SpaceNotificationState";
 import { RoomNotificationState } from "./RoomNotificationState";
 import { RoomNotificationStateStore } from "./RoomNotificationStateStore";
-import { setLowerBoundCounts } from "../../sliding-sync/notification-counts/lowerBoundCounts";
+import { setLowerBoundCounts } from "../../sliding-sync/notification-counts/publishedCounts";
 
 describe("SpaceNotificationState", () => {
     afterEach(() => {

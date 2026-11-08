@@ -19,6 +19,7 @@ import {
     MatrixEvent,
     type MatrixClient,
     NotificationCountType,
+    PendingEventOrdering,
     PushRuleActionName,
     PushRuleKind,
     ReceiptType,
@@ -43,7 +44,8 @@ import { createClientWithCreds } from "../../utils/createMatrixClient";
 import { type CountRecoveryLimits } from "./CountRecovery";
 import { NotificationCountEngine } from "./NotificationCountEngine";
 import { CountConfidence, RoomCountLedger, type SavedLedger } from "./RoomCountLedger";
-import { getLowerBoundCounts, isLowerBoundCount } from "./lowerBoundCounts";
+import { getLowerBoundCounts, isLowerBoundCount, onCountsChanged } from "./publishedCounts";
+import { RoomNotificationState } from "../../stores/notifications/RoomNotificationState";
 
 const roomId = "!room:example.org";
 const me = "@alice:example.org";
@@ -461,6 +463,79 @@ describe("NotificationCountEngine", () => {
         expect(counts()).toEqual({ total: 2, highlight: 0 });
         expect(engine.getCounts(roomId)?.main.confidence).toBe(CountConfidence.LastKnown);
         expect(isLowerBoundCount(client.getRoom(roomId)!)).toBe(false);
+    });
+
+    it("announces the rooms whose counts change, and not those whose counts stay the same", async () => {
+        const { client, respond, settle } = await setup();
+        const changed = vi.fn();
+        stops.push(onCountsChanged(changed));
+
+        await respond({ initial: true, required_state: requiredState, timeline: [message("$a")] }, [receipt("$a")]);
+        expect(changed).toHaveBeenCalledTimes(1);
+        expect(changed).toHaveBeenCalledWith(client.getRoom(roomId));
+
+        // The same rules again: every room is published again, with nothing changed.
+        client.emit(
+            ClientEvent.AccountData,
+            new MatrixEvent({ type: EventType.PushRules, content: client.pushRules as object }),
+        );
+        await settle();
+        expect(changed).toHaveBeenCalledTimes(1);
+
+        await respond({ timeline: [message("$b")] });
+        expect(changed).toHaveBeenCalledTimes(2);
+    });
+
+    it("refreshes the room an upgraded room was replaced by, whose count adds the old room's highlights", async () => {
+        const { client, respond } = await setup();
+        const successor = new Room("!new:example.org", client, me, {
+            pendingEventOrdering: PendingEventOrdering.Detached,
+        });
+        successor.updateMyMembership("join");
+        successor
+            .getLiveTimeline()
+            .getState(EventTimeline.FORWARDS)!
+            .setStateEvents([
+                new MatrixEvent({
+                    type: EventType.RoomCreate,
+                    state_key: "",
+                    sender: me,
+                    room_id: successor.roomId,
+                    event_id: "$newCreate",
+                    content: { predecessor: { room_id: roomId, event_id: "$tombstone" } },
+                }),
+            ]);
+        client.store.storeRoom(successor);
+        const tombstone = {
+            type: EventType.RoomTombstone,
+            state_key: "",
+            sender: me,
+            event_id: "$tombstone",
+            origin_server_ts: 0,
+            content: { body: "", replacement_room: successor.roomId },
+        };
+        await respond({ initial: true, required_state: [...requiredState, tombstone], timeline: [message("$a")] }, [
+            receipt("$a"),
+        ]);
+        const state = new RoomNotificationState(successor, false);
+        stops.push(() => state.destroy());
+
+        // A mention after a gap: the old room's highlight is only a lower bound, and so is the new room's count.
+        await respond({ limited: true, prev_batch: "gap", timeline: [message("$d", "hi alice")] });
+        expect(state.count).toBe(1);
+        expect(state.countIsLowerBound).toBe(true);
+
+        // The gap held only the user's own message: the same highlight, now for certain.
+        vi.spyOn(client, "createMessagesRequest").mockResolvedValue({
+            chunk: [message("$c", "c", me), message("$b"), message("$a")],
+            start: "gap",
+            end: "older",
+        });
+        await client.paginateEventTimeline(client.getRoom(roomId)!.getLiveTimeline(), { backwards: true, limit: 3 });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(state.count).toBe(1);
+        expect(state.countIsLowerBound).toBe(false);
     });
 
     it("marks which threads' counts are lower bounds, and forgets them when the user leaves", async () => {

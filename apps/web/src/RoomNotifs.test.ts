@@ -32,7 +32,7 @@ import {
     getUnsentMessages,
     isUnreadNotificationCountLowerBound,
 } from "./RoomNotifs";
-import { setLowerBoundCounts } from "./sliding-sync/notification-counts/lowerBoundCounts";
+import { setLowerBoundCounts } from "./sliding-sync/notification-counts/publishedCounts";
 import { NotificationLevel } from "./stores/notifications/NotificationLevel";
 import SettingsStore from "./settings/SettingsStore";
 import { MatrixClientPeg } from "./MatrixClientPeg";

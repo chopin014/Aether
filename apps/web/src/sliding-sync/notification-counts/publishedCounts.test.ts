@@ -5,12 +5,18 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { Room } from "matrix-js-sdk/src/matrix";
-import { getLowerBoundCounts, isLowerBoundCount, setLowerBoundCounts } from "./lowerBoundCounts";
+import {
+    announceCountsChanged,
+    getLowerBoundCounts,
+    isLowerBoundCount,
+    onCountsChanged,
+    setLowerBoundCounts,
+} from "./publishedCounts";
 
-describe("lowerBoundCounts", () => {
+describe("publishedCounts", () => {
     const room = (): Room => ({}) as Room;
 
     it("says no count is a lower bound until one is set", () => {
@@ -44,5 +50,23 @@ describe("lowerBoundCounts", () => {
         setLowerBoundCounts(subject, { main: true, threads: new Set() });
         setLowerBoundCounts(subject, undefined);
         expect(getLowerBoundCounts(subject)).toBeUndefined();
+    });
+
+    it("tells each listener of a room whose counts changed, until it stops listening", () => {
+        const subject = room();
+        const first = vi.fn();
+        const second = vi.fn();
+        const stopFirst = onCountsChanged(first);
+        const stopSecond = onCountsChanged(second);
+
+        announceCountsChanged(subject);
+        expect(first).toHaveBeenCalledWith(subject);
+        expect(second).toHaveBeenCalledWith(subject);
+
+        stopFirst();
+        announceCountsChanged(subject);
+        expect(first).toHaveBeenCalledTimes(1);
+        expect(second).toHaveBeenCalledTimes(2);
+        stopSecond();
     });
 });

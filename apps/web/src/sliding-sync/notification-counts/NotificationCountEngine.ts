@@ -16,6 +16,7 @@ import {
     type MatrixEvent,
     MatrixEventEvent,
     type NotificationCount,
+    NotificationCountType,
     ReceiptType,
     type Room,
     RoomEvent,
@@ -37,7 +38,12 @@ import {
     type ScopeCounts,
     UNTHREADED_RECEIPT,
 } from "./RoomCountLedger";
-import { getLowerBoundCounts, type LowerBoundScopes, setLowerBoundCounts } from "./lowerBoundCounts";
+import {
+    announceCountsChanged,
+    getLowerBoundCounts,
+    type LowerBoundScopes,
+    setLowerBoundCounts,
+} from "./publishedCounts";
 
 /** An encrypted event that has not been decrypted: what it adds is not known. */
 const NOT_YET_KNOWN: Contribution = { notify: false, highlight: false, final: false };
@@ -346,6 +352,7 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         this.dirty.delete(room.roomId);
         setLowerBoundCounts(room, undefined);
         room.setNotificationCounts({}, new Map());
+        this.announce(room);
     };
 
     private markDirty(roomId: string, fromSync = false): void {
@@ -412,6 +419,7 @@ export class NotificationCountEngine implements RoomHistoryObserver {
                 }
             }
         }
+        const previous = this.published.get(roomId);
         const counts = ledger.compute();
         this.published.set(roomId, counts);
         const threads = new Map<string, NotificationCount>();
@@ -422,20 +430,24 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         const after = lowerBoundScopes(counts);
         setLowerBoundCounts(room, after);
         room.setNotificationCounts({ total: counts.main.total, highlight: counts.main.highlight }, threads);
+        const mainFlagChanged = !!before?.main !== after.main;
+        const threadFlagsChanged = [...new Set([...(before?.threads ?? []), ...after.threads])].filter(
+            (threadId) => !!before?.threads.has(threadId) !== after.threads.has(threadId),
+        );
         // The room announces counts that change. One that only becomes, or stops being, a lower bound is announced
         // the same way, so its badge gains or loses its "+"; a badge shows that only with a count above zero.
         if (hasPositiveCount(counts)) {
-            if (!!before?.main !== after.main) {
+            if (mainFlagChanged) {
                 room.emit(RoomEvent.UnreadNotifications, {
                     total: counts.main.total,
                     highlight: counts.main.highlight,
                 });
             }
-            for (const threadId of new Set([...(before?.threads ?? []), ...after.threads])) {
-                if (!!before?.threads.has(threadId) === after.threads.has(threadId)) continue;
+            for (const threadId of threadFlagsChanged) {
                 room.emit(RoomEvent.UnreadNotifications, threads.get(threadId) ?? { total: 0, highlight: 0 }, threadId);
             }
         }
+        if (mainFlagChanged || threadFlagsChanged.length > 0 || !sameNumbers(previous, counts)) this.announce(room);
         this.pruneEvents(roomId, ledger);
         this.changeListener?.(roomId);
         // A gap keeps the main count from being exact: a little history may fill it.
@@ -473,6 +485,24 @@ export class NotificationCountEngine implements RoomHistoryObserver {
         const conditions = memberCountConditions(this.client.pushRules);
         const meets = conditions.map((condition) => (meetsMemberCount(condition, memberCount) ? "1" : "0")).join("");
         return [name ?? "", powerLevels ?? "", meets].join("\u0000");
+    }
+
+    /**
+     * Tell whoever shows many rooms' counts that a room's changed. The room it was upgraded into is told too, as its
+     * count adds this room's highlights. (A room naming its predecessor without the predecessor's tombstone, as
+     * the experimental dynamic predecessors allow, is not told: nothing here leads to it.)
+     */
+    private announce(room: Room): void {
+        announceCountsChanged(room);
+        const successorId = room.currentState
+            .getStateEvents(EventType.RoomTombstone, "")
+            ?.getContent<{ replacement_room?: unknown }>().replacement_room;
+        const successor = typeof successorId === "string" ? this.client.getRoom(successorId) : null;
+        if (!successor) return;
+        successor.emit(RoomEvent.UnreadNotifications, {
+            total: successor.getRoomUnreadNotificationCount(NotificationCountType.Total),
+            highlight: successor.getRoomUnreadNotificationCount(NotificationCountType.Highlight),
+        });
     }
 
     /** Let go of events the ledger no longer has. */
@@ -522,6 +552,17 @@ function lowerBoundScopes(counts: RoomCounts): LowerBoundScopes {
         if (isLowerBound(thread)) threads.add(threadId);
     }
     return { main: isLowerBound(counts.main), threads };
+}
+
+/** Whether a room's counts are the same numbers as before, which of them are lower bounds aside. */
+function sameNumbers(previous: RoomCounts | undefined, counts: RoomCounts): boolean {
+    const same = (a: ScopeCounts | undefined, b: ScopeCounts | undefined): boolean =>
+        (a?.total ?? 0) === (b?.total ?? 0) && (a?.highlight ?? 0) === (b?.highlight ?? 0);
+    if (!previous || !same(previous.main, counts.main)) return false;
+    for (const threadId of new Set([...previous.threads.keys(), ...counts.threads.keys()])) {
+        if (!same(previous.threads.get(threadId), counts.threads.get(threadId))) return false;
+    }
+    return true;
 }
 
 /** Whether any of a room's counts is above zero. */

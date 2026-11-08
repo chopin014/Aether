@@ -22,7 +22,7 @@ import { mkThread } from "test-utils/threads";
 
 import type { MatrixClient } from "matrix-js-sdk/src/matrix";
 import * as RoomNotifs from "../../../RoomNotifs";
-import { setLowerBoundCounts } from "../../../sliding-sync/notification-counts/lowerBoundCounts";
+import { setLowerBoundCounts } from "../../../sliding-sync/notification-counts/publishedCounts";
 import { NotificationLevel } from "../../../stores/notifications/NotificationLevel";
 import { UnreadNotificationBadgeViewModel } from "./UnreadNotificationBadgeViewModel";
 

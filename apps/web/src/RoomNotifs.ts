@@ -23,7 +23,7 @@ import { doesRoomHaveUnreadMessages, doesRoomOrThreadHaveUnreadMessages } from "
 import { EffectiveMembership, getEffectiveMembership, isKnockDenied } from "./utils/membership";
 import SettingsStore from "./settings/SettingsStore";
 import { getMarkedUnreadState } from "./utils/notifications";
-import { isLowerBoundCount } from "./sliding-sync/notification-counts/lowerBoundCounts";
+import { isLowerBoundCount } from "./sliding-sync/notification-counts/publishedCounts";
 
 /**
  * Gets all pending events in a room that have a status of `EventStatus.NOT_SENT`
