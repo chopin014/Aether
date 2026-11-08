@@ -183,6 +183,8 @@ test.describe("Spaces", () => {
             .locator('.mx_SpaceBasicSettings_avatarContainer input[type="file"]')
             .setInputFiles(getSampleFilePath("riot.png"));
         await app.applyImageCrop();
+        // The menu is shown again with the focus back in it, ready to go on.
+        await expect(menu.locator(":focus")).toHaveCount(1);
         await expect(menu.getByRole("textbox", { name: "Address" })).not.toBeVisible();
         await menu.getByRole("textbox", { name: "Description" }).fill("This is a personal space to mourn Riot.im...");
         await menu.getByRole("textbox", { name: "Name" }).fill("This is my Riot");
