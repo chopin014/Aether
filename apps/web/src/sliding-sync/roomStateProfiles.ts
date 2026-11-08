@@ -15,7 +15,7 @@ Please see LICENSE in the repository root for full details.
  * the state of the server they represent, without history.
  */
 
-import { EventType } from "matrix-js-sdk/src/matrix";
+import { EventType, UNSTABLE_ELEMENT_FUNCTIONAL_USERS } from "matrix-js-sdk/src/matrix";
 import {
     MSC3575_STATE_KEY_LAZY,
     MSC3575_STATE_KEY_ME,
@@ -27,6 +27,14 @@ import { JitsiCallMemberEventType } from "../call-types";
 import { SOUNDBOARD_EVENT } from "../audio/soundboard/Soundboard";
 import { SPACE_TAG_EVENT_TYPE } from "../profile/spaceTag";
 import { VOICE_STATE_EVENT_TYPE } from "../utils/call/publishedVoiceState";
+import { WIDGET_LAYOUT_EVENT_TYPE } from "../stores/widgets/types";
+
+/** Room settings its admins choose for everyone, read by the room settings handler. */
+const ROOM_SETTINGS_EVENT_TYPE = "im.vector.web.settings";
+/** Whether a room shows link previews, read by the room settings handler. */
+const URL_PREVIEWS_EVENT_TYPE = "org.matrix.room.preview_urls";
+/** A bridge the room is part of, shown in the room's settings. */
+const BRIDGE_EVENT_TYPE = "uk.half-shot.bridge";
 
 /** Calls and widgets can outlive the recent timeline, so their current state is requested explicitly. */
 export const CALL_STATE: string[][] = [
@@ -55,6 +63,16 @@ export const CATALOG_STATE: string[][] = [
     [EventType.RoomMember, MSC3575_STATE_KEY_LAZY], // names and avatars for cached timeline senders
     // Who may notify everyone: without it, an @room mention neither highlights nor notifies in a listed room.
     [EventType.RoomPowerLevels, ""],
+    // The rest is read for rooms nobody has opened, and only what is asked for arrives: the server sends no other
+    // state, and the timeline never adds to it. A wildcard event type would bring every member of large rooms.
+    [ROOM_SETTINGS_EVENT_TYPE, ""], // settings a room's admins choose for everyone in it
+    [URL_PREVIEWS_EVENT_TYPE, ""], // whether the room shows link previews
+    [UNSTABLE_ELEMENT_FUNCTIONAL_USERS.name, ""], // bots, left out of direct message names and call ringing
+    [EventType.RoomThirdPartyInvite, MSC3575_WILDCARD], // invitations sent by email, which count as members
+    [EventType.RoomPredecessor, ""], // the room this one replaced, when it is not named in its creation
+    [WIDGET_LAYOUT_EVENT_TYPE, ""], // where the room's widgets sit, beside the widgets themselves
+    [EventType.RoomPinnedEvents, ""], // pinned messages, such as a server notice's or one search filters on
+    [EventType.RoomServerAcl, ""], // servers banned from the room, never used to route a link to it
 ];
 
 /**
@@ -65,17 +83,17 @@ export const SPACE_LIST_STATE: string[][] = [...CATALOG_STATE, [SOUNDBOARD_EVENT
 
 /**
  * State the room view, its header, composer and settings read, beyond the catalog. Without it, a room that was
- * first seen in a list would show no topic and no pinned messages.
+ * first seen in a list would show no topic.
  */
 const ROOM_VIEW_STATE: string[][] = [
     [EventType.RoomName, ""],
     [EventType.RoomTopic, ""],
     [EventType.RoomHistoryVisibility, ""],
     [EventType.RoomGuestAccess, ""],
-    [EventType.RoomPinnedEvents, ""],
-    [EventType.RoomServerAcl, ""],
     // A voice channel's soundboard, and the permission to add to it.
     [SOUNDBOARD_EVENT, MSC3575_WILDCARD],
+    // The bridges a room is part of, shown in its settings.
+    [BRIDGE_EVENT_TYPE, MSC3575_WILDCARD],
 ];
 
 /** The catalog plus the state of an open room. */

@@ -7,8 +7,15 @@ Please see LICENSE in the repository root for full details.
 
 import { describe, expect, it } from "vitest";
 import { EventType } from "matrix-js-sdk/src/matrix";
+import { MSC3575_WILDCARD } from "matrix-js-sdk/src/sliding-sync";
 
-import { CATALOG_STATE, NAMED_SUBSCRIPTIONS, ROOM_STATE, SPACE_LIST_STATE } from "./roomStateProfiles";
+import {
+    CATALOG_STATE,
+    ENCRYPTED_SUBSCRIPTION,
+    NAMED_SUBSCRIPTIONS,
+    ROOM_STATE,
+    SPACE_LIST_STATE,
+} from "./roomStateProfiles";
 
 describe("roomStateProfiles", () => {
     it("asks for every listed room's power levels, so @room mentions highlight and notify there", () => {
@@ -31,5 +38,39 @@ describe("roomStateProfiles", () => {
     it("asks for each piece of an open room's state once", () => {
         const keys = ROOM_STATE.map(([type, stateKey]) => `${type}|${stateKey}`);
         expect(new Set(keys).size).toBe(keys.length);
+    });
+
+    it("asks for the state read about rooms nobody has opened", () => {
+        // Only state that is asked for arrives: the server sends nothing else, and the timeline never adds to it.
+        expect(CATALOG_STATE).toEqual(
+            expect.arrayContaining([
+                ["im.vector.web.settings", ""],
+                ["org.matrix.room.preview_urls", ""],
+                ["io.element.functional_members", ""],
+                [EventType.RoomThirdPartyInvite, MSC3575_WILDCARD],
+                [EventType.RoomPredecessor, ""],
+                ["io.element.widgets.layout", ""],
+                [EventType.RoomPinnedEvents, ""],
+                [EventType.RoomServerAcl, ""],
+            ]),
+        );
+        const keys = CATALOG_STATE.map(([type, stateKey]) => `${type}|${stateKey}`);
+        expect(new Set(keys).size).toBe(keys.length);
+    });
+
+    it("asks for an open room's bridges, shown in its settings", () => {
+        expect(ROOM_STATE).toContainEqual(["uk.half-shot.bridge", MSC3575_WILDCARD]);
+    });
+
+    it("never asks for every event type, except for encrypted rooms", () => {
+        // Synapse answers a wildcard event type with all of a room's state, every member of a large room included.
+        for (const [name, subscription] of NAMED_SUBSCRIPTIONS) {
+            if (subscription === ENCRYPTED_SUBSCRIPTION) continue;
+            expect({ name, types: (subscription.required_state ?? []).map(([type]) => type) }).toEqual({
+                name,
+                types: expect.not.arrayContaining([MSC3575_WILDCARD]),
+            });
+        }
+        expect(SPACE_LIST_STATE.map(([type]) => type)).not.toContain(MSC3575_WILDCARD);
     });
 });
