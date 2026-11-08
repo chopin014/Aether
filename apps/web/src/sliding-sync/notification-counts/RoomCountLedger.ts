@@ -18,8 +18,8 @@ export enum CountConfidence {
     /** At least this many: the events counted are certainly unread, but some others could not be checked. */
     LowerBound = "lowerBound",
     /**
-     * As last seen: some events counted were seen before a gap in what the ledger was given, and could have been
-     * redacted in it. The count is right unless that happened.
+     * As last seen: some events counted were seen before a gap in what the ledger was given. They could have been
+     * redacted in it, and it could hold more, so the count could be too high as well as too low.
      */
     LastKnown = "lastKnown",
     /** Nothing is certainly unread, but some events could not be checked. */
