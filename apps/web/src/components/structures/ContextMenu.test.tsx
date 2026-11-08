@@ -296,6 +296,32 @@ describe("ContextMenu", () => {
             Modal.forceCloseAllModals();
         });
 
+        it("stays shown when the dialog it was opened from closes onto an older one", async () => {
+            Modal.forceCloseAllModals();
+            act(() => {
+                // An older static dialog, such as settings, under the one the menu is opened from.
+                Modal.createDialog(BaseDialog, {}, undefined, false, true);
+            });
+            let from!: ReturnType<typeof Modal.createDialog>;
+            act(() => {
+                from = Modal.createDialog(BaseDialog);
+            });
+            render(
+                <ContextMenu top={0} left={0} onFinished={vi.fn()} stayOpenUnderDialogs={true}>
+                    <React.Fragment />
+                </ContextMenu>,
+            );
+            const wrapper = (): HTMLElement => document.querySelector<HTMLElement>(".mx_ContextualMenu_wrapper")!;
+
+            await act(async () => {
+                await from.close();
+            });
+
+            expect(Modal.hasDialogs()).toBe(true);
+            expect(wrapper().style.visibility).toBe("");
+            Modal.forceCloseAllModals();
+        });
+
         it("keeps what was typed in it, and ignores the keys, while a dialog over it is open", async () => {
             Modal.forceCloseAllModals();
             const onFinished = vi.fn();

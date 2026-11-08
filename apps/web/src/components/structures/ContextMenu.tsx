@@ -125,8 +125,9 @@ interface IState {
 // this will allow the ContextMenu to manage its own focus using arrow keys as per the ARIA guidelines.
 export default class ContextMenu extends React.PureComponent<React.PropsWithChildren<IProps>, IState> {
     private readonly initialFocus: HTMLElement;
-    // The dialog on top when the menu opened, such as the one it was opened from: the menu belongs above it.
-    private readonly dialogBelow = Modal.topDialog;
+    // The last dialog created when the menu opened. Dialogs created up to then, such as the one it was opened from,
+    // are below it.
+    private readonly dialogsBelow = Modal.lastDialogOrder;
 
     public static defaultProps = {
         hasBackground: true,
@@ -171,8 +172,7 @@ export default class ContextMenu extends React.PureComponent<React.PropsWithChil
 
     /** Whether a dialog opened since the menu did is on top of it. */
     private isUnderDialog(): boolean {
-        const top = Modal.topDialog;
-        return !!top && top !== this.dialogBelow;
+        return Modal.topDialogOrder > this.dialogsBelow;
     }
 
     private collectContextMenuRect = (element: HTMLDivElement): void => {
