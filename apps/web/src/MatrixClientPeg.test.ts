@@ -261,7 +261,39 @@ describe("MatrixClientPeg", () => {
                 isUnusable.mockReturnValue(kept);
                 fails();
 
+                if (kept) await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce());
+                for (let i = 0; i < 10; i++) await Promise.resolve();
                 expect(reload).toHaveBeenCalledTimes(kept ? 1 : 0);
+            });
+
+            it("moves to regular sync only once a call has ended, as reloading would hang up on it", async () => {
+                vi.spyOn(SlidingSyncManager.instance, "serverOffersSlidingSync").mockResolvedValue(true);
+                vi.spyOn(SlidingSyncManager.instance, "setup").mockResolvedValue(undefined);
+                vi.spyOn(SlidingSyncManager.instance, "isActiveFor").mockReturnValue(true);
+                const isUnusable = vi.spyOn(SlidingSyncManager.instance, "isUnusable").mockReturnValue(false);
+                let fails: () => void = () => {};
+                vi.spyOn(SlidingSyncManager.instance, "onUnusable").mockImplementation((listener) => {
+                    fails = listener;
+                    return () => {};
+                });
+                const reload = vi.fn();
+                vi.spyOn(PlatformPeg, "get").mockReturnValue({ reload } as unknown as BasePlatform);
+                const { CallStore, CallStoreEvent } = await import("./stores/CallStore");
+                const connected = new Set([{} as never]);
+                vi.spyOn(CallStore.instance, "connectedCalls", "get").mockImplementation(() => connected);
+                await testPeg.start();
+
+                isUnusable.mockReturnValue(true);
+                fails();
+                // The call stores are loaded when it fails.
+                await vi.dynamicImportSettled();
+                for (let i = 0; i < 10; i++) await Promise.resolve();
+
+                expect(reload).not.toHaveBeenCalled();
+
+                connected.clear();
+                CallStore.instance.emit(CallStoreEvent.ConnectedCalls, connected);
+                await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce());
             });
 
             it("uses sliding sync where the server offers it", async () => {

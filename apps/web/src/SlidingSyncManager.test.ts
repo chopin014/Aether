@@ -1231,27 +1231,42 @@ describe("SlidingSyncManager", () => {
                 expect(manager.isUnusable(client)).toBe(true);
             });
 
-            it("counts neither a forgotten connection nor a request that got no answer", () => {
+            /** A request finishes: answered, or failed with the error. */
+            const finish = (error?: Error): void => {
+                sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null, error);
+            };
+
+            it("counts neither a connection the server forgot, then answered afresh, nor a request with no answer", () => {
                 for (let i = 0; i < 5; i++) {
-                    sync.emit(
-                        SlidingSyncEvent.Lifecycle,
-                        SlidingSyncState.RequestFinished,
-                        null,
-                        failed(400, "M_UNKNOWN_POS"),
-                    );
-                    sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null, new Error("offline"));
+                    finish(failed(400, "M_UNKNOWN_POS"));
+                    finish(new Error("offline"));
+                    finish();
                 }
                 expect(manager.isUnusable(client)).toBe(false);
             });
 
-            it("keeps it once the server has answered on this connection", () => {
-                sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
-                sync.emit(
-                    SlidingSyncEvent.Lifecycle,
-                    SlidingSyncState.RequestFinished,
-                    null,
-                    failed(404, "M_UNRECOGNIZED"),
-                );
+            it("lets it go when the server says it does not know even the fresh connection, again and again", () => {
+                // The first is a connection forgotten; each one after it is a fresh request rejected.
+                for (let i = 0; i < 3; i++) finish(failed(400, "M_UNKNOWN_POS"));
+                expect(manager.isUnusable(client)).toBe(false);
+                finish(failed(400, "M_UNKNOWN_POS"));
+                expect(manager.isUnusable(client)).toBe(true);
+            });
+
+            it("lets it go when it stops working after answering, once it has failed a few times in a row", () => {
+                finish();
+                for (let i = 0; i < 2; i++) finish(failed(404, "M_UNRECOGNIZED"));
+                expect(manager.isUnusable(client)).toBe(false);
+                finish(failed(404, "M_UNRECOGNIZED"));
+                expect(manager.isUnusable(client)).toBe(true);
+            });
+
+            it("keeps it while failures are answered in between", () => {
+                for (let i = 0; i < 5; i++) {
+                    finish();
+                    finish(failed(404, "M_UNRECOGNIZED"));
+                    finish(failed(400, "M_BAD_JSON"));
+                }
                 expect(manager.isUnusable(client)).toBe(false);
             });
 

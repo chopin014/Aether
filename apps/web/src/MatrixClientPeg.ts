@@ -390,7 +390,8 @@ class MatrixClientPegClass implements IMatrixClientPeg {
     /**
      * Move to regular sync, by reloading, if sliding sync turns out to fail on the server though it is offered, such
      * as an endpoint that is not there. The next start then uses regular sync for a while, so it does not try again
-     * at once; if that could not be kept, it stays rather than reload every time.
+     * at once; if that could not be kept, it stays rather than reload every time. Reloading hangs up on a call, so it
+     * waits for any call to end.
      */
     private fallBackWhenSlidingSyncFails(client: MatrixClient): void {
         const manager = SlidingSyncManager.instance;
@@ -401,9 +402,41 @@ class MatrixClientPegClass implements IMatrixClientPeg {
                 logger.warn("MatrixClientPeg: sliding sync fails on this server, but that could not be kept");
                 return;
             }
-            logger.warn("MatrixClientPeg: sliding sync fails on this server; reloading to use regular sync");
-            PlatformPeg.get()?.reload();
+            void this.reloadOnceNoCall(client).catch((error) =>
+                logger.warn("MatrixClientPeg: could not move to regular sync", error),
+            );
         });
+    }
+
+    /** Reload, to use regular sync, once no call is connected, if the client still syncs with sliding sync. */
+    private async reloadOnceNoCall(client: MatrixClient): Promise<void> {
+        // Loaded here: the call stores depend on this module.
+        const [{ CallStore, CallStoreEvent }, { SDKContextClass }, { LegacyCallHandlerEvent }] = await Promise.all([
+            import("./stores/CallStore"),
+            import("./contexts/SDKContextClass"),
+            import("./LegacyCallHandler"),
+        ]);
+        const calls = CallStore.instance;
+        const legacyCalls = SDKContextClass.instance.legacyCallHandler;
+        const inCall = (): boolean => calls.connectedCalls.size > 0 || legacyCalls.getAllActiveCalls().length > 0;
+        if (inCall()) {
+            logger.warn("MatrixClientPeg: sliding sync fails on this server; using regular sync once the call ends");
+            await new Promise<void>((resolve) => {
+                const check = (): void => {
+                    if (inCall()) return;
+                    calls.off(CallStoreEvent.ConnectedCalls, check);
+                    legacyCalls.off(LegacyCallHandlerEvent.CallsChanged, check);
+                    legacyCalls.off(LegacyCallHandlerEvent.CallState, check);
+                    resolve();
+                };
+                calls.on(CallStoreEvent.ConnectedCalls, check);
+                legacyCalls.on(LegacyCallHandlerEvent.CallsChanged, check);
+                legacyCalls.on(LegacyCallHandlerEvent.CallState, check);
+            });
+        }
+        if (!SlidingSyncManager.instance.isActiveFor(client)) return;
+        logger.warn("MatrixClientPeg: sliding sync fails on this server; reloading to use regular sync");
+        PlatformPeg.get()?.reload();
     }
 
     /** Prioritize the destination before the UI can select a room from the first sync response. */
