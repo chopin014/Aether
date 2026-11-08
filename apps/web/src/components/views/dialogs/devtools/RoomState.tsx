@@ -8,7 +8,8 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import React, { type ChangeEventHandler, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { type IContent, type MatrixEvent } from "matrix-js-sdk/src/matrix";
+import { type IContent, type MatrixClient, type MatrixEvent } from "matrix-js-sdk/src/matrix";
+import { logger } from "matrix-js-sdk/src/logger";
 import classNames from "classnames";
 import { Form, SettingsToggleInput } from "@vector-im/compound-web";
 
@@ -20,6 +21,54 @@ import FilteredList from "./FilteredList";
 import Spinner from "../../elements/Spinner";
 import SyntaxHighlight from "../../elements/SyntaxHighlight";
 import { useAsyncMemo } from "../../../../hooks/useAsyncMemo";
+import { SlidingSyncManager } from "../../../../SlidingSyncManager";
+
+/** A room's state events by event type, then state key. */
+type RoomStateEvents = ReadonlyMap<string, ReadonlyMap<string, MatrixEvent>>;
+
+/**
+ * Fetch all of a room's current state from the server. Encrypted state events are decrypted; one that cannot be is
+ * listed under the type and state key it was sent with.
+ */
+async function fetchRoomState(cli: MatrixClient, roomId: string): Promise<RoomStateEvents> {
+    const mapper = cli.getEventMapper();
+    const events = (await cli.roomState(roomId)).map((event) => mapper(event));
+    await Promise.all(events.filter((event) => event.isEncrypted()).map((event) => cli.decryptEventIfNeeded(event)));
+    const byType = new Map<string, Map<string, MatrixEvent>>();
+    for (const event of events) {
+        const failed = event.isDecryptionFailure();
+        const type = failed ? event.getWireType() : event.getType();
+        const stateKey = (failed ? event.getWireStateKey() : event.getStateKey()) ?? "";
+        if (!byType.has(type)) byType.set(type, new Map());
+        byType.get(type)!.set(stateKey, event);
+    }
+    return byType;
+}
+
+/**
+ * The room's state to explore. Sliding sync loads only the state the app reads, so then all of it is fetched from the
+ * server, and there is none to show until it arrives.
+ * @returns The state, undefined while it is fetched, and whether it is only what this device has loaded because the
+ *     fetch failed.
+ */
+function useRoomStateToExplore(): { events?: RoomStateEvents; loadedOnly: boolean } {
+    const context = useContext(DevtoolsContext);
+    const cli = useContext(MatrixClientContext);
+    const fromServer = SlidingSyncManager.instance.isActiveFor(cli);
+    const fetched = useAsyncMemo<RoomStateEvents | null | undefined>(async () => {
+        if (!fromServer) return undefined;
+        try {
+            return await fetchRoomState(cli, context.room.roomId);
+        } catch (error) {
+            logger.warn("Devtools could not fetch the room's state", error);
+            return null;
+        }
+    }, [cli, context.room, fromServer]);
+    if (!fromServer || fetched === null) return { events: context.room.currentState.events, loadedOnly: fromServer };
+    return { events: fetched, loadedOnly: false };
+}
+
+const NO_EVENTS: ReadonlyMap<string, MatrixEvent> = new Map();
 
 export const StateEventEditor: React.FC<IEditorProps> = ({ mxEvent, onBack }) => {
     const context = useContext(DevtoolsContext);
@@ -108,11 +157,11 @@ const StateEventButton: React.FC<StateEventButtonProps> = ({ label, onClick }) =
 };
 
 interface IEventTypeProps extends Pick<IDevtoolsProps, "onBack"> {
-    eventType: string;
+    /** The room's state events of one type, by state key. */
+    events: ReadonlyMap<string, MatrixEvent>;
 }
 
-const RoomStateExplorerEventType: React.FC<IEventTypeProps> = ({ eventType, onBack }) => {
-    const context = useContext(DevtoolsContext);
+const RoomStateExplorerEventType: React.FC<IEventTypeProps> = ({ events, onBack }) => {
     const [query, setQuery] = useState("");
     const [event, setEvent] = useState<MatrixEvent | null>(null);
     const [history, setHistory] = useState(false);
@@ -121,8 +170,6 @@ const RoomStateExplorerEventType: React.FC<IEventTypeProps> = ({ eventType, onBa
         (e) => setShowEmptyState(e.target.checked),
         [setShowEmptyState],
     );
-
-    const events = context.room.currentState.events.get(eventType)!;
 
     useEffect(() => {
         if (events.size === 1 && events.has("")) {
@@ -184,17 +231,16 @@ const RoomStateExplorerEventType: React.FC<IEventTypeProps> = ({ eventType, onBa
 };
 
 export const RoomStateExplorer: React.FC<IDevtoolsProps> = ({ onBack, setTool }) => {
-    const context = useContext(DevtoolsContext);
     const [query, setQuery] = useState("");
     const [eventType, setEventType] = useState<string | null>(null);
 
-    const events = context.room.currentState.events;
+    const { events, loadedOnly } = useRoomStateToExplore();
 
-    if (eventType !== null) {
+    if (events && eventType !== null) {
         const onBack = (): void => {
             setEventType(null);
         };
-        return <RoomStateExplorerEventType eventType={eventType} onBack={onBack} />;
+        return <RoomStateExplorerEventType events={events.get(eventType) ?? NO_EVENTS} onBack={onBack} />;
     }
 
     const onAction = async (): Promise<void> => {
@@ -203,11 +249,22 @@ export const RoomStateExplorer: React.FC<IDevtoolsProps> = ({ onBack, setTool })
 
     return (
         <BaseTool onBack={onBack} actionLabel={_td("devtools|send_custom_state_event")} onAction={onAction}>
-            <FilteredList query={query} onChange={setQuery}>
-                {Array.from(events.keys()).map((eventType) => (
-                    <StateEventButton key={eventType} label={eventType} onClick={() => setEventType(eventType)} />
-                ))}
-            </FilteredList>
+            {events ? (
+                <>
+                    {loadedOnly && <p>{_t("devtools|room_state_loaded_only")}</p>}
+                    <FilteredList query={query} onChange={setQuery}>
+                        {Array.from(events.keys()).map((eventType) => (
+                            <StateEventButton
+                                key={eventType}
+                                label={eventType}
+                                onClick={() => setEventType(eventType)}
+                            />
+                        ))}
+                    </FilteredList>
+                </>
+            ) : (
+                <Spinner />
+            )}
         </BaseTool>
     );
 };
