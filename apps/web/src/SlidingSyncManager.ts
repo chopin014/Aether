@@ -250,6 +250,20 @@ export const MAX_STATE_READ_ROOMS = 8;
  */
 export const MAX_DEMANDED_SELECTORS_PER_ROOM = 32;
 
+/**
+ * The state two `required_state` lists both bring, each entry once: a wildcard on one side brings every entry the other
+ * names, and either side may be the wider.
+ */
+function requiredStateOfBoth(
+    a: readonly (readonly string[])[],
+    b: readonly (readonly string[])[],
+): (readonly string[])[] {
+    const both = new Map<string, readonly string[]>();
+    for (const entry of a) if (requiredStateIncludes(b, entry)) both.set(JSON.stringify(entry), entry);
+    for (const entry of b) if (requiredStateIncludes(a, entry)) both.set(JSON.stringify(entry), entry);
+    return [...both.values()];
+}
+
 /** The bytes the account lists take in a request. */
 function listBytes(slidingSync: SlidingSync): number {
     let size = 0;
@@ -646,6 +660,12 @@ export class SlidingSyncManager {
         return missing;
     }
 
+    /** The state a room's subscription asks for now, or none for a room not subscribed. */
+    private currentRequiredState(roomId: string): readonly (readonly string[])[] {
+        const name = this.appliedNames.get(roomId);
+        return (name && this.subscriptionNamed(name)?.required_state) || [];
+    }
+
     /** A subscription by name: a named profile, or one derived for demanded state. */
     private subscriptionNamed(name: string): MSC3575RoomSubscription | undefined {
         return (
@@ -759,6 +779,11 @@ export class SlidingSyncManager {
             this.appliedNames.delete(roomId);
             // An unsubscribed room's state is no longer kept current.
             this.appliedCoverage.delete(roomId);
+        }
+        // Nor is state a room's subscription no longer asks for, such as demanded state let go once it stopped
+        // lingering, or a derived definition that narrowed under the same name.
+        for (const [roomId, coverage] of this.appliedCoverage) {
+            this.appliedCoverage.set(roomId, requiredStateOfBoth(coverage, this.currentRequiredState(roomId)));
         }
         const current = slidingSync.getRoomSubscriptions();
         const sameRooms = current.size === desired.size && [...desired].every((roomId) => current.has(roomId));
@@ -1255,14 +1280,8 @@ export class SlidingSyncManager {
         // have narrowed, such as when its demanded state lost its room, while the answer was being applied.
         // Both ways round: a wildcard answer brings every entry the current subscription names, and the current one
         // may itself be the wider.
-        const keptCurrent = (roomId: string, answered: readonly (readonly string[])[]): (readonly string[])[] => {
-            const name = this.appliedNames.get(roomId);
-            const current = (name && this.subscriptionNamed(name)?.required_state) || [];
-            return [
-                ...answered.filter((entry) => requiredStateIncludes(current, entry)),
-                ...current.filter((entry) => requiredStateIncludes(answered, entry)),
-            ];
-        };
+        const keptCurrent = (roomId: string, answered: readonly (readonly string[])[]): (readonly string[])[] =>
+            requiredStateOfBoth(answered, this.currentRequiredState(roomId));
         for (const [roomId, subscription] of sent.roomSubscriptions) {
             if (this.client?.getRoom(roomId) && slidingSync.getRoomSubscriptions().has(roomId)) {
                 this.appliedCoverage.set(roomId, keptCurrent(roomId, subscription.required_state ?? []));

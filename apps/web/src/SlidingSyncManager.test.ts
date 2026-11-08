@@ -2249,6 +2249,29 @@ describe("SlidingSyncManager", () => {
                 expect(demand.isReady()).toBe(false);
             });
 
+            it("stops counting state once the room's subscription no longer asks for it", async () => {
+                vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+                knownRoom("!open");
+                (manager as unknown as { liveRooms: Set<string> }).liveRooms.add("!open");
+                await manager.setRoomVisible("!open");
+                const first = manager.demandRoomState("!open", [{ type: INSTALLATIONS }]);
+                await vi.advanceTimersByTimeAsync(0);
+                answer(["!open"]);
+                expect(first.isReady()).toBe(true);
+
+                // Once let go and no longer lingering, the room is subscribed with its profile alone.
+                first.release();
+                await vi.advanceTimersByTimeAsync(DEMAND_LINGER_MS + 200);
+                expect(nameOf("!open")).toBe("room");
+
+                const again = manager.demandRoomState("!open", [{ type: INSTALLATIONS }]);
+                expect(again.isReady()).toBe(false);
+                await vi.advanceTimersByTimeAsync(0);
+                expect(nameOf("!open")).toBe("room+!open");
+                answer(["!open"]);
+                expect(again.isReady()).toBe(true);
+            });
+
             it("counts state a wider answer brought for a room still asking for it", async () => {
                 // Such as an encrypted room's answer, with every state event, applied after its view was let go.
                 knownRoom("!secret", "encrypted");
