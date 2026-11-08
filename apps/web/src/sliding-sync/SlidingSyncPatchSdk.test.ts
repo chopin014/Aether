@@ -10,6 +10,7 @@ Please see LICENSE in the repository root for full details.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
     ClientEvent,
+    ConnectionError,
     ContentHelpers,
     EventTimeline,
     EventTimelineSet,
@@ -1416,5 +1417,60 @@ describe("live locations", () => {
         await room.currentState.processBeaconEvents([chat, location], client);
 
         expect(beacon.latestLocationEvent?.getId()).toBe("$location");
+    });
+});
+
+describe("a lost sliding sync connection", () => {
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+    });
+
+    it("is retried soon at first, then every 5 seconds, and reported from the third failure", async () => {
+        // As /sync v2 does, so the room status bar says the connection is lost as promptly.
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+        const client = makeClient();
+        vi.spyOn(client, "getPushRules").mockResolvedValue({ global: {} } as never);
+        const requests: number[] = [];
+        vi.spyOn(client.http, "authedRequest").mockImplementation(((_method: unknown, path: unknown) => {
+            if (String(path).includes("sync")) requests.push(Date.now());
+            return Promise.reject(new MatrixError({ errcode: "M_UNKNOWN", error: "Server unwell" }, 500));
+        }) as never);
+        const states: SyncState[] = [];
+        client.on(ClientEvent.Sync, (state) => states.push(state));
+        const sync = new SlidingSync("https://example.org", new Map(), {}, client, 20_000);
+        const api = new SlidingSyncSdk(sync, client, { lazyLoadMembers: true }, { logger });
+        void api.sync();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(requests).toHaveLength(1);
+        const start = requests[0];
+
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(requests).toHaveLength(2);
+        await vi.advanceTimersByTimeAsync(4_000);
+        expect(requests).toHaveLength(3);
+        expect(states.filter((state) => state === SyncState.Reconnecting)).toHaveLength(2);
+        expect(states.at(-1)).toBe(SyncState.Error);
+
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(requests).toHaveLength(4);
+        expect(requests.map((at) => at - start)).toEqual([0, 2_000, 6_000, 11_000]);
+        api.stop();
+    });
+
+    it("is reported when requests fail without an answer, such as with no connection", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+        const client = makeClient();
+        vi.spyOn(client, "getPushRules").mockResolvedValue({ global: {} } as never);
+        vi.spyOn(client.http, "authedRequest").mockImplementation((() =>
+            Promise.reject(new ConnectionError("Network unreachable"))) as never);
+        const states: SyncState[] = [];
+        client.on(ClientEvent.Sync, (state) => states.push(state));
+        const sync = new SlidingSync("https://example.org", new Map(), {}, client, 20_000);
+        const api = new SlidingSyncSdk(sync, client, { lazyLoadMembers: true }, { logger });
+        void api.sync();
+        await vi.advanceTimersByTimeAsync(6_000);
+        expect(states).toEqual([SyncState.Reconnecting, SyncState.Reconnecting, SyncState.Error]);
+        api.stop();
     });
 });
