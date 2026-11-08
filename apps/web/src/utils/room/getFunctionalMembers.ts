@@ -9,7 +9,8 @@ Please see LICENSE files in the repository root for full details.
 import { type Room, UNSTABLE_ELEMENT_FUNCTIONAL_USERS } from "matrix-js-sdk/src/matrix";
 
 export const getFunctionalMembers = (room: Room): string[] => {
-    const [functionalUsersStateEvent] = room.currentState.getStateEvents(UNSTABLE_ELEMENT_FUNCTIONAL_USERS.name);
+    // The event has an empty state key, which is the one sliding sync asks for.
+    const functionalUsersStateEvent = room.currentState.getStateEvents(UNSTABLE_ELEMENT_FUNCTIONAL_USERS.name, "");
 
     if (Array.isArray(functionalUsersStateEvent?.getContent().service_members)) {
         return functionalUsersStateEvent.getContent().service_members;
