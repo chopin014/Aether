@@ -68,7 +68,7 @@ import ErrorDialog from "../../components/views/dialogs/ErrorDialog";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
 import { UPDATE_EVENT } from "../AsyncStore";
 import { SlidingSyncManager } from "../../SlidingSyncManager";
-import { type RoomStateDemand } from "../../sliding-sync/RoomStateDemands";
+import { MAX_SELECTORS_PER_DEMAND, type RoomStateDemand } from "../../sliding-sync/RoomStateDemands";
 
 // TODO: Purge this code of its overgrown hacks and compatibility shims.
 
@@ -325,6 +325,11 @@ export class WidgetMessaging extends TypedEventEmitter<WidgetMessagingEvent, Wid
             // Members are loaded lazily, as under regular sync: every member of a large room would be too many.
             .filter((capability) => !(capability.eventType === EventType.RoomMember && capability.keyStr === null))
             .map((capability) => ({ type: capability.eventType, stateKey: capability.keyStr ?? undefined }));
+        if (selectors.length > MAX_SELECTORS_PER_DEMAND) {
+            // Every request carries every subscription, so a widget's state is asked for only up to a bound.
+            logger.warn(`Widget ${this.widget.id} may receive more state than is kept up to date for it`);
+            selectors.length = MAX_SELECTORS_PER_DEMAND;
+        }
         const roomIds = new Set<string>();
         const ownRoomId = this.roomId ?? this.viewedRoomId;
         if (ownRoomId) roomIds.add(ownRoomId);

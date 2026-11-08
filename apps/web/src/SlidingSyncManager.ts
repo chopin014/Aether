@@ -79,6 +79,7 @@ import { RoomSubscriptionLeases, type RoomSubscriptionLease } from "./sliding-sy
 import {
     RoomStateDemands,
     type RoomStateDemand,
+    type RoomStateDemandKind,
     type RoomStateSelector,
     RoomStateUnavailableError,
     requiredStateCovers,
@@ -223,10 +224,12 @@ const profileBytes = new Map<string, number>();
 
 /** The bytes a room's subscription takes in a request, as `"roomId":{...},`. */
 function subscriptionBytes(roomId: string, name: string, subscription: MSC3575RoomSubscription | undefined): number {
-    let size = profileBytes.get(name);
+    // A named profile never changes; one derived for a room's demanded state does, and is measured each time.
+    const named = NAMED_SUBSCRIPTIONS.has(name as RoomSubscriptionName);
+    let size = named ? profileBytes.get(name) : undefined;
     if (size === undefined) {
         size = JSON.stringify(subscription ?? {}).length;
-        profileBytes.set(name, size);
+        if (named) profileBytes.set(name, size);
     }
     return roomId.length + size + 4;
 }
@@ -294,13 +297,17 @@ export class SlidingSyncManager {
     // State that readers outside the room view ask for, such as integration managers and widgets. Demands outlive a
     // connection: a new one asks for their state again.
     private readonly stateDemands = new RoomStateDemands(() => this.scheduleFlush(true));
-    // Subscriptions derived from a named one by adding demanded state, by name. A name is made from its content, so
-    // it never changes meaning, and the current connection is given each one once.
-    private readonly derivedSubscriptions = new Map<string, MSC3575RoomSubscription>();
-    private readonly registeredDerived = new Set<string>();
-    // Rooms with reads waiting for their state, with how many each, and reads waiting for a room to be free.
-    private readonly readingRooms = new Map<string, number>();
-    private readonly readQueue: Array<() => void> = [];
+    // Subscriptions derived from a room's profile by adding its demanded state, one per room, by name, with its
+    // content as JSON so a change is noticed. They go when no subscribed room uses them, so they never outgrow the
+    // demanded rooms. The connection holds the definition each name was last given.
+    private readonly derivedSubscriptions = new Map<string, { subscription: MSC3575RoomSubscription; json: string }>();
+    private readonly registeredDerived = new Map<string, MSC3575RoomSubscription>();
+    // The state each subscribed room's last applied answer brought, from the request it answered.
+    private readonly appliedCoverage = new Map<string, readonly (readonly string[])[]>();
+    // Rooms with reads waiting for their state, with how many each, and reads waiting for a room to be free. A new
+    // connection starts afresh, and wakes reads waiting for the old one so they give up.
+    private readingRooms = new Map<string, number>();
+    private readQueue: Array<() => void> = [];
     private flushQueued = false;
     private flushTimer?: ReturnType<typeof setTimeout>;
     // The Space whose channels are subscribed, the rooms met walking its tree, and the Space asked for before the
@@ -376,7 +383,12 @@ export class SlidingSyncManager {
         this.expectedSpaces.clear();
         this.appliedNames.clear();
         this.registeredDerived.clear();
+        this.derivedSubscriptions.clear();
+        this.appliedCoverage.clear();
+        this.stateDemands.cancelReads();
         this.stateDemands.reset();
+        this.readingRooms = new Map();
+        for (const wake of this.readQueue.splice(0)) wake();
         this.leases.dispose();
         this.leases = new RoomSubscriptionLeases(this.scheduleFlush);
         this.viewLease = undefined;
@@ -606,19 +618,23 @@ export class SlidingSyncManager {
         }
         if (missing.size === 0) return base;
         const keys = [...missing.keys()].sort();
-        const name = `${base}+${keys.join(",")}`;
-        if (!this.derivedSubscriptions.has(name)) {
-            this.derivedSubscriptions.set(name, {
-                ...profile,
-                required_state: [...(profile.required_state ?? []), ...keys.map((key) => missing.get(key)!)],
-            });
-        }
+        const subscription = {
+            ...profile,
+            required_state: [...(profile.required_state ?? []), ...keys.map((key) => missing.get(key)!)],
+        };
+        // One name per room, kept while the room's profile stays the same; its definition follows the demanded state.
+        const name = `${base}+${roomId}`;
+        const json = JSON.stringify(subscription);
+        if (this.derivedSubscriptions.get(name)?.json !== json)
+            this.derivedSubscriptions.set(name, { subscription, json });
         return name;
     }
 
     /** A subscription by name: a named profile, or one derived for demanded state. */
     private subscriptionNamed(name: string): MSC3575RoomSubscription | undefined {
-        return NAMED_SUBSCRIPTIONS.get(name as RoomSubscriptionName) ?? this.derivedSubscriptions.get(name);
+        return (
+            NAMED_SUBSCRIPTIONS.get(name as RoomSubscriptionName) ?? this.derivedSubscriptions.get(name)?.subscription
+        );
     }
 
     /** The profile a room should be subscribed with, from what it is and why it is subscribed. */
@@ -662,18 +678,29 @@ export class SlidingSyncManager {
         const desired = new Set(this.leases.roomIds());
         for (const roomId of this.bootstrapRooms) desired.add(roomId);
         for (const roomId of this.initialTimelines.keys()) desired.add(roomId);
-        for (const roomId of this.stateDemands.roomIds()) desired.add(roomId);
         if (desired.size > MAX_ROOM_SUBSCRIPTIONS) {
             logger.warn(`SlidingSync: ${desired.size} rooms need a subscription, more than the protocol allows`);
         }
-        // The open Space's channels are sent as long as the request stays small, in the Space's order. Every request
-        // carries every subscription, so the request is measured as it will be sent.
+        // Every request carries every subscription, so the request is measured as it will be sent.
         let bytes = listBytes(slidingSync);
         const bytesFor = (roomId: string): number => {
             const name = this.subscriptionNameFor(roomId);
             return subscriptionBytes(roomId, name, this.subscriptionNamed(name));
         };
         for (const roomId of desired) bytes += bytesFor(roomId);
+        // Rooms whose state is demanded come next, live demands such as ban lists first, while the request stays
+        // within its limits. A read that has no room fails rather than waiting; a live demand waits for room.
+        for (const roomId of this.stateDemands.roomIdsByPriority()) {
+            if (desired.has(roomId)) continue;
+            const size = bytesFor(roomId);
+            if (desired.size >= MAX_ROOM_SUBSCRIPTIONS || bytes + size > REQUEST_BUDGET_BYTES) {
+                this.stateDemands.overCapacity(roomId);
+                continue;
+            }
+            desired.add(roomId);
+            bytes += size;
+        }
+        // The open Space's channels are sent as long as the request stays small, in the Space's order.
         for (const roomId of this.spaceChannels) {
             if (desired.has(roomId)) continue;
             const size = bytesFor(roomId);
@@ -684,21 +711,39 @@ export class SlidingSyncManager {
         let changed = false;
         for (const roomId of desired) {
             const name = this.subscriptionNameFor(roomId);
-            if (this.appliedNames.get(roomId) === name) continue;
-            if (!this.registeredDerived.has(name) && this.derivedSubscriptions.has(name)) {
-                slidingSync.addCustomSubscription(name, this.derivedSubscriptions.get(name)!);
-                this.registeredDerived.add(name);
+            const derived = this.derivedSubscriptions.get(name)?.subscription;
+            if (derived && this.registeredDerived.get(name) !== derived) {
+                // A replaced definition is sent again for every room using it.
+                slidingSync.addCustomSubscription(name, derived);
+                this.registeredDerived.set(name, derived);
+                changed = true;
             }
+            if (this.appliedNames.get(roomId) === name) continue;
             this.appliedNames.set(roomId, name);
             slidingSync.useCustomSubscription(roomId, name);
             changed = true;
         }
         for (const roomId of this.appliedNames.keys()) {
-            if (!desired.has(roomId)) this.appliedNames.delete(roomId);
+            if (desired.has(roomId)) continue;
+            this.appliedNames.delete(roomId);
+            // An unsubscribed room's state is no longer kept current.
+            this.appliedCoverage.delete(roomId);
         }
         const current = slidingSync.getRoomSubscriptions();
-        if (!changed && current.size === desired.size && [...desired].every((roomId) => current.has(roomId))) return;
-        slidingSync.modifyRoomSubscriptions(desired);
+        const sameRooms = current.size === desired.size && [...desired].every((roomId) => current.has(roomId));
+        if (changed || !sameRooms) slidingSync.modifyRoomSubscriptions(desired);
+        this.dropUnusedDerivedSubscriptions(slidingSync);
+    }
+
+    /** Forget subscriptions derived for rooms that no longer use them, here and on the connection. */
+    private dropUnusedDerivedSubscriptions(slidingSync: SlidingSync): void {
+        const used = new Set(this.appliedNames.values());
+        for (const name of this.derivedSubscriptions.keys()) {
+            if (used.has(name)) continue;
+            if (this.registeredDerived.has(name) && !slidingSync.removeCustomSubscription(name)) continue;
+            this.derivedSubscriptions.delete(name);
+            this.registeredDerived.delete(name);
+        }
     }
 
     /**
@@ -897,20 +942,27 @@ export class SlidingSyncManager {
      * is asked for once it does.
      * @param roomId - The room.
      * @param selectors - The state, by concrete event type.
+     * @param kind - Whether the state is kept up to date while the demand is held, or only read once. Live demands
+     *     are given room in a request first.
      * @returns The demand, to wait on and release.
-     * @throws when a selector asks for every event type, which would bring every member of large rooms.
+     * @throws when a selector asks for every event type, which would bring every member of large rooms, or there are
+     *     more than one demand may name.
      */
-    public demandRoomState(roomId: string, selectors: readonly RoomStateSelector[]): RoomStateDemand {
+    public demandRoomState(
+        roomId: string,
+        selectors: readonly RoomStateSelector[],
+        kind: RoomStateDemandKind = "live",
+    ): RoomStateDemand {
         for (const selector of selectors) requiredStateFor(selector);
-        // Every list entry brings the catalog, so it needs no asking.
+        // Every list entry brings the catalog, so it needs no asking once the room's entry has arrived.
         const needed = selectors.filter((selector) => !requiredStateCovers(CATALOG_STATE, selector));
-        if (needed.length === 0) {
+        if (needed.length === 0 && this.liveRooms.has(roomId)) {
             return { roomId, isReady: () => true, whenReady: () => Promise.resolve(), release: () => {} };
         }
         // Held whether or not sliding sync runs yet, so a connection started later asks for it too.
-        const demand = this.stateDemands.acquire(roomId, needed);
+        const demand = this.stateDemands.acquire(roomId, selectors, kind);
         const isReady = (): boolean =>
-            !this.slidingSync || demand.isReady() || needed.every((selector) => this.isStateHere(roomId, selector));
+            !this.slidingSync || demand.isReady() || selectors.every((selector) => this.isStateHere(roomId, selector));
         return {
             roomId,
             isReady,
@@ -950,55 +1002,61 @@ export class SlidingSyncManager {
         // A room the server does not serve has no state to read, as under regular sync.
         if (!client.getRoom(roomId) && !this.mayStillArrive(roomId)) return [];
         if (this.isStateHere(roomId, selector)) return read();
+        // The read belongs to this connection: one that replaces it while the read waits ends the read.
+        const slidingSync = this.slidingSync;
+        const stillCurrent = (): boolean => this.isActiveFor(client) && this.slidingSync === slidingSync;
         const leave = await this.enterRead(roomId);
-        const demand = this.demandRoomState(roomId, [selector]);
+        if (!stillCurrent()) {
+            leave();
+            throw new RoomStateUnavailableError("released", roomId);
+        }
+        const demand = this.demandRoomState(roomId, [selector], "read");
+        let absent = false;
         try {
             await demand.whenReady(timeoutMs);
         } catch (error) {
-            if (error instanceof RoomStateUnavailableError && error.reason === "absent") return [];
-            throw error;
+            if (!(error instanceof RoomStateUnavailableError && error.reason === "absent")) throw error;
+            absent = true;
         } finally {
             demand.release();
             leave();
         }
-        if (!this.isActiveFor(client)) throw new RoomStateUnavailableError("released", roomId);
-        return read();
+        if (!stillCurrent()) throw new RoomStateUnavailableError("released", roomId);
+        return absent ? [] : read();
     }
 
     /** Wait for a room to be read from: one already being read, or a free place among {@link MAX_STATE_READ_ROOMS}. */
     private async enterRead(roomId: string): Promise<() => void> {
-        while (!this.readingRooms.has(roomId) && this.readingRooms.size >= MAX_STATE_READ_ROOMS) {
-            await new Promise<void>((resolve) => this.readQueue.push(resolve));
+        // A new connection replaces these and wakes every waiting read.
+        const rooms = this.readingRooms;
+        const queue = this.readQueue;
+        while (rooms === this.readingRooms && !rooms.has(roomId) && rooms.size >= MAX_STATE_READ_ROOMS) {
+            await new Promise<void>((resolve) => queue.push(resolve));
         }
-        this.readingRooms.set(roomId, (this.readingRooms.get(roomId) ?? 0) + 1);
+        rooms.set(roomId, (rooms.get(roomId) ?? 0) + 1);
         let left = false;
         return () => {
             if (left) return;
             left = true;
-            const reads = this.readingRooms.get(roomId)! - 1;
+            const reads = rooms.get(roomId)! - 1;
             if (reads > 0) {
-                this.readingRooms.set(roomId, reads);
+                rooms.set(roomId, reads);
                 return;
             }
-            this.readingRooms.delete(roomId);
-            this.readQueue.shift()?.();
+            rooms.delete(roomId);
+            queue.shift()?.();
         };
     }
 
     /**
-     * Whether a room's state for a selector is here: brought by every list entry, or by the room's subscription as
-     * the server last confirmed it.
+     * Whether a room's state for a selector is here: brought by every list entry, or by the subscription a request
+     * carried whose answer has been applied. A confirmed subscription is not enough: its answer is applied after.
      */
     private isStateHere(roomId: string, selector: RoomStateSelector): boolean {
         if (!this.liveRooms.has(roomId)) return false;
         if (requiredStateCovers(CATALOG_STATE, selector)) return true;
-        const name = this.appliedNames.get(roomId);
-        const subscription = name ? this.subscriptionNamed(name) : undefined;
-        return (
-            !!subscription &&
-            requiredStateCovers(subscription.required_state ?? [], selector) &&
-            !!this.slidingSync?.isRoomSubscriptionConfirmed(roomId)
-        );
+        const coverage = this.appliedCoverage.get(roomId);
+        return !!coverage && requiredStateCovers(coverage, selector);
     }
 
     /**
@@ -1162,6 +1220,11 @@ export class SlidingSyncManager {
         const slidingSync = this.slidingSync;
         const sent = slidingSync?.getRequestForResponse(response);
         if (!slidingSync || !sent) return;
+        for (const [roomId, subscription] of sent.roomSubscriptions) {
+            if (this.client?.getRoom(roomId) && slidingSync.getRoomSubscriptions().has(roomId)) {
+                this.appliedCoverage.set(roomId, subscription.required_state ?? []);
+            }
+        }
         for (const roomId of this.stateDemands.roomIds()) {
             const subscription = sent.roomSubscriptions.get(roomId);
             if (!subscription) continue;

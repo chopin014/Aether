@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
     DEMAND_LINGER_MS,
     MAX_LINGERING_ROOMS,
+    MAX_SELECTORS_PER_DEMAND,
     RoomStateDemands,
     RoomStateUnavailableError,
     requiredStateCovers,
@@ -117,6 +118,43 @@ describe("RoomStateDemands", () => {
             for (const roomId of roomIds) demands.acquire(roomId, [{ type: INSTALLATIONS }]).release();
             expect(demands.has("!room0")).toBe(false);
             for (const roomId of roomIds.slice(1)) expect(demands.has(roomId)).toBe(true);
+        });
+
+        it("bounds the selectors a demand names, and those a room keeps once released", () => {
+            const many = Array.from({ length: MAX_SELECTORS_PER_DEMAND + 1 }, (_, i) => ({ type: `org.example.${i}` }));
+            expect(() => demands.acquire("!room", many)).toThrow(RangeError);
+            for (const selector of many) demands.acquire("!room", [selector]).release();
+            // The most recently released are kept.
+            expect(demands.selectorsFor("!room")).toEqual(many.slice(1));
+        });
+
+        it("gives live demands room first, then reads, then what is only kept for a while", () => {
+            demands.acquire("!kept", [{ type: INSTALLATIONS }]).release();
+            demands.acquire("!read", [{ type: INSTALLATIONS }], "read");
+            demands.acquire("!live", [{ type: INSTALLATIONS }]);
+            expect(demands.roomIdsByPriority()).toEqual(["!live", "!read", "!kept"]);
+        });
+
+        it("fails reads a request has no room for, and keeps live demands waiting", async () => {
+            const live = demands.acquire("!room", [{ type: INSTALLATIONS }]);
+            const read = demands.acquire("!room", [{ type: INSTALLATIONS }], "read").whenReady(1000);
+            const liveReady = live.whenReady(1000);
+            demands.overCapacity("!room");
+            await expect(read).rejects.toMatchObject({ reason: "capacity" });
+            demands.answered("!room", [[INSTALLATIONS, "*"]]);
+            await expect(liveReady).resolves.toBeUndefined();
+        });
+
+        it("ends reads when their connection is replaced, without keeping their state asked for", async () => {
+            const read = demands.acquire("!room", [{ type: INSTALLATIONS }], "read");
+            const live = demands.acquire("!other", [{ type: INSTALLATIONS }]);
+            const ready = read.whenReady(1000);
+            demands.cancelReads();
+            await expect(ready).rejects.toMatchObject({ reason: "released" });
+            read.release();
+            expect(demands.has("!room")).toBe(false);
+            expect(demands.has("!other")).toBe(true);
+            live.release();
         });
 
         it("rejects a released demand's wait", async () => {

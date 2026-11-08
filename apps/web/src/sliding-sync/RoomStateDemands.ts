@@ -40,7 +40,7 @@ export interface RoomStateDemand {
 /** Why some room state could not be had. */
 export class RoomStateUnavailableError extends Error {
     public constructor(
-        public readonly reason: "absent" | "timeout" | "released",
+        public readonly reason: "absent" | "timeout" | "released" | "capacity",
         roomId: string,
     ) {
         super(`Room state for ${roomId} is unavailable: ${reason}`);
@@ -56,6 +56,18 @@ export const DEMAND_LINGER_MS = 30_000;
  * many rooms, one after another, must not leave them all subscribed: the longest released are let go first.
  */
 export const MAX_LINGERING_ROOMS = 8;
+
+/**
+ * The most selectors one demand may ask for, and one room may keep asked for once released. Every request carries
+ * every subscription, so a reader must not grow a room's subscription without bound.
+ */
+export const MAX_SELECTORS_PER_DEMAND = 16;
+
+/**
+ * Why state is asked for. Live demands, such as a ban list's rules or a widget's state while it runs, are kept up to
+ * date and come first; a read only needs the state once.
+ */
+export type RoomStateDemandKind = "live" | "read";
 
 /** Protocol tokens that a state key cannot be sent as: such keys are asked for with every key, then picked out. */
 const STATE_KEY_TOKENS = new Set<string>([MSC3575_WILDCARD, MSC3575_STATE_KEY_ME, MSC3575_STATE_KEY_LAZY]);
@@ -87,9 +99,12 @@ export function requiredStateCovers(
 
 interface Demand {
     readonly roomId: string;
+    readonly kind: RoomStateDemandKind;
     readonly selectors: readonly RoomStateSelector[];
     ready: boolean;
     released: boolean;
+    // Ended for a reason other than its reader letting go, such as a replaced connection: it leaves nothing behind.
+    cancelled: boolean;
     readonly waiters: Set<{ resolve: () => void; reject: (error: RoomStateUnavailableError) => void }>;
 }
 
@@ -133,9 +148,19 @@ export class RoomStateDemands {
 
     /**
      * Ask for some of a room's state until the returned demand is released.
-     * @throws when a selector asks for every event type.
+     * @param roomId - The room.
+     * @param selectors - The state.
+     * @param kind - Whether it is kept up to date, or read once.
+     * @throws when a selector asks for every event type, or there are more than {@link MAX_SELECTORS_PER_DEMAND}.
      */
-    public acquire(roomId: string, selectors: readonly RoomStateSelector[]): RoomStateDemand {
+    public acquire(
+        roomId: string,
+        selectors: readonly RoomStateSelector[],
+        kind: RoomStateDemandKind = "live",
+    ): RoomStateDemand {
+        if (selectors.length > MAX_SELECTORS_PER_DEMAND) {
+            throw new RangeError(`A room state demand may name at most ${MAX_SELECTORS_PER_DEMAND} selectors`);
+        }
         for (const selector of selectors) requiredStateFor(selector);
         let entry = this.rooms.get(roomId);
         const covered = !!entry && this.isCovered(entry, selectors);
@@ -145,10 +170,12 @@ export class RoomStateDemands {
         }
         const demand: Demand = {
             roomId,
+            kind,
             selectors: [...selectors],
             // State that arrived for an earlier demand, still asked for, is here already.
             ready: covered,
             released: false,
+            cancelled: false,
             waiters: new Set(),
         };
         entry.demands.add(demand);
@@ -164,6 +191,31 @@ export class RoomStateDemands {
     /** The rooms with state asked for. */
     public roomIds(): IterableIterator<string> {
         return this.rooms.keys();
+    }
+
+    /**
+     * The rooms with state asked for, in the order they should be given room in a request: those with a live demand,
+     * then those being read, then those only kept for a while after their last read.
+     */
+    public roomIdsByPriority(): string[] {
+        const rank = (entry: RoomEntry): number => {
+            const kinds = new Set([...entry.demands].map((demand) => demand.kind));
+            if (kinds.has("live")) return 0;
+            return kinds.has("read") ? 1 : 2;
+        };
+        return [...this.rooms.entries()].sort(([, a], [, b]) => rank(a) - rank(b)).map(([roomId]) => roomId);
+    }
+
+    /**
+     * Note that a request has no room for a room's state. Reads waiting for it fail; live demands keep waiting for
+     * room to free up.
+     */
+    public overCapacity(roomId: string): void {
+        const entry = this.rooms.get(roomId);
+        if (!entry) return;
+        for (const demand of entry.demands) {
+            if (demand.kind === "read") this.settle(demand, "capacity");
+        }
     }
 
     /** Whether any of a room's state is asked for. */
@@ -206,6 +258,20 @@ export class RoomStateDemands {
         const entry = this.rooms.get(roomId);
         if (!entry) return;
         for (const demand of entry.demands) this.settle(demand, "absent");
+    }
+
+    /**
+     * End every read waiting for its state, such as when the connection it was asked on is replaced. Live demands
+     * carry on.
+     */
+    public cancelReads(): void {
+        for (const entry of this.rooms.values()) {
+            for (const demand of entry.demands) {
+                if (demand.kind !== "read") continue;
+                demand.cancelled = true;
+                this.settle(demand, "released");
+            }
+        }
     }
 
     /**
@@ -273,11 +339,21 @@ export class RoomStateDemands {
         this.settle(demand, "released");
         const entry = this.rooms.get(demand.roomId);
         if (!entry?.demands.delete(demand)) return;
-        // The state stays asked for a while, so the next read of it is instant.
+        if (demand.cancelled) {
+            if (entry.demands.size === 0 && entry.lingering.size === 0) this.rooms.delete(demand.roomId);
+            this.onChange();
+            return;
+        }
+        // The state stays asked for a while, so the next read of it is instant. The most recently released are kept.
         for (const selector of demand.selectors) {
             const key = selectorKey(selector);
             const ready = demand.ready || entry.lingering.get(key)?.ready === true;
+            entry.lingering.delete(key);
             entry.lingering.set(key, { selector, ready });
+        }
+        for (const key of entry.lingering.keys()) {
+            if (entry.lingering.size <= MAX_SELECTORS_PER_DEMAND) break;
+            entry.lingering.delete(key);
         }
         if (entry.lingerTimer !== undefined) this.clock.clearTimeout(entry.lingerTimer);
         entry.lingerTimer = this.clock.setTimeout(() => this.stopLingering(demand.roomId), DEMAND_LINGER_MS);
