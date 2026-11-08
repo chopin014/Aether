@@ -3538,17 +3538,33 @@
                 "one": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with 1 unread mention.",
                 "other": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with %(count)s unread messages including mentions."
             },
+            "mention_at_least": {
+                "one": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with at least 1 unread mention.",
+                "other": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with at least %(count)s unread messages including mentions."
+            },
             "mention_no_sender": {
                 "one": "Open thread in %(roomName)s with 1 unread mention.",
                 "other": "Open thread in %(roomName)s with %(count)s unread messages including mentions."
+            },
+            "mention_no_sender_at_least": {
+                "one": "Open thread in %(roomName)s with at least 1 unread mention.",
+                "other": "Open thread in %(roomName)s with at least %(count)s unread messages including mentions."
             },
             "unread": {
                 "one": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with 1 unread message.",
                 "other": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with %(count)s unread messages."
             },
+            "unread_at_least": {
+                "one": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with at least 1 unread message.",
+                "other": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with at least %(count)s unread messages."
+            },
             "unread_no_sender": {
                 "one": "Open thread in %(roomName)s with 1 unread message.",
                 "other": "Open thread in %(roomName)s with %(count)s unread messages."
+            },
+            "unread_no_sender_at_least": {
+                "one": "Open thread in %(roomName)s with at least 1 unread message.",
+                "other": "Open thread in %(roomName)s with at least %(count)s unread messages."
             }
         },
         "header": "Threads activity",
