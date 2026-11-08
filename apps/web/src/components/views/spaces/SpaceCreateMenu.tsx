@@ -356,6 +356,8 @@ const SpaceCreateMenu: React.FC<{
             wrapperClassName="mx_SpaceCreateMenu_wrapper"
             managed={false}
             focusLock={true}
+            // Picking an avatar opens a dialog to frame it: the form filled in so far stays.
+            stayOpenUnderDialogs={true}
         >
             {body}
         </ContextMenu>

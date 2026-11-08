@@ -32,6 +32,8 @@ import * as createRoomModule from "../../../createRoom";
 import SpaceCreateMenu, { createSpace } from "./SpaceCreateMenu";
 import { UIFeature } from "../../../settings/UIFeature";
 import SettingsStore from "../../../settings/SettingsStore";
+import Modal from "../../../Modal";
+import BaseDialog from "../dialogs/BaseDialog";
 
 describe("<SpaceCreateMenu />", () => {
     let client: MockedObject<MatrixClient>;
@@ -56,6 +58,16 @@ describe("<SpaceCreateMenu />", () => {
     it("should render", async () => {
         const { asFragment } = render(<SpaceCreateMenu onFinished={vi.fn()} />, withClientContextRenderOptions(client));
         expect(asFragment()).toMatchSnapshot();
+    });
+
+    it("keeps the form when a dialog opens over it, such as to frame the avatar", () => {
+        const onFinished = vi.fn();
+        render(<SpaceCreateMenu onFinished={onFinished} />, withClientContextRenderOptions(client));
+
+        Modal.createDialog(BaseDialog);
+
+        expect(onFinished).not.toHaveBeenCalled();
+        Modal.forceCloseAllModals();
     });
 
     it("should be able to create a public space", async () => {
