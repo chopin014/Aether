@@ -7,7 +7,7 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import React, { type JSX, type ReactNode } from "react";
-import { type Room, type MatrixClient, type MatrixEvent, RoomStateEvent } from "matrix-js-sdk/src/matrix";
+import { type Room, type MatrixEvent, RoomStateEvent } from "matrix-js-sdk/src/matrix";
 
 import { _t } from "../../../../../languageHandler";
 import BridgeTile from "../../BridgeTile";
@@ -26,9 +26,23 @@ interface IProps {
     room: Room;
 }
 
-export default class BridgeSettingsTab extends React.Component<IProps> {
+interface IState {
+    bridgeEvents: MatrixEvent[];
+}
+
+/** The bridges a room is part of, from its state. */
+function bridgeEventsOf(room: Room): MatrixEvent[] {
+    return BRIDGE_EVENT_TYPES.flatMap((typeName) => room.currentState.getStateEvents(typeName));
+}
+
+export default class BridgeSettingsTab extends React.Component<IProps, IState> {
     public static contextType = MatrixClientContext;
     declare public context: React.ContextType<typeof MatrixClientContext>;
+
+    public constructor(props: IProps) {
+        super(props);
+        this.state = { bridgeEvents: bridgeEventsOf(props.room) };
+    }
 
     public componentDidMount(): void {
         this.context.on(RoomStateEvent.Events, this.onStateEvent);
@@ -41,7 +55,7 @@ export default class BridgeSettingsTab extends React.Component<IProps> {
     // Under sliding sync, a room nobody has opened gets its bridges after its settings open.
     private onStateEvent = (event: MatrixEvent): void => {
         if (event.getRoomId() === this.props.room.roomId && BRIDGE_EVENT_TYPES.includes(event.getType())) {
-            this.forceUpdate();
+            this.setState({ bridgeEvents: bridgeEventsOf(this.props.room) });
         }
     };
 
@@ -51,17 +65,8 @@ export default class BridgeSettingsTab extends React.Component<IProps> {
         return <BridgeTile key={event.getId()} room={room} ev={event} />;
     }
 
-    public static getBridgeStateEvents(client: MatrixClient, roomId: string): MatrixEvent[] {
-        const roomState = client.getRoom(roomId)?.currentState;
-        if (!roomState) return [];
-
-        return BRIDGE_EVENT_TYPES.flatMap((typeName) => roomState.getStateEvents(typeName));
-    }
-
     public render(): React.ReactNode {
-        // This settings tab will only be invoked if the following function returns more
-        // than 0 events, so no validation is needed at this stage.
-        const bridgeEvents = BridgeSettingsTab.getBridgeStateEvents(this.context, this.props.room.roomId);
+        const { bridgeEvents } = this.state;
         const room = this.props.room;
 
         let content: JSX.Element;
