@@ -1868,7 +1868,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  // mark all these lists as having been sent as sticky so we don't keep sending sticky params
                  this.lists.forEach((l) => {
                      l.setModified(false);
-@@ -664,25 +876,51 @@
+@@ -664,25 +876,54 @@
                  });
                  this.invokeLifecycleListeners(SlidingSyncState.RequestFinished, resp);
              } catch (err) {
@@ -1884,11 +1884,14 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 +                    if (httpStatus === 400) {
 +                        // The server forgot this connection (M_UNKNOWN_POS) or rejected the request. Either way,
 +                        // start the connection afresh; keep the desired lists and subscriptions.
++                        const errcode = (<MatrixError>err).errcode;
++                        // Only a connection already under way can have been forgotten: a fresh request the server
++                        // says it does not know is rejected like any other, so it is not sent again at once forever.
++                        const forgotten = errcode === "M_UNKNOWN_POS" && currentPos !== undefined;
                          this.resetup();
                          currentPos = undefined;
 -                        await sleep(50); // in case the 400 was for something else; don't tightloop
-+                        const errcode = (<MatrixError>err).errcode;
-+                        if (errcode === "M_UNKNOWN_POS") {
++                        if (forgotten) {
 +                            rejectedRequests = 0;
 +                            continue;
 +                        }
@@ -1927,7 +1930,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
              await this.onPreExtensionsResponse(resp.extensions);
  
              // oxlint-disable-next-line guard-for-in
-@@ -692,14 +930,9 @@
+@@ -692,14 +933,9 @@
  
              this.invokeLifecycleListeners(SlidingSyncState.Complete, resp);
              await this.onPostExtensionsResponse(resp.extensions);

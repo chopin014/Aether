@@ -278,6 +278,17 @@ function supportKey(client: MatrixClient): string {
     return `mx_sliding_sync_offered:${client.baseUrl}`;
 }
 
+/** Where this device notes, per homeserver, until when sliding sync is left alone because, though offered, it failed. */
+function unusableKey(client: MatrixClient): string {
+    return `mx_sliding_sync_unusable:${client.baseUrl}`;
+}
+
+/** How long sliding sync that was offered but failed is left alone before it is tried again. */
+export const UNUSABLE_RETRY_MS = 24 * 60 * 60 * 1000;
+
+/** How many requests in a row may fail as sliding sync that does not work, such as rejected ones, before it is let go. */
+const FAILURES_BEFORE_UNUSABLE = 3;
+
 export class SlidingSyncManager {
     public static serverSupportsSlidingSync: boolean;
 
@@ -360,6 +371,12 @@ export class SlidingSyncManager {
     private readonly leftWhileAway = new Set<string>();
     // Told when it changes whether a room may still arrive or has, such as for a channel opened before it arrived.
     private readonly arrivalListeners = new Set<() => void>();
+    // Whether the server has answered a request on the current connection; how many requests in a row failed as
+    // sliding sync that does not work, since it last answered; and how many in a row it said it did not know.
+    private answeredConnection = false;
+    private failures = 0;
+    private forgotten = 0;
+    private readonly unusableListeners = new Set<() => void>();
     // When the sync response being applied arrived, and the pending read of changes made outside one.
     private applyingSince?: number;
     private spaceTreeTimer?: ReturnType<typeof setTimeout>;
@@ -428,6 +445,9 @@ export class SlidingSyncManager {
         this.savedChannelsAsked.clear();
         this.liveRooms.clear();
         this.arrivingLiveRooms.clear();
+        this.answeredConnection = false;
+        this.failures = 0;
+        this.forgotten = 0;
         this.leftWhileAway.clear();
         this.spaceTree = new Set();
         this.spaceChannels = new Set();
@@ -1336,6 +1356,13 @@ export class SlidingSyncManager {
         if (state === SlidingSyncState.RequestFinished) {
             // A response is applied between its arrival and Complete. A failed request applies nothing.
             this.applyingSince = error ? undefined : Date.now();
+            if (!error) {
+                this.answeredConnection = true;
+                this.failures = 0;
+                this.forgotten = 0;
+            } else {
+                this.noteFailure(error);
+            }
             if (error) {
                 this.arrivingLiveRooms.clear();
                 // The server forgot or rejected the connection, which is then started afresh: no room counts as sent
@@ -1760,6 +1787,21 @@ export class SlidingSyncManager {
         this.prefetched = { client, cache, snapshot: cache.load() };
     }
 
+    /**
+     * Whether this device has rooms saved from sliding sync for a client, as read early by {@link prefetchSnapshot}.
+     * @param client - The client.
+     * @returns False when nothing was read early for it, or nothing was saved.
+     */
+    public async hasPrefetchedSnapshot(client: MatrixClient): Promise<boolean> {
+        const prefetched = this.prefetched;
+        if (!prefetched || prefetched.client !== client) return false;
+        try {
+            return (await prefetched.snapshot) !== null;
+        } catch {
+            return false;
+        }
+    }
+
     /** Let go of the saved rooms read before set-up, such as when the client syncs without sliding sync after all. */
     public discardPrefetchedSnapshot(): void {
         if (this.prefetched && this.prefetched.cache !== this.cache) void this.prefetched.cache.dispose();
@@ -1969,6 +2011,58 @@ export class SlidingSyncManager {
             }
         }
         return supported;
+    }
+
+    /**
+     * Note a request that failed. Failures showing that sliding sync does not work there, though the server offers
+     * it, let sliding sync go on this device for a while ({@link isUnusable}) and tell the listeners: an endpoint that
+     * is not there before the server has answered at all, or such failures and rejections several times in a row.
+     */
+    private noteFailure(error: Error): void {
+        const client = this.client;
+        const { httpStatus, errcode } = error as { httpStatus?: number; errcode?: string };
+        // No answer at all, such as while offline, says nothing about sliding sync.
+        if (!client || httpStatus === undefined) return;
+        const absent = httpStatus === 404 || httpStatus === 405 || httpStatus === 501 || errcode === "M_UNRECOGNIZED";
+        // A server may forget a connection, which then starts afresh; one that forgets the fresh one as well rejects it.
+        const unknown = httpStatus === 400 && errcode === "M_UNKNOWN_POS";
+        if (unknown) this.forgotten += 1;
+        const rejected = httpStatus === 400 && (!unknown || this.forgotten > 1);
+        if (!absent && !rejected) return;
+        this.failures += 1;
+        if (!(absent && !this.answeredConnection) && this.failures < FAILURES_BEFORE_UNUSABLE) return;
+        logger.warn(`SlidingSync: the server offers sliding sync, but it failed: ${httpStatus} ${errcode ?? ""}`);
+        try {
+            localStorage.setItem(unusableKey(client), String(Date.now() + UNUSABLE_RETRY_MS));
+        } catch (storageError) {
+            logger.warn("SlidingSync: could not keep that sliding sync failed", storageError);
+        }
+        for (const listener of this.unusableListeners) listener();
+    }
+
+    /**
+     * Whether sliding sync failed on a client's server lately, though offered, so regular sync is used for a while.
+     * @param client - The client.
+     */
+    public isUnusable(client: MatrixClient): boolean {
+        try {
+            const until = Number(localStorage.getItem(unusableKey(client)));
+            if (until > Date.now()) return true;
+            localStorage.removeItem(unusableKey(client));
+        } catch {
+            // Nothing kept, so nothing failed.
+        }
+        return false;
+    }
+
+    /**
+     * Be told when sliding sync turns out to fail on the server, though offered.
+     * @param listener - Called each time.
+     * @returns A function that stops telling it.
+     */
+    public onUnusable(listener: () => void): () => void {
+        this.unusableListeners.add(listener);
+        return () => this.unusableListeners.delete(listener);
     }
 
     /**

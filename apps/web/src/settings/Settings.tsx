@@ -581,7 +581,8 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
         displayName: _td("labs|sliding_sync"),
         description: _td("labs|sliding_sync_description"),
         shouldWarn: true,
-        default: false,
+        // Used where the server offers it: see MatrixClientPeg.assign, which falls back to regular sync elsewhere.
+        default: true,
         controller: new SlidingSyncController(),
     },
     "feature_element_call_video_rooms": {

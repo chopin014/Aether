@@ -40,9 +40,15 @@ export function buildConfigJson(
             return obj;
         }, {}),
     };
-    // AETHER_E2E_SLIDING_SYNC=1 runs every client with Simplified Sliding Sync, to check it matches regular sync.
-    // Here, rather than in a fixture, so a test's own labs flags and second clients get it too.
-    if (process.env["AETHER_E2E_SLIDING_SYNC"] === "1") json["features"]["feature_simplified_sliding_sync"] = true;
+    // Simplified Sliding Sync is on by default where the server offers it. AETHER_E2E_SLIDING_SYNC=1 runs every client
+    // with it, and =0 with regular sync, other than in a test that asks for sliding sync itself, so the two can be
+    // checked to match. Here, rather than in a fixture, so a test's own labs flags and second clients get it too.
+    const slidingSync = process.env["AETHER_E2E_SLIDING_SYNC"];
+    if (slidingSync === "1") {
+        json["features"]["feature_simplified_sliding_sync"] = true;
+    } else if (slidingSync === "0" && !labsFlags.includes("feature_simplified_sliding_sync")) {
+        json["features"]["feature_simplified_sliding_sync"] = false;
+    }
     if (disablePresence) {
         json["enable_presence_by_hs_url"] = {
             [homeserverBaseUrl]: false,

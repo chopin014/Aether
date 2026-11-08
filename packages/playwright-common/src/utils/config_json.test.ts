@@ -23,6 +23,18 @@ describe("buildConfigJson", () => {
         });
     });
 
+    it("turns sliding sync off for every client when asked to, other than in a test that asks for it itself", () => {
+        vi.stubEnv("AETHER_E2E_SLIDING_SYNC", "0");
+
+        expect(buildConfigJson("https://hs.example", {}, ["feature_something_else"]).features).toMatchObject({
+            feature_simplified_sliding_sync: false,
+        });
+        expect(
+            buildConfigJson("https://hs.example", {}, ["feature_simplified_sliding_sync"]).features
+                ?.feature_simplified_sliding_sync,
+        ).toBe(true);
+    });
+
     it("leaves sliding sync to the test otherwise", () => {
         vi.stubEnv("AETHER_E2E_SLIDING_SYNC", "");
 

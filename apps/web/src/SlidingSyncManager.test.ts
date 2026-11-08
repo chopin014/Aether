@@ -38,7 +38,12 @@ import EventEmitter from "node:events";
 import { waitFor } from "test-utils-rtl";
 import { mkStubRoom, stubClient } from "test-utils";
 
-import { MAX_DEMANDED_SELECTORS_PER_ROOM, MAX_STATE_READ_ROOMS, SlidingSyncManager } from "./SlidingSyncManager";
+import {
+    MAX_DEMANDED_SELECTORS_PER_ROOM,
+    MAX_STATE_READ_ROOMS,
+    SlidingSyncManager,
+    UNUSABLE_RETRY_MS,
+} from "./SlidingSyncManager";
 import SettingsStore from "./settings/SettingsStore";
 import { SlidingSyncCache } from "./sliding-sync/SlidingSyncCache";
 import { CATALOG_STATE } from "./sliding-sync/roomStateProfiles";
@@ -1184,6 +1189,99 @@ describe("SlidingSyncManager", () => {
             sync.emit(SlidingSyncEvent.RoomData, "!live", data);
             await applied();
             expect(manager.hasLiveData("!live")).toBe(true);
+        });
+
+        describe("sliding sync that fails though offered", () => {
+            const failed = (httpStatus: number, errcode: string): MatrixError =>
+                new MatrixError({ errcode, error: errcode }, httpStatus);
+
+            afterEach(() => {
+                localStorage.clear();
+            });
+
+            it("lets it go for a while where the server has no sliding sync endpoint", () => {
+                const told = vi.fn();
+                manager.onUnusable(told);
+                sync.emit(
+                    SlidingSyncEvent.Lifecycle,
+                    SlidingSyncState.RequestFinished,
+                    null,
+                    failed(404, "M_UNRECOGNIZED"),
+                );
+                expect(manager.isUnusable(client)).toBe(true);
+                expect(told).toHaveBeenCalledOnce();
+            });
+
+            it("lets it go once the server has rejected requests in a row before answering one", () => {
+                for (let i = 0; i < 2; i++) {
+                    sync.emit(
+                        SlidingSyncEvent.Lifecycle,
+                        SlidingSyncState.RequestFinished,
+                        null,
+                        failed(400, "M_BAD_JSON"),
+                    );
+                }
+                expect(manager.isUnusable(client)).toBe(false);
+                sync.emit(
+                    SlidingSyncEvent.Lifecycle,
+                    SlidingSyncState.RequestFinished,
+                    null,
+                    failed(400, "M_BAD_JSON"),
+                );
+                expect(manager.isUnusable(client)).toBe(true);
+            });
+
+            /** A request finishes: answered, or failed with the error. */
+            const finish = (error?: Error): void => {
+                sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null, error);
+            };
+
+            it("counts neither a connection the server forgot, then answered afresh, nor a request with no answer", () => {
+                for (let i = 0; i < 5; i++) {
+                    finish(failed(400, "M_UNKNOWN_POS"));
+                    finish(new Error("offline"));
+                    finish();
+                }
+                expect(manager.isUnusable(client)).toBe(false);
+            });
+
+            it("lets it go when the server says it does not know even the fresh connection, again and again", () => {
+                // The first is a connection forgotten; each one after it is a fresh request rejected.
+                for (let i = 0; i < 3; i++) finish(failed(400, "M_UNKNOWN_POS"));
+                expect(manager.isUnusable(client)).toBe(false);
+                finish(failed(400, "M_UNKNOWN_POS"));
+                expect(manager.isUnusable(client)).toBe(true);
+            });
+
+            it("lets it go when it stops working after answering, once it has failed a few times in a row", () => {
+                finish();
+                for (let i = 0; i < 2; i++) finish(failed(404, "M_UNRECOGNIZED"));
+                expect(manager.isUnusable(client)).toBe(false);
+                finish(failed(404, "M_UNRECOGNIZED"));
+                expect(manager.isUnusable(client)).toBe(true);
+            });
+
+            it("keeps it while failures are answered in between", () => {
+                for (let i = 0; i < 5; i++) {
+                    finish();
+                    finish(failed(404, "M_UNRECOGNIZED"));
+                    finish(failed(400, "M_BAD_JSON"));
+                }
+                expect(manager.isUnusable(client)).toBe(false);
+            });
+
+            it("tries it again once a while has passed", () => {
+                sync.emit(
+                    SlidingSyncEvent.Lifecycle,
+                    SlidingSyncState.RequestFinished,
+                    null,
+                    failed(405, "M_UNRECOGNIZED"),
+                );
+                const now = Date.now();
+                vi.spyOn(Date, "now").mockReturnValue(now + UNUSABLE_RETRY_MS + 1);
+                expect(manager.isUnusable(client)).toBe(false);
+                vi.mocked(Date.now).mockRestore();
+            });
         });
 
         it("notes which rooms the server has sent on this connection, once the response is applied", async () => {
@@ -2545,6 +2643,24 @@ describe("SlidingSyncManager", () => {
             const loaded = manager.snapshotLoader(client)!();
             await Promise.all([writing, deletion]);
             await expect(loaded).resolves.toBeNull();
+        });
+
+        it("says whether this device has rooms saved from sliding sync for a client, from the early read", async () => {
+            const load = vi.spyOn(SlidingSyncCache.prototype, "load");
+            await expect(manager.hasPrefetchedSnapshot(client)).resolves.toBe(false);
+
+            load.mockResolvedValueOnce(null);
+            manager.prefetchSnapshot(client);
+            await expect(manager.hasPrefetchedSnapshot(client)).resolves.toBe(false);
+
+            load.mockResolvedValueOnce({ rooms: {} });
+            manager.prefetchSnapshot(client);
+            await expect(manager.hasPrefetchedSnapshot(client)).resolves.toBe(true);
+            // Not for another client, nor when the read fails.
+            await expect(manager.hasPrefetchedSnapshot(stubClient())).resolves.toBe(false);
+            load.mockRejectedValueOnce(new Error("storage broken"));
+            manager.prefetchSnapshot(client);
+            await expect(manager.hasPrefetchedSnapshot(client)).resolves.toBe(false);
         });
 
         it("lets go of an early read when the client syncs without sliding sync after all", async () => {
