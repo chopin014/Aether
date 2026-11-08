@@ -485,15 +485,25 @@ diff --git a/src/sync.ts b/src/sync.ts
 diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 --- a/src/sliding-sync-sdk.ts
 +++ b/src/sliding-sync-sdk.ts
-@@ -31,6 +31,7 @@
+@@ -17,7 +17,6 @@
+ import type { SyncCryptoCallbacks } from "./common-crypto/CryptoBackend.ts";
+ import { NotificationCountType, Room, RoomEvent } from "./models/room.ts";
+ import { logger } from "./logger.ts";
+-import { promiseMapSeries } from "./utils.ts";
+ import { EventTimeline } from "./models/event-timeline.ts";
+ import { ClientEvent, type IStoredClientOpts, type MatrixClient } from "./client.ts";
+ import {
+@@ -30,7 +29,8 @@
+     type SetPresence,
      processSyncCryptoChanges,
  } from "./sync.ts";
- import { type MatrixEvent } from "./models/event.ts";
+-import { type MatrixEvent } from "./models/event.ts";
++import { type MatrixEvent, MatrixEventEvent } from "./models/event.ts";
 +import { type SyncUserProfile } from "./models/user.ts";
  import {
      type IMinimalEvent,
      type IRoomEvent,
-@@ -49,13 +50,15 @@
+@@ -49,13 +49,15 @@
      type MSC3575SlidingSyncResponse,
      type SlidingSync,
      SlidingSyncEvent,
@@ -510,7 +520,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
  // Number of consecutive failed syncs that will lead to a syncState of ERROR as opposed
  // to RECONNECTING. This is needed to inform the client of server issues when the
-@@ -83,6 +86,11 @@
+@@ -83,6 +85,11 @@
      private toDeviceEvents: IToDeviceEvent[] = [];
      private e2ee?: ExtensionE2EEResponse;
      private hasChanges = false;
@@ -522,7 +532,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
      public constructor(
          private readonly client: MatrixClient,
-@@ -99,13 +107,66 @@
+@@ -99,13 +106,66 @@
          this.hasChanges = true;
      }
  
@@ -590,7 +600,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          const toDeviceEvents = this.toDeviceEvents;
          const e2ee = this.e2ee;
          this.toDeviceEvents = [];
-@@ -127,10 +188,7 @@
+@@ -127,10 +187,7 @@
  }
  
  class ExtensionE2EE implements Extension<ExtensionE2EERequest, ExtensionE2EEResponse> {
@@ -602,7 +612,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
      public name(): string {
          return "e2ee";
-@@ -149,7 +207,9 @@
+@@ -149,7 +206,9 @@
              // to encrypt for new devices. This is an expensive call, so we should
              // really really remember `?pos=` wherever possible.
              logger.log("ExtensionE2EE: invalidating all device lists due to missing 'pos'");
@@ -613,7 +623,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          }
          return {
              enabled: true, // this is sticky so only send it on the initial request
-@@ -254,28 +314,65 @@
+@@ -254,28 +313,65 @@
      }
  
      private processGlobalAccountData(globalAccountData: IMinimalEvent[]): void {
@@ -698,7 +708,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  type ExtensionTypingRequest = {
      enabled: boolean;
  };
-@@ -375,6 +472,87 @@
+@@ -375,6 +471,87 @@
   * outside the list window. Sticky events already in a room's timeline are excluded here, so
   * `processRoomData` picks those up separately.
   */
@@ -786,7 +796,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  class ExtensionStickyEvents implements Extension<ExtensionStickyEventsRequest, ExtensionStickyEventsResponse> {
      private nextBatch?: string;
  
-@@ -428,7 +606,16 @@
+@@ -428,7 +605,24 @@
      private syncStateData?: ISyncStateData;
      private lastPos: string | null = null;
      private failCount = 0;
@@ -798,12 +808,24 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +    // Set once a saved snapshot has been announced as Prepared, so the first response does not announce it again.
 +    private preparedFromSnapshot = false;
      private notifEvents: MatrixEvent[] = []; // accumulator of sync events in the current sync response
++    // Encrypted state events (MSC4362) that could not be decrypted, by room, then by their event type and state key as
++    // sent, waiting for their keys. Each is added to its room's state once decrypted, unless state for what it
++    // decrypts to arrived in a later response.
++    private readonly undecryptedState = new Map<string, Map<string, UndecryptedStateWait>>();
++    // For rooms with state waiting for keys: the response that last brought state, by event type and state key.
++    private readonly stateArrivals = new Map<string, Map<string, number>>();
++    // Counts the responses that brought room state, to tell which came later.
++    private stateResponses = 0;
 +    // Collects the e2ee and to-device extensions' changes for the crypto layer.
 +    private readonly e2eeCollector: E2EESyncChangesCollector;
  
      public constructor(
          private readonly slidingSync: SlidingSync,
-@@ -448,6 +635,7 @@
+@@ -445,9 +639,11 @@
+ 
+         this.slidingSync.on(SlidingSyncEvent.Lifecycle, this.onLifecycle.bind(this));
+         this.slidingSync.on(SlidingSyncEvent.RoomData, this.onRoomData.bind(this));
++        this.client.on(ClientEvent.DeleteRoom, this.onDeleteRoom);
          // The `e2ee` and `to_device` extensions feed a shared collector, so that the crypto layer sees all the
          // encryption-relevant data from a response in a single call.
          const e2eeCollector = new E2EESyncChangesCollector(this.client, this.syncOpts.cryptoCallbacks);
@@ -811,7 +833,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          const extensions: Extension<any, any>[] = [
              new ExtensionToDevice(e2eeCollector),
              new ExtensionAccountData(this.client),
-@@ -455,15 +643,24 @@
+@@ -455,28 +651,41 @@
              new ExtensionReceipts(this.client),
              new ExtensionStickyEvents(this.client),
          ];
@@ -828,6 +850,17 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
 -    private async onRoomData(roomId: string, roomData: MSC3575RoomData): Promise<void> {
+-        let room = this.client.store.getRoom(roomId);
+-        if (!room) {
+-            if (!roomData.initial) {
+-                this.syncOpts.logger.debug(
+-                    "initial flag not set but no stored room exists for room ",
+-                    roomId,
+-                    roomData,
+-                );
+-                return;
+-            }
+-            room = _createAndReEmitRoom(this.client, roomId, this.opts);
 +    private async onRoomData(roomId: string, roomData: MSC3575RoomData, fromSnapshot = false): Promise<void> {
 +        // Live data lands on top of the room's saved data, which may still be waiting its turn.
 +        if (!fromSnapshot) {
@@ -835,19 +868,28 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +            if (restore) await restore;
 +            if (this.stopped) return;
 +        }
-         let room = this.client.store.getRoom(roomId);
-         if (!room) {
-             if (!roomData.initial) {
-@@ -476,7 +673,7 @@
-             }
-             room = _createAndReEmitRoom(this.client, roomId, this.opts);
++        const stored = this.client.store.getRoom(roomId);
++        if (stored) {
++            await this.processRoomData(this.client, stored, roomData, fromSnapshot);
++            return;
++        }
++        if (!roomData.initial) {
++            this.syncOpts.logger.debug("initial flag not set but no stored room exists for room ", roomId, roomData);
++            return;
++        }
++        const room = _createAndReEmitRoom(this.client, roomId, this.opts);
++        try {
++            await this.processRoomData(this.client, room, roomData, fromSnapshot);
++        } finally {
++            // A room seen for the first time that was not added, such as when adding it failed, leaves nothing waiting
++            // for keys on it.
++            if (this.client.getRoom(roomId) !== room) this.stopWaitingForKeys(roomId);
          }
 -        await this.processRoomData(this.client, room, roomData);
-+        await this.processRoomData(this.client, room, roomData, fromSnapshot);
      }
  
      private onLifecycle(state: SlidingSyncState, resp: MSC3575SlidingSyncResponse | null, err?: Error): void {
-@@ -490,7 +687,7 @@
+@@ -490,7 +699,7 @@
                      break;
                  }
                  // Element won't stop showing the initial loading spinner unless we fire SyncState.Prepared
@@ -856,7 +898,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                      this.updateSyncState(SyncState.Prepared, {
                          oldSyncToken: undefined,
                          nextSyncToken: resp.pos,
-@@ -512,7 +709,8 @@
+@@ -512,7 +721,8 @@
                  if (err) {
                      this.failCount += 1;
                      this.updateSyncState(
@@ -866,7 +908,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                          {
                              error: new MatrixError(err),
                          },
-@@ -651,7 +849,12 @@
+@@ -651,7 +861,12 @@
          return false;
      }
  
@@ -880,7 +922,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          roomData = ensureNameEvent(client, room.roomId, roomData);
          const stateEvents = mapEvents(this.client, room.roomId, roomData.required_state);
          // Prevent events from being decrypted ahead of time
-@@ -659,6 +862,8 @@
+@@ -659,6 +874,8 @@
          // room::decryptCriticalEvent is in charge of decrypting all the events
          // required for a client to function properly
          let timelineEvents = mapEvents(this.client, room.roomId, roomData.timeline, false);
@@ -889,7 +931,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          const ephemeralEvents: MatrixEvent[] = []; // TODO this.mapSyncEventsFormat(joinObj.ephemeral);
  
          // TODO: handle threaded / beacon events
-@@ -669,6 +874,8 @@
+@@ -669,6 +886,8 @@
          // necessarily set `initial` in the latter case, so without checking `expanded_timeline` the older events would
          // be appended after the newer ones we already have.
          const expandedTimeline = roomData.expanded_timeline || roomData.unstable_expanded_timeline;
@@ -898,7 +940,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          if (roomData.limited || roomData.initial || expandedTimeline) {
              // we should not know about any of these timeline entries if this is a genuinely new room.
              // If we do, then we've effectively done scrollback.
-@@ -703,20 +910,33 @@
+@@ -703,20 +922,33 @@
                      newEvents.unshift(recvEvent);
                  }
              }
@@ -938,16 +980,19 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              // We track unread notifications ourselves in encrypted rooms, so don't
              // bother setting it here. We trust our calculations better than the
              // server's for this case, and therefore will assume that our non-zero
-@@ -739,6 +959,8 @@
+@@ -738,7 +970,11 @@
+ 
          if (roomData.invite_state) {
              const inviteStateEvents = mapEvents(this.client, room.roomId, roomData.invite_state);
++            // An invitation's state replaces what was known of the room, so nothing waiting for keys is added later.
++            this.stopWaitingForKeys(room.roomId);
              await this.injectRoomEvents(room, inviteStateEvents);
 +            // A client stopped meanwhile is not changed any more.
 +            if (this.stopped) return;
              if (roomData.initial) {
                  room.recalculate();
                  this.client.store.storeRoom(room);
-@@ -750,9 +972,15 @@
+@@ -750,9 +986,15 @@
              return;
          }
  
@@ -964,16 +1009,45 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              room.getLiveTimeline().setPaginationToken(roomData.prev_batch ?? null, EventTimeline.BACKWARDS);
          }
  
-@@ -810,6 +1038,8 @@
+@@ -809,7 +1051,36 @@
+             }
          } */
  
-         await this.injectRoomEvents(room, stateEvents, timelineEvents, roomData.num_live);
+-        await this.injectRoomEvents(room, stateEvents, timelineEvents, roomData.num_live);
++        // As /sync v2 does, the crypto layer learns how the room is encrypted before the room's state says so. Whoever
++        // acts on the room becoming encrypted, such as a new room's creator setting its name, then finds encryption,
++        // and the room's choice to encrypt its state, already set up: otherwise that name would be sent in the clear.
++        if (this.syncOpts.cryptoCallbacks) {
++            // The current encryption event is sent as state, and in the timeline too when it is recent.
++            const seen = new Set<string | undefined>();
++            for (const e of [...stateEvents, ...timelineEvents]) {
++                if (e.isState() && e.getType() === EventType.RoomEncryption && e.getStateKey() === "") {
++                    if (seen.has(e.getId())) continue;
++                    seen.add(e.getId());
++                    await this.syncOpts.cryptoCallbacks.onCryptoEvent(room, e);
++                    // A client stopped meanwhile is not changed any more.
++                    if (this.stopped) return;
++                }
++            }
++        }
++
++        // Encrypted state events (MSC4362) are decrypted before they are added, as /sync v2 does: state events are
++        // expected in the clear, and room state files an event under the type and state key it has when it is added.
++        // One that cannot be decrypted has neither, so it waits for its keys.
++        const encryptedState = [...stateEvents, ...timelineEvents].filter((e) => e.isState() && e.isEncrypted());
++        if (encryptedState.length > 0) {
++            await Promise.all(encryptedState.map((e) => this.client.decryptEventIfNeeded(e)));
++            if (this.stopped) return;
++        }
++        const roomState = this.stateToAdd(room, stateEvents);
++
++        await this.injectRoomEvents(room, roomState, timelineEvents, roomData.num_live);
 +        // A client stopped meanwhile is not changed any more.
 +        if (this.stopped) return;
  
          // we deliberately don't add ephemeral events to the timeline
          room.addEphemeralEvents(ephemeralEvents);
-@@ -825,6 +1055,19 @@
+@@ -825,6 +1096,19 @@
          room._unstable_addStickyEvents(timelineEvents.filter((e) => e.unstableStickyInfo !== undefined));
  
          room.recalculate();
@@ -993,7 +1067,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          if (roomData.initial) {
              client.store.storeRoom(room);
              client.emit(ClientEvent.Room, room);
-@@ -832,9 +1075,12 @@
+@@ -832,17 +1116,15 @@
  
          // check if any timeline events should bing and add them to the notifEvents array:
          // we'll purge this once we've fully processed the sync response
@@ -1001,21 +1075,107 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +        // Saved events were notified about when they arrived.
 +        if (!fromSnapshot) this.addNotifications(timelineEvents);
  
-         const processRoomEvent = async (e: MatrixEvent): Promise<void> => {
-+            // The crypto layer can take a while with an event; a client stopped meanwhile hears no more.
+-        const processRoomEvent = async (e: MatrixEvent): Promise<void> => {
++        for (const e of [...stateEvents, ...timelineEvents]) {
++            // A listener may stop the client: one stopped hears no more.
 +            if (this.stopped) return;
              client.emit(ClientEvent.Event, e);
-             if (e.isState() && e.getType() == EventType.RoomEncryption && this.syncOpts.cryptoCallbacks) {
-                 await this.syncOpts.cryptoCallbacks.onCryptoEvent(room, e);
-@@ -843,6 +1089,7 @@
- 
-         await promiseMapSeries(stateEvents, processRoomEvent);
-         await promiseMapSeries(timelineEvents, processRoomEvent);
+-            if (e.isState() && e.getType() == EventType.RoomEncryption && this.syncOpts.cryptoCallbacks) {
+-                await this.syncOpts.cryptoCallbacks.onCryptoEvent(room, e);
+-            }
+-        };
+-
+-        await promiseMapSeries(stateEvents, processRoomEvent);
+-        await promiseMapSeries(timelineEvents, processRoomEvent);
++        }
 +        if (this.stopped) return;
          ephemeralEvents.forEach(function (e) {
              client.emit(ClientEvent.Event, e);
          });
-@@ -887,20 +1134,11 @@
+@@ -853,6 +1135,82 @@
+         room.decryptCriticalEvents();
+     }
+ 
++    /**
++     * The state events to add to a room's state now. One that could not be decrypted waits for its keys instead, and
++     * is added once decrypted, unless state for what it decrypts to arrived in a later response.
++     */
++    private stateToAdd(room: Room, stateEvents: MatrixEvent[]): MatrixEvent[] {
++        const response = ++this.stateResponses;
++        const plain: MatrixEvent[] = [];
++        const decrypted: MatrixEvent[] = [];
++        for (const event of stateEvents) {
++            // A newer event sent as the same type and state key, decrypted or not, replaces whatever waited.
++            this.undecryptedState.get(room.roomId)?.get(sentSlot(event))?.stopWaiting();
++            if (event.isDecryptionFailure()) {
++                this.waitForKeys(room, event, response);
++                continue;
++            }
++            (event.getWireType() === EventType.RoomMessageEncrypted ? decrypted : plain).push(event);
++            this.stateArrivals.get(room.roomId)?.set(clearSlot(event), response);
++        }
++        // In a room that encrypts its state, an encrypted event is the one to trust over a plain event for the same
++        // type and state key in the same response: it is added last, as one whose keys arrive later is added later.
++        return [...plain, ...decrypted];
++    }
++
++    /** Add a state event that could not be decrypted to its room's state once its keys arrive. */
++    private waitForKeys(room: Room, event: MatrixEvent, response: number): void {
++        const roomId = room.roomId;
++        const roomWaits = this.undecryptedState.get(roomId) ?? new Map<string, UndecryptedStateWait>();
++        if (!this.undecryptedState.has(roomId)) {
++            this.undecryptedState.set(roomId, roomWaits);
++            this.stateArrivals.set(roomId, new Map());
++        }
++        const slot = sentSlot(event);
++        const onDecrypted = (): void => {
++            // Nothing is added once the client stopped, the room was forgotten or replaced, or the wait ended, even by
++            // a listener told of the decryption first. A room still being added, not yet stored, is not replaced.
++            if (this.stopped || roomWaits.get(slot) !== wait) return;
++            const stored = this.client.getRoom(roomId);
++            if (stored && stored !== room) {
++                wait.stopWaiting();
++                return;
++            }
++            if (event.isDecryptionFailure()) return;
++            const arrived = this.stateArrivals.get(roomId)?.get(clearSlot(event));
++            wait.stopWaiting();
++            if (arrived !== undefined && arrived > response) return;
++            room.currentState.setStateEvents([event]);
++            room.recalculate();
++            // As when it arrives with its keys: a live location share is given the locations already in the timeline.
++            if (M_BEACON_INFO.matches(event.getType())) {
++                void room.currentState.processBeaconEvents(room.getLiveTimeline().getEvents(), this.client);
++            }
++        };
++        const wait: UndecryptedStateWait = {
++            event,
++            stopWaiting: (): void => {
++                event.off(MatrixEventEvent.Decrypted, onDecrypted);
++                if (roomWaits.get(slot) !== wait) return;
++                roomWaits.delete(slot);
++                if (roomWaits.size > 0 || this.undecryptedState.get(roomId) !== roomWaits) return;
++                this.undecryptedState.delete(roomId);
++                this.stateArrivals.delete(roomId);
++            },
++        };
++        roomWaits.set(slot, wait);
++        event.on(MatrixEventEvent.Decrypted, onDecrypted);
++    }
++
++    /** Stop waiting for the keys of a room's state, adding none of it later. */
++    private stopWaitingForKeys(roomId: string): void {
++        for (const wait of [...(this.undecryptedState.get(roomId)?.values() ?? [])]) wait.stopWaiting();
++    }
++
++    private readonly onDeleteRoom = (roomId: string): void => {
++        this.stopWaitingForKeys(roomId);
++    };
++
+     /**
+      * Injects events into a room's model.
+      * @param stateEventList - A list of state events. This is the state
+@@ -887,20 +1245,11 @@
              liveTimeline.initialiseState(stateEventList);
          }
  
@@ -1040,7 +1200,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              room.oldState.setStateEvents(stateEventList);
              room.currentState.setStateEvents(stateEventList);
          }
-@@ -931,6 +1169,13 @@
+@@ -931,6 +1280,13 @@
                  addToState: false,
              });
          }
@@ -1054,7 +1214,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
  
          room.recalculate();
  
-@@ -991,12 +1236,155 @@
+@@ -991,12 +1347,155 @@
      public async sync(): Promise<void> {
          this.syncOpts.logger.debug("Sliding sync init loop");
  
@@ -1214,7 +1374,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                  this.syncOpts.logger.debug("Got push rules");
                  this.client.pushRules = result;
                  break;
-@@ -1007,9 +1395,6 @@
+@@ -1007,9 +1506,6 @@
                  }
              }
          }
@@ -1224,7 +1384,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      /**
-@@ -1017,6 +1402,12 @@
+@@ -1017,7 +1513,15 @@
       */
      public stop(): void {
          this.syncOpts.logger.debug("SyncApi.stop");
@@ -1235,8 +1395,34 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +        this.roomRestores.clear();
 +        this.slidingSync.setSavedRooms(undefined);
          this.slidingSync.stop();
++        this.client.off(ClientEvent.DeleteRoom, this.onDeleteRoom);
++        for (const roomId of [...this.undecryptedState.keys()]) this.stopWaitingForKeys(roomId);
      }
  
+     /**
+@@ -1099,6 +1603,22 @@
+     return roomData;
+ }
+ 
++/** A state event waiting for its keys. */
++interface UndecryptedStateWait {
++    event: MatrixEvent;
++    stopWaiting: () => void;
++}
++
++/** The event type and state key a state event was sent as: `m.room.encrypted` and a packed key, if encrypted. */
++function sentSlot(event: MatrixEvent): string {
++    return JSON.stringify([event.getWireType(), event.getWireStateKey()]);
++}
++
++/** The event type and state key a state event sets, once decrypted. */
++function clearSlot(event: MatrixEvent): string {
++    return JSON.stringify([event.getType(), event.getStateKey()]);
++}
++
+ type TaggedEvent = (IStrippedState | IRoomEvent | IStateEvent | IMinimalEvent) & { room_id?: string };
+ 
+ // Helper functions which set up JS SDK structs are below and are identical to the sync v2 counterparts,
 diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 --- a/src/sliding-sync.ts
 +++ b/src/sliding-sync.ts
