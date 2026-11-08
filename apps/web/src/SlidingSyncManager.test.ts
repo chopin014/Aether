@@ -967,7 +967,6 @@ describe("SlidingSyncManager", () => {
         let internals: {
             roomIdToCustomSubscription: Map<string, string>;
             customSubscriptions: Map<string, { timeline_limit: number; required_state: string[][] }>;
-            confirmedRoomSubscriptions: Set<string>;
         };
         const nameOf = (roomId: string): string | undefined => internals.roomIdToCustomSubscription.get(roomId);
         const subscriptionOf = (roomId: string): { timeline_limit: number; required_state: string[][] } =>
@@ -1071,20 +1070,18 @@ describe("SlidingSyncManager", () => {
             await tick();
             expect(nameOf("!missing")).toBe("bootstrap");
             expect(manager.mayStillArrive("!missing")).toBe(true);
-            // A response to an older request, before the subscription was acknowledged, proves nothing.
-            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, {
-                pos: "1",
-                lists: {},
-                rooms: {},
-                extensions: {},
-            });
-            internals.confirmedRoomSubscriptions.add("!missing");
-            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, {
-                pos: "2",
-                lists: {},
-                rooms: {},
-                extensions: {},
-            });
+            // A response to an older request, which did not ask about the room, proves nothing.
+            const older = { pos: "1", lists: {}, rooms: {}, extensions: {} };
+            const answered = { pos: "2", lists: {}, rooms: {}, extensions: {} };
+            vi.spyOn(sync, "getRequestForResponse").mockImplementation((response) =>
+                response === answered
+                    ? { roomSubscriptions: new Map([["!missing", subscriptionOf("!missing")]]) }
+                    : { roomSubscriptions: new Map() },
+            );
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, older);
+            await tick();
+            expect(manager.mayStillArrive("!missing")).toBe(true);
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, answered);
             await expect(visible).resolves.toBe("absent");
             expect(changes).toHaveBeenCalled();
             expect((manager as unknown as { bootstrapRooms: Set<string> }).bootstrapRooms.has("!missing")).toBe(false);

@@ -729,7 +729,9 @@ export class SlidingSyncManager {
                     settle("known");
                     return;
                 }
-                if (!slidingSync.isRoomSubscriptionConfirmed(roomId) || response.rooms?.[roomId]) return;
+                // Only an answer to a request that asked about the room says anything about it.
+                if (!slidingSync.getRequestForResponse(response)?.roomSubscriptions.has(roomId)) return;
+                if (response.rooms?.[roomId]) return;
                 // The server has answered this subscription without the room. Stop asking for its history.
                 logger.log("SlidingSync setRoomVisible: the server did not send", roomId);
                 this.absentRooms.add(roomId);
