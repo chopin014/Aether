@@ -9,6 +9,25 @@ import { type BrowserContext, type Page, type Route } from "@playwright/test";
 
 import { type Config, CONFIG_JSON } from "../index.js";
 
+/**
+ * Turn a feature on or off for every client, as an environment variable says, other than for a test that sets it
+ * itself, through its lab flags or its own config, such as one that runs both ways.
+ * @param features - The config's features.
+ * @param feature - The feature.
+ * @param mode - "1" for on, "0" for off, anything else to leave it to the test.
+ * @param setByTest - Whether the test sets the feature itself.
+ */
+function forceFeature(
+    features: Record<string, boolean>,
+    feature: string,
+    mode: string | undefined,
+    setByTest: boolean,
+): void {
+    if (setByTest) return;
+    if (mode === "1") features[feature] = true;
+    else if (mode === "0") features[feature] = false;
+}
+
 /** Construct a suitable config.json for the given homeserver
  *
  * @param homeserverBaseUrl - The `baseUrl` of the homeserver that the client should be configured to connect to.
@@ -40,14 +59,17 @@ export function buildConfigJson(
             return obj;
         }, {}),
     };
-    // Simplified Sliding Sync is on by default where the server offers it. AETHER_E2E_SLIDING_SYNC=1 runs every client
-    // with it, and =0 with regular sync, other than in a test that asks for sliding sync itself, so the two can be
-    // checked to match. Here, rather than in a fixture, so a test's own labs flags and second clients get it too.
-    const slidingSync = process.env["AETHER_E2E_SLIDING_SYNC"];
-    if (slidingSync === "1") {
-        json["features"]["feature_simplified_sliding_sync"] = true;
-    } else if (slidingSync === "0" && !labsFlags.includes("feature_simplified_sliding_sync")) {
-        json["features"]["feature_simplified_sliding_sync"] = false;
+    // Simplified Sliding Sync is on by default where the server offers it, and the new timeline is a lab.
+    // AETHER_E2E_SLIDING_SYNC=1 or AETHER_E2E_NEW_TIMELINE=1 runs every client with it, and =0 without it, other than in
+    // a test that sets it itself, so each way can be checked to match the other. Here, rather than in a fixture, so
+    // second clients get it too.
+    const setByTest = (feature: string): boolean =>
+        labsFlags.includes(feature) || additionalConfig.features?.[feature] !== undefined;
+    for (const [feature, mode] of [
+        ["feature_simplified_sliding_sync", process.env["AETHER_E2E_SLIDING_SYNC"]],
+        ["feature_new_timeline", process.env["AETHER_E2E_NEW_TIMELINE"]],
+    ] as const) {
+        forceFeature(json["features"], feature, mode, setByTest(feature));
     }
     if (disablePresence) {
         json["enable_presence_by_hs_url"] = {
