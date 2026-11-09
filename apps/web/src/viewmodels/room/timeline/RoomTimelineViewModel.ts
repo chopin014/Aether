@@ -139,6 +139,11 @@ export interface RoomTimelineViewModelOpts {
     initialEventId?: string;
     /** Whether other users' read receipts are drawn; see {@link RoomTimelineViewModel.setShowReadReceipts}. Default true. */
     showReadReceipts?: boolean;
+    /**
+     * Whether what each load shows is read as soon as it is placed, without waiting for the reader to be active, as
+     * the old timeline does when the reader opened the room themselves. Default false.
+     */
+    sendReadReceiptOnLoad?: boolean;
 }
 
 /**
@@ -294,6 +299,12 @@ export class RoomTimelineViewModel
 
     /** Debounce timer for auto read receipt sends triggered by scroll. */
     private readReceiptDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    /** See {@link RoomTimelineViewModelOpts.sendReadReceiptOnLoad} and {@link setSendReadReceiptOnLoad}. */
+    private sendReadReceiptOnLoad: boolean;
+    /** Set when a load finishes, so the first range seen once it is placed is read; see `sendReadReceiptOnLoad`. */
+    private receiptOnPlacement = false;
+    /** The newest message that came into view while the reader was active, until it is read; see {@link scheduleReadReceipt}. */
+    private seenWhileActiveEventId: string | null = null;
 
     /**
      * Debouncer for items rebuilds after a burst of Decrypted events.
@@ -311,6 +322,19 @@ export class RoomTimelineViewModel
      * so the view can be restored to this position next visit.
      */
     private lastBottomEventId: string | null = null;
+
+    /**
+     * The message a read receipt is sent for: the bottommost visible confirmed message from someone else, as the old
+     * timeline reads up to, or the bottommost of ours when there is none. See {@link receiptTargetOf}.
+     */
+    private lastReceiptTargetId: string | null = null;
+
+    /**
+     * Our receipt on the server, as last seen. The room can lose track of it after a gap in sync, once the event it is
+     * on leaves the room's timelines, while the window kept from before still holds that event. See
+     * {@link serverReceiptEventId}.
+     */
+    private knownServerReceiptId: string | null = null;
 
     /**
      * The 0-based index (into the items array) of the topmost currently-visible item.
@@ -394,6 +418,7 @@ export class RoomTimelineViewModel
 
         this.opts = opts;
         this.showReadReceipts = opts.showReadReceipts ?? true;
+        this.sendReadReceiptOnLoad = opts.sendReadReceiptOnLoad ?? false;
         this.timelineWindow = new TimelineWindow(opts.client, opts.room.getUnfilteredTimelineSet(), {
             windowLimit: WINDOW_LIMIT,
         });
@@ -467,6 +492,7 @@ export class RoomTimelineViewModel
         );
         // Other users' read receipts moving.
         this.disposables.trackListener(this.opts.room, RoomEvent.Receipt, this.onRoomReceipt);
+        this.serverReceiptEventId();
         // Messages removed, or their removal undone, which changes whether and how their rows are drawn. A removal
         // the server sends also arrives as a timeline event, but one applied here, such as by a retention policy, and
         // a cancelled one do not.
@@ -558,8 +584,19 @@ export class RoomTimelineViewModel
 
     /** Someone's read receipt moved. Only the receipts change, so the rows are left alone. */
     private onRoomReceipt = (): void => {
+        this.serverReceiptEventId();
         this.updateReadReceipts("receipt");
     };
+
+    /**
+     * Our receipt on the server, or the last one seen if the room no longer knows it. As in the old timeline, the
+     * receipt the SDK makes up for our own messages does not count: the server may have none for them yet.
+     */
+    private serverReceiptEventId(): string | null {
+        const receipt = this.opts.room.getEventReadUpTo(this.opts.client.getSafeUserId(), true);
+        if (receipt) this.knownServerReceiptId = receipt;
+        return receipt ?? this.knownServerReceiptId;
+    }
 
     private onRoomStateUpdate = (state: RoomState): void => {
         if (state.roomId !== this.opts.room.roomId) return;
@@ -576,6 +613,11 @@ export class RoomTimelineViewModel
     }
 
     /** Show or hide other users' read receipts — the room-level `showReadReceipts` setting. */
+    /** Whether later loads are read as soon as they are placed; see {@link RoomTimelineViewModelOpts.sendReadReceiptOnLoad}. */
+    public setSendReadReceiptOnLoad = (send: boolean): void => {
+        this.sendReadReceiptOnLoad = send;
+    };
+
     public setShowReadReceipts(show: boolean): void {
         if (show === this.showReadReceipts) return;
         this.showReadReceipts = show;
@@ -829,9 +871,11 @@ export class RoomTimelineViewModel
     /** Re-derives {@link lastBottomEventId} from the last reported range, sending a receipt if it moved. */
     private updateLastBottomEventAfterEcho(): void {
         if (this.lastBottomEventId === null || this.snapshot.current.pendingAnchor !== null) return;
-        const bottom = this.bottomConfirmedEventId(this.snapshot.current.items);
+        const items = this.snapshot.current.items;
+        const bottom = this.bottomConfirmedEventId(items);
         if (bottom === null || bottom === this.lastBottomEventId) return;
         this.lastBottomEventId = bottom;
+        this.lastReceiptTargetId = this.receiptTargetOf(items) ?? this.lastReceiptTargetId;
         this.scheduleReadReceipt();
     }
 
@@ -1016,6 +1060,7 @@ export class RoomTimelineViewModel
                           : null,
                 canJumpToReadMarker: this.computeCanJumpToReadMarker(items),
             });
+            this.receiptOnPlacement = this.sendReadReceiptOnLoad;
 
             // An empty list cannot report either scroll edge. Search toward live content first,
             // or older history when we are already at the live end, instead of waiting forever.
@@ -1183,6 +1228,9 @@ export class RoomTimelineViewModel
         this.visibleEndArrayIndex = Math.max(0, endIndex);
 
         this.lastBottomEventId = this.bottomConfirmedEventId(items) ?? this.lastBottomEventId;
+        this.lastReceiptTargetId = this.receiptTargetOf(items) ?? this.lastReceiptTargetId;
+        const readOnPlacement = this.receiptOnPlacement && this.lastBottomEventId !== null;
+        if (readOnPlacement) this.receiptOnPlacement = false;
 
         // Recompute canJumpToReadMarker when the visible range moves.
         if (this.visibleStartArrayIndex !== prevStartArrayIndex || this.visibleEndArrayIndex !== prevEndArrayIndex) {
@@ -1192,7 +1240,12 @@ export class RoomTimelineViewModel
             }
         }
 
-        this.scheduleReadReceipt();
+        if (readOnPlacement) {
+            // What the reader opened is in front of them: read it now, as the old timeline does on load.
+            this.sendReadReceiptNow();
+        } else {
+            this.scheduleReadReceipt();
+        }
     };
 
     /**
@@ -1200,25 +1253,46 @@ export class RoomTimelineViewModel
      * no server id yet, so it can't take a read receipt, and the scroll position can't be restored
      * to it when the room is next opened; the newest confirmed message stands in for it.
      */
-    private bottomConfirmedEventId(items: readonly TimelineItem[]): string | null {
+    private bottomConfirmedEventId(items: readonly TimelineItem[], skipOwn = false): string | null {
+        const me = skipOwn ? this.opts.client.getSafeUserId() : null;
         for (let i = this.visibleEndArrayIndex; i >= this.visibleStartArrayIndex; i--) {
             const item = items[i];
             if (!item) continue;
             const events = this.itemEvents(item);
             for (let j = events.length - 1; j >= 0; j--) {
                 const id = events[j].getId();
-                if (id && !this.opts.room.hasPendingEvent(id)) return id;
+                if (id && !this.opts.room.hasPendingEvent(id) && events[j].getSender() !== me) return id;
             }
         }
         return null;
     }
 
+    /**
+     * The visible message to send a read receipt for. As the old timeline does, it is the bottommost one from someone
+     * else: a message of ours says nothing new about what we have read, and receipting it would cost a request each
+     * time we send one. With none of theirs on screen, it is the bottommost of ours.
+     */
+    private receiptTargetOf(items: readonly TimelineItem[]): string | null {
+        return this.bottomConfirmedEventId(items, true) ?? this.bottomConfirmedEventId(items);
+    }
+
     /** Debounce sending a read receipt for the last visible event. */
     private scheduleReadReceipt(): void {
+        // The old timeline reads what is on screen every half second the reader is active, so a message that comes
+        // into view while they are active is read even if they stop before the debounce below ends. Only that message:
+        // what comes into view after they stopped waits for them.
+        if (UserActivity.sharedInstance().userActiveNow()) this.seenWhileActiveEventId = this.lastReceiptTargetId;
         if (this.readReceiptDebounceTimer !== null) clearTimeout(this.readReceiptDebounceTimer);
         this.readReceiptDebounceTimer = setTimeout(() => {
             this.readReceiptDebounceTimer = null;
-            this.sendAutoReadReceipt();
+            const seen = this.seenWhileActiveEventId;
+            this.seenWhileActiveEventId = null;
+            if (seen === null || UserActivity.sharedInstance().userActiveNow()) {
+                this.sendAutoReadReceipt();
+                return;
+            }
+            this.sendAutoReadReceipt(false, seen);
+            if (this.lastReceiptTargetId !== seen) this.sendReceiptWhenActive();
         }, READ_RECEIPT_DEBOUNCE_MS);
     }
 
@@ -1234,29 +1308,26 @@ export class RoomTimelineViewModel
      * only advance the receipt here. The FullyRead marker is advanced once on dispose
      * (see {@link dispose}), mirroring Element X iOS's behaviour.
      */
-    private sendAutoReadReceipt(requireActivity = true): void {
+    private sendAutoReadReceipt(requireActivity = true, target: string | null = this.lastReceiptTargetId): void {
         if (this.isDisposed) return;
         // Someone previewing a room they have not joined cannot send receipts there.
         if (this.opts.room.getMyMembership() !== KnownMembership.Join) return;
+        // As the old timeline does, nothing is sent in low-bandwidth mode.
+        if (SettingsStore.getValue("lowBandwidth")) return;
         // Messages arriving in a window nobody is looking at have not been read. Wait until the user is back,
         // as the old timeline does.
         if (requireActivity && !UserActivity.sharedInstance().userActiveNow()) {
             this.sendReceiptWhenActive();
             return;
         }
-        const eventId = this.lastBottomEventId;
+        const eventId = target;
         if (!eventId || eventId === this.lastSentReceiptEventId) return;
 
         const event = this.timelineWindow.getEvents().find((e) => e.getId() === eventId);
         if (!event) return;
 
-        // Don't rewind — only advance if this event is newer than the last receipted one.
-        if (this.lastSentReceiptEventId) {
-            const lastSentEvent = this.timelineWindow
-                .getEvents()
-                .find((e) => e.getId() === this.lastSentReceiptEventId);
-            if (lastSentEvent && lastSentEvent.getTs() >= event.getTs()) return;
-        }
+        // Don't rewind — only advance past the receipt sent from here and the room's own.
+        if (!this.isAfterReceipts(event)) return;
 
         this.lastSentReceiptEventId = eventId;
         const receiptType = SettingsStore.getValue("sendReadReceipts", this.opts.room.roomId)
@@ -1268,6 +1339,45 @@ export class RoomTimelineViewModel
             this.lastSentReceiptEventId = null; // allow retry
             logger.warn(`[TimelineVM] sendAutoReadReceipt — sendReadReceipt failed`, err);
         });
+    }
+
+    /**
+     * Whether `event` comes after both the receipt sent from here and our receipt on the server, which another device,
+     * or an earlier visit, may have moved on; see {@link serverReceiptEventId}.
+     *
+     * The window gives the order when it holds both events, else the room's timelines. A receipt neither can place is
+     * taken to be ahead while the window can still page forward towards it, as the old timeline does when its receipt
+     * is outside the window, and while the window is kept from before a gap in sync, as its events can no longer be
+     * placed against the room's. Times are not compared, as servers' clocks differ.
+     */
+    private isAfterReceipts(event: MatrixEvent): boolean {
+        const eventId = event.getId();
+        if (!eventId) return false;
+        const receipts = [this.lastSentReceiptEventId, this.serverReceiptEventId()];
+        for (const receiptId of receipts) {
+            if (!receiptId) continue;
+            const order = this.orderOf(receiptId, eventId);
+            const receiptAhead =
+                order === null
+                    ? this.timelineWindow.canPaginate(Direction.Forward) || this.windowDetachedFromLive()
+                    : order >= 0;
+            if (receiptAhead) return false;
+        }
+        return true;
+    }
+
+    /**
+     * How the event `firstId` is placed against `secondId`: below zero before it, zero for the same event, above zero
+     * after it, or null when that cannot be told. The window's order is used when it holds both, as after a gap in
+     * sync its events may be gone from the room's timelines.
+     */
+    private orderOf(firstId: string, secondId: string): number | null {
+        if (firstId === secondId) return 0;
+        const events = this.timelineWindow.getEvents();
+        const first = events.findIndex((event) => event.getId() === firstId);
+        const second = first < 0 ? -1 : events.findIndex((event) => event.getId() === secondId);
+        if (first >= 0 && second >= 0) return first - second;
+        return this.opts.room.getUnfilteredTimelineSet().compareEventOrdering(firstId, secondId);
     }
 
     // ── Requests from the room view ──────────────────────────────────
@@ -1364,6 +1474,7 @@ export class RoomTimelineViewModel
     public sendReadReceiptNow(): void {
         if (this.readReceiptDebounceTimer !== null) clearTimeout(this.readReceiptDebounceTimer);
         this.readReceiptDebounceTimer = null;
+        this.seenWhileActiveEventId = null;
         this.sendAutoReadReceipt(false);
     }
 
