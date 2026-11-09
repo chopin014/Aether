@@ -105,6 +105,22 @@ test.describe("New timeline", () => {
         await expect(jumpToBottom).not.toBeVisible();
     });
 
+    test("shows that a message on screen was removed", async ({ page, app, user }) => {
+        const roomId = await app.client.createRoom({ name: "Removed message" });
+        const removed = await app.client.sendMessage(roomId, "Soon to be removed");
+        // Receipts and the "Sent" tick stay on this later message, so they do not redraw the removed one.
+        await app.client.sendMessage(roomId, "A message after it");
+
+        await app.viewRoomById(roomId);
+        await expect(timelineRow(page, removed.event_id)).toContainText("Soon to be removed");
+
+        await app.client.redactEvent(roomId, removed.event_id);
+
+        // The client removes the content from the same event, and the row shows that in its place.
+        await expect(timelineRow(page, removed.event_id).locator(".mx_RedactedBody")).toContainText("Message deleted");
+        await expect(timelineRow(page, removed.event_id)).not.toContainText("Soon to be removed");
+    });
+
     test("loads older history when the reader scrolls to the top", async ({ page, app, user }) => {
         // Seeding this many messages takes a while.
         test.slow();

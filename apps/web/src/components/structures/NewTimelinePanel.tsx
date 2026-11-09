@@ -294,6 +294,9 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext, tileAs: 
                     key={tileKeyOf(item)}
                     as={tileAs}
                     mxEvent={mxEvent}
+                    // A removed message keeps its identity, and the tile redraws only when what it is given changes,
+                    // so it is told as MessagePanel tells it.
+                    isRedacted={mxEvent.isRedacted()}
                     continuation={item.continuation}
                     lastInSection={item.lastInSection}
                     lastSuccessful={item.key === ctx.lastSuccessfulEventId}
