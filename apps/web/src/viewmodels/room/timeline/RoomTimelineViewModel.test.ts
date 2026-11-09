@@ -17,6 +17,7 @@ import {
     EventType,
     HttpApiEvent,
     M_BEACON_INFO,
+    M_POLL_RESPONSE,
     MatrixEvent,
     MatrixEventEvent,
     MatrixHttpApi,
@@ -2760,6 +2761,263 @@ describe("RoomTimelineViewModel", () => {
             expect(items[indexOfKey(items, "$m1") + 1].kind).toBe("read-marker");
         });
 
+        describe("with messages of the reader's own after the marker", () => {
+            const lineAfter = (vm: RoomTimelineViewModel): string | undefined => {
+                const items = vm.getSnapshot().items;
+                const line = items.findIndex((item) => item.kind === "read-marker");
+                return line > 0 ? items[line - 1].key : undefined;
+            };
+            const mine = (id: string): MatrixEvent => makeMessage(id, { user: USER_ID });
+
+            beforeEach(() => {
+                vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+            });
+
+            it("moves the unread line past them, to the first message from someone else", async () => {
+                seedTimeline([...messages(2), mine("$mine1"), mine("$mine2"), ...messages(4).slice(2)]);
+                markerAt("$m1");
+
+                const vm = await createStartedViewModel();
+
+                expect(lineAfter(vm)).toBe("$mine2");
+            });
+
+            it("moves the unread line on to a reply of theirs after others' messages: they have read those", async () => {
+                seedTimeline([...messages(3), mine("$reply"), ...messages(5).slice(3)]);
+                markerAt("$m1");
+
+                const vm = await createStartedViewModel();
+
+                expect(lineAfter(vm)).toBe("$reply");
+            });
+
+            it("draws no unread line when the reader wrote after everything others sent", async () => {
+                seedTimeline([...messages(3), mine("$reply")]);
+                markerAt("$m1");
+
+                const vm = await createStartedViewModel();
+
+                expect(kinds(vm.getSnapshot().items)).not.toContain("read-marker");
+            });
+
+            it("draws no unread line when only they follow the marker", async () => {
+                seedTimeline([...messages(2), mine("$mine1"), mine("$mine2")]);
+                markerAt("$m1");
+
+                const vm = await createStartedViewModel();
+
+                expect(kinds(vm.getSnapshot().items)).not.toContain("read-marker");
+            });
+
+            it("keeps the unread line where it was decided as the window moves past the marker", async () => {
+                seedTimeline([...messages(2), mine("$mine1"), ...messages(5).slice(2)]);
+                markerAt("$m1");
+                const vm = await createStartedViewModel();
+                expect(lineAfter(vm)).toBe("$mine1");
+
+                // Only the newer messages are loaded now, as after paging forward through a long room.
+                const loaded = (vm as any).loadedEvents.bind(vm);
+                vi.spyOn(vm as any, "loadedEvents").mockImplementation(() =>
+                    loaded().filter((event: MatrixEvent) => !["$m0", "$m1"].includes(event.getId()!)),
+                );
+                (vm as any).scheduleRebuild();
+                await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).not.toContain("$m1"));
+
+                expect(lineAfter(vm)).toBe("$mine1");
+            });
+
+            it("goes to the unread line where it is drawn", async () => {
+                seedTimeline([...messages(2), mine("$mine1"), ...messages(5).slice(2)]);
+                markerAt("$m1");
+                const vm = await createStartedViewModel();
+                // Only the newest messages are loaded, so the line is not drawn and going to it loads around it.
+                const loaded = (vm as any).loadedEvents.bind(vm);
+                vi.spyOn(vm as any, "loadedEvents").mockImplementation(() =>
+                    loaded().filter((event: MatrixEvent) => !["$m0", "$m1", "$mine1"].includes(event.getId()!)),
+                );
+                (vm as any).scheduleRebuild();
+                await vi.waitFor(() => expect(kinds(vm.getSnapshot().items)).not.toContain("read-marker"));
+                const load = vi.spyOn(vm as any, "load").mockResolvedValue(undefined);
+
+                vm.jumpToReadMarker();
+
+                expect(load).toHaveBeenCalledWith(expect.objectContaining({ eventId: "$mine1", toReadMarker: true }));
+            });
+
+            it("takes the unread line away once the reader writes", async () => {
+                seedTimeline([...messages(2), ...messages(4).slice(2)]);
+                markerAt("$m1");
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                expect(lineAfter(vm)).toBe("$m1");
+
+                room.getUnfilteredTimelineSet().addLiveEvent(mine("$reply"), { addToState: false });
+
+                await vi.waitFor(() => expect(kinds(vm.getSnapshot().items)).not.toContain("read-marker"));
+            });
+
+            it("keeps the unread line for messages from others still being decrypted", async () => {
+                const { event: secret } = makeEncryptedPending("$secret");
+                vi.spyOn(secret, "getSender").mockReturnValue(OTHER_USER_ID);
+                seedTimeline([...messages(2), secret]);
+                markerAt("$m1");
+
+                const vm = await createStartedViewModel();
+
+                expect(lineAfter(vm)).toBe("$m1");
+            });
+
+            it("keeps a marker older than the live timeline when the reader has not written since", async () => {
+                // After a gap, the newest messages are a reaction someone added: what lies before is not known.
+                seedTimeline([
+                    new MatrixEvent({
+                        type: EventType.Reaction,
+                        sender: OTHER_USER_ID,
+                        room_id: ROOM_ID,
+                        event_id: "$reaction",
+                        origin_server_ts: 1,
+                        content: { "m.relates_to": { rel_type: RelationType.Annotation, event_id: "$m0", key: "+1" } },
+                    }),
+                ]);
+                markerAt("$old");
+                // Nothing in it has a row, so wait for the load itself rather than for rows.
+                const vm = new RoomTimelineViewModel({ client, room });
+                vms.push(vm);
+                vm.start();
+                await vi.waitFor(() => expect((vm as any).loading).toBe(false));
+                const load = vi.spyOn(vm as any, "load").mockResolvedValue(undefined);
+
+                vm.jumpToReadMarker();
+
+                expect(load).toHaveBeenCalledWith(expect.objectContaining({ eventId: "$old", toReadMarker: true }));
+            });
+
+            it("keeps the unread line when the reader reacts to or edits an older message", async () => {
+                seedTimeline(messages(4));
+                markerAt("$m1");
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                expect(lineAfter(vm)).toBe("$m1");
+
+                const own = (id: string, relation: object): MatrixEvent =>
+                    new MatrixEvent({
+                        type: EventType.Reaction,
+                        sender: USER_ID,
+                        room_id: ROOM_ID,
+                        event_id: id,
+                        origin_server_ts: Date.now(),
+                        content: { "m.relates_to": relation },
+                    });
+                const edit = makeMessage("$edit", { user: USER_ID });
+                edit.event.content = {
+                    ...edit.getContent(),
+                    "m.relates_to": { rel_type: RelationType.Replace, event_id: "$m0" },
+                };
+                const timelineSet = room.getUnfilteredTimelineSet();
+                timelineSet.addLiveEvent(
+                    own("$react", { rel_type: RelationType.Annotation, event_id: "$m0", key: "+1" }),
+                    {
+                        addToState: false,
+                    },
+                );
+                timelineSet.addLiveEvent(edit, { addToState: false });
+                await new Promise((r) => setTimeout(r, 50));
+
+                expect(lineAfter(vm)).toBe("$m1");
+            });
+
+            it.each([false, true])(
+                "keeps the unread line when the reader votes in an older poll (hidden events shown: %s)",
+                async (showHidden) => {
+                    vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
+                        if (key === "sendReadReceipts") return true;
+                        if (key === "showHiddenEventsInTimeline") return showHidden;
+                        return undefined;
+                    });
+                    seedTimeline(messages(4));
+                    markerAt("$m1");
+                    const vm = await createStartedViewModel();
+                    vm.onAnchorReached();
+                    expect(lineAfter(vm)).toBe("$m1");
+
+                    room.getUnfilteredTimelineSet().addLiveEvent(
+                        new MatrixEvent({
+                            type: M_POLL_RESPONSE.name,
+                            sender: USER_ID,
+                            room_id: ROOM_ID,
+                            event_id: "$vote",
+                            origin_server_ts: Date.now(),
+                            content: {
+                                "m.relates_to": { rel_type: RelationType.Reference, event_id: "$m0" },
+                                [M_POLL_RESPONSE.name]: { answers: ["a"] },
+                            },
+                        }),
+                        { addToState: false },
+                    );
+                    await new Promise((r) => setTimeout(r, 50));
+
+                    expect(lineAfter(vm)).toBe("$m1");
+                },
+            );
+
+            it("keeps the unread line for an encrypted vote of the reader's that has not decrypted yet", async () => {
+                seedTimeline(messages(4));
+                markerAt("$m1");
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                expect(lineAfter(vm)).toBe("$m1");
+
+                // Only the relation is readable on the wire until the vote decrypts.
+                const { event: vote } = makeEncryptedPending("$vote");
+                vote.event.content = { "m.relates_to": { rel_type: RelationType.Reference, event_id: "$m0" } };
+                room.getUnfilteredTimelineSet().addLiveEvent(vote, { addToState: false });
+                await new Promise((r) => setTimeout(r, 50));
+
+                expect(lineAfter(vm)).toBe("$m1");
+            });
+
+            it("draws no unread line when the reader writes while the room is still loading", async () => {
+                seedTimeline(messages(2));
+                markerAt("$m0");
+                // Hold the first load back, so the messages below arrive before the line is first decided.
+                let release = (): void => {};
+                const held = new Promise<void>((resolve) => {
+                    release = resolve;
+                });
+                const load = TimelineWindow.prototype.load;
+                vi.spyOn(TimelineWindow.prototype, "load").mockImplementation(async function (
+                    this: TimelineWindow,
+                    ...args
+                ) {
+                    await held;
+                    return load.apply(this, args);
+                });
+                const vm = new RoomTimelineViewModel({ client, room });
+                vms.push(vm);
+                vm.start();
+
+                // The reader writes from another device, and someone answers, before the room has loaded.
+                const timelineSet = room.getUnfilteredTimelineSet();
+                timelineSet.addLiveEvent(mine("$reply"), { addToState: false });
+                timelineSet.addLiveEvent(makeMessage("$answer", { user: OTHER_USER_ID }), { addToState: false });
+                release();
+                await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$answer"));
+
+                expect(kinds(vm.getSnapshot().items)).not.toContain("read-marker");
+            });
+
+            it("does not count a message of theirs the server does not have yet as read", async () => {
+                const unsent = mine("$unsent");
+                unsent.setStatus(EventStatus.NOT_SENT);
+                seedTimeline([...messages(3), unsent]);
+                markerAt("$m1");
+
+                const vm = await createStartedViewModel();
+
+                expect(lineAfter(vm)).toBe("$m1");
+            });
+        });
+
         describe("in a room that has no marker yet", () => {
             const receiptAt = (eventId: string): void => {
                 room.addReceipt(
@@ -2777,6 +3035,46 @@ describe("RoomTimelineViewModel", () => {
 
             beforeEach(() => {
                 vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+            });
+
+            it("does not bring back the line the reader's message took away when the room's marker arrives", async () => {
+                seedTimeline(messages(4));
+                receiptAt("$m1");
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                expect(lineAfter(vm)).toBe("$m1");
+                room.getUnfilteredTimelineSet().addLiveEvent(makeMessage("$reply", { user: USER_ID }), {
+                    addToState: false,
+                });
+                await vi.waitFor(() => expect(lineAfter(vm)).toBeUndefined());
+                // Someone answers while the reader watches, and only then does the room's marker come from the server.
+                room.getUnfilteredTimelineSet().addLiveEvent(makeMessage("$answer", { user: OTHER_USER_ID }), {
+                    addToState: false,
+                });
+                await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$answer"));
+
+                markerAt("$m2");
+                await new Promise((r) => setTimeout(r, 50));
+
+                expect(lineAfter(vm)).toBeUndefined();
+            });
+
+            it("does not let the room's marker draw a line once the reader has written, even with none drawn", async () => {
+                seedTimeline(messages(4));
+                // Read up to the newest message on the way in: no line.
+                receiptAt("$m3");
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                expect(lineAfter(vm)).toBeUndefined();
+                const timelineSet = room.getUnfilteredTimelineSet();
+                timelineSet.addLiveEvent(makeMessage("$reply", { user: USER_ID }), { addToState: false });
+                timelineSet.addLiveEvent(makeMessage("$answer", { user: OTHER_USER_ID }), { addToState: false });
+                await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$answer"));
+
+                markerAt("$m1");
+                await new Promise((r) => setTimeout(r, 50));
+
+                expect(lineAfter(vm)).toBeUndefined();
             });
 
             it("starts the unread line at the reader's receipt, as the old timeline does", async () => {

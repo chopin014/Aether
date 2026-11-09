@@ -15,6 +15,7 @@ import {
     MatrixEventEvent,
     NotificationCountType,
     ReceiptType,
+    RelationType,
     RoomStateEvent,
     M_BEACON_INFO,
     type EventTimeline,
@@ -908,10 +909,23 @@ export class RoomTimelineViewModel
         if (toStartOfTimeline || removed || data.liveEvent !== true) return;
         if (this.isDisposed) return;
 
+        // The reader has written, here or on another device: what came before is read, as the old timeline moves the
+        // marker on to a message they send. Any unread line goes for the rest of the visit, and the room's marker coming
+        // from the server only now does not draw one, as when everything is marked read.
+        let lineGone = false;
+        if (this.isReadersNewMessage(event)) {
+            // Decided for the rest of the visit, even when the first load has not finished deciding it yet.
+            this.readMarkerFrozen = true;
+            this.awaitingServerReadMarker = false;
+            lineGone = !!this.frozenMarkerEventId;
+            this.frozenMarkerEventId = null;
+        }
+
         debug(`[TimelineVM][onRoomTimeline] live event ${event.getId()} (${event.getType()})`);
         if (this.windowDetachedFromLive()) {
             // The window cannot reach the new live timeline. Count the message for the jump-to-latest button.
             if (event.getSender() !== this.opts.client.getSafeUserId()) this.unreadMessageCount++;
+            if (lineGone) this.scheduleRebuild();
             this.mergeSnapshot(
                 {
                     atLiveEnd: false,
@@ -1178,30 +1192,81 @@ export class RoomTimelineViewModel
      * Called by {@link load} after each window is loaded, but decides only once per session: the marker moves on as
      * the reader reads, and a later load, such as jumping to the newest messages, must not move the line with it.
      *
-     * The frozen value is what the UI consumes for the entire session:
-     *  - `null` when the marker is unset OR on the room's latest known event.
-     *    In that case the divider line is never rendered this session even if
-     *    new events arrive later (matches the iOS "nothing new since last
-     *    visit → no line" behaviour).
-     *  - Otherwise the marker's event id, pinned at that position for the
-     *    session regardless of subsequent sends, scrolls, or new events.
+     * The frozen value is what the UI consumes for the entire session, for drawing the line and for going to it:
+     *  - The later of the marker and the reader's last message after it in the room's live timeline. A message of the
+     *    reader's own means they have read what came before it, as the old timeline moves the marker on to a message
+     *    they send, and their own messages are never news to them. Only messages the server has, so not one still
+     *    being sent or one that failed.
+     *  - `null` when there is no marker, or nobody else wrote after that point (matches the iOS "nothing new since
+     *    last visit → no line" behaviour). The line is then not drawn this session even if new events arrive later.
+     * It is decided from the live timeline rather than the loaded window, so the line stays put as the window moves.
+     * It goes for the rest of the visit once the reader writes; see {@link onRoomTimeline}.
      */
     private freezeReadMarkerForSession(): void {
         if (this.readMarkerFrozen) return;
         this.readMarkerFrozen = true;
-        if (!this.readMarkerEventId) {
-            this.frozenMarkerEventId = null;
-            return;
-        }
-        const liveEvents = this.opts.room.getLiveTimeline().getEvents();
-        const lastLiveEventId = liveEvents[liveEvents.length - 1]?.getId();
-        if (lastLiveEventId && lastLiveEventId === this.readMarkerEventId) {
-            // Fully read on entry — no line, ever, this session.
-            this.frozenMarkerEventId = null;
-        } else {
-            this.frozenMarkerEventId = this.readMarkerEventId;
-        }
+        this.frozenMarkerEventId = this.readMarkerEventId ? this.unreadLineAfter(this.readMarkerEventId) : null;
         debug(`[TimelineVM] freezeReadMarkerForSession — frozen=${this.frozenMarkerEventId}`);
+    }
+
+    /**
+     * Where the unread line goes for the marker `marker`, from the room's live timeline: after the later of the marker
+     * and the reader's last new message after it, or nowhere when nobody else wrote after that. A marker older than the
+     * live timeline stays where it is unless the reader has written in it since. See {@link freezeReadMarkerForSession}.
+     */
+    private unreadLineAfter(marker: string): string | null {
+        const events = this.opts.room.getLiveTimeline().getEvents();
+        const showHiddenEvents = SettingsStore.getValue("showHiddenEventsInTimeline");
+        const markerIndex = events.findIndex((event) => event.getId() === marker);
+        let after = marker;
+        let readerWrote = false;
+        let othersAfter = false;
+        for (let i = markerIndex + 1; i < events.length; i++) {
+            const event = events[i];
+            const eventId = event.getId();
+            // A message still decrypting is a message all the same: from someone else, it is unread.
+            if (!eventId || !(this.isDecrypting(event) || this.shouldIncludeEvent(event, showHiddenEvents))) continue;
+            if (this.isReadersNewMessage(event)) {
+                after = eventId;
+                readerWrote = true;
+                othersAfter = false;
+            } else if (event.getSender() !== this.opts.client.getSafeUserId()) {
+                othersAfter = true;
+            }
+        }
+        // Older than the live timeline: what lies between is not known here, only that the reader has read up to a
+        // message they wrote since.
+        if (markerIndex < 0 && !readerWrote) return marker;
+        return othersAfter ? after : null;
+    }
+
+    /** Whether `event` is an encrypted message still waiting to be decrypted, so not yet known to be shown or not. */
+    private isDecrypting(event: MatrixEvent): boolean {
+        return (
+            event.getWireType() === EventType.RoomMessageEncrypted &&
+            !event.isDecryptionFailure() &&
+            event.getClearContent() === null
+        );
+    }
+
+    /**
+     * Whether `event` is a new message the reader wrote, which the server has: one that means they have read what came
+     * before it. Not a reaction, an edit, a reference such as a poll vote, or a redaction, which can touch any older
+     * message, nor a change to the room. The relation is on the wire, so it is known before an event is decrypted. Decided
+     * by what the event is, whatever is shown: a message shown only with hidden events on is not a new message.
+     */
+    private isReadersNewMessage(event: MatrixEvent): boolean {
+        if (event.getSender() !== this.opts.client.getSafeUserId() || event.status !== null) return false;
+        if (event.isState() || event.isRedaction()) return false;
+        const relation = event.getWireContent()["m.relates_to"]?.rel_type;
+        if (
+            relation === RelationType.Replace ||
+            relation === RelationType.Annotation ||
+            relation === RelationType.Reference
+        ) {
+            return false;
+        }
+        return this.isDecrypting(event) || this.shouldIncludeEvent(event, false);
     }
 
     /** Publish cached rows immediately, then incorporate native history before requesting more. */
@@ -2787,13 +2852,7 @@ export class RoomTimelineViewModel
         // Encrypted and still decrypting — leave it out until we know what it is. Note the
         // isDecryptionFailure check: one that has already failed is shown, not held back.
         // onEventDecrypted brings in whatever resolves later.
-        if (
-            event.getWireType() === EventType.RoomMessageEncrypted &&
-            !event.isDecryptionFailure() &&
-            event.getClearContent() === null
-        ) {
-            return false;
-        }
+        if (this.isDecrypting(event)) return false;
 
         // Someone ignored after their messages arrived: those messages go, as in the old timeline.
         const sender = event.getSender();
