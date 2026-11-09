@@ -45,6 +45,9 @@ import type { RoomPermalinkCreator } from "../../utils/permalinks/Permalinks";
 import type EditorStateTransfer from "../../utils/EditorStateTransfer";
 import { DateSeparatorWrapper } from "./DateSeparatorWrapper";
 import EventListSummary from "../views/elements/EventListSummary";
+import GenericEventListSummary from "../views/elements/GenericEventListSummary";
+import NewRoomIntro from "../views/rooms/NewRoomIntro";
+import DMRoomMap from "../../utils/DMRoomMap";
 import type { IReadReceiptPosition } from "../views/rooms/ReadReceiptMarker";
 import { getKeyBindingsManager } from "../../KeyBindingsManager";
 import { KeyBindingAction } from "../../accessibility/KeyboardShortcuts";
@@ -108,6 +111,41 @@ interface RenderItemContext {
     getRelationsForEvent: GetRelationsForEvent;
 }
 
+/**
+ * The room's introduction and the summary of how its creator set it up, as the old timeline draws the start of a room.
+ * The summary expands to the events it stands for.
+ */
+function renderCreation(key: string, events: MatrixEvent[], ctx: RenderItemContext): ReactNode {
+    // The create event has no profile: the latest event in the summary does.
+    const last = events[events.length - 1];
+    const creator = last.sender?.name ?? last.getSender();
+    const summaryText = DMRoomMap.shared().getUserIdForRoomId(ctx.roomId)
+        ? _t("timeline|creation_summary_dm", { creator })
+        : _t("timeline|creation_summary_room", { creator });
+    return (
+        <div key={key}>
+            {/* The row is already the list item, so the intro is a plain block in it. */}
+            <NewRoomIntro as="div" />
+            <GenericEventListSummary
+                as="div"
+                events={events}
+                summaryMembers={last.sender ? [last.sender] : undefined}
+                getSummaryText={() => summaryText}
+                layout={ctx.effectiveLayout}
+            >
+                {events.map((event) => (
+                    <li key={event.getId()}>
+                        {renderTimelineItem(
+                            { kind: "event", key: event.getId()!, event, continuation: false, lastInSection: true },
+                            ctx,
+                        )}
+                    </li>
+                ))}
+            </GenericEventListSummary>
+        </div>
+    );
+}
+
 /** Draws one timeline row. Kept outside the component so it isn't redefined per render. */
 function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNode {
     switch (item.kind) {
@@ -139,6 +177,7 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNo
             return null;
         case "event-group": {
             const events = item.events as MatrixEvent[];
+            if (item.variant === "creation") return renderCreation(item.key, events, ctx);
             return (
                 <EventListSummary key={item.key} as="div" events={events} layout={ctx.effectiveLayout}>
                     {events.map((event) => (

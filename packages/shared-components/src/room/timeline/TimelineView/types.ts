@@ -38,12 +38,17 @@ export interface EventTimelineItem {
     sendState?: EventSendState;
 }
 
-/** Consecutive membership events represented by an expandable summary row. */
+/** Consecutive events represented by an expandable summary row. */
 export interface EventGroupTimelineItem {
     key: string;
     kind: "event-group";
     /** Included events in timeline order; the application supplies their summary renderer. */
     events: TimelineEvent[];
+    /**
+     * What the events have in common: a run of memberships, the default, or the room being created and set up by
+     * the person who created it.
+     */
+    variant?: "membership" | "creation";
 }
 
 /** The send states a tile draws differently. */
