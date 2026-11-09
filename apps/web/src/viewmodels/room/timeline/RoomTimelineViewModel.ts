@@ -343,6 +343,13 @@ export class RoomTimelineViewModel
     private lastReceiptTargetId: string | null = null;
 
     /**
+     * Our receipt on the server, as last seen. The room can lose track of it after a gap in sync, once the event it is
+     * on leaves the room's timelines, while the window kept from before still holds that event. See
+     * {@link serverReceiptEventId}.
+     */
+    private knownServerReceiptId: string | null = null;
+
+    /**
      * The 0-based index (into the items array) of the topmost currently-visible item.
      * Updated on every `onVisibleRangeChanged` call; used to derive `canJumpToReadMarker`.
      */
@@ -512,6 +519,7 @@ export class RoomTimelineViewModel
         );
         // Other users' read receipts moving.
         this.disposables.trackListener(this.opts.room, RoomEvent.Receipt, this.onRoomReceipt);
+        this.serverReceiptEventId();
         // Messages removed, or their removal undone, which changes whether and how their rows are drawn. A removal
         // the server sends also arrives as a timeline event, but one applied here, such as by a retention policy, and
         // a cancelled one do not.
@@ -700,8 +708,19 @@ export class RoomTimelineViewModel
 
     /** Someone's read receipt moved. Only the receipts change, so the rows are left alone. */
     private onRoomReceipt = (): void => {
+        this.serverReceiptEventId();
         this.updateReadReceipts("receipt");
     };
+
+    /**
+     * Our receipt on the server, or the last one seen if the room no longer knows it. As in the old timeline, the
+     * receipt the SDK makes up for our own messages does not count: the server may have none for them yet.
+     */
+    private serverReceiptEventId(): string | null {
+        const receipt = this.opts.room.getEventReadUpTo(this.opts.client.getSafeUserId(), true);
+        if (receipt) this.knownServerReceiptId = receipt;
+        return receipt ?? this.knownServerReceiptId;
+    }
 
     private onRoomStateUpdate = (state: RoomState): void => {
         if (state.roomId !== this.opts.room.roomId) return;
@@ -1460,15 +1479,14 @@ export class RoomTimelineViewModel
 
     /**
      * Whether `event` comes after both the receipt sent from here and our receipt on the server, which another device,
-     * or an earlier visit, may have moved on; see {@link comesAfter}. As in the old timeline, the receipt the SDK makes
-     * up for our own messages does not count: the server may have none for them yet.
+     * or an earlier visit, may have moved on; see {@link comesAfter} and {@link serverReceiptEventId}.
      */
     private isAfterReceipts(event: MatrixEvent): boolean {
         const eventId = event.getId();
         if (!eventId) return false;
         return (
             this.comesAfter(eventId, this.lastSentReceiptEventId) &&
-            this.comesAfter(eventId, this.opts.room.getEventReadUpTo(this.opts.client.getSafeUserId(), true))
+            this.comesAfter(eventId, this.serverReceiptEventId())
         );
     }
 
