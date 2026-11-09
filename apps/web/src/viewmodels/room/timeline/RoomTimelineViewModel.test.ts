@@ -2275,6 +2275,46 @@ describe("RoomTimelineViewModel", () => {
             await vi.waitFor(() => expect(writes()).toEqual(["$m2", "$m5"]));
         });
 
+        /** A visit to the room whose marker writes may take only a moment before later ones go ahead. */
+        const impatientVisit = async (): Promise<RoomTimelineViewModel> => {
+            const vm = new RoomTimelineViewModel({ client, room, readMarkerWriteTimeoutMs: 50 });
+            vms.push(vm);
+            vm.start();
+            await vi.waitFor(() => expect(vm.getSnapshot().items.length).toBeGreaterThan(0));
+            vm.onAnchorReached();
+            return vm;
+        };
+
+        it("writes the same message again after a write that took too long", async () => {
+            startsActive();
+            holdNextWrite();
+            seedTimeline(messages(6));
+            markerAt("$m0");
+            const vm = await impatientVisit();
+
+            shows(vm, "$m0", "$m5");
+
+            await vi.waitFor(() => expect(writes()).toEqual(["$m5", "$m5"]));
+        });
+
+        it("lets the marker move to an earlier message once a write that took too long fails after all", async () => {
+            startsActive();
+            const first = holdNextWrite();
+            seedTimeline(messages(6));
+            markerAt("$m0");
+            const vm = await impatientVisit();
+            shows(vm, "$m0", "$m5");
+            await vi.waitFor(() => expect(writes()).toEqual(["$m5"]));
+
+            // The reader goes back up while that write may still land: nothing is written behind it meanwhile.
+            shows(vm, "$m0", "$m2");
+            await new Promise((r) => setTimeout(r, 150));
+            expect(writes()).toEqual(["$m5"]);
+
+            first.fail();
+            await vi.waitFor(() => expect(writes()).toEqual(["$m5", "$m2"]));
+        });
+
         it("tries again when moving the marker fails", async () => {
             vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
                 timer.start();

@@ -418,9 +418,14 @@ export class RoomTimelineViewModel
     /**
      * Each room's fully read marker writes, in order, across view models, so a write made before the reader left a room
      * cannot land after one made since they came back. Keyed by the room object, which the client keeps for as long as
-     * it knows the room. `written` is the last marker written there, a floor for the next view model's own marker.
+     * it knows the room. `confirmed` is the last marker the server took there, which raises the next view model's own
+     * marker. `floor` is the last one that may have landed, including one that took too long: nothing is written
+     * behind it, though it may be written again.
      */
-    private static readonly readMarkerWrites = new WeakMap<Room, { queue: Promise<void>; written?: string }>();
+    private static readonly readMarkerWrites = new WeakMap<
+        Room,
+        { queue: Promise<void>; confirmed?: string; floor?: string }
+    >();
 
     /**
      * Count of new live messages that arrived since the user last reached the
@@ -686,25 +691,39 @@ export class RoomTimelineViewModel
         const state = writes.get(room) ?? { queue: Promise.resolve() };
         writes.set(room, state);
         const write = state.queue.then(async (): Promise<void> => {
-            if (state.written && this.comesAfter(state.written, this.readMarkerEventId)) {
-                this.readMarkerEventId = state.written;
+            if (state.confirmed && this.comesAfter(state.confirmed, this.readMarkerEventId)) {
+                this.readMarkerEventId = state.confirmed;
             }
             if (!this.maySendReadState() || !this.comesAfter(eventId, this.readMarkerEventId)) return;
-            // Past the last marker written here too, whatever this view knows of it: one that cannot be placed against
-            // it, such as in history it is no longer among, is left for later.
-            if (state.written && !this.comesAfter(eventId, state.written)) return;
+            // Not behind a marker that may have landed, whatever this view knows of it: one that cannot be placed
+            // against it, such as in history it is no longer among, is left for later.
+            if (state.floor && eventId !== state.floor && !this.comesAfter(eventId, state.floor)) return;
             debug(`[TimelineVM] writeReadMarker — fully read marker to ${eventId}`);
             const previous = this.readMarkerEventId;
             this.readMarkerEventId = eventId;
             this.sentReadMarkerIds.add(eventId);
+            const request = this.opts.client.setRoomReadMarkers(room.roomId, eventId);
             const settled = await settleWithin(
-                this.opts.client.setRoomReadMarkers(room.roomId, eventId),
+                request,
                 this.opts.readMarkerWriteTimeoutMs ?? READ_MARKER_WRITE_TIMEOUT_MS,
             );
-            if (settled.outcome !== "failed") {
-                // Written, or it may still be: either way nothing may be written behind it from now on. A write that
-                // never ends then holds up no later one.
-                state.written = eventId;
+            if (settled.outcome === "done") {
+                state.confirmed = eventId;
+                state.floor = eventId;
+            } else if (settled.outcome === "timed out") {
+                // It may still land, so nothing goes behind it from now on, but later writes no longer wait for it, and
+                // the marker here stays where it was, so the same message is written again. Should it fail after all,
+                // the floor drops back.
+                state.floor = eventId;
+                if (this.readMarkerEventId === eventId) this.readMarkerEventId = previous;
+                request.then(
+                    () => {
+                        state.confirmed = eventId;
+                    },
+                    () => {
+                        if (state.floor === eventId) state.floor = state.confirmed;
+                    },
+                );
             } else {
                 logger.warn(`[TimelineVM] writeReadMarker — setRoomReadMarkers failed`, settled.error);
                 this.sentReadMarkerIds.delete(eventId);
