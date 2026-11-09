@@ -2204,7 +2204,7 @@ describe("RoomTimelineViewModel", () => {
             expect(localStorage.getItem(`timeline_scroll_${ROOM_ID}`)).toBeNull();
         });
 
-        it("moves the unread marker to what the reader actually saw", async () => {
+        it("leaves the unread marker where it was when the reader leaves, as the old timeline does", async () => {
             seedTimeline([makeMessage("$a"), makeMessage("$b")]);
             const vm = await createStartedViewModel();
             vm.onAnchorReached();
@@ -2212,7 +2212,8 @@ describe("RoomTimelineViewModel", () => {
 
             vm.dispose();
 
-            expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$b");
+            // It moves on only once the reader has been around for a while; see "the fully read marker".
+            expect(client.setRoomReadMarkers).not.toHaveBeenCalled();
         });
 
         it("leaves a saved position alone when nothing was ever visible", async () => {
@@ -2516,10 +2517,34 @@ describe("RoomTimelineViewModel", () => {
             vm.onAtBottomStateChange(false);
             vm.dispose();
             expect(localStorage.getItem(`timeline_scroll_${ROOM_ID}`)).toBe("$b");
-            expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$b");
         });
 
-        it("moves the receipt and marker onto a message of ours once the server confirms it", async () => {
+        it("never moves the fully read marker onto a message still being sent", async () => {
+            vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
+                if (key === "sendReadReceipts") return true;
+                if (key === "readMarkerInViewThresholdMs" || key === "readMarkerOutOfViewThresholdMs") return 20;
+                return undefined;
+            });
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            room.addAccountData([
+                new MatrixEvent({ type: EventType.FullyRead, room_id: ROOM_ID, content: { event_id: "$a" } }),
+            ]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            addPendingMessage("~pending");
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("~pending"));
+
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+
+            await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$b"));
+            await new Promise((r) => setTimeout(r, 100));
+            expect(vi.mocked(client.setRoomReadMarkers).mock.calls.map(([, eventId]) => eventId)).toEqual(["$b"]);
+        });
+
+        it("moves the receipt onto a message of ours once the server confirms it", async () => {
             seedTimeline([makeMessage("$a", { ts: 1000 })]);
             const vm = await createStartedViewModel();
             vm.onAnchorReached();
@@ -2537,8 +2562,6 @@ describe("RoomTimelineViewModel", () => {
                 () => expect(vi.mocked(client.sendReadReceipt).mock.calls.at(-1)?.[0]?.getId()).toBe("$real"),
                 { timeout: 2000 },
             );
-            vm.dispose();
-            expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$real");
         });
 
         it("says how far a message being sent has got", async () => {

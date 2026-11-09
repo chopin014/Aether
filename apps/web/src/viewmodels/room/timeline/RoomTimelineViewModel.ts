@@ -352,7 +352,7 @@ export class RoomTimelineViewModel
      * The Matrix event ID of the room's "fully read" marker. null when none is set.
      * Tracked via `RoomEvent.AccountData` / `EventType.FullyRead`. Reflects server
      * state and may change mid-session if another device advances the marker, or when we
-     * move it on ({@link moveReadMarkerOn}); used by {@link dispose} and {@link onMarkAllAsRead}
+     * move it on ({@link moveReadMarkerOn}); used by {@link onMarkAllAsRead}
      * but NOT by the UI.
      */
     private readMarkerEventId: string | null = null;
@@ -944,7 +944,7 @@ export class RoomTimelineViewModel
         if (ev.getType() !== EventType.FullyRead) return;
         const newMarker = (ev.getContent()?.event_id as string | undefined) ?? null;
         if (newMarker === this.readMarkerEventId) return;
-        // Track the server-side marker so dispose() can avoid redundant writes,
+        // Track the server-side marker so it is never moved back or written again,
         // but don't touch frozenMarkerEventId — the visible divider position is
         // pinned for the session. If the user wants the marker line to reflect
         // changes another device made mid-session they can leave and re-enter.
@@ -1702,19 +1702,8 @@ export class RoomTimelineViewModel
             RoomTimelineViewModel.saveScrollTarget(this.opts.room.roomId, this.lastBottomEventId);
         }
 
-        // Advance the FullyRead marker to the last bottommost event we saw.
-        // Skip if it already matches what we last advanced to (avoids redundant network calls), and never move it
-        // back, such as when the reader leaves while scrolled up to older messages.
-        if (
-            this.maySendReadState() &&
-            this.lastBottomEventId !== this.readMarkerEventId &&
-            this.readMarkerPosition() !== 1
-        ) {
-            debug(`[TimelineVM] dispose() — advancing FullyRead marker to ${this.lastBottomEventId}`);
-            this.opts.client.setRoomReadMarkers(this.opts.room.roomId, this.lastBottomEventId).catch((err) => {
-                logger.warn(`[TimelineVM] dispose() — setRoomReadMarkers failed`, err);
-            });
-        }
+        // The fully read marker is left alone: it moves on only once the reader has been around for a while, as in
+        // the old timeline (see moveReadMarkerOnWhileActive), so a glance at a room keeps its unread line.
 
         super.dispose();
     }
