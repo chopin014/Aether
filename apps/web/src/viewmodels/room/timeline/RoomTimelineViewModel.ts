@@ -10,7 +10,6 @@ import {
     Direction,
     RoomEvent,
     EventType,
-    EventStatus,
     MatrixEventEvent,
     NotificationCountType,
     ReceiptType,
@@ -28,7 +27,6 @@ import { logger } from "matrix-js-sdk/src/logger";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 
 import type {
-    EventSendState,
     TimelineViewSnapshot,
     TimelineViewActions,
     TimelineItem,
@@ -50,8 +48,18 @@ import {
     type ShownReadReceipt,
 } from "../../../utils/read-receipts";
 import type { IReadReceiptProps } from "../../../components/views/rooms/EventTile";
+import { ModuleApi } from "../../../modules/Api";
+import { sendStateOf } from "./sendState";
 
 const DEBUG_TIMELINE = false;
+
+/** State changes summed up with the events like them around them, as in the old timeline's `MainGrouper`. */
+const SUMMARISED_STATE_TYPES: ReadonlySet<string> = new Set([
+    EventType.RoomMember,
+    EventType.RoomThirdPartyInvite,
+    EventType.RoomServerAcl,
+    EventType.RoomPinnedEvents,
+]);
 
 /** Emits a trace line only when {@link DEBUG_TIMELINE} is on. */
 const debug = (message: string): void => {
@@ -60,26 +68,6 @@ const debug = (message: string): void => {
 
 /** How long after the last scroll event to wait before sending a read receipt (ms). */
 const READ_RECEIPT_DEBOUNCE_MS = 500;
-
-/**
- * The send state of a row's message, read as `MessagePanel` reads it for the old timeline: the
- * associated status also covers our pending edit or redaction of a message the server already has.
- */
-function sendStateOf(event: MatrixEvent): EventSendState | undefined {
-    switch (event.getAssociatedStatus()) {
-        case EventStatus.ENCRYPTING:
-            return "encrypting";
-        case EventStatus.QUEUED:
-        case EventStatus.SENDING:
-            return "sending";
-        case EventStatus.SENT:
-            return "sent";
-        case EventStatus.NOT_SENT:
-            return "failed";
-        default:
-            return undefined;
-    }
-}
 
 const PAGINATE_SIZE = 100;
 const INITIAL_SIZE = 100;
@@ -220,6 +208,8 @@ export class RoomTimelineViewModel
 
     /** Set while a rebuild is queued for the next microtask; see {@link scheduleRebuild}. */
     private rebuildQueued = false;
+    /** Set when a rebuild was asked for while a load ran, so it still happens if the load ends without building. */
+    private rebuildAfterLoad = false;
     /** Whether the reader is going to the unread line, which has a row whatever its event is grouped in. */
     private navigationToReadMarker = false;
     /** Whether the view has placed the reader since the window was last loaded, so rows shown are being read. */
@@ -286,8 +276,8 @@ export class RoomTimelineViewModel
     private baseItems: TimelineItem[] = [];
 
     /** Keep a summary's identity when history is added on either side. */
-    private readonly membershipGroupKeys = new WeakMap<MatrixEvent, string>();
-    private membershipGroupSequence = 0;
+    private readonly summaryGroupKeys = new WeakMap<MatrixEvent, string>();
+    private summaryGroupSequence = 0;
 
     /** A permalink or saved position must remain an individually addressable event row. */
     private navigationEventId: string | null = null;
@@ -476,6 +466,19 @@ export class RoomTimelineViewModel
         );
         // Other users' read receipts moving.
         this.disposables.trackListener(this.opts.room, RoomEvent.Receipt, this.onRoomReceipt);
+        // Messages removed, or their removal undone, which changes whether and how their rows are drawn. A removal
+        // the server sends also arrives as a timeline event, but one applied here, such as by a retention policy, and
+        // a cancelled one do not.
+        this.disposables.trackListener(
+            this.opts.room,
+            RoomEvent.Redaction,
+            this.onRoomRedaction as (...args: unknown[]) => void,
+        );
+        this.disposables.trackListener(
+            this.opts.room,
+            RoomEvent.RedactionCancelled,
+            this.onRoomRedaction as (...args: unknown[]) => void,
+        );
         // The SDK starting a new live timeline after a gap in sync. The room re-emits it from its timeline sets.
         this.disposables.trackListener(
             this.opts.room,
@@ -749,6 +752,16 @@ export class RoomTimelineViewModel
      * {@link onRoomTimeline} extends the window to hold it); a rebuild in between would find it in
      * neither and drop its row for a frame.
      */
+    /** A message was removed, or its removal undone: rebuild if it is in the window, as the old timeline redraws. */
+    private onRoomRedaction = (redaction: MatrixEvent): void => {
+        if (this.isDisposed) return;
+        const redactedId = redaction.event.redacts ?? redaction.getContent().redacts;
+        if (typeof redactedId === "string" && !this.timelineWindow.getEvents().some((e) => e.getId() === redactedId)) {
+            return;
+        }
+        this.scheduleRebuild();
+    };
+
     private onLocalEchoUpdated = (event: MatrixEvent, _room: Room, oldEventId?: string): void => {
         if (this.isDisposed) return;
         // Keep the row's continuation decision, so its avatar does not flip when the id changes.
@@ -765,16 +778,25 @@ export class RoomTimelineViewModel
 
     /**
      * Rebuild and republish on the next microtask. Requests made before it runs share that one
-     * rebuild, so changes fired together publish once. Does nothing while a {@link load} is
-     * running: its own build, when it finishes, includes whatever is pending by then, and a
-     * rebuild in the meantime would publish a half-loaded window without the load's anchor.
+     * rebuild, so changes fired together publish once. Waits while a {@link load} is running: its
+     * own build, when it finishes, includes whatever is pending by then, and a rebuild in the
+     * meantime would publish a half-loaded window without the load's anchor. A load that ends
+     * without building, such as one that fails, rebuilds afterwards instead.
      */
     private scheduleRebuild(): void {
-        if (this.rebuildQueued || this.loading) return;
+        if (this.loading) {
+            this.rebuildAfterLoad = true;
+            return;
+        }
+        if (this.rebuildQueued) return;
         this.rebuildQueued = true;
         queueMicrotask(() => {
             this.rebuildQueued = false;
-            if (this.isDisposed || this.loading) return;
+            if (this.isDisposed) return;
+            if (this.loading) {
+                this.rebuildAfterLoad = true;
+                return;
+            }
             const rowCountBefore = this.snapshot.current.items.length;
             this.commitItems(this.buildItems());
             this.republish("local-echo", {
@@ -915,6 +937,8 @@ export class RoomTimelineViewModel
             // Snapshot the read-marker for the duration of this session. Must run
             // BEFORE buildItems so it sees the frozen value.
             this.freezeReadMarkerForSession();
+            // This build takes in every change asked for while the load ran.
+            this.rebuildAfterLoad = false;
             const items = this.buildItems();
             debug(`[TimelineVM] load() done — ${windowEvents.length} events → ${items.length} items after filtering`);
 
@@ -926,7 +950,7 @@ export class RoomTimelineViewModel
             // the live-end anchor below.
             if (target.kind === "permalink" && target.toReadMarker && items.some((i) => i.kind === "read-marker")) {
                 // Going to the unread line lands on the line, wherever its event is drawn.
-                pendingAnchor = { targetKey: "read-marker", align: "center" };
+                pendingAnchor = { targetKey: "read-marker", align: "third" };
             } else if (target.kind === "permalink") {
                 if (items.some((i) => i.key === target.eventId)) {
                     pendingAnchor = { targetKey: target.eventId, align: "center" };
@@ -992,7 +1016,14 @@ export class RoomTimelineViewModel
             this.forwardSpinnerVisible = false;
             this.republish(`load(${target.kind})-error`);
         } finally {
-            if (generation === this.loadGeneration) this.loading = false;
+            if (generation === this.loadGeneration) {
+                this.loading = false;
+                // A load that ended without building, such as one that failed, leaves those changes to draw now.
+                if (this.rebuildAfterLoad) {
+                    this.rebuildAfterLoad = false;
+                    this.scheduleRebuild();
+                }
+            }
         }
     }
 
@@ -1290,7 +1321,7 @@ export class RoomTimelineViewModel
             this.supersedeLoads();
             this.navigationEventId = this.frozenMarkerEventId;
             this.navigationToReadMarker = true;
-            this.mergeSnapshot({ pendingAnchor: { targetKey: marker.key, align: "center" } }, "jump-to-marker");
+            this.mergeSnapshot({ pendingAnchor: { targetKey: marker.key, align: "third" } }, "jump-to-marker");
         } else if (this.frozenMarkerEventId) {
             void this.load({ kind: "permalink", eventId: this.frozenMarkerEventId, toReadMarker: true });
         }
@@ -1372,7 +1403,8 @@ export class RoomTimelineViewModel
             this.supersedeLoads();
             this.navigationEventId = this.frozenMarkerEventId;
             this.navigationToReadMarker = true;
-            scrollNow({ targetKey: readMarkerKey, align: "center" });
+            // A third of the way down, as the old timeline places the line, with the unread messages below it.
+            scrollNow({ targetKey: readMarkerKey, align: "third" });
         } else if (this.frozenMarkerEventId && this.timelineWindow.canPaginate(Direction.Backward)) {
             // Frozen marker is not in the current window — reload at it.
             // pendingAnchor gets set inside load() and drives the post-load scroll.
@@ -2010,7 +2042,7 @@ export class RoomTimelineViewModel
                 `filtered=${filteredCount}`,
         );
 
-        return this.compactMembershipItems(this.groupRoomCreation(items, events, showHiddenEvents));
+        return this.groupSummarisedItems(this.groupRoomCreation(items, events, showHiddenEvents));
     }
 
     /**
@@ -2147,43 +2179,52 @@ export class RoomTimelineViewModel
         return [];
     }
 
-    /** Collapse membership runs without hiding exact navigation or read-marker targets. */
-    private compactMembershipItems(items: TimelineItem[]): TimelineItem[] {
+    /**
+     * Sum up runs of events as the old timeline's `MainGrouper` does: each run of events {@link isSummarised} on one
+     * day becomes one summary row, however short. A summary of fewer than three events shows the events themselves.
+     * An event the reader is being taken to keeps a row of its own, so there is a row to land on. A read marker on an
+     * event in a run follows the whole summary, as in the old timeline. A summary that opens the room as far back as
+     * the reader can see is marked `startsHistory`, as the old timeline then says why there is nothing earlier.
+     */
+    private groupSummarisedItems(items: TimelineItem[]): TimelineItem[] {
         const result: TimelineItem[] = [];
         const usedKeys = new Set<string>();
         let run: Extract<TimelineItem, { kind: "event" }>[] = [];
+        // The read marker on an event in the current run, put after its summary.
+        let marker: TimelineItem | undefined;
         const flush = (): void => {
-            if (run.length < 3) {
-                result.push(...run);
-            } else {
-                const events = run.map((item) => item.event as MatrixEvent);
-                // Remember every member so trimming away the original first event does not
-                // remount the summary. A split may reuse its old key only once in this list.
-                const keyedEvent = events.find((event) => {
-                    const key = this.membershipGroupKeys.get(event);
-                    return key !== undefined && !usedKeys.has(key);
-                });
-                const key = keyedEvent
-                    ? this.membershipGroupKeys.get(keyedEvent)!
-                    : `membership-summary-${run[0].key}-${this.membershipGroupSequence++}`;
-                usedKeys.add(key);
-                for (const event of events) this.membershipGroupKeys.set(event, key);
-                result.push({ kind: "event-group", key, events });
-            }
+            if (run.length === 0) return;
+            const events = run.map((item) => item.event as MatrixEvent);
+            // Remember every event so trimming away the original first event does not
+            // remount the summary. A split may reuse its old key only once in this list.
+            const keyedEvent = events.find((event) => {
+                const key = this.summaryGroupKeys.get(event);
+                return key !== undefined && !usedKeys.has(key);
+            });
+            const key = keyedEvent
+                ? this.summaryGroupKeys.get(keyedEvent)!
+                : `summary-${run[0].key}-${this.summaryGroupSequence++}`;
+            usedKeys.add(key);
+            for (const event of events) this.summaryGroupKeys.set(event, key);
+            // Each event's own row comes along, so it is drawn inside the summary as it would be on its own.
+            result.push({ kind: "event-group", key, events, rows: run });
+            if (marker) result.push(marker);
             run = [];
+            marker = undefined;
         };
+        // Going to the unread line lands on the line, wherever its event is drawn.
         const protectedIds = new Set([
-            this.navigationEventId,
-            this.frozenMarkerEventId,
+            this.navigationToReadMarker ? null : this.navigationEventId,
             this.snapshot.current.highlightedEventId,
             this.snapshot.current.pendingAnchor?.targetKey,
         ]);
         for (const item of items) {
-            if (
+            if (item.kind === "read-marker" && run.length > 0) {
+                marker = item;
+            } else if (
                 item.kind === "event" &&
                 !protectedIds.has(item.key) &&
-                (item.event as MatrixEvent).isState() &&
-                (item.event as MatrixEvent).getType() === EventType.RoomMember
+                this.isSummarised(item.event as MatrixEvent)
             ) {
                 if (
                     run.length > 0 &&
@@ -2199,7 +2240,25 @@ export class RoomTimelineViewModel
             }
         }
         flush();
+        if (!this.timelineWindow.canPaginate(Direction.Backward)) {
+            const first = result.find((item) => item.kind === "event" || item.kind === "event-group");
+            if (first?.kind === "event-group" && first.variant === undefined) first.startsHistory = true;
+        }
         return result;
+    }
+
+    /**
+     * Whether an event is summed up with the events like it around it, as in the old timeline's `MainGrouper`:
+     * membership and similar state changes, removed messages, and messages a module sums up itself.
+     *
+     * The old timeline also sums up events drawn only because hidden events are shown. Here the only such event is a
+     * membership that changed nothing, which is summed up as a membership; the others are not drawn at all yet (see
+     * {@link computeInclusion}).
+     */
+    private isSummarised(event: MatrixEvent): boolean {
+        if (event.isState() && SUMMARISED_STATE_TYPES.has(event.getType())) return true;
+        if (event.isRedacted()) return true;
+        return ModuleApi.instance.customComponents.getMessageRenderInfo(event)?.hasGrouping === true;
     }
 
     /**

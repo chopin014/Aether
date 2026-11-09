@@ -9,8 +9,9 @@ import type { Page } from "@playwright/test";
 import { expect, test } from "../../element-web-test";
 import { SettingLevel } from "../../../src/settings/SettingLevel";
 import { Layout } from "../../../src/settings/enums/Layout";
+import { messageList } from "../../pages/timeline";
 
-const roomMessageList = (page: Page) => page.locator(".mx_RoomView_MessageList");
+const roomMessageList = (page: Page) => messageList(page);
 
 test.describe("EventTileView application coverage", () => {
     test.use({
@@ -72,7 +73,7 @@ test.describe("EventTileView application coverage", () => {
             const event = await app.client.sendMessage(roomId, "Interaction target");
             await app.viewRoomById(roomId);
 
-            const tile = page.locator(`.mx_RoomView_MessageList .mx_EventTile[data-event-id='${event.event_id}']`);
+            const tile = messageList(page).locator(`.mx_EventTile[data-event-id='${event.event_id}']`);
             const line = tile.locator(".mx_EventTile_line");
             const actionBar = tile
                 .getByTestId("event-tile-slot-actionBar")

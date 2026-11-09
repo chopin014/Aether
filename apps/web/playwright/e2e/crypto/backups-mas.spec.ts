@@ -12,6 +12,7 @@ import { isDendrite } from "../../plugins/homeserver/dendrite";
 import { TestClientServerAPI } from "../csAPI";
 import { masHomeserver } from "../../plugins/homeserver/synapse/masHomeserver.ts";
 import { checkDeviceIsConnectedKeyBackup } from "./utils";
+import { topLevelTiles } from "../../pages/timeline";
 
 // These tests register an account with MAS because then we go through the "normal" registration flow
 // and crypto gets set up. Using the 'user' fixture create a user and synthesizes an existing login,
@@ -107,9 +108,7 @@ test.describe("Key backup reset from elsewhere", () => {
 
         // Should be the message we sent plus the room creation event
         await expect(page.locator(".mx_EventTile")).toHaveCount(2);
-        await expect(
-            page.locator(".mx_RoomView_MessageList > .mx_EventTile").last().getByRole("status"),
-        ).toHaveAccessibleName("Your message was sent");
+        await expect(topLevelTiles(page).last().getByRole("status")).toHaveAccessibleName("Your message was sent");
 
         // Wait for it to try uploading the key
         await page.clock.fastForward(20000);

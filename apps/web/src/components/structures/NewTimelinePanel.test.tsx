@@ -10,7 +10,14 @@ Please see LICENSE files in the repository root for full details.
 import React from "react";
 import { act, fireEvent, render, screen } from "test-utils-rtl";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { type MatrixClient, type MatrixEvent, PendingEventOrdering, Room, RoomMember } from "matrix-js-sdk/src/matrix";
+import {
+    EventStatus,
+    type MatrixClient,
+    type MatrixEvent,
+    PendingEventOrdering,
+    Room,
+    RoomMember,
+} from "matrix-js-sdk/src/matrix";
 import type { TimelineItem } from "@element-hq/web-shared-components";
 import { createTestClient, mkEvent, mkMembership, mkMessage, TestSDKContext } from "test-utils";
 
@@ -26,6 +33,11 @@ import DMRoomMap from "../../utils/DMRoomMap";
 // The room's introduction has its own tests and needs the whole room view around it.
 vi.mock("../views/rooms/NewRoomIntro", () => ({
     default: ({ as }: { as?: string }) => <div data-testid="new-room-intro" data-as={as} />,
+}));
+
+// Says why earlier history cannot be seen, from the room in the room view around it.
+vi.mock("../views/rooms/HistoryTile", () => ({
+    default: () => <div data-testid="history-tile" />,
 }));
 
 const ROOM_ID = "!room:example.org";
@@ -339,6 +351,92 @@ describe("<NewTimelinePanel />", () => {
         expect(screen.queryAllByTestId("event-row")).toHaveLength(0);
     });
 
+    it("shows a summary of one event as that event, inside the summary, as the old timeline does", () => {
+        const user = "@member:example.org";
+        const event = mkMembership({
+            room: ROOM_ID,
+            user,
+            skey: user,
+            mship: "join",
+            event: true,
+            target: new RoomMember(ROOM_ID, user),
+        });
+        withItems([{ key: `summary-${event.getId()}-0`, kind: "event-group", events: [event] }]);
+        const { container } = renderPanel();
+        const summary = container.querySelector(".mx_GenericEventListSummary");
+        expect(summary).toHaveAttribute("data-expanded", "true");
+        expect(summary).toHaveAttribute("data-layout", "group");
+        expect(screen.queryByRole("button", { name: "Expand" })).not.toBeInTheDocument();
+        expect(summary?.querySelectorAll("ol > li [data-testid='event-row']")).toHaveLength(1);
+        expect(tileProps.current.map((props) => props.mxEvent)).toEqual([event]);
+        expect(screen.queryByTestId("history-tile")).not.toBeInTheDocument();
+    });
+
+    it("draws each tile in a summary from its own row", () => {
+        const first = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "first", event: true });
+        const second = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "second", event: true });
+        withItems([
+            {
+                key: "summary-$first-0",
+                kind: "event-group",
+                events: [first, second],
+                rows: [eventRow(first, { lastInSection: false }), eventRow(second, { continuation: true })],
+            } as TimelineItem,
+        ]);
+
+        renderPanel();
+
+        expect(tileProps.current.map((props) => [props.mxEvent, props.continuation, props.lastInSection])).toEqual([
+            [first, false, false],
+            [second, true, true],
+        ]);
+    });
+
+    it("gives each tile in a summary its own send state", () => {
+        // A message a module sums up, still being sent.
+        const sending = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "grouped", event: true });
+        vi.spyOn(sending, "getAssociatedStatus").mockReturnValue(EventStatus.SENDING);
+        withItems([{ key: `summary-${sending.getId()}-0`, kind: "event-group", events: [sending] }]);
+
+        renderPanel();
+
+        expect(tileProps.current.map((props) => [props.mxEvent, props.sendState])).toEqual([[sending, "sending"]]);
+    });
+
+    it("says why nothing earlier can be seen above a summary that opens the room's history", () => {
+        const events = Array.from({ length: 3 }, (_, index) => {
+            const user = `@member${index}:example.org`;
+            return mkMembership({
+                room: ROOM_ID,
+                user,
+                skey: user,
+                mship: "join",
+                event: true,
+                target: new RoomMember(ROOM_ID, user),
+            });
+        });
+        const item: TimelineItem = { key: "summary-$first-0", kind: "event-group", events };
+        withItems([item]);
+        const view = renderPanel();
+        expect(screen.queryByTestId("history-tile")).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+
+        // Paging back reaches the start of what the reader can see.
+        withItems([{ ...item, startsHistory: true }]);
+        view.rerender(
+            <MatrixClientContext.Provider value={client}>
+                <SDKContext.Provider value={new TestSDKContext()}>
+                    <NewTimelinePanel room={room} />
+                </SDKContext.Provider>
+            </MatrixClientContext.Provider>,
+        );
+        const tile = screen.getByTestId("history-tile");
+        expect(tile.nextElementSibling).toHaveClass("mx_GenericEventListSummary");
+        // The summary the reader opened stays open.
+        expect(tile.nextElementSibling).toHaveAttribute("data-expanded", "true");
+        expect(screen.getAllByTestId("event-row")).toHaveLength(3);
+    });
+
     describe("the start of a room", () => {
         const setUp = (): MatrixEvent[] => [
             mkMembership({ room: ROOM_ID, user: USER_ID, skey: USER_ID, mship: "join", event: true }),
@@ -457,6 +555,14 @@ describe("<NewTimelinePanel />", () => {
         expect(screen.getByText(/today/i)).toBeInTheDocument();
     });
 
+    it("styles a date separator as the old timeline does", () => {
+        withItems([{ key: "$sep", kind: "date-separator", ts: Date.now() } as TimelineItem]);
+
+        const { container } = renderPanel();
+
+        expect(container.querySelector(".mx_TimelineSeparator")).toHaveTextContent(/today/i);
+    });
+
     it("draws nothing for a gap, matching the old timeline", () => {
         withItems([{ key: "$gap", kind: "gap" } as TimelineItem]);
 
@@ -465,12 +571,24 @@ describe("<NewTimelinePanel />", () => {
         expect(screen.getByTestId("timeline-stub")).toBeEmptyDOMElement();
     });
 
-    it("falls back to the modern layout when IRC is selected", () => {
+    it("lays messages out as IRC, with the name column's drag handle, when IRC is selected", () => {
         withItems([eventRow(event)]);
 
-        renderPanel({ layout: Layout.IRC });
+        const { container } = renderPanel({ layout: Layout.IRC });
 
-        expect(tileProps.current[0].layout).toBe(Layout.Group);
+        expect(tileProps.current[0].layout).toBe(Layout.IRC);
+        const panel = container.querySelector(".mx_NewTimelinePanel");
+        expect(panel).toHaveClass("mx_IRCLayout");
+        expect(panel?.querySelector(":scope > .mx_ProfileResizer")).not.toBeNull();
+    });
+
+    it("has no IRC name column in other layouts", () => {
+        withItems([eventRow(event)]);
+
+        const { container } = renderPanel({ layout: Layout.Group });
+
+        expect(container.querySelector(".mx_NewTimelinePanel")).not.toHaveClass("mx_IRCLayout");
+        expect(container.querySelector(".mx_ProfileResizer")).toBeNull();
     });
 
     it("passes the message layout through unchanged", () => {
