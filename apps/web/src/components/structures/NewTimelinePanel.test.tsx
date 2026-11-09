@@ -283,6 +283,26 @@ describe("<NewTimelinePanel />", () => {
         expect(screen.queryByTestId("history-tile")).not.toBeInTheDocument();
     });
 
+    it("draws each tile in a summary from its own row", () => {
+        const first = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "first", event: true });
+        const second = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "second", event: true });
+        withItems([
+            {
+                key: "summary-$first-0",
+                kind: "event-group",
+                events: [first, second],
+                rows: [eventRow(first, { lastInSection: false }), eventRow(second, { continuation: true })],
+            } as TimelineItem,
+        ]);
+
+        renderPanel();
+
+        expect(tileProps.current.map((props) => [props.mxEvent, props.continuation, props.lastInSection])).toEqual([
+            [first, false, false],
+            [second, true, true],
+        ]);
+    });
+
     it("gives each tile in a summary its own send state", () => {
         // A message a module sums up, still being sent.
         const sending = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "grouped", event: true });

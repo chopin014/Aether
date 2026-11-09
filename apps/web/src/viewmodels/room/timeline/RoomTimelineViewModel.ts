@@ -209,6 +209,8 @@ export class RoomTimelineViewModel
 
     /** Set while a rebuild is queued for the next microtask; see {@link scheduleRebuild}. */
     private rebuildQueued = false;
+    /** Set when a rebuild was asked for while a load ran, so it still happens if the load ends without building. */
+    private rebuildAfterLoad = false;
     /** Whether the reader is going to the unread line, which has a row whatever its event is grouped in. */
     private navigationToReadMarker = false;
     /** Whether the view has placed the reader since the window was last loaded, so rows shown are being read. */
@@ -465,6 +467,19 @@ export class RoomTimelineViewModel
         );
         // Other users' read receipts moving.
         this.disposables.trackListener(this.opts.room, RoomEvent.Receipt, this.onRoomReceipt);
+        // Messages removed, or their removal undone, which changes whether and how their rows are drawn. A removal
+        // the server sends also arrives as a timeline event, but one applied here, such as by a retention policy, and
+        // a cancelled one do not.
+        this.disposables.trackListener(
+            this.opts.room,
+            RoomEvent.Redaction,
+            this.onRoomRedaction as (...args: unknown[]) => void,
+        );
+        this.disposables.trackListener(
+            this.opts.room,
+            RoomEvent.RedactionCancelled,
+            this.onRoomRedaction as (...args: unknown[]) => void,
+        );
         // The SDK starting a new live timeline after a gap in sync. The room re-emits it from its timeline sets.
         this.disposables.trackListener(
             this.opts.room,
@@ -738,6 +753,16 @@ export class RoomTimelineViewModel
      * {@link onRoomTimeline} extends the window to hold it); a rebuild in between would find it in
      * neither and drop its row for a frame.
      */
+    /** A message was removed, or its removal undone: rebuild if it is in the window, as the old timeline redraws. */
+    private onRoomRedaction = (redaction: MatrixEvent): void => {
+        if (this.isDisposed) return;
+        const redactedId = redaction.event.redacts ?? redaction.getContent().redacts;
+        if (typeof redactedId === "string" && !this.timelineWindow.getEvents().some((e) => e.getId() === redactedId)) {
+            return;
+        }
+        this.scheduleRebuild();
+    };
+
     private onLocalEchoUpdated = (event: MatrixEvent, _room: Room, oldEventId?: string): void => {
         if (this.isDisposed) return;
         // Keep the row's continuation decision, so its avatar does not flip when the id changes.
@@ -754,16 +779,25 @@ export class RoomTimelineViewModel
 
     /**
      * Rebuild and republish on the next microtask. Requests made before it runs share that one
-     * rebuild, so changes fired together publish once. Does nothing while a {@link load} is
-     * running: its own build, when it finishes, includes whatever is pending by then, and a
-     * rebuild in the meantime would publish a half-loaded window without the load's anchor.
+     * rebuild, so changes fired together publish once. Waits while a {@link load} is running: its
+     * own build, when it finishes, includes whatever is pending by then, and a rebuild in the
+     * meantime would publish a half-loaded window without the load's anchor. A load that ends
+     * without building, such as one that fails, rebuilds afterwards instead.
      */
     private scheduleRebuild(): void {
-        if (this.rebuildQueued || this.loading) return;
+        if (this.loading) {
+            this.rebuildAfterLoad = true;
+            return;
+        }
+        if (this.rebuildQueued) return;
         this.rebuildQueued = true;
         queueMicrotask(() => {
             this.rebuildQueued = false;
-            if (this.isDisposed || this.loading) return;
+            if (this.isDisposed) return;
+            if (this.loading) {
+                this.rebuildAfterLoad = true;
+                return;
+            }
             const rowCountBefore = this.snapshot.current.items.length;
             this.commitItems(this.buildItems());
             this.republish("local-echo", {
@@ -904,6 +938,8 @@ export class RoomTimelineViewModel
             // Snapshot the read-marker for the duration of this session. Must run
             // BEFORE buildItems so it sees the frozen value.
             this.freezeReadMarkerForSession();
+            // This build takes in every change asked for while the load ran.
+            this.rebuildAfterLoad = false;
             const items = this.buildItems();
             debug(`[TimelineVM] load() done — ${windowEvents.length} events → ${items.length} items after filtering`);
 
@@ -915,7 +951,7 @@ export class RoomTimelineViewModel
             // the live-end anchor below.
             if (target.kind === "permalink" && target.toReadMarker && items.some((i) => i.kind === "read-marker")) {
                 // Going to the unread line lands on the line, wherever its event is drawn.
-                pendingAnchor = { targetKey: "read-marker", align: "center" };
+                pendingAnchor = { targetKey: "read-marker", align: "third" };
             } else if (target.kind === "permalink") {
                 if (items.some((i) => i.key === target.eventId)) {
                     pendingAnchor = { targetKey: target.eventId, align: "center" };
@@ -981,7 +1017,14 @@ export class RoomTimelineViewModel
             this.forwardSpinnerVisible = false;
             this.republish(`load(${target.kind})-error`);
         } finally {
-            if (generation === this.loadGeneration) this.loading = false;
+            if (generation === this.loadGeneration) {
+                this.loading = false;
+                // A load that ended without building, such as one that failed, leaves those changes to draw now.
+                if (this.rebuildAfterLoad) {
+                    this.rebuildAfterLoad = false;
+                    this.scheduleRebuild();
+                }
+            }
         }
     }
 
@@ -1279,7 +1322,7 @@ export class RoomTimelineViewModel
             this.supersedeLoads();
             this.navigationEventId = this.frozenMarkerEventId;
             this.navigationToReadMarker = true;
-            this.mergeSnapshot({ pendingAnchor: { targetKey: marker.key, align: "center" } }, "jump-to-marker");
+            this.mergeSnapshot({ pendingAnchor: { targetKey: marker.key, align: "third" } }, "jump-to-marker");
         } else if (this.frozenMarkerEventId) {
             void this.load({ kind: "permalink", eventId: this.frozenMarkerEventId, toReadMarker: true });
         }
@@ -1361,7 +1404,8 @@ export class RoomTimelineViewModel
             this.supersedeLoads();
             this.navigationEventId = this.frozenMarkerEventId;
             this.navigationToReadMarker = true;
-            scrollNow({ targetKey: readMarkerKey, align: "center" });
+            // A third of the way down, as the old timeline places the line, with the unread messages below it.
+            scrollNow({ targetKey: readMarkerKey, align: "third" });
         } else if (this.frozenMarkerEventId && this.timelineWindow.canPaginate(Direction.Backward)) {
             // Frozen marker is not in the current window — reload at it.
             // pendingAnchor gets set inside load() and drives the post-load scroll.
@@ -2163,7 +2207,8 @@ export class RoomTimelineViewModel
                 : `summary-${run[0].key}-${this.summaryGroupSequence++}`;
             usedKeys.add(key);
             for (const event of events) this.summaryGroupKeys.set(event, key);
-            result.push({ kind: "event-group", key, events });
+            // Each event's own row comes along, so it is drawn inside the summary as it would be on its own.
+            result.push({ kind: "event-group", key, events, rows: run });
             if (marker) result.push(marker);
             run = [];
             marker = undefined;

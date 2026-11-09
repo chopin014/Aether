@@ -51,6 +51,11 @@ export interface EventGroupTimelineItem {
      */
     variant?: "summary" | "creation" | "gallery";
     /**
+     * The events' own rows, in the same order as `events`, as they would be drawn without the summary: whether each
+     * continues the one before it, and how far sending has got. The application draws each event from its row.
+     */
+    rows?: EventTimelineItem[];
+    /**
      * Set on a summary that opens what the reader can see of the room, so the application can say why there is
      * nothing earlier, such as history hidden from before they joined.
      */
@@ -100,8 +105,11 @@ export const FORWARD_LOADING_KEY = "forward-loading";
 
 // ─── Navigation anchor ─────────────────────────────────────────────
 
-/** Where in the viewport to place the target when scrolling to an anchor. */
-export type AnchorAlign = "start" | "center" | "end";
+/**
+ * Where in the viewport to place the target when scrolling to an anchor. `third` puts the target's end a third of the
+ * way down, as the old timeline places the unread line, leaving the rest of the screen for what follows it.
+ */
+export type AnchorAlign = "start" | "center" | "end" | "third";
 
 export interface NavigationAnchor {
     /** The `TimelineItem.key` to scroll to. */
