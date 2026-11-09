@@ -386,8 +386,8 @@ export class RoomTimelineViewModel
      * reader's receipt; see {@link onRoomAccountData}.
      */
     private awaitingServerReadMarker = false;
-    /** Whether {@link moveReadMarkerOn} has moved the marker during this visit. */
-    private movedReadMarker = false;
+    /** The events {@link moveReadMarkerOn} has moved the marker to during this visit, to know their echoes. */
+    private readonly sentReadMarkerIds = new Set<string>();
 
     /**
      * Count of new live messages that arrived since the user last reached the
@@ -629,7 +629,7 @@ export class RoomTimelineViewModel
         debug(`[TimelineVM] moveReadMarkerOn — fully read marker to ${eventId}`);
         const previous = this.readMarkerEventId;
         this.readMarkerEventId = eventId;
-        this.movedReadMarker = true;
+        this.sentReadMarkerIds.add(eventId);
         try {
             await this.opts.client.setRoomReadMarkers(this.opts.room.roomId, eventId);
         } catch (err) {
@@ -990,14 +990,16 @@ export class RoomTimelineViewModel
         const firstFromServer = this.awaitingServerReadMarker;
         this.awaitingServerReadMarker = false;
         if (newMarker === this.readMarkerEventId) return;
+        // The server telling us of a move made here, perhaps after a later one: the marker is already there or past it.
+        if (newMarker !== null && this.sentReadMarkerIds.has(newMarker)) return;
         // Track the server-side marker so it is never moved back or written again,
         // but don't touch frozenMarkerEventId — the visible divider position is
         // pinned for the session. If the user wants the marker line to reflect
         // changes another device made mid-session they can leave and re-enter.
         this.readMarkerEventId = newMarker;
         // The line was decided before the room's marker had come from the server. The first one to arrive puts it
-        // where it belongs, as in the old timeline, unless the marker has moved on here, so it may be our own.
-        if (firstFromServer && this.readMarkerFrozen && !this.movedReadMarker) {
+        // where it belongs, as in the old timeline, unless the marker has moved on here already.
+        if (firstFromServer && this.readMarkerFrozen && this.sentReadMarkerIds.size === 0) {
             this.readMarkerFrozen = false;
             this.freezeReadMarkerForSession();
             this.scheduleRebuild();
@@ -1662,6 +1664,9 @@ export class RoomTimelineViewModel
         // freeze and drop the divider line.
         this.readMarkerEventId = null;
         this.frozenMarkerEventId = null;
+        // That decides the line for the rest of the visit, even if the room's marker comes from the server only now.
+        this.readMarkerFrozen = true;
+        this.awaitingServerReadMarker = false;
         const newItems = this.buildItems(); // removes the read-marker item
         this.mergeSnapshot({ items: newItems, canJumpToReadMarker: false }, "mark-all-as-read");
     };

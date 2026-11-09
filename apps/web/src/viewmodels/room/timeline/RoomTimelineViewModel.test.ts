@@ -1931,6 +1931,44 @@ describe("RoomTimelineViewModel", () => {
                 await vi.waitFor(() => expect(lineAfter(vm)).toBe("$m2"));
             });
 
+            it("keeps the line away once everything is marked read, even if the room's marker arrives after", async () => {
+                seedTimeline(messages(5));
+                receiptAt("$m1");
+                const vm = await createStartedViewModel();
+                expect(lineAfter(vm)).toBe("$m1");
+
+                vm.onMarkAllAsRead();
+                expect(lineAfter(vm)).toBeUndefined();
+                markerAt("$m2");
+                await new Promise((r) => setTimeout(r, 50));
+
+                expect(lineAfter(vm)).toBeUndefined();
+            });
+
+            it("keeps the line and the marker when the server tells of an earlier move after a later one", async () => {
+                vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                    timer.start();
+                });
+                seedTimeline(messages(5));
+                receiptAt("$m1");
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                shows(vm, "$m0", "$m2");
+                await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$m2"));
+                shows(vm, "$m0", "$m4");
+                await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$m4"));
+
+                // Only now does the first move come back from the server.
+                markerAt("$m2");
+                await new Promise((r) => setTimeout(r, 100));
+
+                expect(lineAfter(vm)).toBe("$m1");
+                expect(vi.mocked(client.setRoomReadMarkers).mock.calls.map(([, eventId]) => eventId)).toEqual([
+                    "$m2",
+                    "$m4",
+                ]);
+            });
+
             it("keeps the line where it was when the marker that arrives is the one moved on here", async () => {
                 vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
                     timer.start();
