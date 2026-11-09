@@ -48,6 +48,36 @@ describe("RoomListSearchView", () => {
         });
     });
 
+    describe("Layout outside the desktop app", () => {
+        // Compound's spacing tokens, which the page defines.
+        const tokens = {
+            "--cpd-space-1x": "4px",
+            "--cpd-space-4x": "16px",
+            "--cpd-space-5x": "20px",
+            "--cpd-space-9x": "36px",
+        } as React.CSSProperties;
+
+        it.each([
+            ["ltr", "paddingLeft", "paddingRight"],
+            ["rtl", "paddingRight", "paddingLeft"],
+        ] as const)(
+            "spaces the search as a Compound button with an icon, when text runs %s",
+            (dir, iconSide, endSide) => {
+                render(
+                    <div dir={dir} style={tokens}>
+                        <Default />
+                    </div>,
+                );
+                const search = getComputedStyle(screen.getByRole("button", { name: /Search/ }));
+
+                expect(search[iconSide]).toBe("16px");
+                expect(search[endSide]).toBe("20px");
+                expect(search.paddingTop).toBe("4px");
+                expect(search.paddingBottom).toBe("4px");
+            },
+        );
+    });
+
     describe("User interactions", () => {
         const onSearchClick = vi.fn();
         const onDialPadClick = vi.fn();
