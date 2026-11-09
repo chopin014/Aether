@@ -176,6 +176,13 @@ export interface RoomTimelineViewModelOpts {
      */
     sendReadReceiptOnLoad?: boolean;
     /**
+     * Whether read receipts and the fully read marker move on by themselves while the reader is active, as in the old
+     * timeline. A room view a module embeds can turn this off, so that they move only when it is focused, through
+     * {@link RoomTimelineViewModel.sendReadReceiptNow} and {@link RoomTimelineViewModel.moveReadMarkerOnNow}. Default
+     * true.
+     */
+    enableReadReceiptsAndMarkersOnActivity?: boolean;
+    /**
      * How long a write of the fully read marker may wait for the server to start answering: 20 seconds by default.
      * The whole write, its answer included, is given up on as failed after twice that; see
      * {@link RoomTimelineViewModel.sendReadMarker}.
@@ -353,6 +360,8 @@ export class RoomTimelineViewModel
     private sendReadReceiptOnLoad: boolean;
     /** Set when a load finishes, so the first range seen once it is placed is read; see `sendReadReceiptOnLoad`. */
     private receiptOnPlacement = false;
+    /** See {@link RoomTimelineViewModelOpts.enableReadReceiptsAndMarkersOnActivity}. */
+    private readonly readStateOnActivity: boolean;
     /** The newest message that came into view while the reader was active, until it is read; see {@link scheduleReadReceipt}. */
     private seenWhileActiveEventId: string | null = null;
 
@@ -487,6 +496,7 @@ export class RoomTimelineViewModel
         this.opts = opts;
         this.showReadReceipts = opts.showReadReceipts ?? true;
         this.sendReadReceiptOnLoad = opts.sendReadReceiptOnLoad ?? false;
+        this.readStateOnActivity = opts.enableReadReceiptsAndMarkersOnActivity ?? true;
         this.timelineWindow = new TimelineWindow(opts.client, opts.room.getUnfilteredTimelineSet(), {
             windowLimit: WINDOW_LIMIT,
         });
@@ -602,7 +612,7 @@ export class RoomTimelineViewModel
             ClientEvent.AccountData,
             this.onClientAccountData as (...args: unknown[]) => void,
         );
-        void this.moveReadMarkerOnWhileActive();
+        if (this.readStateOnActivity) void this.moveReadMarkerOnWhileActive();
     }
 
     /**
@@ -1638,6 +1648,8 @@ export class RoomTimelineViewModel
 
     /** Debounce sending a read receipt for the last visible event. */
     private scheduleReadReceipt(): void {
+        // Otherwise what is on screen is read only when asked; see sendReadReceiptNow.
+        if (!this.readStateOnActivity) return;
         // The old timeline reads what is on screen every half second the reader is active, so a message that comes
         // into view while they are active is read even if they stop before the debounce below ends. Only that message:
         // what comes into view after they stopped waits for them.
@@ -1821,6 +1833,14 @@ export class RoomTimelineViewModel
         this.readReceiptDebounceTimer = null;
         this.seenWhileActiveEventId = null;
         this.sendAutoReadReceipt(false);
+    }
+
+    /**
+     * Move the fully read marker on to the bottommost message the reader sees, now rather than once they have been
+     * active for a while, such as when a room view that moves it only on focus is focused. It never moves back.
+     */
+    public moveReadMarkerOnNow(): void {
+        void this.moveReadMarkerOn();
     }
 
     /** Send the held-back receipt once the user has been active for a moment. */

@@ -2372,6 +2372,61 @@ describe("RoomTimelineViewModel", () => {
             expect(vm.getSnapshot().items[indexOfKey(vm.getSnapshot().items, "$m1") + 1].kind).toBe("read-marker");
         });
 
+        describe("in a room view that moves read state only when focused", () => {
+            const createStartedOnFocusOnly = async (): Promise<RoomTimelineViewModel> => {
+                const vm = new RoomTimelineViewModel({ client, room, enableReadReceiptsAndMarkersOnActivity: false });
+                vms.push(vm);
+                vm.start();
+                await vi.waitFor(() => expect(vm.getSnapshot().items.length).toBeGreaterThan(0));
+                return vm;
+            };
+
+            it("moves neither the marker nor the receipt while the reader is active", async () => {
+                vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                    timer.start();
+                });
+                seedTimeline(messages(5));
+                markerAt("$m1");
+                const vm = await createStartedOnFocusOnly();
+                vm.onAnchorReached();
+                shows(vm, "$m0", "$m4");
+
+                // Past both the marker's wait and the receipt's debounce, with the reader active throughout.
+                await new Promise((r) => setTimeout(r, 700));
+                expect(client.setRoomReadMarkers).not.toHaveBeenCalled();
+                expect(client.sendReadReceipt).not.toHaveBeenCalled();
+            });
+
+            it("moves both on to what the reader sees when the room view is focused", async () => {
+                seedTimeline(messages(5));
+                markerAt("$m1");
+                const vm = await createStartedOnFocusOnly();
+                vm.onAnchorReached();
+                shows(vm, "$m0", "$m4");
+
+                vm.sendReadReceiptNow();
+                vm.moveReadMarkerOnNow();
+
+                await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$m4"));
+                expect(vi.mocked(client.sendReadReceipt).mock.calls.map(([event]) => event?.getId())).toEqual(["$m4"]);
+                // The unread line drawn for this visit stays where it was.
+                expect(vm.getSnapshot().items[indexOfKey(vm.getSnapshot().items, "$m1") + 1].kind).toBe("read-marker");
+            });
+
+            it("never moves the marker back when the room view is focused", async () => {
+                seedTimeline(messages(5));
+                markerAt("$m4");
+                const vm = await createStartedOnFocusOnly();
+                vm.onAnchorReached();
+                shows(vm, "$m0", "$m2");
+
+                vm.moveReadMarkerOnNow();
+
+                await new Promise((r) => setTimeout(r, 50));
+                expect(client.setRoomReadMarkers).not.toHaveBeenCalled();
+            });
+        });
+
         it.each([
             ["sooner while it is on screen", "$m0", true],
             ["later while it is off screen", "$m3", false],

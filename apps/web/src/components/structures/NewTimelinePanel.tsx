@@ -87,6 +87,12 @@ interface NewTimelinePanelProps {
      * active. The room view sets it when the reader opened the room themselves, as for the old timeline.
      */
     sendReadReceiptOnLoad?: boolean;
+    /**
+     * Whether read receipts and the fully read marker move on by themselves while the reader is active. When off, as
+     * in a room view a module embeds, they move only when the room view asks, on focus. Read once, when the panel is
+     * created, as by the old timeline. Default true.
+     */
+    enableReadReceiptsAndMarkersOnActivity?: boolean;
     /** Receives the panel's controls, which the room view uses for shortcuts, sending and editing. */
     panelRef?: Ref<RoomMessagePanel>;
     /**
@@ -331,6 +337,7 @@ export function NewTimelinePanel({
     editState,
     showReadReceipts = true,
     sendReadReceiptOnLoad = false,
+    enableReadReceiptsAndMarkersOnActivity = true,
     panelRef,
     eventScrollIntoView,
     onEventScrolledIntoView,
@@ -376,6 +383,7 @@ export function NewTimelinePanel({
                 initialEventId: highlightedEventId,
                 showReadReceipts,
                 sendReadReceiptOnLoad,
+                enableReadReceiptsAndMarkersOnActivity,
             }),
     );
 
@@ -435,9 +443,8 @@ export function NewTimelinePanel({
                 }
             },
             sendReadReceipts: () => vm.sendReadReceiptNow(),
-            // The unread line stays where it was for the whole visit, as in Element X; the fully-read marker moves
-            // when the room is left, or at once when the reader marks the room as read.
-            updateReadMarker: () => {},
+            // The fully read marker moves on now. The unread line drawn for this visit stays where it is.
+            updateReadMarker: () => vm.moveReadMarkerOnNow(),
         }),
         [vm],
     );
