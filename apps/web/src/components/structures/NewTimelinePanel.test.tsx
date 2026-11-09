@@ -220,6 +220,39 @@ describe("<NewTimelinePanel />", () => {
         expect(tileProps.current[0].mxEvent).toBe(event);
     });
 
+    it("marks the newest event's tile as the last, so its time shows, as in the old timeline", () => {
+        const newer = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "newer", event: true });
+        withItems([eventRow(event), eventRow(newer), { kind: "loading", key: "forward-loading" }]);
+
+        renderPanel();
+
+        expect(tileProps.current.map((props) => [props.mxEvent, props.last])).toEqual([
+            [event, false],
+            [newer, true],
+        ]);
+    });
+
+    it("marks the newest event inside a closing summary as the last", () => {
+        const members = Array.from({ length: 3 }, (_, index) => {
+            const user = `@member${index}:example.org`;
+            return mkMembership({
+                room: ROOM_ID,
+                user,
+                skey: user,
+                mship: "join",
+                event: true,
+                target: new RoomMember(ROOM_ID, user),
+            });
+        });
+        withItems([eventRow(event), { key: "summary", kind: "event-group", events: members }]);
+
+        renderPanel();
+        fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+
+        const lastOf = new Map(tileProps.current.map((props) => [props.mxEvent, props.last]));
+        expect([event, ...members].map((member) => lastOf.get(member))).toEqual([false, false, false, true]);
+    });
+
     it("shows a compact membership group and mounts its individual tiles only when expanded", () => {
         const events = Array.from({ length: 3 }, (_, index) => {
             const user = `@member${index}:example.org`;
