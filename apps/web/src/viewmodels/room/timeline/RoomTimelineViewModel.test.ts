@@ -1822,6 +1822,20 @@ describe("RoomTimelineViewModel", () => {
             });
         });
 
+        it("reads a message that came into view while the user was active, though they stopped before it was sent", async () => {
+            const activity = UserActivity.sharedInstance();
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+
+            vi.mocked(activity.userActiveNow).mockReturnValue(true);
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            vi.mocked(activity.userActiveNow).mockReturnValue(false);
+
+            await flushReceiptDebounce();
+            expect(vi.mocked(client.sendReadReceipt).mock.calls[0][0]?.getId()).toBe("$b");
+        });
+
         it("holds receipts back while the user is away, and sends them once they are back", async () => {
             const activity = UserActivity.sharedInstance();
             vi.mocked(activity.userActiveNow).mockReturnValue(false);

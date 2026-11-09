@@ -312,6 +312,8 @@ export class RoomTimelineViewModel
     private sendReadReceiptOnLoad: boolean;
     /** Set when a load finishes, so the first range seen once it is placed is read; see `sendReadReceiptOnLoad`. */
     private receiptOnPlacement = false;
+    /** Whether the reader was active when what waits for a receipt came into view; see {@link scheduleReadReceipt}. */
+    private seenWhileActive = false;
 
     /**
      * Debouncer for items rebuilds after a burst of Decrypted events.
@@ -1190,10 +1192,15 @@ export class RoomTimelineViewModel
 
     /** Debounce sending a read receipt for the last visible event. */
     private scheduleReadReceipt(): void {
+        // The old timeline reads what is on screen every half second the reader is active, so a message that comes
+        // into view while they are active is read even if they stop before the debounce below ends.
+        if (UserActivity.sharedInstance().userActiveNow()) this.seenWhileActive = true;
         if (this.readReceiptDebounceTimer !== null) clearTimeout(this.readReceiptDebounceTimer);
         this.readReceiptDebounceTimer = setTimeout(() => {
             this.readReceiptDebounceTimer = null;
-            this.sendAutoReadReceipt();
+            const seen = this.seenWhileActive;
+            this.seenWhileActive = false;
+            this.sendAutoReadReceipt(!seen);
         }, READ_RECEIPT_DEBOUNCE_MS);
     }
 
