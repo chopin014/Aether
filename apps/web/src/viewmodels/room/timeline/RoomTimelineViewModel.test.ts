@@ -2760,7 +2760,7 @@ describe("RoomTimelineViewModel", () => {
             expect(items[indexOfKey(items, "$m1") + 1].kind).toBe("read-marker");
         });
 
-        describe("with the reader's own messages after the marker", () => {
+        describe("with messages of the reader's own after the marker", () => {
             const lineAfter = (vm: RoomTimelineViewModel): string | undefined => {
                 const items = vm.getSnapshot().items;
                 const line = items.findIndex((item) => item.kind === "read-marker");
@@ -2779,6 +2779,24 @@ describe("RoomTimelineViewModel", () => {
                 const vm = await createStartedViewModel();
 
                 expect(lineAfter(vm)).toBe("$mine2");
+            });
+
+            it("moves the unread line on to a reply of theirs after others' messages: they have read those", async () => {
+                seedTimeline([...messages(3), mine("$reply"), ...messages(5).slice(3)]);
+                markerAt("$m1");
+
+                const vm = await createStartedViewModel();
+
+                expect(lineAfter(vm)).toBe("$reply");
+            });
+
+            it("draws no unread line when the reader wrote after everything others sent", async () => {
+                seedTimeline([...messages(3), mine("$reply")]);
+                markerAt("$m1");
+
+                const vm = await createStartedViewModel();
+
+                expect(kinds(vm.getSnapshot().items)).not.toContain("read-marker");
             });
 
             it("draws no unread line when only they follow the marker", async () => {

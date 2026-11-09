@@ -2368,9 +2368,10 @@ export class RoomTimelineViewModel
     }
 
     /**
-     * The event the unread line follows: this visit's marker, moved on past the messages of the reader's own that come
-     * straight after it, as the old timeline moves the marker past a message the reader sends. Their own messages are
-     * never news to them, so with only those after the marker there is no line, unless more is still to be loaded.
+     * The event the unread line follows: this visit's marker, or the reader's last own message after it if there is
+     * one. A message of the reader's own means they have read what came before it, as the old timeline moves the marker
+     * on to a message the reader sends, and their own messages are never news to them. So there is a line only when
+     * someone else wrote after that, or when more is still to be loaded.
      * @param events - The loaded events, in order.
      * @param showHiddenEvents - Whether hidden events are shown, as {@link shouldIncludeEvent} takes it.
      */
@@ -2381,13 +2382,19 @@ export class RoomTimelineViewModel
         if (index < 0) return null;
         const me = this.opts.client.getSafeUserId();
         let after = marker;
-        for (const event of events.slice(index + 1)) {
+        let othersAfter = false;
+        for (let i = index + 1; i < events.length; i++) {
+            const event = events[i];
             const eventId = event.getId();
             if (!eventId || !this.shouldIncludeEvent(event, showHiddenEvents)) continue;
-            if (event.getSender() !== me) return after;
-            after = eventId;
+            if (event.getSender() === me) {
+                after = eventId;
+                othersAfter = false;
+            } else {
+                othersAfter = true;
+            }
         }
-        return this.timelineWindow.canPaginate(Direction.Forward) ? after : null;
+        return othersAfter || this.timelineWindow.canPaginate(Direction.Forward) ? after : null;
     }
 
     private buildItems(): TimelineItem[] {
@@ -2466,7 +2473,7 @@ export class RoomTimelineViewModel
             // Insert the read-marker item directly after the event it belongs to.
             // Uses the per-session frozen marker so the divider position never
             // changes during the session (see {@link freezeReadMarkerForSession}),
-            // moved on past the reader's own messages (see {@link unreadLineAfter}).
+            // moved on to the reader's last own message after it (see {@link unreadLineAfter}).
             // Works correctly for wire-encrypted anchors too, because the slot
             // exists immediately.
             if (unreadLineAfter && eventId === unreadLineAfter) {
