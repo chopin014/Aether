@@ -2054,14 +2054,18 @@ export class RoomTimelineViewModel
     }
 
     /**
-     * Tear-down: stop the timers, and save where the reader was.
+     * Tear-down: stop the timers, save where the reader was, and stop listening.
      *
      * - Stops the read receipt, fully read marker and decryption timers.
      * - Saves the bottommost message the reader saw to localStorage, so the next visit
      *   resumes there; clears it when they were at the visual bottom, so the next visit
      *   starts at the live end. With no visible range recorded, the saved position stays.
-     * - Leaves the fully read marker where it is. It moves on only while the reader is
-     *   around ({@link moveReadMarkerOnWhileActive}), so a glance at a room keeps its unread line.
+     * - Starts no write of the fully read marker. Only time spent around the room
+     *   ({@link moveReadMarkerOnWhileActive}) or an explicit {@link onMarkAllAsRead} moves it, so a
+     *   glance at a room keeps its unread line. A write already sent is neither waited for nor
+     *   stopped, so it can still land after this; one waiting its turn is not sent.
+     * - Through `super.dispose()`, marks the view model disposed and releases its room and client
+     *   listeners and its settings watcher.
      */
     public override dispose(): void {
         if (this.readReceiptDebounceTimer !== null) {
