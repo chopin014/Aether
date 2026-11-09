@@ -3911,6 +3911,84 @@ describe("RoomTimelineViewModel", () => {
             expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "~pending"]);
         });
 
+        it("opens a link to a message of ours being sent at the newest messages, where it is shown", async () => {
+            seedTimeline([makeMessage("$a")]);
+            const pending = addPendingMessage("~pending");
+            // Accepted, so a link to it carries the server's id, but not echoed back through sync yet.
+            room.updatePendingEvent(pending, EventStatus.SENT, "$real");
+            // Asking the server where it is would start a timeline holding it alone whenever the server answers before
+            // the echo arrives. The echo would then never reach the live timeline.
+            const getEventTimeline = vi.spyOn(client, "getEventTimeline");
+
+            const vm = await createStartedViewModel("$real");
+
+            expect(getEventTimeline).not.toHaveBeenCalled();
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$real"]);
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$real", align: "center" });
+            expect(vm.getSnapshot().highlightedEventId).toBe("$real");
+
+            // Its echo joins the live timeline, after the messages before it.
+            await receiveRemoteEcho(pending, "$real");
+            await vi.waitFor(() => expect(room.getPendingEvents()).toEqual([]));
+            const liveEvents = room.getLiveTimeline().getEvents();
+            expect(liveEvents.map((event) => event.getId())).toEqual(["$a", "$real"]);
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$real"]));
+        });
+
+        it("takes in the echo of a message being sent that arrives while the link to it loads", async () => {
+            seedTimeline([makeMessage("$a")]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            const pending = addPendingMessage("~pending");
+            room.updatePendingEvent(pending, EventStatus.SENT, "$real");
+            const page = Promise.withResolvers<boolean>();
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockReturnValue(page.promise);
+            const vm = new RoomTimelineViewModel({ client, room, initialEventId: "$real" });
+            vms.push(vm);
+            vm.start();
+
+            // The echo arrives while older messages are fetched to fill the view, after the end of the window filled.
+            await vi.waitFor(() => expect(fetchPage).toHaveBeenCalled());
+            await receiveRemoteEcho(pending, "$real");
+            expect(room.getPendingEvents()).toEqual([]);
+            page.resolve(false);
+
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$real"]));
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$real", align: "center" });
+            expect(vm.getSnapshot().highlightedEventId).toBe("$real");
+            expect(vm.getSnapshot().atLiveEnd).toBe(true);
+        });
+
+        it("loads the link to a message being sent again when sync replaces the live timeline meanwhile", async () => {
+            seedTimeline([makeMessage("$a")]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            const pending = addPendingMessage("~pending");
+            room.updatePendingEvent(pending, EventStatus.SENT, "$real");
+            const page = Promise.withResolvers<boolean>();
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockReturnValue(page.promise);
+            const vm = new RoomTimelineViewModel({ client, room, initialEventId: "$real" });
+            vms.push(vm);
+            vm.start();
+
+            await vi.waitFor(() => expect(fetchPage).toHaveBeenCalled());
+            // After a gap, sync starts a new live timeline, then delivers the echo into it.
+            room.resetLiveTimeline("gap", undefined);
+            await receiveRemoteEcho(pending, "$real");
+            expect(room.getPendingEvents()).toEqual([]);
+            expect(
+                room
+                    .getLiveTimeline()
+                    .getEvents()
+                    .map((event) => event.getId()),
+            ).toEqual(["$real"]);
+            page.resolve(false);
+
+            await vi.waitFor(() => expect(vm.getSnapshot().pendingAnchor).not.toBeNull());
+            expect(eventKeys(vm.getSnapshot().items)).toContain("$real");
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$real", align: "center" });
+            expect(vm.getSnapshot().highlightedEventId).toBe("$real");
+            expect(vm.getSnapshot().atLiveEnd).toBe(true);
+        });
+
         it("does not mix a message being sent into old history", async () => {
             seedTimeline([makeMessage("$a")]);
             const vm = await createStartedViewModel();
