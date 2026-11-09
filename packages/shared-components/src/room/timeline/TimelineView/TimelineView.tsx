@@ -305,9 +305,13 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             // it grew as a message was sent: go back to it, as ScrollPanel does for a reader stuck at the bottom.
             // TanStack only follows rows added while the list is at its end, so without this it would stop for good.
             if (atBottom && !atEnd && following && repinFrameRef.current === undefined) {
+                const scheduledAt = scrollOffset;
                 repinFrameRef.current = requestAnimationFrame(() => {
                     repinFrameRef.current = undefined;
                     if (lastAtBottomRef.current !== true) return;
+                    // The reader may have scrolled up in the meantime, before TanStack has told us: leave them there.
+                    const scroller = scrollerRef.current;
+                    if (!scroller || scroller.scrollTop < scheduledAt - AT_BOTTOM_THRESHOLD_PX) return;
                     const height = v.scrollRect?.height ?? 0;
                     v.scrollToOffset(Math.max(0, v.getTotalSize() - height));
                 });

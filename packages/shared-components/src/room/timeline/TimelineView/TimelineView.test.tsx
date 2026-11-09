@@ -690,6 +690,23 @@ describe("<TimelineView />", () => {
             await waitFor(() => expect(distanceFromBottom(scroller)).toBeLessThanOrEqual(1), { timeout: 2000 });
         });
 
+        it("leaves a reader who scrolls up as rows arrive where they scrolled to", async () => {
+            const { vm, actions, update } = makeFakeVm({ items: eventItems(30) });
+            renderTimeline(vm);
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+            await waitFor(() => expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(true));
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            const scroller = screen.getByTestId("timeline-scroller");
+
+            // A row arrives, moving the end away, and the reader scrolls up before anything has followed it.
+            update({ items: eventItems(31) });
+            scroller.scrollTop = 100;
+
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            expect(scroller.scrollTop).toBeLessThan(200);
+            expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(false);
+        });
+
         it("still tells the view model when the reader scrolls up", async () => {
             const { vm, actions, update } = makeFakeVm({ items: eventItems(30) });
             renderTimeline(vm);
