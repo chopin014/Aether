@@ -1745,6 +1745,21 @@ describe("RoomTimelineViewModel", () => {
             await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a"]));
         });
 
+        it("still redraws a removal made while a load runs, when that load fails", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const loading = Promise.withResolvers<void>();
+            vi.spyOn(TimelineWindow.prototype, "load").mockImplementation(() => loading.promise);
+            vm.showEvent("$unloaded");
+            await vi.waitFor(() => expect(TimelineWindow.prototype.load).toHaveBeenCalled());
+
+            room.tryApplyRedaction(localRemoval("$b"));
+            loading.reject(new Error("The server has no such event"));
+
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a"]));
+        });
+
         it("brings a message's row back when its removal is cancelled", async () => {
             const message = makeMessage("$b");
             seedTimeline([makeMessage("$a"), message]);

@@ -220,6 +220,8 @@ export class RoomTimelineViewModel
 
     /** Set while a rebuild is queued for the next microtask; see {@link scheduleRebuild}. */
     private rebuildQueued = false;
+    /** Set when a rebuild was asked for while a load ran, so it still happens if the load ends without building. */
+    private rebuildAfterLoad = false;
     /** Whether the reader is going to the unread line, which has a row whatever its event is grouped in. */
     private navigationToReadMarker = false;
     /** Whether the view has placed the reader since the window was last loaded, so rows shown are being read. */
@@ -788,16 +790,25 @@ export class RoomTimelineViewModel
 
     /**
      * Rebuild and republish on the next microtask. Requests made before it runs share that one
-     * rebuild, so changes fired together publish once. Does nothing while a {@link load} is
-     * running: its own build, when it finishes, includes whatever is pending by then, and a
-     * rebuild in the meantime would publish a half-loaded window without the load's anchor.
+     * rebuild, so changes fired together publish once. Waits while a {@link load} is running: its
+     * own build, when it finishes, includes whatever is pending by then, and a rebuild in the
+     * meantime would publish a half-loaded window without the load's anchor. A load that ends
+     * without building, such as one that fails, rebuilds afterwards instead.
      */
     private scheduleRebuild(): void {
-        if (this.rebuildQueued || this.loading) return;
+        if (this.loading) {
+            this.rebuildAfterLoad = true;
+            return;
+        }
+        if (this.rebuildQueued) return;
         this.rebuildQueued = true;
         queueMicrotask(() => {
             this.rebuildQueued = false;
-            if (this.isDisposed || this.loading) return;
+            if (this.isDisposed) return;
+            if (this.loading) {
+                this.rebuildAfterLoad = true;
+                return;
+            }
             const rowCountBefore = this.snapshot.current.items.length;
             this.commitItems(this.buildItems());
             this.republish("local-echo", {
@@ -938,6 +949,8 @@ export class RoomTimelineViewModel
             // Snapshot the read-marker for the duration of this session. Must run
             // BEFORE buildItems so it sees the frozen value.
             this.freezeReadMarkerForSession();
+            // This build takes in every change asked for while the load ran.
+            this.rebuildAfterLoad = false;
             const items = this.buildItems();
             debug(`[TimelineVM] load() done — ${windowEvents.length} events → ${items.length} items after filtering`);
 
@@ -1015,7 +1028,14 @@ export class RoomTimelineViewModel
             this.forwardSpinnerVisible = false;
             this.republish(`load(${target.kind})-error`);
         } finally {
-            if (generation === this.loadGeneration) this.loading = false;
+            if (generation === this.loadGeneration) {
+                this.loading = false;
+                // A load that ended without building, such as one that failed, leaves those changes to draw now.
+                if (this.rebuildAfterLoad) {
+                    this.rebuildAfterLoad = false;
+                    this.scheduleRebuild();
+                }
+            }
         }
     }
 
