@@ -1337,9 +1337,16 @@ export class RoomTimelineViewModel
                 );
             }
             if (superseded()) return;
-            // Only the window being shown follows new messages, so those that arrived while this one was filled came
-            // after its end, such as the echo of a message being sent. A window of the newest messages takes them in.
-            if (sdkLoadTarget === undefined) this.catchUpWithLiveEnd(window);
+            if (sdkLoadTarget === undefined) {
+                // Sync can start a new live timeline while this window fills, after a gap in sync. A window of the
+                // newest messages then loads again from the new one, still going where it was going.
+                const liveTimeline = this.opts.room.getUnfilteredTimelineSet().getLiveTimeline();
+                if (window.getTimelineIndex(Direction.Forward)?.timeline !== liveTimeline) return this.load(target);
+                // Only the window being shown follows new messages, so those that arrived while this one was filled
+                // came after its end, such as the echo of a message being sent. A window of the newest messages takes
+                // them in.
+                this.catchUpWithLiveEnd(window);
+            }
             // This is the newest load: its window is shown from now on. Pagination still running on the old window
             // sees the change and stops.
             this.timelineWindow = window;

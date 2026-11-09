@@ -3903,6 +3903,37 @@ describe("RoomTimelineViewModel", () => {
             expect(vm.getSnapshot().atLiveEnd).toBe(true);
         });
 
+        it("loads the link to a message being sent again when sync replaces the live timeline meanwhile", async () => {
+            seedTimeline([makeMessage("$a")]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            const pending = addPendingMessage("~pending");
+            room.updatePendingEvent(pending, EventStatus.SENT, "$real");
+            const page = Promise.withResolvers<boolean>();
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockReturnValue(page.promise);
+            const vm = new RoomTimelineViewModel({ client, room, initialEventId: "$real" });
+            vms.push(vm);
+            vm.start();
+
+            await vi.waitFor(() => expect(fetchPage).toHaveBeenCalled());
+            // After a gap, sync starts a new live timeline, then delivers the echo into it.
+            room.resetLiveTimeline("gap", undefined);
+            await receiveRemoteEcho(pending, "$real");
+            expect(room.getPendingEvents()).toEqual([]);
+            expect(
+                room
+                    .getLiveTimeline()
+                    .getEvents()
+                    .map((event) => event.getId()),
+            ).toEqual(["$real"]);
+            page.resolve(false);
+
+            await vi.waitFor(() => expect(vm.getSnapshot().pendingAnchor).not.toBeNull());
+            expect(eventKeys(vm.getSnapshot().items)).toContain("$real");
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$real", align: "center" });
+            expect(vm.getSnapshot().highlightedEventId).toBe("$real");
+            expect(vm.getSnapshot().atLiveEnd).toBe(true);
+        });
+
         it("does not mix a message being sent into old history", async () => {
             seedTimeline([makeMessage("$a")]);
             const vm = await createStartedViewModel();
