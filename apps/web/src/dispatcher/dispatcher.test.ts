@@ -10,7 +10,7 @@ Please see LICENSE files in the repository root for full details.
 
 import { vi, describe, it, expect } from "vitest";
 
-import defaultDispatcher from "./dispatcher";
+import defaultDispatcher, { MatrixDispatcher } from "./dispatcher";
 import { Action } from "./actions";
 import { AsyncActionPayload } from "./payloads";
 
@@ -66,6 +66,46 @@ describe("MatrixDispatcher", () => {
         defaultDispatcher.dispatch({ action: Action.OnLoggedIn }, true);
 
         expect(fn2).not.toHaveBeenCalled();
+    });
+
+    it("keeps no bookkeeping once a dispatch is over, however many callbacks come and go", () => {
+        const dispatcher = new MatrixDispatcher();
+        for (let i = 0; i < 50; i++) {
+            const token = dispatcher.register(vi.fn());
+            dispatcher.dispatch({ action: Action.OnLoggedIn }, true);
+            dispatcher.unregister(token);
+        }
+        dispatcher.dispatch({ action: Action.OnLoggedIn }, true);
+
+        // Private, so read as the dispatcher holds them: an entry here for every callback ever registered was the leak.
+        const internals = dispatcher as unknown as { isPending: Map<string, boolean>; isHandled: Map<string, boolean> };
+        expect(internals.isPending.size).toBe(0);
+        expect(internals.isHandled.size).toBe(0);
+    });
+
+    it("still lets a callback wait for one that unregistered itself in the same dispatch", () => {
+        const dispatcher = new MatrixDispatcher();
+        const first = dispatcher.register(() => dispatcher.unregister(first));
+        const second = vi.fn(() => dispatcher.waitFor([first]));
+        dispatcher.register(second);
+
+        expect(() => dispatcher.dispatch({ action: Action.OnLoggedIn }, true)).not.toThrow();
+        expect(second).toHaveBeenCalledTimes(1);
+    });
+
+    it("calls a callback registered during a dispatch from the next one", () => {
+        const dispatcher = new MatrixDispatcher();
+        const late = vi.fn();
+        let registered = false;
+        dispatcher.register(() => {
+            if (!registered) dispatcher.register(late);
+            registered = true;
+        });
+
+        dispatcher.dispatch({ action: Action.OnLoggedIn }, true);
+        expect(late).not.toHaveBeenCalled();
+        dispatcher.dispatch({ action: Action.OnLoggedIn }, true);
+        expect(late).toHaveBeenCalledTimes(1);
     });
 
     it("should handle AsyncActionPayload", () => {
