@@ -12,7 +12,7 @@ import { act, fireEvent, render, screen } from "test-utils-rtl";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { type MatrixClient, type MatrixEvent, PendingEventOrdering, Room, RoomMember } from "matrix-js-sdk/src/matrix";
 import type { TimelineItem } from "@element-hq/web-shared-components";
-import { createTestClient, mkMembership, mkMessage, TestSDKContext } from "test-utils";
+import { createTestClient, mkEvent, mkMembership, mkMessage, TestSDKContext } from "test-utils";
 
 import { NewTimelinePanel } from "./NewTimelinePanel";
 import type { RoomMessagePanel } from "./RoomMessagePanel";
@@ -21,6 +21,12 @@ import EditorStateTransfer from "../../utils/EditorStateTransfer";
 import MatrixClientContext from "../../contexts/MatrixClientContext";
 import { SDKContext } from "../../contexts/SDKContext";
 import * as roomEntry from "../../performance/RoomEntryReady";
+import DMRoomMap from "../../utils/DMRoomMap";
+
+// The room's introduction has its own tests and needs the whole room view around it.
+vi.mock("../views/rooms/NewRoomIntro", () => ({
+    default: ({ as }: { as?: string }) => <div data-testid="new-room-intro" data-as={as} />,
+}));
 
 const ROOM_ID = "!room:example.org";
 const USER_ID = "@alice:example.org";
@@ -275,6 +281,71 @@ describe("<NewTimelinePanel />", () => {
         expect(container.querySelectorAll("ol > li")).toHaveLength(3);
         fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
         expect(screen.queryAllByTestId("event-row")).toHaveLength(0);
+    });
+
+    describe("the start of a room", () => {
+        const setUp = (): MatrixEvent[] => [
+            mkMembership({ room: ROOM_ID, user: USER_ID, skey: USER_ID, mship: "join", event: true }),
+            mkEvent({
+                room: ROOM_ID,
+                user: USER_ID,
+                type: "m.room.join_rules",
+                skey: "",
+                content: { join_rule: "invite" },
+                event: true,
+            }),
+            // A summary stands in for three events or more, as in the old timeline.
+            mkEvent({
+                room: ROOM_ID,
+                user: USER_ID,
+                type: "m.room.history_visibility",
+                skey: "",
+                content: { history_visibility: "shared" },
+                event: true,
+            }),
+        ];
+        const dmWith = (userId: string | undefined): void => {
+            vi.spyOn(DMRoomMap, "shared").mockReturnValue({
+                getUserIdForRoomId: () => userId,
+            } as unknown as DMRoomMap);
+        };
+
+        it("introduces the room and sums up how its creator set it up, expanding to the events", () => {
+            dmWith(undefined);
+            const events = setUp();
+            withItems([{ key: "creation-$create", kind: "event-group", events, variant: "creation" }]);
+
+            renderPanel();
+
+            // The row is the list item: the intro must not be another one inside it.
+            expect(screen.getByTestId("new-room-intro")).toHaveAttribute("data-as", "div");
+            expect(screen.getByText(`${USER_ID} created and configured the room.`)).toBeInTheDocument();
+            expect(screen.queryAllByTestId("event-row")).toHaveLength(0);
+            fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+            expect(tileProps.current.map((props) => props.mxEvent)).toEqual(events);
+        });
+
+        it("shows a short start of a room as its events, under the introduction", () => {
+            dmWith(undefined);
+            withItems([
+                { key: "creation-$create", kind: "event-group", events: setUp().slice(0, 2), variant: "creation" },
+            ]);
+
+            renderPanel();
+
+            expect(screen.getByTestId("new-room-intro")).toBeInTheDocument();
+            expect(screen.queryByText(`${USER_ID} created and configured the room.`)).not.toBeInTheDocument();
+            expect(screen.getAllByTestId("event-row")).toHaveLength(2);
+        });
+
+        it("says a direct message was created", () => {
+            dmWith("@bob:example.org");
+            withItems([{ key: "creation-$create", kind: "event-group", events: setUp(), variant: "creation" }]);
+
+            renderPanel();
+
+            expect(screen.getByText(`${USER_ID} created this DM.`)).toBeInTheDocument();
+        });
     });
 
     it("draws a row whose event the room no longer has", () => {

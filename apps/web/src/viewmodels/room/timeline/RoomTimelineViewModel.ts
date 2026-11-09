@@ -15,6 +15,7 @@ import {
     NotificationCountType,
     ReceiptType,
     RoomStateEvent,
+    M_BEACON_INFO,
     type EventTimelineSet,
     type IRoomTimelineData,
     type MatrixClient,
@@ -120,7 +121,7 @@ const PAGINATE_DECRYPT_WAIT_MS = 500;
  */
 type LoadTarget =
     | { kind: "live"; keepHighlight?: boolean }
-    | { kind: "permalink"; eventId: string }
+    | { kind: "permalink"; eventId: string; toReadMarker?: boolean }
     | { kind: "restore"; eventId: string };
 
 /**
@@ -219,6 +220,14 @@ export class RoomTimelineViewModel
 
     /** Set while a rebuild is queued for the next microtask; see {@link scheduleRebuild}. */
     private rebuildQueued = false;
+    /** Whether the reader is going to the unread line, which has a row whatever its event is grouped in. */
+    private navigationToReadMarker = false;
+    /** Whether the view has placed the reader since the window was last loaded, so rows shown are being read. */
+    private readerPlaced = false;
+    /** The start of the room as summed up: its create event and the events in the summary, fixed once shown. */
+    private creationGroup?: { createId: string; ids: Set<string> };
+    /** The start of a room left in rows of their own for this visit, such as one the reader was taken into. */
+    private creationDeclined?: string;
 
     /** Set while a {@link load} is running; see {@link scheduleRebuild}. */
     private loading = false;
@@ -860,6 +869,9 @@ export class RoomTimelineViewModel
         const superseded = (): boolean => this.isDisposed || generation !== this.loadGeneration;
         this.loading = true;
         this.navigationEventId = target.kind === "live" ? null : target.eventId;
+        this.navigationToReadMarker = target.kind === "permalink" && !!target.toReadMarker;
+        // The window is filled afresh and placed again.
+        this.readerPlaced = false;
         debug(
             `[TimelineVM] load() start — kind=${target.kind}${target.kind !== "live" ? ` eventId=${target.eventId}` : ""}`,
         );
@@ -912,7 +924,10 @@ export class RoomTimelineViewModel
             // anchor could never settle in view. A permalink/restore target that was
             // filtered (state event, redaction, unrenderable type) falls through to
             // the live-end anchor below.
-            if (target.kind === "permalink") {
+            if (target.kind === "permalink" && target.toReadMarker && items.some((i) => i.kind === "read-marker")) {
+                // Going to the unread line lands on the line, wherever its event is drawn.
+                pendingAnchor = { targetKey: "read-marker", align: "center" };
+            } else if (target.kind === "permalink") {
                 if (items.some((i) => i.key === target.eventId)) {
                     pendingAnchor = { targetKey: target.eventId, align: "center" };
                 } else {
@@ -952,7 +967,12 @@ export class RoomTimelineViewModel
                 // so exhausting older history cannot move the messages back to the top.
                 alignToBottom: target.kind === "live" && this.timelineWindow.canPaginate(Direction.Backward),
                 pendingAnchor,
-                highlightedEventId: target.kind === "permalink" ? target.eventId : keepHighlight ? highlighted : null,
+                highlightedEventId:
+                    target.kind === "permalink" && !target.toReadMarker
+                        ? target.eventId
+                        : keepHighlight
+                          ? highlighted
+                          : null,
                 canJumpToReadMarker: this.computeCanJumpToReadMarker(items),
             });
 
@@ -1076,6 +1096,7 @@ export class RoomTimelineViewModel
         // A newer anchor, such as a message navigated to while the first one was still being placed, stays.
         if (targetKey !== undefined && pending.targetKey !== targetKey) return;
         debug(`[TimelineVM] onAnchorReached — placement settled, clearing pendingAnchor`);
+        this.readerPlaced = true;
         this.mergeSnapshot({ pendingAnchor: null }, "anchor-settled");
     };
 
@@ -1252,6 +1273,7 @@ export class RoomTimelineViewModel
         if (loaded) {
             this.supersedeLoads();
             this.navigationEventId = eventId;
+            this.navigationToReadMarker = false;
             this.mergeSnapshot(
                 { highlightedEventId: eventId, pendingAnchor: { targetKey: eventId, align: "center" } },
                 "show-event",
@@ -1267,9 +1289,10 @@ export class RoomTimelineViewModel
         if (marker) {
             this.supersedeLoads();
             this.navigationEventId = this.frozenMarkerEventId;
+            this.navigationToReadMarker = true;
             this.mergeSnapshot({ pendingAnchor: { targetKey: marker.key, align: "center" } }, "jump-to-marker");
         } else if (this.frozenMarkerEventId) {
-            void this.load({ kind: "permalink", eventId: this.frozenMarkerEventId });
+            void this.load({ kind: "permalink", eventId: this.frozenMarkerEventId, toReadMarker: true });
         }
     }
 
@@ -1285,6 +1308,7 @@ export class RoomTimelineViewModel
         if (index >= this.visibleStartArrayIndex && index <= this.visibleEndArrayIndex) return;
         this.supersedeLoads();
         this.navigationEventId = eventId;
+        this.navigationToReadMarker = false;
         this.mergeSnapshot({ pendingAnchor: { targetKey: eventId, align: "center" } }, "scroll-to-event");
     }
 
@@ -1347,12 +1371,13 @@ export class RoomTimelineViewModel
             );
             this.supersedeLoads();
             this.navigationEventId = this.frozenMarkerEventId;
+            this.navigationToReadMarker = true;
             scrollNow({ targetKey: readMarkerKey, align: "center" });
         } else if (this.frozenMarkerEventId && this.timelineWindow.canPaginate(Direction.Backward)) {
             // Frozen marker is not in the current window — reload at it.
             // pendingAnchor gets set inside load() and drives the post-load scroll.
             debug(`[TimelineVM] onJumpToReadMarker — marker not in window, reloading at ${this.frozenMarkerEventId}`);
-            void this.load({ kind: "permalink", eventId: this.frozenMarkerEventId });
+            void this.load({ kind: "permalink", eventId: this.frozenMarkerEventId, toReadMarker: true });
         } else {
             logger.warn(
                 `[TimelineVM] onJumpToReadMarker — no action taken: marker not in window (rmIdx=${rmIdx}) ` +
@@ -1985,7 +2010,134 @@ export class RoomTimelineViewModel
                 `filtered=${filteredCount}`,
         );
 
-        return this.compactMembershipItems(items);
+        return this.compactMembershipItems(this.groupRoomCreation(items, events, showHiddenEvents));
+    }
+
+    /**
+     * The events that set the room up, as the old timeline groups them: from `m.room.create`, the creator's own state
+     * events and their own join, until another day, another kind of event, someone else, a membership other than the
+     * creator's join, or a live location share. Events without a row of their own do not end the run.
+     * @returns The ids of the grouped events, and of the encryption events, which keep a row of their own, or nothing
+     *   when the room's start is not loaded or nothing would be grouped.
+     */
+    private creationRun(
+        events: MatrixEvent[],
+        showHiddenEvents: boolean,
+    ): { createId: string; grouped: Set<string>; ownRows: Set<string> } | undefined {
+        const start = events.findIndex((event) => event.getType() === EventType.RoomCreate);
+        if (start < 0) return undefined;
+        const create = events[start];
+        const creator = create.getSender();
+        const day = new Date(create.getTs()).toDateString();
+        const grouped = new Set<string>();
+        const ownRows = new Set<string>();
+        for (const event of events.slice(start + 1)) {
+            const id = event.getId();
+            if (!id || !this.shouldIncludeEvent(event, showHiddenEvents)) continue;
+            if (new Date(event.getTs()).toDateString() !== day) break;
+            const type = event.getType();
+            if (
+                type === EventType.RoomMember &&
+                (event.getStateKey() !== creator || event.getContent().membership !== KnownMembership.Join)
+            ) {
+                break;
+            }
+            if (M_BEACON_INFO.matches(type)) break;
+            if (!event.isState() || event.getSender() !== creator) break;
+            if (type === EventType.RoomEncryption) ownRows.add(id);
+            else grouped.add(id);
+        }
+        return grouped.size > 0 ? { createId: create.getId()!, grouped, ownRows } : undefined;
+    }
+
+    /**
+     * Collapse the events that set the room up into one summary row, as the old timeline does, with the room's
+     * introduction above it. Encryption being turned on keeps its own row, before the summary, and a read marker
+     * among the grouped events follows the summary. Once shown, the summary keeps the events it was shown with, and
+     * takes in the ones that arrive later, such as when sync brings a new room in more than one go, but none the
+     * reader has seen in a row of its own while scrolled away from the newest messages.
+     *
+     * The events keep rows of their own for the rest of the visit when the reader is taken to one of them, such as by
+     * a link, so it has a row to land on, and when the reader, scrolled away from the newest messages, has already
+     * seen them in rows of their own, such as after paging back to the start of the room, as collapsing rows they
+     * are reading would lose their place. Going to the unread line lands on the line, so it leaves the summary.
+     */
+    private groupRoomCreation(items: TimelineItem[], events: MatrixEvent[], showHiddenEvents: boolean): TimelineItem[] {
+        const run = this.creationRun(events, showHiddenEvents);
+        if (!run) {
+            // The start of the room is not loaded: whatever is drawn later is decided afresh.
+            this.creationGroup = undefined;
+            return items;
+        }
+        if (this.creationDeclined === run.createId) return items;
+        const formed = this.creationGroup?.createId === run.createId ? this.creationGroup.ids : undefined;
+        const pendingKey = this.snapshot.current.pendingAnchor?.targetKey;
+        const targets = [
+            this.navigationToReadMarker ? null : this.navigationEventId,
+            this.snapshot.current.highlightedEventId,
+            pendingKey === "read-marker" ? null : pendingKey,
+        ];
+        if (targets.some((id) => id && (formed?.has(id) || run.grouped.has(id)))) {
+            return this.declineCreationGroup(run.createId, items);
+        }
+        // Rows the reader has seen are not collapsed while they are scrolled away from the newest messages. A reader
+        // at the newest messages stays there whatever changes above, such as in a new room whose start arrives just
+        // after its newest event was drawn.
+        const seen = new Set<string>();
+        if (this.readerPlaced && !this.isAtBottom) {
+            for (const item of this.snapshot.current.items) {
+                for (const event of this.itemEvents(item)) seen.add(event.getId()!);
+            }
+        }
+        if (!formed && [...run.grouped].some((id) => seen.has(id)))
+            return this.declineCreationGroup(run.createId, items);
+        // The run's events in order, those that arrived since the summary was shown included, such as when sync
+        // brings a new room in more than one go, up to the first the reader has seen in a row of its own.
+        const ids = new Set(formed);
+        for (const id of run.grouped) {
+            if (ids.has(id)) continue;
+            if (seen.has(id)) break;
+            ids.add(id);
+        }
+        this.creationGroup = { createId: run.createId, ids };
+
+        const result: TimelineItem[] = [];
+        const grouped: MatrixEvent[] = [];
+        const ownRows: TimelineItem[] = [];
+        let marker: TimelineItem | undefined;
+        let groupAt = -1;
+        let groupedSeen = 0;
+        const groupedLoaded = items.filter((item) => item.kind === "event" && ids.has(item.key)).length;
+        for (const item of items) {
+            if (item.kind === "event" && ids.has(item.key)) {
+                if (groupAt < 0) groupAt = result.length;
+                grouped.push(item.event as MatrixEvent);
+                groupedSeen++;
+            } else if (groupAt >= 0 && item.kind === "event" && run.ownRows.has(item.key)) {
+                // Before the summary, wherever it falls in the run, as in the old timeline.
+                ownRows.push(item);
+            } else if (groupAt >= 0 && groupedSeen < groupedLoaded && item.kind === "read-marker") {
+                marker = item;
+            } else {
+                result.push(item);
+            }
+        }
+        if (groupAt < 0) return items;
+        result.splice(
+            groupAt,
+            0,
+            ...ownRows,
+            { kind: "event-group", key: `creation-${run.createId}`, events: grouped, variant: "creation" },
+            ...(marker ? [marker] : []),
+        );
+        return result;
+    }
+
+    /** Leave the start of a room in rows of their own for the rest of this visit. */
+    private declineCreationGroup(createId: string, items: TimelineItem[]): TimelineItem[] {
+        this.creationGroup = undefined;
+        this.creationDeclined = createId;
+        return items;
     }
 
     /** The real events represented by a row, also used for receipts and saved positions. */
