@@ -1956,6 +1956,30 @@ describe("RoomTimelineViewModel", () => {
             expect(writes()).toEqual(["$m2"]);
         });
 
+        it("lets later visits move the marker on when a write never ends", async () => {
+            startsActive();
+            holdNextWrite();
+            seedTimeline(messages(6));
+            markerAt("$m0");
+            const visit = async (): Promise<RoomTimelineViewModel> => {
+                const vm = new RoomTimelineViewModel({ client, room, readMarkerWriteTimeoutMs: 50 });
+                vms.push(vm);
+                vm.start();
+                await vi.waitFor(() => expect(vm.getSnapshot().items.length).toBeGreaterThan(0));
+                vm.onAnchorReached();
+                return vm;
+            };
+            const left = await visit();
+            shows(left, "$m0", "$m2");
+            await vi.waitFor(() => expect(writes()).toEqual(["$m2"]));
+            left.dispose();
+
+            const back = await visit();
+            shows(back, "$m0", "$m5");
+
+            await vi.waitFor(() => expect(writes()).toEqual(["$m2", "$m5"]));
+        });
+
         it("tries again when moving the marker fails", async () => {
             vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
                 timer.start();

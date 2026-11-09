@@ -82,6 +82,8 @@ function sendStateOf(event: MatrixEvent): EventSendState | undefined {
 }
 
 const PAGINATE_SIZE = 100;
+/** How long a fully read marker write may take before later ones go ahead; see {@link RoomTimelineViewModelOpts}. */
+const READ_MARKER_WRITE_TIMEOUT_MS = 20_000;
 const INITIAL_SIZE = 100;
 
 /**
@@ -155,6 +157,34 @@ export interface RoomTimelineViewModelOpts {
      * the old timeline does when the reader opened the room themselves. Default false.
      */
     sendReadReceiptOnLoad?: boolean;
+    /**
+     * How long a write of the fully read marker may take before later ones go ahead, taking it as possibly landed;
+     * see {@link RoomTimelineViewModel.writeReadMarker}. Default 20 seconds.
+     */
+    readMarkerWriteTimeoutMs?: number;
+}
+
+/** How a request ended, or that it took longer than allowed and may still end either way. */
+type Settled = { outcome: "done" } | { outcome: "failed"; error: unknown } | { outcome: "timed out" };
+
+/**
+ * Wait for `request` to end, or for `timeoutMs` to pass. What is waiting is not kept by the request once the time is
+ * up, so a request that never ends holds on to nothing but itself.
+ */
+function settleWithin(request: Promise<unknown>, timeoutMs: number): Promise<Settled> {
+    return new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ outcome: "timed out" }), timeoutMs);
+        request.then(
+            () => {
+                clearTimeout(timer);
+                resolve({ outcome: "done" });
+            },
+            (error: unknown) => {
+                clearTimeout(timer);
+                resolve({ outcome: "failed", error });
+            },
+        );
+    });
 }
 
 /**
@@ -647,7 +677,8 @@ export class RoomTimelineViewModel
     /**
      * Move the room's fully read marker to `eventId` when it comes after the marker, once the writes before it for this
      * room are done, as the old timeline sends one at a time. It is decided again then, against the last marker any
-     * view of the room wrote, so it never moves back. A failed write is tried again by whoever moves the marker next.
+     * view of the room wrote, so it never moves back. A failed write is tried again by whoever moves the marker next;
+     * one that takes too long is taken as possibly landed, so that it holds up no later one.
      */
     private writeReadMarker(eventId: string): Promise<void> {
         const room = this.opts.room;
@@ -666,11 +697,16 @@ export class RoomTimelineViewModel
             const previous = this.readMarkerEventId;
             this.readMarkerEventId = eventId;
             this.sentReadMarkerIds.add(eventId);
-            try {
-                await this.opts.client.setRoomReadMarkers(room.roomId, eventId);
+            const settled = await settleWithin(
+                this.opts.client.setRoomReadMarkers(room.roomId, eventId),
+                this.opts.readMarkerWriteTimeoutMs ?? READ_MARKER_WRITE_TIMEOUT_MS,
+            );
+            if (settled.outcome !== "failed") {
+                // Written, or it may still be: either way nothing may be written behind it from now on. A write that
+                // never ends then holds up no later one.
                 state.written = eventId;
-            } catch (err) {
-                logger.warn(`[TimelineVM] writeReadMarker — setRoomReadMarkers failed`, err);
+            } else {
+                logger.warn(`[TimelineVM] writeReadMarker — setRoomReadMarkers failed`, settled.error);
                 this.sentReadMarkerIds.delete(eventId);
                 // Back to where the marker is known to be: the later of where it was, and where the server has said it
                 // is since, such as when another device moved it on while this write was failing.
