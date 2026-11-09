@@ -1751,11 +1751,18 @@ describe("RoomTimelineViewModel", () => {
             vm.onVisibleRangeChanged(indexOfKey(items, first), indexOfKey(items, last));
         };
 
+        /** Settings turned on for one test, besides those every test here has. */
+        const turnedOn = new Set<string>();
+        const settingOn = (key: string): void => {
+            turnedOn.add(key);
+        };
+
         beforeEach(() => {
+            turnedOn.clear();
             vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
                 if (key === "sendReadReceipts") return true;
                 if (key === "readMarkerInViewThresholdMs" || key === "readMarkerOutOfViewThresholdMs") return 20;
-                return undefined;
+                return turnedOn.has(key) ? true : undefined;
             });
         });
 
@@ -1799,6 +1806,29 @@ describe("RoomTimelineViewModel", () => {
             await new Promise((r) => setTimeout(r, 100));
             vm.dispose();
             expect(client.setRoomReadMarkers).not.toHaveBeenCalled();
+        });
+
+        it.each([
+            ["in low-bandwidth mode, as the old timeline", () => settingOn("lowBandwidth")],
+            ["for a guest, as the old timeline", () => vi.mocked(client.isGuest).mockReturnValue(true)],
+            ["in a room the reader only previews", () => room.updateMyMembership(KnownMembership.Leave)],
+        ])("sends neither the marker nor a receipt %s, even on leaving", async (_, arrange) => {
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            vi.spyOn(UserActivity.sharedInstance(), "userActiveNow").mockReturnValue(true);
+            seedTimeline(messages(5));
+            markerAt("$m1");
+            arrange();
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m4");
+
+            await new Promise((r) => setTimeout(r, 700));
+            vm.sendReadReceiptNow();
+            vm.dispose();
+            expect(client.setRoomReadMarkers).not.toHaveBeenCalled();
+            expect(client.sendReadReceipt).not.toHaveBeenCalled();
         });
     });
 

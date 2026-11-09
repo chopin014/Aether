@@ -584,9 +584,22 @@ export class RoomTimelineViewModel
         return -1;
     }
 
+    /**
+     * Whether read receipts and the fully read marker may be sent. Someone previewing a room they have not joined
+     * cannot send them there, and, as in the old timeline, nothing is sent in low-bandwidth mode or by a guest.
+     */
+    private maySendReadState(): boolean {
+        return (
+            !this.isDisposed &&
+            this.opts.room.getMyMembership() === KnownMembership.Join &&
+            !SettingsStore.getValue("lowBandwidth") &&
+            !this.opts.client.isGuest()
+        );
+    }
+
     /** Move the fully read marker on to the bottommost message the reader sees, never back. */
     private moveReadMarkerOn(): void {
-        if (this.isDisposed || this.opts.room.getMyMembership() !== KnownMembership.Join) return;
+        if (!this.maySendReadState()) return;
         // A marker below the screen is ahead of what the reader is looking at: leave it.
         if (this.readMarkerPosition() === 1) return;
         const eventId = this.lastBottomEventId;
@@ -1348,11 +1361,7 @@ export class RoomTimelineViewModel
      * visit stays where it is.
      */
     private sendAutoReadReceipt(requireActivity = true, target: string | null = this.lastBottomEventId): void {
-        if (this.isDisposed) return;
-        // Someone previewing a room they have not joined cannot send receipts there.
-        if (this.opts.room.getMyMembership() !== KnownMembership.Join) return;
-        // As the old timeline does, nothing is sent in low-bandwidth mode.
-        if (SettingsStore.getValue("lowBandwidth")) return;
+        if (!this.maySendReadState()) return;
         // Messages arriving in a window nobody is looking at have not been read. Wait until the user is back,
         // as the old timeline does.
         if (requireActivity && !UserActivity.sharedInstance().userActiveNow()) {
@@ -1704,7 +1713,11 @@ export class RoomTimelineViewModel
         // Advance the FullyRead marker to the last bottommost event we saw.
         // Skip if it already matches what we last advanced to (avoids redundant network calls), and never move it
         // back, such as when the reader leaves while scrolled up to older messages.
-        if (this.lastBottomEventId !== this.readMarkerEventId && this.readMarkerPosition() !== 1) {
+        if (
+            this.maySendReadState() &&
+            this.lastBottomEventId !== this.readMarkerEventId &&
+            this.readMarkerPosition() !== 1
+        ) {
             debug(`[TimelineVM] dispose() — advancing FullyRead marker to ${this.lastBottomEventId}`);
             this.opts.client.setRoomReadMarkers(this.opts.room.roomId, this.lastBottomEventId).catch((err) => {
                 logger.warn(`[TimelineVM] dispose() — setRoomReadMarkers failed`, err);
