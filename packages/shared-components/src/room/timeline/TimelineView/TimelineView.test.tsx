@@ -106,6 +106,20 @@ function renderTimeline(vm: TimelineViewModel): RenderResult {
 }
 
 describe("<TimelineView />", () => {
+    it("keeps a row as its key changes while its tile key stays, as for a message the server confirms", async () => {
+        const items = eventItems(5);
+        const mine = { ...items[4], key: "~local", tileKey: "txn-1" } as TimelineItem;
+        const { vm, actions, update } = makeFakeVm({ items: [...items.slice(0, 4), mine] });
+        renderTimeline(vm);
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+        const row = screen.getByTestId("row-~local").closest("li");
+
+        update({ items: [...items.slice(0, 4), { ...mine, key: "evt-4" }] });
+
+        await waitFor(() => expect(screen.getByTestId("row-evt-4")).toBeInTheDocument());
+        expect(screen.getByTestId("row-evt-4").closest("li")).toBe(row);
+    });
+
     it("reports painted viewport rows after reveal without including overscan rows", async () => {
         const { vm } = makeFakeVm({ items: eventItems(30) });
         const painted = vi.fn();
