@@ -874,4 +874,38 @@ describe("desktop channel messages", () => {
         expect(screen.getByTestId("event-tile-slot-timestamp").nextElementSibling).toBe(padlock);
         expect(screen.getByTestId("event-tile-line")).not.toContainElement(padlock);
     });
+
+    it("styles a desktop channel message from a class on its root, with no :has()", () => {
+        const { container } = render(
+            <EventPresentationProvider value={{ layout: "group", density: "default", messageStyle: "desktop" }}>
+                <EventTileView {...createProps({ slots: createStylingContractSlots() })} />
+            </EventPresentationProvider>,
+        );
+        const root = container.querySelector(`.${styles.root}`)!;
+
+        expect(root).toHaveClass(styles.desktopMessageRoot);
+        // A rule of the desktop message's own reaches the tile.
+        expect(getComputedStyle(root).getPropertyValue("--desktop-message-font-size").trim()).toBe("0.9375rem");
+    });
+
+    it.each([
+        { name: "a notice", presentation: { messageStyle: "desktop" as const }, root: { state: { info: true } } },
+        { name: "a card", presentation: { messageStyle: "desktop" as const }, root: { shape: "Card" as const } },
+        { name: "a message in the plain style", presentation: {}, root: {} },
+    ])("leaves the desktop message styles off $name", ({ presentation, root }) => {
+        const { container } = render(
+            <EventPresentationProvider value={{ layout: "group", density: "default", ...presentation }}>
+                <EventTileView
+                    {...createProps({
+                        root: { ...renderState, ...root, state: { ...renderState.state, ...root.state } },
+                        slots: createStylingContractSlots(),
+                    })}
+                />
+            </EventPresentationProvider>,
+        );
+        const tile = container.querySelector(`.${styles.root}`)!;
+
+        expect(tile).not.toHaveClass(styles.desktopMessageRoot);
+        expect(getComputedStyle(tile).getPropertyValue("--desktop-message-font-size").trim()).toBe("");
+    });
 });
