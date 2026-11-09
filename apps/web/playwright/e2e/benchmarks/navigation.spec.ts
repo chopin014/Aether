@@ -11,7 +11,7 @@ Please see LICENSE in the repository root for full details.
  *
  *   AETHER_BENCHMARK=1 [AETHER_BENCHMARK_OUT=results.jsonl] [AETHER_BENCHMARK_RUNS=5] \
  *     [AETHER_BENCHMARK_LABS=feature_new_timeline] [AETHER_BENCHMARK_LATENCY_MS=150] \
- *     [AETHER_BENCHMARK_SWITCH_PASSES=20] [AETHER_BENCHMARK_AFTER_SWITCH_MS=300] \
+ *     [AETHER_BENCHMARK_SWITCH_PASSES=20] [AETHER_BENCHMARK_AFTER_SWITCH_MS=300] [AETHER_BENCHMARK_ENCRYPTED=1] \
  *     pnpm exec playwright test playwright/e2e/benchmarks --project=Chrome
  *
  * A step the build cannot do, such as opening a Space's channels, is recorded under `failures` and fails the test
@@ -52,6 +52,9 @@ const SWITCH_PASSES = Number(process.env.AETHER_BENCHMARK_SWITCH_PASSES ?? 2);
 // How long after a switch shows its message its long tasks still count, in milliseconds: work put off until the message
 // shows keeps the page from answering all the same.
 const AFTER_SWITCH_MS = Number(process.env.AETHER_BENCHMARK_AFTER_SWITCH_MS ?? 300);
+// Whether every seeded room has encryption turned on, for what the app does differently in encrypted rooms. The
+// messages are still sent in the clear, as the seeding has no keys to encrypt with, so nothing is decrypted.
+const ENCRYPTED = Boolean(process.env.AETHER_BENCHMARK_ENCRYPTED);
 
 /** One protocol's results: each metric's samples in milliseconds. */
 type Samples = Record<string, number[]>;
@@ -93,7 +96,14 @@ class Api {
         );
     }
 
-    private async call(method: "POST" | "PUT", path: string, data: object): Promise<Record<string, unknown>> {
+    public async getState(roomId: string, type: string, stateKey = ""): Promise<Record<string, unknown>> {
+        return this.call(
+            "GET",
+            `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/${type}/${encodeURIComponent(stateKey)}`,
+        );
+    }
+
+    private async call(method: "GET" | "POST" | "PUT", path: string, data?: object): Promise<Record<string, unknown>> {
         for (let attempt = 0; ; attempt++) {
             const response = await this.request.fetch(`${this.credentials.homeserverBaseUrl}${path}`, {
                 method,
@@ -118,7 +128,9 @@ async function inBatches<T>(items: T[], limit: number, task: (item: T, index: nu
 }
 
 async function seedRoom(api: Api, name: string, extra: Record<string, unknown> = {}): Promise<string> {
-    const roomId = await api.createRoom({ name, preset: "private_chat", ...extra });
+    const encryption = { type: "m.room.encryption", state_key: "", content: { algorithm: "m.megolm.v1.aes-sha2" } };
+    const initialState = ENCRYPTED ? { initial_state: [encryption] } : {};
+    const roomId = await api.createRoom({ name, preset: "private_chat", ...initialState, ...extra });
     for (let i = 0; i < MESSAGES_PER_ROOM; i++) await api.sendMessage(roomId, `${name} message ${i}`);
     return roomId;
 }
@@ -130,6 +142,11 @@ async function seedAccount(api: Api, serverName: string): Promise<SeededAccount>
     });
     const destinationName = "Bench destination";
     const destinationId = await seedRoom(api, destinationName);
+    if (ENCRYPTED) {
+        // The server applies a new room's initial state as it sees fit, so check that encryption really is on.
+        const encryption = await api.getState(destinationId, "m.room.encryption");
+        expect(encryption.algorithm, "seeded rooms are encrypted").toBe("m.megolm.v1.aes-sha2");
+    }
 
     const spaces: SeededAccount["spaces"] = [];
     for (let s = 0; s < SPACES; s++) {
