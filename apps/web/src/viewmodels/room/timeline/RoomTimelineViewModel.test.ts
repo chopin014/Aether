@@ -2760,6 +2760,50 @@ describe("RoomTimelineViewModel", () => {
             expect(items[indexOfKey(items, "$m1") + 1].kind).toBe("read-marker");
         });
 
+        describe("with the reader's own messages after the marker", () => {
+            const lineAfter = (vm: RoomTimelineViewModel): string | undefined => {
+                const items = vm.getSnapshot().items;
+                const line = items.findIndex((item) => item.kind === "read-marker");
+                return line > 0 ? items[line - 1].key : undefined;
+            };
+            const mine = (id: string): MatrixEvent => makeMessage(id, { user: USER_ID });
+
+            beforeEach(() => {
+                vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+            });
+
+            it("moves the unread line past them, to the first message from someone else", async () => {
+                seedTimeline([...messages(2), mine("$mine1"), mine("$mine2"), ...messages(4).slice(2)]);
+                markerAt("$m1");
+
+                const vm = await createStartedViewModel();
+
+                expect(lineAfter(vm)).toBe("$mine2");
+            });
+
+            it("draws no unread line when only they follow the marker", async () => {
+                seedTimeline([...messages(2), mine("$mine1"), mine("$mine2")]);
+                markerAt("$m1");
+
+                const vm = await createStartedViewModel();
+
+                expect(kinds(vm.getSnapshot().items)).not.toContain("read-marker");
+            });
+
+            it("keeps the unread line while the messages after them are still to be loaded", async () => {
+                seedTimeline([...messages(2), mine("$mine1")]);
+                markerAt("$m1");
+                const vm = await createStartedViewModel();
+                vi.spyOn((vm as any).timelineWindow, "canPaginate").mockImplementation(
+                    (...args: unknown[]) => args[0] === Direction.Forward,
+                );
+
+                const items: TimelineItem[] = (vm as any).buildItems();
+
+                expect(items[items.findIndex((item) => item.kind === "read-marker") - 1]?.key).toBe("$mine1");
+            });
+        });
+
         describe("in a room that has no marker yet", () => {
             const receiptAt = (eventId: string): void => {
                 room.addReceipt(

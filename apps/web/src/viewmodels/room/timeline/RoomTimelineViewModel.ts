@@ -2367,6 +2367,29 @@ export class RoomTimelineViewModel
         return (event) => shownEventIds.has(event.getId()!);
     }
 
+    /**
+     * The event the unread line follows: this visit's marker, moved on past the messages of the reader's own that come
+     * straight after it, as the old timeline moves the marker past a message the reader sends. Their own messages are
+     * never news to them, so with only those after the marker there is no line, unless more is still to be loaded.
+     * @param events - The loaded events, in order.
+     * @param showHiddenEvents - Whether hidden events are shown, as {@link shouldIncludeEvent} takes it.
+     */
+    private unreadLineAfter(events: MatrixEvent[], showHiddenEvents: boolean): string | null {
+        const marker = this.frozenMarkerEventId;
+        if (!marker) return null;
+        const index = events.findIndex((event) => event.getId() === marker);
+        if (index < 0) return null;
+        const me = this.opts.client.getSafeUserId();
+        let after = marker;
+        for (const event of events.slice(index + 1)) {
+            const eventId = event.getId();
+            if (!eventId || !this.shouldIncludeEvent(event, showHiddenEvents)) continue;
+            if (event.getSender() !== me) return after;
+            after = eventId;
+        }
+        return this.timelineWindow.canPaginate(Direction.Forward) ? after : null;
+    }
+
     private buildItems(): TimelineItem[] {
         const events: MatrixEvent[] = this.loadedEvents();
         const items: TimelineItem[] = [];
@@ -2389,6 +2412,7 @@ export class RoomTimelineViewModel
         // hit the start of the timeline we let the leading separator render
         // so the user sees an explicit "this is the start" marker.
         const suppressLeadingSeparator = this.timelineWindow.canPaginate(Direction.Backward);
+        const unreadLineAfter = this.unreadLineAfter(events, showHiddenEvents);
 
         for (const event of events) {
             const eventId = event.getId();
@@ -2441,10 +2465,11 @@ export class RoomTimelineViewModel
 
             // Insert the read-marker item directly after the event it belongs to.
             // Uses the per-session frozen marker so the divider position never
-            // changes during the session (see {@link freezeReadMarkerForSession}).
+            // changes during the session (see {@link freezeReadMarkerForSession}),
+            // moved on past the reader's own messages (see {@link unreadLineAfter}).
             // Works correctly for wire-encrypted anchors too, because the slot
             // exists immediately.
-            if (this.frozenMarkerEventId && eventId === this.frozenMarkerEventId) {
+            if (unreadLineAfter && eventId === unreadLineAfter) {
                 items.push({ key: "read-marker", kind: "read-marker" });
             }
 
