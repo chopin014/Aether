@@ -45,10 +45,10 @@ export interface EventGroupTimelineItem {
     /** Included events in timeline order; the application supplies their summary renderer. */
     events: TimelineEvent[];
     /**
-     * What the events have in common: a run of memberships, the default, or the room being created and set up by
-     * the person who created it.
+     * What the events have in common: a run of changes summed up together, such as memberships or removed messages,
+     * the default; or the room being created and set up by the person who created it.
      */
-    variant?: "membership" | "creation";
+    variant?: "summary" | "creation";
 }
 
 /** The send states a tile draws differently. */

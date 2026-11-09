@@ -32,6 +32,7 @@ import { createTestClient, mkMembership, mkMessage } from "test-utils";
 import SettingsStore from "../../../settings/SettingsStore";
 import UserActivity from "../../../UserActivity";
 import { SlidingSyncManager } from "../../../SlidingSyncManager";
+import { ModuleApi } from "../../../modules/Api";
 import { RoomTimelineViewModel } from "./RoomTimelineViewModel";
 
 vi.mock("../../../settings/SettingsStore");
@@ -279,7 +280,7 @@ describe("RoomTimelineViewModel", () => {
         });
     });
 
-    describe("membership summaries", () => {
+    describe("summaries", () => {
         const makeMember = (id: string, ts = 1_700_000_000_000): MatrixEvent =>
             new MatrixEvent({
                 event_id: id,
@@ -305,7 +306,11 @@ describe("RoomTimelineViewModel", () => {
             });
         });
 
-        it("compacts consecutive included members while retaining messages and small runs", async () => {
+        /** The ids of the events in each summary, in timeline order. */
+        const groupedIds = (vm: RoomTimelineViewModel): string[][] =>
+            groups(vm).map((group) => group.events.map((event) => (event as MatrixEvent).getId()!));
+
+        it("sums up every run of members, however short, and keeps messages in rows of their own", async () => {
             seedTimeline([
                 makeMessage("$before"),
                 ...memberships(5),
@@ -313,9 +318,76 @@ describe("RoomTimelineViewModel", () => {
                 ...memberships(2, "small"),
             ]);
             const vm = await createStartedViewModel();
-            expect(groups(vm)).toHaveLength(1);
-            expect(groups(vm)[0].events).toHaveLength(5);
-            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$before", "$after", "$small0", "$small1"]);
+            expect(groups(vm).map((group) => group.events.length)).toEqual([5, 2]);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$before", "$after"]);
+        });
+
+        it("sums up a single membership change on its own", async () => {
+            seedTimeline([makeMessage("$before"), makeMember("$joined"), makeMessage("$after")]);
+            const vm = await createStartedViewModel();
+            expect(groupedIds(vm)).toEqual([["$joined"]]);
+            expect(groups(vm)[0].variant).toBeUndefined();
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$before", "$after"]);
+        });
+
+        it.each([
+            [
+                "a third-party invite",
+                () =>
+                    new MatrixEvent({
+                        event_id: "$change",
+                        room_id: ROOM_ID,
+                        type: EventType.RoomThirdPartyInvite,
+                        sender: USER_ID,
+                        state_key: "token",
+                        origin_server_ts: 1_700_000_000_000,
+                        content: { display_name: "carol@example.org" },
+                    }),
+            ],
+            [
+                "a change to the pinned messages",
+                () =>
+                    new MatrixEvent({
+                        event_id: "$change",
+                        room_id: ROOM_ID,
+                        type: EventType.RoomPinnedEvents,
+                        sender: USER_ID,
+                        state_key: "",
+                        origin_server_ts: 1_700_000_000_000,
+                        content: { pinned: ["$before"] },
+                    }),
+            ],
+            [
+                "a removed message",
+                () => {
+                    const removed = makeMessage("$change", { ts: 1_700_000_000_000 });
+                    vi.spyOn(removed, "isRedacted").mockReturnValue(true);
+                    return removed;
+                },
+            ],
+        ])("sums up %s with the members next to it", async (_kind, makeChange) => {
+            vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
+                if (key === "showJoinLeaves" || key === "sendReadReceipts" || key === "showRedactions") return true;
+                return undefined;
+            });
+            seedTimeline([makeMessage("$before"), makeMember("$joined"), makeChange(), makeMessage("$after")]);
+            const vm = await createStartedViewModel();
+            expect(groupedIds(vm)).toEqual([["$joined", "$change"]]);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$before", "$after"]);
+        });
+
+        it("sums up messages a module groups itself", async () => {
+            const grouped = [
+                makeMessage("$alpha0", { ts: 1_700_000_000_000 }),
+                makeMessage("$alpha1", { ts: 1_700_000_000_000 }),
+            ];
+            vi.spyOn(ModuleApi.instance.customComponents, "getMessageRenderInfo").mockImplementation((event) =>
+                grouped.includes(event) ? { hints: {}, hasGrouping: true, getGrouping: () => null } : null,
+            );
+            seedTimeline([makeMessage("$before"), ...grouped, makeMessage("$after")]);
+            const vm = await createStartedViewModel();
+            expect(groupedIds(vm)).toEqual([["$alpha0", "$alpha1"]]);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$before", "$after"]);
         });
 
         it("keeps membership display preferences in force", async () => {
@@ -740,7 +812,16 @@ describe("RoomTimelineViewModel", () => {
             const vm = await createStartedViewModel();
 
             expect(groupedIds(vm)).toEqual(["$join", "$rules"]);
-            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$bob", "$topic"]);
+            // Their join is summed up on its own, as the old timeline does.
+            const summaries = vm
+                .getSnapshot()
+                .items.flatMap((item) =>
+                    item.kind === "event-group" && item.variant !== "creation"
+                        ? [item.events.map((event) => (event as MatrixEvent).getId())]
+                        : [],
+                );
+            expect(summaries).toEqual([["$bob"]]);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$topic"]);
         });
 
         it("keeps the events in rows of their own when the reader is taken to one of them", async () => {

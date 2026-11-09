@@ -250,6 +250,26 @@ describe("<NewTimelinePanel />", () => {
         expect(screen.queryAllByTestId("event-row")).toHaveLength(0);
     });
 
+    it("shows a summary of one event as that event, inside the summary, as the old timeline does", () => {
+        const user = "@member:example.org";
+        const event = mkMembership({
+            room: ROOM_ID,
+            user,
+            skey: user,
+            mship: "join",
+            event: true,
+            target: new RoomMember(ROOM_ID, user),
+        });
+        withItems([{ key: `summary-${event.getId()}-0`, kind: "event-group", events: [event] }]);
+        const { container } = renderPanel();
+        const summary = container.querySelector(".mx_GenericEventListSummary");
+        expect(summary).toHaveAttribute("data-expanded", "true");
+        expect(summary).toHaveAttribute("data-layout", "group");
+        expect(screen.queryByRole("button", { name: "Expand" })).not.toBeInTheDocument();
+        expect(summary?.querySelectorAll("ol > li [data-testid='event-row']")).toHaveLength(1);
+        expect(tileProps.current.map((props) => props.mxEvent)).toEqual([event]);
+    });
+
     describe("the start of a room", () => {
         const setUp = (): MatrixEvent[] => [
             mkMembership({ room: ROOM_ID, user: USER_ID, skey: USER_ID, mship: "join", event: true }),
