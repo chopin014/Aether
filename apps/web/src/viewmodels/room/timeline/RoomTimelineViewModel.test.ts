@@ -1781,6 +1781,52 @@ describe("RoomTimelineViewModel", () => {
             expect(vm.getSnapshot().items[indexOfKey(vm.getSnapshot().items, "$m1") + 1].kind).toBe("read-marker");
         });
 
+        it.each([
+            ["sooner while it is on screen", "$m0", true],
+            ["later while it is off screen", "$m3", false],
+        ])("moves the marker on %s, as the old timeline does", async (_, firstShown, movesSoon) => {
+            vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
+                if (key === "sendReadReceipts") return true;
+                if (key === "readMarkerInViewThresholdMs") return 20;
+                if (key === "readMarkerOutOfViewThresholdMs") return 60_000;
+                return undefined;
+            });
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            seedTimeline(messages(5));
+            markerAt("$m1");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, firstShown, "$m4");
+
+            await new Promise((r) => setTimeout(r, 200));
+            expect(vi.mocked(client.setRoomReadMarkers).mock.calls.length > 0).toBe(movesSoon);
+        });
+
+        it("never moves the marker back while the newest messages are loaded and placed", async () => {
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            // Sent in order, by servers whose clocks agree.
+            seedTimeline(
+                Array.from({ length: 300 }, (_, i) => makeMessage(`$m${i}`, { user: OTHER_USER_ID, ts: 1000 + i })),
+            );
+            markerAt("$m100");
+            const vm = await createStartedViewModel("$m2");
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m4");
+
+            // The newest messages start after the marker, while the screen still shows the older ones.
+            vm.jumpToLive();
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$m299"));
+            await new Promise((r) => setTimeout(r, 100));
+            vm.onAnchorReached();
+            await new Promise((r) => setTimeout(r, 100));
+
+            expect(client.setRoomReadMarkers).not.toHaveBeenCalled();
+        });
+
         it("waits for the reader to be around", async () => {
             vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation(() => {});
             seedTimeline(messages(5));

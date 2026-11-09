@@ -600,15 +600,28 @@ export class RoomTimelineViewModel
     /** Move the fully read marker on to the bottommost message the reader sees, never back. */
     private moveReadMarkerOn(): void {
         if (!this.maySendReadState()) return;
-        // A marker below the screen is ahead of what the reader is looking at: leave it.
-        if (this.readMarkerPosition() === 1) return;
+        // While a window loads or is placed, what was last on screen belongs to the window before it.
+        if (this.loading || !this.readerPlaced || this.snapshot.current.pendingAnchor !== null) return;
         const eventId = this.lastBottomEventId;
-        if (!eventId || eventId === this.readMarkerEventId) return;
+        // A marker at or below that message is ahead of what the reader is looking at: leave it.
+        if (!eventId || !this.comesAfter(eventId, this.readMarkerEventId)) return;
         debug(`[TimelineVM] moveReadMarkerOn — fully read marker to ${eventId}`);
         this.readMarkerEventId = eventId;
         this.opts.client.setRoomReadMarkers(this.opts.room.roomId, eventId).catch((err) => {
             logger.warn(`[TimelineVM] moveReadMarkerOn — setRoomReadMarkers failed`, err);
         });
+    }
+
+    /**
+     * Whether the event `eventId` comes after the event `otherId`, or there is no other. The room's timelines give
+     * the order wherever they hold both events. One they cannot place is taken to be ahead while the window can still
+     * page forward towards it, as the old timeline does with a receipt outside its window. Times are not compared, as
+     * servers' clocks differ.
+     */
+    private comesAfter(eventId: string, otherId: string | null): boolean {
+        if (!otherId) return true;
+        const order = this.opts.room.getUnfilteredTimelineSet().compareEventOrdering(otherId, eventId);
+        return order === null ? !this.timelineWindow.canPaginate(Direction.Forward) : order < 0;
     }
 
     /**
@@ -1391,25 +1404,15 @@ export class RoomTimelineViewModel
 
     /**
      * Whether `event` comes after both the receipt sent from here and the room's own receipt for us, which another
-     * device, or an earlier visit, may have moved on. The room's timelines give the order wherever they hold both
-     * events. A receipt they cannot place is taken to be ahead while the window can still page forward towards it, as
-     * the old timeline does when its receipt is outside the window. Times are not compared, as servers' clocks differ.
+     * device, or an earlier visit, may have moved on; see {@link comesAfter}.
      */
     private isAfterReceipts(event: MatrixEvent): boolean {
         const eventId = event.getId();
         if (!eventId) return false;
-        const timelineSet = this.opts.room.getUnfilteredTimelineSet();
-        const receipts = [
-            this.lastSentReceiptEventId,
-            this.opts.room.getEventReadUpTo(this.opts.client.getSafeUserId()),
-        ];
-        for (const receiptId of receipts) {
-            if (!receiptId) continue;
-            const order = timelineSet.compareEventOrdering(receiptId, eventId);
-            const receiptAhead = order === null ? this.timelineWindow.canPaginate(Direction.Forward) : order >= 0;
-            if (receiptAhead) return false;
-        }
-        return true;
+        return (
+            this.comesAfter(eventId, this.lastSentReceiptEventId) &&
+            this.comesAfter(eventId, this.opts.room.getEventReadUpTo(this.opts.client.getSafeUserId()))
+        );
     }
 
     // ── Requests from the room view ──────────────────────────────────
