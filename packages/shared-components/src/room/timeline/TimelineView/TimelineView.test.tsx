@@ -577,6 +577,34 @@ describe("<TimelineView />", () => {
         await waitFor(() => expect(latestBottom()).toBeCloseTo(viewportBottom(), 0));
     });
 
+    describe("placing a row a third of the way down, as the old timeline places the unread line", () => {
+        const thirdDown = (key: string): number =>
+            screen.getByTestId(`row-${key}`).getBoundingClientRect().bottom -
+            screen.getByTestId("timeline-scroller").getBoundingClientRect().top;
+
+        it("on the first load", async () => {
+            const { vm, actions } = makeFakeVm({
+                items: eventItems(60),
+                pendingAnchor: { targetKey: "evt-30", align: "third" },
+            });
+            renderTimeline(vm);
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+            expect(thirdDown("evt-30")).toBeCloseTo(VIEWPORT_HEIGHT / 3, 0);
+        });
+
+        it("when jumping there later", async () => {
+            const { vm, actions, update } = makeFakeVm({ items: eventItems(60) });
+            renderTimeline(vm);
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+
+            update({ pendingAnchor: { targetKey: "evt-20", align: "third" } });
+
+            // A later jump scrolls once, from estimated heights for rows not drawn yet, as for any alignment: it lands
+            // within a row of the place.
+            await waitFor(() => expect(Math.abs(thirdDown("evt-20") - VIEWPORT_HEIGHT / 3)).toBeLessThan(ROW_HEIGHT));
+        });
+    });
+
     it("keeps short anchored lists at the top", async () => {
         const { vm, actions } = makeFakeVm({
             items: eventItems(2),
