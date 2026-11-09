@@ -1331,7 +1331,7 @@ exports[`RoomView > should hide the composer when hideComposer=true 1`] = `
                 <ol
                   class="mx_TimelineView_list _list"
                   role="list"
-                  style="height: 0px;"
+                  style="height: 36px;"
                 />
               </div>
               <div
@@ -1425,7 +1425,7 @@ exports[`RoomView > should hide the header when hideHeader=true 1`] = `
                 <ol
                   class="mx_TimelineView_list _list"
                   role="list"
-                  style="height: 0px;"
+                  style="height: 36px;"
                 />
               </div>
               <div
@@ -1934,7 +1934,7 @@ exports[`RoomView > should hide the pinned message banner when hidePinnedMessage
                 <ol
                   class="mx_TimelineView_list _list"
                   role="list"
-                  style="height: 0px;"
+                  style="height: 36px;"
                 />
               </div>
               <div
@@ -2443,7 +2443,7 @@ exports[`RoomView > should hide the right panel when hideRightPanel=true 1`] = `
                 <ol
                   class="mx_TimelineView_list _list"
                   role="list"
-                  style="height: 0px;"
+                  style="height: 36px;"
                 />
               </div>
               <div
@@ -3191,7 +3191,7 @@ exports[`RoomView > should not display the timeline when the room encryption is 
                 <ol
                   class="mx_TimelineView_list _list"
                   role="list"
-                  style="height: 0px;"
+                  style="height: 36px;"
                 />
               </div>
               <div
