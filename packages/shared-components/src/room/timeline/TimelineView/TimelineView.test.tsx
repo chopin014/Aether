@@ -472,6 +472,33 @@ describe("<TimelineView />", () => {
         expect(end).toBeGreaterThan(start);
     });
 
+    it("pads the start and end of the list, and keeps the padding in view at either end", async () => {
+        const { vm, actions } = makeFakeVm({ items: eventItems(30) });
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView vm={vm} renderItem={renderItem} paddingBlock={18} />
+            </div>,
+        );
+        const scroller = screen.getByTestId("timeline-scroller");
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+
+        // Opened at the newest message, with the padding below it.
+        await waitFor(() =>
+            expect(screen.getByTestId("row-evt-29").getBoundingClientRect().bottom).toBeCloseTo(
+                scroller.getBoundingClientRect().bottom - 18,
+                0,
+            ),
+        );
+
+        scroller.scrollTop = 0;
+        await waitFor(() =>
+            expect(screen.getByTestId("row-evt-0").getBoundingClientRect().top).toBeCloseTo(
+                scroller.getBoundingClientRect().top + 18,
+                0,
+            ),
+        );
+    });
+
     it("keeps the margins between what a row holds, as the old timeline's list keeps them between its items", async () => {
         const { vm, actions } = makeFakeVm({ items: eventItems(1) });
         render(

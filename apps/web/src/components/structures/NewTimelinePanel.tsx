@@ -100,6 +100,12 @@ interface NewTimelinePanelProps {
 /** How far Page Up and Page Down move, as a share of the visible height, keeping some context on screen. */
 const PAGE_SCROLL_FRACTION = 0.9;
 
+/**
+ * The space above the first row and below the last: the old timeline's list padding, `--RoomView_MessageList-padding`,
+ * which the rows also take at their sides (_NewTimelinePanel.pcss).
+ */
+const LIST_PADDING_PX = 18;
+
 /** Everything a timeline row needs from the panel to draw itself. */
 interface RenderItemContext {
     roomId: string;
@@ -503,7 +509,12 @@ export function NewTimelinePanel({
         >
             {/* The name column's drag handle, over the timeline as in the old one. */}
             {irc && <IRCTimelineProfileResizer minWidth={20} maxWidth={600} roomId={room.roomId} />}
-            <TimelineView vm={vm} renderItem={renderItem} onItemsPainted={entryPainted ? undefined : onItemsPainted} />
+            <TimelineView
+                vm={vm}
+                renderItem={renderItem}
+                onItemsPainted={entryPainted ? undefined : onItemsPainted}
+                paddingBlock={LIST_PADDING_PX}
+            />
         </div>
     );
 }

@@ -163,7 +163,7 @@ function placeBeforePaint(
     );
 }
 
-export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewProps): JSX.Element {
+export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 }: TimelineViewProps): JSX.Element {
     const snapshot = useViewModel(vm);
 
     // The effects and callbacks below run outside React's render — from scroll events and
@@ -405,7 +405,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             const index = targetIndex >= 0 ? targetIndex : list.length - 1;
             const height = scrollerRef.current?.clientHeight ?? 0;
             const align = anchor?.align ?? "end";
-            const start = index * ESTIMATED_ITEM_HEIGHT;
+            const start = paddingBlock + index * ESTIMATED_ITEM_HEIGHT;
             const offset =
                 align === "start"
                     ? start
@@ -414,13 +414,19 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
                       : align === "third"
                         ? start + ESTIMATED_ITEM_HEIGHT - height / 3
                         : start + ESTIMATED_ITEM_HEIGHT - height;
-            return Math.max(0, Math.min(offset, list.length * ESTIMATED_ITEM_HEIGHT - height));
+            return Math.max(0, Math.min(offset, list.length * ESTIMATED_ITEM_HEIGHT + 2 * paddingBlock - height));
         },
         getScrollElement: () => scrollerRef.current,
         // Only consulted for rows that have not been measured yet. TanStack measures each
         // row as it renders and remembers the result by key, reusing it as rows are added,
         // trimmed or reloaded, so we do not need a size cache of our own.
         estimateSize: () => ESTIMATED_ITEM_HEIGHT,
+        // The space before the first row and after the last. Aligning a row to an end keeps it in view too, so
+        // going to the newest message shows the space below it, as at the bottom of the list.
+        paddingStart: paddingBlock,
+        paddingEnd: paddingBlock,
+        scrollPaddingStart: paddingBlock,
+        scrollPaddingEnd: paddingBlock,
         measureElement: measureRow,
         getItemKey,
         overscan: OVERSCAN,
