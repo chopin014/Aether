@@ -262,6 +262,33 @@ describe("<TimelineView />", () => {
         );
     });
 
+    it.each([
+        ["end", -18],
+        ["center", 0],
+        ["start", 18],
+    ] as const)("places a %s anchor with the list padded, the padding kept in view at the ends", (align, expected) => {
+        const index = align === "end" ? 49 : 35;
+        const { vm, actions } = makeFakeVm({
+            items: eventItems(50),
+            pendingAnchor: { targetKey: `evt-${index}`, align },
+            atLiveEnd: align === "end",
+        });
+        let offset: number | undefined;
+        actions.onAnchorReached.mockImplementation(() => {
+            const edge = (box: DOMRect): number =>
+                align === "start" ? box.top : align === "center" ? (box.top + box.bottom) / 2 : box.bottom;
+            const viewport = screen.getByTestId("timeline-scroller").getBoundingClientRect();
+            offset = edge(screen.getByTestId(`row-evt-${index}`).getBoundingClientRect()) - edge(viewport);
+        });
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView vm={vm} renderItem={renderItem} paddingBlock={18} />
+            </div>,
+        );
+        expect(actions.onAnchorReached).toHaveBeenCalledExactlyOnceWith(`evt-${index}`);
+        expect(Math.abs(offset! - expected)).toBeLessThan(1);
+    });
+
     it.each(["end", "center", "start"] as const)(
         "places a %s anchor before the first paint, at the heights its rows measure",
         (align) => {

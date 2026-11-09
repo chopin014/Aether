@@ -100,20 +100,22 @@ type Phase = "init" | "placing" | "live";
 
 /**
  * The scroll offset that puts row `index` at `align` in the viewport, from the virtualizer's measurements, or undefined
- * when the row is unknown. TanStack places `start`, `center` and `end`; `third` puts the row's end a third of the way
- * down, as the old timeline places the unread line.
+ * when the row is unknown. TanStack places `start` and `end`, keeping the list's padding in view at either end.
+ * `center` is placed here, as TanStack would take the padding off the row's position first and place it below the
+ * middle; `third` puts the row's end a third of the way down, as the old timeline places the unread line.
  */
 function offsetForIndex(
     virtualizer: Virtualizer<HTMLDivElement, Element>,
     index: number,
     align: AnchorAlign,
 ): number | undefined {
-    if (align !== "third") return virtualizer.getOffsetForIndex(index, align)?.[0];
+    if (align === "start" || align === "end") return virtualizer.getOffsetForIndex(index, align)?.[0];
     const row = virtualizer.measurementsCache[index];
     if (!row) return undefined;
     const viewport = virtualizer.scrollRect?.height ?? 0;
     const max = Math.max(0, virtualizer.getTotalSize() - viewport);
-    return Math.min(max, Math.max(0, row.end - viewport / 3));
+    const offset = align === "center" ? row.start + (row.size - viewport) / 2 : row.end - viewport / 3;
+    return Math.min(max, Math.max(0, offset));
 }
 
 /**
@@ -545,8 +547,9 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
             if (!startedPlacement && canPlace) {
                 startedPlacement = true;
                 if (idx >= 0) {
-                    if (align === "third") {
-                        // TanStack has no third; it is aimed at again each frame below until it lands.
+                    if (align === "third" || align === "center") {
+                        // TanStack has no third, and centres below the middle with padding (see offsetForIndex): these
+                        // are aimed at again each frame below until they land.
                         const target = offsetForIndex(virtualizer, idx, align);
                         if (target !== undefined) virtualizer.scrollToOffset(target);
                     } else {
@@ -561,7 +564,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
             // leaving the virtualizer's cached offset stale after its resize compensation.
             const offset = scrollerRef.current?.scrollTop ?? virtualizer.scrollOffset ?? 0;
             const landed = startedPlacement && target !== undefined && Math.abs(target - offset) <= 1.5;
-            if (startedPlacement && !landed && align === "third" && target !== undefined) {
+            if (startedPlacement && !landed && (align === "third" || align === "center") && target !== undefined) {
                 virtualizer.scrollToOffset(target);
             }
             if ((measured && (landed || timedOut)) || (timedOut && !receivedResizeEntryRef.current)) {
