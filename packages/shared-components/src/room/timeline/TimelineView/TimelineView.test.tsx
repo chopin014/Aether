@@ -577,6 +577,29 @@ describe("<TimelineView />", () => {
         await waitFor(() => expect(latestBottom()).toBeCloseTo(viewportBottom(), 0));
     });
 
+    it("reports what is on screen after each placement, even at the same positions as before", async () => {
+        const { vm, actions, update } = makeFakeVm({ items: eventItems(30) });
+        actions.onAnchorReached.mockImplementation(() => update({ pendingAnchor: null }));
+        // Rows exactly the size the view estimates, so new rows land where the old ones were and nothing moves.
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView
+                    vm={vm}
+                    renderItem={(item) => <div data-testid={`row-${item.key}`} style={{ height: 48 }} />}
+                />
+            </div>,
+        );
+        await waitFor(() => expect(actions.onVisibleRangeChanged).toHaveBeenCalled(), { timeout: 5000 });
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        const [start, end] = actions.onVisibleRangeChanged.mock.calls.at(-1)!;
+        actions.onVisibleRangeChanged.mockClear();
+
+        // A reload replaces the rows with others the same size, placed at the newest again.
+        update({ items: eventItems(30, 100), pendingAnchor: { targetKey: "evt-129", align: "end" } });
+
+        await waitFor(() => expect(actions.onVisibleRangeChanged).toHaveBeenCalledWith(start, end));
+    });
+
     it("keeps short anchored lists at the top", async () => {
         const { vm, actions } = makeFakeVm({
             items: eventItems(2),

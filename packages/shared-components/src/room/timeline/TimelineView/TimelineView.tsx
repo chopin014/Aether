@@ -378,9 +378,13 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
     });
 
     // An accurate initial estimate may need no scroll event after placement. Report the
-    // first visible range once revealed and the view model has acknowledged its anchor.
+    // visible range once revealed and each time the view model has acknowledged an anchor, even
+    // when it covers the same positions as before: after a reload those positions hold other
+    // rows, and the view model reads what each placement shows.
     useEffect(() => {
-        if (revealed) reportVisibleState(virtualizer);
+        if (!revealed) return;
+        if (snapshot.pendingAnchor === null) lastVisibleRangeRef.current = null;
+        reportVisibleState(virtualizer);
     }, [revealed, snapshot.pendingAnchor, reportVisibleState, virtualizer]);
 
     // Works out how far down the list we would have to scroll, in pixels, to bring the row
