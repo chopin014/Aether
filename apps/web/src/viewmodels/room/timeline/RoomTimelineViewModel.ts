@@ -908,10 +908,16 @@ export class RoomTimelineViewModel
         if (toStartOfTimeline || removed || data.liveEvent !== true) return;
         if (this.isDisposed) return;
 
+        // The reader has written, here or on another device: what came before is read, as the old timeline moves the
+        // marker on to a message they send. The unread line goes for the rest of the visit.
+        const lineGone = !!this.frozenMarkerEventId && event.getSender() === this.opts.client.getSafeUserId();
+        if (lineGone) this.frozenMarkerEventId = null;
+
         debug(`[TimelineVM][onRoomTimeline] live event ${event.getId()} (${event.getType()})`);
         if (this.windowDetachedFromLive()) {
             // The window cannot reach the new live timeline. Count the message for the jump-to-latest button.
             if (event.getSender() !== this.opts.client.getSafeUserId()) this.unreadMessageCount++;
+            if (lineGone) this.scheduleRebuild();
             this.mergeSnapshot(
                 {
                     atLiveEnd: false,
@@ -1178,30 +1184,48 @@ export class RoomTimelineViewModel
      * Called by {@link load} after each window is loaded, but decides only once per session: the marker moves on as
      * the reader reads, and a later load, such as jumping to the newest messages, must not move the line with it.
      *
-     * The frozen value is what the UI consumes for the entire session:
-     *  - `null` when the marker is unset OR on the room's latest known event.
-     *    In that case the divider line is never rendered this session even if
-     *    new events arrive later (matches the iOS "nothing new since last
-     *    visit → no line" behaviour).
-     *  - Otherwise the marker's event id, pinned at that position for the
-     *    session regardless of subsequent sends, scrolls, or new events.
+     * The frozen value is what the UI consumes for the entire session, for drawing the line and for going to it:
+     *  - The later of the marker and the reader's last message after it in the room's live timeline. A message of the
+     *    reader's own means they have read what came before it, as the old timeline moves the marker on to a message
+     *    they send, and their own messages are never news to them. Only messages the server has, so not one still
+     *    being sent or one that failed.
+     *  - `null` when there is no marker, or nobody else wrote after that point (matches the iOS "nothing new since
+     *    last visit → no line" behaviour). The line is then not drawn this session even if new events arrive later.
+     * It is decided from the live timeline rather than the loaded window, so the line stays put as the window moves.
+     * It goes for the rest of the visit once the reader writes; see {@link onRoomTimeline}.
      */
     private freezeReadMarkerForSession(): void {
         if (this.readMarkerFrozen) return;
         this.readMarkerFrozen = true;
-        if (!this.readMarkerEventId) {
-            this.frozenMarkerEventId = null;
-            return;
-        }
-        const liveEvents = this.opts.room.getLiveTimeline().getEvents();
-        const lastLiveEventId = liveEvents[liveEvents.length - 1]?.getId();
-        if (lastLiveEventId && lastLiveEventId === this.readMarkerEventId) {
-            // Fully read on entry — no line, ever, this session.
-            this.frozenMarkerEventId = null;
-        } else {
-            this.frozenMarkerEventId = this.readMarkerEventId;
-        }
+        this.frozenMarkerEventId = this.readMarkerEventId ? this.unreadLineAfter(this.readMarkerEventId) : null;
         debug(`[TimelineVM] freezeReadMarkerForSession — frozen=${this.frozenMarkerEventId}`);
+    }
+
+    /**
+     * Where the unread line goes for the marker `marker`, from the room's live timeline: after the later of the marker
+     * and the reader's last message after it, or nowhere when nobody else wrote after that. See
+     * {@link freezeReadMarkerForSession}.
+     */
+    private unreadLineAfter(marker: string): string | null {
+        const events = this.opts.room.getLiveTimeline().getEvents();
+        const showHiddenEvents = SettingsStore.getValue("showHiddenEventsInTimeline");
+        const me = this.opts.client.getSafeUserId();
+        // A marker older than the live timeline comes before all of it.
+        const start = events.findIndex((event) => event.getId() === marker) + 1;
+        let after = marker;
+        let othersAfter = false;
+        for (let i = start; i < events.length; i++) {
+            const event = events[i];
+            const eventId = event.getId();
+            if (!eventId || event.status !== null || !this.shouldIncludeEvent(event, showHiddenEvents)) continue;
+            if (event.getSender() === me) {
+                after = eventId;
+                othersAfter = false;
+            } else {
+                othersAfter = true;
+            }
+        }
+        return othersAfter ? after : null;
     }
 
     /** Publish cached rows immediately, then incorporate native history before requesting more. */
@@ -2367,36 +2391,6 @@ export class RoomTimelineViewModel
         return (event) => shownEventIds.has(event.getId()!);
     }
 
-    /**
-     * The event the unread line follows: this visit's marker, or the reader's last own message after it if there is
-     * one. A message of the reader's own means they have read what came before it, as the old timeline moves the marker
-     * on to a message the reader sends, and their own messages are never news to them. So there is a line only when
-     * someone else wrote after that, or when more is still to be loaded.
-     * @param events - The loaded events, in order.
-     * @param showHiddenEvents - Whether hidden events are shown, as {@link shouldIncludeEvent} takes it.
-     */
-    private unreadLineAfter(events: MatrixEvent[], showHiddenEvents: boolean): string | null {
-        const marker = this.frozenMarkerEventId;
-        if (!marker) return null;
-        const index = events.findIndex((event) => event.getId() === marker);
-        if (index < 0) return null;
-        const me = this.opts.client.getSafeUserId();
-        let after = marker;
-        let othersAfter = false;
-        for (let i = index + 1; i < events.length; i++) {
-            const event = events[i];
-            const eventId = event.getId();
-            if (!eventId || !this.shouldIncludeEvent(event, showHiddenEvents)) continue;
-            if (event.getSender() === me) {
-                after = eventId;
-                othersAfter = false;
-            } else {
-                othersAfter = true;
-            }
-        }
-        return othersAfter || this.timelineWindow.canPaginate(Direction.Forward) ? after : null;
-    }
-
     private buildItems(): TimelineItem[] {
         const events: MatrixEvent[] = this.loadedEvents();
         const items: TimelineItem[] = [];
@@ -2419,7 +2413,6 @@ export class RoomTimelineViewModel
         // hit the start of the timeline we let the leading separator render
         // so the user sees an explicit "this is the start" marker.
         const suppressLeadingSeparator = this.timelineWindow.canPaginate(Direction.Backward);
-        const unreadLineAfter = this.unreadLineAfter(events, showHiddenEvents);
 
         for (const event of events) {
             const eventId = event.getId();
@@ -2472,11 +2465,10 @@ export class RoomTimelineViewModel
 
             // Insert the read-marker item directly after the event it belongs to.
             // Uses the per-session frozen marker so the divider position never
-            // changes during the session (see {@link freezeReadMarkerForSession}),
-            // moved on to the reader's last own message after it (see {@link unreadLineAfter}).
+            // changes during the session (see {@link freezeReadMarkerForSession}).
             // Works correctly for wire-encrypted anchors too, because the slot
             // exists immediately.
-            if (unreadLineAfter && eventId === unreadLineAfter) {
+            if (this.frozenMarkerEventId && eventId === this.frozenMarkerEventId) {
                 items.push({ key: "read-marker", kind: "read-marker" });
             }
 

@@ -2808,17 +2808,62 @@ describe("RoomTimelineViewModel", () => {
                 expect(kinds(vm.getSnapshot().items)).not.toContain("read-marker");
             });
 
-            it("keeps the unread line while the messages after them are still to be loaded", async () => {
-                seedTimeline([...messages(2), mine("$mine1")]);
+            it("keeps the unread line where it was decided as the window moves past the marker", async () => {
+                seedTimeline([...messages(2), mine("$mine1"), ...messages(5).slice(2)]);
                 markerAt("$m1");
                 const vm = await createStartedViewModel();
-                vi.spyOn((vm as any).timelineWindow, "canPaginate").mockImplementation(
-                    (...args: unknown[]) => args[0] === Direction.Forward,
+                expect(lineAfter(vm)).toBe("$mine1");
+
+                // Only the newer messages are loaded now, as after paging forward through a long room.
+                const loaded = (vm as any).loadedEvents.bind(vm);
+                vi.spyOn(vm as any, "loadedEvents").mockImplementation(() =>
+                    loaded().filter((event: MatrixEvent) => !["$m0", "$m1"].includes(event.getId()!)),
                 );
+                (vm as any).scheduleRebuild();
+                await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).not.toContain("$m1"));
 
-                const items: TimelineItem[] = (vm as any).buildItems();
+                expect(lineAfter(vm)).toBe("$mine1");
+            });
 
-                expect(items[items.findIndex((item) => item.kind === "read-marker") - 1]?.key).toBe("$mine1");
+            it("goes to the unread line where it is drawn", async () => {
+                seedTimeline([...messages(2), mine("$mine1"), ...messages(5).slice(2)]);
+                markerAt("$m1");
+                const vm = await createStartedViewModel();
+                // Only the newest messages are loaded, so the line is not drawn and going to it loads around it.
+                const loaded = (vm as any).loadedEvents.bind(vm);
+                vi.spyOn(vm as any, "loadedEvents").mockImplementation(() =>
+                    loaded().filter((event: MatrixEvent) => !["$m0", "$m1", "$mine1"].includes(event.getId()!)),
+                );
+                (vm as any).scheduleRebuild();
+                await vi.waitFor(() => expect(kinds(vm.getSnapshot().items)).not.toContain("read-marker"));
+                const load = vi.spyOn(vm as any, "load").mockResolvedValue(undefined);
+
+                vm.jumpToReadMarker();
+
+                expect(load).toHaveBeenCalledWith(expect.objectContaining({ eventId: "$mine1", toReadMarker: true }));
+            });
+
+            it("takes the unread line away once the reader writes", async () => {
+                seedTimeline([...messages(2), ...messages(4).slice(2)]);
+                markerAt("$m1");
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                expect(lineAfter(vm)).toBe("$m1");
+
+                room.getUnfilteredTimelineSet().addLiveEvent(mine("$reply"), { addToState: false });
+
+                await vi.waitFor(() => expect(kinds(vm.getSnapshot().items)).not.toContain("read-marker"));
+            });
+
+            it("does not count a message of theirs the server does not have yet as read", async () => {
+                const unsent = mine("$unsent");
+                unsent.setStatus(EventStatus.NOT_SENT);
+                seedTimeline([...messages(3), unsent]);
+                markerAt("$m1");
+
+                const vm = await createStartedViewModel();
+
+                expect(lineAfter(vm)).toBe("$m1");
             });
         });
 
