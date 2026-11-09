@@ -1804,6 +1804,24 @@ describe("RoomTimelineViewModel", () => {
             expect(vi.mocked(client.setRoomReadMarkers).mock.calls.length > 0).toBe(movesSoon);
         });
 
+        it("tries again when moving the marker fails", async () => {
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            vi.mocked(client.setRoomReadMarkers).mockRejectedValueOnce(new Error("offline"));
+            seedTimeline(messages(5));
+            markerAt("$m1");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m4");
+
+            await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenCalledTimes(2));
+            expect(vi.mocked(client.setRoomReadMarkers).mock.calls.map(([, eventId]) => eventId)).toEqual([
+                "$m4",
+                "$m4",
+            ]);
+        });
+
         it("never moves the marker back while the newest messages are loaded and placed", async () => {
             vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
                 timer.start();

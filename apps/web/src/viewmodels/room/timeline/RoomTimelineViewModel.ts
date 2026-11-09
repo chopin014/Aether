@@ -608,9 +608,12 @@ export class RoomTimelineViewModel
         // A marker at or below that message is ahead of what the reader is looking at: leave it.
         if (!eventId || !this.comesAfter(eventId, this.readMarkerEventId)) return;
         debug(`[TimelineVM] moveReadMarkerOn — fully read marker to ${eventId}`);
+        const previous = this.readMarkerEventId;
         this.readMarkerEventId = eventId;
         this.opts.client.setRoomReadMarkers(this.opts.room.roomId, eventId).catch((err) => {
             logger.warn(`[TimelineVM] moveReadMarkerOn — setRoomReadMarkers failed`, err);
+            // Try again next time, unless the marker has moved on meanwhile.
+            if (this.readMarkerEventId === eventId) this.readMarkerEventId = previous;
         });
     }
 
