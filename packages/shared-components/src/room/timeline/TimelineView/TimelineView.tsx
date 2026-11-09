@@ -250,6 +250,8 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
     // hold the last values we sent and repeats are skipped.
     const lastVisibleRangeRef = useRef<{ start: number; end: number } | null>(null);
     const lastAtBottomRef = useRef<boolean | null>(null);
+    /** The scroll position last reported on, to tell the reader scrolling up from rows arriving below. */
+    const lastScrollOffsetRef = useRef(0);
     // For the "reached the top/bottom" reports we remember a short description of the
     // situation we last reported, in the form "<number of rows>:<row index>", and clear it
     // whenever we move away from that end. This stops us reporting over and over while
@@ -289,7 +291,14 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             const scrollOffset = v.scrollOffset ?? 0;
             const viewportHeight = v.scrollRect?.height ?? 0;
             const totalSize = v.getTotalSize();
-            const atBottom = viewportHeight > 0 && scrollOffset + viewportHeight >= totalSize - AT_BOTTOM_THRESHOLD_PX;
+            const atEnd = viewportHeight > 0 && scrollOffset + viewportHeight >= totalSize - AT_BOTTOM_THRESHOLD_PX;
+            // A reader at the bottom stays there, as with the old timeline's ScrollPanel, until they scroll up. Rows
+            // arriving below push the end away for a moment before `followOnAppend` follows them; that is not the
+            // reader leaving, and treating it so would, for one, keep them on an old timeline after a gap in sync.
+            const scrolledUp = scrollOffset < lastScrollOffsetRef.current - AT_BOTTOM_THRESHOLD_PX;
+            lastScrollOffsetRef.current = scrollOffset;
+            const following = snapshotRef.current.atLiveEnd && snapshotRef.current.pendingAnchor === null;
+            const atBottom = atEnd || (following && lastAtBottomRef.current === true && !scrolledUp);
             if (atBottom !== lastAtBottomRef.current) {
                 lastAtBottomRef.current = atBottom;
                 vm.onAtBottomStateChange(atBottom);

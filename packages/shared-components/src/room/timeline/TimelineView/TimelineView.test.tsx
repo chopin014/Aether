@@ -591,6 +591,57 @@ describe("<TimelineView />", () => {
         );
     });
 
+    describe("when messages arrive at the bottom", () => {
+        const distanceFromBottom = (el: HTMLElement): number => el.scrollHeight - el.scrollTop - el.clientHeight;
+
+        it("never tells the view model the reader left the bottom while it follows them", async () => {
+            const { vm, actions, update } = makeFakeVm({ items: eventItems(30) });
+            renderTimeline(vm);
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+            await waitFor(() => expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(true));
+            actions.onAtBottomStateChange.mockClear();
+
+            // A burst, as when sync brings many messages at once.
+            for (let count = 31; count <= 60; count++) update({ items: eventItems(count) });
+
+            const scroller = screen.getByTestId("timeline-scroller");
+            await waitFor(() => expect(screen.getByTestId("row-evt-59")).toBeInTheDocument());
+            await waitFor(() => expect(distanceFromBottom(scroller)).toBeLessThanOrEqual(1));
+            expect(actions.onAtBottomStateChange).not.toHaveBeenCalledWith(false);
+        });
+
+        it("follows a short list that grows past the screen, as in a new room", async () => {
+            const { vm, actions, update } = makeFakeVm({ items: eventItems(3) });
+            renderTimeline(vm);
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+            await waitFor(() => expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(true));
+            actions.onAtBottomStateChange.mockClear();
+
+            for (let count = 4; count <= 50; count++) update({ items: eventItems(count) });
+
+            const scroller = screen.getByTestId("timeline-scroller");
+            await waitFor(() => expect(screen.getByTestId("row-evt-49")).toBeInTheDocument());
+            await waitFor(() => expect(distanceFromBottom(scroller)).toBeLessThanOrEqual(1));
+            expect(actions.onAtBottomStateChange).not.toHaveBeenCalledWith(false);
+        });
+
+        it("still tells the view model when the reader scrolls up", async () => {
+            const { vm, actions, update } = makeFakeVm({ items: eventItems(30) });
+            renderTimeline(vm);
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+            await waitFor(() => expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(true));
+            // Let the first load's placement finish steering, or it would undo the scroll below.
+            await new Promise((resolve) => setTimeout(resolve, 100));
+
+            screen.getByTestId("timeline-scroller").scrollTop = 100;
+
+            await waitFor(() => expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(false));
+            update({ items: eventItems(31) });
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(false);
+        });
+    });
+
     describe("when the viewport changes height", () => {
         // The view is height:100%, so re-rendering the wrapper with a new height is how the composer
         // growing, or a banner appearing above the timeline, reaches the scroller.
