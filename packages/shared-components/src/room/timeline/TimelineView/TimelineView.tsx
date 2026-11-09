@@ -373,8 +373,9 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
                     startEdgeTokenRef.current = token;
                     vm.onStartReached();
                 }
-            } else {
+            } else if (startEdgeTokenRef.current !== "") {
                 startEdgeTokenRef.current = "";
+                vm.onStartLeft();
             }
             if (itemCount > 0 && lastRenderedIndex === itemCount - 1) {
                 const token = `${itemCount}:${visibleRange ? visibleRange.endIndex : 0}`;

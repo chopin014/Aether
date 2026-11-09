@@ -279,11 +279,12 @@ export class RoomTimelineViewModel
     private forwardRerunRequested = false;
 
     /**
-     * Whether the reader reached the start of the loaded messages when there was nothing older to show. History added
-     * there afterwards, such as sliding sync brings for a room restored from this device, is then paged in as it comes,
-     * as the old timeline's fill check does: the view does not report the start again while the reader stays at it.
+     * Whether the view shows the start of the loaded messages: from {@link onStartReached} until {@link onStartLeft},
+     * or until the reader is taken elsewhere. History added there meanwhile, such as sliding sync brings for a room
+     * restored from this device, is paged in as it comes, as the old timeline's fill check does: the view does not
+     * report the start again while the reader stays at it.
      */
-    private startReachedWithoutHistory = false;
+    private startInView = false;
 
     /**
      * The real timeline content: messages, date separators and the unread marker, with no
@@ -553,11 +554,12 @@ export class RoomTimelineViewModel
 
     /**
      * Older messages were added at the start of one of the room's timelines. When that is where the window starts and
-     * the reader is waiting there for more, page them in; see {@link startReachedWithoutHistory}. Messages paged in by
-     * the window itself come through here too, and are left to it.
+     * the reader is there to see them, page them in; see {@link startInView}. Anywhere else, paging would push the
+     * messages being read out of the window. Messages paged in by the window itself come through here too, and are
+     * left to it.
      */
     private onHistoryAddedAtStart(timeline: EventTimeline): void {
-        if (this.isDisposed || this.backwardPaginateChain || !this.startReachedWithoutHistory) return;
+        if (this.isDisposed || this.backwardPaginateChain || !this.startInView) return;
         if (timeline !== this.timelineWindow.getTimelineIndex(Direction.Backward)?.timeline) return;
         debug(`[TimelineVM] onHistoryAddedAtStart — paging in history that arrived after the start was reached`);
         this.triggerBackwardPaginate();
@@ -984,8 +986,9 @@ export class RoomTimelineViewModel
         this.loading = true;
         this.navigationEventId = target.kind === "live" ? null : target.eventId;
         this.navigationToReadMarker = target.kind === "permalink" && !!target.toReadMarker;
-        // The window is filled afresh and placed again.
+        // The window is filled afresh and placed again, and the view says whether its start is shown.
         this.readerPlaced = false;
+        this.startInView = false;
         debug(
             `[TimelineVM] load() start — kind=${target.kind}${target.kind !== "live" ? ` eventId=${target.eventId}` : ""}`,
         );
@@ -1200,7 +1203,12 @@ export class RoomTimelineViewModel
 
     public onStartReached = (): void => {
         debug(`[TimelineVM] onStartReached — items=${this.snapshot.current.items.length}`);
+        this.startInView = true;
         this.triggerBackwardPaginate();
+    };
+
+    public onStartLeft = (): void => {
+        this.startInView = false;
     };
 
     public onEndReached = (): void => {
@@ -1418,6 +1426,8 @@ export class RoomTimelineViewModel
      * Without this, a slower load finishing later would take them back to where it was going.
      */
     private supersedeLoads(): void {
+        // The reader is taken elsewhere; the view says again if that shows the start.
+        this.startInView = false;
         const wasLoading = this.loading;
         this.loadGeneration++;
         this.loading = false;
@@ -1741,11 +1751,9 @@ export class RoomTimelineViewModel
 
         if (!this.timelineWindow.canPaginate(Direction.Backward)) {
             debug(`[TimelineVM] paginate(backward) skipped — canPaginate=false`);
-            this.startReachedWithoutHistory = true;
             return;
         }
 
-        this.startReachedWithoutHistory = false;
         this.backwardPaginateChain = this.runPaginateChain(Direction.Backward).finally(() => {
             this.backwardPaginateChain = null;
             if (this.backwardRerunRequested && !this.isDisposed) {

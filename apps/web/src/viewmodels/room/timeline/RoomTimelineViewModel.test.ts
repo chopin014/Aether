@@ -1940,6 +1940,54 @@ describe("RoomTimelineViewModel", () => {
 
                 expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]);
             });
+
+            it("leaves them for later once the reader has scrolled away from the start", async () => {
+                seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                vm.onStartReached();
+                vm.onStartLeft();
+
+                addHistory([makeMessage("$older")]);
+                await new Promise((r) => setTimeout(r, 50));
+
+                expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]);
+            });
+
+            it("waits for the view to show the start again after taking the reader to another message", async () => {
+                seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                vm.onStartReached();
+
+                // Taken to another message: until the view says the start is still shown, the reader may be far from it.
+                vm.showEvent("$b");
+                vm.onAnchorReached("$b");
+                addHistory([makeMessage("$older")]);
+                await new Promise((r) => setTimeout(r, 50));
+                expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]);
+
+                vm.onStartReached();
+                await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$older", "$a", "$b"]));
+            });
+
+            it("does not page the message being read out of the window when history arrives after a jump", async () => {
+                // The whole room is loaded and the reader has been to its start, then jumps to the newest message
+                // through a fresh window. Paging the history in would trim that window's newest messages away.
+                const messages = Array.from({ length: 30 }, (_, i) => makeMessage(`$m${i}`));
+                seedTimeline(messages);
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                vm.onStartReached();
+
+                await (vm as any).load({ kind: "permalink", eventId: "$m29" });
+                vm.onAnchorReached("$m29");
+                addHistory([makeMessage("$older")]);
+                await new Promise((r) => setTimeout(r, 50));
+
+                expect(eventKeys(vm.getSnapshot().items)).toContain("$m29");
+                expect(eventKeys(vm.getSnapshot().items)).not.toContain("$older");
+            });
         });
 
         it("shows a loading spinner in the list while older messages are fetched", async () => {
