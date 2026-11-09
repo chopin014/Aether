@@ -108,7 +108,7 @@ test.describe("New timeline", () => {
     test("shows that a message on screen was removed", async ({ page, app, user }) => {
         const roomId = await app.client.createRoom({ name: "Removed message" });
         const removed = await app.client.sendMessage(roomId, "Soon to be removed");
-        // Receipts and the "Sent" tick stay on this later message, so nothing else redraws the removed one.
+        // Receipts and the "Sent" tick stay on this later message, so they do not redraw the removed one.
         await app.client.sendMessage(roomId, "A message after it");
 
         await app.viewRoomById(roomId);
