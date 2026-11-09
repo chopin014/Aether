@@ -2159,14 +2159,16 @@ export class RoomTimelineViewModel
     /**
      * Sum up runs of events as the old timeline's `MainGrouper` does: each run of events {@link isSummarised} on one
      * day becomes one summary row, however short. A summary of fewer than three events shows the events themselves.
-     * Exact navigation and read-marker targets keep rows of their own. A summary that opens the room as far back as
-     * the reader can see is marked `startsHistory`, as the old timeline then says why
-     * there is nothing earlier.
+     * An event the reader is being taken to keeps a row of its own, so there is a row to land on. A read marker on an
+     * event in a run follows the whole summary, as in the old timeline. A summary that opens the room as far back as
+     * the reader can see is marked `startsHistory`, as the old timeline then says why there is nothing earlier.
      */
     private groupSummarisedItems(items: TimelineItem[]): TimelineItem[] {
         const result: TimelineItem[] = [];
         const usedKeys = new Set<string>();
         let run: Extract<TimelineItem, { kind: "event" }>[] = [];
+        // The read marker on an event in the current run, put after its summary.
+        let marker: TimelineItem | undefined;
         const flush = (): void => {
             if (run.length === 0) return;
             const events = run.map((item) => item.event as MatrixEvent);
@@ -2182,16 +2184,24 @@ export class RoomTimelineViewModel
             usedKeys.add(key);
             for (const event of events) this.summaryGroupKeys.set(event, key);
             result.push({ kind: "event-group", key, events });
+            if (marker) result.push(marker);
             run = [];
+            marker = undefined;
         };
+        // Going to the unread line lands on the line, wherever its event is drawn.
         const protectedIds = new Set([
-            this.navigationEventId,
-            this.frozenMarkerEventId,
+            this.navigationToReadMarker ? null : this.navigationEventId,
             this.snapshot.current.highlightedEventId,
             this.snapshot.current.pendingAnchor?.targetKey,
         ]);
         for (const item of items) {
-            if (item.kind === "event" && !protectedIds.has(item.key) && this.isSummarised(item.event as MatrixEvent)) {
+            if (item.kind === "read-marker" && run.length > 0) {
+                marker = item;
+            } else if (
+                item.kind === "event" &&
+                !protectedIds.has(item.key) &&
+                this.isSummarised(item.event as MatrixEvent)
+            ) {
                 if (
                     run.length > 0 &&
                     new Date((run[0].event as MatrixEvent).getTs()).toDateString() !==

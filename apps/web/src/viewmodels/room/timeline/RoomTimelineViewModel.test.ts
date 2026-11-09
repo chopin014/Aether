@@ -422,8 +422,8 @@ describe("RoomTimelineViewModel", () => {
             expect(vm.getSnapshot().highlightedEventId).toBe("$m3");
         });
 
-        it("keeps the frozen read marker immediately after its own member event", async () => {
-            seedTimeline(memberships(7));
+        it("puts the read marker after the summary its event is in, as the old timeline does", async () => {
+            seedTimeline([...memberships(7), makeMessage("$after", { ts: 1_700_000_000_000 })]);
             room.addAccountData([
                 new MatrixEvent({
                     type: EventType.FullyRead,
@@ -433,8 +433,27 @@ describe("RoomTimelineViewModel", () => {
             ]);
             const vm = await createStartedViewModel();
             const items = vm.getSnapshot().items;
-            expect(items[indexOfKey(items, "$m3") + 1].kind).toBe("read-marker");
-            expect(groups(vm).map((group) => group.events.length)).toEqual([3, 3]);
+            expect(groups(vm).map((group) => group.events.length)).toEqual([7]);
+            const summaryAt = items.findIndex((item) => item.kind === "event-group");
+            expect(items.slice(summaryAt + 1).map((item) => item.key)).toEqual(["read-marker", "$after"]);
+        });
+
+        it("keeps the summary whole when the reader goes to the unread line in it", async () => {
+            seedTimeline([...memberships(7), ...Array.from({ length: 3 }, (_, i) => makeMessage(`$later${i}`))]);
+            room.addAccountData([
+                new MatrixEvent({
+                    type: EventType.FullyRead,
+                    room_id: ROOM_ID,
+                    content: { event_id: "$m3" },
+                }),
+            ]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.jumpToReadMarker();
+            await vi.waitFor(() =>
+                expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "read-marker", align: "center" }),
+            );
+            expect(groups(vm).map((group) => group.events.length)).toEqual([7]);
         });
 
         it("keeps a restored member individually addressable", async () => {
