@@ -13,6 +13,7 @@ import React, {
     useMemo,
     useRef,
     useState,
+    type CSSProperties,
     type JSX,
     type ReactNode,
     type Ref,
@@ -52,6 +53,7 @@ import EventListSummary from "../views/elements/EventListSummary";
 import GenericEventListSummary from "../views/elements/GenericEventListSummary";
 import NewRoomIntro from "../views/rooms/NewRoomIntro";
 import HistoryTile from "../views/rooms/HistoryTile";
+import { galleryColumns } from "../../utils/gallery";
 import IRCTimelineProfileResizer from "../views/elements/IRCTimelineProfileResizer";
 import DMRoomMap from "../../utils/DMRoomMap";
 import type { IReadReceiptPosition } from "../views/rooms/ReadReceiptMarker";
@@ -137,15 +139,27 @@ function lastEventIdOf(items: readonly TimelineItem[]): string | null {
 }
 
 /** A row for one event drawn inside a group, with its send state read as the view model reads a row's own. */
-function groupedEvent(event: MatrixEvent): TimelineItem {
-    return {
-        kind: "event",
-        key: event.getId()!,
-        event,
-        continuation: false,
-        lastInSection: true,
-        sendState: sendStateOf(event),
-    };
+function groupedEvent(event: MatrixEvent, continuation = false, lastInSection = true): TimelineItem {
+    return { kind: "event", key: event.getId()!, event, continuation, lastInSection, sendState: sendStateOf(event) };
+}
+
+/**
+ * Pictures one person sent together, after the first of them, as a grid under it, as the old timeline's
+ * `GalleryGrouper` draws them. Each picture is still its own tile, with its own actions and reactions.
+ */
+function renderGallery(key: string, rows: TimelineItem[], ctx: RenderItemContext): ReactNode {
+    const columns = galleryColumns(rows.length);
+    const style = { "--mx-desktop-gallery-columns": columns } as CSSProperties;
+    return (
+        <div key={key} className="mx_DesktopGallery">
+            {/* The list style is removed, which makes Safari stop announcing it as a list unless told. */}
+            {/* oxlint-disable-next-line jsx-a11y/no-redundant-roles */}
+            <ol className="mx_DesktopGallery_list" style={style} data-columns={columns} role="list">
+                {/* The grid's styles expect tiles as its list items. */}
+                {rows.map((row) => renderTimelineItem(row, ctx, "li"))}
+            </ol>
+        </div>
+    );
 }
 
 /**
@@ -178,8 +192,12 @@ function renderCreation(key: string, events: MatrixEvent[], ctx: RenderItemConte
     );
 }
 
-/** Draws one timeline row. Kept outside the component so it isn't redefined per render. */
-function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNode {
+/**
+ * Draws one timeline row. Kept outside the component so it isn't redefined per render.
+ *
+ * @param tileAs - the element of an event's tile: a `div` in a row of its own, or an `li` in a list inside a row
+ */
+function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext, tileAs: "div" | "li" = "div"): ReactNode {
     switch (item.kind) {
         case "date-separator":
             // The same view model as the old timeline, so the label and
@@ -218,6 +236,12 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNo
         case "event-group": {
             const events = item.events as MatrixEvent[];
             if (item.variant === "creation") return renderCreation(item.key, events, ctx);
+            if (item.variant === "gallery") {
+                // Pictures after the first continue it, as the old timeline draws them when the rows do not say.
+                const rows =
+                    item.rows ?? events.map((event, index) => groupedEvent(event, true, index === events.length - 1));
+                return renderGallery(item.key, rows, ctx);
+            }
             // Always a fragment, so the summary keeps its state when the start of the room is reached.
             return (
                 <Fragment key={item.key}>
@@ -231,7 +255,7 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNo
                         // The tiles inside change with the rest of the timeline, such as which is the newest.
                         updateChildren
                     >
-                        {(item.rows ?? events.map(groupedEvent)).map((row) => (
+                        {(item.rows ?? events.map((event) => groupedEvent(event))).map((row) => (
                             // Each as it would be drawn on its own, as MessagePanel draws every tile: continuing the
                             // message before it, or still being sent, such as messages a module sums up.
                             <li key={tileKeyOf(row)}>{renderTimelineItem(row, ctx)}</li>
@@ -249,6 +273,7 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNo
             return (
                 <LegacyEventTileAdapter
                     key={tileKeyOf(item)}
+                    as={tileAs}
                     mxEvent={mxEvent}
                     continuation={item.continuation}
                     lastInSection={item.lastInSection}

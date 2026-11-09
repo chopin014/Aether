@@ -421,6 +421,19 @@ describe("<NewTimelinePanel />", () => {
         ]);
     });
 
+    it("draws each tile in a summary given no rows on its own", () => {
+        const first = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "first", event: true });
+        const second = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "second", event: true });
+        withItems([{ key: "summary-$first-0", kind: "event-group", events: [first, second] }]);
+
+        renderPanel();
+
+        expect(tileProps.current.map((props) => [props.mxEvent, props.continuation, props.lastInSection])).toEqual([
+            [first, false, true],
+            [second, false, true],
+        ]);
+    });
+
     it("gives each tile in a summary its own send state", () => {
         // A message a module sums up, still being sent.
         const sending = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "grouped", event: true });
@@ -464,6 +477,71 @@ describe("<NewTimelinePanel />", () => {
         // The summary the reader opened stays open.
         expect(tile.nextElementSibling).toHaveAttribute("data-expanded", "true");
         expect(screen.getAllByTestId("event-row")).toHaveLength(3);
+    });
+
+    it("draws pictures sent together as a grid of tiles, as the old timeline's gallery does", () => {
+        const pictures = Array.from({ length: 4 }, (_, index) =>
+            mkMessage({ room: ROOM_ID, user: USER_ID, msg: `picture ${index}`, event: true }),
+        );
+        vi.spyOn(pictures[3], "getAssociatedStatus").mockReturnValue(EventStatus.SENDING);
+        withItems([
+            { key: `gallery-${pictures[0].getId()}`, kind: "event-group", events: pictures, variant: "gallery" },
+        ]);
+
+        const { container } = renderPanel();
+
+        const list = container.querySelector(".mx_DesktopGallery > ol.mx_DesktopGallery_list");
+        expect(list).toHaveAttribute("data-columns", "2");
+        expect((list as HTMLElement).style.getPropertyValue("--mx-desktop-gallery-columns")).toBe("2");
+        expect(
+            tileProps.current.map((props) => [props.mxEvent, props.as, props.continuation, props.lastInSection]),
+        ).toEqual([
+            [pictures[0], "li", true, false],
+            [pictures[1], "li", true, false],
+            [pictures[2], "li", true, false],
+            [pictures[3], "li", true, true],
+        ]);
+        expect(tileProps.current.map((props) => props.sendState)).toEqual([undefined, undefined, undefined, "sending"]);
+    });
+
+    describe("a gallery", () => {
+        const pictures = (): MatrixEvent[] =>
+            Array.from({ length: 2 }, (_, index) =>
+                mkMessage({ room: ROOM_ID, user: USER_ID, msg: `picture ${index}`, event: true }),
+            );
+        // The message after the pictures continues them, so neither closes the section.
+        const continuing = (event: MatrixEvent): TimelineItem =>
+            eventRow(event, { continuation: true, lastInSection: false });
+        const gallery = (events: MatrixEvent[]): TimelineItem =>
+            ({
+                key: `gallery-${events[0].getId()}`,
+                kind: "event-group",
+                events,
+                variant: "gallery",
+                rows: events.map(continuing),
+            }) as TimelineItem;
+
+        it("draws each picture from its own row", () => {
+            const events = pictures();
+            withItems([gallery(events)]);
+
+            renderPanel();
+
+            expect(
+                tileProps.current.map((props) => [props.mxEvent, props.as, props.continuation, props.lastInSection]),
+            ).toEqual([
+                [events[0], "li", true, false],
+                [events[1], "li", true, false],
+            ]);
+        });
+
+        it("is a list even to Safari, which ignores lists without their list style", () => {
+            withItems([gallery(pictures())]);
+
+            const { container } = renderPanel();
+
+            expect(container.querySelector(".mx_DesktopGallery_list")).toHaveAttribute("role", "list");
+        });
     });
 
     describe("the start of a room", () => {

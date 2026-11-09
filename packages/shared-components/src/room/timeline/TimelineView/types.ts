@@ -51,9 +51,10 @@ export interface EventGroupTimelineItem {
     events: TimelineEvent[];
     /**
      * What the events have in common: a run of changes summed up together, such as memberships or removed messages,
-     * the default; or the room being created and set up by the person who created it.
+     * the default; the room being created and set up by the person who created it; or pictures one person sent
+     * together, after the first of them.
      */
-    variant?: "summary" | "creation";
+    variant?: "summary" | "creation" | "gallery";
     /**
      * The events' own rows, in the same order as `events`, as they would be drawn without the summary: whether each
      * continues the one before it, and how far sending has got. The application draws each event from its row.

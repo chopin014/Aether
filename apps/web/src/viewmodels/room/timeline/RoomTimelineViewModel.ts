@@ -50,6 +50,9 @@ import {
 } from "../../../utils/read-receipts";
 import type { IReadReceiptProps } from "../../../components/views/rooms/EventTile";
 import { ModuleApi } from "../../../modules/Api";
+import { GALLERY_WINDOW_MS, isGalleryMedia } from "../../../utils/gallery";
+import { wantsDateSeparator } from "../../../DateUtils";
+import { getLateEventInfo } from "../../../components/structures/grouper/LateEventGrouper";
 import { sendStateOf } from "./sendState";
 
 const DEBUG_TIMELINE = false;
@@ -284,6 +287,9 @@ export class RoomTimelineViewModel
     /** Keep a summary's identity when history is added on either side. */
     private readonly summaryGroupKeys = new WeakMap<MatrixEvent, string>();
     private summaryGroupSequence = 0;
+    /** Keep a gallery's identity as pictures join or leave it at either end; see {@link groupGalleries}. */
+    private readonly galleryGroupKeys = new WeakMap<MatrixEvent, string>();
+    private galleryGroupSequence = 0;
 
     /** A permalink or saved position must remain an individually addressable event row. */
     private navigationEventId: string | null = null;
@@ -2173,7 +2179,9 @@ export class RoomTimelineViewModel
                 `filtered=${filteredCount}`,
         );
 
-        return this.groupSummarisedItems(this.groupRoomCreation(items, events, showHiddenEvents), showHiddenEvents);
+        return this.groupGalleries(
+            this.groupSummarisedItems(this.groupRoomCreation(items, events, showHiddenEvents), showHiddenEvents),
+        );
     }
 
     /**
@@ -2374,6 +2382,82 @@ export class RoomTimelineViewModel
         if (!this.timelineWindow.canPaginate(Direction.Backward)) {
             const first = result.find((item) => item.kind === "event" || item.kind === "event-group");
             if (first?.kind === "event-group" && first.variant === undefined) first.startsHistory = true;
+        }
+        return result;
+    }
+
+    /**
+     * Lay out pictures one person sends together as the old timeline's `GalleryGrouper` does, in the desktop shell:
+     * the first stays an ordinary row, and the ones that follow it from the same person, each within
+     * {@link GALLERY_WINDOW_MS} of the one before, become one gallery row under it. A read marker among them moves
+     * after the gallery. A picture the reader is being taken to keeps a row of its own, so there is a row to land on.
+     */
+    private groupGalleries(items: TimelineItem[]): TimelineItem[] {
+        if (!SettingsStore.getValue("feature_desktop_shell")) return items;
+        const pendingKey = this.snapshot.current.pendingAnchor?.targetKey;
+        const targets = new Set([
+            this.navigationToReadMarker ? null : this.navigationEventId,
+            this.snapshot.current.highlightedEventId,
+            pendingKey === "read-marker" ? null : pendingKey,
+        ]);
+        const result: TimelineItem[] = [];
+        const usedKeys = new Set<string>();
+        let index = 0;
+        while (index < items.length) {
+            const first = items[index++];
+            result.push(first);
+            if (first.kind !== "event" || !isGalleryMedia(first.event as MatrixEvent, true)) continue;
+
+            let previous = first.event as MatrixEvent;
+            const rest: Extract<TimelineItem, { kind: "event" }>[] = [];
+            let marker: TimelineItem | undefined;
+            while (index < items.length) {
+                const item = items[index];
+                if (item.kind === "read-marker" && !marker) {
+                    marker = item;
+                    index++;
+                    continue;
+                }
+                if (item.kind !== "event" || targets.has(item.key)) break;
+                const event = item.event as MatrixEvent;
+                if (
+                    !isGalleryMedia(event, false) ||
+                    event.getSender() !== previous.getSender() ||
+                    event.getTs() - previous.getTs() > GALLERY_WINDOW_MS ||
+                    // As the old timeline's `GalleryGrouper` does, never across a change of day or of late messages,
+                    // whether a separator is drawn there or not, such as when a message's time is out of order.
+                    wantsDateSeparator(previous.getDate() ?? undefined, event.getDate() ?? undefined) ||
+                    getLateEventInfo(event)?.group_id !== getLateEventInfo(previous)?.group_id
+                ) {
+                    break;
+                }
+                rest.push(item);
+                previous = event;
+                index++;
+            }
+            if (rest.length > 0) {
+                const events = rest.map((item) => item.event as MatrixEvent);
+                // A gallery keeps its key while any of its pictures stay in it, such as when an earlier picture loads
+                // and joins it, or the first ones are trimmed away, so the view keeps its measured size and place.
+                // After a split, only one part keeps it.
+                const keyedEvent = events.find((event) => {
+                    const key = this.galleryGroupKeys.get(event);
+                    return key !== undefined && !usedKeys.has(key);
+                });
+                const fresh = `gallery-${rest[0].key}`;
+                const key = keyedEvent
+                    ? this.galleryGroupKeys.get(keyedEvent)!
+                    : usedKeys.has(fresh)
+                      ? `${fresh}-${this.galleryGroupSequence++}`
+                      : fresh;
+                usedKeys.add(key);
+                for (const event of events) this.galleryGroupKeys.set(event, key);
+                // Each picture's own row comes along, so it is drawn as it would be on its own, as the old timeline
+                // draws the tiles in a gallery: continuing the one before, and closing its section before a message
+                // that does not continue it.
+                result.push({ kind: "event-group", key, events, rows: rest, variant: "gallery" });
+            }
+            if (marker) result.push(marker);
         }
         return result;
     }
