@@ -48,41 +48,66 @@ export async function scrollTimelineTo(
     { directions = [1, -1], timeout = 10_000 }: { directions?: Array<1 | -1>; timeout?: number } = {},
 ): Promise<void> {
     const scroller = timelineScroller(page);
-    // Either timeline's paging spinners: the new one's loading rows, and the old one's rows at its ends. Tiles have
-    // progress bars of their own, such as while a picture loads, which say nothing about paging.
+    // Either timeline's paging spinners: the new one's loading rows, and the spinner the old one puts in a row of its
+    // own at either end. Tiles and galleries have progress bars of their own, such as while a picture loads, deeper
+    // inside their rows; those say nothing about paging.
     const paging = scroller
-        .locator(".mx_NewTimelinePanel_loading, .mx_RoomView_MessageList > li:not(.mx_EventTile)")
+        .locator(".mx_NewTimelinePanel_loading, .mx_RoomView_MessageList > li > .mx_Spinner")
         .getByRole("progressbar");
     const deadline = Date.now() + timeout;
+    // Every step waits no longer than the search has left, so a timeline that goes away ends the search on time.
+    const timeLeft = (): number => Math.max(1, deadline - Date.now());
 
     /** Scroll towards one end until the tile is drawn, or the end has been reached and nothing more comes. */
     const searchTowards = async (direction: 1 | -1): Promise<void> => {
         // How many times running the end was reached with nothing new to show.
         let idle = 0;
         while ((await tile.count()) === 0 && Date.now() < deadline && idle < 10) {
-            const { moved, height } = await scroller.evaluate((element, step) => {
-                const before = element.scrollTop;
-                element.scrollTop += step * element.clientHeight * 0.8;
-                return { moved: element.scrollTop !== before, height: element.scrollHeight };
-            }, direction);
-            // Give the timeline a frame to draw the rows it has scrolled to.
-            await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+            const { moved, height } = await scroller.evaluate(
+                (element, step) => {
+                    const before = element.scrollTop;
+                    element.scrollTop += step * element.clientHeight * 0.8;
+                    return { moved: element.scrollTop !== before, height: element.scrollHeight };
+                },
+                direction,
+                { timeout: timeLeft() },
+            );
+            // Give the timeline a frame to draw the rows it has scrolled to. A hidden page draws no frames, so do not
+            // wait for one for long.
+            await page.evaluate(
+                () =>
+                    new Promise((resolve) => {
+                        requestAnimationFrame(resolve);
+                        setTimeout(resolve, 100);
+                    }),
+            );
             if (moved) {
                 idle = 0;
                 continue;
             }
-            await page.waitForTimeout(100);
-            const grew = (await scroller.evaluate((element) => element.scrollHeight)) !== height;
+            await page.waitForTimeout(Math.min(100, timeLeft()));
+            const grew =
+                (await scroller.evaluate((element) => element.scrollHeight, undefined, { timeout: timeLeft() })) !==
+                height;
             idle = grew || (await paging.count()) > 0 ? 0 : idle + 1;
         }
     };
 
+    const notFound = (cause?: unknown): Error => {
+        const where = directions.map((direction) => (direction > 0 ? "newer" : "older")).join(" then ");
+        return new Error(`No ${tile} in the timeline after looking among ${where} messages for ${timeout}ms`, {
+            cause,
+        });
+    };
     for (let pass = 0; (await tile.count()) === 0; pass++) {
-        if (Date.now() >= deadline) {
-            const where = directions.map((direction) => (direction > 0 ? "newer" : "older")).join(" then ");
-            throw new Error(`No ${tile} in the timeline after looking among ${where} messages for ${timeout}ms`);
+        if (Date.now() >= deadline) throw notFound();
+        try {
+            await searchTowards(directions[pass % directions.length]);
+        } catch (error) {
+            // A step ran out of time, such as when the timeline went away: report it as the search ending.
+            if (error instanceof Error && error.name === "TimeoutError") throw notFound(error);
+            throw error;
         }
-        await searchTowards(directions[pass % directions.length]);
     }
     await tile.scrollIntoViewIfNeeded({ timeout: Math.max(1_000, deadline - Date.now()) });
 }
