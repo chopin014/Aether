@@ -466,7 +466,7 @@ describe("RoomTimelineViewModel", () => {
             vm.onAnchorReached();
             vm.jumpToReadMarker();
             await vi.waitFor(() =>
-                expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "read-marker", align: "center" }),
+                expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "read-marker", align: "third" }),
             );
             expect(groups(vm).map((group) => group.events.length)).toEqual([7]);
         });
