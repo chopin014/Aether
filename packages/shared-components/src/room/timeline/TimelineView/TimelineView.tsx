@@ -258,6 +258,12 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
     const heldAtRef = useRef<number | null>(null);
     /** Set while a scroll back to the end is waiting for the next frame; see `reportVisibleState`. */
     const repinFrameRef = useRef<number | undefined>(undefined);
+    /** Stop holding the reader at the bottom, and drop any scroll back to it, as they are being taken elsewhere. */
+    const releaseBottom = useCallback((): void => {
+        if (repinFrameRef.current !== undefined) cancelAnimationFrame(repinFrameRef.current);
+        repinFrameRef.current = undefined;
+        heldAtRef.current = null;
+    }, []);
     // For the "reached the top/bottom" reports we remember a short description of the
     // situation we last reported, in the form "<number of rows>:<row index>", and clear it
     // whenever we move away from that end. This stops us reporting over and over while
@@ -317,10 +323,13 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             if (atBottom && !atEnd && following && repinFrameRef.current === undefined) {
                 repinFrameRef.current = requestAnimationFrame(() => {
                     repinFrameRef.current = undefined;
-                    // The reader may have scrolled up in the meantime, before TanStack has told us: leave them there.
+                    // Much can happen before the frame: a jump to a message, the newest messages being unloaded, or
+                    // the reader scrolling up before TanStack has told us. Go back only if they are still held here.
                     const held = heldAtRef.current;
+                    const latest = vm.getSnapshot();
                     const scroller = scrollerRef.current;
                     if (held === null || lastAtBottomRef.current !== true || !scroller) return;
+                    if (!latest.atLiveEnd || latest.pendingAnchor !== null) return;
                     if (scroller.scrollTop < held - AT_BOTTOM_THRESHOLD_PX) return;
                     const height = v.scrollRect?.height ?? 0;
                     v.scrollToOffset(Math.max(0, v.getTotalSize() - height));
@@ -563,6 +572,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             return;
         }
         if (lastPlacedAnchorKeyRef.current !== anchor.targetKey) {
+            releaseBottom();
             const target = offsetForKey(anchor.targetKey, anchor.align);
             if (target !== null) {
                 virtualizer.scrollToOffset(target);
@@ -578,9 +588,11 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
     const scrollNow = useCallback<ImmediateScroll>(
         (anchor) => {
             const target = offsetForKey(anchor.targetKey, anchor.align);
-            if (target !== null) virtualizer.scrollToOffset(target);
+            if (target === null) return;
+            releaseBottom();
+            virtualizer.scrollToOffset(target);
         },
-        [offsetForKey, virtualizer],
+        [offsetForKey, releaseBottom, virtualizer],
     );
 
     const virtualItems = virtualizer.getVirtualItems();

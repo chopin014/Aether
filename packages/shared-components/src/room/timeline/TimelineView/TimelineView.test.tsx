@@ -741,6 +741,35 @@ describe("<TimelineView />", () => {
             expect(scroller.scrollTop).toBeLessThanOrEqual(bottom - 29);
             expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(false);
         });
+
+        it("never takes a reader back to the bottom from a message they were taken to meanwhile", async () => {
+            const { vm, actions, update } = makeFakeVm({ items: eventItems(30) });
+            renderTimeline(vm);
+            await waitFor(() => expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(true));
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            actions.onAnchorReached.mockImplementation(() => update({ pendingAnchor: null }));
+
+            // Many rows arrive, and before the next frame the reader is taken to one of them, below where they were.
+            // Holding the frames back and running them all afterwards also runs any the view tried to cancel.
+            const frames: FrameRequestCallback[] = [];
+            const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+                frames.push(callback);
+                return -frames.length;
+            });
+            try {
+                update({ items: eventItems(60) });
+                update({ pendingAnchor: { targetKey: "evt-35", align: "center" } });
+            } finally {
+                requestFrame.mockRestore();
+            }
+            for (const frame of frames) frame(performance.now());
+            await new Promise((resolve) => setTimeout(resolve, 300));
+
+            const middle = (box: DOMRect): number => (box.top + box.bottom) / 2;
+            const viewport = screen.getByTestId("timeline-scroller").getBoundingClientRect();
+            const row = screen.getByTestId("row-evt-35").getBoundingClientRect();
+            expect(Math.abs(middle(row) - middle(viewport))).toBeLessThan(ROW_HEIGHT);
+        });
     });
 
     describe("when the viewport changes height", () => {
