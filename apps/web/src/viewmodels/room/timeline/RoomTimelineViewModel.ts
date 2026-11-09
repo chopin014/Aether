@@ -914,6 +914,8 @@ export class RoomTimelineViewModel
         // from the server only now does not draw one, as when everything is marked read.
         let lineGone = false;
         if (this.isReadersNewMessage(event)) {
+            // Decided for the rest of the visit, even when the first load has not finished deciding it yet.
+            this.readMarkerFrozen = true;
             this.awaitingServerReadMarker = false;
             lineGone = !!this.frozenMarkerEventId;
             this.frozenMarkerEventId = null;

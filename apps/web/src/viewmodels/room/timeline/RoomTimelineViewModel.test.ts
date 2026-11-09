@@ -2976,6 +2976,36 @@ describe("RoomTimelineViewModel", () => {
                 expect(lineAfter(vm)).toBe("$m1");
             });
 
+            it("draws no unread line when the reader writes while the room is still loading", async () => {
+                seedTimeline(messages(2));
+                markerAt("$m0");
+                // Hold the first load back, so the messages below arrive before the line is first decided.
+                let release = (): void => {};
+                const held = new Promise<void>((resolve) => {
+                    release = resolve;
+                });
+                const load = TimelineWindow.prototype.load;
+                vi.spyOn(TimelineWindow.prototype, "load").mockImplementation(async function (
+                    this: TimelineWindow,
+                    ...args
+                ) {
+                    await held;
+                    return load.apply(this, args);
+                });
+                const vm = new RoomTimelineViewModel({ client, room });
+                vms.push(vm);
+                vm.start();
+
+                // The reader writes from another device, and someone answers, before the room has loaded.
+                const timelineSet = room.getUnfilteredTimelineSet();
+                timelineSet.addLiveEvent(mine("$reply"), { addToState: false });
+                timelineSet.addLiveEvent(makeMessage("$answer", { user: OTHER_USER_ID }), { addToState: false });
+                release();
+                await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$answer"));
+
+                expect(kinds(vm.getSnapshot().items)).not.toContain("read-marker");
+            });
+
             it("does not count a message of theirs the server does not have yet as read", async () => {
                 const unsent = mine("$unsent");
                 unsent.setStatus(EventStatus.NOT_SENT);
