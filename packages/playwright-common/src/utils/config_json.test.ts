@@ -7,37 +7,51 @@ Please see LICENSE in the repository root for full details.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { type Config } from "../index.js";
 import { buildConfigJson } from "./config_json.js";
 
 describe("buildConfigJson", () => {
+    /** Set both switches, so the environment the tests run in does not leak in. */
+    const switches = (slidingSync: string, newTimeline: string): void => {
+        vi.stubEnv("AETHER_E2E_SLIDING_SYNC", slidingSync);
+        vi.stubEnv("AETHER_E2E_NEW_TIMELINE", newTimeline);
+    };
+    const features = (additional: Partial<Config> = {}, labsFlags: string[] = []) =>
+        buildConfigJson("https://hs.example", additional, labsFlags).features;
+
     afterEach(() => vi.unstubAllEnvs());
 
-    it("turns sliding sync on for every client when asked to, whatever labs flags a test sets", () => {
-        vi.stubEnv("AETHER_E2E_SLIDING_SYNC", "1");
-
-        const json = buildConfigJson("https://hs.example", {}, ["feature_something_else"]);
-
-        expect(json.features).toMatchObject({
-            feature_simplified_sliding_sync: true,
+    it.each([
+        ["sliding sync", "feature_simplified_sliding_sync", (mode: string) => switches(mode, "")],
+        ["the new timeline", "feature_new_timeline", (mode: string) => switches("", mode)],
+    ])("turns %s on or off for every client when asked to", (_name, feature, set) => {
+        set("1");
+        expect(features({}, ["feature_something_else"])).toMatchObject({
+            [feature]: true,
             feature_something_else: true,
         });
+        set("0");
+        expect(features()?.[feature]).toBe(false);
+        set("");
+        expect(features()?.[feature]).toBeUndefined();
     });
 
-    it("turns sliding sync off for every client when asked to, other than in a test that asks for it itself", () => {
-        vi.stubEnv("AETHER_E2E_SLIDING_SYNC", "0");
-
-        expect(buildConfigJson("https://hs.example", {}, ["feature_something_else"]).features).toMatchObject({
-            feature_simplified_sliding_sync: false,
-        });
-        expect(
-            buildConfigJson("https://hs.example", {}, ["feature_simplified_sliding_sync"]).features
-                ?.feature_simplified_sliding_sync,
-        ).toBe(true);
+    it.each([
+        ["sliding sync", "feature_simplified_sliding_sync", (mode: string) => switches(mode, "")],
+        ["the new timeline", "feature_new_timeline", (mode: string) => switches("", mode)],
+    ])("leaves %s as a test sets it itself, through its lab flags or its own config", (_name, feature, set) => {
+        set("0");
+        expect(features({}, [feature])?.[feature]).toBe(true);
+        expect(features({ features: { [feature]: true } })?.[feature]).toBe(true);
+        // A test that runs both ways, such as the scroll anchoring one, keeps its old-timeline variant with "1".
+        set("1");
+        expect(features({ features: { [feature]: false } })?.[feature]).toBe(false);
     });
 
-    it("leaves sliding sync to the test otherwise", () => {
-        vi.stubEnv("AETHER_E2E_SLIDING_SYNC", "");
-
-        expect(buildConfigJson("https://hs.example").features?.feature_simplified_sliding_sync).toBeUndefined();
+    it("keeps the switches apart", () => {
+        switches("1", "0");
+        expect(features()).toMatchObject({ feature_simplified_sliding_sync: true, feature_new_timeline: false });
+        switches("0", "1");
+        expect(features()).toMatchObject({ feature_simplified_sliding_sync: false, feature_new_timeline: true });
     });
 });
