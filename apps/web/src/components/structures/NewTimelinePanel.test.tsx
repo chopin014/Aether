@@ -238,6 +238,62 @@ describe("<NewTimelinePanel />", () => {
         ]);
     });
 
+    describe("as the newest event moves in and out of an open summary", () => {
+        const members = (): MatrixEvent[] =>
+            Array.from({ length: 3 }, (_, index) => {
+                const user = `@member${index}:example.org`;
+                return mkMembership({
+                    room: ROOM_ID,
+                    user,
+                    skey: user,
+                    mship: "join",
+                    event: true,
+                    target: new RoomMember(ROOM_ID, user),
+                });
+            });
+        const rerenderPanel = (view: ReturnType<typeof renderPanel>): void =>
+            view.rerender(
+                <MatrixClientContext.Provider value={client}>
+                    <SDKContext.Provider value={new TestSDKContext()}>
+                        <NewTimelinePanel room={room} />
+                    </SDKContext.Provider>
+                </MatrixClientContext.Provider>,
+            );
+        /** Whether the tile last drawn for `mxEvent` was marked the newest. */
+        const lastOf = (mxEvent: MatrixEvent): unknown =>
+            [...tileProps.current].reverse().find((props) => props.mxEvent === mxEvent)?.last;
+
+        it("marks its final event when a message after it goes", () => {
+            const group = members();
+            const pending = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "sending", event: true });
+            withItems([{ key: "summary", kind: "event-group", events: group }, eventRow(pending)]);
+            const view = renderPanel();
+            fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+            expect(lastOf(group[2])).toBe(false);
+
+            // The message is cancelled before it is sent.
+            withItems([{ key: "summary", kind: "event-group", events: [...group] }]);
+            rerenderPanel(view);
+
+            expect(lastOf(group[2])).toBe(true);
+        });
+
+        it("unmarks its final event when a message arrives after it", () => {
+            const group = members();
+            withItems([{ key: "summary", kind: "event-group", events: group }]);
+            const view = renderPanel();
+            fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+            expect(lastOf(group[2])).toBe(true);
+
+            const arrived = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "arrived", event: true });
+            withItems([{ key: "summary", kind: "event-group", events: [...group] }, eventRow(arrived)]);
+            rerenderPanel(view);
+
+            expect(lastOf(group[2])).toBe(false);
+            expect(lastOf(arrived)).toBe(true);
+        });
+    });
+
     it("marks the newest event inside a closing summary as the last", () => {
         const members = Array.from({ length: 3 }, (_, index) => {
             const user = `@member${index}:example.org`;

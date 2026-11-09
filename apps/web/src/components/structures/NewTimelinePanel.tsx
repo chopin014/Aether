@@ -194,7 +194,14 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNo
             const events = item.events as MatrixEvent[];
             if (item.variant === "creation") return renderCreation(item.key, events, ctx);
             return (
-                <EventListSummary key={item.key} as="div" events={events} layout={ctx.effectiveLayout}>
+                <EventListSummary
+                    key={item.key}
+                    as="div"
+                    events={events}
+                    layout={ctx.effectiveLayout}
+                    // The tiles inside change with the rest of the timeline, such as which is the newest.
+                    updateChildren
+                >
                     {events.map((event) => (
                         <li key={event.getId()}>
                             {renderTimelineItem(

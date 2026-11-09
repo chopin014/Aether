@@ -235,6 +235,62 @@ describe("EventListSummary", function () {
         expect(summary.textContent!.indexOf("left")).toBeLessThan(summary.textContent!.indexOf("shared"));
     });
 
+    describe("when its children change but its events do not", () => {
+        const events = (): MatrixEvent[] =>
+            generateEvents([
+                { userId: "@alice:server.org", membership: KnownMembership.Join },
+                { userId: "@bob:server.org", membership: KnownMembership.Join },
+                { userId: "@carol:server.org", membership: KnownMembership.Join },
+            ]);
+        const tiles = (list: MatrixEvent[], label: string): React.ReactElement[] =>
+            list.map((event) => <div key={event.getId()}>{label}</div>);
+        const view = (list: MatrixEvent[], label: string, updateChildren?: boolean): React.ReactElement => (
+            <MatrixClientContext.Provider value={mockClient}>
+                <EventListSummary
+                    {...defaultProps}
+                    events={list}
+                    startExpanded
+                    updateChildren={updateChildren}
+                    children={tiles(list, label)}
+                />
+            </MatrixClientContext.Provider>
+        );
+
+        it("redraws them when asked to follow them", () => {
+            const list = events();
+            const { rerender, queryAllByText } = render(view(list, "before", true));
+            rerender(view([...list], "after", true));
+            expect(queryAllByText("after")).toHaveLength(3);
+        });
+
+        it("leaves them as they were otherwise, as before", () => {
+            const list = events();
+            const { rerender, queryAllByText } = render(view(list, "before"));
+            rerender(view([...list], "after"));
+            expect(queryAllByText("before")).toHaveLength(3);
+        });
+
+        it("does not work the summary text out again", () => {
+            const list = events();
+            const renderInfoSpy = trackSpy(vi.spyOn(ModuleApi.instance.customComponents, "getMessageRenderInfo"));
+            const collapsed = (label: string): React.ReactElement => (
+                <MatrixClientContext.Provider value={mockClient}>
+                    <EventListSummary
+                        {...defaultProps}
+                        events={[...list]}
+                        updateChildren
+                        children={tiles(list, label)}
+                    />
+                </MatrixClientContext.Provider>
+            );
+            const { rerender, getByText } = render(collapsed("before"));
+            const lookups = renderInfoSpy.mock.calls.length;
+            rerender(collapsed("after"));
+            expect(renderInfoSpy.mock.calls.length).toBe(lookups);
+            expect(getByText(/joined/)).toBeInTheDocument();
+        });
+    });
+
     it("looks up custom summaries only while collapsed", function () {
         const events = generateEvents([
             { userId: "@user:some.domain", membership: KnownMembership.Join },

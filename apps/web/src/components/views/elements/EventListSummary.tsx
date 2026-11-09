@@ -55,6 +55,17 @@ interface IProps extends Omit<ComponentProps<typeof GenericEventListSummary>, "g
     avatarsMaxLength?: number;
     // The currently selected layout
     layout: Layout;
+    /**
+     * Redraw when the children change, even if the summed-up events did not. The new timeline sets it: its tiles
+     * carry state of their own, such as being the newest message or how far sending has got. The summary text is
+     * only worked out again when the events or their senders change.
+     */
+    updateChildren?: boolean;
+}
+
+/** Whether two lists hold the same events in the same order. */
+function sameEvents(a: readonly MatrixEvent[], b: readonly MatrixEvent[]): boolean {
+    return a.length === b.length && a.every((event, i) => event === b[i]);
 }
 
 interface IUserEvents {
@@ -174,7 +185,7 @@ export default class EventListSummary extends React.Component<Props, State> {
     }
 
     public componentDidUpdate(prevProps: Readonly<Props>): void {
-        if (prevProps.events !== this.props.events) {
+        if (!sameEvents(prevProps.events, this.props.events)) {
             this.unbindSentinelListeners(prevProps.events);
             this.bindSentinelListeners(this.props.events);
             this.setState(this.generateState());
@@ -213,9 +224,10 @@ export default class EventListSummary extends React.Component<Props, State> {
         //  - or if there are fewEvents, meaning the child eventTiles are shown as-is
         //  - or if the summary members have changed
         //  - or if the one of IUserEvents within userEvents have changed
+        //  - or if the children changed and the owner asked to follow them
         return (
-            nextProps.events.length !== this.props.events.length ||
-            nextProps.events.some((event, index) => event !== this.props.events[index]) ||
+            !sameEvents(nextProps.events, this.props.events) ||
+            (nextProps.updateChildren === true && nextProps.children !== this.props.children) ||
             nextProps.events.length < this.props.threshold ||
             nextProps.layout !== this.props.layout ||
             arrayHasDiff(nextState.summaryMembers, this.state.summaryMembers) ||
@@ -761,6 +773,20 @@ export default class EventListSummary extends React.Component<Props, State> {
         );
     }
 
+    /** The summary text worked out last, with what it was worked out from. */
+    private summaryCache?: { events: MatrixEvent[]; userEvents: State["userEvents"]; summary: ReactNode };
+
+    /** The summary text, worked out again only when the events or their senders changed. */
+    private summaryText(): ReactNode {
+        const cache = this.summaryCache;
+        if (cache && cache.userEvents === this.state.userEvents && sameEvents(cache.events, this.props.events)) {
+            return cache.summary;
+        }
+        const summary = this.generateGroupedSummary();
+        this.summaryCache = { events: this.props.events, userEvents: this.state.userEvents, summary };
+        return summary;
+    }
+
     public render(): React.ReactNode {
         return (
             <GenericEventListSummary
@@ -773,7 +799,7 @@ export default class EventListSummary extends React.Component<Props, State> {
                 children={this.props.children}
                 summaryMembers={this.state.summaryMembers}
                 layout={this.props.layout}
-                getSummaryText={() => this.generateGroupedSummary()}
+                getSummaryText={() => this.summaryText()}
             />
         );
     }
