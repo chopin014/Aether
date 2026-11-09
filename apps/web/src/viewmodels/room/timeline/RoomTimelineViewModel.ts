@@ -1310,7 +1310,12 @@ export class RoomTimelineViewModel
         debug(
             `[TimelineVM] load() start — kind=${target.kind}${target.kind !== "live" ? ` eventId=${target.eventId}` : ""}`,
         );
-        const sdkLoadTarget = target.kind !== "live" ? target.eventId : undefined;
+        // A message of ours that the server has not echoed back yet is in no timeline, only in the room's pending list.
+        // Asking the server for the messages around it would start a timeline holding it alone, which its echo then
+        // never leaves for the live one, so the room would show nothing before it. Like every message being sent, it is
+        // shown after the newest messages: load those.
+        const sdkLoadTarget =
+            target.kind !== "live" && !this.opts.room.getPendingEvent(target.eventId) ? target.eventId : undefined;
         // Each load fills its own window, so one that is overtaken never touches the window being shown.
         const window = new TimelineWindow(this.opts.client, this.opts.room.getUnfilteredTimelineSet(), {
             windowLimit: WINDOW_LIMIT,
@@ -1332,6 +1337,9 @@ export class RoomTimelineViewModel
                 );
             }
             if (superseded()) return;
+            // Only the window being shown follows new messages, so those that arrived while this one was filled came
+            // after its end, such as the echo of a message being sent. A window of the newest messages takes them in.
+            if (sdkLoadTarget === undefined) this.catchUpWithLiveEnd(window);
             // This is the newest load: its window is shown from now on. Pagination still running on the old window
             // sees the change and stops.
             this.timelineWindow = window;
@@ -1488,6 +1496,15 @@ export class RoomTimelineViewModel
                 );
             }
         }
+    }
+
+    /**
+     * Take into `window`, loaded at the newest messages, the messages that have arrived since: the live timeline holds
+     * them after the window's end. Nothing is fetched.
+     */
+    private catchUpWithLiveEnd(window: TimelineWindow): void {
+        let extended = true;
+        while (extended) extended = window.extend(Direction.Forward, PAGINATE_SIZE);
     }
 
     /**
