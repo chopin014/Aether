@@ -2363,6 +2363,24 @@ describe("RoomTimelineViewModel", () => {
             );
         });
 
+        it("lets later writes go ahead when the server's answer to one never finishes", async () => {
+            startsActive();
+            // The server takes the write and starts to answer, but the rest of the answer never comes. The HTTP API
+            // stops timing a request once the answer starts, so its timeout does not end this one.
+            vi.mocked(client.http.authedRequest).mockImplementationOnce((_method, path, _query, body) => {
+                const eventId = (body as Record<string, string>)["m.fully_read"];
+                void client.setRoomReadMarkers(decodeURIComponent(path.split("/")[2]), eventId);
+                return new Promise<never>(() => {});
+            });
+            seedTimeline(messages(6));
+            markerAt("$m0");
+            const vm = await impatientVisit();
+
+            shows(vm, "$m0", "$m5");
+
+            await vi.waitFor(() => expect(writes()).toEqual(["$m5", "$m5"]));
+        });
+
         it("tries again when moving the marker fails", async () => {
             vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
                 timer.start();

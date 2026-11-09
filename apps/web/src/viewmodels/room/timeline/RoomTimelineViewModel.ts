@@ -74,6 +74,26 @@ const READ_RECEIPT_DEBOUNCE_MS = 500;
 const PAGINATE_SIZE = 100;
 /** How long a fully read marker write may take before it is given up on; see {@link RoomTimelineViewModelOpts}. */
 const READ_MARKER_WRITE_TIMEOUT_MS = 20_000;
+
+/**
+ * Settle as `promise` does, or fail once `ms` have passed without it settling. Only the returned promise is waited on
+ * after that; `promise` keeps nothing but this function's own closures.
+ */
+function settleWithin<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = window.setTimeout(() => reject(new Error(`No complete answer within ${ms}ms`)), ms);
+        promise.then(
+            (value) => {
+                window.clearTimeout(timer);
+                resolve(value);
+            },
+            (error) => {
+                window.clearTimeout(timer);
+                reject(error);
+            },
+        );
+    });
+}
 const INITIAL_SIZE = 100;
 
 /**
@@ -148,8 +168,9 @@ export interface RoomTimelineViewModelOpts {
      */
     sendReadReceiptOnLoad?: boolean;
     /**
-     * How long a write of the fully read marker may take before it is given up on, as failed; see
-     * {@link RoomTimelineViewModel.writeReadMarker}. Default 20 seconds.
+     * How long a write of the fully read marker may wait for the server to start answering before it is given up on,
+     * as failed, and as long again for the rest of the answer; see {@link RoomTimelineViewModel.sendReadMarker}.
+     * Default 20 seconds.
      */
     readMarkerWriteTimeoutMs?: number;
 }
@@ -700,14 +721,19 @@ export class RoomTimelineViewModel
      * give up on a request: one that takes too long is ended there rather than left to land after later ones.
      */
     private sendReadMarker(eventId: string): Promise<unknown> {
+        const timeoutMs = this.opts.readMarkerWriteTimeoutMs ?? READ_MARKER_WRITE_TIMEOUT_MS;
         const path = `/rooms/${encodeURIComponent(this.opts.room.roomId)}/read_markers`;
-        return this.opts.client.http.authedRequest(
+        const request = this.opts.client.http.authedRequest(
             Method.Post,
             path,
             undefined,
             { [ReceiptType.FullyRead]: eventId },
-            { localTimeoutMs: this.opts.readMarkerWriteTimeoutMs ?? READ_MARKER_WRITE_TIMEOUT_MS },
+            { localTimeoutMs: timeoutMs },
         );
+        // The HTTP API stops timing a request once the server starts to answer, then reads the answer for as long as
+        // it takes. By then the server has taken or refused the write, so an answer that never finishes is given up
+        // on as failed, rather than holding up this room's later writes: writing the same marker again is harmless.
+        return settleWithin(request, timeoutMs * 2);
     }
 
     /** The room's fully read marker as the server last said, or null. */
