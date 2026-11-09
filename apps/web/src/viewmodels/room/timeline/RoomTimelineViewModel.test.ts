@@ -1805,6 +1805,33 @@ describe("RoomTimelineViewModel", () => {
             expect(vi.mocked(client.setRoomReadMarkers).mock.calls.length > 0).toBe(movesSoon);
         });
 
+        it("moves the marker one write at a time, so the server never gets them out of order", async () => {
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            let finishFirst!: () => void;
+            vi.mocked(client.setRoomReadMarkers).mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        finishFirst = () => resolve({});
+                    }),
+            );
+            seedTimeline(messages(6));
+            markerAt("$m0");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m2");
+            await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$m2"));
+
+            // The reader reads on while the first write is still on its way.
+            shows(vm, "$m0", "$m5");
+            await new Promise((r) => setTimeout(r, 100));
+            expect(client.setRoomReadMarkers).toHaveBeenCalledTimes(1);
+
+            finishFirst();
+            await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenLastCalledWith(ROOM_ID, "$m5"));
+        });
+
         it("tries again when moving the marker fails", async () => {
             vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
                 timer.start();

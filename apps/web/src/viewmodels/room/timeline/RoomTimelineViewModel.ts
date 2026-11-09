@@ -558,7 +558,9 @@ export class RoomTimelineViewModel
                 continue;
             }
             if (this.readMarkerTimer !== timer || this.isDisposed) return;
-            this.moveReadMarkerOn();
+            // One write at a time, as in the old timeline, so two cannot reach the server out of order and move the
+            // marker back. The next one is decided afresh once this one is done.
+            await this.moveReadMarkerOn();
         }
     }
 
@@ -617,7 +619,7 @@ export class RoomTimelineViewModel
     }
 
     /** Move the fully read marker on to the bottommost message the reader sees, never back. */
-    private moveReadMarkerOn(): void {
+    private async moveReadMarkerOn(): Promise<void> {
         if (!this.maySendReadState()) return;
         // While a window loads or is placed, what was last on screen belongs to the window before it.
         if (this.loading || !this.readerPlaced || this.snapshot.current.pendingAnchor !== null) return;
@@ -628,11 +630,13 @@ export class RoomTimelineViewModel
         const previous = this.readMarkerEventId;
         this.readMarkerEventId = eventId;
         this.movedReadMarker = true;
-        this.opts.client.setRoomReadMarkers(this.opts.room.roomId, eventId).catch((err) => {
+        try {
+            await this.opts.client.setRoomReadMarkers(this.opts.room.roomId, eventId);
+        } catch (err) {
             logger.warn(`[TimelineVM] moveReadMarkerOn — setRoomReadMarkers failed`, err);
             // Try again next time, unless the marker has moved on meanwhile.
             if (this.readMarkerEventId === eventId) this.readMarkerEventId = previous;
-        });
+        }
     }
 
     /**
