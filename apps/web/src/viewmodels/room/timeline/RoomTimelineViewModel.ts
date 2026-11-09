@@ -2054,15 +2054,14 @@ export class RoomTimelineViewModel
     }
 
     /**
-     * Tear-down: save scroll position and advance the FullyRead marker.
+     * Tear-down: stop the timers, and save where the reader was.
      *
-     * - Saves the current scroll position to localStorage so the next visit
-     *   resumes here. Clears the saved position only when the user is at the
-     *   visual bottom (so the next visit starts fresh at the live end).
-     * - Advances the FullyRead marker to the last bottommost event we've seen
-     *   during this session, unless that would move it back, so the next time the
-     *   user enters the room the "unread divider" reflects what they've actually read.
-     *   It also moves on while the reader is around; see {@link moveReadMarkerOnWhileActive}.
+     * - Stops the read receipt, fully read marker and decryption timers.
+     * - Saves the bottommost message the reader saw to localStorage, so the next visit
+     *   resumes there; clears it when they were at the visual bottom, so the next visit
+     *   starts at the live end. With no visible range recorded, the saved position stays.
+     * - Leaves the fully read marker where it is. It moves on only while the reader is
+     *   around ({@link moveReadMarkerOnWhileActive}), so a glance at a room keeps its unread line.
      */
     public override dispose(): void {
         if (this.readReceiptDebounceTimer !== null) {
