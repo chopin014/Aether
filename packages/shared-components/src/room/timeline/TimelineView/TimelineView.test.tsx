@@ -722,6 +722,25 @@ describe("<TimelineView />", () => {
             await new Promise((resolve) => setTimeout(resolve, 100));
             expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(false);
         });
+
+        it("lets a reader scroll up a few pixels at a time, as with a trackpad", async () => {
+            const { vm, actions } = makeFakeVm({ items: eventItems(30) });
+            renderTimeline(vm);
+            await waitFor(() => expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(true));
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            const scroller = screen.getByTestId("timeline-scroller");
+            const bottom = scroller.scrollTop;
+
+            // Each step is within the tolerance for being at the bottom; together they are not.
+            for (let step = 0; step < 10; step++) {
+                scroller.scrollTop -= 3;
+                await new Promise((resolve) => setTimeout(resolve, 200));
+            }
+
+            // Rows above, measured as they come into view, can take the reader a little further up; never back down.
+            expect(scroller.scrollTop).toBeLessThanOrEqual(bottom - 29);
+            expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(false);
+        });
     });
 
     describe("when the viewport changes height", () => {

@@ -250,8 +250,12 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
     // hold the last values we sent and repeats are skipped.
     const lastVisibleRangeRef = useRef<{ start: number; end: number } | null>(null);
     const lastAtBottomRef = useRef<boolean | null>(null);
-    /** The scroll position last reported on, to tell the reader scrolling up from rows arriving below. */
-    const lastScrollOffsetRef = useRef(0);
+    /**
+     * The scroll position of the end when the reader was last there, while they are held at the bottom; null once
+     * they are not. Rows arriving below move the end but not the reader, while the reader scrolling up moves them
+     * away from it, however little at a time. See `reportVisibleState`.
+     */
+    const heldAtRef = useRef<number | null>(null);
     /** Set while a scroll back to the end is waiting for the next frame; see `reportVisibleState`. */
     const repinFrameRef = useRef<number | undefined>(undefined);
     // For the "reached the top/bottom" reports we remember a short description of the
@@ -297,21 +301,27 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             // A reader at the bottom stays there, as with the old timeline's ScrollPanel, until they scroll up. Rows
             // arriving below push the end away for a moment before `followOnAppend` follows them; that is not the
             // reader leaving, and treating it so would, for one, keep them on an old timeline after a gap in sync.
-            const scrolledUp = scrollOffset < lastScrollOffsetRef.current - AT_BOTTOM_THRESHOLD_PX;
-            lastScrollOffsetRef.current = scrollOffset;
+            if (atEnd) heldAtRef.current = Math.max(0, totalSize - viewportHeight);
+            const heldAt = heldAtRef.current;
             const following = snapshotRef.current.atLiveEnd && snapshotRef.current.pendingAnchor === null;
-            const atBottom = atEnd || (following && lastAtBottomRef.current === true && !scrolledUp);
+            const atBottom =
+                atEnd ||
+                (following &&
+                    lastAtBottomRef.current === true &&
+                    heldAt !== null &&
+                    scrollOffset >= heldAt - AT_BOTTOM_THRESHOLD_PX);
+            if (!atBottom) heldAtRef.current = null;
             // Still at the bottom, but the end has moved away without TanStack following it, such as when a row near
             // it grew as a message was sent: go back to it, as ScrollPanel does for a reader stuck at the bottom.
             // TanStack only follows rows added while the list is at its end, so without this it would stop for good.
             if (atBottom && !atEnd && following && repinFrameRef.current === undefined) {
-                const scheduledAt = scrollOffset;
                 repinFrameRef.current = requestAnimationFrame(() => {
                     repinFrameRef.current = undefined;
-                    if (lastAtBottomRef.current !== true) return;
                     // The reader may have scrolled up in the meantime, before TanStack has told us: leave them there.
+                    const held = heldAtRef.current;
                     const scroller = scrollerRef.current;
-                    if (!scroller || scroller.scrollTop < scheduledAt - AT_BOTTOM_THRESHOLD_PX) return;
+                    if (held === null || lastAtBottomRef.current !== true || !scroller) return;
+                    if (scroller.scrollTop < held - AT_BOTTOM_THRESHOLD_PX) return;
                     const height = v.scrollRect?.height ?? 0;
                     v.scrollToOffset(Math.max(0, v.getTotalSize() - height));
                 });
