@@ -1851,6 +1851,20 @@ describe("RoomTimelineViewModel", () => {
         };
         const writes = (): unknown[] => vi.mocked(client.setRoomReadMarkers).mock.calls.map(([, eventId]) => eventId);
 
+        it("moves the marker on to the newest message when everything is marked read, never back", async () => {
+            startsActive();
+            seedTimeline(messages(6));
+            markerAt("$m4");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m2");
+
+            vm.onMarkAllAsRead();
+            await new Promise((r) => setTimeout(r, 100));
+
+            expect(writes()).toEqual(["$m5"]);
+        });
+
         it("waits for a write from before the room was left, and never moves the marker back behind it", async () => {
             startsActive();
             const first = holdNextWrite();

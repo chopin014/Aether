@@ -1728,14 +1728,27 @@ export class RoomTimelineViewModel
         // Immediately clear the read marker line locally. This is an explicit
         // user action ("I have read everything"), so we override the per-session
         // freeze and drop the divider line.
-        this.readMarkerEventId = null;
         this.frozenMarkerEventId = null;
         // That decides the line for the rest of the visit, even if the room's marker comes from the server only now.
         this.readMarkerFrozen = true;
         this.awaitingServerReadMarker = false;
         const newItems = this.buildItems(); // removes the read-marker item
         this.mergeSnapshot({ items: newItems, canJumpToReadMarker: false }, "mark-all-as-read");
+        // And the marker moves on to the newest message, as the old timeline moves it to the receipt, so the line
+        // does not come back next visit. The marker is kept until then, so nothing moves it back meanwhile.
+        const newest = this.newestConfirmedEventId();
+        if (newest) void this.writeReadMarker(newest);
     };
+
+    /** The newest message in the room that has reached the server, or null. */
+    private newestConfirmedEventId(): string | null {
+        const events = this.opts.room.getLiveTimeline().getEvents();
+        for (let i = events.length - 1; i >= 0; i--) {
+            const id = events[i].getId();
+            if (id && !this.opts.room.hasPendingEvent(id)) return id;
+        }
+        return null;
+    }
 
     public onJumpToLive = (scrollNow: ImmediateScroll): void => {
         debug(`[TimelineVM] onJumpToLive — atLiveEnd=${this.snapshot.current.atLiveEnd}`);
