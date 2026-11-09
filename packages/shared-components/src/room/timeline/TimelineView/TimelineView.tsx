@@ -288,12 +288,18 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
         heldAtRef.current = null;
     }, []);
     // For the "reached the top/bottom" reports we remember a short description of the
-    // situation we last reported, in the form "<number of rows>:<row index>", and clear it
-    // whenever we move away from that end. This stops us reporting over and over while
+    // situation we last reported, in the form "<placement>:<number of rows>:<row index>", and
+    // clear it whenever we move away from that end. This stops us reporting over and over while
     // sitting still at the end, while still reporting again once more history has loaded
     // and the user scrolls further into it.
     const startEdgeTokenRef = useRef("");
     const endEdgeTokenRef = useRef("");
+    /**
+     * Counts the placements the view model has acknowledged, so that each one reports the ends it shows afresh. The
+     * view model starts over with each load and is told nothing while it places the list, so an end that is still on
+     * screen, with the same rows, has to be reported again: otherwise a list too short to scroll never asks for more.
+     */
+    const placementCountRef = useRef(0);
 
     // Tells the view model what the user can currently see: which rows are on screen,
     // whether we are at the bottom, and whether either end of the loaded messages has been
@@ -370,7 +376,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
             const firstRenderedIndex = renderedItems.length ? renderedItems[0].index : -1;
             const lastRenderedIndex = renderedItems.length ? renderedItems[renderedItems.length - 1].index : -1;
             if (firstRenderedIndex === 0) {
-                const token = `${itemCount}:${visibleRange ? visibleRange.startIndex : 0}`;
+                const token = `${placementCountRef.current}:${itemCount}:${visibleRange ? visibleRange.startIndex : 0}`;
                 if (startEdgeTokenRef.current !== token) {
                     startEdgeTokenRef.current = token;
                     vm.onStartReached();
@@ -380,7 +386,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
                 vm.onStartLeft();
             }
             if (itemCount > 0 && lastRenderedIndex === itemCount - 1) {
-                const token = `${itemCount}:${visibleRange ? visibleRange.endIndex : 0}`;
+                const token = `${placementCountRef.current}:${itemCount}:${visibleRange ? visibleRange.endIndex : 0}`;
                 if (endEdgeTokenRef.current !== token) {
                     endEdgeTokenRef.current = token;
                     vm.onEndReached();
@@ -455,12 +461,15 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
     });
 
     // An accurate initial estimate may need no scroll event after placement. Report the
-    // visible range once revealed and each time the view model has acknowledged an anchor, even
-    // when it covers the same positions as before: after a reload those positions hold other
-    // rows, and the view model reads what each placement shows.
+    // visible range and the ends shown once revealed and each time the view model has acknowledged an
+    // anchor, even when they are as before: after a reload those positions hold other rows, and
+    // the view model reads what each placement shows.
     useEffect(() => {
         if (!revealed) return;
-        if (snapshot.pendingAnchor === null) lastVisibleRangeRef.current = null;
+        if (snapshot.pendingAnchor === null) {
+            lastVisibleRangeRef.current = null;
+            placementCountRef.current++;
+        }
         reportVisibleState(virtualizer);
     }, [revealed, snapshot.pendingAnchor, reportVisibleState, virtualizer]);
 

@@ -153,4 +153,19 @@ test.describe("New timeline", () => {
 
         await expect(timelineRow(page, oldest.event_id)).toContainText("The very first message");
     });
+
+    test("finds the start of a room too short to scroll after a reload", async ({ page, app, user }) => {
+        const roomId = await app.client.createRoom({ name: "Short room" });
+        const today = page.locator(".mx_NewTimelinePanel").getByRole("separator", { name: /today/i });
+
+        await app.viewRoomById(roomId);
+        await expect(today).toBeVisible();
+
+        // The room comes back from the cache with a token for older messages. With all of it on screen, the timeline
+        // still asks for them, as nobody can scroll to ask, learns that there are none, and marks the room's start.
+        await page.reload();
+        await app.viewRoomById(roomId);
+        await expect(page.locator(".mx_NewTimelinePanel")).toBeVisible();
+        await expect(today).toBeVisible();
+    });
 });

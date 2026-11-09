@@ -566,6 +566,26 @@ describe("<TimelineView />", () => {
         await waitFor(() => expect(actions.onStartLeft).toHaveBeenCalledTimes(1));
     });
 
+    it("reports the ends shown again for each placement, as the view model starts over with each load", async () => {
+        // Too few rows to scroll, so the reader cannot bring an end into view again themselves.
+        const { vm, actions, update } = makeFakeVm({ items: eventItems(3) });
+        renderTimeline(vm);
+        await waitFor(() => expect(actions.onStartReached).toHaveBeenCalledTimes(1), { timeout: 5000 });
+        expect(actions.onEndReached).toHaveBeenCalledTimes(1);
+
+        // The view model loads the same rows again, as when sync brings history that joins a summary, and places them.
+        update({ items: eventItems(3), pendingAnchor: { targetKey: "evt-2", align: "end" } });
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalledWith("evt-2"));
+        update({ pendingAnchor: null });
+
+        await waitFor(() => expect(actions.onStartReached).toHaveBeenCalledTimes(2));
+        expect(actions.onEndReached).toHaveBeenCalledTimes(2);
+        // Once for each placement, not over and over while the list sits still.
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(actions.onStartReached).toHaveBeenCalledTimes(2);
+        expect(actions.onStartLeft).not.toHaveBeenCalled();
+    });
+
     it("re-renders when the view model pushes a new snapshot", async () => {
         const { vm, update } = makeFakeVm({ items: eventItems(5) });
         renderTimeline(vm);
