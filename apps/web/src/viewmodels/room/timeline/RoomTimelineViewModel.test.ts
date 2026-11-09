@@ -17,6 +17,7 @@ import {
     EventType,
     HttpApiEvent,
     M_BEACON_INFO,
+    M_POLL_RESPONSE,
     MatrixEvent,
     MatrixEventEvent,
     MatrixHttpApi,
@@ -2925,6 +2926,56 @@ describe("RoomTimelineViewModel", () => {
                 expect(lineAfter(vm)).toBe("$m1");
             });
 
+            it.each([false, true])(
+                "keeps the unread line when the reader votes in an older poll (hidden events shown: %s)",
+                async (showHidden) => {
+                    vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
+                        if (key === "sendReadReceipts") return true;
+                        if (key === "showHiddenEventsInTimeline") return showHidden;
+                        return undefined;
+                    });
+                    seedTimeline(messages(4));
+                    markerAt("$m1");
+                    const vm = await createStartedViewModel();
+                    vm.onAnchorReached();
+                    expect(lineAfter(vm)).toBe("$m1");
+
+                    room.getUnfilteredTimelineSet().addLiveEvent(
+                        new MatrixEvent({
+                            type: M_POLL_RESPONSE.name,
+                            sender: USER_ID,
+                            room_id: ROOM_ID,
+                            event_id: "$vote",
+                            origin_server_ts: Date.now(),
+                            content: {
+                                "m.relates_to": { rel_type: RelationType.Reference, event_id: "$m0" },
+                                [M_POLL_RESPONSE.name]: { answers: ["a"] },
+                            },
+                        }),
+                        { addToState: false },
+                    );
+                    await new Promise((r) => setTimeout(r, 50));
+
+                    expect(lineAfter(vm)).toBe("$m1");
+                },
+            );
+
+            it("keeps the unread line for an encrypted vote of the reader's that has not decrypted yet", async () => {
+                seedTimeline(messages(4));
+                markerAt("$m1");
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                expect(lineAfter(vm)).toBe("$m1");
+
+                // Only the relation is readable on the wire until the vote decrypts.
+                const { event: vote } = makeEncryptedPending("$vote");
+                vote.event.content = { "m.relates_to": { rel_type: RelationType.Reference, event_id: "$m0" } };
+                room.getUnfilteredTimelineSet().addLiveEvent(vote, { addToState: false });
+                await new Promise((r) => setTimeout(r, 50));
+
+                expect(lineAfter(vm)).toBe("$m1");
+            });
+
             it("does not count a message of theirs the server does not have yet as read", async () => {
                 const unsent = mine("$unsent");
                 unsent.setStatus(EventStatus.NOT_SENT);
@@ -2973,6 +3024,24 @@ describe("RoomTimelineViewModel", () => {
                 await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$answer"));
 
                 markerAt("$m2");
+                await new Promise((r) => setTimeout(r, 50));
+
+                expect(lineAfter(vm)).toBeUndefined();
+            });
+
+            it("does not let the room's marker draw a line once the reader has written, even with none drawn", async () => {
+                seedTimeline(messages(4));
+                // Read up to the newest message on the way in: no line.
+                receiptAt("$m3");
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                expect(lineAfter(vm)).toBeUndefined();
+                const timelineSet = room.getUnfilteredTimelineSet();
+                timelineSet.addLiveEvent(makeMessage("$reply", { user: USER_ID }), { addToState: false });
+                timelineSet.addLiveEvent(makeMessage("$answer", { user: OTHER_USER_ID }), { addToState: false });
+                await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$answer"));
+
+                markerAt("$m1");
                 await new Promise((r) => setTimeout(r, 50));
 
                 expect(lineAfter(vm)).toBeUndefined();

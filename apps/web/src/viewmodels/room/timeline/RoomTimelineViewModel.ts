@@ -910,14 +910,13 @@ export class RoomTimelineViewModel
         if (this.isDisposed) return;
 
         // The reader has written, here or on another device: what came before is read, as the old timeline moves the
-        // marker on to a message they send. The unread line goes for the rest of the visit, even if the room's marker
-        // only comes from the server now, as when everything is marked read.
-        const lineGone =
-            !!this.frozenMarkerEventId &&
-            this.isReadersNewMessage(event, SettingsStore.getValue("showHiddenEventsInTimeline"));
-        if (lineGone) {
-            this.frozenMarkerEventId = null;
+        // marker on to a message they send. Any unread line goes for the rest of the visit, and the room's marker coming
+        // from the server only now does not draw one, as when everything is marked read.
+        let lineGone = false;
+        if (this.isReadersNewMessage(event)) {
             this.awaitingServerReadMarker = false;
+            lineGone = !!this.frozenMarkerEventId;
+            this.frozenMarkerEventId = null;
         }
 
         debug(`[TimelineVM][onRoomTimeline] live event ${event.getId()} (${event.getType()})`);
@@ -1225,7 +1224,7 @@ export class RoomTimelineViewModel
             const eventId = event.getId();
             // A message still decrypting is a message all the same: from someone else, it is unread.
             if (!eventId || !(this.isDecrypting(event) || this.shouldIncludeEvent(event, showHiddenEvents))) continue;
-            if (this.isReadersNewMessage(event, showHiddenEvents)) {
+            if (this.isReadersNewMessage(event)) {
                 after = eventId;
                 readerWrote = true;
                 othersAfter = false;
@@ -1250,14 +1249,22 @@ export class RoomTimelineViewModel
 
     /**
      * Whether `event` is a new message the reader wrote, which the server has: one that means they have read what came
-     * before it. Not a reaction, an edit or a redaction, which can touch any older message, nor a change to the room.
+     * before it. Not a reaction, an edit, a reference such as a poll vote, or a redaction, which can touch any older
+     * message, nor a change to the room. The relation is on the wire, so it is known before an event is decrypted. Decided
+     * by what the event is, whatever is shown: a message shown only with hidden events on is not a new message.
      */
-    private isReadersNewMessage(event: MatrixEvent, showHiddenEvents: boolean): boolean {
+    private isReadersNewMessage(event: MatrixEvent): boolean {
         if (event.getSender() !== this.opts.client.getSafeUserId() || event.status !== null) return false;
         if (event.isState() || event.isRedaction()) return false;
         const relation = event.getWireContent()["m.relates_to"]?.rel_type;
-        if (relation === RelationType.Replace || relation === RelationType.Annotation) return false;
-        return this.isDecrypting(event) || this.shouldIncludeEvent(event, showHiddenEvents);
+        if (
+            relation === RelationType.Replace ||
+            relation === RelationType.Annotation ||
+            relation === RelationType.Reference
+        ) {
+            return false;
+        }
+        return this.isDecrypting(event) || this.shouldIncludeEvent(event, false);
     }
 
     /** Publish cached rows immediately, then incorporate native history before requesting more. */
