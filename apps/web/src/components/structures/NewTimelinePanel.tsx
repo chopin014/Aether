@@ -47,6 +47,7 @@ import { DateSeparatorWrapper } from "./DateSeparatorWrapper";
 import EventListSummary from "../views/elements/EventListSummary";
 import GenericEventListSummary from "../views/elements/GenericEventListSummary";
 import NewRoomIntro from "../views/rooms/NewRoomIntro";
+import IRCTimelineProfileResizer from "../views/elements/IRCTimelineProfileResizer";
 import DMRoomMap from "../../utils/DMRoomMap";
 import type { IReadReceiptPosition } from "../views/rooms/ReadReceiptMarker";
 import { getKeyBindingsManager } from "../../KeyBindingsManager";
@@ -275,10 +276,8 @@ export function NewTimelinePanel({
     const isTwelveHour = useSettingValue("showTwelveHourTimestamps");
     const alwaysShowTimestamps = useSettingValue("alwaysShowTimestamps");
 
-    // Modern and Message Bubbles are fully supported. IRC layout is not yet: it
-    // needs the draggable name column the old timeline provides, so fall back to
-    // Modern for now (a known follow-up, listed on the tracking issue).
-    const effectiveLayout = layout === Layout.IRC ? Layout.Group : (layout ?? Layout.Group);
+    const effectiveLayout = layout ?? Layout.Group;
+    const irc = effectiveLayout === Layout.IRC;
 
     // Creating the view model does nothing on its own — it starts listening only
     // when start() is called in the effect below. React can build one of these and
@@ -420,8 +419,12 @@ export function NewTimelinePanel({
             ref={containerRef}
             className={classNames("mx_NewTimelinePanel mx_RoomView_messagePanel mx_RoomView_messageListWrapper", {
                 mx_NewTimelinePanel_hidden: hidden,
+                // Gives the tiles the name column's width, as the old timeline's message panel does.
+                mx_IRCLayout: irc,
             })}
         >
+            {/* The name column's drag handle, over the timeline as in the old one. */}
+            {irc && <IRCTimelineProfileResizer minWidth={20} maxWidth={600} roomId={room.roomId} />}
             <TimelineView vm={vm} renderItem={renderItem} onItemsPainted={entryPainted ? undefined : onItemsPainted} />
         </div>
     );
