@@ -718,6 +718,28 @@ describe("<NewTimelinePanel />", () => {
         expect(tileProps.current[0].layout).toBe(Layout.Bubble);
     });
 
+    it("leaves out the sender's name in the bubble layout in a room of two, as the old timeline does", () => {
+        vi.spyOn(room, "getInvitedAndJoinedMemberCount").mockReturnValue(2);
+        withItems([eventRow(event)]);
+
+        renderPanel({ layout: Layout.Bubble });
+
+        expect(tileProps.current[0].hideSender).toBe(true);
+    });
+
+    it.each([
+        [Layout.Bubble, 3],
+        [Layout.Group, 2],
+        [Layout.IRC, 2],
+    ])("shows the sender's name in the %s layout with %i people", (layout, count) => {
+        vi.spyOn(room, "getInvitedAndJoinedMemberCount").mockReturnValue(count);
+        withItems([eventRow(event)]);
+
+        renderPanel({ layout });
+
+        expect(tileProps.current[0].hideSender).toBe(false);
+    });
+
     it("gives the edit state only to the message being edited", () => {
         const other = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "other", event: true });
         room.getUnfilteredTimelineSet().addLiveEvent(other, { addToState: false });

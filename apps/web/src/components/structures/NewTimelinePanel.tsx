@@ -45,6 +45,7 @@ import { LegacyEventTileAdapter } from "../views/rooms/LegacyEventTileAdapter";
 import type { GetRelationsForEvent, IReadReceiptProps } from "../views/rooms/EventTile";
 import { Layout } from "../../settings/enums/Layout";
 import { useSettingValue } from "../../hooks/useSettings";
+import { useRoomMemberCount } from "../../hooks/useRoomMembers";
 import { _t } from "../../languageHandler";
 import type { RoomPermalinkCreator } from "../../utils/permalinks/Permalinks";
 import type EditorStateTransfer from "../../utils/EditorStateTransfer";
@@ -111,6 +112,11 @@ interface RenderItemContext {
     roomId: string;
     highlightedId: string | null;
     effectiveLayout: Layout;
+    /**
+     * Whether tiles leave out their sender's name: in the bubble layout, in a room of two at most, where the side a
+     * bubble is on already says who wrote it, as in the old timeline.
+     */
+    hideSender: boolean;
     permalinkCreator?: RoomPermalinkCreator;
     showUrlPreview?: boolean;
     showReactions?: boolean;
@@ -287,6 +293,7 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext, tileAs: 
                     lastSuccessful={item.key === ctx.lastSuccessfulEventId}
                     last={item.key === ctx.lastEventId}
                     layout={ctx.effectiveLayout}
+                    hideSender={ctx.hideSender}
                     isSelectedEvent={ctx.highlightedId !== null && item.key === ctx.highlightedId}
                     // A tile treats any edit state it is given as its own, so
                     // only the message being edited may receive it.
@@ -354,6 +361,9 @@ export function NewTimelinePanel({
 
     const effectiveLayout = layout ?? Layout.Group;
     const irc = effectiveLayout === Layout.IRC;
+    // Counted as the old timeline counts it, invited people included, and kept up to date as people come and go.
+    const memberCount = useRoomMemberCount(room, { throttleWait: 250, includeInvited: true });
+    const hideSender = effectiveLayout === Layout.Bubble && memberCount <= 2;
 
     // Creating the view model does nothing on its own — it starts listening only
     // when start() is called in the effect below. React can build one of these and
@@ -467,6 +477,7 @@ export function NewTimelinePanel({
                 roomId: room.roomId,
                 highlightedId,
                 effectiveLayout,
+                hideSender,
                 permalinkCreator,
                 showUrlPreview,
                 showReactions,
@@ -484,6 +495,7 @@ export function NewTimelinePanel({
             room.roomId,
             highlightedId,
             effectiveLayout,
+            hideSender,
             permalinkCreator,
             showUrlPreview,
             showReactions,
