@@ -235,6 +235,102 @@ describe("EventListSummary", function () {
         expect(summary.textContent!.indexOf("left")).toBeLessThan(summary.textContent!.indexOf("shared"));
     });
 
+    describe("when its children change but its events do not", () => {
+        const events = (): MatrixEvent[] =>
+            generateEvents([
+                { userId: "@alice:server.org", membership: KnownMembership.Join },
+                { userId: "@bob:server.org", membership: KnownMembership.Join },
+                { userId: "@carol:server.org", membership: KnownMembership.Join },
+            ]);
+        const tiles = (list: MatrixEvent[], label: string): React.ReactElement[] =>
+            list.map((event) => <div key={event.getId()}>{label}</div>);
+        const view = (list: MatrixEvent[], label: string, updateChildren?: boolean): React.ReactElement => (
+            <MatrixClientContext.Provider value={mockClient}>
+                <EventListSummary
+                    {...defaultProps}
+                    events={list}
+                    startExpanded
+                    updateChildren={updateChildren}
+                    children={tiles(list, label)}
+                />
+            </MatrixClientContext.Provider>
+        );
+
+        it("redraws them when asked to follow them", () => {
+            const list = events();
+            const { rerender, queryAllByText } = render(view(list, "before", true));
+            rerender(view([...list], "after", true));
+            expect(queryAllByText("after")).toHaveLength(3);
+        });
+
+        it("leaves them as they were otherwise, as before", () => {
+            const list = events();
+            const { rerender, queryAllByText } = render(view(list, "before"));
+            rerender(view([...list], "after"));
+            expect(queryAllByText("before")).toHaveLength(3);
+        });
+
+        it("does not redraw a closed summary for its children", () => {
+            const list = events();
+            const renderInfoSpy = trackSpy(vi.spyOn(ModuleApi.instance.customComponents, "getMessageRenderInfo"));
+            const collapsed = (label: string): React.ReactElement => (
+                <MatrixClientContext.Provider value={mockClient}>
+                    <EventListSummary
+                        {...defaultProps}
+                        events={[...list]}
+                        updateChildren
+                        children={tiles(list, label)}
+                    />
+                </MatrixClientContext.Provider>
+            );
+            const { rerender, getByText } = render(collapsed("before"));
+            const lookups = renderInfoSpy.mock.calls.length;
+            rerender(collapsed("after"));
+            expect(renderInfoSpy.mock.calls.length).toBe(lookups);
+            expect(getByText(/joined/)).toBeInTheDocument();
+        });
+
+        it("draws the latest children when opened after they changed while it was closed", () => {
+            const list = events();
+            const collapsed = (label: string): React.ReactElement => (
+                <MatrixClientContext.Provider value={mockClient}>
+                    <EventListSummary
+                        {...defaultProps}
+                        events={[...list]}
+                        updateChildren
+                        children={tiles(list, label)}
+                    />
+                </MatrixClientContext.Provider>
+            );
+            const { rerender, getByRole, queryAllByText } = render(collapsed("before"));
+            rerender(collapsed("after"));
+
+            fireEvent.click(getByRole("button", { name: "Expand" }));
+
+            expect(queryAllByText("after")).toHaveLength(3);
+        });
+
+        it("works the summary text out afresh when it is closed again after an event was removed", () => {
+            const list = events();
+            // Closed first, so the text has been worked out once, as when a reader opens a summary they saw closed.
+            const { getByRole, getByText } = render(
+                <MatrixClientContext.Provider value={mockClient}>
+                    <EventListSummary {...defaultProps} events={list} updateChildren children={tiles(list, "tile")} />
+                </MatrixClientContext.Provider>,
+            );
+            expect(getByText(/joined/)).toBeInTheDocument();
+            fireEvent.click(getByRole("button", { name: "Expand" }));
+            vi.spyOn(list[1], "isRedacted").mockReturnValue(true);
+            vi.spyOn(list[1], "getUnsigned").mockReturnValue({ redacted_because: {} } as ReturnType<
+                MatrixEvent["getUnsigned"]
+            >);
+
+            fireEvent.click(getByRole("button", { name: "Collapse" }));
+
+            expect(getByText(/removed/i)).toBeInTheDocument();
+        });
+    });
+
     it("looks up custom summaries only while collapsed", function () {
         const events = generateEvents([
             { userId: "@user:some.domain", membership: KnownMembership.Join },
