@@ -237,8 +237,12 @@ async function viewSourceOnRoomNameEvent(page: Page) {
         .click();
 
     // Hover the name change's own tile, so its options are the ones shown. Expanding the summary moves the rows under
-    // the pointer, which could otherwise be over the tile above it.
-    const nameChange = page.locator(".mx_EventTile[data-event-id]").filter({ hasText: "changed the room name to" });
+    // the pointer, which could otherwise be over the tile above it. Its tile is the innermost list item with the text:
+    // the summary row around it has the text too.
+    const nameChange = page
+        .getByRole("listitem")
+        .filter({ hasText: "changed the room name to" })
+        .filter({ hasNot: page.getByRole("listitem") });
     await nameChange.hover();
     await nameChange.getByRole("button", { name: "Options" }).click();
 
