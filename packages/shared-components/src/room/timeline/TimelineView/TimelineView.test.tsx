@@ -472,6 +472,29 @@ describe("<TimelineView />", () => {
         expect(end).toBeGreaterThan(start);
     });
 
+    it("keeps the margins between what a row holds, as the old timeline's list keeps them between its items", async () => {
+        const { vm, actions } = makeFakeVm({ items: eventItems(1) });
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView
+                    vm={vm}
+                    renderItem={() => (
+                        <>
+                            <div data-testid="first" style={{ height: 20, marginBottom: 48 }} />
+                            <div data-testid="second" style={{ height: 20, marginTop: 8 }} />
+                        </>
+                    )}
+                />
+            </div>,
+        );
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+
+        const gap =
+            screen.getByTestId("second").getBoundingClientRect().top -
+            screen.getByTestId("first").getBoundingClientRect().bottom;
+        expect(gap).toBe(56);
+    });
+
     it("tells the view model when the start is no longer shown", async () => {
         const { vm, actions } = makeFakeVm({ items: eventItems(70) });
         renderTimeline(vm);

@@ -174,7 +174,8 @@ function renderCreation(key: string, events: MatrixEvent[], ctx: RenderItemConte
         ? _t("timeline|creation_summary_dm", { creator })
         : _t("timeline|creation_summary_room", { creator });
     return (
-        <div key={key}>
+        // The intro and the summary sit in the row side by side, as separate items of the old timeline's list do.
+        <Fragment key={key}>
             {/* The row is already the list item, so the intro is a plain block in it. */}
             <NewRoomIntro as="div" />
             <GenericEventListSummary
@@ -188,7 +189,7 @@ function renderCreation(key: string, events: MatrixEvent[], ctx: RenderItemConte
                     <li key={event.getId()}>{renderTimelineItem(groupedEvent(event), ctx)}</li>
                 ))}
             </GenericEventListSummary>
-        </div>
+        </Fragment>
     );
 }
 
