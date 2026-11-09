@@ -7,6 +7,7 @@
 
 import { expect, type TestFixtures } from "../../element-web-test";
 import type { Page } from "@playwright/test";
+import { messageList } from "../../pages/timeline";
 
 export const ONE_MINUTE = 60 * 1000;
 
@@ -18,7 +19,7 @@ export async function checkRetentionInRoom(
     await app.viewRoomById(roomId);
     const tiles = (
         await Promise.all(Array.from({ length: 5 }).map((_o, index) => bot.sendMessage(roomId, `Message ${index}`)))
-    ).map(({ event_id: evtId }) => page.locator(`.mx_RoomView_MessageList .mx_EventTile[data-event-id='${evtId}']`));
+    ).map(({ event_id: evtId }) => messageList(page).locator(`.mx_EventTile[data-event-id='${evtId}']`));
     for (const tile of tiles) {
         await expect(tile).toBeVisible();
     }
