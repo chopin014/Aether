@@ -648,7 +648,8 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
         displayName: _td("labs|new_timeline"),
         description: _td("labs|currently_experimental"),
         isFeature: true,
-        default: false,
+        // On by default, as in the desktop app. While the old timeline remains, config.json can still turn it off.
+        default: true,
         controller: new ReloadOnChangeController(),
     },
     // Covers every document viewer, not only PDFs. The key predates the Markdown viewer and is kept so
