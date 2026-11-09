@@ -105,20 +105,33 @@ test.describe("New timeline", () => {
         await expect(jumpToBottom).not.toBeVisible();
     });
 
-    test("shows that a message on screen was removed", async ({ page, app, user }) => {
-        const roomId = await app.client.createRoom({ name: "Removed message" });
-        const removed = await app.client.sendMessage(roomId, "Soon to be removed");
-        // Receipts and the "Sent" tick stay on this later message, so they do not redraw the removed one.
-        await app.client.sendMessage(roomId, "A message after it");
+    test.describe("with someone else in the room", () => {
+        test.use({ botCreateOpts: { displayName: "Bob", autoAcceptInvites: true } });
 
-        await app.viewRoomById(roomId);
-        await expect(timelineRow(page, removed.event_id)).toContainText("Soon to be removed");
+        test("shows that a message on screen was removed", async ({ page, app, user, bot }) => {
+            const roomId = await app.client.createRoom({ name: "Removed message" });
+            await app.client.inviteUser(roomId, bot.credentials!.userId);
+            await bot.joinRoom(roomId);
+            const removed = await bot.sendMessage(roomId, "Soon to be removed");
+            // Receipts stay on this later message, so they do not redraw the removed one.
+            await bot.sendMessage(roomId, "A message after it");
 
-        await app.client.redactEvent(roomId, removed.event_id);
+            // Opened at the message, which is highlighted from the first rows shown. That keeps it in a row of its own
+            // once removed; otherwise it would join a summary of removed messages, whose new tile shows the removal
+            // whether or not this one would have.
+            await page.goto(`/#/room/${roomId}/${removed.event_id}`);
+            await expect(timelineRow(page, removed.event_id)).toContainText("Soon to be removed");
 
-        // The client removes the content from the same event, and the row shows that in its place.
-        await expect(timelineRow(page, removed.event_id).locator(".mx_RedactedBody")).toContainText("Message deleted");
-        await expect(timelineRow(page, removed.event_id)).not.toContainText("Soon to be removed");
+            // Removed by its sender elsewhere: the reader's copy of the message changes only by being removed, with no
+            // change of its own sending to redraw it, as there would be for a removal sent from here.
+            await bot.redactEvent(roomId, removed.event_id);
+
+            // The client removes the content from the same event, and the tile, still mounted, shows that in its place.
+            await expect(timelineRow(page, removed.event_id).locator(".mx_RedactedBody")).toContainText(
+                "Message deleted",
+            );
+            await expect(timelineRow(page, removed.event_id)).not.toContainText("Soon to be removed");
+        });
     });
 
     test("loads older history when the reader scrolls to the top", async ({ page, app, user }) => {
