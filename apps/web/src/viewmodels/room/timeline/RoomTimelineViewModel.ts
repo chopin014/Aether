@@ -2029,18 +2029,30 @@ export class RoomTimelineViewModel
     /**
      * Collapse the events that set the room up into one summary row, as the old timeline does, with the room's
      * introduction above it. Encryption being turned on keeps its own row, before the summary, and a read marker
-     * among the grouped events follows the summary. An event the reader is taken to, such as by a link, keeps the
-     * events ungrouped, so it has a row to land on.
+     * among the grouped events follows the summary.
+     *
+     * The events keep rows of their own while they must: when the reader is taken to one of them, such as by a link,
+     * so it has a row to land on; and when the reader can see them in rows of their own, such as after paging back
+     * to the start of the room, where the view holds its place by those rows. Once the summary is shown it stays.
      */
     private groupRoomCreation(items: TimelineItem[], events: MatrixEvent[], showHiddenEvents: boolean): TimelineItem[] {
         const run = this.creationRun(events, showHiddenEvents);
         if (!run) return items;
-        const targets = [
-            this.navigationEventId,
-            this.snapshot.current.highlightedEventId,
-            this.snapshot.current.pendingAnchor?.targetKey,
-        ];
-        if (targets.some((id) => id && run.grouped.has(id))) return items;
+        const key = `creation-${run.createId}`;
+        const shown = this.snapshot.current.items;
+        if (!shown.some((item) => item.key === key)) {
+            // Going to the unread line lands on the line, not its event, so it needs no row of the event's own.
+            const targets = [
+                this.navigationEventId === this.frozenMarkerEventId ? null : this.navigationEventId,
+                this.snapshot.current.highlightedEventId,
+                this.snapshot.current.pendingAnchor?.targetKey,
+            ];
+            if (targets.some((id) => id && run.grouped.has(id))) return items;
+            const visible = shown.slice(this.visibleStartArrayIndex, this.visibleEndArrayIndex + 1);
+            if (visible.some((item) => this.itemEvents(item).some((event) => run.grouped.has(event.getId()!)))) {
+                return items;
+            }
+        }
 
         const result: TimelineItem[] = [];
         const grouped: MatrixEvent[] = [];
@@ -2051,12 +2063,8 @@ export class RoomTimelineViewModel
             if (item.kind === "event" && run.grouped.has(item.key)) {
                 if (groupAt < 0) groupAt = result.length;
                 grouped.push(item.event as MatrixEvent);
-            } else if (
-                groupAt >= 0 &&
-                grouped.length < run.grouped.size &&
-                item.kind === "event" &&
-                run.ownRows.has(item.key)
-            ) {
+            } else if (groupAt >= 0 && item.kind === "event" && run.ownRows.has(item.key)) {
+                // Before the summary, wherever it falls in the run, as in the old timeline.
                 ownRows.push(item);
             } else if (groupAt >= 0 && grouped.length < run.grouped.size && item.kind === "read-marker") {
                 marker = item;
@@ -2069,7 +2077,7 @@ export class RoomTimelineViewModel
             groupAt,
             0,
             ...ownRows,
-            { kind: "event-group", key: `creation-${run.createId}`, events: grouped, variant: "creation" },
+            { kind: "event-group", key, events: grouped, variant: "creation" },
             ...(marker ? [marker] : []),
         );
         return result;

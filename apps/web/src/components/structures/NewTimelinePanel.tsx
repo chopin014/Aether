@@ -124,7 +124,8 @@ function renderCreation(key: string, events: MatrixEvent[], ctx: RenderItemConte
         : _t("timeline|creation_summary_room", { creator });
     return (
         <div key={key}>
-            <NewRoomIntro />
+            {/* The row is already the list item, so the intro is a plain block in it. */}
+            <NewRoomIntro as="div" />
             <GenericEventListSummary
                 as="div"
                 events={events}

@@ -24,7 +24,9 @@ import * as roomEntry from "../../performance/RoomEntryReady";
 import DMRoomMap from "../../utils/DMRoomMap";
 
 // The room's introduction has its own tests and needs the whole room view around it.
-vi.mock("../views/rooms/NewRoomIntro", () => ({ default: () => <div data-testid="new-room-intro" /> }));
+vi.mock("../views/rooms/NewRoomIntro", () => ({
+    default: ({ as }: { as?: string }) => <div data-testid="new-room-intro" data-as={as} />,
+}));
 
 const ROOM_ID = "!room:example.org";
 const USER_ID = "@alice:example.org";
@@ -282,11 +284,25 @@ describe("<NewTimelinePanel />", () => {
 
             renderPanel();
 
-            expect(screen.getByTestId("new-room-intro")).toBeInTheDocument();
+            // The row is the list item: the intro must not be another one inside it.
+            expect(screen.getByTestId("new-room-intro")).toHaveAttribute("data-as", "div");
             expect(screen.getByText(`${USER_ID} created and configured the room.`)).toBeInTheDocument();
             expect(screen.queryAllByTestId("event-row")).toHaveLength(0);
             fireEvent.click(screen.getByRole("button", { name: "Expand" }));
             expect(tileProps.current.map((props) => props.mxEvent)).toEqual(events);
+        });
+
+        it("shows a short start of a room as its events, under the introduction", () => {
+            dmWith(undefined);
+            withItems([
+                { key: "creation-$create", kind: "event-group", events: setUp().slice(0, 2), variant: "creation" },
+            ]);
+
+            renderPanel();
+
+            expect(screen.getByTestId("new-room-intro")).toBeInTheDocument();
+            expect(screen.queryByText(`${USER_ID} created and configured the room.`)).not.toBeInTheDocument();
+            expect(screen.getAllByTestId("event-row")).toHaveLength(2);
         });
 
         it("says a direct message was created", () => {

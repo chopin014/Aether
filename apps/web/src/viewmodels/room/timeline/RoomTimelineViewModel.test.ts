@@ -13,6 +13,7 @@ import {
     TimelineWindow,
     EventStatus,
     EventType,
+    M_BEACON_INFO,
     MatrixEvent,
     MatrixEventEvent,
     PendingEventOrdering,
@@ -478,6 +479,11 @@ describe("RoomTimelineViewModel", () => {
                     (item): item is Extract<TimelineItem, { kind: "event-group" }> =>
                         item.kind === "event-group" && item.variant === "creation",
                 );
+        /** Rebuild the list and publish it, as any change to the timeline does. */
+        const rebuild = async (vm: RoomTimelineViewModel): Promise<void> => {
+            (vm as any).scheduleRebuild();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        };
         const groupedIds = (vm: RoomTimelineViewModel): string[] =>
             (creationGroup(vm)?.events ?? []).map((event) => (event as MatrixEvent).getId()!);
 
@@ -502,7 +508,77 @@ describe("RoomTimelineViewModel", () => {
             expect(eventKeys(items)).toEqual(["$encryption", "$hello"]);
         });
 
-        it("ends the summary at someone else's event, another day, or a message", async () => {
+        it("puts turning on encryption before the summary when it comes last", async () => {
+            seedTimeline([...creation().slice(0, 4), creation()[4], makeMessage("$hello", { ts: DAY + 1000 })]);
+            const vm = await createStartedViewModel();
+
+            expect(groupedIds(vm)).toEqual(["$join", "$rules", "$history"]);
+            const items = vm.getSnapshot().items;
+            expect(indexOfKey(items, "$encryption")).toBe(indexOfKey(items, "creation-$create") - 1);
+        });
+
+        it.each([
+            ["another day", makeState("$later", EventType.RoomTopic, { topic: "later" }, { ts: DAY + 2 * 86_400_000 })],
+            ["a message", makeMessage("$later", { ts: DAY + 1 })],
+            [
+                "sharing a live location",
+                makeState("$later", M_BEACON_INFO.name, { live: true, timeout: 60_000 }, { stateKey: USER_ID }),
+            ],
+        ])("ends the summary at %s", async (_case, boundary) => {
+            seedTimeline([...creation().slice(0, 3), boundary, creation()[3]]);
+            const vm = await createStartedViewModel();
+
+            expect(groupedIds(vm)).toEqual(["$join", "$rules"]);
+            expect(eventKeys(vm.getSnapshot().items)).toContain("$history");
+        });
+
+        it("groups nothing when the creator set nothing up", async () => {
+            seedTimeline([creation()[0], makeMessage("$hello", { ts: DAY + 1 })]);
+            const vm = await createStartedViewModel();
+
+            expect(creationGroup(vm)).toBeUndefined();
+        });
+
+        it("keeps the summary once the reader goes to an unread line among its events", async () => {
+            seedTimeline([...creation(), makeMessage("$hello", { ts: DAY + 1000 })]);
+            room.addAccountData([
+                new MatrixEvent({ type: EventType.FullyRead, room_id: ROOM_ID, content: { event_id: "$rules" } }),
+            ]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+
+            vm.jumpToReadMarker();
+            // Something else changes the list, such as a new message.
+            await rebuild(vm);
+
+            expect(creationGroup(vm)).toBeDefined();
+            const items = vm.getSnapshot().items;
+            expect(indexOfKey(items, "read-marker")).toBe(indexOfKey(items, "creation-$create") + 1);
+        });
+
+        it("leaves rows the reader can see as they are when the start of the room is paged in", async () => {
+            const [create, ...setUp] = creation();
+            seedTimeline([...setUp, makeMessage("$hello", { ts: DAY + 1000 })]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const shown = vm.getSnapshot().items;
+            vm.onVisibleRangeChanged(indexOfKey(shown, "$rules"), indexOfKey(shown, "$history"));
+
+            // The start of the room arrives above them.
+            const loaded = (vm as any).loadedEvents.bind(vm);
+            vi.spyOn(vm as any, "loadedEvents").mockImplementation(() => [create, ...loaded()]);
+            await rebuild(vm);
+            expect(creationGroup(vm)).toBeUndefined();
+            expect(eventKeys(vm.getSnapshot().items)).toContain("$rules");
+
+            // Once the reader has scrolled past them, the start of the room is summed up.
+            const now = vm.getSnapshot().items;
+            vm.onVisibleRangeChanged(indexOfKey(now, "$hello"), indexOfKey(now, "$hello"));
+            await rebuild(vm);
+            expect(groupedIds(vm)).toEqual(["$join", "$rules", "$history", "$name"]);
+        });
+
+        it("ends the summary at someone else's event", async () => {
             seedTimeline([
                 ...creation().slice(0, 3),
                 makeState(
