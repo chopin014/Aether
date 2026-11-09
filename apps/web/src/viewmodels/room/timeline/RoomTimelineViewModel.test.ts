@@ -1935,6 +1935,27 @@ describe("RoomTimelineViewModel", () => {
             }
         });
 
+        it("never writes the marker behind the last one written, even where that one cannot be placed", async () => {
+            startsActive();
+            seedTimeline(messages(300));
+            markerAt("$m0");
+            const left = await createStartedViewModel("$m0");
+            left.onAnchorReached();
+            shows(left, "$m0", "$m2");
+            await vi.waitFor(() => expect(writes()).toEqual(["$m2"]));
+            left.dispose();
+
+            // The message the marker was written to leaves the room's history, as after a gap in sync, so the reader
+            // back among older messages has nothing to place it against.
+            room.removeEvent("$m2");
+            const back = await createStartedViewModel("$m0");
+            back.onAnchorReached();
+            shows(back, "$m0", "$m1");
+            await new Promise((r) => setTimeout(r, 100));
+
+            expect(writes()).toEqual(["$m2"]);
+        });
+
         it("tries again when moving the marker fails", async () => {
             vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
                 timer.start();

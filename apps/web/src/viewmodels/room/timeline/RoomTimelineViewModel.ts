@@ -659,6 +659,9 @@ export class RoomTimelineViewModel
                 this.readMarkerEventId = state.written;
             }
             if (!this.maySendReadState() || !this.comesAfter(eventId, this.readMarkerEventId)) return;
+            // Past the last marker written here too, whatever this view knows of it: one that cannot be placed against
+            // it, such as in history it is no longer among, is left for later.
+            if (state.written && !this.comesAfter(eventId, state.written)) return;
             debug(`[TimelineVM] writeReadMarker — fully read marker to ${eventId}`);
             const previous = this.readMarkerEventId;
             this.readMarkerEventId = eventId;
