@@ -310,6 +310,35 @@ describe("EventListSummary", function () {
             expect(queryAllByText("after")).toHaveLength(3);
         });
 
+        it("opens with the latest children at once, never first with the ones it had while closed", () => {
+            const list = events();
+            const drawn: string[] = [];
+            const Tile = ({ label }: { label: string }): React.ReactElement => {
+                React.useLayoutEffect(() => {
+                    drawn.push(label);
+                });
+                return <div>{label}</div>;
+            };
+            const collapsed = (label: string): React.ReactElement => (
+                <MatrixClientContext.Provider value={mockClient}>
+                    <EventListSummary
+                        {...defaultProps}
+                        events={[...list]}
+                        updateChildren
+                        children={list.map((event) => (
+                            <Tile key={event.getId()} label={label} />
+                        ))}
+                    />
+                </MatrixClientContext.Provider>
+            );
+            const { rerender, getByRole } = render(collapsed("before"));
+            rerender(collapsed("after"));
+
+            fireEvent.click(getByRole("button", { name: "Expand" }));
+
+            expect(drawn).toEqual(["after", "after", "after"]);
+        });
+
         it("works the summary text out afresh when it is closed again after an event was removed", () => {
             const list = events();
             // Closed first, so the text has been worked out once, as when a reader opens a summary they saw closed.
