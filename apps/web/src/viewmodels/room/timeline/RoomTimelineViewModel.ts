@@ -2229,6 +2229,8 @@ export class RoomTimelineViewModel
      * messages a module sums up itself.
      */
     private isSummarised(event: MatrixEvent, showHiddenEvents: boolean): boolean {
+        // The room's own start: drawn as a row of its own before the room's introduction, as `CreationGrouper` does.
+        if (event.getType() === EventType.RoomCreate) return false;
         if (event.isState() && SUMMARISED_STATE_TYPES.has(event.getType())) return true;
         if (event.isRedacted()) return true;
         if (showHiddenEvents && !this.computeInclusion(event, true)) return true;

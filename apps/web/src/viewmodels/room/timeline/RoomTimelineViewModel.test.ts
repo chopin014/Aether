@@ -924,6 +924,23 @@ describe("RoomTimelineViewModel", () => {
             expect(eventKeys(vm.getSnapshot().items)).toContain("$history");
         });
 
+        it("draws the create event in a row of its own before the summary when hidden events are shown", async () => {
+            vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
+                if (key === "showJoinLeaves" || key === "sendReadReceipts" || key === "showHiddenEventsInTimeline") {
+                    return true;
+                }
+                return undefined;
+            });
+            seedTimeline([...creation(), makeMessage("$hello", { ts: DAY + 1000 })]);
+            const vm = await createStartedViewModel();
+
+            const items = vm.getSnapshot().items;
+            // As the old timeline's CreationGrouper draws it, rather than summed up as a hidden event.
+            expect(items[indexOfKey(items, "$create") + 1].kind).toBe("event");
+            expect(groupedIds(vm)).toEqual(["$join", "$rules", "$history", "$name"]);
+            expect(items.filter((item) => item.kind === "event-group" && item.variant !== "creation")).toEqual([]);
+        });
+
         it("ends the summary at someone else's event", async () => {
             seedTimeline([
                 ...creation().slice(0, 3),
