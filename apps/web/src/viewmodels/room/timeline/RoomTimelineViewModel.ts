@@ -10,7 +10,6 @@ import {
     Direction,
     RoomEvent,
     EventType,
-    EventStatus,
     MatrixEventEvent,
     NotificationCountType,
     ReceiptType,
@@ -28,7 +27,6 @@ import { logger } from "matrix-js-sdk/src/logger";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 
 import type {
-    EventSendState,
     TimelineViewSnapshot,
     TimelineViewActions,
     TimelineItem,
@@ -51,6 +49,7 @@ import {
 } from "../../../utils/read-receipts";
 import type { IReadReceiptProps } from "../../../components/views/rooms/EventTile";
 import { ModuleApi } from "../../../modules/Api";
+import { sendStateOf } from "./sendState";
 
 const DEBUG_TIMELINE = false;
 
@@ -69,26 +68,6 @@ const debug = (message: string): void => {
 
 /** How long after the last scroll event to wait before sending a read receipt (ms). */
 const READ_RECEIPT_DEBOUNCE_MS = 500;
-
-/**
- * The send state of a row's message, read as `MessagePanel` reads it for the old timeline: the
- * associated status also covers our pending edit or redaction of a message the server already has.
- */
-function sendStateOf(event: MatrixEvent): EventSendState | undefined {
-    switch (event.getAssociatedStatus()) {
-        case EventStatus.ENCRYPTING:
-            return "encrypting";
-        case EventStatus.QUEUED:
-        case EventStatus.SENDING:
-            return "sending";
-        case EventStatus.SENT:
-            return "sent";
-        case EventStatus.NOT_SENT:
-            return "failed";
-        default:
-            return undefined;
-    }
-}
 
 const PAGINATE_SIZE = 100;
 const INITIAL_SIZE = 100;
