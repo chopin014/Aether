@@ -30,6 +30,7 @@ import { type TimelineItem } from "@element-hq/web-shared-components";
 import { createTestClient, mkMembership, mkMessage } from "test-utils";
 
 import SettingsStore from "../../../settings/SettingsStore";
+import { SettingLevel } from "../../../settings/SettingLevel";
 import UserActivity from "../../../UserActivity";
 import { SlidingSyncManager } from "../../../SlidingSyncManager";
 import { ModuleApi } from "../../../modules/Api";
@@ -434,6 +435,36 @@ describe("RoomTimelineViewModel", () => {
                 const vm = await createStartedViewModel();
                 expect(groups(vm)).toHaveLength(0);
                 expect(eventKeys(vm.getSnapshot().items)).toEqual(["$before", "$after"]);
+            });
+
+            it("draws the rows again when hidden events are shown or hidden, as the old timeline does", async () => {
+                let settingChanged: (() => void) | undefined;
+                vi.mocked(SettingsStore).watchSetting.mockImplementation((name, _room, callback): string => {
+                    if (name === "showHiddenEventsInTimeline")
+                        settingChanged = () => callback(name, null, SettingLevel.DEVICE, true, true);
+                    return "watch-ref";
+                });
+                showHidden(false);
+                const ts = 1_700_000_000_000;
+                seedTimeline([
+                    makeMessage("$before", { ts }),
+                    unknownEvent("$unknown"),
+                    editOf("$edit", "$before"),
+                    makeMessage("$after", { ts }),
+                ]);
+                const vm = await createStartedViewModel();
+                expect(groups(vm)).toHaveLength(0);
+
+                showHidden(true);
+                settingChanged?.();
+                await vi.waitFor(() => expect(groupedIds(vm)).toEqual([["$unknown", "$edit"]]));
+
+                showHidden(false);
+                settingChanged?.();
+                await vi.waitFor(() => expect(groups(vm)).toHaveLength(0));
+
+                vm.dispose();
+                expect(SettingsStore.unwatchSetting).toHaveBeenCalledWith("watch-ref");
             });
         });
 

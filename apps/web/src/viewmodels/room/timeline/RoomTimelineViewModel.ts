@@ -492,6 +492,12 @@ export class RoomTimelineViewModel
             RoomStateEvent.Update,
             this.onRoomStateUpdate as (...args: unknown[]) => void,
         );
+        // Which events have rows depends on whether hidden events are shown: draw the rows again when that changes,
+        // as the old timeline does.
+        const hiddenEventsWatcher = SettingsStore.watchSetting("showHiddenEventsInTimeline", null, () =>
+            this.scheduleRebuild(),
+        );
+        this.disposables.track(() => SettingsStore.unwatchSetting(hiddenEventsWatcher));
     }
 
     /**
