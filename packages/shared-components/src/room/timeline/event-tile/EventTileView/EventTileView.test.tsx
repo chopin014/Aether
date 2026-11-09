@@ -461,6 +461,30 @@ describe("EventTileView", () => {
         expect(withoutReceipt.container.querySelector("li")).not.toHaveClass(styles.hasReceiptSlot);
     });
 
+    it("holds its floating read receipts inside the tile", () => {
+        render(
+            <EventPresentationProvider value={{ layout: "group", density: "default" }}>
+                <EventTileView
+                    {...createProps({
+                        root: { ...renderState, state: { isOwnEvent: false, hasReply: false } },
+                        slots: {
+                            body: <span data-testid="body">Body</span>,
+                            receipt: <span data-testid="receipt">Receipt</span>,
+                        },
+                    })}
+                />
+            </EventPresentationProvider>,
+        );
+        const receipt = screen.getByTestId("event-tile-slot-receipt");
+        // The receipts are drawn higher up, beside the message, but where they float decides how tall the tile is.
+        receipt.style.position = "static";
+
+        expect(receipt.getBoundingClientRect().height).toBeGreaterThan(0);
+        expect(screen.getByTestId("event-tile").getBoundingClientRect().bottom).toBeGreaterThanOrEqual(
+            receipt.getBoundingClientRect().bottom,
+        );
+    });
+
     it.each(["group", "bubble"] as const)("renders the %s thread layout in the original slot order", (layout) => {
         const { container, getByTestId } = render(
             <EventTileView
