@@ -26,6 +26,7 @@ import {
     type MatrixClient,
 } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
+import { synthesizeReceipt } from "matrix-js-sdk/src/models/read-receipt";
 import { type TimelineItem } from "@element-hq/web-shared-components";
 import { createTestClient, mkMembership, mkMessage } from "test-utils";
 
@@ -2043,6 +2044,64 @@ describe("RoomTimelineViewModel", () => {
             const [receiptedEvent, receiptType] = vi.mocked(client.sendReadReceipt).mock.calls[0];
             expect(receiptedEvent?.getId()).toBe("$b");
             expect(receiptType).toBe(ReceiptType.Read);
+        });
+
+        it("reads up to the last message from someone else, not one of ours after it, as the old timeline does", async () => {
+            vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+            seedTimeline([
+                makeMessage("$a", { user: OTHER_USER_ID }),
+                makeMessage("$b", { user: OTHER_USER_ID }),
+                makeMessage("$mine"),
+            ]);
+            room.addReceipt(
+                new MatrixEvent({
+                    type: EventType.Receipt,
+                    content: { $a: { [ReceiptType.Read]: { [USER_ID]: { ts: 1000 } } } },
+                }),
+            );
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+
+            await flushReceiptDebounce();
+            expect(vi.mocked(client.sendReadReceipt).mock.calls.map(([event]) => event?.getId())).toEqual(["$b"]);
+        });
+
+        it("reads our own newest message when the server has no receipt for it, as the old timeline does", async () => {
+            vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+            const mine = [makeMessage("$a"), makeMessage("$b")];
+            seedTimeline(mine);
+            // The SDK makes up a receipt for each message of ours; the server has none.
+            room.addReceipt(synthesizeReceipt(USER_ID, mine[1], ReceiptType.Read), true);
+            expect(room.getEventReadUpTo(USER_ID)).toBe("$b");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+
+            await flushReceiptDebounce();
+            expect(vi.mocked(client.sendReadReceipt).mock.calls[0][0]?.getId()).toBe("$b");
+        });
+
+        it("never moves the receipt back after a gap in sync, while the reader stays in older messages", async () => {
+            vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+            seedTimeline([makeMessage("$a", { user: OTHER_USER_ID }), makeMessage("$b", { user: OTHER_USER_ID })]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            await flushReceiptDebounce();
+
+            // The reader goes up to older messages, and sync skips ahead: the window they are reading stays.
+            vm.onAtBottomStateChange(false);
+            room.resetLiveTimeline("gap", undefined);
+            await new Promise((r) => setTimeout(r, 10));
+            const items = vm.getSnapshot().items;
+            vm.onVisibleRangeChanged(indexOfKey(items, "$a"), indexOfKey(items, "$a"));
+            vm.sendReadReceiptNow();
+            await new Promise((r) => setTimeout(r, 700));
+
+            expect(vi.mocked(client.sendReadReceipt).mock.calls.map(([event]) => event?.getId())).toEqual(["$b"]);
         });
 
         it("sends a private receipt when the user has read receipts turned off", async () => {
