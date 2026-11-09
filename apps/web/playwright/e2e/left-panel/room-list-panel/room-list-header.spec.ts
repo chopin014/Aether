@@ -66,15 +66,9 @@ test.describe("Header section of the room list", () => {
         await expect(page.getByRole("heading", { name: "Invite to MySpace" })).toBeVisible();
         await app.closeDialog();
 
-        // It should open the space preferences
-        await spaceMenu.click();
-        await page.getByRole("menuitem", { name: "Preferences" }).click();
-        await expect(page.getByRole("heading", { name: "Preferences" })).toBeVisible();
-        await app.closeDialog();
-
         // It should open the space settings
         await spaceMenu.click();
-        await page.getByRole("menuitem", { name: "Space Settings" }).click();
+        await page.getByRole("menuitem", { name: "Server settings" }).click();
         await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
         await app.closeDialog();
     });
