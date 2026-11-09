@@ -680,6 +680,20 @@ describe("RoomTimelineViewModel", () => {
             ]);
         });
 
+        it("never lays out pictures from different days together, even when their times are out of order", async () => {
+            // Local midnight, so the day changes wherever the test runs.
+            const midnight = new Date(2026, 10, 10).getTime();
+            seedTimeline([
+                makeMessage("$day", { ts: midnight - 12 * 60 * 60 * 1000 }),
+                makePicture("$first", { ts: midnight }),
+                // Sent just before midnight, but delivered after: the day it belongs to was already shown.
+                makePicture("$prior-day", { ts: midnight - 30_000 }),
+            ]);
+            const vm = await createStartedViewModel();
+            expect(galleries(vm)).toEqual([]);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$day", "$first", "$prior-day"]);
+        });
+
         it("keeps pictures in rows of their own outside the desktop shell", async () => {
             vi.mocked(SettingsStore).getValue.mockImplementation((key): any => key === "sendReadReceipts");
             seedTimeline([makePicture("$first"), makePicture("$second", { ts: T0 + 1000 })]);

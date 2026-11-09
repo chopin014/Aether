@@ -50,6 +50,8 @@ import {
 import type { IReadReceiptProps } from "../../../components/views/rooms/EventTile";
 import { ModuleApi } from "../../../modules/Api";
 import { GALLERY_WINDOW_MS, isGalleryMedia } from "../../../utils/gallery";
+import { wantsDateSeparator } from "../../../DateUtils";
+import { getLateEventInfo } from "../../../components/structures/grouper/LateEventGrouper";
 import { sendStateOf } from "./sendState";
 
 const DEBUG_TIMELINE = false;
@@ -2288,7 +2290,11 @@ export class RoomTimelineViewModel
                 if (
                     !isGalleryMedia(event, false) ||
                     event.getSender() !== previous.getSender() ||
-                    event.getTs() - previous.getTs() > GALLERY_WINDOW_MS
+                    event.getTs() - previous.getTs() > GALLERY_WINDOW_MS ||
+                    // As the old timeline's `GalleryGrouper` does, never across a change of day or of late messages,
+                    // whether a separator is drawn there or not, such as when a message's time is out of order.
+                    wantsDateSeparator(previous.getDate() ?? undefined, event.getDate() ?? undefined) ||
+                    getLateEventInfo(event)?.group_id !== getLateEventInfo(previous)?.group_id
                 ) {
                     break;
                 }
