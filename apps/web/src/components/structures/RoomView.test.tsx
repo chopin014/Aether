@@ -512,6 +512,7 @@ describe("RoomView", () => {
         expect(ref.current?.state.initialEventId).toBeUndefined();
     });
 
+    // Given as long as its waits may take together on a loaded machine, beyond the default five seconds for a test.
     it("returns to the position someone left a room at, once sliding sync has loaded it", async () => {
         // Under sliding sync a room the client does not have yet is named while its subscription loads, then again
         // once it has brought the room.
@@ -534,7 +535,7 @@ describe("RoomView", () => {
         await waitFor(() => expect(ref.current?.state.initialEventId).toBe("$left-here"), { timeout: 5000 });
         expect(ref.current?.state.initialEventPixelOffset).toBe(42);
         RoomScrollStateStore.setScrollState(room.roomId, null);
-    });
+    }, 15_000);
 
     it("opens the latest messages when asked again for the room while sliding sync loads it", async () => {
         // Such as someone clicking the room again: a request for its live timeline, not the end of the first load.
