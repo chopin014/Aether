@@ -33,8 +33,9 @@ export function topLevelTiles(page: Page): Locator {
  * the screen, so a message further away has no element to find until the timeline is scrolled to it; the old timeline
  * draws every loaded message, and this only brings it into view.
  *
- * Each direction is searched in turn, by most of a screen at a time. At either end the search waits while messages are
- * still being paged in, and moves on once nothing more comes.
+ * The directions are searched in turn, by most of a screen at a time, and again until the time is up: messages can be
+ * paged in late, such as while a room's history is still being prepared. At either end the search waits while the
+ * timeline is paging or growing before it moves on.
  *
  * @param page - the page the room is open in
  * @param tile - the tile to find, which should match one element once it is drawn
@@ -47,17 +48,18 @@ export async function scrollTimelineTo(
     { directions = [1, -1], timeout = 10_000 }: { directions?: Array<1 | -1>; timeout?: number } = {},
 ): Promise<void> {
     const scroller = timelineScroller(page);
+    // Either timeline's paging spinners: the new one's loading rows, and the old one's rows at its ends. Tiles have
+    // progress bars of their own, such as while a picture loads, which say nothing about paging.
+    const paging = scroller
+        .locator(".mx_NewTimelinePanel_loading, .mx_RoomView_MessageList > li:not(.mx_EventTile)")
+        .getByRole("progressbar");
     const deadline = Date.now() + timeout;
-    const remaining = (): number => {
-        const left = deadline - Date.now();
-        if (left <= 0) throw new Error(`Timed out after ${timeout}ms scrolling the timeline to ${tile}`);
-        return left;
-    };
-    for (const direction of directions) {
+
+    /** Scroll towards one end until the tile is drawn, or the end has been reached and nothing more comes. */
+    const searchTowards = async (direction: 1 | -1): Promise<void> => {
         // How many times running the end was reached with nothing new to show.
         let idle = 0;
-        while ((await tile.count()) === 0) {
-            remaining();
+        while ((await tile.count()) === 0 && Date.now() < deadline && idle < 10) {
             const { moved, height } = await scroller.evaluate((element, step) => {
                 const before = element.scrollTop;
                 element.scrollTop += step * element.clientHeight * 0.8;
@@ -69,17 +71,20 @@ export async function scrollTimelineTo(
                 idle = 0;
                 continue;
             }
-            // At the end. Older or newer messages may still be on their way: wait while either timeline shows it is
-            // paging, or the list is still growing. Give up on this direction once nothing has come for a while.
             await page.waitForTimeout(100);
-            const paging = (await scroller.getByRole("progressbar").count()) > 0;
             const grew = (await scroller.evaluate((element) => element.scrollHeight)) !== height;
-            idle = paging || grew ? 0 : idle + 1;
-            if (idle >= 10) break;
+            idle = grew || (await paging.count()) > 0 ? 0 : idle + 1;
         }
-        if ((await tile.count()) > 0) break;
+    };
+
+    for (let pass = 0; (await tile.count()) === 0; pass++) {
+        if (Date.now() >= deadline) {
+            const where = directions.map((direction) => (direction > 0 ? "newer" : "older")).join(" then ");
+            throw new Error(`No ${tile} in the timeline after looking among ${where} messages for ${timeout}ms`);
+        }
+        await searchTowards(directions[pass % directions.length]);
     }
-    await tile.scrollIntoViewIfNeeded({ timeout: remaining() });
+    await tile.scrollIntoViewIfNeeded({ timeout: Math.max(1_000, deadline - Date.now()) });
 }
 
 export class Timeline {
