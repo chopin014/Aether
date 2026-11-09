@@ -1115,6 +1115,23 @@ describe("RoomTimelineViewModel", () => {
     });
 
     describe("requests from the room view", () => {
+        it("puts the unread line a third of the way down when going to it, as the old timeline does", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b"), makeMessage("$c")]);
+            room.addAccountData([
+                new MatrixEvent({ type: EventType.FullyRead, room_id: ROOM_ID, content: { event_id: "$a" } }),
+            ]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+
+            vm.jumpToReadMarker();
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "read-marker", align: "third" });
+
+            vm.onAnchorReached("read-marker");
+            const scrollNow = vi.fn();
+            vm.onJumpToReadMarker(scrollNow);
+            expect(scrollNow).toHaveBeenCalledWith({ targetKey: "read-marker", align: "third" });
+        });
+
         it("scrolls to the newest loaded message, or loads the live end first", async () => {
             seedTimeline([makeMessage("$a"), makeMessage("$b")]);
             const vm = await createStartedViewModel();
@@ -1195,7 +1212,7 @@ describe("RoomTimelineViewModel", () => {
             vm.jumpToReadMarker();
             room.resetLiveTimeline("gap", undefined);
             await new Promise((resolve) => setTimeout(resolve, 10));
-            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "read-marker", align: "center" });
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "read-marker", align: "third" });
             expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b", "$c"]);
             expect(vm.getSnapshot().atLiveEnd).toBe(false);
         });

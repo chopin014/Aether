@@ -926,7 +926,7 @@ export class RoomTimelineViewModel
             // the live-end anchor below.
             if (target.kind === "permalink" && target.toReadMarker && items.some((i) => i.kind === "read-marker")) {
                 // Going to the unread line lands on the line, wherever its event is drawn.
-                pendingAnchor = { targetKey: "read-marker", align: "center" };
+                pendingAnchor = { targetKey: "read-marker", align: "third" };
             } else if (target.kind === "permalink") {
                 if (items.some((i) => i.key === target.eventId)) {
                     pendingAnchor = { targetKey: target.eventId, align: "center" };
@@ -1290,7 +1290,7 @@ export class RoomTimelineViewModel
             this.supersedeLoads();
             this.navigationEventId = this.frozenMarkerEventId;
             this.navigationToReadMarker = true;
-            this.mergeSnapshot({ pendingAnchor: { targetKey: marker.key, align: "center" } }, "jump-to-marker");
+            this.mergeSnapshot({ pendingAnchor: { targetKey: marker.key, align: "third" } }, "jump-to-marker");
         } else if (this.frozenMarkerEventId) {
             void this.load({ kind: "permalink", eventId: this.frozenMarkerEventId, toReadMarker: true });
         }
@@ -1372,7 +1372,8 @@ export class RoomTimelineViewModel
             this.supersedeLoads();
             this.navigationEventId = this.frozenMarkerEventId;
             this.navigationToReadMarker = true;
-            scrollNow({ targetKey: readMarkerKey, align: "center" });
+            // A third of the way down, as the old timeline places the line, with the unread messages below it.
+            scrollNow({ targetKey: readMarkerKey, align: "third" });
         } else if (this.frozenMarkerEventId && this.timelineWindow.canPaginate(Direction.Backward)) {
             // Frozen marker is not in the current window — reload at it.
             // pendingAnchor gets set inside load() and drives the post-load scroll.
