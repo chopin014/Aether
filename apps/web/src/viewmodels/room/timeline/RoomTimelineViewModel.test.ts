@@ -376,6 +376,74 @@ describe("RoomTimelineViewModel", () => {
             expect(eventKeys(vm.getSnapshot().items)).toEqual(["$before", "$after"]);
         });
 
+        describe("with hidden events shown", () => {
+            const unknownEvent = (id: string): MatrixEvent =>
+                new MatrixEvent({
+                    event_id: id,
+                    room_id: ROOM_ID,
+                    type: "org.example.unknown",
+                    sender: USER_ID,
+                    origin_server_ts: 1_700_000_000_000,
+                    content: { body: "unknown" },
+                });
+            const editOf = (id: string, original: string): MatrixEvent =>
+                new MatrixEvent({
+                    event_id: id,
+                    room_id: ROOM_ID,
+                    type: EventType.RoomMessage,
+                    sender: USER_ID,
+                    origin_server_ts: 1_700_000_000_000,
+                    content: {
+                        "msgtype": "m.text",
+                        "body": "* edited",
+                        "m.new_content": { msgtype: "m.text", body: "edited" },
+                        "m.relates_to": { rel_type: RelationType.Replace, event_id: original },
+                    },
+                });
+            const showHidden = (shown: boolean): void => {
+                vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
+                    if (key === "showJoinLeaves" || key === "sendReadReceipts") return true;
+                    if (key === "showHiddenEventsInTimeline") return shown;
+                    return undefined;
+                });
+            };
+
+            it("gives every event a row, summing up those otherwise hidden, as the old timeline does", async () => {
+                showHidden(true);
+                const ts = 1_700_000_000_000;
+                seedTimeline([
+                    makeMessage("$before", { ts }),
+                    unknownEvent("$unknown"),
+                    editOf("$edit", "$before"),
+                    makeMessage("$after", { ts }),
+                ]);
+                const vm = await createStartedViewModel();
+                expect(groupedIds(vm)).toEqual([["$unknown", "$edit"]]);
+                expect(eventKeys(vm.getSnapshot().items)).toEqual(["$before", "$after"]);
+            });
+
+            it("leaves those events out when hidden events are not shown", async () => {
+                showHidden(false);
+                const ts = 1_700_000_000_000;
+                seedTimeline([
+                    makeMessage("$before", { ts }),
+                    unknownEvent("$unknown"),
+                    editOf("$edit", "$before"),
+                    makeMessage("$after", { ts }),
+                ]);
+                const vm = await createStartedViewModel();
+                expect(groups(vm)).toHaveLength(0);
+                expect(eventKeys(vm.getSnapshot().items)).toEqual(["$before", "$after"]);
+            });
+        });
+
+        it("leaves out the messages of someone ignored after they arrived", async () => {
+            vi.mocked(client.isUserIgnored).mockImplementation((userId) => userId === OTHER_USER_ID);
+            seedTimeline([makeMessage("$mine"), makeMessage("$theirs", { user: OTHER_USER_ID })]);
+            const vm = await createStartedViewModel();
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$mine"]);
+        });
+
         it("sums up messages a module groups itself", async () => {
             const grouped = [
                 makeMessage("$alpha0", { ts: 1_700_000_000_000 }),
