@@ -85,11 +85,19 @@ export async function scrollTimelineTo(
         let idle = 0;
         while ((await step(tile.count())) === 0 && Date.now() < searchDeadline && idle < 10) {
             const { moved, height } = await step(
-                scroller.evaluate((element, by) => {
-                    const before = element.scrollTop;
-                    element.scrollTop += by * element.clientHeight * 0.8;
-                    return { moved: element.scrollTop !== before, height: element.scrollHeight };
-                }, direction),
+                scroller.evaluate(
+                    (element, { by, until }) => {
+                        // A step the search has given up on can still run later, such as once a busy page catches
+                        // up: it must not scroll whatever timeline is on screen by then.
+                        if (Date.now() >= until) return { moved: false, height: element.scrollHeight };
+                        const before = element.scrollTop;
+                        element.scrollTop += by * element.clientHeight * 0.8;
+                        return { moved: element.scrollTop !== before, height: element.scrollHeight };
+                    },
+                    { by: direction, until: searchDeadline },
+                    // Nor wait for a timeline to come back after the search has ended.
+                    { timeout: Math.max(1, searchDeadline - Date.now()) },
+                ),
             );
             // Give the timeline a frame to draw the rows it has scrolled to. A hidden page draws no frames, so do not
             // wait for one for long.
@@ -107,7 +115,12 @@ export async function scrollTimelineTo(
                 continue;
             }
             await step(page.waitForTimeout(100));
-            const grew = (await step(scroller.evaluate((element) => element.scrollHeight))) !== height;
+            const grew =
+                (await step(
+                    scroller.evaluate((element) => element.scrollHeight, undefined, {
+                        timeout: Math.max(1, searchDeadline - Date.now()),
+                    }),
+                )) !== height;
             idle = grew || (await step(paging.count())) > 0 ? 0 : idle + 1;
         }
     };
@@ -117,13 +130,14 @@ export async function scrollTimelineTo(
             if (Date.now() >= searchDeadline) throw notFound();
             await searchTowards(directions[pass % directions.length]);
         }
+        const left = Math.max(1, deadline - Date.now());
+        await step(tile.scrollIntoViewIfNeeded({ timeout: left }), deadline);
     } catch (error) {
-        // A Playwright step that timed out, such as when the timeline went away, also ends the search.
+        // A Playwright step that timed out, such as when the timeline went away or the tile never settled, also ends
+        // the search.
         if (error instanceof Error && error.name === "TimeoutError") throw notFound(error);
         throw error;
     }
-    const left = Math.max(1, deadline - Date.now());
-    await step(tile.scrollIntoViewIfNeeded({ timeout: left }), deadline);
 }
 
 export class Timeline {
