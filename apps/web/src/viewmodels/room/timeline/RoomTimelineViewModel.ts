@@ -279,6 +279,9 @@ export class RoomTimelineViewModel
     /** Keep a summary's identity when history is added on either side. */
     private readonly summaryGroupKeys = new WeakMap<MatrixEvent, string>();
     private summaryGroupSequence = 0;
+    /** Keep a gallery's identity as pictures join or leave it at either end; see {@link groupGalleries}. */
+    private readonly galleryGroupKeys = new WeakMap<MatrixEvent, string>();
+    private galleryGroupSequence = 0;
 
     /** A permalink or saved position must remain an individually addressable event row. */
     private navigationEventId: string | null = null;
@@ -2263,6 +2266,7 @@ export class RoomTimelineViewModel
             pendingKey === "read-marker" ? null : pendingKey,
         ]);
         const result: TimelineItem[] = [];
+        const usedKeys = new Set<string>();
         let index = 0;
         while (index < items.length) {
             const first = items[index++];
@@ -2270,7 +2274,7 @@ export class RoomTimelineViewModel
             if (first.kind !== "event" || !isGalleryMedia(first.event as MatrixEvent, true)) continue;
 
             let previous = first.event as MatrixEvent;
-            const rest: MatrixEvent[] = [];
+            const rest: Extract<TimelineItem, { kind: "event" }>[] = [];
             let marker: TimelineItem | undefined;
             while (index < items.length) {
                 const item = items[index];
@@ -2288,17 +2292,28 @@ export class RoomTimelineViewModel
                 ) {
                     break;
                 }
-                rest.push(event);
+                rest.push(item);
                 previous = event;
                 index++;
             }
             if (rest.length > 0) {
-                result.push({
-                    kind: "event-group",
-                    key: `gallery-${rest[0].getId()}`,
-                    events: rest,
-                    variant: "gallery",
+                const events = rest.map((item) => item.event as MatrixEvent);
+                // A gallery keeps its key while any of its pictures stay in it, such as when an earlier picture loads
+                // and joins it, or the first ones are trimmed away, so the view keeps its measured size and place.
+                // After a split, only one part keeps it.
+                const keyedEvent = events.find((event) => {
+                    const key = this.galleryGroupKeys.get(event);
+                    return key !== undefined && !usedKeys.has(key);
                 });
+                const fresh = `gallery-${rest[0].key}`;
+                const key = keyedEvent
+                    ? this.galleryGroupKeys.get(keyedEvent)!
+                    : usedKeys.has(fresh)
+                      ? `${fresh}-${this.galleryGroupSequence++}`
+                      : fresh;
+                usedKeys.add(key);
+                for (const event of events) this.galleryGroupKeys.set(event, key);
+                result.push({ kind: "event-group", key, events, variant: "gallery" });
             }
             if (marker) result.push(marker);
         }

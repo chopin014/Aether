@@ -640,6 +640,27 @@ describe("RoomTimelineViewModel", () => {
             );
         });
 
+        it("keeps a gallery's key as pictures before it leave the run and come back", async () => {
+            const first = makePicture("$first");
+            seedTimeline([first, makePicture("$second", { ts: T0 + 1000 }), makePicture("$third", { ts: T0 + 2000 })]);
+            const vm = await createStartedViewModel();
+            const galleryKeys = (): string[] =>
+                vm.getSnapshot().items.flatMap((item) => (item.kind === "event-group" ? [item.key] : []));
+            expect(galleryKeys()).toEqual(["gallery-$second"]);
+
+            // The first picture stops being one, as an edit could make it: the second leads the run instead.
+            const content = vi.spyOn(first, "getContent").mockReturnValue({ msgtype: "m.text", body: "words" });
+            client.emit(MatrixEventEvent.Decrypted, first);
+            await vi.waitFor(() => expect(galleries(vm)).toEqual([["$third"]]));
+            expect(galleryKeys()).toEqual(["gallery-$second"]);
+
+            // And it joins again, ahead of the others.
+            content.mockRestore();
+            client.emit(MatrixEventEvent.Decrypted, first);
+            await vi.waitFor(() => expect(galleries(vm)).toEqual([["$second", "$third"]]));
+            expect(galleryKeys()).toEqual(["gallery-$second"]);
+        });
+
         it("keeps pictures in rows of their own outside the desktop shell", async () => {
             vi.mocked(SettingsStore).getValue.mockImplementation((key): any => key === "sendReadReceipts");
             seedTimeline([makePicture("$first"), makePicture("$second", { ts: T0 + 1000 })]);
