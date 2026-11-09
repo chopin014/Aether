@@ -375,6 +375,13 @@ export class RoomTimelineViewModel
     private frozenMarkerEventId: string | null = null;
     /** Whether {@link frozenMarkerEventId} has been decided for this visit; later loads leave it alone. */
     private readMarkerFrozen = false;
+    /**
+     * Whether the room's own fully read marker has yet to come from the server. Until it does, the line starts from the
+     * reader's receipt; see {@link onRoomAccountData}.
+     */
+    private awaitingServerReadMarker = false;
+    /** Whether {@link moveReadMarkerOn} has moved the marker during this visit. */
+    private movedReadMarker = false;
 
     /**
      * Count of new live messages that arrived since the user last reached the
@@ -427,8 +434,12 @@ export class RoomTimelineViewModel
         });
 
         // Initialise the read marker from room account data.
-        this.readMarkerEventId =
+        const fullyRead =
             (opts.room.getAccountData(EventType.FullyRead)?.getContent()?.event_id as string | undefined) ?? null;
+        // As the old timeline does, a room without a marker yet is read up to the reader's receipt, which the SDK
+        // also gives for the reader's own messages.
+        this.readMarkerEventId = fullyRead ?? opts.room.getEventReadUpTo(opts.client.getSafeUserId());
+        this.awaitingServerReadMarker = fullyRead === null;
 
         // NOTE: deliberately side-effect-free. React StrictMode (and useState
         // initializer checks) invoke `vmCreator` twice in dev, constructing
@@ -610,6 +621,7 @@ export class RoomTimelineViewModel
         debug(`[TimelineVM] moveReadMarkerOn — fully read marker to ${eventId}`);
         const previous = this.readMarkerEventId;
         this.readMarkerEventId = eventId;
+        this.movedReadMarker = true;
         this.opts.client.setRoomReadMarkers(this.opts.room.roomId, eventId).catch((err) => {
             logger.warn(`[TimelineVM] moveReadMarkerOn — setRoomReadMarkers failed`, err);
             // Try again next time, unless the marker has moved on meanwhile.
@@ -961,12 +973,21 @@ export class RoomTimelineViewModel
     private onRoomAccountData = (ev: MatrixEvent): void => {
         if (ev.getType() !== EventType.FullyRead) return;
         const newMarker = (ev.getContent()?.event_id as string | undefined) ?? null;
+        const firstFromServer = this.awaitingServerReadMarker;
+        this.awaitingServerReadMarker = false;
         if (newMarker === this.readMarkerEventId) return;
         // Track the server-side marker so it is never moved back or written again,
         // but don't touch frozenMarkerEventId — the visible divider position is
         // pinned for the session. If the user wants the marker line to reflect
         // changes another device made mid-session they can leave and re-enter.
         this.readMarkerEventId = newMarker;
+        // The line was decided before the room's marker had come from the server. The first one to arrive puts it
+        // where it belongs, as in the old timeline, unless the marker has moved on here, so it may be our own.
+        if (firstFromServer && this.readMarkerFrozen && !this.movedReadMarker) {
+            this.readMarkerFrozen = false;
+            this.freezeReadMarkerForSession();
+            this.scheduleRebuild();
+        }
     };
 
     /**

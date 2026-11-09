@@ -1867,6 +1867,61 @@ describe("RoomTimelineViewModel", () => {
             expect(items[indexOfKey(items, "$m1") + 1].kind).toBe("read-marker");
         });
 
+        describe("in a room that has no marker yet", () => {
+            const receiptAt = (eventId: string): void => {
+                room.addReceipt(
+                    new MatrixEvent({
+                        type: EventType.Receipt,
+                        content: { [eventId]: { [ReceiptType.Read]: { [USER_ID]: { ts: 1000 } } } },
+                    }),
+                );
+            };
+            const lineAfter = (vm: RoomTimelineViewModel): string | undefined => {
+                const items = vm.getSnapshot().items;
+                const line = items.findIndex((item) => item.kind === "read-marker");
+                return line > 0 ? items[line - 1].key : undefined;
+            };
+
+            beforeEach(() => {
+                vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+            });
+
+            it("starts the unread line at the reader's receipt, as the old timeline does", async () => {
+                seedTimeline(messages(5));
+                receiptAt("$m1");
+                const vm = await createStartedViewModel();
+                expect(lineAfter(vm)).toBe("$m1");
+            });
+
+            it("moves the line to the room's marker when it arrives after the room was opened", async () => {
+                seedTimeline(messages(5));
+                receiptAt("$m1");
+                const vm = await createStartedViewModel();
+
+                markerAt("$m2");
+
+                await vi.waitFor(() => expect(lineAfter(vm)).toBe("$m2"));
+            });
+
+            it("keeps the line where it was when the marker that arrives is the one moved on here", async () => {
+                vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                    timer.start();
+                });
+                seedTimeline(messages(5));
+                receiptAt("$m1");
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                shows(vm, "$m0", "$m4");
+                await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$m4"));
+
+                // The server tells us of the marker we just moved.
+                markerAt("$m4");
+                await new Promise((r) => setTimeout(r, 50));
+
+                expect(lineAfter(vm)).toBe("$m1");
+            });
+        });
+
         it("waits for the reader to be around", async () => {
             vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation(() => {});
             seedTimeline(messages(5));
