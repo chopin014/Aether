@@ -106,6 +106,7 @@ const { vmState } = vi.hoisted(() => ({
 const { vmSpies } = vi.hoisted(() => ({
     vmSpies: {
         setShowReadReceipts: vi.fn(),
+        setSendReadReceiptOnLoad: vi.fn(),
         jumpToLive: vi.fn(),
         showEvent: vi.fn(),
         jumpToReadMarker: vi.fn(),
@@ -124,6 +125,7 @@ vi.mock("../../viewmodels/room/timeline/RoomTimelineViewModel", () => ({
             vmSpies.constructorOpts.push(opts);
         }
         public setShowReadReceipts = vmSpies.setShowReadReceipts;
+        public setSendReadReceiptOnLoad = vmSpies.setSendReadReceiptOnLoad;
         public jumpToLive = vmSpies.jumpToLive;
         public showEvent = vmSpies.showEvent;
         public jumpToReadMarker = vmSpies.jumpToReadMarker;
@@ -198,6 +200,7 @@ describe("<NewTimelinePanel />", () => {
         vmState.setRows([]);
         for (const spy of [
             vmSpies.setShowReadReceipts,
+            vmSpies.setSendReadReceiptOnLoad,
             vmSpies.jumpToLive,
             vmSpies.showEvent,
             vmSpies.jumpToReadMarker,
@@ -868,6 +871,23 @@ describe("<NewTimelinePanel />", () => {
             );
 
             expect(vmSpies.setShowReadReceipts).toHaveBeenLastCalledWith(true);
+        });
+
+        it("reads what it loads when the room view says the reader opened the room", () => {
+            withItems([eventRow()]);
+
+            const { rerender } = renderPanel({ sendReadReceiptOnLoad: true });
+            expect(vmSpies.constructorOpts[0].sendReadReceiptOnLoad).toBe(true);
+
+            rerender(
+                <MatrixClientContext.Provider value={client}>
+                    <SDKContext.Provider value={new TestSDKContext()}>
+                        <NewTimelinePanel room={room} sendReadReceiptOnLoad={false} />
+                    </SDKContext.Provider>
+                </MatrixClientContext.Provider>,
+            );
+
+            expect(vmSpies.setSendReadReceiptOnLoad).toHaveBeenLastCalledWith(false);
         });
     });
 });

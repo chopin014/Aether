@@ -27,6 +27,7 @@ import {
     type MatrixClient,
 } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
+import { synthesizeReceipt } from "matrix-js-sdk/src/models/read-receipt";
 import { type TimelineItem } from "@element-hq/web-shared-components";
 import { createTestClient, mkMembership, mkMessage } from "test-utils";
 
@@ -2287,6 +2288,91 @@ describe("RoomTimelineViewModel", () => {
             expect(receiptType).toBe(ReceiptType.Read);
         });
 
+        it("reads up to the last message from someone else, not one of ours after it, as the old timeline does", async () => {
+            vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+            seedTimeline([
+                makeMessage("$a", { user: OTHER_USER_ID }),
+                makeMessage("$b", { user: OTHER_USER_ID }),
+                makeMessage("$mine"),
+            ]);
+            room.addReceipt(
+                new MatrixEvent({
+                    type: EventType.Receipt,
+                    content: { $a: { [ReceiptType.Read]: { [USER_ID]: { ts: 1000 } } } },
+                }),
+            );
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+
+            await flushReceiptDebounce();
+            expect(vi.mocked(client.sendReadReceipt).mock.calls.map(([event]) => event?.getId())).toEqual(["$b"]);
+        });
+
+        it("reads our own newest message when the server has no receipt for it, as the old timeline does", async () => {
+            vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+            const mine = [makeMessage("$a"), makeMessage("$b")];
+            seedTimeline(mine);
+            // The SDK makes up a receipt for each message of ours; the server has none.
+            room.addReceipt(synthesizeReceipt(USER_ID, mine[1], ReceiptType.Read), true);
+            expect(room.getEventReadUpTo(USER_ID)).toBe("$b");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+
+            await flushReceiptDebounce();
+            expect(vi.mocked(client.sendReadReceipt).mock.calls[0][0]?.getId()).toBe("$b");
+        });
+
+        it("never moves the receipt back after a gap in sync, while the reader stays in older messages", async () => {
+            vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+            seedTimeline([makeMessage("$a", { user: OTHER_USER_ID }), makeMessage("$b", { user: OTHER_USER_ID })]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            await flushReceiptDebounce();
+
+            // The reader goes up to older messages, and sync skips ahead: the window they are reading stays.
+            vm.onAtBottomStateChange(false);
+            room.resetLiveTimeline("gap", undefined);
+            await new Promise((r) => setTimeout(r, 10));
+            const items = vm.getSnapshot().items;
+            vm.onVisibleRangeChanged(indexOfKey(items, "$a"), indexOfKey(items, "$a"));
+            vm.sendReadReceiptNow();
+            await new Promise((r) => setTimeout(r, 700));
+
+            expect(vi.mocked(client.sendReadReceipt).mock.calls.map(([event]) => event?.getId())).toEqual(["$b"]);
+        });
+
+        it("never moves our receipt on the server back after a gap in sync, though the room forgets it", async () => {
+            vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+            seedTimeline([makeMessage("$a", { user: OTHER_USER_ID }), makeMessage("$b", { user: OTHER_USER_ID })]);
+            room.addReceipt(
+                new MatrixEvent({
+                    type: EventType.Receipt,
+                    content: { $b: { [ReceiptType.Read]: { [USER_ID]: { ts: 1000 } } } },
+                }),
+            );
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+
+            // The reader goes up to older messages, and sync skips ahead: the window they are reading stays, but the
+            // room no longer holds the message the receipt is on.
+            vm.onAtBottomStateChange(false);
+            room.resetLiveTimeline("gap", undefined);
+            await new Promise((r) => setTimeout(r, 10));
+            expect(room.getEventReadUpTo(USER_ID, true)).toBeNull();
+            const items = vm.getSnapshot().items;
+            vm.onVisibleRangeChanged(indexOfKey(items, "$a"), indexOfKey(items, "$a"));
+            vm.sendReadReceiptNow();
+            await new Promise((r) => setTimeout(r, 700));
+
+            expect(client.sendReadReceipt).not.toHaveBeenCalled();
+        });
+
         it("sends a private receipt when the user has read receipts turned off", async () => {
             vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
                 if (key === "sendReadReceipts") return false;
@@ -2312,6 +2398,162 @@ describe("RoomTimelineViewModel", () => {
             vm.sendReadReceiptNow();
             await new Promise((r) => setTimeout(r, 700));
             expect(client.sendReadReceipt).not.toHaveBeenCalled();
+        });
+
+        describe("when the reader opened the room themselves", () => {
+            /** A started view model told to read what each load shows, as the room view does. */
+            const createReadingOnLoad = async (): Promise<RoomTimelineViewModel> => {
+                const vm = new RoomTimelineViewModel({ client, room, sendReadReceiptOnLoad: true });
+                vms.push(vm);
+                vm.start();
+                await vi.waitFor(() => expect(vm.getSnapshot().items.length).toBeGreaterThan(0));
+                return vm;
+            };
+
+            beforeEach(() => {
+                vi.mocked(UserActivity.sharedInstance().userActiveNow).mockReturnValue(false);
+                vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveNow").mockImplementation(() => {});
+            });
+
+            it("reads what the load shows once it is placed, without waiting for activity", async () => {
+                seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+                const vm = await createReadingOnLoad();
+                vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+                expect(client.sendReadReceipt).not.toHaveBeenCalled();
+
+                vm.onAnchorReached();
+                vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+
+                expect(client.sendReadReceipt).toHaveBeenCalledTimes(1);
+                expect(vi.mocked(client.sendReadReceipt).mock.calls[0][0]?.getId()).toBe("$b");
+            });
+
+            it("waits for activity again for messages that arrive later", async () => {
+                seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+                const vm = await createReadingOnLoad();
+                vm.onAnchorReached();
+                vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+                expect(client.sendReadReceipt).toHaveBeenCalledTimes(1);
+
+                room.getUnfilteredTimelineSet().addLiveEvent(makeMessage("$c"), { addToState: false });
+                await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$c"));
+                vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+                await new Promise((r) => setTimeout(r, 700));
+                expect(client.sendReadReceipt).toHaveBeenCalledTimes(1);
+            });
+
+            it("never moves the room's receipt back, such as when opening an older message", async () => {
+                vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+                seedTimeline([makeMessage("$a"), makeMessage("$b"), makeMessage("$c")]);
+                room.addReceipt(
+                    new MatrixEvent({
+                        type: EventType.Receipt,
+                        content: { $c: { [ReceiptType.Read]: { [USER_ID]: { ts: 1000 } } } },
+                    }),
+                );
+                const vm = new RoomTimelineViewModel({
+                    client,
+                    room,
+                    sendReadReceiptOnLoad: true,
+                    initialEventId: "$a",
+                });
+                vms.push(vm);
+                vm.start();
+                await vi.waitFor(() => expect(vm.getSnapshot().items.length).toBeGreaterThan(0));
+                vm.onAnchorReached();
+                const items = vm.getSnapshot().items;
+                vm.onVisibleRangeChanged(0, indexOfKey(items, "$a"));
+                await new Promise((r) => setTimeout(r, 700));
+                expect(client.sendReadReceipt).not.toHaveBeenCalled();
+            });
+
+            it("never moves the receipt back to an older message stamped later by its server's clock", async () => {
+                vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+                // The receipt is on a message far beyond the window opened, sent from a server whose clock was behind.
+                const messages = Array.from({ length: 250 }, (_, i) =>
+                    makeMessage(`$m${i}`, { ts: i < 200 ? 10_000 + i : 1_000 + i }),
+                );
+                seedTimeline(messages);
+                room.addReceipt(
+                    new MatrixEvent({
+                        type: EventType.Receipt,
+                        content: { $m220: { [ReceiptType.Read]: { [USER_ID]: { ts: 1000 } } } },
+                    }),
+                );
+                const vm = new RoomTimelineViewModel({
+                    client,
+                    room,
+                    sendReadReceiptOnLoad: true,
+                    initialEventId: "$m10",
+                });
+                vms.push(vm);
+                vm.start();
+                await vi.waitFor(() => expect(vm.getSnapshot().items.length).toBeGreaterThan(0));
+                expect(eventKeys(vm.getSnapshot().items)).not.toContain("$m220");
+                vm.onAnchorReached();
+                const items = vm.getSnapshot().items;
+                vm.onVisibleRangeChanged(0, indexOfKey(items, "$m10"));
+                vm.sendReadReceiptNow();
+                await new Promise((r) => setTimeout(r, 700));
+                expect(client.sendReadReceipt).not.toHaveBeenCalled();
+            });
+
+            it("sends nothing in low-bandwidth mode, as the old timeline", async () => {
+                vi.mocked(SettingsStore).getValue.mockImplementation((key): any =>
+                    key === "lowBandwidth" ? true : key === "sendReadReceipts",
+                );
+                seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+                const vm = await createReadingOnLoad();
+                vm.onAnchorReached();
+                vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+                vm.sendReadReceiptNow();
+                expect(client.sendReadReceipt).not.toHaveBeenCalled();
+            });
+
+            it("waits for activity once the room view says the room was not opened by the reader", async () => {
+                seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+                const vm = new RoomTimelineViewModel({ client, room, sendReadReceiptOnLoad: true });
+                vms.push(vm);
+                vm.setSendReadReceiptOnLoad(false);
+                vm.start();
+                await vi.waitFor(() => expect(vm.getSnapshot().items.length).toBeGreaterThan(0));
+                vm.onAnchorReached();
+                vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+                await new Promise((r) => setTimeout(r, 700));
+                expect(client.sendReadReceipt).not.toHaveBeenCalled();
+            });
+        });
+
+        it("reads only what came into view while the user was active, not what followed once they stopped", async () => {
+            const activity = UserActivity.sharedInstance();
+            vi.spyOn(activity, "timeWhileActiveNow").mockImplementation(() => {});
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const items = vm.getSnapshot().items;
+
+            vi.mocked(activity.userActiveNow).mockReturnValue(true);
+            vm.onVisibleRangeChanged(0, indexOfKey(items, "$a"));
+            vi.mocked(activity.userActiveNow).mockReturnValue(false);
+            vm.onVisibleRangeChanged(0, indexOfKey(items, "$b"));
+
+            await flushReceiptDebounce();
+            await new Promise((r) => setTimeout(r, 300));
+            expect(vi.mocked(client.sendReadReceipt).mock.calls.map(([event]) => event?.getId())).toEqual(["$a"]);
+        });
+
+        it("reads a message that came into view while the user was active, though they stopped before it was sent", async () => {
+            const activity = UserActivity.sharedInstance();
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+
+            vi.mocked(activity.userActiveNow).mockReturnValue(true);
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            vi.mocked(activity.userActiveNow).mockReturnValue(false);
+
+            await flushReceiptDebounce();
+            expect(vi.mocked(client.sendReadReceipt).mock.calls[0][0]?.getId()).toBe("$b");
         });
 
         it("holds receipts back while the user is away, and sends them once they are back", async () => {
