@@ -14,6 +14,7 @@ import type { Locator, Page } from "@playwright/test";
 import type { ElementAppPage } from "../../pages/ElementAppPage";
 import { isDendrite } from "../../plugins/homeserver/dendrite";
 import { SettingLevel } from "../../../src/settings/SettingLevel";
+import { messageList } from "../../pages/timeline";
 
 function roomHeaderName(page: Page): Locator {
     return page.locator(".mx_RoomHeader_heading");
@@ -170,7 +171,7 @@ test.describe("Spotlight", () => {
         await expect(resultLocator.first()).toContainText("Join");
         await resultLocator.first().click();
         await expect(page).toHaveURL(new RegExp(`#/room/${room2.roomId}`));
-        await expect(page.locator(".mx_RoomView_MessageList")).toHaveCount(1);
+        await expect(messageList(page)).toHaveCount(1);
         await expect(roomHeaderName(page)).toContainText(room2.name);
     });
 

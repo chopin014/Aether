@@ -10,7 +10,14 @@ Please see LICENSE files in the repository root for full details.
 import React from "react";
 import { act, fireEvent, render, screen } from "test-utils-rtl";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { type MatrixClient, type MatrixEvent, PendingEventOrdering, Room, RoomMember } from "matrix-js-sdk/src/matrix";
+import {
+    EventStatus,
+    type MatrixClient,
+    type MatrixEvent,
+    PendingEventOrdering,
+    Room,
+    RoomMember,
+} from "matrix-js-sdk/src/matrix";
 import type { TimelineItem } from "@element-hq/web-shared-components";
 import { createTestClient, mkEvent, mkMembership, mkMessage, TestSDKContext } from "test-utils";
 
@@ -276,6 +283,17 @@ describe("<NewTimelinePanel />", () => {
         expect(screen.queryByTestId("history-tile")).not.toBeInTheDocument();
     });
 
+    it("gives each tile in a summary its own send state", () => {
+        // A message a module sums up, still being sent.
+        const sending = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "grouped", event: true });
+        vi.spyOn(sending, "getAssociatedStatus").mockReturnValue(EventStatus.SENDING);
+        withItems([{ key: `summary-${sending.getId()}-0`, kind: "event-group", events: [sending] }]);
+
+        renderPanel();
+
+        expect(tileProps.current.map((props) => [props.mxEvent, props.sendState])).toEqual([[sending, "sending"]]);
+    });
+
     it("says why nothing earlier can be seen above a summary that opens the room's history", () => {
         const events = Array.from({ length: 3 }, (_, index) => {
             const user = `@member${index}:example.org`;
@@ -428,6 +446,14 @@ describe("<NewTimelinePanel />", () => {
         expect(screen.getByText(/today/i)).toBeInTheDocument();
     });
 
+    it("styles a date separator as the old timeline does", () => {
+        withItems([{ key: "$sep", kind: "date-separator", ts: Date.now() } as TimelineItem]);
+
+        const { container } = renderPanel();
+
+        expect(container.querySelector(".mx_TimelineSeparator")).toHaveTextContent(/today/i);
+    });
+
     it("draws nothing for a gap, matching the old timeline", () => {
         withItems([{ key: "$gap", kind: "gap" } as TimelineItem]);
 
@@ -436,12 +462,24 @@ describe("<NewTimelinePanel />", () => {
         expect(screen.getByTestId("timeline-stub")).toBeEmptyDOMElement();
     });
 
-    it("falls back to the modern layout when IRC is selected", () => {
+    it("lays messages out as IRC, with the name column's drag handle, when IRC is selected", () => {
         withItems([eventRow(event)]);
 
-        renderPanel({ layout: Layout.IRC });
+        const { container } = renderPanel({ layout: Layout.IRC });
 
-        expect(tileProps.current[0].layout).toBe(Layout.Group);
+        expect(tileProps.current[0].layout).toBe(Layout.IRC);
+        const panel = container.querySelector(".mx_NewTimelinePanel");
+        expect(panel).toHaveClass("mx_IRCLayout");
+        expect(panel?.querySelector(":scope > .mx_ProfileResizer")).not.toBeNull();
+    });
+
+    it("has no IRC name column in other layouts", () => {
+        withItems([eventRow(event)]);
+
+        const { container } = renderPanel({ layout: Layout.Group });
+
+        expect(container.querySelector(".mx_NewTimelinePanel")).not.toHaveClass("mx_IRCLayout");
+        expect(container.querySelector(".mx_ProfileResizer")).toBeNull();
     });
 
     it("passes the message layout through unchanged", () => {
