@@ -57,6 +57,10 @@ export async function scrollTimelineTo(
     const deadline = Date.now() + timeout;
     // The search leaves itself time to bring a tile it finds into view, so the whole call ends within the timeout.
     const searchDeadline = deadline - Math.min(1_000, timeout / 10);
+    // The page checks these deadlines itself before it scrolls, by its own clock, which a test may have set to another
+    // time: how far ahead of this one it is, measured when the search starts. (A clock a test has stopped never reaches
+    // them, and then only the waiting here ends on time.)
+    let clockOffset = 0;
 
     const notFound = (cause?: unknown): Error => {
         const where = directions.map((direction) => (direction > 0 ? "newer" : "older")).join(" then ");
@@ -94,7 +98,7 @@ export async function scrollTimelineTo(
                         element.scrollTop += by * element.clientHeight * 0.8;
                         return { moved: element.scrollTop !== before, height: element.scrollHeight };
                     },
-                    { by: direction, until: searchDeadline },
+                    { by: direction, until: searchDeadline + clockOffset },
                     // Nor wait for a timeline to come back after the search has ended.
                     { timeout: Math.max(1, searchDeadline - Date.now()) },
                 ),
@@ -126,12 +130,26 @@ export async function scrollTimelineTo(
     };
 
     try {
+        clockOffset = (await step(page.evaluate(() => Date.now()))) - Date.now();
         for (let pass = 0; (await step(tile.count())) === 0; pass++) {
             if (Date.now() >= searchDeadline) throw notFound();
             await searchTowards(directions[pass % directions.length]);
         }
-        const left = Math.max(1, deadline - Date.now());
-        await step(tile.scrollIntoViewIfNeeded({ timeout: left }), deadline);
+        // Brought into view by the page itself, so that, as with the search's own scrolling, nothing scrolls once the
+        // time is up, even when the page only gets to it later.
+        const scrolled = await step(
+            tile.evaluate(
+                (element, until) => {
+                    if (Date.now() >= until) return false;
+                    element.scrollIntoView({ block: "nearest" });
+                    return true;
+                },
+                deadline + clockOffset,
+                { timeout: Math.max(1, deadline - Date.now()) },
+            ),
+            deadline,
+        );
+        if (!scrolled) throw notFound();
     } catch (error) {
         // A Playwright step that timed out, such as when the timeline went away or the tile never settled, also ends
         // the search.
