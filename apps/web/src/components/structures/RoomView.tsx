@@ -2794,6 +2794,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                         showReactions={true}
                         editState={this.state.editState}
                         showReadReceipts={this.state.showReadReceipts}
+                        sendReadReceiptOnLoad={
+                            !this.state.wasContextSwitch && this.props.enableReadReceiptsAndMarkersOnActivity
+                        }
                     />
                 </EventPresentationContextProvider>
             );

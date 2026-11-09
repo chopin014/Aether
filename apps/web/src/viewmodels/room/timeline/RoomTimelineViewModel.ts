@@ -150,6 +150,11 @@ export interface RoomTimelineViewModelOpts {
     initialEventId?: string;
     /** Whether other users' read receipts are drawn; see {@link RoomTimelineViewModel.setShowReadReceipts}. Default true. */
     showReadReceipts?: boolean;
+    /**
+     * Whether what each load shows is read as soon as it is placed, without waiting for the reader to be active, as
+     * the old timeline does when the reader opened the room themselves. Default false.
+     */
+    sendReadReceiptOnLoad?: boolean;
 }
 
 /**
@@ -303,6 +308,10 @@ export class RoomTimelineViewModel
 
     /** Debounce timer for auto read receipt sends triggered by scroll. */
     private readReceiptDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    /** See {@link RoomTimelineViewModelOpts.sendReadReceiptOnLoad} and {@link setSendReadReceiptOnLoad}. */
+    private sendReadReceiptOnLoad: boolean;
+    /** Set when a load finishes, so the first range seen once it is placed is read; see `sendReadReceiptOnLoad`. */
+    private receiptOnPlacement = false;
 
     /**
      * Debouncer for items rebuilds after a burst of Decrypted events.
@@ -403,6 +412,7 @@ export class RoomTimelineViewModel
 
         this.opts = opts;
         this.showReadReceipts = opts.showReadReceipts ?? true;
+        this.sendReadReceiptOnLoad = opts.sendReadReceiptOnLoad ?? false;
         this.timelineWindow = new TimelineWindow(opts.client, opts.room.getUnfilteredTimelineSet(), {
             windowLimit: WINDOW_LIMIT,
         });
@@ -556,6 +566,11 @@ export class RoomTimelineViewModel
     }
 
     /** Show or hide other users' read receipts — the room-level `showReadReceipts` setting. */
+    /** Whether later loads are read as soon as they are placed; see {@link RoomTimelineViewModelOpts.sendReadReceiptOnLoad}. */
+    public setSendReadReceiptOnLoad = (send: boolean): void => {
+        this.sendReadReceiptOnLoad = send;
+    };
+
     public setShowReadReceipts(show: boolean): void {
         if (show === this.showReadReceipts) return;
         this.showReadReceipts = show;
@@ -975,6 +990,7 @@ export class RoomTimelineViewModel
                           : null,
                 canJumpToReadMarker: this.computeCanJumpToReadMarker(items),
             });
+            this.receiptOnPlacement = this.sendReadReceiptOnLoad;
 
             // An empty list cannot report either scroll edge. Search toward live content first,
             // or older history when we are already at the live end, instead of waiting forever.
@@ -1135,6 +1151,8 @@ export class RoomTimelineViewModel
         this.visibleEndArrayIndex = Math.max(0, endIndex);
 
         this.lastBottomEventId = this.bottomConfirmedEventId(items) ?? this.lastBottomEventId;
+        const readOnPlacement = this.receiptOnPlacement && this.lastBottomEventId !== null;
+        if (readOnPlacement) this.receiptOnPlacement = false;
 
         // Recompute canJumpToReadMarker when the visible range moves.
         if (this.visibleStartArrayIndex !== prevStartArrayIndex || this.visibleEndArrayIndex !== prevEndArrayIndex) {
@@ -1144,7 +1162,12 @@ export class RoomTimelineViewModel
             }
         }
 
-        this.scheduleReadReceipt();
+        if (readOnPlacement) {
+            // What the reader opened is in front of them: read it now, as the old timeline does on load.
+            this.sendReadReceiptNow();
+        } else {
+            this.scheduleReadReceipt();
+        }
     };
 
     /**

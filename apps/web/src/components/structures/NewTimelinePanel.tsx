@@ -73,6 +73,11 @@ interface NewTimelinePanelProps {
     editState?: EditorStateTransfer;
     /** Whether other users' read receipts are drawn beside messages (the `showReadReceipts` setting). */
     showReadReceipts?: boolean;
+    /**
+     * Whether what the timeline shows once it has loaded is read straight away, without waiting for the reader to be
+     * active. The room view sets it when the reader opened the room themselves, as for the old timeline.
+     */
+    sendReadReceiptOnLoad?: boolean;
     /** Receives the panel's controls, which the room view uses for shortcuts, sending and editing. */
     panelRef?: Ref<RoomMessagePanel>;
     /**
@@ -247,6 +252,7 @@ export function NewTimelinePanel({
     showReactions,
     editState,
     showReadReceipts = true,
+    sendReadReceiptOnLoad = false,
     panelRef,
     eventScrollIntoView,
     onEventScrolledIntoView,
@@ -290,8 +296,13 @@ export function NewTimelinePanel({
                 room,
                 initialEventId: highlightedEventId,
                 showReadReceipts,
+                sendReadReceiptOnLoad,
             }),
     );
+
+    useEffect(() => {
+        vm.setSendReadReceiptOnLoad(!!sendReadReceiptOnLoad);
+    }, [vm, sendReadReceiptOnLoad]);
 
     useEffect(() => {
         vm.start();
