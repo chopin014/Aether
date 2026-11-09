@@ -16,6 +16,7 @@ import {
     ReceiptType,
     RoomStateEvent,
     M_BEACON_INFO,
+    type EventTimeline,
     type EventTimelineSet,
     type IRoomTimelineData,
     type MatrixClient,
@@ -276,6 +277,13 @@ export class RoomTimelineViewModel
 
     /** Mirror of {@link backwardRerunRequested} for the forward direction. */
     private forwardRerunRequested = false;
+
+    /**
+     * Whether the reader reached the start of the loaded messages when there was nothing older to show. History added
+     * there afterwards, such as sliding sync brings for a room restored from this device, is then paged in as it comes,
+     * as the old timeline's fill check does: the view does not report the start again while the reader stays at it.
+     */
+    private startReachedWithoutHistory = false;
 
     /**
      * The real timeline content: messages, date separators and the unread marker, with no
@@ -544,6 +552,18 @@ export class RoomTimelineViewModel
     };
 
     /**
+     * Older messages were added at the start of one of the room's timelines. When that is where the window starts and
+     * the reader is waiting there for more, page them in; see {@link startReachedWithoutHistory}. Messages paged in by
+     * the window itself come through here too, and are left to it.
+     */
+    private onHistoryAddedAtStart(timeline: EventTimeline): void {
+        if (this.isDisposed || this.backwardPaginateChain || !this.startReachedWithoutHistory) return;
+        if (timeline !== this.timelineWindow.getTimelineIndex(Direction.Backward)?.timeline) return;
+        debug(`[TimelineVM] onHistoryAddedAtStart — paging in history that arrived after the start was reached`);
+        this.triggerBackwardPaginate();
+    }
+
+    /**
      * The SDK started a new live timeline because sync skipped messages. A reader at the newest messages follows on
      * to the new timeline; one reading older messages keeps their place, with the jump-to-latest button offered.
      */
@@ -641,6 +661,11 @@ export class RoomTimelineViewModel
         // own timeline sets and are not our concern.
         const ourTimelineSet = this.opts.room.getUnfilteredTimelineSet();
         if (data.timeline.getTimelineSet() !== ourTimelineSet) return;
+
+        if (toStartOfTimeline && !removed) {
+            this.onHistoryAddedAtStart(data.timeline);
+            return;
+        }
 
         // Only genuinely new messages arriving at the end of the timeline. Older messages we
         // fetched ourselves come back through this same event, as do removals, and without this
@@ -1716,9 +1741,11 @@ export class RoomTimelineViewModel
 
         if (!this.timelineWindow.canPaginate(Direction.Backward)) {
             debug(`[TimelineVM] paginate(backward) skipped — canPaginate=false`);
+            this.startReachedWithoutHistory = true;
             return;
         }
 
+        this.startReachedWithoutHistory = false;
         this.backwardPaginateChain = this.runPaginateChain(Direction.Backward).finally(() => {
             this.backwardPaginateChain = null;
             if (this.backwardRerunRequested && !this.isDisposed) {

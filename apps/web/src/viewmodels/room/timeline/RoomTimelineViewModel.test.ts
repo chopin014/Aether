@@ -1911,6 +1911,37 @@ describe("RoomTimelineViewModel", () => {
             expect(paginate).not.toHaveBeenCalled();
         });
 
+        describe("when older messages arrive after the start was loaded", () => {
+            /** Older messages added before the room's newest timeline, as sliding sync adds them to a restored room. */
+            const addHistory = (events: MatrixEvent[]): void => {
+                room.getUnfilteredTimelineSet().addEventsToTimeline(events, true, false, room.getLiveTimeline());
+            };
+
+            it("pages them in for a reader waiting at the start, as the old timeline does", async () => {
+                // Restored from this device: the newest messages only, and no token for anything older.
+                seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                vm.onStartReached();
+                expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]);
+
+                addHistory([makeMessage("$older")]);
+
+                await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$older", "$a", "$b"]));
+            });
+
+            it("leaves them for later when the reader is not at the start", async () => {
+                seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+
+                addHistory([makeMessage("$older")]);
+                await new Promise((r) => setTimeout(r, 50));
+
+                expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]);
+            });
+        });
+
         it("shows a loading spinner in the list while older messages are fetched", async () => {
             seedTimeline([makeMessage("$a")]);
             const vm = await createStartedViewModel();
