@@ -146,7 +146,9 @@ function renderGallery(key: string, rows: TimelineItem[], ctx: RenderItemContext
     const style = { "--mx-desktop-gallery-columns": columns } as CSSProperties;
     return (
         <div key={key} className="mx_DesktopGallery">
-            <ol className="mx_DesktopGallery_list" style={style} data-columns={columns}>
+            {/* The list style is removed, which makes Safari stop announcing it as a list unless told. */}
+            {/* oxlint-disable-next-line jsx-a11y/no-redundant-roles */}
+            <ol className="mx_DesktopGallery_list" style={style} data-columns={columns} role="list">
                 {/* The grid's styles expect tiles as its list items. */}
                 {rows.map((row) => renderTimelineItem(row, ctx, "li"))}
             </ol>

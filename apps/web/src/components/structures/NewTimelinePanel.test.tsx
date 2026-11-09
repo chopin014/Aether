@@ -505,6 +505,14 @@ describe("<NewTimelinePanel />", () => {
                 [events[1], "li", true, false],
             ]);
         });
+
+        it("is a list even to Safari, which ignores lists without their list style", () => {
+            withItems([gallery(pictures())]);
+
+            const { container } = renderPanel();
+
+            expect(container.querySelector(".mx_DesktopGallery_list")).toHaveAttribute("role", "list");
+        });
     });
 
     describe("the start of a room", () => {
