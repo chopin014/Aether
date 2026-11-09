@@ -1721,6 +1721,70 @@ describe("RoomTimelineViewModel", () => {
         });
     });
 
+    describe("the fully read marker", () => {
+        const messages = (count: number): MatrixEvent[] =>
+            Array.from({ length: count }, (_, i) => makeMessage(`$m${i}`, { user: OTHER_USER_ID }));
+        const markerAt = (eventId: string): void =>
+            room.addAccountData([
+                new MatrixEvent({ type: EventType.FullyRead, room_id: ROOM_ID, content: { event_id: eventId } }),
+            ]);
+        /** Rows are given as positions of the messages, skipping the date separator before them. */
+        const shows = (vm: RoomTimelineViewModel, first: string, last: string): void => {
+            const items = vm.getSnapshot().items;
+            vm.onVisibleRangeChanged(indexOfKey(items, first), indexOfKey(items, last));
+        };
+
+        beforeEach(() => {
+            vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
+                if (key === "sendReadReceipts") return true;
+                if (key === "readMarkerInViewThresholdMs" || key === "readMarkerOutOfViewThresholdMs") return 20;
+                return undefined;
+            });
+        });
+
+        it("moves on to what the reader sees while they are around, as the old timeline does", async () => {
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            seedTimeline(messages(5));
+            markerAt("$m1");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m4");
+
+            await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$m4"));
+            // The unread line drawn for this visit stays where it was.
+            expect(vm.getSnapshot().items[indexOfKey(vm.getSnapshot().items, "$m1") + 1].kind).toBe("read-marker");
+        });
+
+        it("waits for the reader to be around", async () => {
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation(() => {});
+            seedTimeline(messages(5));
+            markerAt("$m1");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m4");
+
+            await new Promise((r) => setTimeout(r, 100));
+            expect(client.setRoomReadMarkers).not.toHaveBeenCalled();
+        });
+
+        it("never moves back to what the reader scrolled up to, nor when they leave", async () => {
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            seedTimeline(messages(6));
+            markerAt("$m4");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m2");
+
+            await new Promise((r) => setTimeout(r, 100));
+            vm.dispose();
+            expect(client.setRoomReadMarkers).not.toHaveBeenCalled();
+        });
+    });
+
     describe("read receipts", () => {
         const flushReceiptDebounce = async (): Promise<void> => {
             await vi.waitFor(() => expect(client.sendReadReceipt).toHaveBeenCalled(), { timeout: 2000 });
