@@ -303,6 +303,19 @@ describe("<NewTimelinePanel />", () => {
         ]);
     });
 
+    it("draws each tile in a summary given no rows on its own", () => {
+        const first = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "first", event: true });
+        const second = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "second", event: true });
+        withItems([{ key: "summary-$first-0", kind: "event-group", events: [first, second] }]);
+
+        renderPanel();
+
+        expect(tileProps.current.map((props) => [props.mxEvent, props.continuation, props.lastInSection])).toEqual([
+            [first, false, true],
+            [second, false, true],
+        ]);
+    });
+
     it("gives each tile in a summary its own send state", () => {
         // A message a module sums up, still being sent.
         const sending = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "grouped", event: true });

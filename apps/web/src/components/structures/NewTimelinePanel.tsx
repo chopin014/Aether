@@ -222,7 +222,7 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext, tileAs: 
                     {/* As in the old timeline, say why there is nothing earlier to see. */}
                     {item.startsHistory ? <HistoryTile key="history" /> : null}
                     <EventListSummary key="summary" as="div" events={events} layout={ctx.effectiveLayout}>
-                        {(item.rows ?? events.map(groupedEvent)).map((row) => (
+                        {(item.rows ?? events.map((event) => groupedEvent(event))).map((row) => (
                             // Each as it would be drawn on its own, as MessagePanel draws every tile: continuing the
                             // message before it, or still being sent, such as messages a module sums up.
                             <li key={row.key}>{renderTimelineItem(row, ctx)}</li>
