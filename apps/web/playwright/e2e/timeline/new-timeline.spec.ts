@@ -9,7 +9,8 @@ import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "../../element-web-test";
 
 /**
- * Tests for the timeline behind the `feature_new_timeline` Labs flag.
+ * Tests for the new timeline (`feature_new_timeline`), which is on by default. They turn it on themselves, so they still
+ * run on it when AETHER_E2E_NEW_TIMELINE=0 puts every other test on the old one.
  */
 
 /** px from the live end still counted as being there; matches the view's own threshold. */
