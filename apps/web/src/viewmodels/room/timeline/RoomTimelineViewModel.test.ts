@@ -10,19 +10,24 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
     ClientEvent,
+    ClientPrefix,
     Direction,
     TimelineWindow,
     EventStatus,
     EventType,
+    HttpApiEvent,
     M_BEACON_INFO,
     MatrixEvent,
     MatrixEventEvent,
+    MatrixHttpApi,
     PendingEventOrdering,
     ReceiptType,
     RelationType,
     Room,
     RoomEvent,
     RoomStateEvent,
+    TypedEventEmitter,
+    type HttpApiEventHandlerMap,
     type IEventRelation,
     type MatrixClient,
 } from "matrix-js-sdk/src/matrix";
@@ -2359,7 +2364,7 @@ describe("RoomTimelineViewModel", () => {
                 `/rooms/${encodeURIComponent(ROOM_ID)}/read_markers`,
                 undefined,
                 { "m.fully_read": "$m2" },
-                { localTimeoutMs: 20_000 },
+                { localTimeoutMs: 20_000, abortSignal: expect.any(AbortSignal) },
             );
         });
 
@@ -2379,6 +2384,56 @@ describe("RoomTimelineViewModel", () => {
             shows(vm, "$m0", "$m5");
 
             await vi.waitFor(() => expect(writes()).toEqual(["$m5", "$m5"]));
+        });
+
+        it("never sends a write it gave up on after a later one, even when retrying it with a refreshed token", async () => {
+            startsActive();
+            // The SDK's own HTTP API, over a fetch that sends nothing once its request is aborted, as a browser's does.
+            const sent: string[] = [];
+            let finishFirstAnswer = (): void => {};
+            const fetchFn = vi.fn(async (_url: unknown, init?: RequestInit): Promise<Response> => {
+                if (init?.signal?.aborted) throw new DOMException("The request was aborted", "AbortError");
+                const eventId = JSON.parse(init!.body as string)["m.fully_read"];
+                if (fetchFn.mock.calls.length > 1) {
+                    sent.push(eventId);
+                    return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+                }
+                // The first write is refused as made with an expired token, but the rest of that answer is held back.
+                const body = new ReadableStream<Uint8Array>({
+                    start(controller): void {
+                        finishFirstAnswer = () => {
+                            controller.enqueue(new TextEncoder().encode('{"errcode":"M_UNKNOWN_TOKEN","error":"x"}'));
+                            controller.close();
+                        };
+                    },
+                });
+                return new Response(body, { status: 401, headers: { "Content-Type": "application/json" } });
+            });
+            const http = new MatrixHttpApi(new TypedEventEmitter<HttpApiEvent, HttpApiEventHandlerMap>(), {
+                baseUrl: "https://server.example",
+                prefix: ClientPrefix.V3,
+                onlyData: true,
+                accessToken: "token",
+                fetchFn: fetchFn as typeof globalThis.fetch,
+            });
+            // The token is refreshed by the time the answer arrives, so the SDK sends the write again.
+            vi.spyOn((http as any).tokenManager, "handleUnknownToken").mockResolvedValue("success");
+            (client as any).http = http;
+            seedTimeline(messages(6));
+            markerAt("$m0");
+            const vm = await impatientVisit();
+
+            shows(vm, "$m0", "$m2");
+            await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+            // That write is given up on; the reader reads on, and the marker moves to $m5.
+            await new Promise((r) => setTimeout(r, 150));
+            shows(vm, "$m0", "$m5");
+            await vi.waitFor(() => expect(sent).toContain("$m5"));
+
+            finishFirstAnswer();
+            await new Promise((r) => setTimeout(r, 200));
+
+            expect(sent.slice(sent.indexOf("$m5"))).toEqual(["$m5"]);
         });
 
         it("tries again when moving the marker fails", async () => {

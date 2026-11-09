@@ -76,12 +76,15 @@ const PAGINATE_SIZE = 100;
 const READ_MARKER_WRITE_TIMEOUT_MS = 20_000;
 
 /**
- * Settle as `promise` does, or fail once `ms` have passed without it settling. Only the returned promise is waited on
- * after that; `promise` keeps nothing but this function's own closures.
+ * Settle as `promise` does, or fail once `ms` have passed without it settling, calling `onGiveUp` first. Only the
+ * returned promise is waited on after that; `promise` keeps nothing but this function's own closures.
  */
-function settleWithin<T>(promise: Promise<T>, ms: number): Promise<T> {
+function settleWithin<T>(promise: Promise<T>, ms: number, onGiveUp: () => void): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-        const timer = window.setTimeout(() => reject(new Error(`No complete answer within ${ms}ms`)), ms);
+        const timer = window.setTimeout(() => {
+            onGiveUp();
+            reject(new Error(`No complete answer within ${ms}ms`));
+        }, ms);
         promise.then(
             (value) => {
                 window.clearTimeout(timer);
@@ -168,9 +171,9 @@ export interface RoomTimelineViewModelOpts {
      */
     sendReadReceiptOnLoad?: boolean;
     /**
-     * How long a write of the fully read marker may wait for the server to start answering before it is given up on,
-     * as failed, and as long again for the rest of the answer; see {@link RoomTimelineViewModel.sendReadMarker}.
-     * Default 20 seconds.
+     * How long a write of the fully read marker may wait for the server to start answering: 20 seconds by default.
+     * The whole write, its answer included, is given up on as failed after twice that; see
+     * {@link RoomTimelineViewModel.sendReadMarker}.
      */
     readMarkerWriteTimeoutMs?: number;
 }
@@ -677,8 +680,9 @@ export class RoomTimelineViewModel
     /**
      * Move the room's fully read marker to `eventId` when it comes after the marker, once the writes before it for this
      * room are done, as the old timeline sends one at a time. It is decided again then, against the last marker any
-     * view of the room wrote, so it never moves back. A write that takes too long is given up on, so it holds up no
-     * later one and cannot land after it. A failed write is tried again by whoever moves the marker next.
+     * view of the room wrote, so it never moves back. A write that takes too long is aborted and given up on, so it
+     * holds up no later one, and this client never sends it after one. A failed write is tried again by whoever moves
+     * the marker next.
      */
     private writeReadMarker(eventId: string): Promise<void> {
         const room = this.opts.room;
@@ -718,22 +722,26 @@ export class RoomTimelineViewModel
 
     /**
      * Send the room's fully read marker, as the SDK's `setRoomReadMarkers` does, but through its HTTP API, which can
-     * give up on a request: one that takes too long is ended there rather than left to land after later ones.
+     * abort a request: one that takes too long is ended rather than left to be sent after later ones. A server that
+     * received it before the abort may still take it; Synapse only ever moves the marker forward.
      */
     private sendReadMarker(eventId: string): Promise<unknown> {
         const timeoutMs = this.opts.readMarkerWriteTimeoutMs ?? READ_MARKER_WRITE_TIMEOUT_MS;
         const path = `/rooms/${encodeURIComponent(this.opts.room.roomId)}/read_markers`;
+        // Ends the write for good once it is given up on, including the retry the HTTP API makes after refreshing an
+        // expired access token, which would otherwise send it again after a later write.
+        const abort = new AbortController();
         const request = this.opts.client.http.authedRequest(
             Method.Post,
             path,
             undefined,
             { [ReceiptType.FullyRead]: eventId },
-            { localTimeoutMs: timeoutMs },
+            { localTimeoutMs: timeoutMs, abortSignal: abort.signal },
         );
         // The HTTP API stops timing a request once the server starts to answer, then reads the answer for as long as
-        // it takes. By then the server has taken or refused the write, so an answer that never finishes is given up
-        // on as failed, rather than holding up this room's later writes: writing the same marker again is harmless.
-        return settleWithin(request, timeoutMs * 2);
+        // it takes. An answer that never finishes is given up on as failed, rather than holding up this room's later
+        // writes. Writing the same marker again is harmless.
+        return settleWithin(request, timeoutMs * 2, () => abort.abort());
     }
 
     /** The room's fully read marker as the server last said, or null. */
