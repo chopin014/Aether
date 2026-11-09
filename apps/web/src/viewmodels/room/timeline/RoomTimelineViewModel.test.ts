@@ -1832,6 +1832,48 @@ describe("RoomTimelineViewModel", () => {
             await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenLastCalledWith(ROOM_ID, "$m5"));
         });
 
+        const startsActive = (): void => {
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+        };
+        /** Makes the next marker write wait until the returned function settles it. */
+        const holdNextWrite = (): { finish: () => void; fail: () => void } => {
+            const settle = { finish: (): void => {}, fail: (): void => {} };
+            vi.mocked(client.setRoomReadMarkers).mockImplementationOnce(
+                () =>
+                    new Promise((resolve, reject) => {
+                        settle.finish = () => resolve({});
+                        settle.fail = () => reject(new Error("offline"));
+                    }),
+            );
+            return settle;
+        };
+        const writes = (): unknown[] => vi.mocked(client.setRoomReadMarkers).mock.calls.map(([, eventId]) => eventId);
+
+        it("lets the reader leave while a marker write is on its way", async () => {
+            startsActive();
+            const first = holdNextWrite();
+            const unhandled = vi.fn();
+            process.on("unhandledRejection", unhandled);
+            try {
+                seedTimeline(messages(4));
+                markerAt("$m0");
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                shows(vm, "$m0", "$m3");
+                await vi.waitFor(() => expect(writes()).toEqual(["$m3"]));
+
+                vm.dispose();
+                first.finish();
+                await new Promise((r) => setTimeout(r, 50));
+
+                expect(unhandled).not.toHaveBeenCalled();
+            } finally {
+                process.off("unhandledRejection", unhandled);
+            }
+        });
+
         it("tries again when moving the marker fails", async () => {
             vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
                 timer.start();

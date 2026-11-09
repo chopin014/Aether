@@ -1778,6 +1778,8 @@ export class RoomTimelineViewModel
         receiptTimer?.start().abort();
         const readMarkerTimer = this.readMarkerTimer;
         this.readMarkerTimer = undefined;
+        // The loop may be waiting on a marker write rather than on the timer, so nothing else would see it abort.
+        readMarkerTimer?.finished().catch(() => {});
         readMarkerTimer?.start().abort();
         if (this.decryptDebounceTimer !== null) {
             clearTimeout(this.decryptDebounceTimer);
