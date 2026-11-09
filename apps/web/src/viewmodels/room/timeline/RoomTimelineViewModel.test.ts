@@ -1721,6 +1721,45 @@ describe("RoomTimelineViewModel", () => {
         });
     });
 
+    describe("removed messages", () => {
+        /** A removal of `redacts` applied by the client itself, as a retention policy applies one. */
+        const localRemoval = (redacts: string): MatrixEvent =>
+            new MatrixEvent({
+                type: EventType.RoomRedaction,
+                sender: OTHER_USER_ID,
+                event_id: "$synthetic_redaction",
+                room_id: ROOM_ID,
+                redacts,
+                content: { reason: "Retention policy" },
+                origin_server_ts: Date.now(),
+            });
+
+        it("re-decides a message's row when it is removed without a timeline event, as by a retention policy", async () => {
+            // With removed messages hidden, which the settings mock gives by default, the row goes away.
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]);
+
+            room.tryApplyRedaction(localRemoval("$b"));
+
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a"]));
+        });
+
+        it("brings a message's row back when its removal is cancelled", async () => {
+            const message = makeMessage("$b");
+            seedTimeline([makeMessage("$a"), message]);
+            const vm = await createStartedViewModel();
+            const removed = vi.spyOn(message, "isRedacted").mockReturnValue(true);
+            room.tryApplyRedaction(localRemoval("$b"));
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a"]));
+
+            removed.mockReturnValue(false);
+            room.emit(RoomEvent.RedactionCancelled, localRemoval("$b"), room);
+
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]));
+        });
+    });
+
     describe("read receipts", () => {
         const flushReceiptDebounce = async (): Promise<void> => {
             await vi.waitFor(() => expect(client.sendReadReceipt).toHaveBeenCalled(), { timeout: 2000 });

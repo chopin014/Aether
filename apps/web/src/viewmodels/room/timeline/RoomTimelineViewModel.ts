@@ -476,6 +476,19 @@ export class RoomTimelineViewModel
         );
         // Other users' read receipts moving.
         this.disposables.trackListener(this.opts.room, RoomEvent.Receipt, this.onRoomReceipt);
+        // Messages removed, or their removal undone, which changes whether and how their rows are drawn. A removal
+        // the server sends also arrives as a timeline event, but one applied here, such as by a retention policy, and
+        // a cancelled one do not.
+        this.disposables.trackListener(
+            this.opts.room,
+            RoomEvent.Redaction,
+            this.onRoomRedaction as (...args: unknown[]) => void,
+        );
+        this.disposables.trackListener(
+            this.opts.room,
+            RoomEvent.RedactionCancelled,
+            this.onRoomRedaction as (...args: unknown[]) => void,
+        );
         // The SDK starting a new live timeline after a gap in sync. The room re-emits it from its timeline sets.
         this.disposables.trackListener(
             this.opts.room,
@@ -749,6 +762,16 @@ export class RoomTimelineViewModel
      * {@link onRoomTimeline} extends the window to hold it); a rebuild in between would find it in
      * neither and drop its row for a frame.
      */
+    /** A message was removed, or its removal undone: rebuild if it is in the window, as the old timeline redraws. */
+    private onRoomRedaction = (redaction: MatrixEvent): void => {
+        if (this.isDisposed) return;
+        const redactedId = redaction.event.redacts ?? redaction.getContent().redacts;
+        if (typeof redactedId === "string" && !this.timelineWindow.getEvents().some((e) => e.getId() === redactedId)) {
+            return;
+        }
+        this.scheduleRebuild();
+    };
+
     private onLocalEchoUpdated = (event: MatrixEvent, _room: Room, oldEventId?: string): void => {
         if (this.isDisposed) return;
         // Keep the row's continuation decision, so its avatar does not flip when the id changes.
