@@ -7,6 +7,7 @@
 
 import {
     TimelineWindow,
+    ClientEvent,
     Direction,
     RoomEvent,
     EventType,
@@ -492,13 +493,23 @@ export class RoomTimelineViewModel
             RoomStateEvent.Update,
             this.onRoomStateUpdate as (...args: unknown[]) => void,
         );
-        // Which events have rows depends on whether hidden events are shown: draw the rows again when that changes,
-        // as the old timeline does.
+        // Which events have rows depends on whether hidden events are shown, and on who is ignored: draw the rows
+        // again when either changes, as the old timeline does.
         const hiddenEventsWatcher = SettingsStore.watchSetting("showHiddenEventsInTimeline", null, () =>
             this.scheduleRebuild(),
         );
         this.disposables.track(() => SettingsStore.unwatchSetting(hiddenEventsWatcher));
+        this.disposables.trackListener(
+            this.opts.client,
+            ClientEvent.AccountData,
+            this.onClientAccountData as (...args: unknown[]) => void,
+        );
     }
+
+    /** Someone was ignored or no longer is: their messages leave or come back. */
+    private onClientAccountData = (event: MatrixEvent): void => {
+        if (event.getType() === EventType.IgnoredUserList) this.scheduleRebuild();
+    };
 
     /**
      * The SDK started a new live timeline because sync skipped messages. A reader at the newest messages follows on

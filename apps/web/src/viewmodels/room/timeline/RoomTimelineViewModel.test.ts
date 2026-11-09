@@ -9,6 +9,7 @@
 
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
+    ClientEvent,
     Direction,
     TimelineWindow,
     EventStatus,
@@ -466,6 +467,27 @@ describe("RoomTimelineViewModel", () => {
                 vm.dispose();
                 expect(SettingsStore.unwatchSetting).toHaveBeenCalledWith("watch-ref");
             });
+        });
+
+        it("draws the rows again when someone is ignored or no longer is, as the old timeline does", async () => {
+            let ignored = false;
+            vi.mocked(client.isUserIgnored).mockImplementation((userId) => ignored && userId === OTHER_USER_ID);
+            seedTimeline([makeMessage("$mine"), makeMessage("$theirs", { user: OTHER_USER_ID })]);
+            const vm = await createStartedViewModel();
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$mine", "$theirs"]);
+            const ignoredList = (users: string[]): MatrixEvent =>
+                new MatrixEvent({
+                    type: EventType.IgnoredUserList,
+                    content: { ignored_users: Object.fromEntries(users.map((user) => [user, {}])) },
+                });
+
+            ignored = true;
+            client.emit(ClientEvent.AccountData, ignoredList([OTHER_USER_ID]));
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$mine"]));
+
+            ignored = false;
+            client.emit(ClientEvent.AccountData, ignoredList([]));
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$mine", "$theirs"]));
         });
 
         it("leaves out the messages of someone ignored after they arrived", async () => {
