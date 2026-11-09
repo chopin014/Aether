@@ -30,10 +30,12 @@
     }
 }
 
-/* The buttons beside the search share its square shape and fill, so the row reads as one bar. */
+/*
+ * The buttons beside the search share its height, fill and corners, as squares, so the row reads as one bar. They take
+ * the search's height rather than the row's, which is taller outside the desktop app.
+ */
 .action {
     flex: none;
-    align-self: stretch;
     aspect-ratio: 1;
     block-size: var(--mx-desktop-search-button-size, auto);
     min-block-size: var(--mx-desktop-search-button-size, var(--cpd-space-9x));
