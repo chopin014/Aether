@@ -49,6 +49,7 @@ import EventListSummary from "../views/elements/EventListSummary";
 import GenericEventListSummary from "../views/elements/GenericEventListSummary";
 import NewRoomIntro from "../views/rooms/NewRoomIntro";
 import HistoryTile from "../views/rooms/HistoryTile";
+import IRCTimelineProfileResizer from "../views/elements/IRCTimelineProfileResizer";
 import DMRoomMap from "../../utils/DMRoomMap";
 import type { IReadReceiptPosition } from "../views/rooms/ReadReceiptMarker";
 import { getKeyBindingsManager } from "../../KeyBindingsManager";
@@ -154,7 +155,15 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNo
         case "date-separator":
             // The same view model as the old timeline, so the label and
             // jump-to-date menu behave identically in both.
-            return <DateSeparatorWrapper key={item.key} roomId={ctx.roomId} ts={item.ts} />;
+            return (
+                <DateSeparatorWrapper
+                    key={item.key}
+                    roomId={ctx.roomId}
+                    ts={item.ts}
+                    // Styled as the old timeline's separators are, such as in the desktop shell.
+                    className="mx_TimelineSeparator"
+                />
+            );
         case "read-marker":
             // Rendered as a div because the timeline already puts each row in
             // its own list item.
@@ -282,10 +291,8 @@ export function NewTimelinePanel({
     const isTwelveHour = useSettingValue("showTwelveHourTimestamps");
     const alwaysShowTimestamps = useSettingValue("alwaysShowTimestamps");
 
-    // Modern and Message Bubbles are fully supported. IRC layout is not yet: it
-    // needs the draggable name column the old timeline provides, so fall back to
-    // Modern for now (a known follow-up, listed on the tracking issue).
-    const effectiveLayout = layout === Layout.IRC ? Layout.Group : (layout ?? Layout.Group);
+    const effectiveLayout = layout ?? Layout.Group;
+    const irc = effectiveLayout === Layout.IRC;
 
     // Creating the view model does nothing on its own — it starts listening only
     // when start() is called in the effect below. React can build one of these and
@@ -427,8 +434,12 @@ export function NewTimelinePanel({
             ref={containerRef}
             className={classNames("mx_NewTimelinePanel mx_RoomView_messagePanel mx_RoomView_messageListWrapper", {
                 mx_NewTimelinePanel_hidden: hidden,
+                // Gives the tiles the name column's width, as the old timeline's message panel does.
+                mx_IRCLayout: irc,
             })}
         >
+            {/* The name column's drag handle, over the timeline as in the old one. */}
+            {irc && <IRCTimelineProfileResizer minWidth={20} maxWidth={600} roomId={room.roomId} />}
             <TimelineView vm={vm} renderItem={renderItem} onItemsPainted={entryPainted ? undefined : onItemsPainted} />
         </div>
     );
