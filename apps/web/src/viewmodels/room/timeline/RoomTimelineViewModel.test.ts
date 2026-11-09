@@ -1998,6 +1998,37 @@ describe("RoomTimelineViewModel", () => {
                 expect(client.sendReadReceipt).not.toHaveBeenCalled();
             });
 
+            it("never moves the receipt back to an older message stamped later by its server's clock", async () => {
+                vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+                // The receipt is on a message far beyond the window opened, sent from a server whose clock was behind.
+                const messages = Array.from({ length: 250 }, (_, i) =>
+                    makeMessage(`$m${i}`, { ts: i < 200 ? 10_000 + i : 1_000 + i }),
+                );
+                seedTimeline(messages);
+                room.addReceipt(
+                    new MatrixEvent({
+                        type: EventType.Receipt,
+                        content: { $m220: { [ReceiptType.Read]: { [USER_ID]: { ts: 1000 } } } },
+                    }),
+                );
+                const vm = new RoomTimelineViewModel({
+                    client,
+                    room,
+                    sendReadReceiptOnLoad: true,
+                    initialEventId: "$m10",
+                });
+                vms.push(vm);
+                vm.start();
+                await vi.waitFor(() => expect(vm.getSnapshot().items.length).toBeGreaterThan(0));
+                expect(eventKeys(vm.getSnapshot().items)).not.toContain("$m220");
+                vm.onAnchorReached();
+                const items = vm.getSnapshot().items;
+                vm.onVisibleRangeChanged(0, indexOfKey(items, "$m10"));
+                vm.sendReadReceiptNow();
+                await new Promise((r) => setTimeout(r, 700));
+                expect(client.sendReadReceipt).not.toHaveBeenCalled();
+            });
+
             it("sends nothing in low-bandwidth mode, as the old timeline", async () => {
                 vi.mocked(SettingsStore).getValue.mockImplementation((key): any =>
                     key === "lowBandwidth" ? true : key === "sendReadReceipts",

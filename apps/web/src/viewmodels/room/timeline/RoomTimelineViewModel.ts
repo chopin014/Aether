@@ -1391,31 +1391,23 @@ export class RoomTimelineViewModel
 
     /**
      * Whether `event` comes after both the receipt sent from here and the room's own receipt for us, which another
-     * device, or an earlier visit, may have moved on. Compared by position in the window, else by time; a receipt that
-     * cannot be placed is taken to be ahead while the window can still page forward towards it, as the old timeline
-     * does when its receipt is outside the window.
+     * device, or an earlier visit, may have moved on. The room's timelines give the order wherever they hold both
+     * events. A receipt they cannot place is taken to be ahead while the window can still page forward towards it, as
+     * the old timeline does when its receipt is outside the window. Times are not compared, as servers' clocks differ.
      */
     private isAfterReceipts(event: MatrixEvent): boolean {
-        const events = this.timelineWindow.getEvents();
-        const index = events.indexOf(event);
+        const eventId = event.getId();
+        if (!eventId) return false;
+        const timelineSet = this.opts.room.getUnfilteredTimelineSet();
         const receipts = [
             this.lastSentReceiptEventId,
             this.opts.room.getEventReadUpTo(this.opts.client.getSafeUserId()),
         ];
         for (const receiptId of receipts) {
             if (!receiptId) continue;
-            if (receiptId === event.getId()) return false;
-            const at = events.findIndex((e) => e.getId() === receiptId);
-            if (at >= 0) {
-                if (at > index) return false;
-                continue;
-            }
-            const receipted = this.opts.room.findEventById(receiptId);
-            if (receipted) {
-                if (receipted.getTs() >= event.getTs()) return false;
-                continue;
-            }
-            if (this.timelineWindow.canPaginate(Direction.Forward)) return false;
+            const order = timelineSet.compareEventOrdering(receiptId, eventId);
+            const receiptAhead = order === null ? this.timelineWindow.canPaginate(Direction.Forward) : order >= 0;
+            if (receiptAhead) return false;
         }
         return true;
     }
