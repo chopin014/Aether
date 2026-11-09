@@ -2608,6 +2608,20 @@ describe("RoomTimelineViewModel", () => {
             expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$b");
         });
 
+        it("keeps the tile of a message of ours as the server confirms it, as the old timeline keys its tiles", async () => {
+            seedTimeline([makeMessage("$a", { ts: 1000 })]);
+            const vm = await createStartedViewModel();
+            const pending = addPendingMessage("~pending", { ts: 2000 });
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "~pending"]));
+            expect(eventRow(vm, "~pending")?.tileKey).toBe(pending.getTxnId());
+
+            await receiveRemoteEcho(pending, "$real", 2000);
+
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$real"]));
+            expect(eventRow(vm, "$real")?.tileKey).toBe(pending.getTxnId());
+            expect(eventRow(vm, "$a")?.tileKey).toBeUndefined();
+        });
+
         it("moves the receipt and marker onto a message of ours once the server confirms it", async () => {
             seedTimeline([makeMessage("$a", { ts: 1000 })]);
             const vm = await createStartedViewModel();

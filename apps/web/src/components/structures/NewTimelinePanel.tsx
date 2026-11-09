@@ -20,6 +20,7 @@ import React, {
 } from "react";
 import {
     TimelineView,
+    tileKeyOf,
     useCreateAutoDisposedViewModel,
     useViewModel,
     type TimelineItem,
@@ -252,7 +253,7 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext, tileAs: 
                         {(item.rows ?? events.map((event) => groupedEvent(event))).map((row) => (
                             // Each as it would be drawn on its own, as MessagePanel draws every tile: continuing the
                             // message before it, or still being sent, such as messages a module sums up.
-                            <li key={row.key}>{renderTimelineItem(row, ctx)}</li>
+                            <li key={tileKeyOf(row)}>{renderTimelineItem(row, ctx)}</li>
                         ))}
                     </EventListSummary>
                 </Fragment>
@@ -266,7 +267,7 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext, tileAs: 
             // send migrated types to their shared views instead.
             return (
                 <LegacyEventTileAdapter
-                    key={item.key}
+                    key={tileKeyOf(item)}
                     as={tileAs}
                     mxEvent={mxEvent}
                     continuation={item.continuation}

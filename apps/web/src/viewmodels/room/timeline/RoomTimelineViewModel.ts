@@ -2011,8 +2011,11 @@ export class RoomTimelineViewModel
             // separator so we still emit one when the day changes mid-list.
             lastDate = dateKey;
 
+            // A message of ours keeps its tile as its id changes to the server's, as the old timeline keys its tiles.
+            const txnId = event.getTxnId();
             items.push({
                 key: eventId,
+                ...(txnId ? { tileKey: txnId } : {}),
                 kind: "event",
                 event,
                 continuation: this.getCachedContinuation(eventId, prevEvent, event),

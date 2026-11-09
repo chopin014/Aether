@@ -715,7 +715,13 @@ class TimelinePanel extends React.Component<IProps, IState> {
             data.timeline === this.props.timelineSet.getLiveTimeline();
         if (toStartOfTimeline || !data || (!data.liveEvent && !desktopThreadInsertion)) return;
 
-        if (!this.messagePanel.current?.getScrollState()) return;
+        if (!this.messagePanel.current?.getScrollState()) {
+            // Still loading, so there is no message panel to show this event in yet. The window being loaded may have
+            // been set up before it arrived, and would then never reach it: let the panel page forward to it once
+            // drawn, as for a reader scrolled up, below. A sync response often brings many events at this moment.
+            this.setState({ canForwardPaginate: true });
+            return;
+        }
 
         if (!this.messagePanel.current.getScrollState()?.stuckAtBottom) {
             // we won't load this event now, because we don't want to push any

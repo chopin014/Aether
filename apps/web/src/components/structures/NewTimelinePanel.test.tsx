@@ -145,11 +145,17 @@ vi.mock("../../viewmodels/room/timeline/RoomTimelineViewModel", () => ({
 
 // EventTile pulls in a large tree that isn't what these tests are about; record
 // what the row asked for instead.
-const { tileProps } = vi.hoisted(() => ({ tileProps: { current: [] as Record<string, unknown>[] } }));
+const { tileProps, tileMounts } = vi.hoisted(() => ({
+    tileProps: { current: [] as Record<string, unknown>[] },
+    tileMounts: { current: 0 },
+}));
 
 vi.mock("../views/rooms/LegacyEventTileAdapter", () => ({
     LegacyEventTileAdapter: (props: Record<string, unknown>) => {
         tileProps.current.push(props);
+        React.useEffect(() => {
+            tileMounts.current++;
+        }, []);
         return <div data-testid="event-row" />;
     },
 }));
@@ -187,6 +193,7 @@ describe("<NewTimelinePanel />", () => {
     beforeEach(() => {
         vi.restoreAllMocks();
         tileProps.current = [];
+        tileMounts.current = 0;
         rowsRendered.current = [];
         vmState.setRows([]);
         for (const spy of [
@@ -236,6 +243,25 @@ describe("<NewTimelinePanel />", () => {
 
         expect(screen.getByTestId("event-row")).toBeInTheDocument();
         expect(tileProps.current[0].mxEvent).toBe(event);
+    });
+
+    it("keeps a message's tile as its id changes from the one it was sent with to the server's", () => {
+        const mine = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "mine", event: true });
+        withItems([eventRow(mine, { key: "~local", tileKey: "txn-1" } as Partial<TimelineItem>)]);
+        const view = renderPanel();
+        expect(tileMounts.current).toBe(1);
+
+        withItems([eventRow(mine, { tileKey: "txn-1" } as Partial<TimelineItem>)]);
+        view.rerender(
+            <MatrixClientContext.Provider value={client}>
+                <SDKContext.Provider value={new TestSDKContext()}>
+                    <NewTimelinePanel room={room} />
+                </SDKContext.Provider>
+            </MatrixClientContext.Provider>,
+        );
+
+        expect(tileProps.current.at(-1)?.mxEvent).toBe(mine);
+        expect(tileMounts.current).toBe(1);
     });
 
     it("marks the newest event's tile as the last, so its time shows, as in the old timeline", () => {

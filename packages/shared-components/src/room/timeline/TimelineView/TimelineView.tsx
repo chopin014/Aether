@@ -12,7 +12,7 @@ import { InlineSpinner } from "@vector-im/compound-web";
 
 import { useViewModel } from "../../../core/viewmodel/useViewModel";
 import type { AnchorAlign, ImmediateScroll, TimelineItem, TimelineViewProps } from "./types";
-import { BACKWARD_LOADING_KEY, FORWARD_LOADING_KEY } from "./types";
+import { BACKWARD_LOADING_KEY, FORWARD_LOADING_KEY, tileKeyOf } from "./types";
 import { TimelineOverlayButtons } from "./TimelineOverlayButtons";
 import styles from "./TimelineView.module.css";
 
@@ -244,11 +244,14 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
         [],
     );
 
-    // Gives each row a stable identity (its event id). TanStack uses these to recognise the
-    // same row from one update to the next, which is what makes the scroll anchoring
+    // Gives each row a stable identity (its event id, or what outlasts it; see `tileKeyOf`). TanStack uses these to
+    // recognise the same row from one update to the next, which is what makes the scroll anchoring
     // possible at all. It also compares the first row's key between renders to spot when
     // rows have been added or removed at the top, so this must always read the current list.
-    const getItemKey = useCallback((index: number): string => items[index]?.key ?? String(index), [items]);
+    const getItemKey = useCallback(
+        (index: number): string => (items[index] ? tileKeyOf(items[index]) : String(index)),
+        [items],
+    );
 
     // Refuses loading spinners as the row the scroll position is anchored to; see the note
     // on `isValidAnchorItem` in the file comment above for why anchoring to one breaks.
@@ -268,6 +271,20 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
     // hold the last values we sent and repeats are skipped.
     const lastVisibleRangeRef = useRef<{ start: number; end: number } | null>(null);
     const lastAtBottomRef = useRef<boolean | null>(null);
+    /**
+     * The scroll position of the end when the reader was last there, while they are held at the bottom; null once
+     * they are not. Rows arriving below move the end but not the reader, while the reader scrolling up moves them
+     * away from it, however little at a time. See `reportVisibleState`.
+     */
+    const heldAtRef = useRef<number | null>(null);
+    /** Set while a scroll back to the end is waiting for the next frame; see `reportVisibleState`. */
+    const repinFrameRef = useRef<number | undefined>(undefined);
+    /** Stop holding the reader at the bottom, and drop any scroll back to it, as they are being taken elsewhere. */
+    const releaseBottom = useCallback((): void => {
+        if (repinFrameRef.current !== undefined) cancelAnimationFrame(repinFrameRef.current);
+        repinFrameRef.current = undefined;
+        heldAtRef.current = null;
+    }, []);
     // For the "reached the top/bottom" reports we remember a short description of the
     // situation we last reported, in the form "<number of rows>:<row index>", and clear it
     // whenever we move away from that end. This stops us reporting over and over while
@@ -307,7 +324,38 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             const scrollOffset = v.scrollOffset ?? 0;
             const viewportHeight = v.scrollRect?.height ?? 0;
             const totalSize = v.getTotalSize();
-            const atBottom = viewportHeight > 0 && scrollOffset + viewportHeight >= totalSize - AT_BOTTOM_THRESHOLD_PX;
+            const atEnd = viewportHeight > 0 && scrollOffset + viewportHeight >= totalSize - AT_BOTTOM_THRESHOLD_PX;
+            // A reader at the bottom stays there, as with the old timeline's ScrollPanel, until they scroll up. Rows
+            // arriving below push the end away for a moment before `followOnAppend` follows them; that is not the
+            // reader leaving, and treating it so would, for one, keep them on an old timeline after a gap in sync.
+            if (atEnd) heldAtRef.current = Math.max(0, totalSize - viewportHeight);
+            const heldAt = heldAtRef.current;
+            const following = snapshotRef.current.atLiveEnd && snapshotRef.current.pendingAnchor === null;
+            const atBottom =
+                atEnd ||
+                (following &&
+                    lastAtBottomRef.current === true &&
+                    heldAt !== null &&
+                    scrollOffset >= heldAt - AT_BOTTOM_THRESHOLD_PX);
+            if (!atBottom) heldAtRef.current = null;
+            // Still at the bottom, but the end has moved away without TanStack following it, such as when a row near
+            // it grew as a message was sent: go back to it, as ScrollPanel does for a reader stuck at the bottom.
+            // TanStack only follows rows added while the list is at its end, so without this it would stop for good.
+            if (atBottom && !atEnd && following && repinFrameRef.current === undefined) {
+                repinFrameRef.current = requestAnimationFrame(() => {
+                    repinFrameRef.current = undefined;
+                    // Much can happen before the frame: a jump to a message, the newest messages being unloaded, or
+                    // the reader scrolling up before TanStack has told us. Go back only if they are still held here.
+                    const held = heldAtRef.current;
+                    const latest = vm.getSnapshot();
+                    const scroller = scrollerRef.current;
+                    if (held === null || lastAtBottomRef.current !== true || !scroller) return;
+                    if (!latest.atLiveEnd || latest.pendingAnchor !== null) return;
+                    if (scroller.scrollTop < held - AT_BOTTOM_THRESHOLD_PX) return;
+                    const height = v.scrollRect?.height ?? 0;
+                    v.scrollToOffset(Math.max(0, v.getTotalSize() - height));
+                });
+            }
             if (atBottom !== lastAtBottomRef.current) {
                 lastAtBottomRef.current = atBottom;
                 vm.onAtBottomStateChange(atBottom);
@@ -430,6 +478,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
     useEffect(() => {
         return () => {
             if (coldRafRef.current !== undefined) cancelAnimationFrame(coldRafRef.current);
+            if (repinFrameRef.current !== undefined) cancelAnimationFrame(repinFrameRef.current);
         };
     }, []);
     useLayoutEffect(() => {
@@ -556,6 +605,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             return;
         }
         if (lastPlacedAnchorKeyRef.current !== anchor.targetKey) {
+            releaseBottom();
             const target = offsetForKey(anchor.targetKey, anchor.align);
             if (target !== null) {
                 virtualizer.scrollToOffset(target);
@@ -571,9 +621,11 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
     const scrollNow = useCallback<ImmediateScroll>(
         (anchor) => {
             const target = offsetForKey(anchor.targetKey, anchor.align);
-            if (target !== null) virtualizer.scrollToOffset(target);
+            if (target === null) return;
+            releaseBottom();
+            virtualizer.scrollToOffset(target);
         },
-        [offsetForKey, virtualizer],
+        [offsetForKey, releaseBottom, virtualizer],
     );
 
     const virtualItems = virtualizer.getVirtualItems();

@@ -653,6 +653,36 @@ describe("TimelinePanel", () => {
             await waitFor(() => expectEvents(dom.container, [...events, ...replies]));
         });
 
+        it("shows an event that arrived while the timeline was loading, once it is drawn", async () => {
+            const [client, room, events] = setupTestData();
+            const props = getProps(room, events);
+            const timeline = props.timelineSet.getLiveTimeline();
+            // As for a room opened at its newest messages, the window loads in a later tick.
+            props.timelineSet.getTimelineForEvent = () => null;
+            const late = mockEvents(room, 3)[2];
+
+            await withScrollPanelMountSpy(async (mountSpy) => {
+                const { container } = render(
+                    <TimelinePanel {...props} />,
+                    clientAndSDKContextRenderOptions(client, sdkContext),
+                );
+                await act(async () => {
+                    // The load finishes, but React draws it only once this callback is done. An event arrives meanwhile,
+                    // as when a sync response is handled first.
+                    await Promise.resolve();
+                    timeline.addEvent(late, { toStartOfTimeline: false, addToState: true });
+                    client.emit(RoomEvent.Timeline, late, room, false, false, { timeline, liveEvent: true });
+                });
+                expectEvents(container, events);
+
+                // ScrollPanel cannot fill in jsdom: ask for what it asks for when the newest messages are on screen.
+                const scrollPanel = mountSpy.mock.contexts[0] as ScrollPanel;
+                await expect(scrollPanel.props.onFillRequest!(false)).resolves.toBe(true);
+
+                await waitFor(() => expectEvents(container, [...events, late]));
+            });
+        });
+
         it("advances the timeline window", () => {
             const [client, room, events] = setupTestData();
 
