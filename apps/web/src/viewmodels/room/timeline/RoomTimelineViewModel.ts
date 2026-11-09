@@ -2057,9 +2057,9 @@ export class RoomTimelineViewModel
      * later events never join it, so no row the reader can see disappears into it.
      *
      * The events keep rows of their own for the rest of the visit when the reader is taken to one of them, such as by
-     * a link, so it has a row to land on, and when the reader has already seen them in rows of their own, such as
-     * after paging back to the start of the room, as collapsing rows they are reading would lose their place. Going
-     * to the unread line lands on the line, so it leaves the summary.
+     * a link, so it has a row to land on, and when the reader, scrolled away from the newest messages, has already
+     * seen them in rows of their own, such as after paging back to the start of the room, as collapsing rows they
+     * are reading would lose their place. Going to the unread line lands on the line, so it leaves the summary.
      */
     private groupRoomCreation(items: TimelineItem[], events: MatrixEvent[], showHiddenEvents: boolean): TimelineItem[] {
         const run = this.creationRun(events, showHiddenEvents);
@@ -2078,7 +2078,9 @@ export class RoomTimelineViewModel
             pendingKey === "read-marker" ? null : pendingKey,
         ];
         if (targets.some((id) => id && candidates.has(id))) return this.declineCreationGroup(run.createId, items);
-        if (!formed && this.readerPlaced) {
+        // A reader at the newest messages stays there whatever changes above, such as in a new room whose start
+        // arrives just after its newest event was drawn: only a reader scrolled away from them can lose their place.
+        if (!formed && this.readerPlaced && !this.isAtBottom) {
             const shown = this.snapshot.current.items.flatMap((item) => this.itemEvents(item));
             if (shown.some((event) => run.grouped.has(event.getId()!))) {
                 return this.declineCreationGroup(run.createId, items);
