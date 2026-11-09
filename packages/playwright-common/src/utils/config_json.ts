@@ -59,7 +59,7 @@ export function buildConfigJson(
             return obj;
         }, {}),
     };
-    // Simplified Sliding Sync is on by default where the server offers it, and the new timeline is a lab.
+    // Simplified Sliding Sync is on by default where the server offers it, and so is the new timeline.
     // AETHER_E2E_SLIDING_SYNC=1 or AETHER_E2E_NEW_TIMELINE=1 runs every client with it, and =0 without it, other than in
     // a test that sets it itself, so each way can be checked to match the other. Here, rather than in a fixture, so
     // second clients get it too.
