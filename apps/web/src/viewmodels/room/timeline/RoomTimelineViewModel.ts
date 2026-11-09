@@ -8,6 +8,7 @@
 import {
     TimelineWindow,
     ClientEvent,
+    Method,
     Direction,
     RoomEvent,
     EventType,
@@ -71,7 +72,7 @@ const debug = (message: string): void => {
 const READ_RECEIPT_DEBOUNCE_MS = 500;
 
 const PAGINATE_SIZE = 100;
-/** How long a fully read marker write may take before later ones go ahead; see {@link RoomTimelineViewModelOpts}. */
+/** How long a fully read marker write may take before it is given up on; see {@link RoomTimelineViewModelOpts}. */
 const READ_MARKER_WRITE_TIMEOUT_MS = 20_000;
 const INITIAL_SIZE = 100;
 
@@ -147,33 +148,10 @@ export interface RoomTimelineViewModelOpts {
      */
     sendReadReceiptOnLoad?: boolean;
     /**
-     * How long a write of the fully read marker may take before later ones go ahead, taking it as possibly landed;
-     * see {@link RoomTimelineViewModel.writeReadMarker}. Default 20 seconds.
+     * How long a write of the fully read marker may take before it is given up on, as failed; see
+     * {@link RoomTimelineViewModel.writeReadMarker}. Default 20 seconds.
      */
     readMarkerWriteTimeoutMs?: number;
-}
-
-/** How a request ended, or that it took longer than allowed and may still end either way. */
-type Settled = { outcome: "done" } | { outcome: "failed"; error: unknown } | { outcome: "timed out" };
-
-/**
- * Wait for `request` to end, or for `timeoutMs` to pass. What is waiting is not kept by the request once the time is
- * up, so a request that never ends holds on to nothing but itself.
- */
-function settleWithin(request: Promise<unknown>, timeoutMs: number): Promise<Settled> {
-    return new Promise((resolve) => {
-        const timer = setTimeout(() => resolve({ outcome: "timed out" }), timeoutMs);
-        request.then(
-            () => {
-                clearTimeout(timer);
-                resolve({ outcome: "done" });
-            },
-            (error: unknown) => {
-                clearTimeout(timer);
-                resolve({ outcome: "failed", error });
-            },
-        );
-    });
 }
 
 /**
@@ -418,14 +396,10 @@ export class RoomTimelineViewModel
     /**
      * Each room's fully read marker writes, in order, across view models, so a write made before the reader left a room
      * cannot land after one made since they came back. Keyed by the room object, which the client keeps for as long as
-     * it knows the room. `confirmed` is the last marker the server took there, which raises the next view model's own
-     * marker. `floor` is the last one that may have landed, including one that took too long: nothing is written
-     * behind it, though it may be written again.
+     * it knows the room. `written` is the last marker the server took there: nothing is written behind it, and it
+     * raises the next view model's own marker.
      */
-    private static readonly readMarkerWrites = new WeakMap<
-        Room,
-        { queue: Promise<void>; confirmed?: string; floor?: string }
-    >();
+    private static readonly readMarkerWrites = new WeakMap<Room, { queue: Promise<void>; written?: string }>();
 
     /**
      * Count of new live messages that arrived since the user last reached the
@@ -682,8 +656,8 @@ export class RoomTimelineViewModel
     /**
      * Move the room's fully read marker to `eventId` when it comes after the marker, once the writes before it for this
      * room are done, as the old timeline sends one at a time. It is decided again then, against the last marker any
-     * view of the room wrote, so it never moves back. A failed write is tried again by whoever moves the marker next;
-     * one that takes too long is taken as possibly landed, so that it holds up no later one.
+     * view of the room wrote, so it never moves back. A write that takes too long is given up on, so it holds up no
+     * later one and cannot land after it. A failed write is tried again by whoever moves the marker next.
      */
     private writeReadMarker(eventId: string): Promise<void> {
         const room = this.opts.room;
@@ -691,41 +665,22 @@ export class RoomTimelineViewModel
         const state = writes.get(room) ?? { queue: Promise.resolve() };
         writes.set(room, state);
         const write = state.queue.then(async (): Promise<void> => {
-            if (state.confirmed && this.comesAfter(state.confirmed, this.readMarkerEventId)) {
-                this.readMarkerEventId = state.confirmed;
+            if (state.written && this.comesAfter(state.written, this.readMarkerEventId)) {
+                this.readMarkerEventId = state.written;
             }
             if (!this.maySendReadState() || !this.comesAfter(eventId, this.readMarkerEventId)) return;
-            // Not behind a marker that may have landed, whatever this view knows of it: one that cannot be placed
-            // against it, such as in history it is no longer among, is left for later.
-            if (state.floor && eventId !== state.floor && !this.comesAfter(eventId, state.floor)) return;
+            // Past the last marker written here too, whatever this view knows of it: one that cannot be placed against
+            // it, such as in history it is no longer among, is left for later.
+            if (state.written && !this.comesAfter(eventId, state.written)) return;
             debug(`[TimelineVM] writeReadMarker — fully read marker to ${eventId}`);
             const previous = this.readMarkerEventId;
             this.readMarkerEventId = eventId;
             this.sentReadMarkerIds.add(eventId);
-            const request = this.opts.client.setRoomReadMarkers(room.roomId, eventId);
-            const settled = await settleWithin(
-                request,
-                this.opts.readMarkerWriteTimeoutMs ?? READ_MARKER_WRITE_TIMEOUT_MS,
-            );
-            if (settled.outcome === "done") {
-                state.confirmed = eventId;
-                state.floor = eventId;
-            } else if (settled.outcome === "timed out") {
-                // It may still land, so nothing goes behind it from now on, but later writes no longer wait for it, and
-                // the marker here stays where it was, so the same message is written again. Should it fail after all,
-                // the floor drops back.
-                state.floor = eventId;
-                if (this.readMarkerEventId === eventId) this.readMarkerEventId = previous;
-                request.then(
-                    () => {
-                        state.confirmed = eventId;
-                    },
-                    () => {
-                        if (state.floor === eventId) state.floor = state.confirmed;
-                    },
-                );
-            } else {
-                logger.warn(`[TimelineVM] writeReadMarker — setRoomReadMarkers failed`, settled.error);
+            try {
+                await this.sendReadMarker(eventId);
+                state.written = eventId;
+            } catch (err) {
+                logger.warn(`[TimelineVM] writeReadMarker — the fully read marker could not be written`, err);
                 this.sentReadMarkerIds.delete(eventId);
                 // Back to where the marker is known to be: the later of where it was, and where the server has said it
                 // is since, such as when another device moved it on while this write was failing.
@@ -738,6 +693,21 @@ export class RoomTimelineViewModel
         });
         state.queue = write;
         return write;
+    }
+
+    /**
+     * Send the room's fully read marker, as the SDK's `setRoomReadMarkers` does, but through its HTTP API, which can
+     * give up on a request: one that takes too long is ended there rather than left to land after later ones.
+     */
+    private sendReadMarker(eventId: string): Promise<unknown> {
+        const path = `/rooms/${encodeURIComponent(this.opts.room.roomId)}/read_markers`;
+        return this.opts.client.http.authedRequest(
+            Method.Post,
+            path,
+            undefined,
+            { [ReceiptType.FullyRead]: eventId },
+            { localTimeoutMs: this.opts.readMarkerWriteTimeoutMs ?? READ_MARKER_WRITE_TIMEOUT_MS },
+        );
     }
 
     /** The room's fully read marker as the server last said, or null. */

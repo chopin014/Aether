@@ -111,6 +111,34 @@ describe("RoomTimelineViewModel", () => {
         // Rooms with an open timeline are joined, except when previewing; see the read receipt tests.
         room.updateMyMembership(KnownMembership.Join);
         vi.spyOn(client, "getRoom").mockReturnValue(room);
+        // The view model writes the fully read marker through the client's HTTP API, so that it can give up on a write
+        // that takes too long. Hand those writes to setRoomReadMarkers, which the tests watch, giving up as the HTTP API
+        // does once the time allowed has passed.
+        Object.assign(client, {
+            http: {
+                authedRequest: vi.fn(
+                    (
+                        _method: string,
+                        path: string,
+                        _query: unknown,
+                        body: Record<string, string>,
+                        opts?: { localTimeoutMs?: number },
+                    ): Promise<unknown> => {
+                        const roomId = decodeURIComponent(path.split("/")[2]);
+                        const write = client.setRoomReadMarkers(roomId, body["m.fully_read"]);
+                        if (opts?.localTimeoutMs === undefined) return write;
+                        let timer: number | undefined;
+                        const givenUp = new Promise<never>((_, reject) => {
+                            timer = window.setTimeout(
+                                () => reject(new Error("The request timed out")),
+                                opts.localTimeoutMs,
+                            );
+                        });
+                        return Promise.race([write, givenUp]).finally(() => window.clearTimeout(timer));
+                    },
+                ),
+            },
+        });
 
         // The only two settings the view model reads, at their real-world defaults. A test that
         // cares about either one overrides this.
@@ -2297,7 +2325,7 @@ describe("RoomTimelineViewModel", () => {
             await vi.waitFor(() => expect(writes()).toEqual(["$m5", "$m5"]));
         });
 
-        it("lets the marker move to an earlier message once a write that took too long fails after all", async () => {
+        it("keeps a move another device makes while a write of ours hangs, once that write is given up on", async () => {
             startsActive();
             const first = holdNextWrite();
             seedTimeline(messages(6));
@@ -2306,13 +2334,33 @@ describe("RoomTimelineViewModel", () => {
             shows(vm, "$m0", "$m5");
             await vi.waitFor(() => expect(writes()).toEqual(["$m5"]));
 
-            // The reader goes back up while that write may still land: nothing is written behind it meanwhile.
-            shows(vm, "$m0", "$m2");
-            await new Promise((r) => setTimeout(r, 150));
-            expect(writes()).toEqual(["$m5"]);
-
+            // Another device moves the marker to the same message; our write is given up on, and fails late.
+            markerAt("$m5");
+            await new Promise((r) => setTimeout(r, 100));
             first.fail();
-            await vi.waitFor(() => expect(writes()).toEqual(["$m5", "$m2"]));
+            // The reader goes back up.
+            shows(vm, "$m0", "$m2");
+            await new Promise((r) => setTimeout(r, 200));
+
+            expect(writes()).toEqual(["$m5"]);
+        });
+
+        it("gives the server a limited time to take each write of the marker", async () => {
+            startsActive();
+            seedTimeline(messages(3));
+            markerAt("$m0");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m2");
+
+            await vi.waitFor(() => expect(writes()).toEqual(["$m2"]));
+            expect(client.http.authedRequest).toHaveBeenCalledWith(
+                "POST",
+                `/rooms/${encodeURIComponent(ROOM_ID)}/read_markers`,
+                undefined,
+                { "m.fully_read": "$m2" },
+                { localTimeoutMs: 20_000 },
+            );
         });
 
         it("tries again when moving the marker fails", async () => {
