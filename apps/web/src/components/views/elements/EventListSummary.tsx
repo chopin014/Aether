@@ -775,7 +775,7 @@ export default class EventListSummary extends React.Component<Props, State> {
     }
 
     /** Whether the summed-up events are shown; see {@link IProps.updateChildren}. */
-    private expanded = false;
+    private expanded = this.props.startExpanded ?? false;
 
     private onExpandedChange = (expanded: boolean): void => {
         const opened = expanded && !this.expanded;
