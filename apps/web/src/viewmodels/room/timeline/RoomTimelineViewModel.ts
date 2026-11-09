@@ -10,7 +10,6 @@ import {
     Direction,
     RoomEvent,
     EventType,
-    EventStatus,
     MatrixEventEvent,
     NotificationCountType,
     ReceiptType,
@@ -28,7 +27,6 @@ import { logger } from "matrix-js-sdk/src/logger";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 
 import type {
-    EventSendState,
     TimelineViewSnapshot,
     TimelineViewActions,
     TimelineItem,
@@ -50,8 +48,18 @@ import {
     type ShownReadReceipt,
 } from "../../../utils/read-receipts";
 import type { IReadReceiptProps } from "../../../components/views/rooms/EventTile";
+import { ModuleApi } from "../../../modules/Api";
+import { sendStateOf } from "./sendState";
 
 const DEBUG_TIMELINE = false;
+
+/** State changes summed up with the events like them around them, as in the old timeline's `MainGrouper`. */
+const SUMMARISED_STATE_TYPES: ReadonlySet<string> = new Set([
+    EventType.RoomMember,
+    EventType.RoomThirdPartyInvite,
+    EventType.RoomServerAcl,
+    EventType.RoomPinnedEvents,
+]);
 
 /** Emits a trace line only when {@link DEBUG_TIMELINE} is on. */
 const debug = (message: string): void => {
@@ -60,26 +68,6 @@ const debug = (message: string): void => {
 
 /** How long after the last scroll event to wait before sending a read receipt (ms). */
 const READ_RECEIPT_DEBOUNCE_MS = 500;
-
-/**
- * The send state of a row's message, read as `MessagePanel` reads it for the old timeline: the
- * associated status also covers our pending edit or redaction of a message the server already has.
- */
-function sendStateOf(event: MatrixEvent): EventSendState | undefined {
-    switch (event.getAssociatedStatus()) {
-        case EventStatus.ENCRYPTING:
-            return "encrypting";
-        case EventStatus.QUEUED:
-        case EventStatus.SENDING:
-            return "sending";
-        case EventStatus.SENT:
-            return "sent";
-        case EventStatus.NOT_SENT:
-            return "failed";
-        default:
-            return undefined;
-    }
-}
 
 const PAGINATE_SIZE = 100;
 const INITIAL_SIZE = 100;
@@ -288,8 +276,8 @@ export class RoomTimelineViewModel
     private baseItems: TimelineItem[] = [];
 
     /** Keep a summary's identity when history is added on either side. */
-    private readonly membershipGroupKeys = new WeakMap<MatrixEvent, string>();
-    private membershipGroupSequence = 0;
+    private readonly summaryGroupKeys = new WeakMap<MatrixEvent, string>();
+    private summaryGroupSequence = 0;
 
     /** A permalink or saved position must remain an individually addressable event row. */
     private navigationEventId: string | null = null;
@@ -2054,7 +2042,7 @@ export class RoomTimelineViewModel
                 `filtered=${filteredCount}`,
         );
 
-        return this.compactMembershipItems(this.groupRoomCreation(items, events, showHiddenEvents));
+        return this.groupSummarisedItems(this.groupRoomCreation(items, events, showHiddenEvents));
     }
 
     /**
@@ -2191,43 +2179,52 @@ export class RoomTimelineViewModel
         return [];
     }
 
-    /** Collapse membership runs without hiding exact navigation or read-marker targets. */
-    private compactMembershipItems(items: TimelineItem[]): TimelineItem[] {
+    /**
+     * Sum up runs of events as the old timeline's `MainGrouper` does: each run of events {@link isSummarised} on one
+     * day becomes one summary row, however short. A summary of fewer than three events shows the events themselves.
+     * An event the reader is being taken to keeps a row of its own, so there is a row to land on. A read marker on an
+     * event in a run follows the whole summary, as in the old timeline. A summary that opens the room as far back as
+     * the reader can see is marked `startsHistory`, as the old timeline then says why there is nothing earlier.
+     */
+    private groupSummarisedItems(items: TimelineItem[]): TimelineItem[] {
         const result: TimelineItem[] = [];
         const usedKeys = new Set<string>();
         let run: Extract<TimelineItem, { kind: "event" }>[] = [];
+        // The read marker on an event in the current run, put after its summary.
+        let marker: TimelineItem | undefined;
         const flush = (): void => {
-            if (run.length < 3) {
-                result.push(...run);
-            } else {
-                const events = run.map((item) => item.event as MatrixEvent);
-                // Remember every member so trimming away the original first event does not
-                // remount the summary. A split may reuse its old key only once in this list.
-                const keyedEvent = events.find((event) => {
-                    const key = this.membershipGroupKeys.get(event);
-                    return key !== undefined && !usedKeys.has(key);
-                });
-                const key = keyedEvent
-                    ? this.membershipGroupKeys.get(keyedEvent)!
-                    : `membership-summary-${run[0].key}-${this.membershipGroupSequence++}`;
-                usedKeys.add(key);
-                for (const event of events) this.membershipGroupKeys.set(event, key);
-                result.push({ kind: "event-group", key, events });
-            }
+            if (run.length === 0) return;
+            const events = run.map((item) => item.event as MatrixEvent);
+            // Remember every event so trimming away the original first event does not
+            // remount the summary. A split may reuse its old key only once in this list.
+            const keyedEvent = events.find((event) => {
+                const key = this.summaryGroupKeys.get(event);
+                return key !== undefined && !usedKeys.has(key);
+            });
+            const key = keyedEvent
+                ? this.summaryGroupKeys.get(keyedEvent)!
+                : `summary-${run[0].key}-${this.summaryGroupSequence++}`;
+            usedKeys.add(key);
+            for (const event of events) this.summaryGroupKeys.set(event, key);
+            // Each event's own row comes along, so it is drawn inside the summary as it would be on its own.
+            result.push({ kind: "event-group", key, events, rows: run });
+            if (marker) result.push(marker);
             run = [];
+            marker = undefined;
         };
+        // Going to the unread line lands on the line, wherever its event is drawn.
         const protectedIds = new Set([
-            this.navigationEventId,
-            this.frozenMarkerEventId,
+            this.navigationToReadMarker ? null : this.navigationEventId,
             this.snapshot.current.highlightedEventId,
             this.snapshot.current.pendingAnchor?.targetKey,
         ]);
         for (const item of items) {
-            if (
+            if (item.kind === "read-marker" && run.length > 0) {
+                marker = item;
+            } else if (
                 item.kind === "event" &&
                 !protectedIds.has(item.key) &&
-                (item.event as MatrixEvent).isState() &&
-                (item.event as MatrixEvent).getType() === EventType.RoomMember
+                this.isSummarised(item.event as MatrixEvent)
             ) {
                 if (
                     run.length > 0 &&
@@ -2243,7 +2240,25 @@ export class RoomTimelineViewModel
             }
         }
         flush();
+        if (!this.timelineWindow.canPaginate(Direction.Backward)) {
+            const first = result.find((item) => item.kind === "event" || item.kind === "event-group");
+            if (first?.kind === "event-group" && first.variant === undefined) first.startsHistory = true;
+        }
         return result;
+    }
+
+    /**
+     * Whether an event is summed up with the events like it around it, as in the old timeline's `MainGrouper`:
+     * membership and similar state changes, removed messages, and messages a module sums up itself.
+     *
+     * The old timeline also sums up events drawn only because hidden events are shown. Here the only such event is a
+     * membership that changed nothing, which is summed up as a membership; the others are not drawn at all yet (see
+     * {@link computeInclusion}).
+     */
+    private isSummarised(event: MatrixEvent): boolean {
+        if (event.isState() && SUMMARISED_STATE_TYPES.has(event.getType())) return true;
+        if (event.isRedacted()) return true;
+        return ModuleApi.instance.customComponents.getMessageRenderInfo(event)?.hasGrouping === true;
     }
 
     /**

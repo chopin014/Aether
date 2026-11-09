@@ -6,6 +6,7 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import React, {
+    Fragment,
     useCallback,
     useEffect,
     useImperativeHandle,
@@ -35,6 +36,7 @@ import {
 } from "matrix-js-sdk/src/matrix";
 import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
 import { RoomTimelineViewModel } from "../../viewmodels/room/timeline/RoomTimelineViewModel";
+import { sendStateOf } from "../../viewmodels/room/timeline/sendState";
 import { useMatrixClientContext } from "../../contexts/MatrixClientContext";
 import { LegacyEventTileAdapter } from "../views/rooms/LegacyEventTileAdapter";
 import type { GetRelationsForEvent, IReadReceiptProps } from "../views/rooms/EventTile";
@@ -47,6 +49,7 @@ import { DateSeparatorWrapper } from "./DateSeparatorWrapper";
 import EventListSummary from "../views/elements/EventListSummary";
 import GenericEventListSummary from "../views/elements/GenericEventListSummary";
 import NewRoomIntro from "../views/rooms/NewRoomIntro";
+import HistoryTile from "../views/rooms/HistoryTile";
 import IRCTimelineProfileResizer from "../views/elements/IRCTimelineProfileResizer";
 import DMRoomMap from "../../utils/DMRoomMap";
 import type { IReadReceiptPosition } from "../views/rooms/ReadReceiptMarker";
@@ -112,6 +115,18 @@ interface RenderItemContext {
     getRelationsForEvent: GetRelationsForEvent;
 }
 
+/** A row for one event drawn inside a group, with its send state read as the view model reads a row's own. */
+function groupedEvent(event: MatrixEvent): TimelineItem {
+    return {
+        kind: "event",
+        key: event.getId()!,
+        event,
+        continuation: false,
+        lastInSection: true,
+        sendState: sendStateOf(event),
+    };
+}
+
 /**
  * The room's introduction and the summary of how its creator set it up, as the old timeline draws the start of a room.
  * The summary expands to the events it stands for.
@@ -135,12 +150,7 @@ function renderCreation(key: string, events: MatrixEvent[], ctx: RenderItemConte
                 layout={ctx.effectiveLayout}
             >
                 {events.map((event) => (
-                    <li key={event.getId()}>
-                        {renderTimelineItem(
-                            { kind: "event", key: event.getId()!, event, continuation: false, lastInSection: true },
-                            ctx,
-                        )}
-                    </li>
+                    <li key={event.getId()}>{renderTimelineItem(groupedEvent(event), ctx)}</li>
                 ))}
             </GenericEventListSummary>
         </div>
@@ -187,23 +197,19 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNo
         case "event-group": {
             const events = item.events as MatrixEvent[];
             if (item.variant === "creation") return renderCreation(item.key, events, ctx);
+            // Always a fragment, so the summary keeps its state when the start of the room is reached.
             return (
-                <EventListSummary key={item.key} as="div" events={events} layout={ctx.effectiveLayout}>
-                    {events.map((event) => (
-                        <li key={event.getId()}>
-                            {renderTimelineItem(
-                                {
-                                    kind: "event",
-                                    key: event.getId()!,
-                                    event,
-                                    continuation: false,
-                                    lastInSection: true,
-                                },
-                                ctx,
-                            )}
-                        </li>
-                    ))}
-                </EventListSummary>
+                <Fragment key={item.key}>
+                    {/* As in the old timeline, say why there is nothing earlier to see. */}
+                    {item.startsHistory ? <HistoryTile key="history" /> : null}
+                    <EventListSummary key="summary" as="div" events={events} layout={ctx.effectiveLayout}>
+                        {(item.rows ?? events.map(groupedEvent)).map((row) => (
+                            // Each as it would be drawn on its own, as MessagePanel draws every tile: continuing the
+                            // message before it, or still being sent, such as messages a module sums up.
+                            <li key={row.key}>{renderTimelineItem(row, ctx)}</li>
+                        ))}
+                    </EventListSummary>
+                </Fragment>
             );
         }
         case "event": {

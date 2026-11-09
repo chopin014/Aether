@@ -45,10 +45,20 @@ export interface EventGroupTimelineItem {
     /** Included events in timeline order; the application supplies their summary renderer. */
     events: TimelineEvent[];
     /**
-     * What the events have in common: a run of memberships, the default, or the room being created and set up by
-     * the person who created it.
+     * What the events have in common: a run of changes summed up together, such as memberships or removed messages,
+     * the default; or the room being created and set up by the person who created it.
      */
-    variant?: "membership" | "creation";
+    variant?: "summary" | "creation";
+    /**
+     * The events' own rows, in the same order as `events`, as they would be drawn without the summary: whether each
+     * continues the one before it, and how far sending has got. The application draws each event from its row.
+     */
+    rows?: EventTimelineItem[];
+    /**
+     * Set on a summary that opens what the reader can see of the room, so the application can say why there is
+     * nothing earlier, such as history hidden from before they joined.
+     */
+    startsHistory?: boolean;
 }
 
 /** The send states a tile draws differently. */
