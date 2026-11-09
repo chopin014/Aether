@@ -267,4 +267,9 @@ export interface TimelineViewProps {
     renderItem: (item: TimelineItem) => ReactNode;
     /** Called after positioned rows intersecting the timeline viewport have had a chance to paint. */
     onItemsPainted?: (items: TimelineItem[]) => void;
+    /**
+     * Space before the first row and after the last, in pixels. Scrolling to either end, or to the first or last row,
+     * shows it. Defaults to none.
+     */
+    paddingBlock?: number;
 }

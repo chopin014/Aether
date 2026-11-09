@@ -262,6 +262,33 @@ describe("<TimelineView />", () => {
         );
     });
 
+    it.each([
+        ["end", -18],
+        ["center", 0],
+        ["start", 18],
+    ] as const)("places a %s anchor with the list padded, the padding kept in view at the ends", (align, expected) => {
+        const index = align === "end" ? 49 : 35;
+        const { vm, actions } = makeFakeVm({
+            items: eventItems(50),
+            pendingAnchor: { targetKey: `evt-${index}`, align },
+            atLiveEnd: align === "end",
+        });
+        let offset: number | undefined;
+        actions.onAnchorReached.mockImplementation(() => {
+            const edge = (box: DOMRect): number =>
+                align === "start" ? box.top : align === "center" ? (box.top + box.bottom) / 2 : box.bottom;
+            const viewport = screen.getByTestId("timeline-scroller").getBoundingClientRect();
+            offset = edge(screen.getByTestId(`row-evt-${index}`).getBoundingClientRect()) - edge(viewport);
+        });
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView vm={vm} renderItem={renderItem} paddingBlock={18} />
+            </div>,
+        );
+        expect(actions.onAnchorReached).toHaveBeenCalledExactlyOnceWith(`evt-${index}`);
+        expect(Math.abs(offset! - expected)).toBeLessThan(1);
+    });
+
     it.each(["end", "center", "start"] as const)(
         "places a %s anchor before the first paint, at the heights its rows measure",
         (align) => {
@@ -470,6 +497,56 @@ describe("<TimelineView />", () => {
         const [start, end] = actions.onVisibleRangeChanged.mock.calls.at(-1)!;
         expect(start).toBeGreaterThanOrEqual(0);
         expect(end).toBeGreaterThan(start);
+    });
+
+    it("pads the start and end of the list, and keeps the padding in view at either end", async () => {
+        const { vm, actions } = makeFakeVm({ items: eventItems(30) });
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView vm={vm} renderItem={renderItem} paddingBlock={18} />
+            </div>,
+        );
+        const scroller = screen.getByTestId("timeline-scroller");
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+
+        // Opened at the newest message, with the padding below it.
+        await waitFor(() =>
+            expect(screen.getByTestId("row-evt-29").getBoundingClientRect().bottom).toBeCloseTo(
+                scroller.getBoundingClientRect().bottom - 18,
+                0,
+            ),
+        );
+
+        scroller.scrollTop = 0;
+        await waitFor(() =>
+            expect(screen.getByTestId("row-evt-0").getBoundingClientRect().top).toBeCloseTo(
+                scroller.getBoundingClientRect().top + 18,
+                0,
+            ),
+        );
+    });
+
+    it("keeps the margins between what a row holds, as the old timeline's list keeps them between its items", async () => {
+        const { vm, actions } = makeFakeVm({ items: eventItems(1) });
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView
+                    vm={vm}
+                    renderItem={() => (
+                        <>
+                            <div data-testid="first" style={{ height: 20, marginBottom: 48 }} />
+                            <div data-testid="second" style={{ height: 20, marginTop: 8 }} />
+                        </>
+                    )}
+                />
+            </div>,
+        );
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+
+        const gap =
+            screen.getByTestId("second").getBoundingClientRect().top -
+            screen.getByTestId("first").getBoundingClientRect().bottom;
+        expect(gap).toBe(56);
     });
 
     it("tells the view model when the start is no longer shown", async () => {

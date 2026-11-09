@@ -586,6 +586,18 @@ describe("<NewTimelinePanel />", () => {
             expect(tileProps.current.map((props) => props.mxEvent)).toEqual(events);
         });
 
+        it("puts the introduction and the summary in the row side by side, as the old timeline's list items", () => {
+            dmWith(undefined);
+            withItems([{ key: "creation-$create", kind: "event-group", events: setUp(), variant: "creation" }]);
+
+            renderPanel();
+
+            // The stand-in timeline draws each row's content straight into its list, as a row does.
+            const row = screen.getByTestId("timeline-stub");
+            expect(screen.getByTestId("new-room-intro").parentElement).toBe(row);
+            expect(row.querySelector(".mx_GenericEventListSummary")!.parentElement).toBe(row);
+        });
+
         it("shows a short start of a room as its events, under the introduction", () => {
             dmWith(undefined);
             withItems([

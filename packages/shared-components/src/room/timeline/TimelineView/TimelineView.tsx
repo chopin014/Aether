@@ -100,20 +100,22 @@ type Phase = "init" | "placing" | "live";
 
 /**
  * The scroll offset that puts row `index` at `align` in the viewport, from the virtualizer's measurements, or undefined
- * when the row is unknown. TanStack places `start`, `center` and `end`; `third` puts the row's end a third of the way
- * down, as the old timeline places the unread line.
+ * when the row is unknown. TanStack places `start` and `end`, keeping the list's padding in view at either end.
+ * `center` is placed here, as TanStack would take the padding off the row's position first and place it below the
+ * middle; `third` puts the row's end a third of the way down, as the old timeline places the unread line.
  */
 function offsetForIndex(
     virtualizer: Virtualizer<HTMLDivElement, Element>,
     index: number,
     align: AnchorAlign,
 ): number | undefined {
-    if (align !== "third") return virtualizer.getOffsetForIndex(index, align)?.[0];
+    if (align === "start" || align === "end") return virtualizer.getOffsetForIndex(index, align)?.[0];
     const row = virtualizer.measurementsCache[index];
     if (!row) return undefined;
     const viewport = virtualizer.scrollRect?.height ?? 0;
     const max = Math.max(0, virtualizer.getTotalSize() - viewport);
-    return Math.min(max, Math.max(0, row.end - viewport / 3));
+    const offset = align === "center" ? row.start + (row.size - viewport) / 2 : row.end - viewport / 3;
+    return Math.min(max, Math.max(0, offset));
 }
 
 /**
@@ -163,7 +165,7 @@ function placeBeforePaint(
     );
 }
 
-export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewProps): JSX.Element {
+export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 }: TimelineViewProps): JSX.Element {
     const snapshot = useViewModel(vm);
 
     // The effects and callbacks below run outside React's render — from scroll events and
@@ -405,7 +407,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             const index = targetIndex >= 0 ? targetIndex : list.length - 1;
             const height = scrollerRef.current?.clientHeight ?? 0;
             const align = anchor?.align ?? "end";
-            const start = index * ESTIMATED_ITEM_HEIGHT;
+            const start = paddingBlock + index * ESTIMATED_ITEM_HEIGHT;
             const offset =
                 align === "start"
                     ? start
@@ -414,13 +416,19 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
                       : align === "third"
                         ? start + ESTIMATED_ITEM_HEIGHT - height / 3
                         : start + ESTIMATED_ITEM_HEIGHT - height;
-            return Math.max(0, Math.min(offset, list.length * ESTIMATED_ITEM_HEIGHT - height));
+            return Math.max(0, Math.min(offset, list.length * ESTIMATED_ITEM_HEIGHT + 2 * paddingBlock - height));
         },
         getScrollElement: () => scrollerRef.current,
         // Only consulted for rows that have not been measured yet. TanStack measures each
         // row as it renders and remembers the result by key, reusing it as rows are added,
         // trimmed or reloaded, so we do not need a size cache of our own.
         estimateSize: () => ESTIMATED_ITEM_HEIGHT,
+        // The space before the first row and after the last. Aligning a row to an end keeps it in view too, so
+        // going to the newest message shows the space below it, as at the bottom of the list.
+        paddingStart: paddingBlock,
+        paddingEnd: paddingBlock,
+        scrollPaddingStart: paddingBlock,
+        scrollPaddingEnd: paddingBlock,
         measureElement: measureRow,
         getItemKey,
         overscan: OVERSCAN,
@@ -539,8 +547,9 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             if (!startedPlacement && canPlace) {
                 startedPlacement = true;
                 if (idx >= 0) {
-                    if (align === "third") {
-                        // TanStack has no third; it is aimed at again each frame below until it lands.
+                    if (align === "third" || align === "center") {
+                        // TanStack has no third, and centres below the middle with padding (see offsetForIndex): these
+                        // are aimed at again each frame below until they land.
                         const target = offsetForIndex(virtualizer, idx, align);
                         if (target !== undefined) virtualizer.scrollToOffset(target);
                     } else {
@@ -555,7 +564,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             // leaving the virtualizer's cached offset stale after its resize compensation.
             const offset = scrollerRef.current?.scrollTop ?? virtualizer.scrollOffset ?? 0;
             const landed = startedPlacement && target !== undefined && Math.abs(target - offset) <= 1.5;
-            if (startedPlacement && !landed && align === "third" && target !== undefined) {
+            if (startedPlacement && !landed && (align === "third" || align === "center") && target !== undefined) {
                 virtualizer.scrollToOffset(target);
             }
             if ((measured && (landed || timedOut)) || (timedOut && !receivedResizeEntryRef.current)) {
