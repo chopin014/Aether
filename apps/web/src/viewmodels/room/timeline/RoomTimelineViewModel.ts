@@ -1300,25 +1300,44 @@ export class RoomTimelineViewModel
 
     /**
      * Whether `event` comes after both the receipt sent from here and the room's own receipt for us, which another
-     * device, or an earlier visit, may have moved on. The room's timelines give the order wherever they hold both
-     * events. A receipt they cannot place is taken to be ahead while the window can still page forward towards it, as
-     * the old timeline does when its receipt is outside the window. Times are not compared, as servers' clocks differ.
+     * device, or an earlier visit, may have moved on.
+     *
+     * The window gives the order when it holds both events, else the room's timelines. A receipt neither can place is
+     * taken to be ahead while the window can still page forward towards it, as the old timeline does when its receipt
+     * is outside the window, and while the window is kept from before a gap in sync, as its events can no longer be
+     * placed against the room's. Times are not compared, as servers' clocks differ.
      */
     private isAfterReceipts(event: MatrixEvent): boolean {
         const eventId = event.getId();
         if (!eventId) return false;
-        const timelineSet = this.opts.room.getUnfilteredTimelineSet();
         const receipts = [
             this.lastSentReceiptEventId,
             this.opts.room.getEventReadUpTo(this.opts.client.getSafeUserId()),
         ];
         for (const receiptId of receipts) {
             if (!receiptId) continue;
-            const order = timelineSet.compareEventOrdering(receiptId, eventId);
-            const receiptAhead = order === null ? this.timelineWindow.canPaginate(Direction.Forward) : order >= 0;
+            const order = this.orderOf(receiptId, eventId);
+            const receiptAhead =
+                order === null
+                    ? this.timelineWindow.canPaginate(Direction.Forward) || this.windowDetachedFromLive()
+                    : order >= 0;
             if (receiptAhead) return false;
         }
         return true;
+    }
+
+    /**
+     * How the event `firstId` is placed against `secondId`: below zero before it, zero for the same event, above zero
+     * after it, or null when that cannot be told. The window's order is used when it holds both, as after a gap in
+     * sync its events may be gone from the room's timelines.
+     */
+    private orderOf(firstId: string, secondId: string): number | null {
+        if (firstId === secondId) return 0;
+        const events = this.timelineWindow.getEvents();
+        const first = events.findIndex((event) => event.getId() === firstId);
+        const second = first < 0 ? -1 : events.findIndex((event) => event.getId() === secondId);
+        if (first >= 0 && second >= 0) return first - second;
+        return this.opts.room.getUnfilteredTimelineSet().compareEventOrdering(firstId, secondId);
     }
 
     // ── Requests from the room view ──────────────────────────────────

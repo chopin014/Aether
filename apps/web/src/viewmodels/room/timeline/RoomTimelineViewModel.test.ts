@@ -1810,6 +1810,26 @@ describe("RoomTimelineViewModel", () => {
             expect(receiptType).toBe(ReceiptType.Read);
         });
 
+        it("never moves the receipt back after a gap in sync, while the reader stays in older messages", async () => {
+            vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+            seedTimeline([makeMessage("$a", { user: OTHER_USER_ID }), makeMessage("$b", { user: OTHER_USER_ID })]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            await flushReceiptDebounce();
+
+            // The reader goes up to older messages, and sync skips ahead: the window they are reading stays.
+            vm.onAtBottomStateChange(false);
+            room.resetLiveTimeline("gap", undefined);
+            await new Promise((r) => setTimeout(r, 10));
+            const items = vm.getSnapshot().items;
+            vm.onVisibleRangeChanged(indexOfKey(items, "$a"), indexOfKey(items, "$a"));
+            vm.sendReadReceiptNow();
+            await new Promise((r) => setTimeout(r, 700));
+
+            expect(vi.mocked(client.sendReadReceipt).mock.calls.map(([event]) => event?.getId())).toEqual(["$b"]);
+        });
+
         it("sends a private receipt when the user has read receipts turned off", async () => {
             vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
                 if (key === "sendReadReceipts") return false;
