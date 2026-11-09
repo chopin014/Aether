@@ -152,7 +152,15 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNo
         case "date-separator":
             // The same view model as the old timeline, so the label and
             // jump-to-date menu behave identically in both.
-            return <DateSeparatorWrapper key={item.key} roomId={ctx.roomId} ts={item.ts} />;
+            return (
+                <DateSeparatorWrapper
+                    key={item.key}
+                    roomId={ctx.roomId}
+                    ts={item.ts}
+                    // Styled as the old timeline's separators are, such as in the desktop shell.
+                    className="mx_TimelineSeparator"
+                />
+            );
         case "read-marker":
             // Rendered as a div because the timeline already puts each row in
             // its own list item.

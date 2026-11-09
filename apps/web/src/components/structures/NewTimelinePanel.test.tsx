@@ -368,6 +368,14 @@ describe("<NewTimelinePanel />", () => {
         expect(screen.getByText(/today/i)).toBeInTheDocument();
     });
 
+    it("styles a date separator as the old timeline does", () => {
+        withItems([{ key: "$sep", kind: "date-separator", ts: Date.now() } as TimelineItem]);
+
+        const { container } = renderPanel();
+
+        expect(container.querySelector(".mx_TimelineSeparator")).toHaveTextContent(/today/i);
+    });
+
     it("draws nothing for a gap, matching the old timeline", () => {
         withItems([{ key: "$gap", kind: "gap" } as TimelineItem]);
 
