@@ -661,6 +661,25 @@ describe("RoomTimelineViewModel", () => {
             expect(galleryKeys()).toEqual(["gallery-$second"]);
         });
 
+        it("draws each picture in a gallery from its own row, closing its section only where it ends", async () => {
+            seedTimeline([
+                makePicture("$first"),
+                makePicture("$second", { ts: T0 + 1000 }),
+                makePicture("$third", { ts: T0 + 2000 }),
+                makeMessage("$after", { ts: T0 + 3000 }),
+            ]);
+            const vm = await createStartedViewModel();
+            const gallery = vm.getSnapshot().items.find((item) => item.kind === "event-group");
+            // The message after the pictures continues them, so the last picture does not close the section.
+            expect(
+                gallery?.kind === "event-group" &&
+                    gallery.rows?.map((row) => [row.key, row.continuation, row.lastInSection]),
+            ).toEqual([
+                ["$second", true, false],
+                ["$third", true, false],
+            ]);
+        });
+
         it("keeps pictures in rows of their own outside the desktop shell", async () => {
             vi.mocked(SettingsStore).getValue.mockImplementation((key): any => key === "sendReadReceipts");
             seedTimeline([makePicture("$first"), makePicture("$second", { ts: T0 + 1000 })]);

@@ -2313,7 +2313,10 @@ export class RoomTimelineViewModel
                       : fresh;
                 usedKeys.add(key);
                 for (const event of events) this.galleryGroupKeys.set(event, key);
-                result.push({ kind: "event-group", key, events, variant: "gallery" });
+                // Each picture's own row comes along, so it is drawn as it would be on its own, as the old timeline
+                // draws the tiles in a gallery: continuing the one before, and closing its section before a message
+                // that does not continue it.
+                result.push({ kind: "event-group", key, events, rows: rest, variant: "gallery" });
             }
             if (marker) result.push(marker);
         }

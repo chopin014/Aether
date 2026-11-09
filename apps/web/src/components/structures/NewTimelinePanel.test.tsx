@@ -475,6 +475,38 @@ describe("<NewTimelinePanel />", () => {
         expect(tileProps.current.map((props) => props.sendState)).toEqual([undefined, undefined, undefined, "sending"]);
     });
 
+    describe("a gallery", () => {
+        const pictures = (): MatrixEvent[] =>
+            Array.from({ length: 2 }, (_, index) =>
+                mkMessage({ room: ROOM_ID, user: USER_ID, msg: `picture ${index}`, event: true }),
+            );
+        // The message after the pictures continues them, so neither closes the section.
+        const continuing = (event: MatrixEvent): TimelineItem =>
+            eventRow(event, { continuation: true, lastInSection: false });
+        const gallery = (events: MatrixEvent[]): TimelineItem =>
+            ({
+                key: `gallery-${events[0].getId()}`,
+                kind: "event-group",
+                events,
+                variant: "gallery",
+                rows: events.map(continuing),
+            }) as TimelineItem;
+
+        it("draws each picture from its own row", () => {
+            const events = pictures();
+            withItems([gallery(events)]);
+
+            renderPanel();
+
+            expect(
+                tileProps.current.map((props) => [props.mxEvent, props.as, props.continuation, props.lastInSection]),
+            ).toEqual([
+                [events[0], "li", true, false],
+                [events[1], "li", true, false],
+            ]);
+        });
+    });
+
     describe("the start of a room", () => {
         const setUp = (): MatrixEvent[] => [
             mkMembership({ room: ROOM_ID, user: USER_ID, skey: USER_ID, mship: "join", event: true }),

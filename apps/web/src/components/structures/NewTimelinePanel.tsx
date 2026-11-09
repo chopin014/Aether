@@ -141,16 +141,14 @@ function groupedEvent(event: MatrixEvent, continuation = false, lastInSection = 
  * Pictures one person sent together, after the first of them, as a grid under it, as the old timeline's
  * `GalleryGrouper` draws them. Each picture is still its own tile, with its own actions and reactions.
  */
-function renderGallery(key: string, events: MatrixEvent[], ctx: RenderItemContext): ReactNode {
-    const columns = galleryColumns(events.length);
+function renderGallery(key: string, rows: TimelineItem[], ctx: RenderItemContext): ReactNode {
+    const columns = galleryColumns(rows.length);
     const style = { "--mx-desktop-gallery-columns": columns } as CSSProperties;
     return (
         <div key={key} className="mx_DesktopGallery">
             <ol className="mx_DesktopGallery_list" style={style} data-columns={columns}>
-                {events.map((event, index) =>
-                    // Pictures after the first continue it; the grid's styles expect tiles as its list items.
-                    renderTimelineItem(groupedEvent(event, true, index === events.length - 1), ctx, "li"),
-                )}
+                {/* The grid's styles expect tiles as its list items. */}
+                {rows.map((row) => renderTimelineItem(row, ctx, "li"))}
             </ol>
         </div>
     );
@@ -230,7 +228,12 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext, tileAs: 
         case "event-group": {
             const events = item.events as MatrixEvent[];
             if (item.variant === "creation") return renderCreation(item.key, events, ctx);
-            if (item.variant === "gallery") return renderGallery(item.key, events, ctx);
+            if (item.variant === "gallery") {
+                // Pictures after the first continue it, as the old timeline draws them when the rows do not say.
+                const rows =
+                    item.rows ?? events.map((event, index) => groupedEvent(event, true, index === events.length - 1));
+                return renderGallery(item.key, rows, ctx);
+            }
             // Always a fragment, so the summary keeps its state when the start of the room is reached.
             return (
                 <Fragment key={item.key}>
