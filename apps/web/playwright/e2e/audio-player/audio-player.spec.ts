@@ -16,6 +16,7 @@ import { SettingLevel } from "../../../src/settings/SettingLevel";
 import { Layout } from "../../../src/settings/enums/Layout";
 import type { ElementAppPage } from "../../pages/ElementAppPage";
 import { getSampleFilePath } from "../../sample-files";
+import { messageList } from "../../pages/timeline";
 
 // Find and click "Reply" button
 const clickButtonReply = async (tile: Locator) => {
@@ -78,7 +79,7 @@ test.describe("Audio player", { tag: ["@no-firefox", "@no-webkit"] }, () => {
     };
 
     const scrollToBottomOfTimeline = async (page: Page) => {
-        await page.locator(".mx_RoomView_MessageList").click();
+        await messageList(page).click();
         await page.mouse.wheel(0, 100);
     };
 
@@ -346,14 +347,14 @@ test.describe("Audio player", { tag: ["@no-firefox", "@no-webkit"] }, () => {
         await uploadFile(app, "1sec-long-name-audio-file.ogg");
 
         // On the main timeline
-        const messageList = page.locator(".mx_RoomView_MessageList");
+        const roomMessages = messageList(page);
         // Assert the audio player is rendered
         await expect(
-            messageList.locator(".mx_EventTile").last().getByRole("region", { name: "Audio player" }),
+            roomMessages.locator(".mx_EventTile").last().getByRole("region", { name: "Audio player" }),
         ).toBeVisible();
         // Find and click "Reply in thread" button
-        await messageList.locator(".mx_EventTile").last().hover();
-        await messageList.locator(".mx_EventTile").last().getByRole("button", { name: "Reply in thread" }).click();
+        await roomMessages.locator(".mx_EventTile").last().hover();
+        await roomMessages.locator(".mx_EventTile").last().getByRole("button", { name: "Reply in thread" }).click();
 
         // On a thread
         const thread = page.locator(".mx_ThreadView");

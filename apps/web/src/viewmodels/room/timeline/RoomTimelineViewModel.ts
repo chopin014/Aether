@@ -225,6 +225,8 @@ export class RoomTimelineViewModel
 
     /** Set while a rebuild is queued for the next microtask; see {@link scheduleRebuild}. */
     private rebuildQueued = false;
+    /** Set when a rebuild was asked for while a load ran, so it still happens if the load ends without building. */
+    private rebuildAfterLoad = false;
     /** Whether the reader is going to the unread line, which has a row whatever its event is grouped in. */
     private navigationToReadMarker = false;
     /** Whether the view has placed the reader since the window was last loaded, so rows shown are being read. */
@@ -314,8 +316,8 @@ export class RoomTimelineViewModel
     private sendReadReceiptOnLoad: boolean;
     /** Set when a load finishes, so the first range seen once it is placed is read; see `sendReadReceiptOnLoad`. */
     private receiptOnPlacement = false;
-    /** Whether the reader was active when what waits for a receipt came into view; see {@link scheduleReadReceipt}. */
-    private seenWhileActive = false;
+    /** The newest message that came into view while the reader was active, until it is read; see {@link scheduleReadReceipt}. */
+    private seenWhileActiveEventId: string | null = null;
 
     /**
      * Debouncer for items rebuilds after a burst of Decrypted events.
@@ -491,6 +493,19 @@ export class RoomTimelineViewModel
         );
         // Other users' read receipts moving.
         this.disposables.trackListener(this.opts.room, RoomEvent.Receipt, this.onRoomReceipt);
+        // Messages removed, or their removal undone, which changes whether and how their rows are drawn. A removal
+        // the server sends also arrives as a timeline event, but one applied here, such as by a retention policy, and
+        // a cancelled one do not.
+        this.disposables.trackListener(
+            this.opts.room,
+            RoomEvent.Redaction,
+            this.onRoomRedaction as (...args: unknown[]) => void,
+        );
+        this.disposables.trackListener(
+            this.opts.room,
+            RoomEvent.RedactionCancelled,
+            this.onRoomRedaction as (...args: unknown[]) => void,
+        );
         // The SDK starting a new live timeline after a gap in sync. The room re-emits it from its timeline sets.
         this.disposables.trackListener(
             this.opts.room,
@@ -846,6 +861,16 @@ export class RoomTimelineViewModel
      * {@link onRoomTimeline} extends the window to hold it); a rebuild in between would find it in
      * neither and drop its row for a frame.
      */
+    /** A message was removed, or its removal undone: rebuild if it is in the window, as the old timeline redraws. */
+    private onRoomRedaction = (redaction: MatrixEvent): void => {
+        if (this.isDisposed) return;
+        const redactedId = redaction.event.redacts ?? redaction.getContent().redacts;
+        if (typeof redactedId === "string" && !this.timelineWindow.getEvents().some((e) => e.getId() === redactedId)) {
+            return;
+        }
+        this.scheduleRebuild();
+    };
+
     private onLocalEchoUpdated = (event: MatrixEvent, _room: Room, oldEventId?: string): void => {
         if (this.isDisposed) return;
         // Keep the row's continuation decision, so its avatar does not flip when the id changes.
@@ -862,16 +887,25 @@ export class RoomTimelineViewModel
 
     /**
      * Rebuild and republish on the next microtask. Requests made before it runs share that one
-     * rebuild, so changes fired together publish once. Does nothing while a {@link load} is
-     * running: its own build, when it finishes, includes whatever is pending by then, and a
-     * rebuild in the meantime would publish a half-loaded window without the load's anchor.
+     * rebuild, so changes fired together publish once. Waits while a {@link load} is running: its
+     * own build, when it finishes, includes whatever is pending by then, and a rebuild in the
+     * meantime would publish a half-loaded window without the load's anchor. A load that ends
+     * without building, such as one that fails, rebuilds afterwards instead.
      */
     private scheduleRebuild(): void {
-        if (this.rebuildQueued || this.loading) return;
+        if (this.loading) {
+            this.rebuildAfterLoad = true;
+            return;
+        }
+        if (this.rebuildQueued) return;
         this.rebuildQueued = true;
         queueMicrotask(() => {
             this.rebuildQueued = false;
-            if (this.isDisposed || this.loading) return;
+            if (this.isDisposed) return;
+            if (this.loading) {
+                this.rebuildAfterLoad = true;
+                return;
+            }
             const rowCountBefore = this.snapshot.current.items.length;
             this.commitItems(this.buildItems());
             this.republish("local-echo", {
@@ -1012,6 +1046,8 @@ export class RoomTimelineViewModel
             // Snapshot the read-marker for the duration of this session. Must run
             // BEFORE buildItems so it sees the frozen value.
             this.freezeReadMarkerForSession();
+            // This build takes in every change asked for while the load ran.
+            this.rebuildAfterLoad = false;
             const items = this.buildItems();
             debug(`[TimelineVM] load() done — ${windowEvents.length} events → ${items.length} items after filtering`);
 
@@ -1023,7 +1059,7 @@ export class RoomTimelineViewModel
             // the live-end anchor below.
             if (target.kind === "permalink" && target.toReadMarker && items.some((i) => i.kind === "read-marker")) {
                 // Going to the unread line lands on the line, wherever its event is drawn.
-                pendingAnchor = { targetKey: "read-marker", align: "center" };
+                pendingAnchor = { targetKey: "read-marker", align: "third" };
             } else if (target.kind === "permalink") {
                 if (items.some((i) => i.key === target.eventId)) {
                     pendingAnchor = { targetKey: target.eventId, align: "center" };
@@ -1090,7 +1126,14 @@ export class RoomTimelineViewModel
             this.forwardSpinnerVisible = false;
             this.republish(`load(${target.kind})-error`);
         } finally {
-            if (generation === this.loadGeneration) this.loading = false;
+            if (generation === this.loadGeneration) {
+                this.loading = false;
+                // A load that ended without building, such as one that failed, leaves those changes to draw now.
+                if (this.rebuildAfterLoad) {
+                    this.rebuildAfterLoad = false;
+                    this.scheduleRebuild();
+                }
+            }
         }
     }
 
@@ -1276,14 +1319,20 @@ export class RoomTimelineViewModel
     /** Debounce sending a read receipt for the last visible event. */
     private scheduleReadReceipt(): void {
         // The old timeline reads what is on screen every half second the reader is active, so a message that comes
-        // into view while they are active is read even if they stop before the debounce below ends.
-        if (UserActivity.sharedInstance().userActiveNow()) this.seenWhileActive = true;
+        // into view while they are active is read even if they stop before the debounce below ends. Only that message:
+        // what comes into view after they stopped waits for them.
+        if (UserActivity.sharedInstance().userActiveNow()) this.seenWhileActiveEventId = this.lastBottomEventId;
         if (this.readReceiptDebounceTimer !== null) clearTimeout(this.readReceiptDebounceTimer);
         this.readReceiptDebounceTimer = setTimeout(() => {
             this.readReceiptDebounceTimer = null;
-            const seen = this.seenWhileActive;
-            this.seenWhileActive = false;
-            this.sendAutoReadReceipt(!seen);
+            const seen = this.seenWhileActiveEventId;
+            this.seenWhileActiveEventId = null;
+            if (seen === null || UserActivity.sharedInstance().userActiveNow()) {
+                this.sendAutoReadReceipt();
+                return;
+            }
+            this.sendAutoReadReceipt(false, seen);
+            if (this.lastBottomEventId !== seen) this.sendReceiptWhenActive();
         }, READ_RECEIPT_DEBOUNCE_MS);
     }
 
@@ -1298,29 +1347,26 @@ export class RoomTimelineViewModel
      * is around (see {@link moveReadMarkerOnWhileActive}), and the divider drawn for this
      * visit stays where it is.
      */
-    private sendAutoReadReceipt(requireActivity = true): void {
+    private sendAutoReadReceipt(requireActivity = true, target: string | null = this.lastBottomEventId): void {
         if (this.isDisposed) return;
         // Someone previewing a room they have not joined cannot send receipts there.
         if (this.opts.room.getMyMembership() !== KnownMembership.Join) return;
+        // As the old timeline does, nothing is sent in low-bandwidth mode.
+        if (SettingsStore.getValue("lowBandwidth")) return;
         // Messages arriving in a window nobody is looking at have not been read. Wait until the user is back,
         // as the old timeline does.
         if (requireActivity && !UserActivity.sharedInstance().userActiveNow()) {
             this.sendReceiptWhenActive();
             return;
         }
-        const eventId = this.lastBottomEventId;
+        const eventId = target;
         if (!eventId || eventId === this.lastSentReceiptEventId) return;
 
         const event = this.timelineWindow.getEvents().find((e) => e.getId() === eventId);
         if (!event) return;
 
-        // Don't rewind — only advance if this event is newer than the last receipted one.
-        if (this.lastSentReceiptEventId) {
-            const lastSentEvent = this.timelineWindow
-                .getEvents()
-                .find((e) => e.getId() === this.lastSentReceiptEventId);
-            if (lastSentEvent && lastSentEvent.getTs() >= event.getTs()) return;
-        }
+        // Don't rewind — only advance past the receipt sent from here and the room's own.
+        if (!this.isAfterReceipts(event)) return;
 
         this.lastSentReceiptEventId = eventId;
         const receiptType = SettingsStore.getValue("sendReadReceipts", this.opts.room.roomId)
@@ -1332,6 +1378,37 @@ export class RoomTimelineViewModel
             this.lastSentReceiptEventId = null; // allow retry
             logger.warn(`[TimelineVM] sendAutoReadReceipt — sendReadReceipt failed`, err);
         });
+    }
+
+    /**
+     * Whether `event` comes after both the receipt sent from here and the room's own receipt for us, which another
+     * device, or an earlier visit, may have moved on. Compared by position in the window, else by time; a receipt that
+     * cannot be placed is taken to be ahead while the window can still page forward towards it, as the old timeline
+     * does when its receipt is outside the window.
+     */
+    private isAfterReceipts(event: MatrixEvent): boolean {
+        const events = this.timelineWindow.getEvents();
+        const index = events.indexOf(event);
+        const receipts = [
+            this.lastSentReceiptEventId,
+            this.opts.room.getEventReadUpTo(this.opts.client.getSafeUserId()),
+        ];
+        for (const receiptId of receipts) {
+            if (!receiptId) continue;
+            if (receiptId === event.getId()) return false;
+            const at = events.findIndex((e) => e.getId() === receiptId);
+            if (at >= 0) {
+                if (at > index) return false;
+                continue;
+            }
+            const receipted = this.opts.room.findEventById(receiptId);
+            if (receipted) {
+                if (receipted.getTs() >= event.getTs()) return false;
+                continue;
+            }
+            if (this.timelineWindow.canPaginate(Direction.Forward)) return false;
+        }
+        return true;
     }
 
     // ── Requests from the room view ──────────────────────────────────
@@ -1402,7 +1479,7 @@ export class RoomTimelineViewModel
             this.supersedeLoads();
             this.navigationEventId = this.frozenMarkerEventId;
             this.navigationToReadMarker = true;
-            this.mergeSnapshot({ pendingAnchor: { targetKey: marker.key, align: "center" } }, "jump-to-marker");
+            this.mergeSnapshot({ pendingAnchor: { targetKey: marker.key, align: "third" } }, "jump-to-marker");
         } else if (this.frozenMarkerEventId) {
             void this.load({ kind: "permalink", eventId: this.frozenMarkerEventId, toReadMarker: true });
         }
@@ -1428,6 +1505,7 @@ export class RoomTimelineViewModel
     public sendReadReceiptNow(): void {
         if (this.readReceiptDebounceTimer !== null) clearTimeout(this.readReceiptDebounceTimer);
         this.readReceiptDebounceTimer = null;
+        this.seenWhileActiveEventId = null;
         this.sendAutoReadReceipt(false);
     }
 
@@ -1484,7 +1562,8 @@ export class RoomTimelineViewModel
             this.supersedeLoads();
             this.navigationEventId = this.frozenMarkerEventId;
             this.navigationToReadMarker = true;
-            scrollNow({ targetKey: readMarkerKey, align: "center" });
+            // A third of the way down, as the old timeline places the line, with the unread messages below it.
+            scrollNow({ targetKey: readMarkerKey, align: "third" });
         } else if (this.frozenMarkerEventId && this.timelineWindow.canPaginate(Direction.Backward)) {
             // Frozen marker is not in the current window — reload at it.
             // pendingAnchor gets set inside load() and drives the post-load scroll.

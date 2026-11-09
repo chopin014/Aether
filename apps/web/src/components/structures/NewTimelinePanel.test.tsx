@@ -371,6 +371,14 @@ describe("<NewTimelinePanel />", () => {
         expect(screen.getByText(/today/i)).toBeInTheDocument();
     });
 
+    it("styles a date separator as the old timeline does", () => {
+        withItems([{ key: "$sep", kind: "date-separator", ts: Date.now() } as TimelineItem]);
+
+        const { container } = renderPanel();
+
+        expect(container.querySelector(".mx_TimelineSeparator")).toHaveTextContent(/today/i);
+    });
+
     it("draws nothing for a gap, matching the old timeline", () => {
         withItems([{ key: "$gap", kind: "gap" } as TimelineItem]);
 
@@ -379,12 +387,24 @@ describe("<NewTimelinePanel />", () => {
         expect(screen.getByTestId("timeline-stub")).toBeEmptyDOMElement();
     });
 
-    it("falls back to the modern layout when IRC is selected", () => {
+    it("lays messages out as IRC, with the name column's drag handle, when IRC is selected", () => {
         withItems([eventRow(event)]);
 
-        renderPanel({ layout: Layout.IRC });
+        const { container } = renderPanel({ layout: Layout.IRC });
 
-        expect(tileProps.current[0].layout).toBe(Layout.Group);
+        expect(tileProps.current[0].layout).toBe(Layout.IRC);
+        const panel = container.querySelector(".mx_NewTimelinePanel");
+        expect(panel).toHaveClass("mx_IRCLayout");
+        expect(panel?.querySelector(":scope > .mx_ProfileResizer")).not.toBeNull();
+    });
+
+    it("has no IRC name column in other layouts", () => {
+        withItems([eventRow(event)]);
+
+        const { container } = renderPanel({ layout: Layout.Group });
+
+        expect(container.querySelector(".mx_NewTimelinePanel")).not.toHaveClass("mx_IRCLayout");
+        expect(container.querySelector(".mx_ProfileResizer")).toBeNull();
     });
 
     it("passes the message layout through unchanged", () => {
