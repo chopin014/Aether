@@ -267,6 +267,55 @@ describe("<NewTimelinePanel />", () => {
         expect(tileMounts.current).toBe(1);
     });
 
+    describe("when a message shown is removed", () => {
+        const rerenderPanel = (view: ReturnType<typeof renderPanel>): void =>
+            view.rerender(
+                <MatrixClientContext.Provider value={client}>
+                    <SDKContext.Provider value={new TestSDKContext()}>
+                        <NewTimelinePanel room={room} />
+                    </SDKContext.Provider>
+                </MatrixClientContext.Provider>,
+            );
+
+        it("tells its tile, as the message keeps its identity", () => {
+            withItems([eventRow(event)]);
+            const view = renderPanel();
+            expect(tileProps.current.at(-1)?.isRedacted).toBe(false);
+
+            // The view model redraws the row with the same message, now removed.
+            vi.spyOn(event, "isRedacted").mockReturnValue(true);
+            withItems([eventRow(event)]);
+            rerenderPanel(view);
+
+            expect(tileProps.current.at(-1)?.mxEvent).toBe(event);
+            expect(tileProps.current.at(-1)?.isRedacted).toBe(true);
+            expect(tileMounts.current).toBe(1);
+        });
+
+        it("tells its tile inside a summary", () => {
+            const other = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "other", event: true });
+            const summary = (): TimelineItem =>
+                ({
+                    key: "summary-$first-0",
+                    kind: "event-group",
+                    events: [event, other],
+                    rows: [eventRow(event), eventRow(other)],
+                }) as TimelineItem;
+            withItems([summary()]);
+            const view = renderPanel();
+
+            vi.spyOn(event, "isRedacted").mockReturnValue(true);
+            tileProps.current = [];
+            withItems([summary()]);
+            rerenderPanel(view);
+
+            expect(tileProps.current.map((props) => [props.mxEvent, props.isRedacted])).toEqual([
+                [event, true],
+                [other, false],
+            ]);
+        });
+    });
+
     it("marks the newest event's tile as the last, so its time shows, as in the old timeline", () => {
         const newer = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "newer", event: true });
         withItems([eventRow(event), eventRow(newer), { kind: "loading", key: "forward-loading" }]);
@@ -858,7 +907,7 @@ describe("<NewTimelinePanel />", () => {
 
     describe("read receipts", () => {
         const eventRow = (): TimelineItem =>
-            ({ key: event.getId()!, kind: "event", continuation: false, lastInSection: true }) as TimelineItem;
+            ({ key: event.getId()!, kind: "event", event, continuation: false, lastInSection: true }) as TimelineItem;
 
         it("renders receipts provided by the view model", () => {
             const receipts = [{ userId: "@bob:example.org", roomMember: null, ts: 1000 }];
@@ -878,7 +927,13 @@ describe("<NewTimelinePanel />", () => {
             withItems(
                 [
                     eventRow(),
-                    { key: other.getId()!, kind: "event", continuation: false, lastInSection: true } as TimelineItem,
+                    {
+                        key: other.getId()!,
+                        kind: "event",
+                        event: other,
+                        continuation: false,
+                        lastInSection: true,
+                    } as TimelineItem,
                 ],
                 { lastSuccessfulEventId: other.getId() },
             );
