@@ -28,6 +28,60 @@ export function topLevelTiles(page: Page): Locator {
         .locator(".mx_RoomView_MessageList > .mx_EventTile, .mx_TimelineView_list > li > .mx_EventTile");
 }
 
+/**
+ * Scroll the room's timeline until `tile` is drawn, then bring it into view. The new timeline only draws the rows near
+ * the screen, so a message further away has no element to find until the timeline is scrolled to it; the old timeline
+ * draws every loaded message, and this only brings it into view.
+ *
+ * Each direction is searched in turn, by most of a screen at a time. At either end the search waits while messages are
+ * still being paged in, and moves on once nothing more comes.
+ *
+ * @param page - the page the room is open in
+ * @param tile - the tile to find, which should match one element once it is drawn
+ * @param options.directions - where to look, in order: 1 towards newer messages, -1 towards older ones
+ * @param options.timeout - how long the whole search may take, in milliseconds
+ */
+export async function scrollTimelineTo(
+    page: Page,
+    tile: Locator,
+    { directions = [1, -1], timeout = 10_000 }: { directions?: Array<1 | -1>; timeout?: number } = {},
+): Promise<void> {
+    const scroller = timelineScroller(page);
+    const deadline = Date.now() + timeout;
+    const remaining = (): number => {
+        const left = deadline - Date.now();
+        if (left <= 0) throw new Error(`Timed out after ${timeout}ms scrolling the timeline to ${tile}`);
+        return left;
+    };
+    for (const direction of directions) {
+        // How many times running the end was reached with nothing new to show.
+        let idle = 0;
+        while ((await tile.count()) === 0) {
+            remaining();
+            const { moved, height } = await scroller.evaluate((element, step) => {
+                const before = element.scrollTop;
+                element.scrollTop += step * element.clientHeight * 0.8;
+                return { moved: element.scrollTop !== before, height: element.scrollHeight };
+            }, direction);
+            // Give the timeline a frame to draw the rows it has scrolled to.
+            await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+            if (moved) {
+                idle = 0;
+                continue;
+            }
+            // At the end. Older or newer messages may still be on their way: wait while either timeline shows it is
+            // paging, or the list is still growing. Give up on this direction once nothing has come for a while.
+            await page.waitForTimeout(100);
+            const paging = (await scroller.getByRole("progressbar").count()) > 0;
+            const grew = (await scroller.evaluate((element) => element.scrollHeight)) !== height;
+            idle = paging || grew ? 0 : idle + 1;
+            if (idle >= 10) break;
+        }
+        if ((await tile.count()) > 0) break;
+    }
+    await tile.scrollIntoViewIfNeeded({ timeout: remaining() });
+}
+
 export class Timeline {
     constructor(private page: Page) {}
 

@@ -6,9 +6,11 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import React, {
+    Fragment,
     useCallback,
     useEffect,
     useImperativeHandle,
+    useMemo,
     useRef,
     useState,
     type JSX,
@@ -17,6 +19,7 @@ import React, {
 } from "react";
 import {
     TimelineView,
+    tileKeyOf,
     useCreateAutoDisposedViewModel,
     useViewModel,
     type TimelineItem,
@@ -35,6 +38,7 @@ import {
 } from "matrix-js-sdk/src/matrix";
 import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
 import { RoomTimelineViewModel } from "../../viewmodels/room/timeline/RoomTimelineViewModel";
+import { sendStateOf } from "../../viewmodels/room/timeline/sendState";
 import { useMatrixClientContext } from "../../contexts/MatrixClientContext";
 import { LegacyEventTileAdapter } from "../views/rooms/LegacyEventTileAdapter";
 import type { GetRelationsForEvent, IReadReceiptProps } from "../views/rooms/EventTile";
@@ -47,6 +51,7 @@ import { DateSeparatorWrapper } from "./DateSeparatorWrapper";
 import EventListSummary from "../views/elements/EventListSummary";
 import GenericEventListSummary from "../views/elements/GenericEventListSummary";
 import NewRoomIntro from "../views/rooms/NewRoomIntro";
+import HistoryTile from "../views/rooms/HistoryTile";
 import IRCTimelineProfileResizer from "../views/elements/IRCTimelineProfileResizer";
 import DMRoomMap from "../../utils/DMRoomMap";
 import type { IReadReceiptPosition } from "../views/rooms/ReadReceiptMarker";
@@ -111,10 +116,36 @@ interface RenderItemContext {
     readReceiptMap: { [userId: string]: IReadReceiptPosition };
     /** The message showing a "Sent" tick in place of read receipts, if any. */
     lastSuccessfulEventId: string | null;
+    /** The newest event drawn, whose tile always shows its time, as in the old timeline. */
+    lastEventId: string | null;
     isTwelveHour: boolean;
     alwaysShowTimestamps: boolean;
     editState?: EditorStateTransfer;
     getRelationsForEvent: GetRelationsForEvent;
+}
+
+/** The newest event among the rows, including one inside a summary, or null when there is none. */
+function lastEventIdOf(items: readonly TimelineItem[]): string | null {
+    for (let i = items.length - 1; i >= 0; i--) {
+        const item = items[i];
+        if (item.kind === "event") return item.key;
+        if (item.kind === "event-group" && item.events.length > 0) {
+            return (item.events[item.events.length - 1] as MatrixEvent).getId() ?? null;
+        }
+    }
+    return null;
+}
+
+/** A row for one event drawn inside a group, with its send state read as the view model reads a row's own. */
+function groupedEvent(event: MatrixEvent): TimelineItem {
+    return {
+        kind: "event",
+        key: event.getId()!,
+        event,
+        continuation: false,
+        lastInSection: true,
+        sendState: sendStateOf(event),
+    };
 }
 
 /**
@@ -140,12 +171,7 @@ function renderCreation(key: string, events: MatrixEvent[], ctx: RenderItemConte
                 layout={ctx.effectiveLayout}
             >
                 {events.map((event) => (
-                    <li key={event.getId()}>
-                        {renderTimelineItem(
-                            { kind: "event", key: event.getId()!, event, continuation: false, lastInSection: true },
-                            ctx,
-                        )}
-                    </li>
+                    <li key={event.getId()}>{renderTimelineItem(groupedEvent(event), ctx)}</li>
                 ))}
             </GenericEventListSummary>
         </div>
@@ -192,23 +218,26 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNo
         case "event-group": {
             const events = item.events as MatrixEvent[];
             if (item.variant === "creation") return renderCreation(item.key, events, ctx);
+            // Always a fragment, so the summary keeps its state when the start of the room is reached.
             return (
-                <EventListSummary key={item.key} as="div" events={events} layout={ctx.effectiveLayout}>
-                    {events.map((event) => (
-                        <li key={event.getId()}>
-                            {renderTimelineItem(
-                                {
-                                    kind: "event",
-                                    key: event.getId()!,
-                                    event,
-                                    continuation: false,
-                                    lastInSection: true,
-                                },
-                                ctx,
-                            )}
-                        </li>
-                    ))}
-                </EventListSummary>
+                <Fragment key={item.key}>
+                    {/* As in the old timeline, say why there is nothing earlier to see. */}
+                    {item.startsHistory ? <HistoryTile key="history" /> : null}
+                    <EventListSummary
+                        key="summary"
+                        as="div"
+                        events={events}
+                        layout={ctx.effectiveLayout}
+                        // The tiles inside change with the rest of the timeline, such as which is the newest.
+                        updateChildren
+                    >
+                        {(item.rows ?? events.map(groupedEvent)).map((row) => (
+                            // Each as it would be drawn on its own, as MessagePanel draws every tile: continuing the
+                            // message before it, or still being sent, such as messages a module sums up.
+                            <li key={tileKeyOf(row)}>{renderTimelineItem(row, ctx)}</li>
+                        ))}
+                    </EventListSummary>
+                </Fragment>
             );
         }
         case "event": {
@@ -219,11 +248,12 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNo
             // send migrated types to their shared views instead.
             return (
                 <LegacyEventTileAdapter
-                    key={item.key}
+                    key={tileKeyOf(item)}
                     mxEvent={mxEvent}
                     continuation={item.continuation}
                     lastInSection={item.lastInSection}
                     lastSuccessful={item.key === ctx.lastSuccessfulEventId}
+                    last={item.key === ctx.lastEventId}
                     layout={ctx.effectiveLayout}
                     isSelectedEvent={ctx.highlightedId !== null && item.key === ctx.highlightedId}
                     // A tile treats any edit state it is given as its own, so
@@ -393,6 +423,7 @@ export function NewTimelinePanel({
 
     const snapshot = useViewModel(vm);
     const { highlightedEventId: highlightedId, readReceiptsByEvent, lastSuccessfulEventId } = snapshot;
+    const lastEventId = useMemo(() => lastEventIdOf(snapshot.items), [snapshot.items]);
 
     // Where each user's receipt avatar was last drawn; see RenderItemContext. Lives as long as
     // the panel, which is recreated per room, just like MessagePanel's copy.
@@ -411,6 +442,7 @@ export function NewTimelinePanel({
                 readReceiptsByEvent,
                 readReceiptMap: readReceiptMap.current,
                 lastSuccessfulEventId,
+                lastEventId,
                 isTwelveHour,
                 alwaysShowTimestamps,
                 editState,
@@ -426,6 +458,7 @@ export function NewTimelinePanel({
             showReadReceipts,
             readReceiptsByEvent,
             lastSuccessfulEventId,
+            lastEventId,
             isTwelveHour,
             alwaysShowTimestamps,
             editState,

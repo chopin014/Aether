@@ -106,6 +106,20 @@ function renderTimeline(vm: TimelineViewModel): RenderResult {
 }
 
 describe("<TimelineView />", () => {
+    it("keeps a row as its key changes while its tile key stays, as for a message the server confirms", async () => {
+        const items = eventItems(5);
+        const mine = { ...items[4], key: "~local", tileKey: "txn-1" } as TimelineItem;
+        const { vm, actions, update } = makeFakeVm({ items: [...items.slice(0, 4), mine] });
+        renderTimeline(vm);
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+        const row = screen.getByTestId("row-~local").closest("li");
+
+        update({ items: [...items.slice(0, 4), { ...mine, key: "evt-4" }] });
+
+        await waitFor(() => expect(screen.getByTestId("row-evt-4")).toBeInTheDocument());
+        expect(screen.getByTestId("row-evt-4").closest("li")).toBe(row);
+    });
+
     it("reports painted viewport rows after reveal without including overscan rows", async () => {
         const { vm } = makeFakeVm({ items: eventItems(30) });
         const painted = vi.fn();
@@ -640,6 +654,187 @@ describe("<TimelineView />", () => {
             screen.getByTestId("timeline-scroller").getBoundingClientRect().top,
             0,
         );
+    });
+
+    describe("when messages arrive at the bottom", () => {
+        const distanceFromBottom = (el: HTMLElement): number => el.scrollHeight - el.scrollTop - el.clientHeight;
+
+        it("never tells the view model the reader left the bottom while it follows them", async () => {
+            const { vm, actions, update } = makeFakeVm({ items: eventItems(30) });
+            renderTimeline(vm);
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+            await waitFor(() => expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(true));
+            actions.onAtBottomStateChange.mockClear();
+
+            // A burst, as when sync brings many messages at once.
+            for (let count = 31; count <= 60; count++) update({ items: eventItems(count) });
+
+            const scroller = screen.getByTestId("timeline-scroller");
+            await waitFor(() => expect(screen.getByTestId("row-evt-59")).toBeInTheDocument());
+            await waitFor(() => expect(distanceFromBottom(scroller)).toBeLessThanOrEqual(1));
+            expect(actions.onAtBottomStateChange).not.toHaveBeenCalledWith(false);
+        });
+
+        it("follows a short list that grows past the screen, as in a new room", async () => {
+            const { vm, actions, update } = makeFakeVm({ items: eventItems(3) });
+            renderTimeline(vm);
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+            await waitFor(() => expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(true));
+            actions.onAtBottomStateChange.mockClear();
+
+            for (let count = 4; count <= 50; count++) update({ items: eventItems(count) });
+
+            const scroller = screen.getByTestId("timeline-scroller");
+            await waitFor(() => expect(screen.getByTestId("row-evt-49")).toBeInTheDocument());
+            await waitFor(() => expect(distanceFromBottom(scroller)).toBeLessThanOrEqual(1));
+            expect(actions.onAtBottomStateChange).not.toHaveBeenCalledWith(false);
+        });
+
+        it("stays at the bottom when new rows grow just after they arrive, as a sent message's does", async () => {
+            // A message being sent is drawn, then grows a little once the server has it.
+            const Growing = ({ id }: { id: string }): React.JSX.Element => {
+                const [grown, setGrown] = React.useState(false);
+                React.useEffect(() => {
+                    const timer = setTimeout(() => setGrown(true), 30);
+                    return () => clearTimeout(timer);
+                }, []);
+                return <div data-testid={`row-${id}`} style={{ height: grown ? ROW_HEIGHT + 27 : ROW_HEIGHT }} />;
+            };
+            const { vm, actions, update } = makeFakeVm({ items: eventItems(3) });
+            render(
+                <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                    <TimelineView vm={vm} renderItem={(item) => <Growing id={item.key} />} />
+                </div>,
+            );
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+
+            for (let count = 4; count <= 30; count++) {
+                update({ items: eventItems(count) });
+                await new Promise((resolve) => setTimeout(resolve, 15));
+            }
+
+            const scroller = screen.getByTestId("timeline-scroller");
+            await waitFor(() => expect(screen.getByTestId("row-evt-29")).toBeInTheDocument());
+            await waitFor(() => expect(distanceFromBottom(scroller)).toBeLessThanOrEqual(1), { timeout: 2000 });
+        });
+
+        it("stays at the bottom while the reader's own messages are sent one after another", async () => {
+            // Each message shows first as the reader's own copy, keyed by its transaction, then takes the server's
+            // id. The newest message also carries the "sent" mark, which the one before it gives up.
+            const rows = (sent: number, pending: boolean): TimelineItem[] => [
+                ...eventItems(sent),
+                ...(pending ? [{ ...eventItems(1, sent)[0], key: `~txn-${sent}` }] : []),
+            ];
+            const { vm, actions, update } = makeFakeVm({ items: rows(3, false) });
+            const heightOf = (item: TimelineItem, items: TimelineItem[]): number =>
+                item === items.at(-1) && !item.key.startsWith("~") ? ROW_HEIGHT + 27 : ROW_HEIGHT;
+            let current = rows(3, false);
+            render(
+                <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                    <TimelineView
+                        vm={vm}
+                        renderItem={(item) => (
+                            <div data-testid={`row-${item.key}`} style={{ height: heightOf(item, current) }} />
+                        )}
+                    />
+                </div>,
+            );
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+
+            for (let sent = 3; sent < 40; sent++) {
+                current = rows(sent, true);
+                update({ items: current });
+                await new Promise((resolve) => setTimeout(resolve, 10));
+                current = rows(sent + 1, false);
+                update({ items: current });
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+
+            const scroller = screen.getByTestId("timeline-scroller");
+            await waitFor(() => expect(screen.getByTestId("row-evt-39")).toBeInTheDocument(), { timeout: 2000 });
+            await waitFor(() => expect(distanceFromBottom(scroller)).toBeLessThanOrEqual(1), { timeout: 2000 });
+        });
+
+        it("leaves a reader who scrolls up as rows arrive where they scrolled to", async () => {
+            const { vm, actions, update } = makeFakeVm({ items: eventItems(30) });
+            renderTimeline(vm);
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+            await waitFor(() => expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(true));
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            const scroller = screen.getByTestId("timeline-scroller");
+
+            // A row arrives, moving the end away, and the reader scrolls up before anything has followed it.
+            update({ items: eventItems(31) });
+            scroller.scrollTop = 100;
+
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            expect(scroller.scrollTop).toBeLessThan(200);
+            expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(false);
+        });
+
+        it("still tells the view model when the reader scrolls up", async () => {
+            const { vm, actions, update } = makeFakeVm({ items: eventItems(30) });
+            renderTimeline(vm);
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+            await waitFor(() => expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(true));
+            // Let the first load's placement finish steering, or it would undo the scroll below.
+            await new Promise((resolve) => setTimeout(resolve, 100));
+
+            screen.getByTestId("timeline-scroller").scrollTop = 100;
+
+            await waitFor(() => expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(false));
+            update({ items: eventItems(31) });
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(false);
+        });
+
+        it("lets a reader scroll up a few pixels at a time, as with a trackpad", async () => {
+            const { vm, actions } = makeFakeVm({ items: eventItems(30) });
+            renderTimeline(vm);
+            await waitFor(() => expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(true));
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            const scroller = screen.getByTestId("timeline-scroller");
+            const bottom = scroller.scrollTop;
+
+            // Each step is within the tolerance for being at the bottom; together they are not.
+            for (let step = 0; step < 10; step++) {
+                scroller.scrollTop -= 3;
+                await new Promise((resolve) => setTimeout(resolve, 200));
+            }
+
+            // Rows above, measured as they come into view, can take the reader a little further up; never back down.
+            expect(scroller.scrollTop).toBeLessThanOrEqual(bottom - 29);
+            expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(false);
+        });
+
+        it("never takes a reader back to the bottom from a message they were taken to meanwhile", async () => {
+            const { vm, actions, update } = makeFakeVm({ items: eventItems(30) });
+            renderTimeline(vm);
+            await waitFor(() => expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(true));
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            actions.onAnchorReached.mockImplementation(() => update({ pendingAnchor: null }));
+
+            // Many rows arrive, and before the next frame the reader is taken to one of them, below where they were.
+            // Holding the frames back and running them all afterwards also runs any the view tried to cancel.
+            const frames: FrameRequestCallback[] = [];
+            const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+                frames.push(callback);
+                return -frames.length;
+            });
+            try {
+                update({ items: eventItems(60) });
+                update({ pendingAnchor: { targetKey: "evt-35", align: "center" } });
+            } finally {
+                requestFrame.mockRestore();
+            }
+            for (const frame of frames) frame(performance.now());
+            await new Promise((resolve) => setTimeout(resolve, 300));
+
+            const middle = (box: DOMRect): number => (box.top + box.bottom) / 2;
+            const viewport = screen.getByTestId("timeline-scroller").getBoundingClientRect();
+            const row = screen.getByTestId("row-evt-35").getBoundingClientRect();
+            expect(Math.abs(middle(row) - middle(viewport))).toBeLessThan(ROW_HEIGHT);
+        });
     });
 
     describe("when the viewport changes height", () => {

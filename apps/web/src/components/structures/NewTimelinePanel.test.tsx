@@ -10,7 +10,14 @@ Please see LICENSE files in the repository root for full details.
 import React from "react";
 import { act, fireEvent, render, screen } from "test-utils-rtl";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { type MatrixClient, type MatrixEvent, PendingEventOrdering, Room, RoomMember } from "matrix-js-sdk/src/matrix";
+import {
+    EventStatus,
+    type MatrixClient,
+    type MatrixEvent,
+    PendingEventOrdering,
+    Room,
+    RoomMember,
+} from "matrix-js-sdk/src/matrix";
 import type { TimelineItem } from "@element-hq/web-shared-components";
 import { createTestClient, mkEvent, mkMembership, mkMessage, TestSDKContext } from "test-utils";
 
@@ -26,6 +33,11 @@ import DMRoomMap from "../../utils/DMRoomMap";
 // The room's introduction has its own tests and needs the whole room view around it.
 vi.mock("../views/rooms/NewRoomIntro", () => ({
     default: ({ as }: { as?: string }) => <div data-testid="new-room-intro" data-as={as} />,
+}));
+
+// Says why earlier history cannot be seen, from the room in the room view around it.
+vi.mock("../views/rooms/HistoryTile", () => ({
+    default: () => <div data-testid="history-tile" />,
 }));
 
 const ROOM_ID = "!room:example.org";
@@ -135,11 +147,17 @@ vi.mock("../../viewmodels/room/timeline/RoomTimelineViewModel", () => ({
 
 // EventTile pulls in a large tree that isn't what these tests are about; record
 // what the row asked for instead.
-const { tileProps } = vi.hoisted(() => ({ tileProps: { current: [] as Record<string, unknown>[] } }));
+const { tileProps, tileMounts } = vi.hoisted(() => ({
+    tileProps: { current: [] as Record<string, unknown>[] },
+    tileMounts: { current: 0 },
+}));
 
 vi.mock("../views/rooms/LegacyEventTileAdapter", () => ({
     LegacyEventTileAdapter: (props: Record<string, unknown>) => {
         tileProps.current.push(props);
+        React.useEffect(() => {
+            tileMounts.current++;
+        }, []);
         return <div data-testid="event-row" />;
     },
 }));
@@ -177,6 +195,7 @@ describe("<NewTimelinePanel />", () => {
     beforeEach(() => {
         vi.restoreAllMocks();
         tileProps.current = [];
+        tileMounts.current = 0;
         rowsRendered.current = [];
         vmState.setRows([]);
         for (const spy of [
@@ -229,6 +248,114 @@ describe("<NewTimelinePanel />", () => {
         expect(tileProps.current[0].mxEvent).toBe(event);
     });
 
+    it("keeps a message's tile as its id changes from the one it was sent with to the server's", () => {
+        const mine = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "mine", event: true });
+        withItems([eventRow(mine, { key: "~local", tileKey: "txn-1" } as Partial<TimelineItem>)]);
+        const view = renderPanel();
+        expect(tileMounts.current).toBe(1);
+
+        withItems([eventRow(mine, { tileKey: "txn-1" } as Partial<TimelineItem>)]);
+        view.rerender(
+            <MatrixClientContext.Provider value={client}>
+                <SDKContext.Provider value={new TestSDKContext()}>
+                    <NewTimelinePanel room={room} />
+                </SDKContext.Provider>
+            </MatrixClientContext.Provider>,
+        );
+
+        expect(tileProps.current.at(-1)?.mxEvent).toBe(mine);
+        expect(tileMounts.current).toBe(1);
+    });
+
+    it("marks the newest event's tile as the last, so its time shows, as in the old timeline", () => {
+        const newer = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "newer", event: true });
+        withItems([eventRow(event), eventRow(newer), { kind: "loading", key: "forward-loading" }]);
+
+        renderPanel();
+
+        expect(tileProps.current.map((props) => [props.mxEvent, props.last])).toEqual([
+            [event, false],
+            [newer, true],
+        ]);
+    });
+
+    describe("as the newest event moves in and out of an open summary", () => {
+        const members = (): MatrixEvent[] =>
+            Array.from({ length: 3 }, (_, index) => {
+                const user = `@member${index}:example.org`;
+                return mkMembership({
+                    room: ROOM_ID,
+                    user,
+                    skey: user,
+                    mship: "join",
+                    event: true,
+                    target: new RoomMember(ROOM_ID, user),
+                });
+            });
+        const rerenderPanel = (view: ReturnType<typeof renderPanel>): void =>
+            view.rerender(
+                <MatrixClientContext.Provider value={client}>
+                    <SDKContext.Provider value={new TestSDKContext()}>
+                        <NewTimelinePanel room={room} />
+                    </SDKContext.Provider>
+                </MatrixClientContext.Provider>,
+            );
+        /** Whether the tile last drawn for `mxEvent` was marked the newest. */
+        const lastOf = (mxEvent: MatrixEvent): unknown =>
+            [...tileProps.current].reverse().find((props) => props.mxEvent === mxEvent)?.last;
+
+        it("marks its final event when a message after it goes", () => {
+            const group = members();
+            const pending = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "sending", event: true });
+            withItems([{ key: "summary", kind: "event-group", events: group }, eventRow(pending)]);
+            const view = renderPanel();
+            fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+            expect(lastOf(group[2])).toBe(false);
+
+            // The message is cancelled before it is sent.
+            withItems([{ key: "summary", kind: "event-group", events: [...group] }]);
+            rerenderPanel(view);
+
+            expect(lastOf(group[2])).toBe(true);
+        });
+
+        it("unmarks its final event when a message arrives after it", () => {
+            const group = members();
+            withItems([{ key: "summary", kind: "event-group", events: group }]);
+            const view = renderPanel();
+            fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+            expect(lastOf(group[2])).toBe(true);
+
+            const arrived = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "arrived", event: true });
+            withItems([{ key: "summary", kind: "event-group", events: [...group] }, eventRow(arrived)]);
+            rerenderPanel(view);
+
+            expect(lastOf(group[2])).toBe(false);
+            expect(lastOf(arrived)).toBe(true);
+        });
+    });
+
+    it("marks the newest event inside a closing summary as the last", () => {
+        const members = Array.from({ length: 3 }, (_, index) => {
+            const user = `@member${index}:example.org`;
+            return mkMembership({
+                room: ROOM_ID,
+                user,
+                skey: user,
+                mship: "join",
+                event: true,
+                target: new RoomMember(ROOM_ID, user),
+            });
+        });
+        withItems([eventRow(event), { key: "summary", kind: "event-group", events: members }]);
+
+        renderPanel();
+        fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+
+        const lastOf = new Map(tileProps.current.map((props) => [props.mxEvent, props.last]));
+        expect([event, ...members].map((member) => lastOf.get(member))).toEqual([false, false, false, true]);
+    });
+
     it("shows a compact membership group and mounts its individual tiles only when expanded", () => {
         const events = Array.from({ length: 3 }, (_, index) => {
             const user = `@member${index}:example.org`;
@@ -251,6 +378,92 @@ describe("<NewTimelinePanel />", () => {
         expect(container.querySelectorAll("ol > li")).toHaveLength(3);
         fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
         expect(screen.queryAllByTestId("event-row")).toHaveLength(0);
+    });
+
+    it("shows a summary of one event as that event, inside the summary, as the old timeline does", () => {
+        const user = "@member:example.org";
+        const event = mkMembership({
+            room: ROOM_ID,
+            user,
+            skey: user,
+            mship: "join",
+            event: true,
+            target: new RoomMember(ROOM_ID, user),
+        });
+        withItems([{ key: `summary-${event.getId()}-0`, kind: "event-group", events: [event] }]);
+        const { container } = renderPanel();
+        const summary = container.querySelector(".mx_GenericEventListSummary");
+        expect(summary).toHaveAttribute("data-expanded", "true");
+        expect(summary).toHaveAttribute("data-layout", "group");
+        expect(screen.queryByRole("button", { name: "Expand" })).not.toBeInTheDocument();
+        expect(summary?.querySelectorAll("ol > li [data-testid='event-row']")).toHaveLength(1);
+        expect(tileProps.current.map((props) => props.mxEvent)).toEqual([event]);
+        expect(screen.queryByTestId("history-tile")).not.toBeInTheDocument();
+    });
+
+    it("draws each tile in a summary from its own row", () => {
+        const first = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "first", event: true });
+        const second = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "second", event: true });
+        withItems([
+            {
+                key: "summary-$first-0",
+                kind: "event-group",
+                events: [first, second],
+                rows: [eventRow(first, { lastInSection: false }), eventRow(second, { continuation: true })],
+            } as TimelineItem,
+        ]);
+
+        renderPanel();
+
+        expect(tileProps.current.map((props) => [props.mxEvent, props.continuation, props.lastInSection])).toEqual([
+            [first, false, false],
+            [second, true, true],
+        ]);
+    });
+
+    it("gives each tile in a summary its own send state", () => {
+        // A message a module sums up, still being sent.
+        const sending = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "grouped", event: true });
+        vi.spyOn(sending, "getAssociatedStatus").mockReturnValue(EventStatus.SENDING);
+        withItems([{ key: `summary-${sending.getId()}-0`, kind: "event-group", events: [sending] }]);
+
+        renderPanel();
+
+        expect(tileProps.current.map((props) => [props.mxEvent, props.sendState])).toEqual([[sending, "sending"]]);
+    });
+
+    it("says why nothing earlier can be seen above a summary that opens the room's history", () => {
+        const events = Array.from({ length: 3 }, (_, index) => {
+            const user = `@member${index}:example.org`;
+            return mkMembership({
+                room: ROOM_ID,
+                user,
+                skey: user,
+                mship: "join",
+                event: true,
+                target: new RoomMember(ROOM_ID, user),
+            });
+        });
+        const item: TimelineItem = { key: "summary-$first-0", kind: "event-group", events };
+        withItems([item]);
+        const view = renderPanel();
+        expect(screen.queryByTestId("history-tile")).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+
+        // Paging back reaches the start of what the reader can see.
+        withItems([{ ...item, startsHistory: true }]);
+        view.rerender(
+            <MatrixClientContext.Provider value={client}>
+                <SDKContext.Provider value={new TestSDKContext()}>
+                    <NewTimelinePanel room={room} />
+                </SDKContext.Provider>
+            </MatrixClientContext.Provider>,
+        );
+        const tile = screen.getByTestId("history-tile");
+        expect(tile.nextElementSibling).toHaveClass("mx_GenericEventListSummary");
+        // The summary the reader opened stays open.
+        expect(tile.nextElementSibling).toHaveAttribute("data-expanded", "true");
+        expect(screen.getAllByTestId("event-row")).toHaveLength(3);
     });
 
     describe("the start of a room", () => {
