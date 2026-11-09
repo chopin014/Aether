@@ -888,6 +888,18 @@ describe("desktop channel messages", () => {
         expect(getComputedStyle(root).getPropertyValue("--desktop-message-font-size").trim()).toBe("0.9375rem");
     });
 
+    it("styles a compact desktop channel message from the same class", () => {
+        const { container } = render(
+            <EventPresentationProvider value={{ layout: "group", density: "compact", messageStyle: "desktop" }}>
+                <EventTileView {...createProps({ slots: createStylingContractSlots() })} />
+            </EventPresentationProvider>,
+        );
+
+        expect(container.querySelector(`.${styles.root}`)).toHaveClass(styles.desktopMessageRoot);
+        // The compact desktop message's own rule hides the avatar, leaving its column to the time.
+        expect(screen.getByTestId("event-tile-slot-avatar")).not.toBeVisible();
+    });
+
     it.each([
         { name: "a notice", presentation: { messageStyle: "desktop" as const }, root: { state: { info: true } } },
         { name: "a card", presentation: { messageStyle: "desktop" as const }, root: { shape: "Card" as const } },
