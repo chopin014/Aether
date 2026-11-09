@@ -252,6 +252,8 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
     const lastAtBottomRef = useRef<boolean | null>(null);
     /** The scroll position last reported on, to tell the reader scrolling up from rows arriving below. */
     const lastScrollOffsetRef = useRef(0);
+    /** Set while a scroll back to the end is waiting for the next frame; see `reportVisibleState`. */
+    const repinFrameRef = useRef<number | undefined>(undefined);
     // For the "reached the top/bottom" reports we remember a short description of the
     // situation we last reported, in the form "<number of rows>:<row index>", and clear it
     // whenever we move away from that end. This stops us reporting over and over while
@@ -299,6 +301,17 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             lastScrollOffsetRef.current = scrollOffset;
             const following = snapshotRef.current.atLiveEnd && snapshotRef.current.pendingAnchor === null;
             const atBottom = atEnd || (following && lastAtBottomRef.current === true && !scrolledUp);
+            // Still at the bottom, but the end has moved away without TanStack following it, such as when a row near
+            // it grew as a message was sent: go back to it, as ScrollPanel does for a reader stuck at the bottom.
+            // TanStack only follows rows added while the list is at its end, so without this it would stop for good.
+            if (atBottom && !atEnd && following && repinFrameRef.current === undefined) {
+                repinFrameRef.current = requestAnimationFrame(() => {
+                    repinFrameRef.current = undefined;
+                    if (lastAtBottomRef.current !== true) return;
+                    const height = v.scrollRect?.height ?? 0;
+                    v.scrollToOffset(Math.max(0, v.getTotalSize() - height));
+                });
+            }
             if (atBottom !== lastAtBottomRef.current) {
                 lastAtBottomRef.current = atBottom;
                 vm.onAtBottomStateChange(atBottom);
@@ -420,6 +433,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
     useEffect(() => {
         return () => {
             if (coldRafRef.current !== undefined) cancelAnimationFrame(coldRafRef.current);
+            if (repinFrameRef.current !== undefined) cancelAnimationFrame(repinFrameRef.current);
         };
     }, []);
     useLayoutEffect(() => {

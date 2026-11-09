@@ -625,6 +625,71 @@ describe("<TimelineView />", () => {
             expect(actions.onAtBottomStateChange).not.toHaveBeenCalledWith(false);
         });
 
+        it("stays at the bottom when new rows grow just after they arrive, as a sent message's does", async () => {
+            // A message being sent is drawn, then grows a little once the server has it.
+            const Growing = ({ id }: { id: string }): React.JSX.Element => {
+                const [grown, setGrown] = React.useState(false);
+                React.useEffect(() => {
+                    const timer = setTimeout(() => setGrown(true), 30);
+                    return () => clearTimeout(timer);
+                }, []);
+                return <div data-testid={`row-${id}`} style={{ height: grown ? ROW_HEIGHT + 27 : ROW_HEIGHT }} />;
+            };
+            const { vm, actions, update } = makeFakeVm({ items: eventItems(3) });
+            render(
+                <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                    <TimelineView vm={vm} renderItem={(item) => <Growing id={item.key} />} />
+                </div>,
+            );
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+
+            for (let count = 4; count <= 30; count++) {
+                update({ items: eventItems(count) });
+                await new Promise((resolve) => setTimeout(resolve, 15));
+            }
+
+            const scroller = screen.getByTestId("timeline-scroller");
+            await waitFor(() => expect(screen.getByTestId("row-evt-29")).toBeInTheDocument());
+            await waitFor(() => expect(distanceFromBottom(scroller)).toBeLessThanOrEqual(1), { timeout: 2000 });
+        });
+
+        it("stays at the bottom while the reader's own messages are sent one after another", async () => {
+            // Each message shows first as the reader's own copy, keyed by its transaction, then takes the server's
+            // id. The newest message also carries the "sent" mark, which the one before it gives up.
+            const rows = (sent: number, pending: boolean): TimelineItem[] => [
+                ...eventItems(sent),
+                ...(pending ? [{ ...eventItems(1, sent)[0], key: `~txn-${sent}` }] : []),
+            ];
+            const { vm, actions, update } = makeFakeVm({ items: rows(3, false) });
+            const heightOf = (item: TimelineItem, items: TimelineItem[]): number =>
+                item === items.at(-1) && !item.key.startsWith("~") ? ROW_HEIGHT + 27 : ROW_HEIGHT;
+            let current = rows(3, false);
+            render(
+                <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                    <TimelineView
+                        vm={vm}
+                        renderItem={(item) => (
+                            <div data-testid={`row-${item.key}`} style={{ height: heightOf(item, current) }} />
+                        )}
+                    />
+                </div>,
+            );
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+
+            for (let sent = 3; sent < 40; sent++) {
+                current = rows(sent, true);
+                update({ items: current });
+                await new Promise((resolve) => setTimeout(resolve, 10));
+                current = rows(sent + 1, false);
+                update({ items: current });
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+
+            const scroller = screen.getByTestId("timeline-scroller");
+            await waitFor(() => expect(screen.getByTestId("row-evt-39")).toBeInTheDocument(), { timeout: 2000 });
+            await waitFor(() => expect(distanceFromBottom(scroller)).toBeLessThanOrEqual(1), { timeout: 2000 });
+        });
+
         it("still tells the view model when the reader scrolls up", async () => {
             const { vm, actions, update } = makeFakeVm({ items: eventItems(30) });
             renderTimeline(vm);
