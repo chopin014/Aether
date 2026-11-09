@@ -8,6 +8,7 @@
 import {
     TimelineWindow,
     ClientEvent,
+    Method,
     Direction,
     RoomEvent,
     EventType,
@@ -75,6 +76,31 @@ const debug = (message: string): void => {
 const READ_RECEIPT_DEBOUNCE_MS = 500;
 
 const PAGINATE_SIZE = 100;
+/** How long a fully read marker write may take before it is given up on; see {@link RoomTimelineViewModelOpts}. */
+const READ_MARKER_WRITE_TIMEOUT_MS = 20_000;
+
+/**
+ * Settle as `promise` does, or fail once `ms` have passed without it settling, calling `onGiveUp` first. Only the
+ * returned promise is waited on after that; `promise` keeps nothing but this function's own closures.
+ */
+function settleWithin<T>(promise: Promise<T>, ms: number, onGiveUp: () => void): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = window.setTimeout(() => {
+            onGiveUp();
+            reject(new Error(`No complete answer within ${ms}ms`));
+        }, ms);
+        promise.then(
+            (value) => {
+                window.clearTimeout(timer);
+                resolve(value);
+            },
+            (error) => {
+                window.clearTimeout(timer);
+                reject(error);
+            },
+        );
+    });
+}
 const INITIAL_SIZE = 100;
 
 /**
@@ -148,6 +174,12 @@ export interface RoomTimelineViewModelOpts {
      * the old timeline does when the reader opened the room themselves. Default false.
      */
     sendReadReceiptOnLoad?: boolean;
+    /**
+     * How long a write of the fully read marker may wait for the server to start answering: 20 seconds by default.
+     * The whole write, its answer included, is given up on as failed after twice that; see
+     * {@link RoomTimelineViewModel.sendReadMarker}.
+     */
+    readMarkerWriteTimeoutMs?: number;
 }
 
 /**
@@ -240,6 +272,8 @@ export class RoomTimelineViewModel
      * {@link sendAutoReadReceipt}.
      */
     private receiptActivityTimer?: Timer;
+    /** Counts the reader's time around before the fully read marker moves on; see {@link moveReadMarkerOnWhileActive}. */
+    private readMarkerTimer?: Timer;
 
     /** Avoid racing native initial history expansion with a separate messages request. */
     private initialTimelinePending = false;
@@ -366,8 +400,9 @@ export class RoomTimelineViewModel
     /**
      * The Matrix event ID of the room's "fully read" marker. null when none is set.
      * Tracked via `RoomEvent.AccountData` / `EventType.FullyRead`. Reflects server
-     * state and may change mid-session if another device advances the marker;
-     * used by {@link dispose} and {@link onMarkAllAsRead} but NOT by the UI.
+     * state and may change mid-session if another device advances the marker, or when we
+     * move it on ({@link moveReadMarkerOn}); used by {@link onMarkAllAsRead}
+     * but NOT by the UI.
      */
     private readMarkerEventId: string | null = null;
 
@@ -382,11 +417,28 @@ export class RoomTimelineViewModel
      *
      * Holding it still is deliberate, and matches Element X: a line that crept downwards
      * as you read would take away the very thing you are using it for — seeing where you got to.
-     * It moves when the room is left and re-entered (see the `setRoomReadMarkers` call in
-     * {@link dispose}), or immediately if the reader marks everything read
-     * ({@link onMarkAllAsRead}).
+     * The server-side marker moves on as the reader reads (see {@link moveReadMarkerOn}), so
+     * the line moves when the room is left and re-entered, or immediately if the reader marks
+     * everything read ({@link onMarkAllAsRead}).
      */
     private frozenMarkerEventId: string | null = null;
+    /** Whether {@link frozenMarkerEventId} has been decided for this visit; later loads leave it alone. */
+    private readMarkerFrozen = false;
+    /**
+     * Whether the room's own fully read marker has yet to come from the server. Until it does, the line starts from the
+     * reader's receipt; see {@link onRoomAccountData}.
+     */
+    private awaitingServerReadMarker = false;
+    /** The events this visit moved the marker to, to know the server's echoes of them; see {@link writeReadMarker}. */
+    private readonly sentReadMarkerIds = new Set<string>();
+
+    /**
+     * Each room's fully read marker writes, in order, across view models, so a write made before the reader left a room
+     * cannot land after one made since they came back. Keyed by the room object, which the client keeps for as long as
+     * it knows the room. `written` is the last marker the server took there: nothing is written behind it, and it
+     * raises the next view model's own marker.
+     */
+    private static readonly readMarkerWrites = new WeakMap<Room, { queue: Promise<void>; written?: string }>();
 
     /**
      * Count of new live messages that arrived since the user last reached the
@@ -439,8 +491,12 @@ export class RoomTimelineViewModel
         });
 
         // Initialise the read marker from room account data.
-        this.readMarkerEventId =
+        const fullyRead =
             (opts.room.getAccountData(EventType.FullyRead)?.getContent()?.event_id as string | undefined) ?? null;
+        // As the old timeline does, a room without a marker yet is read up to the reader's receipt, which the SDK
+        // also gives for the reader's own messages.
+        this.readMarkerEventId = fullyRead ?? opts.room.getEventReadUpTo(opts.client.getSafeUserId());
+        this.awaitingServerReadMarker = fullyRead === null;
 
         // NOTE: deliberately side-effect-free. React StrictMode (and useState
         // initializer checks) invoke `vmCreator` twice in dev, constructing
@@ -545,6 +601,183 @@ export class RoomTimelineViewModel
             ClientEvent.AccountData,
             this.onClientAccountData as (...args: unknown[]) => void,
         );
+        void this.moveReadMarkerOnWhileActive();
+    }
+
+    /**
+     * Move the room's fully read marker on to what the reader has seen while they are around, as `TimelinePanel`
+     * does: after a few seconds with the marker on screen, or longer with it off screen, each time the reader has
+     * been active recently. The unread line drawn for this visit stays where it is; see {@link frozenMarkerEventId}.
+     */
+    private async moveReadMarkerOnWhileActive(): Promise<void> {
+        const timer = new Timer(this.readMarkerTimeout());
+        this.readMarkerTimer = timer;
+        while (this.readMarkerTimer === timer && !this.isDisposed) {
+            UserActivity.sharedInstance().timeWhileActiveRecently(timer);
+            try {
+                await timer.finished();
+            } catch {
+                // The reader went away before the time was up: wait for them again.
+                continue;
+            }
+            if (this.readMarkerTimer !== timer || this.isDisposed) return;
+            // One write at a time, as in the old timeline, so two cannot reach the server out of order and move the
+            // marker back. The next one is decided afresh once this one is done.
+            await this.moveReadMarkerOn();
+        }
+    }
+
+    /** How long the reader has to be around first: shorter while the fully read marker is on screen. */
+    private readMarkerTimeout(): number {
+        return this.readMarkerPosition() === 0
+            ? (SettingsStore.getValue("readMarkerInViewThresholdMs") ?? 3000)
+            : (SettingsStore.getValue("readMarkerOutOfViewThresholdMs") ?? 30000);
+    }
+
+    /**
+     * Where the room's fully read marker is against what the reader can see: above (-1), on screen (0) or below (1),
+     * or null when that cannot be told.
+     */
+    private readMarkerPosition(): -1 | 0 | 1 | null {
+        const markerId = this.readMarkerEventId;
+        if (!markerId) return null;
+        const events = this.timelineWindow.getEvents();
+        const marker = events.findIndex((event) => event.getId() === markerId);
+        const items = this.snapshot.current.items;
+        const top = this.firstEventIndexOf(items.slice(this.visibleStartArrayIndex, this.visibleEndArrayIndex + 1));
+        const bottom = this.lastBottomEventId
+            ? events.findIndex((event) => event.getId() === this.lastBottomEventId)
+            : -1;
+        if (marker >= 0 && top >= 0 && bottom >= 0) {
+            if (marker < top) return -1;
+            return marker > bottom ? 1 : 0;
+        }
+        // Not in the window: older or newer than all of it.
+        const markerEvent = marker >= 0 ? events[marker] : this.opts.room.findEventById(markerId);
+        if (!markerEvent || events.length === 0) return null;
+        return markerEvent.getTs() < events[0].getTs() ? -1 : 1;
+    }
+
+    /** The window position of the first real event among `items`, or -1. */
+    private firstEventIndexOf(items: readonly TimelineItem[]): number {
+        const events = this.timelineWindow.getEvents();
+        for (const item of items) {
+            const first = this.itemEvents(item)[0];
+            if (first) return events.indexOf(first);
+        }
+        return -1;
+    }
+
+    /**
+     * Whether read receipts and the fully read marker may be sent. Someone previewing a room they have not joined
+     * cannot send them there, and, as in the old timeline, nothing is sent in low-bandwidth mode or by a guest.
+     */
+    private maySendReadState(): boolean {
+        return (
+            !this.isDisposed &&
+            this.opts.room.getMyMembership() === KnownMembership.Join &&
+            !SettingsStore.getValue("lowBandwidth") &&
+            !this.opts.client.isGuest()
+        );
+    }
+
+    /** Move the fully read marker on to the bottommost message the reader sees, never back. */
+    private async moveReadMarkerOn(): Promise<void> {
+        if (!this.maySendReadState()) return;
+        // While a window loads or is placed, what was last on screen belongs to the window before it.
+        if (this.loading || !this.readerPlaced || this.snapshot.current.pendingAnchor !== null) return;
+        const eventId = this.lastBottomEventId;
+        // A marker at or below that message is ahead of what the reader is looking at: leave it.
+        if (!eventId || !this.comesAfter(eventId, this.readMarkerEventId)) return;
+        await this.writeReadMarker(eventId);
+    }
+
+    /**
+     * Move the room's fully read marker to `eventId` when it comes after the marker, once the writes before it for this
+     * room are done, as the old timeline sends one at a time. It is decided again then, against the last marker any
+     * view of the room wrote, so it never moves back. A write that takes too long is aborted and given up on, so it
+     * holds up no later one, and this client never sends it after one. A failed write is tried again by whoever moves
+     * the marker next.
+     */
+    private writeReadMarker(eventId: string): Promise<void> {
+        const room = this.opts.room;
+        const writes = RoomTimelineViewModel.readMarkerWrites;
+        const state = writes.get(room) ?? { queue: Promise.resolve() };
+        writes.set(room, state);
+        const write = state.queue.then(async (): Promise<void> => {
+            if (state.written && this.comesAfter(state.written, this.readMarkerEventId)) {
+                this.readMarkerEventId = state.written;
+            }
+            if (!this.maySendReadState() || !this.comesAfter(eventId, this.readMarkerEventId)) return;
+            // Past the last marker written here too, whatever this view knows of it: one that cannot be placed against
+            // it, such as in history it is no longer among, is left for later.
+            if (state.written && !this.comesAfter(eventId, state.written)) return;
+            debug(`[TimelineVM] writeReadMarker — fully read marker to ${eventId}`);
+            const previous = this.readMarkerEventId;
+            this.readMarkerEventId = eventId;
+            this.sentReadMarkerIds.add(eventId);
+            try {
+                await this.sendReadMarker(eventId);
+                state.written = eventId;
+            } catch (err) {
+                logger.warn(`[TimelineVM] writeReadMarker — the fully read marker could not be written`, err);
+                this.sentReadMarkerIds.delete(eventId);
+                // Back to where the marker is known to be: the later of where it was, and where the server has said it
+                // is since, such as when another device moved it on while this write was failing.
+                if (this.readMarkerEventId === eventId) {
+                    const fromServer = this.roomReadMarkerEventId();
+                    this.readMarkerEventId =
+                        fromServer && this.comesAfter(fromServer, previous) ? fromServer : previous;
+                }
+            }
+        });
+        state.queue = write;
+        return write;
+    }
+
+    /**
+     * Send the room's fully read marker, as the SDK's `setRoomReadMarkers` does, but through its HTTP API, which can
+     * abort a request: one that takes too long is ended rather than left to be sent after later ones. A server that
+     * received it before the abort may still take it; Synapse only ever moves the marker forward.
+     */
+    private sendReadMarker(eventId: string): Promise<unknown> {
+        const timeoutMs = this.opts.readMarkerWriteTimeoutMs ?? READ_MARKER_WRITE_TIMEOUT_MS;
+        const path = `/rooms/${encodeURIComponent(this.opts.room.roomId)}/read_markers`;
+        // Ends the write for good once it is given up on, including the retry the HTTP API makes after refreshing an
+        // expired access token, which would otherwise send it again after a later write.
+        const abort = new AbortController();
+        const request = this.opts.client.http.authedRequest(
+            Method.Post,
+            path,
+            undefined,
+            { [ReceiptType.FullyRead]: eventId },
+            { localTimeoutMs: timeoutMs, abortSignal: abort.signal },
+        );
+        // The HTTP API stops timing a request once the server starts to answer, then reads the answer for as long as
+        // it takes. An answer that never finishes is given up on as failed, rather than holding up this room's later
+        // writes. Writing the same marker again is harmless.
+        return settleWithin(request, timeoutMs * 2, () => abort.abort());
+    }
+
+    /** The room's fully read marker as the server last said, or null. */
+    private roomReadMarkerEventId(): string | null {
+        return (
+            (this.opts.room.getAccountData(EventType.FullyRead)?.getContent()?.event_id as string | undefined) ?? null
+        );
+    }
+
+    /**
+     * Whether the event `eventId` comes after the event `otherId`, or there is no other. The window gives the order when
+     * it holds both events, else the room's timelines (see {@link orderOf}). One neither can place is taken to be ahead
+     * while the window can still page forward towards it, as the old timeline does with a receipt outside its window,
+     * and while the window is kept from before a gap in sync, as its events can no longer be placed against the room's.
+     * Times are not compared, as servers' clocks differ.
+     */
+    private comesAfter(eventId: string, otherId: string | null): boolean {
+        if (!otherId) return true;
+        const order = this.orderOf(otherId, eventId);
+        if (order !== null) return order < 0;
+        return !this.timelineWindow.canPaginate(Direction.Forward) && !this.windowDetachedFromLive();
     }
 
     /** Someone was ignored or no longer is: their messages leave or come back. */
@@ -915,17 +1148,35 @@ export class RoomTimelineViewModel
     private onRoomAccountData = (ev: MatrixEvent): void => {
         if (ev.getType() !== EventType.FullyRead) return;
         const newMarker = (ev.getContent()?.event_id as string | undefined) ?? null;
+        const firstFromServer = this.awaitingServerReadMarker;
+        this.awaitingServerReadMarker = false;
         if (newMarker === this.readMarkerEventId) return;
-        // Track the server-side marker so dispose() can avoid redundant writes,
+        // The server telling us of a move made here, after a later one: the marker is already past it.
+        if (
+            newMarker !== null &&
+            this.sentReadMarkerIds.has(newMarker) &&
+            !this.comesAfter(newMarker, this.readMarkerEventId)
+        ) {
+            return;
+        }
+        // Track the server-side marker so it is never moved back or written again,
         // but don't touch frozenMarkerEventId — the visible divider position is
         // pinned for the session. If the user wants the marker line to reflect
         // changes another device made mid-session they can leave and re-enter.
         this.readMarkerEventId = newMarker;
+        // The line was decided before the room's marker had come from the server. The first one to arrive puts it
+        // where it belongs, as in the old timeline, unless the marker has moved on here already.
+        if (firstFromServer && this.readMarkerFrozen && this.sentReadMarkerIds.size === 0) {
+            this.readMarkerFrozen = false;
+            this.freezeReadMarkerForSession();
+            this.scheduleRebuild();
+        }
     };
 
     /**
      * Snapshot the current read-marker position into {@link frozenMarkerEventId}.
-     * Called once per session by {@link load} after the initial window is loaded.
+     * Called by {@link load} after each window is loaded, but decides only once per session: the marker moves on as
+     * the reader reads, and a later load, such as jumping to the newest messages, must not move the line with it.
      *
      * The frozen value is what the UI consumes for the entire session:
      *  - `null` when the marker is unset OR on the room's latest known event.
@@ -936,6 +1187,8 @@ export class RoomTimelineViewModel
      *    session regardless of subsequent sends, scrolls, or new events.
      */
     private freezeReadMarkerForSession(): void {
+        if (this.readMarkerFrozen) return;
+        this.readMarkerFrozen = true;
         if (!this.readMarkerEventId) {
             this.frozenMarkerEventId = null;
             return;
@@ -1279,6 +1532,9 @@ export class RoomTimelineViewModel
             }
         }
 
+        // As in the old timeline, the marker moves on sooner while it is on screen.
+        this.readMarkerTimer?.changeTimeout(this.readMarkerTimeout());
+
         if (readOnPlacement) {
             // What the reader opened is in front of them: read it now, as the old timeline does on load.
             this.sendReadReceiptNow();
@@ -1342,17 +1598,12 @@ export class RoomTimelineViewModel
      * Read receipts (`m.read`) and the FullyRead marker (`m.fully_read`) serve different
      * purposes. Read receipts are public — they tell *other* users where this user has
      * read up to — and should advance freely as the user scrolls. The FullyRead marker is
-     * private and drives the local "unread divider" line; advancing it mid-session causes
-     * the divider to jump (e.g. landing above the user's own outgoing message). So we
-     * only advance the receipt here. The FullyRead marker is advanced once on dispose
-     * (see {@link dispose}), mirroring Element X iOS's behaviour.
+     * private and places the "unread divider" line; it moves on separately, while the reader
+     * is around (see {@link moveReadMarkerOnWhileActive}), and the divider drawn for this
+     * visit stays where it is.
      */
     private sendAutoReadReceipt(requireActivity = true, target: string | null = this.lastReceiptTargetId): void {
-        if (this.isDisposed) return;
-        // Someone previewing a room they have not joined cannot send receipts there.
-        if (this.opts.room.getMyMembership() !== KnownMembership.Join) return;
-        // As the old timeline does, nothing is sent in low-bandwidth mode.
-        if (SettingsStore.getValue("lowBandwidth")) return;
+        if (!this.maySendReadState()) return;
         // Messages arriving in a window nobody is looking at have not been read. Wait until the user is back,
         // as the old timeline does.
         if (requireActivity && !UserActivity.sharedInstance().userActiveNow()) {
@@ -1382,27 +1633,15 @@ export class RoomTimelineViewModel
 
     /**
      * Whether `event` comes after both the receipt sent from here and our receipt on the server, which another device,
-     * or an earlier visit, may have moved on; see {@link serverReceiptEventId}.
-     *
-     * The window gives the order when it holds both events, else the room's timelines. A receipt neither can place is
-     * taken to be ahead while the window can still page forward towards it, as the old timeline does when its receipt
-     * is outside the window, and while the window is kept from before a gap in sync, as its events can no longer be
-     * placed against the room's. Times are not compared, as servers' clocks differ.
+     * or an earlier visit, may have moved on; see {@link comesAfter} and {@link serverReceiptEventId}.
      */
     private isAfterReceipts(event: MatrixEvent): boolean {
         const eventId = event.getId();
         if (!eventId) return false;
-        const receipts = [this.lastSentReceiptEventId, this.serverReceiptEventId()];
-        for (const receiptId of receipts) {
-            if (!receiptId) continue;
-            const order = this.orderOf(receiptId, eventId);
-            const receiptAhead =
-                order === null
-                    ? this.timelineWindow.canPaginate(Direction.Forward) || this.windowDetachedFromLive()
-                    : order >= 0;
-            if (receiptAhead) return false;
-        }
-        return true;
+        return (
+            this.comesAfter(eventId, this.lastSentReceiptEventId) &&
+            this.comesAfter(eventId, this.serverReceiptEventId())
+        );
     }
 
     /**
@@ -1597,11 +1836,27 @@ export class RoomTimelineViewModel
         // Immediately clear the read marker line locally. This is an explicit
         // user action ("I have read everything"), so we override the per-session
         // freeze and drop the divider line.
-        this.readMarkerEventId = null;
         this.frozenMarkerEventId = null;
+        // That decides the line for the rest of the visit, even if the room's marker comes from the server only now.
+        this.readMarkerFrozen = true;
+        this.awaitingServerReadMarker = false;
         const newItems = this.buildItems(); // removes the read-marker item
         this.mergeSnapshot({ items: newItems, canJumpToReadMarker: false }, "mark-all-as-read");
+        // And the marker moves on to the newest message, as the old timeline moves it to the receipt, so the line
+        // does not come back next visit. The marker is kept until then, so nothing moves it back meanwhile.
+        const newest = this.newestConfirmedEventId();
+        if (newest) void this.writeReadMarker(newest);
     };
+
+    /** The newest message in the room that has reached the server, or null. */
+    private newestConfirmedEventId(): string | null {
+        const events = this.opts.room.getLiveTimeline().getEvents();
+        for (let i = events.length - 1; i >= 0; i--) {
+            const id = events[i].getId();
+            if (id && !this.opts.room.hasPendingEvent(id)) return id;
+        }
+        return null;
+    }
 
     public onJumpToLive = (scrollNow: ImmediateScroll): void => {
         debug(`[TimelineVM] onJumpToLive — atLiveEnd=${this.snapshot.current.atLiveEnd}`);
@@ -1677,10 +1932,9 @@ export class RoomTimelineViewModel
      *   resumes here. Clears the saved position only when the user is at the
      *   visual bottom (so the next visit starts fresh at the live end).
      * - Advances the FullyRead marker to the last bottommost event we've seen
-     *   during this session, so the next time the user enters the room the
-     *   "unread divider" reflects what they've actually read. We deliberately
-     *   do this only on dispose, not during scrolling — see
-     *   {@link sendAutoReadReceipt} for the rationale.
+     *   during this session, unless that would move it back, so the next time the
+     *   user enters the room the "unread divider" reflects what they've actually read.
+     *   It also moves on while the reader is around; see {@link moveReadMarkerOnWhileActive}.
      */
     public override dispose(): void {
         if (this.readReceiptDebounceTimer !== null) {
@@ -1691,6 +1945,11 @@ export class RoomTimelineViewModel
         this.receiptActivityTimer = undefined;
         // Settle the timer even if it never started, so UserActivity lets go of it.
         receiptTimer?.start().abort();
+        const readMarkerTimer = this.readMarkerTimer;
+        this.readMarkerTimer = undefined;
+        // The loop may be waiting on a marker write rather than on the timer, so nothing else would see it abort.
+        readMarkerTimer?.finished().catch(() => {});
+        readMarkerTimer?.start().abort();
         if (this.decryptDebounceTimer !== null) {
             clearTimeout(this.decryptDebounceTimer);
             this.decryptDebounceTimer = null;
@@ -1709,14 +1968,8 @@ export class RoomTimelineViewModel
             RoomTimelineViewModel.saveScrollTarget(this.opts.room.roomId, this.lastBottomEventId);
         }
 
-        // Advance the FullyRead marker to the last bottommost event we saw.
-        // Skip if it already matches what we last advanced to (avoids redundant network calls).
-        if (this.lastBottomEventId !== this.readMarkerEventId) {
-            debug(`[TimelineVM] dispose() — advancing FullyRead marker to ${this.lastBottomEventId}`);
-            this.opts.client.setRoomReadMarkers(this.opts.room.roomId, this.lastBottomEventId).catch((err) => {
-                logger.warn(`[TimelineVM] dispose() — setRoomReadMarkers failed`, err);
-            });
-        }
+        // The fully read marker is left alone: it moves on only once the reader has been around for a while, as in
+        // the old timeline (see moveReadMarkerOnWhileActive), so a glance at a room keeps its unread line.
 
         super.dispose();
     }

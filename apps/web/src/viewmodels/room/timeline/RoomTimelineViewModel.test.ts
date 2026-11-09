@@ -10,19 +10,24 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
     ClientEvent,
+    ClientPrefix,
     Direction,
     TimelineWindow,
     EventStatus,
     EventType,
+    HttpApiEvent,
     M_BEACON_INFO,
     MatrixEvent,
     MatrixEventEvent,
+    MatrixHttpApi,
     PendingEventOrdering,
     ReceiptType,
     RelationType,
     Room,
     RoomEvent,
     RoomStateEvent,
+    TypedEventEmitter,
+    type HttpApiEventHandlerMap,
     type IEventRelation,
     type MatrixClient,
 } from "matrix-js-sdk/src/matrix";
@@ -111,6 +116,34 @@ describe("RoomTimelineViewModel", () => {
         // Rooms with an open timeline are joined, except when previewing; see the read receipt tests.
         room.updateMyMembership(KnownMembership.Join);
         vi.spyOn(client, "getRoom").mockReturnValue(room);
+        // The view model writes the fully read marker through the client's HTTP API, so that it can give up on a write
+        // that takes too long. Hand those writes to setRoomReadMarkers, which the tests watch, giving up as the HTTP API
+        // does once the time allowed has passed.
+        Object.assign(client, {
+            http: {
+                authedRequest: vi.fn(
+                    (
+                        _method: string,
+                        path: string,
+                        _query: unknown,
+                        body: Record<string, string>,
+                        opts?: { localTimeoutMs?: number },
+                    ): Promise<unknown> => {
+                        const roomId = decodeURIComponent(path.split("/")[2]);
+                        const write = client.setRoomReadMarkers(roomId, body["m.fully_read"]);
+                        if (opts?.localTimeoutMs === undefined) return write;
+                        let timer: number | undefined;
+                        const givenUp = new Promise<never>((_, reject) => {
+                            timer = window.setTimeout(
+                                () => reject(new Error("The request timed out")),
+                                opts.localTimeoutMs,
+                            );
+                        });
+                        return Promise.race([write, givenUp]).finally(() => window.clearTimeout(timer));
+                    },
+                ),
+            },
+        });
 
         // The only two settings the view model reads, at their real-world defaults. A test that
         // cares about either one overrides this.
@@ -2295,6 +2328,582 @@ describe("RoomTimelineViewModel", () => {
         });
     });
 
+    describe("the fully read marker", () => {
+        const messages = (count: number): MatrixEvent[] =>
+            Array.from({ length: count }, (_, i) => makeMessage(`$m${i}`, { user: OTHER_USER_ID }));
+        const markerAt = (eventId: string): void =>
+            room.addAccountData([
+                new MatrixEvent({ type: EventType.FullyRead, room_id: ROOM_ID, content: { event_id: eventId } }),
+            ]);
+        /** Rows are given as positions of the messages, skipping the date separator before them. */
+        const shows = (vm: RoomTimelineViewModel, first: string, last: string): void => {
+            const items = vm.getSnapshot().items;
+            vm.onVisibleRangeChanged(indexOfKey(items, first), indexOfKey(items, last));
+        };
+
+        /** Settings turned on for one test, besides those every test here has. */
+        const turnedOn = new Set<string>();
+        const settingOn = (key: string): void => {
+            turnedOn.add(key);
+        };
+
+        beforeEach(() => {
+            turnedOn.clear();
+            vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
+                if (key === "sendReadReceipts") return true;
+                if (key === "readMarkerInViewThresholdMs" || key === "readMarkerOutOfViewThresholdMs") return 20;
+                return turnedOn.has(key) ? true : undefined;
+            });
+        });
+
+        it("moves on to what the reader sees while they are around, as the old timeline does", async () => {
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            seedTimeline(messages(5));
+            markerAt("$m1");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m4");
+
+            await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$m4"));
+            // The unread line drawn for this visit stays where it was.
+            expect(vm.getSnapshot().items[indexOfKey(vm.getSnapshot().items, "$m1") + 1].kind).toBe("read-marker");
+        });
+
+        it.each([
+            ["sooner while it is on screen", "$m0", true],
+            ["later while it is off screen", "$m3", false],
+        ])("moves the marker on %s, as the old timeline does", async (_, firstShown, movesSoon) => {
+            vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
+                if (key === "sendReadReceipts") return true;
+                if (key === "readMarkerInViewThresholdMs") return 20;
+                if (key === "readMarkerOutOfViewThresholdMs") return 60_000;
+                return undefined;
+            });
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            seedTimeline(messages(5));
+            markerAt("$m1");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, firstShown, "$m4");
+
+            await new Promise((r) => setTimeout(r, 200));
+            expect(vi.mocked(client.setRoomReadMarkers).mock.calls.length > 0).toBe(movesSoon);
+        });
+
+        it("moves the marker one write at a time, so the server never gets them out of order", async () => {
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            let finishFirst!: () => void;
+            vi.mocked(client.setRoomReadMarkers).mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        finishFirst = () => resolve({});
+                    }),
+            );
+            seedTimeline(messages(6));
+            markerAt("$m0");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m2");
+            await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$m2"));
+
+            // The reader reads on while the first write is still on its way.
+            shows(vm, "$m0", "$m5");
+            await new Promise((r) => setTimeout(r, 100));
+            expect(client.setRoomReadMarkers).toHaveBeenCalledTimes(1);
+
+            finishFirst();
+            await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenLastCalledWith(ROOM_ID, "$m5"));
+        });
+
+        const startsActive = (): void => {
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+        };
+        /** Makes the next marker write wait until the returned function settles it. */
+        const holdNextWrite = (): { finish: () => void; fail: () => void } => {
+            const settle = { finish: (): void => {}, fail: (): void => {} };
+            vi.mocked(client.setRoomReadMarkers).mockImplementationOnce(
+                () =>
+                    new Promise((resolve, reject) => {
+                        settle.finish = () => resolve({});
+                        settle.fail = () => reject(new Error("offline"));
+                    }),
+            );
+            return settle;
+        };
+        const writes = (): unknown[] => vi.mocked(client.setRoomReadMarkers).mock.calls.map(([, eventId]) => eventId);
+
+        it("moves the marker on to the newest message when everything is marked read, never back", async () => {
+            startsActive();
+            seedTimeline(messages(6));
+            markerAt("$m4");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m2");
+
+            vm.onMarkAllAsRead();
+            await new Promise((r) => setTimeout(r, 100));
+
+            expect(writes()).toEqual(["$m5"]);
+        });
+
+        it("waits for a write from before the room was left, and never moves the marker back behind it", async () => {
+            startsActive();
+            const first = holdNextWrite();
+            seedTimeline(messages(6));
+            markerAt("$m0");
+            const left = await createStartedViewModel();
+            left.onAnchorReached();
+            shows(left, "$m0", "$m2");
+            await vi.waitFor(() => expect(writes()).toEqual(["$m2"]));
+            left.dispose();
+
+            // Back in the room, reading less far than before while that write is still on its way.
+            const back = await createStartedViewModel();
+            back.onAnchorReached();
+            shows(back, "$m0", "$m1");
+            await new Promise((r) => setTimeout(r, 100));
+            first.finish();
+            await new Promise((r) => setTimeout(r, 100));
+            expect(writes()).toEqual(["$m2"]);
+
+            shows(back, "$m0", "$m5");
+            await vi.waitFor(() => expect(writes()).toEqual(["$m2", "$m5"]));
+        });
+
+        it.each([
+            ["while the write is failing", false],
+            ["after the write has failed", true],
+        ])("keeps a move another device makes %s", async (_, afterFailure) => {
+            startsActive();
+            const first = holdNextWrite();
+            seedTimeline(messages(6));
+            markerAt("$m0");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m4");
+            await vi.waitFor(() => expect(writes()).toEqual(["$m4"]));
+
+            first.fail();
+            if (afterFailure) await new Promise((r) => setTimeout(r, 0));
+            // Another device moves the marker to the same message, and the reader goes back up.
+            markerAt("$m4");
+            shows(vm, "$m0", "$m2");
+            await new Promise((r) => setTimeout(r, 100));
+
+            expect(writes()).toEqual(["$m4"]);
+        });
+
+        it("lets the reader leave while a marker write is on its way", async () => {
+            startsActive();
+            const first = holdNextWrite();
+            const unhandled = vi.fn();
+            process.on("unhandledRejection", unhandled);
+            try {
+                seedTimeline(messages(4));
+                markerAt("$m0");
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                shows(vm, "$m0", "$m3");
+                await vi.waitFor(() => expect(writes()).toEqual(["$m3"]));
+
+                vm.dispose();
+                first.finish();
+                await new Promise((r) => setTimeout(r, 50));
+
+                expect(unhandled).not.toHaveBeenCalled();
+            } finally {
+                process.off("unhandledRejection", unhandled);
+            }
+        });
+
+        it("never writes the marker behind the last one written, even where that one cannot be placed", async () => {
+            startsActive();
+            seedTimeline(messages(300));
+            markerAt("$m0");
+            const left = await createStartedViewModel("$m0");
+            left.onAnchorReached();
+            shows(left, "$m0", "$m2");
+            await vi.waitFor(() => expect(writes()).toEqual(["$m2"]));
+            left.dispose();
+
+            // The message the marker was written to leaves the room's history, as after a gap in sync, so the reader
+            // back among older messages has nothing to place it against.
+            room.removeEvent("$m2");
+            const back = await createStartedViewModel("$m0");
+            back.onAnchorReached();
+            shows(back, "$m0", "$m1");
+            await new Promise((r) => setTimeout(r, 100));
+
+            expect(writes()).toEqual(["$m2"]);
+        });
+
+        it("lets later visits move the marker on when a write never ends", async () => {
+            startsActive();
+            holdNextWrite();
+            seedTimeline(messages(6));
+            markerAt("$m0");
+            const visit = async (): Promise<RoomTimelineViewModel> => {
+                const vm = new RoomTimelineViewModel({ client, room, readMarkerWriteTimeoutMs: 50 });
+                vms.push(vm);
+                vm.start();
+                await vi.waitFor(() => expect(vm.getSnapshot().items.length).toBeGreaterThan(0));
+                vm.onAnchorReached();
+                return vm;
+            };
+            const left = await visit();
+            shows(left, "$m0", "$m2");
+            await vi.waitFor(() => expect(writes()).toEqual(["$m2"]));
+            left.dispose();
+
+            const back = await visit();
+            shows(back, "$m0", "$m5");
+
+            await vi.waitFor(() => expect(writes()).toEqual(["$m2", "$m5"]));
+        });
+
+        /** A visit to the room whose marker writes may take only a moment before later ones go ahead. */
+        const impatientVisit = async (): Promise<RoomTimelineViewModel> => {
+            const vm = new RoomTimelineViewModel({ client, room, readMarkerWriteTimeoutMs: 50 });
+            vms.push(vm);
+            vm.start();
+            await vi.waitFor(() => expect(vm.getSnapshot().items.length).toBeGreaterThan(0));
+            vm.onAnchorReached();
+            return vm;
+        };
+
+        it("writes the same message again after a write that took too long", async () => {
+            startsActive();
+            holdNextWrite();
+            seedTimeline(messages(6));
+            markerAt("$m0");
+            const vm = await impatientVisit();
+
+            shows(vm, "$m0", "$m5");
+
+            await vi.waitFor(() => expect(writes()).toEqual(["$m5", "$m5"]));
+        });
+
+        it("keeps a move another device makes while a write of ours hangs, once that write is given up on", async () => {
+            startsActive();
+            const first = holdNextWrite();
+            seedTimeline(messages(6));
+            markerAt("$m0");
+            const vm = await impatientVisit();
+            shows(vm, "$m0", "$m5");
+            await vi.waitFor(() => expect(writes()).toEqual(["$m5"]));
+
+            // Another device moves the marker to the same message; our write is given up on, and fails late.
+            markerAt("$m5");
+            await new Promise((r) => setTimeout(r, 100));
+            first.fail();
+            // The reader goes back up.
+            shows(vm, "$m0", "$m2");
+            await new Promise((r) => setTimeout(r, 200));
+
+            expect(writes()).toEqual(["$m5"]);
+        });
+
+        it("gives the server a limited time to take each write of the marker", async () => {
+            startsActive();
+            seedTimeline(messages(3));
+            markerAt("$m0");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m2");
+
+            await vi.waitFor(() => expect(writes()).toEqual(["$m2"]));
+            expect(client.http.authedRequest).toHaveBeenCalledWith(
+                "POST",
+                `/rooms/${encodeURIComponent(ROOM_ID)}/read_markers`,
+                undefined,
+                { "m.fully_read": "$m2" },
+                { localTimeoutMs: 20_000, abortSignal: expect.any(AbortSignal) },
+            );
+        });
+
+        it("lets later writes go ahead when the server's answer to one never finishes", async () => {
+            startsActive();
+            // The server takes the write and starts to answer, but the rest of the answer never comes. The HTTP API
+            // stops timing a request once the answer starts, so its timeout does not end this one.
+            vi.mocked(client.http.authedRequest).mockImplementationOnce((_method, path, _query, body) => {
+                const eventId = (body as Record<string, string>)["m.fully_read"];
+                void client.setRoomReadMarkers(decodeURIComponent(path.split("/")[2]), eventId);
+                return new Promise<never>(() => {});
+            });
+            seedTimeline(messages(6));
+            markerAt("$m0");
+            const vm = await impatientVisit();
+
+            shows(vm, "$m0", "$m5");
+
+            await vi.waitFor(() => expect(writes()).toEqual(["$m5", "$m5"]));
+        });
+
+        it("never sends a write it gave up on after a later one, even when retrying it with a refreshed token", async () => {
+            startsActive();
+            // The SDK's own HTTP API, over a fetch that sends nothing once its request is aborted, as a browser's does.
+            const sent: string[] = [];
+            let finishFirstAnswer = (): void => {};
+            const fetchFn = vi.fn(async (_url: unknown, init?: RequestInit): Promise<Response> => {
+                if (init?.signal?.aborted) throw new DOMException("The request was aborted", "AbortError");
+                const eventId = JSON.parse(init!.body as string)["m.fully_read"];
+                if (fetchFn.mock.calls.length > 1) {
+                    sent.push(eventId);
+                    return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+                }
+                // The first write is refused as made with an expired token, but the rest of that answer is held back.
+                const body = new ReadableStream<Uint8Array>({
+                    start(controller): void {
+                        finishFirstAnswer = () => {
+                            controller.enqueue(new TextEncoder().encode('{"errcode":"M_UNKNOWN_TOKEN","error":"x"}'));
+                            controller.close();
+                        };
+                    },
+                });
+                return new Response(body, { status: 401, headers: { "Content-Type": "application/json" } });
+            });
+            const http = new MatrixHttpApi(new TypedEventEmitter<HttpApiEvent, HttpApiEventHandlerMap>(), {
+                baseUrl: "https://server.example",
+                prefix: ClientPrefix.V3,
+                onlyData: true,
+                accessToken: "token",
+                fetchFn: fetchFn as typeof globalThis.fetch,
+            });
+            // The token is refreshed by the time the answer arrives, so the SDK sends the write again.
+            vi.spyOn((http as any).tokenManager, "handleUnknownToken").mockResolvedValue("success");
+            (client as any).http = http;
+            seedTimeline(messages(6));
+            markerAt("$m0");
+            const vm = await impatientVisit();
+
+            shows(vm, "$m0", "$m2");
+            await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+            // That write is given up on; the reader reads on, and the marker moves to $m5.
+            await new Promise((r) => setTimeout(r, 150));
+            shows(vm, "$m0", "$m5");
+            await vi.waitFor(() => expect(sent).toContain("$m5"));
+
+            finishFirstAnswer();
+            await new Promise((r) => setTimeout(r, 200));
+
+            expect(sent.slice(sent.indexOf("$m5"))).toEqual(["$m5"]);
+        });
+
+        it("tries again when moving the marker fails", async () => {
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            vi.mocked(client.setRoomReadMarkers).mockRejectedValueOnce(new Error("offline"));
+            seedTimeline(messages(5));
+            markerAt("$m1");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m4");
+
+            await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenCalledTimes(2));
+            expect(vi.mocked(client.setRoomReadMarkers).mock.calls.map(([, eventId]) => eventId)).toEqual([
+                "$m4",
+                "$m4",
+            ]);
+        });
+
+        it("never moves the marker back while the newest messages are loaded and placed", async () => {
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            // Sent in order, by servers whose clocks agree.
+            seedTimeline(
+                Array.from({ length: 300 }, (_, i) => makeMessage(`$m${i}`, { user: OTHER_USER_ID, ts: 1000 + i })),
+            );
+            markerAt("$m100");
+            const vm = await createStartedViewModel("$m2");
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m4");
+
+            // The newest messages start after the marker, while the screen still shows the older ones.
+            vm.jumpToLive();
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$m299"));
+            await new Promise((r) => setTimeout(r, 100));
+            vm.onAnchorReached();
+            await new Promise((r) => setTimeout(r, 100));
+
+            expect(client.setRoomReadMarkers).not.toHaveBeenCalled();
+        });
+
+        it("keeps the unread line of this visit where it was after loading the newest messages", async () => {
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            seedTimeline(messages(300));
+            markerAt("$m1");
+            const vm = await createStartedViewModel("$m2");
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m4");
+            await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$m4"));
+
+            vm.jumpToLive();
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$m299"));
+            vm.onAnchorReached();
+            vm.jumpToReadMarker();
+
+            // Going back to it finds the line where the reader saw it, not where the marker has moved on to.
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$m1"));
+            const items = vm.getSnapshot().items;
+            expect(items[indexOfKey(items, "$m1") + 1].kind).toBe("read-marker");
+        });
+
+        describe("in a room that has no marker yet", () => {
+            const receiptAt = (eventId: string): void => {
+                room.addReceipt(
+                    new MatrixEvent({
+                        type: EventType.Receipt,
+                        content: { [eventId]: { [ReceiptType.Read]: { [USER_ID]: { ts: 1000 } } } },
+                    }),
+                );
+            };
+            const lineAfter = (vm: RoomTimelineViewModel): string | undefined => {
+                const items = vm.getSnapshot().items;
+                const line = items.findIndex((item) => item.kind === "read-marker");
+                return line > 0 ? items[line - 1].key : undefined;
+            };
+
+            beforeEach(() => {
+                vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+            });
+
+            it("starts the unread line at the reader's receipt, as the old timeline does", async () => {
+                seedTimeline(messages(5));
+                receiptAt("$m1");
+                const vm = await createStartedViewModel();
+                expect(lineAfter(vm)).toBe("$m1");
+            });
+
+            it("moves the line to the room's marker when it arrives after the room was opened", async () => {
+                seedTimeline(messages(5));
+                receiptAt("$m1");
+                const vm = await createStartedViewModel();
+
+                markerAt("$m2");
+
+                await vi.waitFor(() => expect(lineAfter(vm)).toBe("$m2"));
+            });
+
+            it("keeps the line away once everything is marked read, even if the room's marker arrives after", async () => {
+                seedTimeline(messages(5));
+                receiptAt("$m1");
+                const vm = await createStartedViewModel();
+                expect(lineAfter(vm)).toBe("$m1");
+
+                vm.onMarkAllAsRead();
+                expect(lineAfter(vm)).toBeUndefined();
+                markerAt("$m2");
+                await new Promise((r) => setTimeout(r, 50));
+
+                expect(lineAfter(vm)).toBeUndefined();
+            });
+
+            it("keeps the line and the marker when the server tells of an earlier move after a later one", async () => {
+                vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                    timer.start();
+                });
+                seedTimeline(messages(5));
+                receiptAt("$m1");
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                shows(vm, "$m0", "$m2");
+                await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$m2"));
+                shows(vm, "$m0", "$m4");
+                await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$m4"));
+
+                // Only now does the first move come back from the server.
+                markerAt("$m2");
+                await new Promise((r) => setTimeout(r, 100));
+
+                expect(lineAfter(vm)).toBe("$m1");
+                expect(vi.mocked(client.setRoomReadMarkers).mock.calls.map(([, eventId]) => eventId)).toEqual([
+                    "$m2",
+                    "$m4",
+                ]);
+            });
+
+            it("keeps the line where it was when the marker that arrives is the one moved on here", async () => {
+                vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                    timer.start();
+                });
+                seedTimeline(messages(5));
+                receiptAt("$m1");
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+                shows(vm, "$m0", "$m4");
+                await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$m4"));
+
+                // The server tells us of the marker we just moved.
+                markerAt("$m4");
+                await new Promise((r) => setTimeout(r, 50));
+
+                expect(lineAfter(vm)).toBe("$m1");
+            });
+        });
+
+        it("waits for the reader to be around", async () => {
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation(() => {});
+            seedTimeline(messages(5));
+            markerAt("$m1");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m4");
+
+            await new Promise((r) => setTimeout(r, 100));
+            expect(client.setRoomReadMarkers).not.toHaveBeenCalled();
+        });
+
+        it("never moves back to what the reader scrolled up to, nor when they leave", async () => {
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            seedTimeline(messages(6));
+            markerAt("$m4");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m2");
+
+            await new Promise((r) => setTimeout(r, 100));
+            vm.dispose();
+            expect(client.setRoomReadMarkers).not.toHaveBeenCalled();
+        });
+
+        it.each([
+            ["in low-bandwidth mode, as the old timeline", () => settingOn("lowBandwidth")],
+            ["for a guest, as the old timeline", () => vi.mocked(client.isGuest).mockReturnValue(true)],
+            ["in a room the reader only previews", () => room.updateMyMembership(KnownMembership.Leave)],
+        ])("sends neither the marker nor a receipt %s, even on leaving", async (_, arrange) => {
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            vi.spyOn(UserActivity.sharedInstance(), "userActiveNow").mockReturnValue(true);
+            seedTimeline(messages(5));
+            markerAt("$m1");
+            arrange();
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m4");
+
+            await new Promise((r) => setTimeout(r, 700));
+            vm.sendReadReceiptNow();
+            vm.dispose();
+            expect(client.setRoomReadMarkers).not.toHaveBeenCalled();
+            expect(client.sendReadReceipt).not.toHaveBeenCalled();
+        });
+    });
+
     describe("removed messages", () => {
         /** A removal of `redacts` applied by the client itself, as a retention policy applies one. */
         const localRemoval = (redacts: string): MatrixEvent =>
@@ -2752,7 +3361,7 @@ describe("RoomTimelineViewModel", () => {
             expect(localStorage.getItem(`timeline_scroll_${ROOM_ID}`)).toBeNull();
         });
 
-        it("moves the unread marker to what the reader actually saw", async () => {
+        it("leaves the unread marker where it was when the reader leaves, as the old timeline does", async () => {
             seedTimeline([makeMessage("$a"), makeMessage("$b")]);
             const vm = await createStartedViewModel();
             vm.onAnchorReached();
@@ -2760,7 +3369,8 @@ describe("RoomTimelineViewModel", () => {
 
             vm.dispose();
 
-            expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$b");
+            // It moves on only once the reader has been around for a while; see "the fully read marker".
+            expect(client.setRoomReadMarkers).not.toHaveBeenCalled();
         });
 
         it("leaves a saved position alone when nothing was ever visible", async () => {
@@ -3064,7 +3674,31 @@ describe("RoomTimelineViewModel", () => {
             vm.onAtBottomStateChange(false);
             vm.dispose();
             expect(localStorage.getItem(`timeline_scroll_${ROOM_ID}`)).toBe("$b");
-            expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$b");
+        });
+
+        it("never moves the fully read marker onto a message still being sent", async () => {
+            vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
+                if (key === "sendReadReceipts") return true;
+                if (key === "readMarkerInViewThresholdMs" || key === "readMarkerOutOfViewThresholdMs") return 20;
+                return undefined;
+            });
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            room.addAccountData([
+                new MatrixEvent({ type: EventType.FullyRead, room_id: ROOM_ID, content: { event_id: "$a" } }),
+            ]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            addPendingMessage("~pending");
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("~pending"));
+
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+
+            await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$b"));
+            await new Promise((r) => setTimeout(r, 100));
+            expect(vi.mocked(client.setRoomReadMarkers).mock.calls.map(([, eventId]) => eventId)).toEqual(["$b"]);
         });
 
         it("keeps the tile of a message of ours as the server confirms it, as the old timeline keys its tiles", async () => {
@@ -3081,7 +3715,7 @@ describe("RoomTimelineViewModel", () => {
             expect(eventRow(vm, "$a")?.tileKey).toBeUndefined();
         });
 
-        it("moves the receipt and marker onto a message of ours once the server confirms it", async () => {
+        it("moves the receipt onto a message of ours once the server confirms it", async () => {
             seedTimeline([makeMessage("$a", { ts: 1000 })]);
             const vm = await createStartedViewModel();
             vm.onAnchorReached();
@@ -3099,8 +3733,6 @@ describe("RoomTimelineViewModel", () => {
                 () => expect(vi.mocked(client.sendReadReceipt).mock.calls.at(-1)?.[0]?.getId()).toBe("$real"),
                 { timeout: 2000 },
             );
-            vm.dispose();
-            expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$real");
         });
 
         it("says how far a message being sent has got", async () => {
