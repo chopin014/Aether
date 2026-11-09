@@ -571,11 +571,120 @@ describe("RoomTimelineViewModel", () => {
             expect(creationGroup(vm)).toBeUndefined();
             expect(eventKeys(vm.getSnapshot().items)).toContain("$rules");
 
-            // Once the reader has scrolled past them, the start of the room is summed up.
+            // They stay so for the visit, as collapsing rows the reader has seen could lose their place.
             const now = vm.getSnapshot().items;
             vm.onVisibleRangeChanged(indexOfKey(now, "$hello"), indexOfKey(now, "$hello"));
             await rebuild(vm);
+            expect(creationGroup(vm)).toBeUndefined();
+        });
+
+        it("leaves rows shown before the view reported where the reader is as they are", async () => {
+            const [create, ...setUp] = creation();
+            seedTimeline([...setUp, makeMessage("$hello", { ts: DAY + 1000 })]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+
+            const loaded = (vm as any).loadedEvents.bind(vm);
+            vi.spyOn(vm as any, "loadedEvents").mockImplementation(() => [create, ...loaded()]);
+            await rebuild(vm);
+
+            expect(eventKeys(vm.getSnapshot().items)).toContain("$rules");
+        });
+
+        it("leaves rows the reader saw as they are when a spinner moved them before the next range was reported", async () => {
+            const [create, ...setUp] = creation();
+            seedTimeline([...setUp, makeMessage("$hello", { ts: DAY + 1000 })]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const shown = vm.getSnapshot().items;
+            vm.onVisibleRangeChanged(indexOfKey(shown, "$name"), indexOfKey(shown, "$name"));
+            (vm as any).backwardSpinnerVisible = true;
+            (vm as any).republish("pagination-start");
+
+            // Cached history can arrive before the view reports where the rows moved to.
+            const loaded = (vm as any).loadedEvents.bind(vm);
+            vi.spyOn(vm as any, "loadedEvents").mockImplementation(() => [create, ...loaded()]);
+            await rebuild(vm);
+
+            expect(eventKeys(vm.getSnapshot().items)).toContain("$name");
+        });
+
+        it("never takes later events into a summary that is shown, such as when the message ending it is removed", async () => {
+            const boundary = makeMessage("$boundary", { ts: DAY + 10 });
+            const topic = makeState("$topic", EventType.RoomTopic, { topic: "later" }, { ts: DAY + 20 });
+            seedTimeline([...creation(), boundary, topic, makeMessage("$hello", { ts: DAY + 30 })]);
+            const vm = await createStartedViewModel();
+            expect(creationGroup(vm)).toBeDefined();
+            vm.onAnchorReached();
+            const items = vm.getSnapshot().items;
+            vm.onVisibleRangeChanged(indexOfKey(items, "$topic"), indexOfKey(items, "$topic"));
+
+            vi.spyOn(boundary, "isRedacted").mockReturnValue(true);
+            await rebuild(vm);
+
+            expect(eventKeys(vm.getSnapshot().items)).toContain("$topic");
             expect(groupedIds(vm)).toEqual(["$join", "$rules", "$history", "$name"]);
+        });
+
+        it("keeps the summary's row when one of its events is redacted", async () => {
+            const events = creation();
+            seedTimeline([...events, makeMessage("$hello", { ts: DAY + 30 })]);
+            const vm = await createStartedViewModel();
+            const key = creationGroup(vm)?.key;
+
+            vi.spyOn(events[3], "isRedacted").mockReturnValue(true);
+            await rebuild(vm);
+
+            expect(creationGroup(vm)?.key).toBe(key);
+            expect(groupedIds(vm)).not.toContain("$history");
+        });
+
+        it("lands on the unread line when going to it loads the history around it", async () => {
+            const events = [...creation(), makeMessage("$hello", { ts: DAY + 1000 })];
+            seedTimeline(events);
+            room.addAccountData([
+                new MatrixEvent({ type: EventType.FullyRead, room_id: ROOM_ID, content: { event_id: "$rules" } }),
+            ]);
+            // The room opens with only its newest message loaded.
+            const loaded = vi
+                .spyOn(RoomTimelineViewModel.prototype as any, "loadedEvents")
+                .mockReturnValue([events.at(-1)]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            loaded.mockRestore();
+
+            vm.jumpToReadMarker();
+
+            await vi.waitFor(() => expect(indexOfKey(vm.getSnapshot().items, "read-marker")).toBeGreaterThan(-1));
+            expect(vm.getSnapshot().pendingAnchor?.targetKey).toBe("read-marker");
+            expect(creationGroup(vm)).toBeDefined();
+        });
+
+        it("gives a link to the unread line's own event a row to land on", async () => {
+            seedTimeline([...creation(), makeMessage("$hello", { ts: DAY + 1000 })]);
+            room.addAccountData([
+                new MatrixEvent({ type: EventType.FullyRead, room_id: ROOM_ID, content: { event_id: "$rules" } }),
+            ]);
+
+            const vm = await createStartedViewModel("$rules");
+
+            expect(vm.getSnapshot().pendingAnchor?.targetKey).toBe("$rules");
+            expect(eventKeys(vm.getSnapshot().items)).toContain("$rules");
+            await rebuild(vm);
+            expect(eventKeys(vm.getSnapshot().items)).toContain("$rules");
+        });
+
+        it("gives an event in a summary already shown a row of its own when the reader is taken to it", async () => {
+            seedTimeline([...creation(), makeMessage("$hello", { ts: DAY + 1000 })]);
+            const vm = await createStartedViewModel();
+            expect(creationGroup(vm)).toBeDefined();
+            vm.onAnchorReached();
+
+            vm.showEvent("$history");
+
+            await vi.waitFor(() => expect(vm.getSnapshot().highlightedEventId).toBe("$history"));
+            expect(vm.getSnapshot().pendingAnchor?.targetKey).toBe("$history");
+            expect(eventKeys(vm.getSnapshot().items)).toContain("$history");
         });
 
         it("ends the summary at someone else's event", async () => {
