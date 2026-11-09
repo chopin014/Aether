@@ -12,6 +12,7 @@ import userEvent from "@testing-library/user-event";
 
 import { DiscoverView, type DiscoverViewActions, type DiscoverViewSnapshot } from "./DiscoverView";
 import { DiscoverNavigationView } from "./DiscoverNavigationView";
+import styles from "./DiscoverView.module.css";
 import { MockViewModel } from "../../core/viewmodel";
 
 function makeVm(snapshot: Partial<DiscoverViewSnapshot> = {}) {
@@ -116,13 +117,14 @@ describe("DiscoverView", () => {
 
     it("explains an empty search", () => {
         render(<DiscoverView vm={makeVm({ query: "zzz", entries: [] })} />);
-        expect(screen.getByText("Nothing found for “zzz”")).toBeInTheDocument();
+        // The title is styled by its own class, which a selector on its position used to stand for.
+        expect(screen.getByText("Nothing found for “zzz”")).toHaveClass(styles.stateTitle);
     });
 
     it("lets the user retry after an error", async () => {
         const vm = makeVm({ status: "error", entries: [] });
         render(<DiscoverView vm={vm} />);
-        expect(within(screen.getByRole("alert")).getByText(/example\.org/)).toBeInTheDocument();
+        expect(within(screen.getByRole("alert")).getByText(/example\.org/)).toHaveClass(styles.stateTitle);
         await userEvent.click(screen.getByRole("button", { name: "Try again" }));
         expect(vm.retry).toHaveBeenCalled();
     });
