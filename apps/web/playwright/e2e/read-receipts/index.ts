@@ -424,11 +424,17 @@ class Helpers {
     }
 
     /**
-     * Assert that the message containing the supplied text is visible in the UI.
+     * Assert that the message containing the supplied text is loaded, scrolling the timeline to it.
      * Note: matches part of the message content as well as the whole of it.
      */
     async assertMessageLoaded(messagePart: string) {
-        await expect(this.page.getByTestId("event-tile-slot-body").getByText(messagePart)).toBeVisible();
+        const message = this.page.getByTestId("event-tile-slot-body").getByText(messagePart);
+        // The new timeline only draws the messages near the screen, so look for it there, again while older messages
+        // are still being paged in.
+        await expect(async () => {
+            await scrollTimelineTo(this.page, message);
+            await expect(message).toBeVisible({ timeout: 1000 });
+        }).toPass({ timeout: 10_000 });
     }
 
     /**
