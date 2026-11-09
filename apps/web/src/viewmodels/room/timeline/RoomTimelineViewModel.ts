@@ -2162,7 +2162,8 @@ export class RoomTimelineViewModel
                 : `summary-${run[0].key}-${this.summaryGroupSequence++}`;
             usedKeys.add(key);
             for (const event of events) this.summaryGroupKeys.set(event, key);
-            result.push({ kind: "event-group", key, events });
+            // Each event's own row comes along, so it is drawn inside the summary as it would be on its own.
+            result.push({ kind: "event-group", key, events, rows: run });
             if (marker) result.push(marker);
             run = [];
             marker = undefined;

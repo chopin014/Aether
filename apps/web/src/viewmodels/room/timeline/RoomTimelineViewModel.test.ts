@@ -376,6 +376,21 @@ describe("RoomTimelineViewModel", () => {
             expect(eventKeys(vm.getSnapshot().items)).toEqual(["$before", "$after"]);
         });
 
+        it("keeps each summed-up message's own row, such as continuing the one before it", async () => {
+            const ts = 1_700_000_000_000;
+            const grouped = [makeMessage("$alpha0", { ts }), makeMessage("$alpha1", { ts: ts + 1000 })];
+            vi.spyOn(ModuleApi.instance.customComponents, "getMessageRenderInfo").mockImplementation((event) =>
+                grouped.includes(event) ? { hints: {}, hasGrouping: true, getGrouping: () => null } : null,
+            );
+            seedTimeline([makeMessage("$before", { ts, user: OTHER_USER_ID }), ...grouped]);
+            const vm = await createStartedViewModel();
+            const group = groups(vm)[0];
+            expect(group.rows?.map((row) => [row.key, row.continuation, row.lastInSection])).toEqual([
+                ["$alpha0", false, false],
+                ["$alpha1", true, true],
+            ]);
+        });
+
         it("sums up messages a module groups itself", async () => {
             const grouped = [
                 makeMessage("$alpha0", { ts: 1_700_000_000_000 }),

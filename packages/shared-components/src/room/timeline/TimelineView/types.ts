@@ -50,6 +50,11 @@ export interface EventGroupTimelineItem {
      */
     variant?: "summary" | "creation";
     /**
+     * The events' own rows, in the same order as `events`, as they would be drawn without the summary: whether each
+     * continues the one before it, and how far sending has got. The application draws each event from its row.
+     */
+    rows?: EventTimelineItem[];
+    /**
      * Set on a summary that opens what the reader can see of the room, so the application can say why there is
      * nothing earlier, such as history hidden from before they joined.
      */
