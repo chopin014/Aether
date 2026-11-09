@@ -2060,10 +2060,12 @@ export class RoomTimelineViewModel
      * - Saves the bottommost message the reader saw to localStorage, so the next visit
      *   resumes there; clears it when they were at the visual bottom, so the next visit
      *   starts at the live end. With no visible range recorded, the saved position stays.
-     * - Starts no write of the fully read marker. Only time spent around the room
-     *   ({@link moveReadMarkerOnWhileActive}) or an explicit {@link onMarkAllAsRead} moves it, so a
-     *   glance at a room keeps its unread line. A write already sent is neither waited for nor
-     *   stopped, so it can still land after this; one waiting its turn is not sent.
+     * - Starts no write of the fully read marker: leaving a room does not move it, so a glance at
+     *   a room keeps its unread line. It moves on while the reader is around
+     *   ({@link moveReadMarkerOnWhileActive}), when a room view that moves it only on focus is
+     *   focused ({@link moveReadMarkerOnNow}), or on {@link onMarkAllAsRead}. A write already sent
+     *   is neither waited for nor stopped, so it can still land after this; one waiting its turn
+     *   is not sent.
      * - Through `super.dispose()`, marks the view model disposed and releases its room and client
      *   listeners and its settings watcher.
      */
