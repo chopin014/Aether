@@ -849,6 +849,21 @@ export class RoomTimelineViewModel
         return end !== undefined && end !== this.opts.room.getUnfilteredTimelineSet().getLiveTimeline();
     }
 
+    /**
+     * Whether `window` may have older messages before it. The SDK keeps a token for them until a request for them comes
+     * back empty, as after a reload, but nothing comes before the room's creation: a window that starts at
+     * `m.room.create` holds the start of the room. Asking anyway would cost a request, keep the date at the start of
+     * the room from showing until it came back, and leave a short room aligned to the bottom as if more were coming.
+     */
+    private hasOlderMessages(window: TimelineWindow = this.timelineWindow): boolean {
+        return window.canPaginate(Direction.Backward) && window.getEvents()[0]?.getType() !== EventType.RoomCreate;
+    }
+
+    /** Whether `window` can be extended in `direction`; see {@link hasOlderMessages}. */
+    private canExtend(window: TimelineWindow, direction: Direction): boolean {
+        return direction === Direction.Backward ? this.hasOlderMessages(window) : window.canPaginate(Direction.Forward);
+    }
+
     /** Whether the window holds the newest messages of the room's live timeline. */
     private windowReachesLive(): boolean {
         return !this.timelineWindow.canPaginate(Direction.Forward) && !this.windowDetachedFromLive();
@@ -1427,7 +1442,7 @@ export class RoomTimelineViewModel
                 atLiveEnd: this.windowReachesLive(),
                 // Keep this for the session, including when the final short history page arrives,
                 // so exhausting older history cannot move the messages back to the top.
-                alignToBottom: target.kind === "live" && this.timelineWindow.canPaginate(Direction.Backward),
+                alignToBottom: target.kind === "live" && this.hasOlderMessages(),
                 pendingAnchor,
                 highlightedEventId:
                     target.kind === "permalink" && !target.toReadMarker
@@ -1444,7 +1459,7 @@ export class RoomTimelineViewModel
             if (items.length === 0) {
                 if (this.timelineWindow.canPaginate(Direction.Forward)) {
                     this.triggerForwardPaginate();
-                } else if (this.timelineWindow.canPaginate(Direction.Backward)) {
+                } else if (this.hasOlderMessages()) {
                     this.triggerBackwardPaginate();
                 }
             }
@@ -1500,7 +1515,7 @@ export class RoomTimelineViewModel
             while (
                 requests < MAX_FILL_REQUESTS_PER_DIRECTION &&
                 this.renderableEventCount(window, centreOn, direction) < perDirectionTarget &&
-                window.canPaginate(direction)
+                this.canExtend(window, direction)
             ) {
                 requests++;
                 const before = window.getEvents().length;
@@ -1922,7 +1937,7 @@ export class RoomTimelineViewModel
             this.navigationToReadMarker = true;
             // A third of the way down, as the old timeline places the line, with the unread messages below it.
             scrollNow({ targetKey: readMarkerKey, align: "third" });
-        } else if (this.frozenMarkerEventId && this.timelineWindow.canPaginate(Direction.Backward)) {
+        } else if (this.frozenMarkerEventId && this.hasOlderMessages()) {
             // Frozen marker is not in the current window — reload at it.
             // pendingAnchor gets set inside load() and drives the post-load scroll.
             debug(`[TimelineVM] onJumpToReadMarker — marker not in window, reloading at ${this.frozenMarkerEventId}`);
@@ -2026,7 +2041,7 @@ export class RoomTimelineViewModel
             // past the live edge and the marker fell off via window trimming):
             // "below". Otherwise the marker is older than our window: "above".
             if (this.timelineWindow.canPaginate(Direction.Forward)) return "below";
-            if (this.timelineWindow.canPaginate(Direction.Backward)) return "above";
+            if (this.hasOlderMessages()) return "above";
             return false;
         }
         if (rmIdx < this.visibleStartArrayIndex) return "above";
@@ -2111,8 +2126,8 @@ export class RoomTimelineViewModel
             return;
         }
 
-        if (!this.timelineWindow.canPaginate(Direction.Backward)) {
-            debug(`[TimelineVM] paginate(backward) skipped — canPaginate=false`);
+        if (!this.hasOlderMessages()) {
+            debug(`[TimelineVM] paginate(backward) skipped — no older messages`);
             return;
         }
 
@@ -2331,7 +2346,7 @@ export class RoomTimelineViewModel
             let emptyBatches = 0;
 
             while (emptyBatches <= MAX_EMPTY_RETRIES) {
-                if (!this.timelineWindow.canPaginate(direction)) {
+                if (!this.canExtend(this.timelineWindow, direction)) {
                     debug(`[TimelineVM] paginate(${dirLabel}) chain end — canPaginate=false`);
                     break;
                 }
@@ -2380,7 +2395,7 @@ export class RoomTimelineViewModel
 
                 // With one SDK request per batch, false can mean an empty or duplicate page,
                 // even when its continuation token still points to more history.
-                if (newlyShown > 0 || !this.timelineWindow.canPaginate(direction)) break;
+                if (newlyShown > 0 || !this.canExtend(this.timelineWindow, direction)) break;
                 emptyBatches++;
             }
 
@@ -2497,7 +2512,7 @@ export class RoomTimelineViewModel
         // behaviour (see `wantsSeparator` in MessagePanel.tsx). Once we've
         // hit the start of the timeline we let the leading separator render
         // so the user sees an explicit "this is the start" marker.
-        const suppressLeadingSeparator = this.timelineWindow.canPaginate(Direction.Backward);
+        const suppressLeadingSeparator = this.hasOlderMessages();
 
         for (const event of events) {
             const eventId = event.getId();
@@ -2776,7 +2791,7 @@ export class RoomTimelineViewModel
             }
         }
         flush();
-        if (!this.timelineWindow.canPaginate(Direction.Backward)) {
+        if (!this.hasOlderMessages()) {
             const first = result.find((item) => item.kind === "event" || item.kind === "event-group");
             if (first?.kind === "event-group" && first.variant === undefined) first.startsHistory = true;
         }

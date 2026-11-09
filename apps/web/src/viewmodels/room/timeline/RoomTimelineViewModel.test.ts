@@ -1280,6 +1280,61 @@ describe("RoomTimelineViewModel", () => {
 
             expect(creationGroup(vm)).toBeUndefined();
         });
+
+        describe("when the window starts at the room's creation", () => {
+            /** As after a reload: the SDK keeps a token for older messages, though nothing comes before the creation. */
+            const seedFromCreation = (events: MatrixEvent[]): void => {
+                seedTimeline(events);
+                room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            };
+
+            it("asks the server for no older messages", async () => {
+                seedFromCreation([...creation(), makeMessage("$m", { ts: DAY + 1000 })]);
+                const fetchPage = vi.spyOn(client, "paginateEventTimeline");
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+
+                vm.onStartReached();
+
+                await new Promise((resolve) => setTimeout(resolve, 20));
+                expect(fetchPage).not.toHaveBeenCalled();
+                expect(kinds(vm.getSnapshot().items)).not.toContain("loading");
+            });
+
+            it("shows the date at the start of the room straight away", async () => {
+                seedFromCreation([...creation(), makeMessage("$m", { ts: DAY + 1000 })]);
+
+                const vm = await createStartedViewModel();
+
+                expect(vm.getSnapshot().items[0].kind).toBe("date-separator");
+            });
+
+            it("does not hold a short room at the bottom as if older messages were coming", async () => {
+                seedFromCreation([...creation(), makeMessage("$m", { ts: DAY + 1000 })]);
+
+                const vm = await createStartedViewModel();
+
+                expect(vm.getSnapshot().alignToBottom).toBe(false);
+            });
+
+            it("does not offer to jump up to an unread line that cannot be above it", async () => {
+                seedFromCreation([...creation(), makeMessage("$m", { ts: DAY + 1000, user: OTHER_USER_ID })]);
+                // A marker the window does not hold, which would otherwise be taken to be older than it.
+                room.addAccountData([
+                    new MatrixEvent({
+                        type: EventType.FullyRead,
+                        room_id: ROOM_ID,
+                        content: { event_id: "$elsewhere" },
+                    }),
+                ]);
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+
+                vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+
+                expect(vm.getSnapshot().canJumpToReadMarker).toBe(false);
+            });
+        });
     });
 
     describe("initial load", () => {
