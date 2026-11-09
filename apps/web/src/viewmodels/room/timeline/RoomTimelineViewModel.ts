@@ -393,8 +393,15 @@ export class RoomTimelineViewModel
      * reader's receipt; see {@link onRoomAccountData}.
      */
     private awaitingServerReadMarker = false;
-    /** The events {@link moveReadMarkerOn} has moved the marker to during this visit, to know their echoes. */
+    /** The events this visit moved the marker to, to know the server's echoes of them; see {@link writeReadMarker}. */
     private readonly sentReadMarkerIds = new Set<string>();
+
+    /**
+     * Each room's fully read marker writes, in order, across view models, so a write made before the reader left a room
+     * cannot land after one made since they came back. Keyed by the room object, which the client keeps for as long as
+     * it knows the room. `written` is the last marker written there, a floor for the next view model's own marker.
+     */
+    private static readonly readMarkerWrites = new WeakMap<Room, { queue: Promise<void>; written?: string }>();
 
     /**
      * Count of new live messages that arrived since the user last reached the
@@ -634,17 +641,52 @@ export class RoomTimelineViewModel
         const eventId = this.lastBottomEventId;
         // A marker at or below that message is ahead of what the reader is looking at: leave it.
         if (!eventId || !this.comesAfter(eventId, this.readMarkerEventId)) return;
-        debug(`[TimelineVM] moveReadMarkerOn — fully read marker to ${eventId}`);
-        const previous = this.readMarkerEventId;
-        this.readMarkerEventId = eventId;
-        this.sentReadMarkerIds.add(eventId);
-        try {
-            await this.opts.client.setRoomReadMarkers(this.opts.room.roomId, eventId);
-        } catch (err) {
-            logger.warn(`[TimelineVM] moveReadMarkerOn — setRoomReadMarkers failed`, err);
-            // Try again next time, unless the marker has moved on meanwhile.
-            if (this.readMarkerEventId === eventId) this.readMarkerEventId = previous;
-        }
+        await this.writeReadMarker(eventId);
+    }
+
+    /**
+     * Move the room's fully read marker to `eventId` when it comes after the marker, once the writes before it for this
+     * room are done, as the old timeline sends one at a time. It is decided again then, against the last marker any
+     * view of the room wrote, so it never moves back. A failed write is tried again by whoever moves the marker next.
+     */
+    private writeReadMarker(eventId: string): Promise<void> {
+        const room = this.opts.room;
+        const writes = RoomTimelineViewModel.readMarkerWrites;
+        const state = writes.get(room) ?? { queue: Promise.resolve() };
+        writes.set(room, state);
+        const write = state.queue.then(async (): Promise<void> => {
+            if (state.written && this.comesAfter(state.written, this.readMarkerEventId)) {
+                this.readMarkerEventId = state.written;
+            }
+            if (!this.maySendReadState() || !this.comesAfter(eventId, this.readMarkerEventId)) return;
+            debug(`[TimelineVM] writeReadMarker — fully read marker to ${eventId}`);
+            const previous = this.readMarkerEventId;
+            this.readMarkerEventId = eventId;
+            this.sentReadMarkerIds.add(eventId);
+            try {
+                await this.opts.client.setRoomReadMarkers(room.roomId, eventId);
+                state.written = eventId;
+            } catch (err) {
+                logger.warn(`[TimelineVM] writeReadMarker — setRoomReadMarkers failed`, err);
+                this.sentReadMarkerIds.delete(eventId);
+                // Back to where the marker is known to be: the later of where it was, and where the server has said it
+                // is since, such as when another device moved it on while this write was failing.
+                if (this.readMarkerEventId === eventId) {
+                    const fromServer = this.roomReadMarkerEventId();
+                    this.readMarkerEventId =
+                        fromServer && this.comesAfter(fromServer, previous) ? fromServer : previous;
+                }
+            }
+        });
+        state.queue = write;
+        return write;
+    }
+
+    /** The room's fully read marker as the server last said, or null. */
+    private roomReadMarkerEventId(): string | null {
+        return (
+            (this.opts.room.getAccountData(EventType.FullyRead)?.getContent()?.event_id as string | undefined) ?? null
+        );
     }
 
     /**
@@ -1009,8 +1051,14 @@ export class RoomTimelineViewModel
         const firstFromServer = this.awaitingServerReadMarker;
         this.awaitingServerReadMarker = false;
         if (newMarker === this.readMarkerEventId) return;
-        // The server telling us of a move made here, perhaps after a later one: the marker is already there or past it.
-        if (newMarker !== null && this.sentReadMarkerIds.has(newMarker)) return;
+        // The server telling us of a move made here, after a later one: the marker is already past it.
+        if (
+            newMarker !== null &&
+            this.sentReadMarkerIds.has(newMarker) &&
+            !this.comesAfter(newMarker, this.readMarkerEventId)
+        ) {
+            return;
+        }
         // Track the server-side marker so it is never moved back or written again,
         // but don't touch frozenMarkerEventId — the visible divider position is
         // pinned for the session. If the user wants the marker line to reflect

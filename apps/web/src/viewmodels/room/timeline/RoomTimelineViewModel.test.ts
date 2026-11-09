@@ -1851,6 +1851,53 @@ describe("RoomTimelineViewModel", () => {
         };
         const writes = (): unknown[] => vi.mocked(client.setRoomReadMarkers).mock.calls.map(([, eventId]) => eventId);
 
+        it("waits for a write from before the room was left, and never moves the marker back behind it", async () => {
+            startsActive();
+            const first = holdNextWrite();
+            seedTimeline(messages(6));
+            markerAt("$m0");
+            const left = await createStartedViewModel();
+            left.onAnchorReached();
+            shows(left, "$m0", "$m2");
+            await vi.waitFor(() => expect(writes()).toEqual(["$m2"]));
+            left.dispose();
+
+            // Back in the room, reading less far than before while that write is still on its way.
+            const back = await createStartedViewModel();
+            back.onAnchorReached();
+            shows(back, "$m0", "$m1");
+            await new Promise((r) => setTimeout(r, 100));
+            first.finish();
+            await new Promise((r) => setTimeout(r, 100));
+            expect(writes()).toEqual(["$m2"]);
+
+            shows(back, "$m0", "$m5");
+            await vi.waitFor(() => expect(writes()).toEqual(["$m2", "$m5"]));
+        });
+
+        it.each([
+            ["while the write is failing", false],
+            ["after the write has failed", true],
+        ])("keeps a move another device makes %s", async (_, afterFailure) => {
+            startsActive();
+            const first = holdNextWrite();
+            seedTimeline(messages(6));
+            markerAt("$m0");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m4");
+            await vi.waitFor(() => expect(writes()).toEqual(["$m4"]));
+
+            first.fail();
+            if (afterFailure) await new Promise((r) => setTimeout(r, 0));
+            // Another device moves the marker to the same message, and the reader goes back up.
+            markerAt("$m4");
+            shows(vm, "$m0", "$m2");
+            await new Promise((r) => setTimeout(r, 100));
+
+            expect(writes()).toEqual(["$m4"]);
+        });
+
         it("lets the reader leave while a marker write is on its way", async () => {
             startsActive();
             const first = holdNextWrite();
