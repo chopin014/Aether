@@ -272,6 +272,9 @@ export type EventTileRootSnapshot = Omit<EventTileViewRoot, "id" | "as" | "perma
 const EVENT_TILE_VIEW_CLASS_NAMES: EventTileViewClassNames = {
     root: "mx_EventTile",
     line: "mx_EventTile_line",
+    // Lets the application's stylesheet name the action bar's slot. Picked out by `:has()` alone, the slot left the
+    // browser unable to tell which elements a change could restyle, so it restyled the whole page instead.
+    slotActionBar: "mx_EventTile_actionBarSlot",
 };
 
 /** Sender state derived for the EventTile snapshot. */
