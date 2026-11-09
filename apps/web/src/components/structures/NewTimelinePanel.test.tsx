@@ -384,12 +384,24 @@ describe("<NewTimelinePanel />", () => {
         expect(screen.getByTestId("timeline-stub")).toBeEmptyDOMElement();
     });
 
-    it("falls back to the modern layout when IRC is selected", () => {
+    it("lays messages out as IRC, with the name column's drag handle, when IRC is selected", () => {
         withItems([eventRow(event)]);
 
-        renderPanel({ layout: Layout.IRC });
+        const { container } = renderPanel({ layout: Layout.IRC });
 
-        expect(tileProps.current[0].layout).toBe(Layout.Group);
+        expect(tileProps.current[0].layout).toBe(Layout.IRC);
+        const panel = container.querySelector(".mx_NewTimelinePanel");
+        expect(panel).toHaveClass("mx_IRCLayout");
+        expect(panel?.querySelector(":scope > .mx_ProfileResizer")).not.toBeNull();
+    });
+
+    it("has no IRC name column in other layouts", () => {
+        withItems([eventRow(event)]);
+
+        const { container } = renderPanel({ layout: Layout.Group });
+
+        expect(container.querySelector(".mx_NewTimelinePanel")).not.toHaveClass("mx_IRCLayout");
+        expect(container.querySelector(".mx_ProfileResizer")).toBeNull();
     });
 
     it("passes the message layout through unchanged", () => {
