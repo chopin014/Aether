@@ -1317,6 +1317,27 @@ describe("RoomTimelineViewModel", () => {
                 expect(vm.getSnapshot().alignToBottom).toBe(false);
             });
 
+            it("goes to an unloaded newer unread line from a link near the room's creation", async () => {
+                seedFromCreation([
+                    ...creation(),
+                    ...Array.from({ length: 200 }, (_, i) =>
+                        makeMessage(`$m${i}`, { ts: DAY + 1000 + i, user: OTHER_USER_ID }),
+                    ),
+                ]);
+                room.addAccountData([
+                    new MatrixEvent({ type: EventType.FullyRead, room_id: ROOM_ID, content: { event_id: "$m150" } }),
+                ]);
+                const vm = await createStartedViewModel("$m0");
+                vm.onAnchorReached();
+                vm.onVisibleRangeChanged(0, 0);
+                expect(vm.getSnapshot().canJumpToReadMarker).toBe("below");
+                const load = vi.spyOn(TimelineWindow.prototype, "load");
+
+                vm.onJumpToReadMarker(vi.fn());
+
+                expect(load).toHaveBeenCalledWith("$m150", expect.any(Number));
+            });
+
             it("does not offer to jump up to an unread line that cannot be above it", async () => {
                 seedFromCreation([...creation(), makeMessage("$m", { ts: DAY + 1000, user: OTHER_USER_ID })]);
                 // A marker the window does not hold, which would otherwise be taken to be older than it.

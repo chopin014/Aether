@@ -1937,9 +1937,13 @@ export class RoomTimelineViewModel
             this.navigationToReadMarker = true;
             // A third of the way down, as the old timeline places the line, with the unread messages below it.
             scrollNow({ targetKey: readMarkerKey, align: "third" });
-        } else if (this.frozenMarkerEventId && this.hasOlderMessages()) {
-            // Frozen marker is not in the current window — reload at it.
-            // pendingAnchor gets set inside load() and drives the post-load scroll.
+        } else if (
+            this.frozenMarkerEventId &&
+            !this.timelineWindow.getEvents().some((event) => event.getId() === this.frozenMarkerEventId) &&
+            (this.hasOlderMessages() || this.timelineWindow.canPaginate(Direction.Forward))
+        ) {
+            // The unread line's message is outside the window, older or newer, as when it is offered; see
+            // computeCanJumpToReadMarker. Reload at it: pendingAnchor gets set inside load() and drives the scroll.
             debug(`[TimelineVM] onJumpToReadMarker — marker not in window, reloading at ${this.frozenMarkerEventId}`);
             void this.load({ kind: "permalink", eventId: this.frozenMarkerEventId, toReadMarker: true });
         } else {
