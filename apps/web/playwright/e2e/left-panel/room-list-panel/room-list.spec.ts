@@ -521,7 +521,7 @@ test.describe("Room list", () => {
             "should render a message preview when enable in settings",
             { tag: "@screenshot" },
             async ({ page, app, user, bot }) => {
-                await app.settings.openUserSettings("Preferences");
+                await app.settings.openUserSettings("Chat");
                 await page.getByRole("switch", { name: "Show message previews" }).click();
                 await app.closeDialog();
 

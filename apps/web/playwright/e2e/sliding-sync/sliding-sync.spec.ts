@@ -318,7 +318,7 @@ test.describe("Sliding Sync", () => {
     });
 
     test("should update user settings promptly", async ({ page, app }) => {
-        await app.settings.openUserSettings("Preferences");
+        await app.settings.openUserSettings("Language & time");
         const locator = page.getByRole("switch", { name: "Show timestamps in 12 hour format" });
         await expect(locator).toBeVisible();
         await locator.check();
