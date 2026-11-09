@@ -46,9 +46,10 @@ export interface EventGroupTimelineItem {
     events: TimelineEvent[];
     /**
      * What the events have in common: a run of changes summed up together, such as memberships or removed messages,
-     * the default; or the room being created and set up by the person who created it.
+     * the default; the room being created and set up by the person who created it; or pictures one person sent
+     * together, after the first of them.
      */
-    variant?: "summary" | "creation";
+    variant?: "summary" | "creation" | "gallery";
     /**
      * Set on a summary that opens what the reader can see of the room, so the application can say why there is
      * nothing earlier, such as history hidden from before they joined.

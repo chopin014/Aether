@@ -49,6 +49,7 @@ import {
 } from "../../../utils/read-receipts";
 import type { IReadReceiptProps } from "../../../components/views/rooms/EventTile";
 import { ModuleApi } from "../../../modules/Api";
+import { GALLERY_WINDOW_MS, isGalleryMedia } from "../../../utils/gallery";
 import { sendStateOf } from "./sendState";
 
 const DEBUG_TIMELINE = false;
@@ -1998,7 +1999,7 @@ export class RoomTimelineViewModel
                 `filtered=${filteredCount}`,
         );
 
-        return this.groupSummarisedItems(this.groupRoomCreation(items, events, showHiddenEvents));
+        return this.groupGalleries(this.groupSummarisedItems(this.groupRoomCreation(items, events, showHiddenEvents)));
     }
 
     /**
@@ -2198,6 +2199,63 @@ export class RoomTimelineViewModel
         if (!this.timelineWindow.canPaginate(Direction.Backward)) {
             const first = result.find((item) => item.kind === "event" || item.kind === "event-group");
             if (first?.kind === "event-group" && first.variant === undefined) first.startsHistory = true;
+        }
+        return result;
+    }
+
+    /**
+     * Lay out pictures one person sends together as the old timeline's `GalleryGrouper` does, in the desktop shell:
+     * the first stays an ordinary row, and the ones that follow it from the same person, each within
+     * {@link GALLERY_WINDOW_MS} of the one before, become one gallery row under it. A read marker among them moves
+     * after the gallery. A picture the reader is being taken to keeps a row of its own, so there is a row to land on.
+     */
+    private groupGalleries(items: TimelineItem[]): TimelineItem[] {
+        if (!SettingsStore.getValue("feature_desktop_shell")) return items;
+        const pendingKey = this.snapshot.current.pendingAnchor?.targetKey;
+        const targets = new Set([
+            this.navigationToReadMarker ? null : this.navigationEventId,
+            this.snapshot.current.highlightedEventId,
+            pendingKey === "read-marker" ? null : pendingKey,
+        ]);
+        const result: TimelineItem[] = [];
+        let index = 0;
+        while (index < items.length) {
+            const first = items[index++];
+            result.push(first);
+            if (first.kind !== "event" || !isGalleryMedia(first.event as MatrixEvent, true)) continue;
+
+            let previous = first.event as MatrixEvent;
+            const rest: MatrixEvent[] = [];
+            let marker: TimelineItem | undefined;
+            while (index < items.length) {
+                const item = items[index];
+                if (item.kind === "read-marker" && !marker) {
+                    marker = item;
+                    index++;
+                    continue;
+                }
+                if (item.kind !== "event" || targets.has(item.key)) break;
+                const event = item.event as MatrixEvent;
+                if (
+                    !isGalleryMedia(event, false) ||
+                    event.getSender() !== previous.getSender() ||
+                    event.getTs() - previous.getTs() > GALLERY_WINDOW_MS
+                ) {
+                    break;
+                }
+                rest.push(event);
+                previous = event;
+                index++;
+            }
+            if (rest.length > 0) {
+                result.push({
+                    kind: "event-group",
+                    key: `gallery-${rest[0].getId()}`,
+                    events: rest,
+                    variant: "gallery",
+                });
+            }
+            if (marker) result.push(marker);
         }
         return result;
     }

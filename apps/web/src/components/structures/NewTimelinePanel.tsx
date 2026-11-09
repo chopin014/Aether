@@ -12,6 +12,7 @@ import React, {
     useImperativeHandle,
     useRef,
     useState,
+    type CSSProperties,
     type JSX,
     type ReactNode,
     type Ref,
@@ -36,6 +37,7 @@ import {
 } from "matrix-js-sdk/src/matrix";
 import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
 import { RoomTimelineViewModel } from "../../viewmodels/room/timeline/RoomTimelineViewModel";
+import { sendStateOf } from "../../viewmodels/room/timeline/sendState";
 import { useMatrixClientContext } from "../../contexts/MatrixClientContext";
 import { LegacyEventTileAdapter } from "../views/rooms/LegacyEventTileAdapter";
 import type { GetRelationsForEvent, IReadReceiptProps } from "../views/rooms/EventTile";
@@ -49,6 +51,7 @@ import EventListSummary from "../views/elements/EventListSummary";
 import GenericEventListSummary from "../views/elements/GenericEventListSummary";
 import NewRoomIntro from "../views/rooms/NewRoomIntro";
 import HistoryTile from "../views/rooms/HistoryTile";
+import { galleryColumns } from "../../utils/gallery";
 import DMRoomMap from "../../utils/DMRoomMap";
 import type { IReadReceiptPosition } from "../views/rooms/ReadReceiptMarker";
 import { getKeyBindingsManager } from "../../KeyBindingsManager";
@@ -113,6 +116,30 @@ interface RenderItemContext {
     getRelationsForEvent: GetRelationsForEvent;
 }
 
+/** A row for one event drawn inside a group, with its send state read as the view model reads a row's own. */
+function groupedEvent(event: MatrixEvent, continuation: boolean, lastInSection: boolean): TimelineItem {
+    return { kind: "event", key: event.getId()!, event, continuation, lastInSection, sendState: sendStateOf(event) };
+}
+
+/**
+ * Pictures one person sent together, after the first of them, as a grid under it, as the old timeline's
+ * `GalleryGrouper` draws them. Each picture is still its own tile, with its own actions and reactions.
+ */
+function renderGallery(key: string, events: MatrixEvent[], ctx: RenderItemContext): ReactNode {
+    const columns = galleryColumns(events.length);
+    const style = { "--mx-desktop-gallery-columns": columns } as CSSProperties;
+    return (
+        <div key={key} className="mx_DesktopGallery">
+            <ol className="mx_DesktopGallery_list" style={style} data-columns={columns}>
+                {events.map((event, index) =>
+                    // Pictures after the first continue it; the grid's styles expect tiles as its list items.
+                    renderTimelineItem(groupedEvent(event, true, index === events.length - 1), ctx, "li"),
+                )}
+            </ol>
+        </div>
+    );
+}
+
 /**
  * The room's introduction and the summary of how its creator set it up, as the old timeline draws the start of a room.
  * The summary expands to the events it stands for.
@@ -136,20 +163,19 @@ function renderCreation(key: string, events: MatrixEvent[], ctx: RenderItemConte
                 layout={ctx.effectiveLayout}
             >
                 {events.map((event) => (
-                    <li key={event.getId()}>
-                        {renderTimelineItem(
-                            { kind: "event", key: event.getId()!, event, continuation: false, lastInSection: true },
-                            ctx,
-                        )}
-                    </li>
+                    <li key={event.getId()}>{renderTimelineItem(groupedEvent(event, false, true), ctx)}</li>
                 ))}
             </GenericEventListSummary>
         </div>
     );
 }
 
-/** Draws one timeline row. Kept outside the component so it isn't redefined per render. */
-function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNode {
+/**
+ * Draws one timeline row. Kept outside the component so it isn't redefined per render.
+ *
+ * @param tileAs - the element of an event's tile: a `div` in a row of its own, or an `li` in a list inside a row
+ */
+function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext, tileAs: "div" | "li" = "div"): ReactNode {
     switch (item.kind) {
         case "date-separator":
             // The same view model as the old timeline, so the label and
@@ -180,6 +206,7 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNo
         case "event-group": {
             const events = item.events as MatrixEvent[];
             if (item.variant === "creation") return renderCreation(item.key, events, ctx);
+            if (item.variant === "gallery") return renderGallery(item.key, events, ctx);
             // Always a fragment, so the summary keeps its state when the start of the room is reached.
             return (
                 <Fragment key={item.key}>
@@ -187,18 +214,7 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNo
                     {item.startsHistory ? <HistoryTile key="history" /> : null}
                     <EventListSummary key="summary" as="div" events={events} layout={ctx.effectiveLayout}>
                         {events.map((event) => (
-                            <li key={event.getId()}>
-                                {renderTimelineItem(
-                                    {
-                                        kind: "event",
-                                        key: event.getId()!,
-                                        event,
-                                        continuation: false,
-                                        lastInSection: true,
-                                    },
-                                    ctx,
-                                )}
-                            </li>
+                            <li key={event.getId()}>{renderTimelineItem(groupedEvent(event, false, true), ctx)}</li>
                         ))}
                     </EventListSummary>
                 </Fragment>
@@ -213,6 +229,7 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNo
             return (
                 <LegacyEventTileAdapter
                     key={item.key}
+                    as={tileAs}
                     mxEvent={mxEvent}
                     continuation={item.continuation}
                     lastInSection={item.lastInSection}

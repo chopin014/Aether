@@ -578,6 +578,134 @@ describe("RoomTimelineViewModel", () => {
         });
     });
 
+    describe("galleries", () => {
+        const T0 = 1_700_000_000_000;
+        /** A picture, from Alice unless said otherwise. */
+        const makePicture = (
+            id: string,
+            opts: { user?: string; ts?: number; content?: Record<string, unknown> } = {},
+        ): MatrixEvent =>
+            new MatrixEvent({
+                event_id: id,
+                room_id: ROOM_ID,
+                type: EventType.RoomMessage,
+                sender: opts.user ?? USER_ID,
+                origin_server_ts: opts.ts ?? T0,
+                content: { msgtype: "m.image", body: `${id}.png`, url: `mxc://example.org/${id}`, ...opts.content },
+            });
+        const galleries = (vm: RoomTimelineViewModel): string[][] =>
+            vm
+                .getSnapshot()
+                .items.flatMap((item) =>
+                    item.kind === "event-group" && item.variant === "gallery"
+                        ? [item.events.map((event) => (event as MatrixEvent).getId()!)]
+                        : [],
+                );
+
+        beforeEach(() => {
+            vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
+                if (key === "sendReadReceipts" || key === "feature_desktop_shell") return true;
+                return undefined;
+            });
+        });
+
+        it("lays out the pictures after the first one sent together as one gallery under it", async () => {
+            seedTimeline([
+                makePicture("$first", { content: { filename: "first.png", body: "look at these" } }),
+                makePicture("$second", { ts: T0 + 1000 }),
+                makePicture("$third", { ts: T0 + 2000 }),
+            ]);
+            const vm = await createStartedViewModel();
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$first"]);
+            expect(galleries(vm)).toEqual([["$second", "$third"]]);
+            const gallery = vm.getSnapshot().items.find((item) => item.kind === "event-group");
+            expect(gallery?.key).toBe("gallery-$second");
+            expect(indexOfKey(vm.getSnapshot().items, "gallery-$second")).toBe(
+                indexOfKey(vm.getSnapshot().items, "$first") + 1,
+            );
+        });
+
+        it("keeps pictures in rows of their own outside the desktop shell", async () => {
+            vi.mocked(SettingsStore).getValue.mockImplementation((key): any => key === "sendReadReceipts");
+            seedTimeline([makePicture("$first"), makePicture("$second", { ts: T0 + 1000 })]);
+            const vm = await createStartedViewModel();
+            expect(galleries(vm)).toEqual([]);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$first", "$second"]);
+        });
+
+        it.each([
+            ["from someone else", makePicture("$next", { user: OTHER_USER_ID, ts: T0 + 1000 })],
+            ["more than a minute later", makePicture("$next", { ts: T0 + 61_000 })],
+            [
+                "with text of its own",
+                makePicture("$next", { ts: T0 + 1000, content: { filename: "x.png", body: "hi" } }),
+            ],
+            [
+                "replying to a message",
+                makePicture("$next", {
+                    ts: T0 + 1000,
+                    content: { "m.relates_to": { "m.in_reply_to": { event_id: "$x" } } },
+                }),
+            ],
+            ["that is a video", makePicture("$next", { ts: T0 + 1000, content: { msgtype: "m.video" } })],
+        ])("ends the gallery at a picture %s", async (_case, next) => {
+            seedTimeline([makePicture("$first"), makePicture("$second", { ts: T0 + 500 }), next]);
+            const vm = await createStartedViewModel();
+            expect(galleries(vm)).toEqual([["$second"]]);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$first", "$next"]);
+        });
+
+        it("ends the gallery at a message", async () => {
+            seedTimeline([
+                makePicture("$first"),
+                makePicture("$second", { ts: T0 + 250 }),
+                makeMessage("$text", { ts: T0 + 500 }),
+                makePicture("$after", { ts: T0 + 1000 }),
+            ]);
+            const vm = await createStartedViewModel();
+            expect(galleries(vm)).toEqual([["$second"]]);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$first", "$text", "$after"]);
+        });
+
+        it("puts a read marker among the pictures after the gallery", async () => {
+            seedTimeline([
+                makePicture("$first"),
+                makePicture("$second", { ts: T0 + 500 }),
+                makePicture("$third", { ts: T0 + 1000 }),
+                makeMessage("$later", { ts: T0 + 2000 }),
+            ]);
+            room.addAccountData([
+                new MatrixEvent({ type: EventType.FullyRead, room_id: ROOM_ID, content: { event_id: "$second" } }),
+            ]);
+            const vm = await createStartedViewModel();
+            expect(galleries(vm)).toEqual([["$second", "$third"]]);
+            const items = vm.getSnapshot().items;
+            expect(items[indexOfKey(items, "gallery-$second") + 1].kind).toBe("read-marker");
+        });
+
+        it("gives a picture the reader is taken to a row of its own", async () => {
+            seedTimeline([
+                makePicture("$first"),
+                makePicture("$second", { ts: T0 + 500 }),
+                makePicture("$third", { ts: T0 + 1000 }),
+            ]);
+            const vm = await createStartedViewModel("$third");
+            expect(galleries(vm)).toEqual([["$second"]]);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$first", "$third"]);
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$third", align: "center" });
+        });
+
+        it("keeps the gallery's key as more pictures arrive", async () => {
+            seedTimeline([makePicture("$first"), makePicture("$second", { ts: T0 + 500 })]);
+            const vm = await createStartedViewModel();
+            room.getUnfilteredTimelineSet().addLiveEvent(makePicture("$third", { ts: T0 + 1000 }), {
+                addToState: false,
+            });
+            await vi.waitFor(() => expect(galleries(vm)).toEqual([["$second", "$third"]]));
+            expect(vm.getSnapshot().items.some((item) => item.key === "gallery-$second")).toBe(true);
+        });
+    });
+
     describe("room creation", () => {
         const DAY = 1_700_000_000_000;
         /** A state event, by the room's creator unless said otherwise. */
