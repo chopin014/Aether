@@ -28,6 +28,31 @@ export function topLevelTiles(page: Page): Locator {
         .locator(".mx_RoomView_MessageList > .mx_EventTile, .mx_TimelineView_list > li > .mx_EventTile");
 }
 
+/**
+ * Scroll the room's timeline until `tile` is drawn, first down and then up, then bring it into view. The new
+ * timeline only draws the rows near the screen, so a message further away has no element to find until the timeline
+ * is scrolled to it; the old timeline draws every loaded message, and this only brings it into view.
+ *
+ * @param page - the page the room is open in
+ * @param tile - the tile to find, which should match one element once it is drawn
+ */
+export async function scrollTimelineTo(page: Page, tile: Locator): Promise<void> {
+    const scroller = timelineScroller(page);
+    for (const direction of [1, -1]) {
+        while ((await tile.count()) === 0) {
+            const moved = await scroller.evaluate((element, step) => {
+                const before = element.scrollTop;
+                element.scrollTop += step * element.clientHeight * 0.8;
+                return element.scrollTop !== before;
+            }, direction);
+            if (!moved) break;
+            // Give the timeline a frame to draw the rows it has scrolled to.
+            await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+        }
+    }
+    await tile.scrollIntoViewIfNeeded();
+}
+
 export class Timeline {
     constructor(private page: Page) {}
 

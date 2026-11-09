@@ -12,6 +12,7 @@ import { test as base, expect } from "../../element-web-test";
 import { type Bot } from "../../pages/bot";
 import { type Client } from "../../pages/client";
 import { type ElementAppPage } from "../../pages/ElementAppPage";
+import { scrollTimelineTo } from "../../pages/timeline";
 
 type RoomRef = { name: string; roomId: string };
 
@@ -401,6 +402,7 @@ class Helpers {
      */
     async openThread(rootMessage: string) {
         const tile = this.page.locator(".mx_RoomView_body .mx_EventTile[data-scroll-tokens]", { hasText: rootMessage });
+        await scrollTimelineTo(this.page, tile);
         await tile.hover();
         await tile.getByRole("button", { name: "Reply in thread" }).click();
         await expect(this.page.locator(".mx_ThreadView_timelinePanelWrapper")).toBeVisible();
