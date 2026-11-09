@@ -112,6 +112,7 @@ const { vmSpies } = vi.hoisted(() => ({
         jumpToReadMarker: vi.fn(),
         scrollToEventIfNeeded: vi.fn(),
         sendReadReceiptNow: vi.fn(),
+        moveReadMarkerOnNow: vi.fn(),
         onMarkAllAsRead: vi.fn(),
         constructorOpts: [] as Record<string, unknown>[],
         isAtLiveBottom: false,
@@ -131,6 +132,7 @@ vi.mock("../../viewmodels/room/timeline/RoomTimelineViewModel", () => ({
         public jumpToReadMarker = vmSpies.jumpToReadMarker;
         public scrollToEventIfNeeded = vmSpies.scrollToEventIfNeeded;
         public sendReadReceiptNow = vmSpies.sendReadReceiptNow;
+        public moveReadMarkerOnNow = vmSpies.moveReadMarkerOnNow;
         public onMarkAllAsRead = vmSpies.onMarkAllAsRead;
         public get isAtLiveBottom(): boolean {
             return vmSpies.isAtLiveBottom;
@@ -206,6 +208,7 @@ describe("<NewTimelinePanel />", () => {
             vmSpies.jumpToReadMarker,
             vmSpies.scrollToEventIfNeeded,
             vmSpies.sendReadReceiptNow,
+            vmSpies.moveReadMarkerOnNow,
             vmSpies.onMarkAllAsRead,
         ]) {
             spy.mockReset();
@@ -804,6 +807,7 @@ describe("<NewTimelinePanel />", () => {
             expect(vmSpies.onMarkAllAsRead).toHaveBeenCalledTimes(1);
             expect(vmSpies.scrollToEventIfNeeded).toHaveBeenCalledExactlyOnceWith("$edited");
             expect(vmSpies.sendReadReceiptNow).toHaveBeenCalledTimes(1);
+            expect(vmSpies.moveReadMarkerOnNow).toHaveBeenCalledTimes(1);
             // The panel remembers its own position, so the room view has none to save.
             expect(panel.getScrollState).toBeUndefined();
         });
@@ -922,6 +926,25 @@ describe("<NewTimelinePanel />", () => {
             );
 
             expect(vmSpies.setSendReadReceiptOnLoad).toHaveBeenLastCalledWith(false);
+        });
+
+        it.each([true, false])(
+            "moves read state on by itself while the reader is active unless the room view says not to (%s)",
+            (onActivity) => {
+                withItems([eventRow()]);
+
+                renderPanel({ enableReadReceiptsAndMarkersOnActivity: onActivity });
+
+                expect(vmSpies.constructorOpts[0].enableReadReceiptsAndMarkersOnActivity).toBe(onActivity);
+            },
+        );
+
+        it("moves read state on by itself by default", () => {
+            withItems([eventRow()]);
+
+            renderPanel();
+
+            expect(vmSpies.constructorOpts[0].enableReadReceiptsAndMarkersOnActivity).toBe(true);
         });
     });
 });

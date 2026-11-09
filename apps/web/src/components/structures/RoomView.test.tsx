@@ -93,6 +93,7 @@ import { type ComposerInsertPayload, ComposerType } from "../../dispatcher/paylo
 import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
 import { ElementCall } from "../../models/Call";
 import { ScopedRoomContextProvider } from "../../contexts/ScopedRoomContext";
+import { RoomTimelineViewModel } from "../../viewmodels/room/timeline/RoomTimelineViewModel";
 
 // Used by group calls
 vi.spyOn(MediaDeviceHandler, "getDevices").mockResolvedValue({
@@ -788,6 +789,29 @@ describe("RoomView", () => {
 
             // Verify that sendReadReceipts and updateReadMarker were called or not based on the enabled state
             checkCall(sendReadReceiptsSpy, updateReadMarkerSpy);
+        });
+
+        it("leaves read state to focus in the MVVM timeline when disabled", async () => {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+                name === "feature_new_timeline" ? true : getValue(name, ...args),
+            );
+            vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+            // Private: the view model's loop that moves the fully read marker on while the reader is active.
+            const onActivity = vi.spyOn(RoomTimelineViewModel.prototype as any, "moveReadMarkerOnWhileActive");
+            const sendReceipt = vi.spyOn(RoomTimelineViewModel.prototype, "sendReadReceiptNow");
+            const moveMarker = vi.spyOn(RoomTimelineViewModel.prototype, "moveReadMarkerOnNow");
+            const { container } = await mountRoomView(undefined, { enableReadReceiptsAndMarkersOnActivity: false });
+            await waitFor(() => expect(container.querySelector(".mx_NewTimelinePanel")).not.toBeNull());
+            expect(onActivity).not.toHaveBeenCalled();
+            // The room view can already take focus as it mounts; count from a focus of our own.
+            sendReceipt.mockClear();
+            moveMarker.mockClear();
+
+            fireEvent.focus(screen.getByTestId("timeline"));
+
+            expect(sendReceipt).toHaveBeenCalledTimes(1);
+            expect(moveMarker).toHaveBeenCalledTimes(1);
         });
     });
 
