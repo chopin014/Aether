@@ -56,9 +56,9 @@ interface IProps extends Omit<ComponentProps<typeof GenericEventListSummary>, "g
     // The currently selected layout
     layout: Layout;
     /**
-     * Redraw when the children change, even if the summed-up events did not. The new timeline sets it: its tiles
-     * carry state of their own, such as being the newest message or how far sending has got. The summary text is
-     * only worked out again when the events or their senders change.
+     * Redraw when the children change while they are shown, even if the summed-up events did not. The new timeline
+     * sets it: its tiles carry state of their own, such as being the newest message or how far sending has got. A
+     * closed summary is not redrawn for its children, and opening it draws the latest ones.
      */
     updateChildren?: boolean;
 }
@@ -124,6 +124,7 @@ export default class EventListSummary extends React.Component<Props, State> {
         super(props);
 
         this.state = this.generateState();
+        this.expanded = !!props.startExpanded;
     }
 
     private generateState(): State {
@@ -224,10 +225,10 @@ export default class EventListSummary extends React.Component<Props, State> {
         //  - or if there are fewEvents, meaning the child eventTiles are shown as-is
         //  - or if the summary members have changed
         //  - or if the one of IUserEvents within userEvents have changed
-        //  - or if the children changed and the owner asked to follow them
+        //  - or if the children changed while shown and the owner asked to follow them
         return (
             !sameEvents(nextProps.events, this.props.events) ||
-            (nextProps.updateChildren === true && nextProps.children !== this.props.children) ||
+            (nextProps.updateChildren === true && this.expanded && nextProps.children !== this.props.children) ||
             nextProps.events.length < this.props.threshold ||
             nextProps.layout !== this.props.layout ||
             arrayHasDiff(nextState.summaryMembers, this.state.summaryMembers) ||
@@ -773,19 +774,15 @@ export default class EventListSummary extends React.Component<Props, State> {
         );
     }
 
-    /** The summary text worked out last, with what it was worked out from. */
-    private summaryCache?: { events: MatrixEvent[]; userEvents: State["userEvents"]; summary: ReactNode };
+    /** Whether the summed-up events are shown; see {@link IProps.updateChildren}. */
+    private expanded = false;
 
-    /** The summary text, worked out again only when the events or their senders changed. */
-    private summaryText(): ReactNode {
-        const cache = this.summaryCache;
-        if (cache && cache.userEvents === this.state.userEvents && sameEvents(cache.events, this.props.events)) {
-            return cache.summary;
-        }
-        const summary = this.generateGroupedSummary();
-        this.summaryCache = { events: this.props.events, userEvents: this.state.userEvents, summary };
-        return summary;
-    }
+    private onExpandedChange = (expanded: boolean): void => {
+        const opened = expanded && !this.expanded;
+        this.expanded = expanded;
+        // Children that changed while it was closed were not drawn: draw the latest ones now it is open.
+        if (opened && this.props.updateChildren) this.forceUpdate();
+    };
 
     public render(): React.ReactNode {
         return (
@@ -799,7 +796,8 @@ export default class EventListSummary extends React.Component<Props, State> {
                 children={this.props.children}
                 summaryMembers={this.state.summaryMembers}
                 layout={this.props.layout}
-                getSummaryText={() => this.summaryText()}
+                onExpandedChange={this.onExpandedChange}
+                getSummaryText={() => this.generateGroupedSummary()}
             />
         );
     }

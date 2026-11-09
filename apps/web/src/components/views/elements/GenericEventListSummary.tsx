@@ -34,6 +34,8 @@ interface IProps {
     "children": ReactNode[] | null;
     // Called when the event list expansion is toggled
     "onToggle"?(this: void): void;
+    /** Called with whether the list is open, when it first shows and each time it opens or closes. */
+    "onExpandedChange"?(this: void, expanded: boolean): void;
     // The layout currently used
     "layout"?: Layout;
     "data-testid"?: string;
@@ -45,6 +47,7 @@ const GenericEventListSummary: React.FC<IProps> = ({
     children,
     threshold = 3,
     onToggle,
+    onExpandedChange,
     startExpanded = false,
     summaryMembers,
     getSummaryText,
@@ -58,6 +61,7 @@ const GenericEventListSummary: React.FC<IProps> = ({
         if (onToggle) {
             onToggle();
         }
+        onExpandedChange?.(expanded);
     }, [expanded]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const eventIds = events.map((e) => e.getId()).join(",");

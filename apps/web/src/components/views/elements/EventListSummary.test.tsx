@@ -270,7 +270,7 @@ describe("EventListSummary", function () {
             expect(queryAllByText("before")).toHaveLength(3);
         });
 
-        it("does not work the summary text out again", () => {
+        it("does not redraw a closed summary for its children", () => {
             const list = events();
             const renderInfoSpy = trackSpy(vi.spyOn(ModuleApi.instance.customComponents, "getMessageRenderInfo"));
             const collapsed = (label: string): React.ReactElement => (
@@ -288,6 +288,46 @@ describe("EventListSummary", function () {
             rerender(collapsed("after"));
             expect(renderInfoSpy.mock.calls.length).toBe(lookups);
             expect(getByText(/joined/)).toBeInTheDocument();
+        });
+
+        it("draws the latest children when opened after they changed while it was closed", () => {
+            const list = events();
+            const collapsed = (label: string): React.ReactElement => (
+                <MatrixClientContext.Provider value={mockClient}>
+                    <EventListSummary
+                        {...defaultProps}
+                        events={[...list]}
+                        updateChildren
+                        children={tiles(list, label)}
+                    />
+                </MatrixClientContext.Provider>
+            );
+            const { rerender, getByRole, queryAllByText } = render(collapsed("before"));
+            rerender(collapsed("after"));
+
+            fireEvent.click(getByRole("button", { name: "Expand" }));
+
+            expect(queryAllByText("after")).toHaveLength(3);
+        });
+
+        it("works the summary text out afresh when it is closed again after an event was removed", () => {
+            const list = events();
+            // Closed first, so the text has been worked out once, as when a reader opens a summary they saw closed.
+            const { getByRole, getByText } = render(
+                <MatrixClientContext.Provider value={mockClient}>
+                    <EventListSummary {...defaultProps} events={list} updateChildren children={tiles(list, "tile")} />
+                </MatrixClientContext.Provider>,
+            );
+            expect(getByText(/joined/)).toBeInTheDocument();
+            fireEvent.click(getByRole("button", { name: "Expand" }));
+            vi.spyOn(list[1], "isRedacted").mockReturnValue(true);
+            vi.spyOn(list[1], "getUnsigned").mockReturnValue({ redacted_because: {} } as ReturnType<
+                MatrixEvent["getUnsigned"]
+            >);
+
+            fireEvent.click(getByRole("button", { name: "Collapse" }));
+
+            expect(getByText(/removed/i)).toBeInTheDocument();
         });
     });
 
