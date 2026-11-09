@@ -2053,8 +2053,9 @@ export class RoomTimelineViewModel
     /**
      * Collapse the events that set the room up into one summary row, as the old timeline does, with the room's
      * introduction above it. Encryption being turned on keeps its own row, before the summary, and a read marker
-     * among the grouped events follows the summary. Once shown, the summary keeps the events it was shown with:
-     * later events never join it, so no row the reader can see disappears into it.
+     * among the grouped events follows the summary. Once shown, the summary keeps the events it was shown with, and
+     * takes in the ones that arrive later, such as when sync brings a new room in more than one go, but none the
+     * reader has seen in a row of its own while scrolled away from the newest messages.
      *
      * The events keep rows of their own for the rest of the visit when the reader is taken to one of them, such as by
      * a link, so it has a row to land on, and when the reader, scrolled away from the newest messages, has already
@@ -2070,23 +2071,34 @@ export class RoomTimelineViewModel
         }
         if (this.creationDeclined === run.createId) return items;
         const formed = this.creationGroup?.createId === run.createId ? this.creationGroup.ids : undefined;
-        const candidates = formed ?? run.grouped;
         const pendingKey = this.snapshot.current.pendingAnchor?.targetKey;
         const targets = [
             this.navigationToReadMarker ? null : this.navigationEventId,
             this.snapshot.current.highlightedEventId,
             pendingKey === "read-marker" ? null : pendingKey,
         ];
-        if (targets.some((id) => id && candidates.has(id))) return this.declineCreationGroup(run.createId, items);
-        // A reader at the newest messages stays there whatever changes above, such as in a new room whose start
-        // arrives just after its newest event was drawn: only a reader scrolled away from them can lose their place.
-        if (!formed && this.readerPlaced && !this.isAtBottom) {
-            const shown = this.snapshot.current.items.flatMap((item) => this.itemEvents(item));
-            if (shown.some((event) => run.grouped.has(event.getId()!))) {
-                return this.declineCreationGroup(run.createId, items);
+        if (targets.some((id) => id && (formed?.has(id) || run.grouped.has(id)))) {
+            return this.declineCreationGroup(run.createId, items);
+        }
+        // Rows the reader has seen are not collapsed while they are scrolled away from the newest messages. A reader
+        // at the newest messages stays there whatever changes above, such as in a new room whose start arrives just
+        // after its newest event was drawn.
+        const seen = new Set<string>();
+        if (this.readerPlaced && !this.isAtBottom) {
+            for (const item of this.snapshot.current.items) {
+                for (const event of this.itemEvents(item)) seen.add(event.getId()!);
             }
         }
-        const ids = formed ?? run.grouped;
+        if (!formed && [...run.grouped].some((id) => seen.has(id)))
+            return this.declineCreationGroup(run.createId, items);
+        // The run's events in order, those that arrived since the summary was shown included, such as when sync
+        // brings a new room in more than one go, up to the first the reader has seen in a row of its own.
+        const ids = new Set(formed);
+        for (const id of run.grouped) {
+            if (ids.has(id)) continue;
+            if (seen.has(id)) break;
+            ids.add(id);
+        }
         this.creationGroup = { createId: run.createId, ids };
 
         const result: TimelineItem[] = [];

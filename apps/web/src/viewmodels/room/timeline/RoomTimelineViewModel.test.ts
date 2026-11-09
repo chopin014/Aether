@@ -596,6 +596,24 @@ describe("RoomTimelineViewModel", () => {
             expect(groupedIds(vm)).toEqual(["$join", "$rules", "$history", "$name"]);
         });
 
+        it("takes the rest of a new room's start into the summary when it arrives later", async () => {
+            const events = creation();
+            seedTimeline([...events, makeMessage("$hello", { ts: DAY + 1000 })]);
+            // Sync can bring a new room's first events before the rest of how it was set up.
+            const loaded = vi
+                .spyOn(RoomTimelineViewModel.prototype as any, "loadedEvents")
+                .mockReturnValue(events.slice(0, 3));
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            expect(groupedIds(vm)).toEqual(["$join", "$rules"]);
+
+            loaded.mockRestore();
+            await rebuild(vm);
+
+            expect(groupedIds(vm)).toEqual(["$join", "$rules", "$history", "$name"]);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$encryption", "$hello"]);
+        });
+
         it("leaves rows shown before the view reported where the reader is as they are", async () => {
             const [create, ...setUp] = creation();
             seedTimeline([...setUp, makeMessage("$hello", { ts: DAY + 1000 })]);
