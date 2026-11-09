@@ -204,6 +204,9 @@ export interface TimelineViewActions {
     /** Called when the view reaches the start; VM decides whether to paginate. */
     onStartReached(): void;
 
+    /** Called when the view no longer shows the start, after {@link onStartReached}. */
+    onStartLeft(): void;
+
     /** Called when the view reaches the end; VM decides whether to paginate. */
     onEndReached(): void;
 

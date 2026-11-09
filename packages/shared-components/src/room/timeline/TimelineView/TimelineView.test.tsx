@@ -37,6 +37,7 @@ function eventItems(count: number, offset = 0): TimelineItem[] {
 
 type Actions = {
     onStartReached: ReturnType<typeof vi.fn>;
+    onStartLeft: ReturnType<typeof vi.fn>;
     onEndReached: ReturnType<typeof vi.fn>;
     onAnchorReached: ReturnType<typeof vi.fn>;
     onVisibleRangeChanged: ReturnType<typeof vi.fn>;
@@ -58,6 +59,7 @@ function makeFakeVm(initial: Partial<TimelineViewSnapshot> = {}): FakeVm {
     const listeners = new Set<() => void>();
     const actions: Actions = {
         onStartReached: vi.fn(),
+        onStartLeft: vi.fn(),
         onEndReached: vi.fn(),
         onAnchorReached: vi.fn(),
         onVisibleRangeChanged: vi.fn(),
@@ -468,6 +470,23 @@ describe("<TimelineView />", () => {
         const [start, end] = actions.onVisibleRangeChanged.mock.calls.at(-1)!;
         expect(start).toBeGreaterThanOrEqual(0);
         expect(end).toBeGreaterThan(start);
+    });
+
+    it("tells the view model when the start is no longer shown", async () => {
+        const { vm, actions } = makeFakeVm({ items: eventItems(70) });
+        renderTimeline(vm);
+        const scroller = screen.getByTestId("timeline-scroller");
+        await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+        // Opened at the newest messages, so the start was never shown.
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(actions.onStartLeft).not.toHaveBeenCalled();
+
+        scroller.scrollTop = 0;
+        await waitFor(() => expect(actions.onStartReached).toHaveBeenCalled());
+        expect(actions.onStartLeft).not.toHaveBeenCalled();
+
+        scroller.scrollTop = scroller.scrollHeight;
+        await waitFor(() => expect(actions.onStartLeft).toHaveBeenCalledTimes(1));
     });
 
     it("re-renders when the view model pushes a new snapshot", async () => {

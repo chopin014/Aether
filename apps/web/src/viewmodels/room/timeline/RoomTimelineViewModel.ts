@@ -16,6 +16,7 @@ import {
     ReceiptType,
     RoomStateEvent,
     M_BEACON_INFO,
+    type EventTimeline,
     type EventTimelineSet,
     type IRoomTimelineData,
     type MatrixClient,
@@ -276,6 +277,14 @@ export class RoomTimelineViewModel
 
     /** Mirror of {@link backwardRerunRequested} for the forward direction. */
     private forwardRerunRequested = false;
+
+    /**
+     * Whether the view shows the start of the loaded messages: from {@link onStartReached} until {@link onStartLeft},
+     * or until the reader is taken elsewhere. History added there meanwhile, such as sliding sync brings for a room
+     * restored from this device, is paged in as it comes, as the old timeline's fill check does: the view does not
+     * report the start again while the reader stays at it.
+     */
+    private startInView = false;
 
     /**
      * The real timeline content: messages, date separators and the unread marker, with no
@@ -544,6 +553,19 @@ export class RoomTimelineViewModel
     };
 
     /**
+     * Older messages were added at the start of one of the room's timelines. When that is where the window starts and
+     * the reader is there to see them, page them in; see {@link startInView}. Anywhere else, paging would push the
+     * messages being read out of the window. Messages paged in by the window itself come through here too, and are
+     * left to it.
+     */
+    private onHistoryAddedAtStart(timeline: EventTimeline): void {
+        if (this.isDisposed || this.backwardPaginateChain || !this.startInView) return;
+        if (timeline !== this.timelineWindow.getTimelineIndex(Direction.Backward)?.timeline) return;
+        debug(`[TimelineVM] onHistoryAddedAtStart — paging in history that arrived after the start was reached`);
+        this.triggerBackwardPaginate();
+    }
+
+    /**
      * The SDK started a new live timeline because sync skipped messages. A reader at the newest messages follows on
      * to the new timeline; one reading older messages keeps their place, with the jump-to-latest button offered.
      */
@@ -641,6 +663,11 @@ export class RoomTimelineViewModel
         // own timeline sets and are not our concern.
         const ourTimelineSet = this.opts.room.getUnfilteredTimelineSet();
         if (data.timeline.getTimelineSet() !== ourTimelineSet) return;
+
+        if (toStartOfTimeline && !removed) {
+            this.onHistoryAddedAtStart(data.timeline);
+            return;
+        }
 
         // Only genuinely new messages arriving at the end of the timeline. Older messages we
         // fetched ourselves come back through this same event, as do removals, and without this
@@ -959,8 +986,9 @@ export class RoomTimelineViewModel
         this.loading = true;
         this.navigationEventId = target.kind === "live" ? null : target.eventId;
         this.navigationToReadMarker = target.kind === "permalink" && !!target.toReadMarker;
-        // The window is filled afresh and placed again.
+        // The window is filled afresh and placed again, and the view says whether its start is shown.
         this.readerPlaced = false;
+        this.startInView = false;
         debug(
             `[TimelineVM] load() start — kind=${target.kind}${target.kind !== "live" ? ` eventId=${target.eventId}` : ""}`,
         );
@@ -1175,7 +1203,12 @@ export class RoomTimelineViewModel
 
     public onStartReached = (): void => {
         debug(`[TimelineVM] onStartReached — items=${this.snapshot.current.items.length}`);
+        this.startInView = true;
         this.triggerBackwardPaginate();
+    };
+
+    public onStartLeft = (): void => {
+        this.startInView = false;
     };
 
     public onEndReached = (): void => {
@@ -1393,6 +1426,8 @@ export class RoomTimelineViewModel
      * Without this, a slower load finishing later would take them back to where it was going.
      */
     private supersedeLoads(): void {
+        // The reader is taken elsewhere; the view says again if that shows the start.
+        this.startInView = false;
         const wasLoading = this.loading;
         this.loadGeneration++;
         this.loading = false;

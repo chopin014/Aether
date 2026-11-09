@@ -55,6 +55,7 @@ type TimelineStoryProps = TimelineViewSnapshot & TimelineViewActions;
 
 const TimelineViewWrapperImpl = ({
     onStartReached,
+    onStartLeft,
     onEndReached,
     onAnchorReached,
     onVisibleRangeChanged,
@@ -66,6 +67,7 @@ const TimelineViewWrapperImpl = ({
 }: TimelineStoryProps): JSX.Element => {
     const vm = useMockedViewModel(snapshot, {
         onStartReached,
+        onStartLeft,
         onEndReached,
         onAnchorReached,
         onVisibleRangeChanged,
@@ -103,6 +105,7 @@ const meta = {
         numUnreadMessages: 0,
         hasHighlights: false,
         onStartReached: fn(),
+        onStartLeft: fn(),
         onEndReached: fn(),
         onAnchorReached: fn(),
         onVisibleRangeChanged: fn(),
