@@ -10,7 +10,14 @@ Please see LICENSE files in the repository root for full details.
 import React from "react";
 import { act, fireEvent, render, screen } from "test-utils-rtl";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { type MatrixClient, type MatrixEvent, PendingEventOrdering, Room, RoomMember } from "matrix-js-sdk/src/matrix";
+import {
+    EventStatus,
+    type MatrixClient,
+    type MatrixEvent,
+    PendingEventOrdering,
+    Room,
+    RoomMember,
+} from "matrix-js-sdk/src/matrix";
 import type { TimelineItem } from "@element-hq/web-shared-components";
 import { createTestClient, mkEvent, mkMembership, mkMessage, TestSDKContext } from "test-utils";
 
@@ -274,6 +281,17 @@ describe("<NewTimelinePanel />", () => {
         expect(summary?.querySelectorAll("ol > li [data-testid='event-row']")).toHaveLength(1);
         expect(tileProps.current.map((props) => props.mxEvent)).toEqual([event]);
         expect(screen.queryByTestId("history-tile")).not.toBeInTheDocument();
+    });
+
+    it("gives each tile in a summary its own send state", () => {
+        // A message a module sums up, still being sent.
+        const sending = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "grouped", event: true });
+        vi.spyOn(sending, "getAssociatedStatus").mockReturnValue(EventStatus.SENDING);
+        withItems([{ key: `summary-${sending.getId()}-0`, kind: "event-group", events: [sending] }]);
+
+        renderPanel();
+
+        expect(tileProps.current.map((props) => [props.mxEvent, props.sendState])).toEqual([[sending, "sending"]]);
     });
 
     it("says why nothing earlier can be seen above a summary that opens the room's history", () => {
