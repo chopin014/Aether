@@ -441,7 +441,9 @@ class Helpers {
      * Scroll the messages panel up 1000 pixels.
      */
     async pageUp() {
-        await this.page.locator(".mx_RoomView_messagePanel").evaluateAll((messagePanels) => {
+        // The old timeline's message panels scroll themselves; the new timeline scrolls an element inside its panel.
+        const scrollers = this.page.locator(".mx_RoomView_messagePanel, [data-testid='timeline-scroller']");
+        await scrollers.evaluateAll((messagePanels) => {
             messagePanels.forEach((messagePanel) => (messagePanel.scrollTop -= 1000));
         });
     }

@@ -198,10 +198,11 @@ for (const theme of ["dark", "light"] as const) {
             await expect(panel.getByText(/skip encrypted rooms|Some filters are applied/)).toHaveCount(0);
             await page.screenshot({ path: `${CAPTURES}/encrypted-images-${theme}.png` });
             await result.click();
+            // The message's tile, which is its own list item in the old timeline and inside one in the new.
             await expect(
                 page
                     .getByRole("main")
-                    .getByRole("listitem")
+                    .locator("[data-event-id]")
                     .filter({ has: page.getByRole("link", { name: "encrypted-photo.png", exact: true }) }),
             ).toHaveClass(/stateSelected/);
             await expect(panel).toBeVisible();
@@ -231,7 +232,8 @@ for (const theme of ["dark", "light"] as const) {
                     .getByRole("gridcell")
                     .filter({ has: page.getByRole("button", { name: "Open room random", exact: true }) }),
             ).toHaveAttribute("aria-selected", "true");
-            const message = page.getByRole("main").getByRole("listitem").filter({ hasText: "budget jokes only" });
+            // The message's tile, which is its own list item in the old timeline and inside one in the new.
+            const message = page.getByRole("main").locator("[data-event-id]").filter({ hasText: "budget jokes only" });
             await expect(message).toBeVisible();
             // Navigation marks the target as selected; stateHighlighted is reserved for push-rule mentions.
             await expect(message).toHaveClass(/stateSelected/);
