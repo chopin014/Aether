@@ -7,6 +7,7 @@
 
 import {
     TimelineWindow,
+    ClientEvent,
     Direction,
     RoomEvent,
     EventType,
@@ -498,7 +499,23 @@ export class RoomTimelineViewModel
             RoomStateEvent.Update,
             this.onRoomStateUpdate as (...args: unknown[]) => void,
         );
+        // Which events have rows depends on whether hidden events are shown, and on who is ignored: draw the rows
+        // again when either changes, as the old timeline does.
+        const hiddenEventsWatcher = SettingsStore.watchSetting("showHiddenEventsInTimeline", null, () =>
+            this.scheduleRebuild(),
+        );
+        this.disposables.track(() => SettingsStore.unwatchSetting(hiddenEventsWatcher));
+        this.disposables.trackListener(
+            this.opts.client,
+            ClientEvent.AccountData,
+            this.onClientAccountData as (...args: unknown[]) => void,
+        );
     }
+
+    /** Someone was ignored or no longer is: their messages leave or come back. */
+    private onClientAccountData = (event: MatrixEvent): void => {
+        if (event.getType() === EventType.IgnoredUserList) this.scheduleRebuild();
+    };
 
     /**
      * The SDK started a new live timeline because sync skipped messages. A reader at the newest messages follows on
@@ -2051,7 +2068,9 @@ export class RoomTimelineViewModel
                 `filtered=${filteredCount}`,
         );
 
-        return this.groupGalleries(this.groupSummarisedItems(this.groupRoomCreation(items, events, showHiddenEvents)));
+        return this.groupGalleries(
+            this.groupSummarisedItems(this.groupRoomCreation(items, events, showHiddenEvents), showHiddenEvents),
+        );
     }
 
     /**
@@ -2195,7 +2214,7 @@ export class RoomTimelineViewModel
      * event in a run follows the whole summary, as in the old timeline. A summary that opens the room as far back as
      * the reader can see is marked `startsHistory`, as the old timeline then says why there is nothing earlier.
      */
-    private groupSummarisedItems(items: TimelineItem[]): TimelineItem[] {
+    private groupSummarisedItems(items: TimelineItem[], showHiddenEvents: boolean): TimelineItem[] {
         const result: TimelineItem[] = [];
         const usedKeys = new Set<string>();
         let run: Extract<TimelineItem, { kind: "event" }>[] = [];
@@ -2233,7 +2252,7 @@ export class RoomTimelineViewModel
             } else if (
                 item.kind === "event" &&
                 !protectedIds.has(item.key) &&
-                this.isSummarised(item.event as MatrixEvent)
+                this.isSummarised(item.event as MatrixEvent, showHiddenEvents)
             ) {
                 if (
                     run.length > 0 &&
@@ -2334,15 +2353,15 @@ export class RoomTimelineViewModel
 
     /**
      * Whether an event is summed up with the events like it around it, as in the old timeline's `MainGrouper`:
-     * membership and similar state changes, removed messages, and messages a module sums up itself.
-     *
-     * The old timeline also sums up events drawn only because hidden events are shown. Here the only such event is a
-     * membership that changed nothing, which is summed up as a membership; the others are not drawn at all yet (see
-     * {@link computeInclusion}).
+     * membership and similar state changes, removed messages, events drawn only because hidden events are shown, and
+     * messages a module sums up itself.
      */
-    private isSummarised(event: MatrixEvent): boolean {
+    private isSummarised(event: MatrixEvent, showHiddenEvents: boolean): boolean {
+        // The room's own start: drawn as a row of its own before the room's introduction, as `CreationGrouper` does.
+        if (event.getType() === EventType.RoomCreate) return false;
         if (event.isState() && SUMMARISED_STATE_TYPES.has(event.getType())) return true;
         if (event.isRedacted()) return true;
+        if (showHiddenEvents && !this.computeInclusion(event, true)) return true;
         return ModuleApi.instance.customComponents.getMessageRenderInfo(event)?.hasGrouping === true;
     }
 
@@ -2377,7 +2396,15 @@ export class RoomTimelineViewModel
             return false;
         }
 
-        return this.computeInclusion(event, showHiddenEvents);
+        // Someone ignored after their messages arrived: those messages go, as in the old timeline.
+        const sender = event.getSender();
+        if (sender && this.opts.client.isUserIgnored(sender)) return false;
+
+        // With hidden events shown, the old timeline gives every event a row, drawn from its source where it has no
+        // tile of its own. Those that would otherwise be hidden are summed up; see {@link isSummarised}.
+        if (showHiddenEvents) return !!pickFactory(event, this.opts.client, true);
+
+        return this.computeInclusion(event, false);
     }
 
     private computeInclusion(event: MatrixEvent, showHiddenEvents: boolean): boolean {

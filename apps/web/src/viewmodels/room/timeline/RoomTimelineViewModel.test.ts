@@ -9,6 +9,7 @@
 
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
+    ClientEvent,
     Direction,
     TimelineWindow,
     EventStatus,
@@ -30,6 +31,7 @@ import { type TimelineItem } from "@element-hq/web-shared-components";
 import { createTestClient, mkMembership, mkMessage } from "test-utils";
 
 import SettingsStore from "../../../settings/SettingsStore";
+import { SettingLevel } from "../../../settings/SettingLevel";
 import UserActivity from "../../../UserActivity";
 import { SlidingSyncManager } from "../../../SlidingSyncManager";
 import { ModuleApi } from "../../../modules/Api";
@@ -374,6 +376,125 @@ describe("RoomTimelineViewModel", () => {
             const vm = await createStartedViewModel();
             expect(groupedIds(vm)).toEqual([["$joined", "$change"]]);
             expect(eventKeys(vm.getSnapshot().items)).toEqual(["$before", "$after"]);
+        });
+
+        describe("with hidden events shown", () => {
+            const unknownEvent = (id: string): MatrixEvent =>
+                new MatrixEvent({
+                    event_id: id,
+                    room_id: ROOM_ID,
+                    type: "org.example.unknown",
+                    sender: USER_ID,
+                    origin_server_ts: 1_700_000_000_000,
+                    content: { body: "unknown" },
+                });
+            const editOf = (id: string, original: string): MatrixEvent =>
+                new MatrixEvent({
+                    event_id: id,
+                    room_id: ROOM_ID,
+                    type: EventType.RoomMessage,
+                    sender: USER_ID,
+                    origin_server_ts: 1_700_000_000_000,
+                    content: {
+                        "msgtype": "m.text",
+                        "body": "* edited",
+                        "m.new_content": { msgtype: "m.text", body: "edited" },
+                        "m.relates_to": { rel_type: RelationType.Replace, event_id: original },
+                    },
+                });
+            const showHidden = (shown: boolean): void => {
+                vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
+                    if (key === "showJoinLeaves" || key === "sendReadReceipts") return true;
+                    if (key === "showHiddenEventsInTimeline") return shown;
+                    return undefined;
+                });
+            };
+
+            it("gives every event a row, summing up those otherwise hidden, as the old timeline does", async () => {
+                showHidden(true);
+                const ts = 1_700_000_000_000;
+                seedTimeline([
+                    makeMessage("$before", { ts }),
+                    unknownEvent("$unknown"),
+                    editOf("$edit", "$before"),
+                    makeMessage("$after", { ts }),
+                ]);
+                const vm = await createStartedViewModel();
+                expect(groupedIds(vm)).toEqual([["$unknown", "$edit"]]);
+                expect(eventKeys(vm.getSnapshot().items)).toEqual(["$before", "$after"]);
+            });
+
+            it("leaves those events out when hidden events are not shown", async () => {
+                showHidden(false);
+                const ts = 1_700_000_000_000;
+                seedTimeline([
+                    makeMessage("$before", { ts }),
+                    unknownEvent("$unknown"),
+                    editOf("$edit", "$before"),
+                    makeMessage("$after", { ts }),
+                ]);
+                const vm = await createStartedViewModel();
+                expect(groups(vm)).toHaveLength(0);
+                expect(eventKeys(vm.getSnapshot().items)).toEqual(["$before", "$after"]);
+            });
+
+            it("draws the rows again when hidden events are shown or hidden, as the old timeline does", async () => {
+                let settingChanged: (() => void) | undefined;
+                vi.mocked(SettingsStore).watchSetting.mockImplementation((name, _room, callback): string => {
+                    if (name === "showHiddenEventsInTimeline")
+                        settingChanged = () => callback(name, null, SettingLevel.DEVICE, true, true);
+                    return "watch-ref";
+                });
+                showHidden(false);
+                const ts = 1_700_000_000_000;
+                seedTimeline([
+                    makeMessage("$before", { ts }),
+                    unknownEvent("$unknown"),
+                    editOf("$edit", "$before"),
+                    makeMessage("$after", { ts }),
+                ]);
+                const vm = await createStartedViewModel();
+                expect(groups(vm)).toHaveLength(0);
+
+                showHidden(true);
+                settingChanged?.();
+                await vi.waitFor(() => expect(groupedIds(vm)).toEqual([["$unknown", "$edit"]]));
+
+                showHidden(false);
+                settingChanged?.();
+                await vi.waitFor(() => expect(groups(vm)).toHaveLength(0));
+
+                vm.dispose();
+                expect(SettingsStore.unwatchSetting).toHaveBeenCalledWith("watch-ref");
+            });
+        });
+
+        it("draws the rows again when someone is ignored or no longer is, as the old timeline does", async () => {
+            let ignored = false;
+            vi.mocked(client.isUserIgnored).mockImplementation((userId) => ignored && userId === OTHER_USER_ID);
+            seedTimeline([makeMessage("$mine"), makeMessage("$theirs", { user: OTHER_USER_ID })]);
+            const vm = await createStartedViewModel();
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$mine", "$theirs"]);
+            const ignoredList = (users: string[]): MatrixEvent =>
+                new MatrixEvent({
+                    type: EventType.IgnoredUserList,
+                    content: { ignored_users: Object.fromEntries(users.map((user) => [user, {}])) },
+                });
+
+            ignored = true;
+            client.emit(ClientEvent.AccountData, ignoredList([OTHER_USER_ID]));
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$mine"]));
+
+            ignored = false;
+            client.emit(ClientEvent.AccountData, ignoredList([]));
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$mine", "$theirs"]));
+        });
+
+        it("leaves out the messages of someone ignored after they arrived", async () => {
+            vi.mocked(client.isUserIgnored).mockImplementation((userId) => userId === OTHER_USER_ID);
+            seedTimeline([makeMessage("$mine"), makeMessage("$theirs", { user: OTHER_USER_ID })]);
+            const vm = await createStartedViewModel();
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$mine"]);
         });
 
         it("keeps each summed-up message's own row, such as continuing the one before it", async () => {
@@ -1051,6 +1172,23 @@ describe("RoomTimelineViewModel", () => {
             await vi.waitFor(() => expect(vm.getSnapshot().highlightedEventId).toBe("$history"));
             expect(vm.getSnapshot().pendingAnchor?.targetKey).toBe("$history");
             expect(eventKeys(vm.getSnapshot().items)).toContain("$history");
+        });
+
+        it("draws the create event in a row of its own before the summary when hidden events are shown", async () => {
+            vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
+                if (key === "showJoinLeaves" || key === "sendReadReceipts" || key === "showHiddenEventsInTimeline") {
+                    return true;
+                }
+                return undefined;
+            });
+            seedTimeline([...creation(), makeMessage("$hello", { ts: DAY + 1000 })]);
+            const vm = await createStartedViewModel();
+
+            const items = vm.getSnapshot().items;
+            // As the old timeline's CreationGrouper draws it, rather than summed up as a hidden event.
+            expect(items[indexOfKey(items, "$create") + 1].kind).toBe("event");
+            expect(groupedIds(vm)).toEqual(["$join", "$rules", "$history", "$name"]);
+            expect(items.filter((item) => item.kind === "event-group" && item.variant !== "creation")).toEqual([]);
         });
 
         it("ends the summary at someone else's event", async () => {
