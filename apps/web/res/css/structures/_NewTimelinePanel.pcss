@@ -20,6 +20,11 @@ Please see LICENSE files in the repository root for full details.
         display: none;
     }
 
+    /* The IRC layout's name-column drag handle (mx_ProfileResizer) is placed against the panel. */
+    &.mx_IRCLayout {
+        position: relative;
+    }
+
     /* The virtualized timeline renders its rows as an <ol role="list"> of <li>
        tiles (mx_TimelineView_list / mx_TimelineView_tile in TimelineView; the <ol>
        and <li> reset their own list markers inline). Inset the tile content to

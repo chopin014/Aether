@@ -99,6 +99,24 @@ const REVEAL_TIMEOUT_MS = 1000;
 type Phase = "init" | "placing" | "live";
 
 /**
+ * The scroll offset that puts row `index` at `align` in the viewport, from the virtualizer's measurements, or undefined
+ * when the row is unknown. TanStack places `start`, `center` and `end`; `third` puts the row's end a third of the way
+ * down, as the old timeline places the unread line.
+ */
+function offsetForIndex(
+    virtualizer: Virtualizer<HTMLDivElement, Element>,
+    index: number,
+    align: AnchorAlign,
+): number | undefined {
+    if (align !== "third") return virtualizer.getOffsetForIndex(index, align)?.[0];
+    const row = virtualizer.measurementsCache[index];
+    if (!row) return undefined;
+    const viewport = virtualizer.scrollRect?.height ?? 0;
+    const max = Math.max(0, virtualizer.getTotalSize() - viewport);
+    return Math.min(max, Math.max(0, row.end - viewport / 3));
+}
+
+/**
  * Place the first load before it is painted, when that can be done in one go: measure the mounted rows together,
  * scroll the target into position, and check that every row that then shows was among them. The measurements are
  * read in one batch, after React has written the rows, so this forces a single layout rather than one per row.
@@ -130,13 +148,13 @@ function placeBeforePaint(
     // Row positions are worked out again only when asked for. The total size asks, so the offset below and the
     // check after it use the heights just measured.
     virtualizer.getTotalSize();
-    const target = virtualizer.getOffsetForIndex(index, align);
-    if (!target) return false;
+    const target = offsetForIndex(virtualizer, index, align);
+    if (target === undefined) return false;
     // Through the virtualizer, so a row resizing before the scroll is read back is compensated from this offset.
-    virtualizer.scrollToOffsetNow(target[0]);
+    virtualizer.scrollToOffsetNow(target);
     const top = scroller.scrollTop;
     // The browser clamps the scroll; a short list is in place at whatever it allows.
-    if (Math.abs(target[0] - top) > 1.5 && top + scroller.clientHeight < scroller.scrollHeight - 1.5) return false;
+    if (Math.abs(target - top) > 1.5 && top + scroller.clientHeight < scroller.scrollHeight - 1.5) return false;
     const bottom = top + scroller.clientHeight;
     const mountedIndexes = new Set(mounted.map((element) => virtualizer.indexFromElement(element)));
     // Every row now on screen must be one that was measured above, or it would show at an estimated height.
@@ -344,7 +362,9 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
                     ? start
                     : align === "center"
                       ? start + (ESTIMATED_ITEM_HEIGHT - height) / 2
-                      : start + ESTIMATED_ITEM_HEIGHT - height;
+                      : align === "third"
+                        ? start + ESTIMATED_ITEM_HEIGHT - height / 3
+                        : start + ESTIMATED_ITEM_HEIGHT - height;
             return Math.max(0, Math.min(offset, list.length * ESTIMATED_ITEM_HEIGHT - height));
         },
         getScrollElement: () => scrollerRef.current,
@@ -400,8 +420,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
         (targetKey: string | null, align: AnchorAlign): number | null => {
             const idx = targetKey ? itemsRef.current.findIndex((i) => i.key === targetKey) : -1;
             if (idx < 0) return null;
-            const info = virtualizer.getOffsetForIndex(idx, align);
-            return info ? info[0] : null;
+            return offsetForIndex(virtualizer, idx, align) ?? null;
         },
         [virtualizer],
     );
@@ -469,15 +488,26 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             // discarded estimates would move the reader when they scroll back to it later.
             if (!startedPlacement && canPlace) {
                 startedPlacement = true;
-                if (idx >= 0) virtualizer.scrollToIndex(idx, { align, behavior: "auto" });
+                if (idx >= 0) {
+                    if (align === "third") {
+                        // TanStack has no third; it is aimed at again each frame below until it lands.
+                        const target = offsetForIndex(virtualizer, idx, align);
+                        if (target !== undefined) virtualizer.scrollToOffset(target);
+                    } else {
+                        virtualizer.scrollToIndex(idx, { align, behavior: "auto" });
+                    }
+                }
                 coldRafRef.current = requestAnimationFrame(tick);
                 return;
             }
-            const info = virtualizer.getOffsetForIndex(idx, align);
+            const target = offsetForIndex(virtualizer, idx, align);
             // The browser can clamp a short list to zero without emitting a scroll event,
             // leaving the virtualizer's cached offset stale after its resize compensation.
             const offset = scrollerRef.current?.scrollTop ?? virtualizer.scrollOffset ?? 0;
-            const landed = startedPlacement && info !== undefined && Math.abs(info[0] - offset) <= 1.5;
+            const landed = startedPlacement && target !== undefined && Math.abs(target - offset) <= 1.5;
+            if (startedPlacement && !landed && align === "third" && target !== undefined) {
+                virtualizer.scrollToOffset(target);
+            }
             if ((measured && (landed || timedOut)) || (timedOut && !receivedResizeEntryRef.current)) {
                 reveal();
                 return;

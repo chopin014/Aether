@@ -1115,6 +1115,23 @@ describe("RoomTimelineViewModel", () => {
     });
 
     describe("requests from the room view", () => {
+        it("puts the unread line a third of the way down when going to it, as the old timeline does", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b"), makeMessage("$c")]);
+            room.addAccountData([
+                new MatrixEvent({ type: EventType.FullyRead, room_id: ROOM_ID, content: { event_id: "$a" } }),
+            ]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+
+            vm.jumpToReadMarker();
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "read-marker", align: "third" });
+
+            vm.onAnchorReached("read-marker");
+            const scrollNow = vi.fn();
+            vm.onJumpToReadMarker(scrollNow);
+            expect(scrollNow).toHaveBeenCalledWith({ targetKey: "read-marker", align: "third" });
+        });
+
         it("scrolls to the newest loaded message, or loads the live end first", async () => {
             seedTimeline([makeMessage("$a"), makeMessage("$b")]);
             const vm = await createStartedViewModel();
@@ -1195,7 +1212,7 @@ describe("RoomTimelineViewModel", () => {
             vm.jumpToReadMarker();
             room.resetLiveTimeline("gap", undefined);
             await new Promise((resolve) => setTimeout(resolve, 10));
-            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "read-marker", align: "center" });
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "read-marker", align: "third" });
             expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b", "$c"]);
             expect(vm.getSnapshot().atLiveEnd).toBe(false);
         });
@@ -1718,6 +1735,60 @@ describe("RoomTimelineViewModel", () => {
             client.emit(MatrixEventEvent.Decrypted, stranger);
 
             expect(vm.getSnapshot().items).toBe(before);
+        });
+    });
+
+    describe("removed messages", () => {
+        /** A removal of `redacts` applied by the client itself, as a retention policy applies one. */
+        const localRemoval = (redacts: string): MatrixEvent =>
+            new MatrixEvent({
+                type: EventType.RoomRedaction,
+                sender: OTHER_USER_ID,
+                event_id: "$synthetic_redaction",
+                room_id: ROOM_ID,
+                redacts,
+                content: { reason: "Retention policy" },
+                origin_server_ts: Date.now(),
+            });
+
+        it("re-decides a message's row when it is removed without a timeline event, as by a retention policy", async () => {
+            // With removed messages hidden, which the settings mock gives by default, the row goes away.
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]);
+
+            room.tryApplyRedaction(localRemoval("$b"));
+
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a"]));
+        });
+
+        it("still redraws a removal made while a load runs, when that load fails", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const loading = Promise.withResolvers<void>();
+            vi.spyOn(TimelineWindow.prototype, "load").mockImplementation(() => loading.promise);
+            vm.showEvent("$unloaded");
+            await vi.waitFor(() => expect(TimelineWindow.prototype.load).toHaveBeenCalled());
+
+            room.tryApplyRedaction(localRemoval("$b"));
+            loading.reject(new Error("The server has no such event"));
+
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a"]));
+        });
+
+        it("brings a message's row back when its removal is cancelled", async () => {
+            const message = makeMessage("$b");
+            seedTimeline([makeMessage("$a"), message]);
+            const vm = await createStartedViewModel();
+            const removed = vi.spyOn(message, "isRedacted").mockReturnValue(true);
+            room.tryApplyRedaction(localRemoval("$b"));
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a"]));
+
+            removed.mockReturnValue(false);
+            room.emit(RoomEvent.RedactionCancelled, localRemoval("$b"), room);
+
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]));
         });
     });
 
