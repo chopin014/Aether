@@ -2159,7 +2159,9 @@ export class RoomTimelineViewModel
     /**
      * Sum up runs of events as the old timeline's `MainGrouper` does: each run of events {@link isSummarised} on one
      * day becomes one summary row, however short. A summary of fewer than three events shows the events themselves.
-     * Exact navigation and read-marker targets keep rows of their own.
+     * Exact navigation and read-marker targets keep rows of their own. A summary that opens the room as far back as
+     * the reader can see is marked `startsHistory`, as the old timeline then says why
+     * there is nothing earlier.
      */
     private groupSummarisedItems(items: TimelineItem[]): TimelineItem[] {
         const result: TimelineItem[] = [];
@@ -2204,6 +2206,10 @@ export class RoomTimelineViewModel
             }
         }
         flush();
+        if (!this.timelineWindow.canPaginate(Direction.Backward)) {
+            const first = result.find((item) => item.kind === "event" || item.kind === "event-group");
+            if (first?.kind === "event-group" && first.variant === undefined) first.startsHistory = true;
+        }
         return result;
     }
 

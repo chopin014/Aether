@@ -6,6 +6,7 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import React, {
+    Fragment,
     useCallback,
     useEffect,
     useImperativeHandle,
@@ -47,6 +48,7 @@ import { DateSeparatorWrapper } from "./DateSeparatorWrapper";
 import EventListSummary from "../views/elements/EventListSummary";
 import GenericEventListSummary from "../views/elements/GenericEventListSummary";
 import NewRoomIntro from "../views/rooms/NewRoomIntro";
+import HistoryTile from "../views/rooms/HistoryTile";
 import DMRoomMap from "../../utils/DMRoomMap";
 import type { IReadReceiptPosition } from "../views/rooms/ReadReceiptMarker";
 import { getKeyBindingsManager } from "../../KeyBindingsManager";
@@ -178,23 +180,28 @@ function renderTimelineItem(item: TimelineItem, ctx: RenderItemContext): ReactNo
         case "event-group": {
             const events = item.events as MatrixEvent[];
             if (item.variant === "creation") return renderCreation(item.key, events, ctx);
+            // Always a fragment, so the summary keeps its state when the start of the room is reached.
             return (
-                <EventListSummary key={item.key} as="div" events={events} layout={ctx.effectiveLayout}>
-                    {events.map((event) => (
-                        <li key={event.getId()}>
-                            {renderTimelineItem(
-                                {
-                                    kind: "event",
-                                    key: event.getId()!,
-                                    event,
-                                    continuation: false,
-                                    lastInSection: true,
-                                },
-                                ctx,
-                            )}
-                        </li>
-                    ))}
-                </EventListSummary>
+                <Fragment key={item.key}>
+                    {/* As in the old timeline, say why there is nothing earlier to see. */}
+                    {item.startsHistory ? <HistoryTile key="history" /> : null}
+                    <EventListSummary key="summary" as="div" events={events} layout={ctx.effectiveLayout}>
+                        {events.map((event) => (
+                            <li key={event.getId()}>
+                                {renderTimelineItem(
+                                    {
+                                        kind: "event",
+                                        key: event.getId()!,
+                                        event,
+                                        continuation: false,
+                                        lastInSection: true,
+                                    },
+                                    ctx,
+                                )}
+                            </li>
+                        ))}
+                    </EventListSummary>
+                </Fragment>
             );
         }
         case "event": {

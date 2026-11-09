@@ -477,6 +477,48 @@ describe("RoomTimelineViewModel", () => {
             expect(fetchPage).toHaveBeenCalledTimes(1);
         });
 
+        it("marks a summary that opens the room as far back as the reader can see", async () => {
+            seedTimeline([...memberships(2), makeMessage("$after", { ts: 1_700_000_000_000 })]);
+            const vm = await createStartedViewModel();
+            expect(groups(vm).map((group) => group.startsHistory)).toEqual([true]);
+        });
+
+        it("marks no summary that follows a message", async () => {
+            seedTimeline([makeMessage("$before", { ts: 1_700_000_000_000 }), ...memberships(2)]);
+            const vm = await createStartedViewModel();
+            expect(groups(vm).map((group) => group.startsHistory)).toEqual([undefined]);
+        });
+
+        it("marks no summary while older history can be loaded", async () => {
+            seedTimeline(memberships(2));
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            const vm = await createStartedViewModel();
+            expect(groups(vm).map((group) => group.startsHistory)).toEqual([undefined]);
+        });
+
+        it("marks the summary, keeping its key, once paging back reaches the start", async () => {
+            seedTimeline(memberships(4));
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            vi.spyOn(client, "paginateEventTimeline").mockImplementation(async (timeline) => {
+                room.getUnfilteredTimelineSet().addEventsToTimeline(
+                    memberships(3, "older").reverse(),
+                    true,
+                    false,
+                    timeline,
+                    null,
+                );
+                return false;
+            });
+            const vm = await createStartedViewModel();
+            const key = groups(vm)[0].key;
+            expect(groups(vm)[0].startsHistory).toBeUndefined();
+            vm.onAnchorReached();
+            vm.onStartReached();
+            await vi.waitFor(() => expect(groups(vm)[0].events).toHaveLength(7));
+            expect(groups(vm)[0].startsHistory).toBe(true);
+            expect(groups(vm)[0].key).toBe(key);
+        });
+
         it("receipts and saves the real last event represented by a visible summary", async () => {
             seedTimeline([makeMessage("$message"), ...memberships(4)]);
             const vm = await createStartedViewModel();

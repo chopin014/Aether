@@ -49,6 +49,11 @@ export interface EventGroupTimelineItem {
      * the default; or the room being created and set up by the person who created it.
      */
     variant?: "summary" | "creation";
+    /**
+     * Set on a summary that opens what the reader can see of the room, so the application can say why there is
+     * nothing earlier, such as history hidden from before they joined.
+     */
+    startsHistory?: boolean;
 }
 
 /** The send states a tile draws differently. */

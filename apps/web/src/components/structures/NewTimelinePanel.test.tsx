@@ -28,6 +28,11 @@ vi.mock("../views/rooms/NewRoomIntro", () => ({
     default: ({ as }: { as?: string }) => <div data-testid="new-room-intro" data-as={as} />,
 }));
 
+// Says why earlier history cannot be seen, from the room in the room view around it.
+vi.mock("../views/rooms/HistoryTile", () => ({
+    default: () => <div data-testid="history-tile" />,
+}));
+
 const ROOM_ID = "!room:example.org";
 const USER_ID = "@alice:example.org";
 
@@ -268,6 +273,41 @@ describe("<NewTimelinePanel />", () => {
         expect(screen.queryByRole("button", { name: "Expand" })).not.toBeInTheDocument();
         expect(summary?.querySelectorAll("ol > li [data-testid='event-row']")).toHaveLength(1);
         expect(tileProps.current.map((props) => props.mxEvent)).toEqual([event]);
+        expect(screen.queryByTestId("history-tile")).not.toBeInTheDocument();
+    });
+
+    it("says why nothing earlier can be seen above a summary that opens the room's history", () => {
+        const events = Array.from({ length: 3 }, (_, index) => {
+            const user = `@member${index}:example.org`;
+            return mkMembership({
+                room: ROOM_ID,
+                user,
+                skey: user,
+                mship: "join",
+                event: true,
+                target: new RoomMember(ROOM_ID, user),
+            });
+        });
+        const item: TimelineItem = { key: "summary-$first-0", kind: "event-group", events };
+        withItems([item]);
+        const view = renderPanel();
+        expect(screen.queryByTestId("history-tile")).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+
+        // Paging back reaches the start of what the reader can see.
+        withItems([{ ...item, startsHistory: true }]);
+        view.rerender(
+            <MatrixClientContext.Provider value={client}>
+                <SDKContext.Provider value={new TestSDKContext()}>
+                    <NewTimelinePanel room={room} />
+                </SDKContext.Provider>
+            </MatrixClientContext.Provider>,
+        );
+        const tile = screen.getByTestId("history-tile");
+        expect(tile.nextElementSibling).toHaveClass("mx_GenericEventListSummary");
+        // The summary the reader opened stays open.
+        expect(tile.nextElementSibling).toHaveAttribute("data-expanded", "true");
+        expect(screen.getAllByTestId("event-row")).toHaveLength(3);
     });
 
     describe("the start of a room", () => {
