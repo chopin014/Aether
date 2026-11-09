@@ -12,7 +12,7 @@ import { InlineSpinner } from "@vector-im/compound-web";
 
 import { useViewModel } from "../../../core/viewmodel/useViewModel";
 import type { AnchorAlign, ImmediateScroll, TimelineItem, TimelineViewProps } from "./types";
-import { BACKWARD_LOADING_KEY, FORWARD_LOADING_KEY } from "./types";
+import { BACKWARD_LOADING_KEY, FORWARD_LOADING_KEY, tileKeyOf } from "./types";
 import { TimelineOverlayButtons } from "./TimelineOverlayButtons";
 import styles from "./TimelineView.module.css";
 
@@ -244,11 +244,14 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
         [],
     );
 
-    // Gives each row a stable identity (its event id). TanStack uses these to recognise the
-    // same row from one update to the next, which is what makes the scroll anchoring
+    // Gives each row a stable identity (its event id, or what outlasts it; see `tileKeyOf`). TanStack uses these to
+    // recognise the same row from one update to the next, which is what makes the scroll anchoring
     // possible at all. It also compares the first row's key between renders to spot when
     // rows have been added or removed at the top, so this must always read the current list.
-    const getItemKey = useCallback((index: number): string => items[index]?.key ?? String(index), [items]);
+    const getItemKey = useCallback(
+        (index: number): string => (items[index] ? tileKeyOf(items[index]) : String(index)),
+        [items],
+    );
 
     // Refuses loading spinners as the row the scroll position is anchored to; see the note
     // on `isValidAnchorItem` in the file comment above for why anchoring to one breaks.
