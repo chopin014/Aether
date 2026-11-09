@@ -1827,6 +1827,28 @@ describe("RoomTimelineViewModel", () => {
             expect(client.setRoomReadMarkers).not.toHaveBeenCalled();
         });
 
+        it("keeps the unread line of this visit where it was after loading the newest messages", async () => {
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            seedTimeline(messages(300));
+            markerAt("$m1");
+            const vm = await createStartedViewModel("$m2");
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m4");
+            await vi.waitFor(() => expect(client.setRoomReadMarkers).toHaveBeenCalledWith(ROOM_ID, "$m4"));
+
+            vm.jumpToLive();
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$m299"));
+            vm.onAnchorReached();
+            vm.jumpToReadMarker();
+
+            // Going back to it finds the line where the reader saw it, not where the marker has moved on to.
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$m1"));
+            const items = vm.getSnapshot().items;
+            expect(items[indexOfKey(items, "$m1") + 1].kind).toBe("read-marker");
+        });
+
         it("waits for the reader to be around", async () => {
             vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation(() => {});
             seedTimeline(messages(5));

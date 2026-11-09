@@ -373,6 +373,8 @@ export class RoomTimelineViewModel
      * everything read ({@link onMarkAllAsRead}).
      */
     private frozenMarkerEventId: string | null = null;
+    /** Whether {@link frozenMarkerEventId} has been decided for this visit; later loads leave it alone. */
+    private readMarkerFrozen = false;
 
     /**
      * Count of new live messages that arrived since the user last reached the
@@ -966,7 +968,8 @@ export class RoomTimelineViewModel
 
     /**
      * Snapshot the current read-marker position into {@link frozenMarkerEventId}.
-     * Called once per session by {@link load} after the initial window is loaded.
+     * Called by {@link load} after each window is loaded, but decides only once per session: the marker moves on as
+     * the reader reads, and a later load, such as jumping to the newest messages, must not move the line with it.
      *
      * The frozen value is what the UI consumes for the entire session:
      *  - `null` when the marker is unset OR on the room's latest known event.
@@ -977,6 +980,8 @@ export class RoomTimelineViewModel
      *    session regardless of subsequent sends, scrolls, or new events.
      */
     private freezeReadMarkerForSession(): void {
+        if (this.readMarkerFrozen) return;
+        this.readMarkerFrozen = true;
         if (!this.readMarkerEventId) {
             this.frozenMarkerEventId = null;
             return;
