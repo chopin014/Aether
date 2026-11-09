@@ -744,6 +744,27 @@ describe("RoomView", () => {
         });
     });
 
+    it("watches each setting of the room once, however often the room view store updates", async () => {
+        const watch = vi.spyOn(SettingsStore, "watchSetting");
+        const unwatch = vi.spyOn(SettingsStore, "unwatchSetting");
+        const { unmount } = await mountRoomView();
+        // The store updates many times while a room is shown, such as for each reply quoted.
+        for (let i = 0; i < 3; i++) {
+            await act(async () => {
+                stores.roomViewStore.emit(UPDATE_EVENT);
+            });
+        }
+        await flushPromises();
+
+        const isRoomWatch = ([name, roomId]: Parameters<typeof SettingsStore.watchSetting>): boolean =>
+            name === "showDisplaynameChanges" && roomId === room.roomId;
+        expect(watch.mock.calls.filter(isRoomWatch)).toHaveLength(1);
+        const watcher = watch.mock.results[watch.mock.calls.findIndex(isRoomWatch)].value;
+
+        unmount();
+        expect(unwatch).toHaveBeenCalledWith(watcher);
+    });
+
     describe("enableReadReceiptsAndMarkersOnActivity", () => {
         it.each([
             {

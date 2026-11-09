@@ -448,6 +448,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     private readonly askToJoinEnabled: boolean;
     private dispatcherRef?: string;
     private settingWatchers: string[] = [];
+    /** The watchers of the settings that can differ per room, and the room they watch; see {@link watchRoomSettings}. */
+    private roomSettingWatchers: { roomId: string | null; watchers: string[] } | null = null;
 
     private unmounted = false;
     // Counts room view store updates, so one that waited on the server can tell that a newer one came meanwhile.
@@ -653,6 +655,44 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         return MainSplitContentType.Timeline;
     };
 
+    /**
+     * Watch the settings that can differ per room for `roomId`, once: the store updates many times while a room is shown,
+     * such as for a reply being quoted, and each watcher added again would call back again on every change. Watchers of
+     * another room, such as the room being looked up before it was known, are replaced.
+     */
+    private watchRoomSettings(roomId: string | null): void {
+        if (this.roomSettingWatchers?.roomId === roomId) return;
+        this.unwatchRoomSettings();
+        this.roomSettingWatchers = {
+            roomId,
+            watchers: [
+                SettingsStore.watchSetting("showReadReceipts", roomId, (...[, , , value]) =>
+                    this.setState({ showReadReceipts: value! }),
+                ),
+                SettingsStore.watchSetting("showRedactions", roomId, (...[, , , value]) =>
+                    this.setState({ showRedactions: value! }),
+                ),
+                SettingsStore.watchSetting("showJoinLeaves", roomId, (...[, , , value]) =>
+                    this.setState({ showJoinLeaves: value! }),
+                ),
+                SettingsStore.watchSetting("showAvatarChanges", roomId, (...[, , , value]) =>
+                    this.setState({ showAvatarChanges: value! }),
+                ),
+                SettingsStore.watchSetting("showDisplaynameChanges", roomId, (...[, , , value]) =>
+                    this.setState({ showDisplaynameChanges: value! }),
+                ),
+            ],
+        };
+    }
+
+    /** Stop the watchers {@link watchRoomSettings} added. */
+    private unwatchRoomSettings(): void {
+        for (const watcher of this.roomSettingWatchers?.watchers ?? []) {
+            SettingsStore.unwatchSetting(watcher);
+        }
+        this.roomSettingWatchers = null;
+    }
+
     private onRoomViewStoreUpdate = async (initial?: boolean): Promise<void> => {
         if (this.unmounted) {
             return;
@@ -765,24 +805,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             }
         }
 
-        // Add watchers for each of the settings we just looked up
-        this.settingWatchers = this.settingWatchers.concat([
-            SettingsStore.watchSetting("showReadReceipts", roomId, (...[, , , value]) =>
-                this.setState({ showReadReceipts: value! }),
-            ),
-            SettingsStore.watchSetting("showRedactions", roomId, (...[, , , value]) =>
-                this.setState({ showRedactions: value! }),
-            ),
-            SettingsStore.watchSetting("showJoinLeaves", roomId, (...[, , , value]) =>
-                this.setState({ showJoinLeaves: value! }),
-            ),
-            SettingsStore.watchSetting("showAvatarChanges", roomId, (...[, , , value]) =>
-                this.setState({ showAvatarChanges: value! }),
-            ),
-            SettingsStore.watchSetting("showDisplaynameChanges", roomId, (...[, , , value]) =>
-                this.setState({ showDisplaynameChanges: value! }),
-            ),
-        ]);
+        // Follow the settings we just looked up for this room.
+        this.watchRoomSettings(roomId);
 
         if (!initial && this.state.shouldPeek && !newState.shouldPeek) {
             // Stop peeking because we have joined this room now
@@ -1256,6 +1280,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         for (const watcher of this.settingWatchers) {
             SettingsStore.unwatchSetting(watcher);
         }
+        this.unwatchRoomSettings();
 
         if (this.viewsLocalRoom && this.state.room) {
             // clean up if this was a local room
