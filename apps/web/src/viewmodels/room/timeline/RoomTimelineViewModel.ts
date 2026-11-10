@@ -256,6 +256,14 @@ export class RoomTimelineViewModel
     /** Set by {@link start} so a double-start (e.g. via StrictMode) is a no-op. */
     private started = false;
 
+    /**
+     * Whether a reading visit is under way: from {@link activate} until {@link deactivate}. Only during one may
+     * anything be sent as read, so a view model whose room is no longer being read sends nothing.
+     */
+    private visitActive = false;
+    /** Counts the starts and ends of reading visits, so work begun in one visit cannot act in another. */
+    private visitGeneration = 0;
+
     /** Set while a rebuild is queued for the next microtask; see {@link scheduleRebuild}. */
     private rebuildQueued = false;
     /** Set when a rebuild was asked for while a load ran, so it still happens if the load ends without building. */
@@ -612,7 +620,58 @@ export class RoomTimelineViewModel
             ClientEvent.AccountData,
             this.onClientAccountData as (...args: unknown[]) => void,
         );
+        this.activate();
+    }
+
+    /**
+     * Begin a reading visit: from now on, what the reader sees may be sent as read, and the fully read marker moves on
+     * while they are around. {@link start} begins the first; {@link deactivate} ends it.
+     */
+    private activate(): void {
+        if (this.visitActive || this.isDisposed) return;
+        this.visitActive = true;
+        this.visitGeneration++;
         if (this.readStateOnActivity) void this.moveReadMarkerOnWhileActive();
+    }
+
+    /**
+     * End the reading visit: stop the read receipt and fully read marker timers, so nothing more is sent as read, and
+     * save where the reader was.
+     *
+     * - Saves the bottommost message the reader saw to localStorage, so the next visit resumes there; clears it when
+     *   they were at the visual bottom, so the next visit starts at the live end. With no visible range recorded, the
+     *   saved position stays.
+     * - Starts no write of the fully read marker: leaving a room does not move it, so a glance at a room keeps its
+     *   unread line. A write already sent is neither waited for nor stopped, so it can still land after this; one
+     *   waiting its turn is not sent.
+     */
+    private deactivate(): void {
+        if (!this.visitActive) return;
+        this.visitActive = false;
+        this.visitGeneration++;
+        if (this.readReceiptDebounceTimer !== null) {
+            clearTimeout(this.readReceiptDebounceTimer);
+            this.readReceiptDebounceTimer = null;
+        }
+        const receiptTimer = this.receiptActivityTimer;
+        this.receiptActivityTimer = undefined;
+        // Settle the timer even if it never started, so UserActivity lets go of it.
+        receiptTimer?.start().abort();
+        const readMarkerTimer = this.readMarkerTimer;
+        this.readMarkerTimer = undefined;
+        // The loop may be waiting on a marker write rather than on the timer, so nothing else would see it abort.
+        readMarkerTimer?.finished().catch(() => {});
+        readMarkerTimer?.start().abort();
+
+        if (!this.lastBottomEventId) {
+            debug(`[TimelineVM] deactivate() — no visible range recorded, preserving saved position`);
+        } else if (this.isAtBottom) {
+            debug(`[TimelineVM] deactivate() — clearing saved scroll position (at visual bottom)`);
+            RoomTimelineViewModel.saveScrollTarget(this.opts.room.roomId, null);
+        } else {
+            debug(`[TimelineVM] deactivate() — saving scroll position eventId=${this.lastBottomEventId}`);
+            RoomTimelineViewModel.saveScrollTarget(this.opts.room.roomId, this.lastBottomEventId);
+        }
     }
 
     /**
@@ -685,6 +744,7 @@ export class RoomTimelineViewModel
      */
     private maySendReadState(): boolean {
         return (
+            this.visitActive &&
             !this.isDisposed &&
             this.opts.room.getMyMembership() === KnownMembership.Join &&
             !SettingsStore.getValue("lowBandwidth") &&
@@ -715,11 +775,14 @@ export class RoomTimelineViewModel
         const writes = RoomTimelineViewModel.readMarkerWrites;
         const state = writes.get(room) ?? { queue: Promise.resolve() };
         writes.set(room, state);
+        // Decided for this visit: one waiting its turn when the visit ends is not sent.
+        const visit = this.visitGeneration;
         const write = state.queue.then(async (): Promise<void> => {
             if (state.written && this.comesAfter(state.written, this.readMarkerEventId)) {
                 this.readMarkerEventId = state.written;
             }
-            if (!this.maySendReadState() || !this.comesAfter(eventId, this.readMarkerEventId)) return;
+            if (visit !== this.visitGeneration || !this.maySendReadState()) return;
+            if (!this.comesAfter(eventId, this.readMarkerEventId)) return;
             // Past the last marker written here too, whatever this view knows of it: one that cannot be placed against
             // it, such as in history it is no longer among, is left for later.
             if (state.written && !this.comesAfter(eventId, state.written)) return;
@@ -2054,56 +2117,22 @@ export class RoomTimelineViewModel
     }
 
     /**
-     * Tear-down: stop the timers, save where the reader was, and stop listening.
+     * Tear-down: end the reading visit ({@link deactivate}: its timers stop and where the reader was is saved), stop
+     * the decryption timer, and stop listening.
      *
-     * - Stops the read receipt, fully read marker and decryption timers.
-     * - Saves the bottommost message the reader saw to localStorage, so the next visit
-     *   resumes there; clears it when they were at the visual bottom, so the next visit
-     *   starts at the live end. With no visible range recorded, the saved position stays.
-     * - Starts no write of the fully read marker: leaving a room does not move it, so a glance at
-     *   a room keeps its unread line. It moves on while the reader is around
-     *   ({@link moveReadMarkerOnWhileActive}), when a room view that moves it only on focus is
-     *   focused ({@link moveReadMarkerOnNow}), or on {@link onMarkAllAsRead}. A write already sent
-     *   is neither waited for nor stopped, so it can still land after this; one waiting its turn
-     *   is not sent.
-     * - Through `super.dispose()`, marks the view model disposed and releases its room and client
-     *   listeners and its settings watcher.
+     * The fully read marker is left alone: it moves on while the reader is around
+     * ({@link moveReadMarkerOnWhileActive}), when a room view that moves it only on focus is focused
+     * ({@link moveReadMarkerOnNow}), or on {@link onMarkAllAsRead}, so a glance at a room keeps its unread line.
+     *
+     * Through `super.dispose()`, marks the view model disposed and releases its room and client listeners and its
+     * settings watcher.
      */
     public override dispose(): void {
-        if (this.readReceiptDebounceTimer !== null) {
-            clearTimeout(this.readReceiptDebounceTimer);
-            this.readReceiptDebounceTimer = null;
-        }
-        const receiptTimer = this.receiptActivityTimer;
-        this.receiptActivityTimer = undefined;
-        // Settle the timer even if it never started, so UserActivity lets go of it.
-        receiptTimer?.start().abort();
-        const readMarkerTimer = this.readMarkerTimer;
-        this.readMarkerTimer = undefined;
-        // The loop may be waiting on a marker write rather than on the timer, so nothing else would see it abort.
-        readMarkerTimer?.finished().catch(() => {});
-        readMarkerTimer?.start().abort();
+        this.deactivate();
         if (this.decryptDebounceTimer !== null) {
             clearTimeout(this.decryptDebounceTimer);
             this.decryptDebounceTimer = null;
         }
-        if (!this.lastBottomEventId) {
-            debug(`[TimelineVM] dispose() — no visible range recorded, preserving saved position`);
-            super.dispose();
-            return;
-        }
-
-        if (this.isAtBottom) {
-            debug(`[TimelineVM] dispose() — clearing saved scroll position (at visual bottom)`);
-            RoomTimelineViewModel.saveScrollTarget(this.opts.room.roomId, null);
-        } else {
-            debug(`[TimelineVM] dispose() — saving scroll position eventId=${this.lastBottomEventId}`);
-            RoomTimelineViewModel.saveScrollTarget(this.opts.room.roomId, this.lastBottomEventId);
-        }
-
-        // The fully read marker is left alone: it moves on only once the reader has been around for a while, as in
-        // the old timeline (see moveReadMarkerOnWhileActive), so a glance at a room keeps its unread line.
-
         super.dispose();
     }
 
