@@ -372,7 +372,7 @@ describe("EventContentBodyViewModel", () => {
                 shouldShowPillAvatar: true,
             }),
         );
-        // As TextualBodyFactory's effects do on mount.
+        // As TextualBodyFactory's effects do on mount, and the setting watchers do for a setting saved unchanged.
         vm.setEventContent(mxEvent, defaultContent);
         vm.setStripReply(true);
         vm.setHighlights(["hello"]);
