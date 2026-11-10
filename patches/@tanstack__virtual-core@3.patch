@@ -32,10 +32,18 @@ index c9065e73a2565430fc05ec61783490abc0a6d3c0..293ae7124a221f04f50d31e7ccfeb207
          (): VirtualItem[];
          updateDeps(newDeps: [number[], VirtualItem[]]): void;
 diff --git a/dist/esm/index.js b/dist/esm/index.js
-index dcba044582148f2b8923163b1a431571230bdfef..ec616c3ef84437a76e40a467c3bf8dd6621b1cd7 100644
+index dcba044582148f2b8923163b1a431571230bdfef..18ca2218b3d825e2ef1407cf3e9a705834aafc40 100644
 --- a/dist/esm/index.js
 +++ b/dist/esm/index.js
-@@ -331,9 +331,29 @@ class Virtualizer {
+@@ -317,6 +317,7 @@ class Virtualizer {
+       }
+       const prevOptions = this.options;
+       let anchor = null;
++      let anchorToEnd = false;
+       let followOnAppend = null;
+       let edgeKeysChanged = false;
+       if (prevOptions !== void 0 && prevOptions.enabled && merged.enabled && merged.anchorTo === "end" && this.scrollElement !== null) {
+@@ -331,10 +332,36 @@ class Virtualizer {
          const didEdgeKeysChange = didCountChange || prevCount > 0 && nextCount > 0 && (merged.getItemKey(0) !== prevFirstKey || merged.getItemKey(nextCount - 1) !== prevLastKey);
          if (didEdgeKeysChange) {
            edgeKeysChanged = true;
@@ -65,9 +73,16 @@ index dcba044582148f2b8923163b1a431571230bdfef..ec616c3ef84437a76e40a467c3bf8dd6
 -            anchor = [item.key, this.getScrollOffset() - item.start];
 +            anchor = [item.key, anchorFromOffset - item.start];
            }
++          // A view at the end stays at the end while rows change above it, as when older history arrives or rows
++          // are regrouped: rows between the one under the offset and the end can change too, such as a group laid
++          // out at an estimated height, and keeping that one row in place would leave the end below the view. A
++          // new last row is an append instead, which followOnAppend follows, or a reader of older history reads on
++          // into. Element-web patch, pending upstream.
++          anchorToEnd = item !== null && merged.getItemKey(nextCount - 1) === prevLastKey && this.getSize() > 0 && this.getTotalSize() - this.getSize() - anchorFromOffset <= prevOptions.scrollEndThreshold;
            const behavior = merged.followOnAppend === true ? "auto" : merged.followOnAppend || null;
            if (behavior && nextCount > 0 && this.isAtEnd(prevOptions.scrollEndThreshold) && (prevCount === 0 || merged.getItemKey(nextCount - 1) !== prevLastKey)) {
-@@ -363,15 +383,18 @@ class Virtualizer {
+             if (nextCount > prevCount || isAppendWithTrim(
+@@ -363,15 +390,20 @@ class Virtualizer {
          while (idx < count && getItemKey(idx) !== anchorKey) {
            idx++;
          }
@@ -80,8 +95,10 @@ index dcba044582148f2b8923163b1a431571230bdfef..ec616c3ef84437a76e40a467c3bf8dd6
 -              this.scrollOffset = newOffset;
 -              anchorResolved = true;
 -            }
++        // A view that was at the end goes to the end of the rows as now laid out (see anchorToEnd above); otherwise
++        // the anchor row keeps its place on screen. Element-web patch, pending upstream.
 +        const anchorItem = idx < count ? newMeasurements[idx] : void 0;
-+        const newOffset = anchorItem ? Math.max(0, anchorItem.start + anchorOffset) : null;
++        const newOffset = anchorToEnd ? Math.max(0, this.getTotalSize() - this.getSize()) : anchorItem ? Math.max(0, anchorItem.start + anchorOffset) : null;
 +        if (newOffset !== null) {
 +          // Moved from the offset the anchor was taken at. A scroll written in this task leaves that ahead of
 +          // scrollOffset, and its offset moves with the rows too: corrections made before it is read back, such as
@@ -95,7 +112,7 @@ index dcba044582148f2b8923163b1a431571230bdfef..ec616c3ef84437a76e40a467c3bf8dd6
            }
          }
        }
-@@ -453,7 +476,23 @@ class Virtualizer {
+@@ -453,7 +485,23 @@ class Virtualizer {
          });
          this.unsubs.push(
            this.options.observeElementRect(this, (rect) => {
@@ -119,7 +136,7 @@ index dcba044582148f2b8923163b1a431571230bdfef..ec616c3ef84437a76e40a467c3bf8dd6
              this.maybeNotify();
            })
          );
-@@ -943,9 +982,19 @@ class Virtualizer {
+@@ -943,9 +991,19 @@ class Virtualizer {
        const itemSize = this.itemSizeCache.get(key) ?? cachedSize;
        const delta = size - itemSize;
        if (delta !== 0) {
@@ -141,7 +158,7 @@ index dcba044582148f2b8923163b1a431571230bdfef..ec616c3ef84437a76e40a467c3bf8dd6
          const isFirstMeasure = !this.itemSizeCache.has(key);
          const defaultShouldAdjust = isFirstMeasure ? (
            // First measurement: compensate any item whose top sits above the
-@@ -958,9 +1007,12 @@ class Virtualizer {
+@@ -958,9 +1016,12 @@ class Virtualizer {
            // below — e.g. a streaming chat message growing at its bottom)
            // changes size *below* the anchor point, so shifting scrollTop by the
            // delta would drag the viewport downward on every growth (#1218).
@@ -157,7 +174,7 @@ index dcba044582148f2b8923163b1a431571230bdfef..ec616c3ef84437a76e40a467c3bf8dd6
          );
          const shouldAdjustScroll = ((_d = this.scrollState) == null ? void 0 : _d.behavior) !== "smooth" && (this.shouldAdjustScrollPositionOnItemSizeChange !== void 0 ? this.shouldAdjustScrollPositionOnItemSizeChange(
            // The callback expects a VirtualItem; build one lazily only
-@@ -1249,6 +1301,33 @@ class Virtualizer {
+@@ -1249,6 +1310,33 @@ class Virtualizer {
        }
        this.options.scrollToFn(offset, { behavior, adjustments }, this);
      };
@@ -191,7 +208,7 @@ index dcba044582148f2b8923163b1a431571230bdfef..ec616c3ef84437a76e40a467c3bf8dd6
      this.measure = () => {
        this.pendingMin = null;
        this.itemSizeCache.clear();
-@@ -1274,16 +1353,19 @@ class Virtualizer {
+@@ -1274,16 +1362,19 @@ class Virtualizer {
        }
        return false;
      } else {

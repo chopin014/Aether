@@ -834,6 +834,62 @@ describe("<TimelineView />", () => {
             await waitFor(() => expect(distanceFromBottom(scroller)).toBeLessThanOrEqual(1), { timeout: 2000 });
         });
 
+        it("stays at the bottom when the room's start arrives and is drawn around the row at the top of the screen", async () => {
+            // A new encrypted room's first screen, as drawn while its start loads: a spinner, two settings changes, the
+            // tall "encryption enabled" notice, another change, then the messages, the first with its sender.
+            const row = (key: string): TimelineItem => ({ ...eventItems(1)[0], key });
+            const heights: Record<string, number> = {
+                [BACKWARD_LOADING_KEY]: 32,
+                "change-1": 22,
+                "change-2": 22,
+                "encryption": 197,
+                "change-3": 22,
+                "date": 34,
+                "creation": 229,
+                "message-0": 65,
+            };
+            const messages = Array.from({ length: 14 }, (_, i) => row(`message-${i}`));
+            const { vm, actions, update } = makeFakeVm({
+                items: [
+                    { key: BACKWARD_LOADING_KEY, kind: "loading" },
+                    ...["change-1", "change-2", "encryption", "change-3"].map(row),
+                    ...messages,
+                ],
+            });
+            actions.onAnchorReached.mockImplementation(() => update({ pendingAnchor: null }));
+            render(
+                <div style={{ height: 577, width: 320 }}>
+                    <TimelineView
+                        vm={vm}
+                        paddingBlock={18}
+                        renderItem={(item) => (
+                            <div data-testid={`row-${item.key}`} style={{ height: heights[item.key] ?? 27 }} />
+                        )}
+                    />
+                </div>,
+            );
+            await waitFor(() => expect(actions.onAtBottomStateChange).toHaveBeenLastCalledWith(true), {
+                timeout: 5000,
+            });
+            const scroller = screen.getByTestId("timeline-scroller");
+            expect(distanceFromBottom(scroller)).toBeLessThanOrEqual(1);
+
+            // The room's start arrives: a date takes the spinner's place and the settings changes become the room's
+            // creation, drawn below the notice at the top of the screen and much taller than a row is first given.
+            update({
+                items: [
+                    { key: "date", kind: "event" } as TimelineItem,
+                    row("encryption"),
+                    row("creation"),
+                    ...messages,
+                ],
+            });
+
+            for (let frame = 0; frame < 10; frame++) await new Promise((resolve) => requestAnimationFrame(resolve));
+            expect(distanceFromBottom(scroller)).toBeLessThanOrEqual(1);
+            expect(actions.onAtBottomStateChange).not.toHaveBeenCalledWith(false);
+        });
+
         it("stays at the newest message it was placed at when older history starts loading above", async () => {
             // A little more than a screenful, as in a new room: the spinner above is near enough to be drawn.
             const items = eventItems(9);
