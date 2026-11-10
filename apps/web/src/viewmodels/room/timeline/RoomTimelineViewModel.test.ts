@@ -796,6 +796,76 @@ describe("RoomTimelineViewModel", () => {
             );
         });
 
+        it("takes the reader to the newest picture left when a gallery splits on the way to the newest messages", async () => {
+            vi.mocked(SettingsStore).getValue.mockImplementation(
+                (key): any => key === "sendReadReceipts" || key === "feature_desktop_shell" || key === "showRedactions",
+            );
+            seedTimeline([
+                makePicture("$first"),
+                makePicture("$second", { ts: T0 + 1000 }),
+                makePicture("$third", { ts: T0 + 2000 }),
+            ]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.jumpToLive();
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "gallery-$second", align: "end" });
+
+            // The middle picture is removed before the view has placed the reader, which splits the gallery.
+            room.tryApplyRedaction(
+                new MatrixEvent({
+                    type: EventType.RoomRedaction,
+                    sender: USER_ID,
+                    event_id: "$remove-second",
+                    room_id: ROOM_ID,
+                    redacts: "$second",
+                    content: {},
+                    origin_server_ts: T0 + 3000,
+                }),
+            );
+            await vi.waitFor(() => expect(galleries(vm)).toEqual([]));
+
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$third", align: "end" });
+        });
+
+        it("takes the reader to the middle of what a gallery splits into on the way to it", async () => {
+            vi.mocked(SettingsStore).getValue.mockImplementation(
+                (key): any => key === "sendReadReceipts" || key === "feature_desktop_shell" || key === "showRedactions",
+            );
+            seedTimeline([
+                makePicture("$first"),
+                makePicture("$second", { ts: T0 + 1000 }),
+                makePicture("$third", { ts: T0 + 2000 }),
+            ]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.scrollToEventIfNeeded("gallery-$second");
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "gallery-$second", align: "center" });
+
+            room.tryApplyRedaction(
+                new MatrixEvent({
+                    type: EventType.RoomRedaction,
+                    sender: USER_ID,
+                    event_id: "$remove-second",
+                    room_id: ROOM_ID,
+                    redacts: "$second",
+                    content: {},
+                    origin_server_ts: T0 + 3000,
+                }),
+            );
+            await vi.waitFor(() => expect(galleries(vm)).toEqual([]));
+
+            // Its pictures are now in two rows, the removed second and the third: the first of those is its middle.
+            const removed = vm
+                .getSnapshot()
+                .items.find(
+                    (item) =>
+                        item.kind === "event-group" &&
+                        item.events.some((event) => (event as MatrixEvent).getId() === "$second"),
+                );
+            expect(removed).toBeDefined();
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: removed!.key, align: "center" });
+        });
+
         it("keeps a gallery's key as pictures before it leave the run and come back", async () => {
             const first = makePicture("$first");
             seedTimeline([first, makePicture("$second", { ts: T0 + 1000 }), makePicture("$third", { ts: T0 + 2000 })]);

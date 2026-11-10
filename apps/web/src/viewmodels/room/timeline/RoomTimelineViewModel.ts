@@ -2018,7 +2018,9 @@ export class RoomTimelineViewModel
      * has placed them there, and the view could then never say it has placed them, which would hold back reading for
      * the rest of the visit.
      * - A message still there under another key, such as one of ours the server has given its id, or one now in a
-     *   group, is still where they go.
+     *   group, is still where they go. A group that splits into several rows is gone to by the part the anchor is
+     *   aligned by: its last row for an anchor at the bottom, such as the newest messages, its middle row for one in
+     *   the middle, else its first row.
      * - For a message removed meanwhile, or the unread line once they mark everything read, they go to the nearest row
      *   left instead: the next one down, or else the one above, as shown now.
      * - With no row left, they stay where they are and count as placed.
@@ -2029,11 +2031,17 @@ export class RoomTimelineViewModel
         const gone = shown.findIndex((item) => item.key === anchor.targetKey);
         // A row holds the event objects themselves, which keep their identity as their ids change.
         const events = new Set(gone >= 0 ? this.itemEvents(shown[gone]) : []);
-        const moved =
-            events.size > 0
-                ? items.find((item) => this.itemEvents(item).some((event) => events.has(event)))
-                : undefined;
-        if (moved) return { ...anchor, targetKey: moved.key };
+        const holding =
+            events.size > 0 ? items.filter((item) => this.itemEvents(item).some((event) => events.has(event))) : [];
+        if (holding.length > 0) {
+            const part =
+                anchor.align === "end"
+                    ? holding.length - 1
+                    : anchor.align === "center"
+                      ? Math.floor((holding.length - 1) / 2)
+                      : 0;
+            return { ...anchor, targetKey: holding[part].key };
+        }
         const left = new Set(items.filter((item) => item.kind !== "loading").map((item) => item.key));
         if (gone >= 0) {
             for (let i = gone + 1; i < shown.length; i++) {
