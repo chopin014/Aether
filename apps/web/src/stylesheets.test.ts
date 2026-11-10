@@ -76,34 +76,74 @@ function compounds(selector: string): string[] {
     return splitTopLevel(spaced, (char) => /\s/.test(char)).filter(Boolean);
 }
 
-/** The selector list in each `:is()`, `:where()`, `:not()` or `:has()` at the top level of a compound. */
+/**
+ * Empties every quoted string in a selector. What an attribute selector's value holds is not selector syntax: its
+ * brackets, parentheses, commas and dots must not be read as such.
+ */
+function withoutStrings(selector: string): string {
+    let out = "";
+    for (let i = 0; i < selector.length; i++) {
+        const char = selector[i];
+        out += char;
+        if (char === "\\") {
+            out += selector[i + 1] ?? "";
+            i++;
+        } else if (char === '"' || char === "'") {
+            let end = i + 1;
+            while (end < selector.length && selector[end] !== char) end += selector[end] === "\\" ? 2 : 1;
+            out += char;
+            i = end;
+        }
+    }
+    return out;
+}
+
+/**
+ * The selector list a functional pseudo-class at the top level of a compound matches its element against: that of
+ * `:is()`, `:where()`, `:not()` or `:has()`, or the one after "of" in `:nth-child()` and `:nth-last-child()`, which
+ * behaves as `:is()` does here.
+ */
 interface PseudoArgument {
     name: "is" | "where" | "not" | "has";
     selectors: string[];
 }
 
-/** Splits a compound into what it says of the element itself and the selector lists of its functional pseudos. */
+/**
+ * Splits a compound, with its strings emptied, into what it says of the element itself and the selector lists of its
+ * functional pseudo-classes. Other functional pseudo-classes, such as `:lang()`, are left out of both.
+ */
 function splitCompound(compound: string): { own: string; pseudos: PseudoArgument[] } {
     let own = "";
     const pseudos: PseudoArgument[] = [];
     for (let i = 0; i < compound.length; i++) {
-        const match = /^:(is|where|not|has)\(/.exec(compound.slice(i));
+        const match = /^::?([\w-]+)\(/.exec(compound.slice(i));
         if (compound[i] === "[") {
-            // An attribute selector's value can hold anything, so it is kept whole.
             const close = compound.indexOf("]", i);
+            if (close < 0) break;
             own += compound.slice(i, close + 1);
             i = close;
         } else if (match) {
             let depth = 0;
-            let j = i + match[0].length - 1;
-            for (; j < compound.length; j++) {
-                if (compound[j] === "(") depth++;
-                else if (compound[j] === ")" && --depth === 0) break;
+            let end = i + match[0].length - 1;
+            for (; end < compound.length; end++) {
+                if (compound[end] === "(") depth++;
+                else if (compound[end] === ")" && --depth === 0) break;
             }
-            const name = match[1] as PseudoArgument["name"];
-            const list = compound.slice(i + match[0].length, j);
-            pseudos.push({ name, selectors: splitTopLevel(list, (char) => char === ",").map((s) => s.trim()) });
-            i = j;
+            const name = match[1].toLowerCase();
+            const argument = compound.slice(i + match[0].length, end);
+            const list =
+                name === "is" || name === "where" || name === "not" || name === "has"
+                    ? argument
+                    : name === "nth-child" || name === "nth-last-child"
+                      ? argument.split(/\sof\s/i)[1]
+                      : undefined;
+            if (list !== undefined) {
+                pseudos.push({
+                    name: name === "where" || name === "not" || name === "has" ? name : "is",
+                    selectors: splitTopLevel(list, (char) => char === ",").map((selector) => selector.trim()),
+                });
+            }
+            i = end;
         } else {
             own += compound[i];
         }
@@ -139,7 +179,7 @@ function namedByClass(compound: string): boolean {
 /** The problems with one selector list: each complex selector in it, and each in its pseudos' selector lists. */
 function problemsInSelectors(selectorList: string, file: string): string[] {
     const problems: string[] = [];
-    for (const raw of splitTopLevel(selectorList, (char) => char === ",")) {
+    for (const raw of splitTopLevel(withoutStrings(selectorList), (char) => char === ",")) {
         const selector = raw.replace(/\s+/g, " ").trim();
         const parts = compounds(selector);
         parts.forEach((part, index) => {
@@ -191,6 +231,9 @@ describe("stylesheets", () => {
         [":where(.mx_RoomView:has(.panel) .header) {}"],
         [":is(.mx_RoomView:has(.panel)) .header {}"],
         [".tile:has(.panel) :is(.icon, span) {}"],
+        ['.tile:has(.panel) :is([data-label=")"], .icon) {}'],
+        [".tile:has(.panel) :nth-child(2n of .icon, span) {}"],
+        ['.tile:has(.panel) [data-label="].icon"] {}'],
     ])("reports %s", (source) => {
         expect(problemsIn(source)).toHaveLength(1);
     });
@@ -205,6 +248,9 @@ describe("stylesheets", () => {
         [".button:not(:hover, :focus-visible):has(.badge [data-type]) .wrapper::before {}"],
         [".tile:has(.panel) span:is(.icon) {}"],
         [".mx_RoomView:not(.other):has(> .header) {}"],
+        ['.tile:has([data-x="a, (b) ]"]) .line {}'],
+        [".tile:has(.panel) :nth-child(2n of .a, .b) {}"],
+        [".tile:has(.panel) .line:lang(en) {}"],
     ])("accepts %s", (source) => {
         expect(problemsIn(source)).toEqual([]);
     });
