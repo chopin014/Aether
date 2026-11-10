@@ -6,7 +6,7 @@ Copyright 2020 Nordeck IT + Consulting GmbH.
 SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE files in the repository root for full details.
  */
-import React, { type FunctionComponent, useEffect, useRef } from "react";
+import React, { type FunctionComponent, useEffect, useRef, useState } from "react";
 import { logger } from "matrix-js-sdk/src/logger";
 import { type MatrixEvent } from "matrix-js-sdk/src/matrix";
 
@@ -16,12 +16,24 @@ import { CHAT_EFFECTS } from "../../../effects";
 import UIStore, { UI_EVENTS } from "../../../stores/UIStore";
 
 interface IProps {
-    roomWidth: number;
+    /** The room view the effects play across: the canvas is as wide as it is. */
+    room: HTMLElement;
 }
 
-const EffectsOverlay: FunctionComponent<IProps> = ({ roomWidth }) => {
+const EffectsOverlay: FunctionComponent<IProps> = ({ room }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const effectsRef = useRef<Map<string, ICanvasEffect>>(new Map<string, ICanvasEffect>());
+    const [roomWidth, setRoomWidth] = useState(0);
+
+    // The room is measured as the browser lays it out. Read while rendering, its width would make the browser lay
+    // the page out there and then: in the middle of opening a room, that is the whole new room.
+    useEffect(() => {
+        const observer = new ResizeObserver(([entry]) => {
+            setRoomWidth(Math.round(entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width));
+        });
+        observer.observe(room);
+        return () => observer.disconnect();
+    }, [room]);
 
     const lazyLoadEffectModule = async (name: string): Promise<ICanvasEffect | null> => {
         if (!name) return null;
