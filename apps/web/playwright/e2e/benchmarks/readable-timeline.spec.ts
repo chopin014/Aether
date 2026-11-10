@@ -203,4 +203,101 @@ test.describe("readable timeline check", () => {
         expect(await readable(page)).toBe(true);
         expect(await readable(page, TARGET, true)).toBe(true);
     });
+
+    test("does not count text running across elements when an element inside clips part of it", async ({ page }) => {
+        await show(
+            page,
+            timeline(
+                rowWithBody(
+                    `<span style="display: inline-block; width: 2px; overflow: hidden">the wanted</span> message`,
+                ),
+            ),
+        );
+        expect(await readable(page)).toBe(false);
+        expect(await readable(page, TARGET, true)).toBe(false);
+    });
+
+    test("does not count text with a part sized to nothing", async ({ page }) => {
+        await show(page, timeline(rowWithBody(`the <b style="font-size: 0">wanted</b> message`)));
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("reads text in an inline element set to clip, as overflow does not apply to inline boxes", async ({
+        page,
+    }) => {
+        await show(page, timeline(rowWithBody(`<span style="overflow: hidden">the wanted message</span>`)));
+        expect(await readable(page)).toBe(true);
+    });
+
+    test("does not count text outside an element with paint containment", async ({ page }) => {
+        await show(page, timeline(rowWithBody("the wanted message", "display: block; height: 5px; contain: paint")));
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("does not count a message a transparent element's pseudo-element covers", async ({ page }) => {
+        const cover = `<style>.cover::before { content: ""; position: absolute; inset: 0; background: white; }</style>
+            <div class="cover" style="position: absolute; inset: 0"></div>`;
+        await show(page, timeline(row("$target", "the wanted message") + cover));
+        expect(await readable(page)).toBe(false);
+        expect(await readable(page, TARGET, true)).toBe(false);
+    });
+
+    test("does not count text a pseudo-element of its own element covers", async ({ page }) => {
+        const style = `<style>.mx_EventTile_body::after { content: ""; position: absolute; inset: 0; background: white; }</style>`;
+        await show(page, style + timeline(rowWithBody("the wanted message", "position: relative")));
+        expect(await readable(page)).toBe(false);
+        expect(await readable(page, TARGET, true)).toBe(false);
+    });
+
+    test("reads text beside its element's own pseudo-element, or over one positioned behind it", async ({ page }) => {
+        const style = `<style>
+            .mx_EventTile_body::before { content: "•"; background: yellow; }
+            .mx_EventTile_body::after { content: ""; position: absolute; inset: 0; z-index: -1; background: yellow; }
+        </style>`;
+        await show(page, style + timeline(rowWithBody("the wanted message", "position: relative")));
+        expect(await readable(page)).toBe(true);
+        expect(await readable(page, TARGET, true)).toBe(true);
+    });
+
+    for (const [name, cover] of [
+        ["transparent", `<div style="position: absolute; inset: 0; background: white; opacity: 0"></div>`],
+        [
+            "inside a transparent element",
+            `<div style="opacity: 0"><div style="position: absolute; inset: 0; background: white"></div></div>`,
+        ],
+        [
+            "filtered to nothing",
+            `<div style="position: absolute; inset: 0; background: white; filter: opacity(0)"></div>`,
+        ],
+        ["a transparent image", `<img style="position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0">`],
+        [
+            "coloured transparent in a modern syntax",
+            `<div style="position: absolute; inset: 0; background: oklch(50% 0.2 40 / 0)"></div>`,
+        ],
+    ] as const) {
+        test(`reads a message under a cover that is ${name}`, async ({ page }) => {
+            await show(page, timeline(row("$target", "the wanted message") + cover));
+            expect(await readable(page)).toBe(true);
+            expect(await readable(page, TARGET, true)).toBe(true);
+        });
+    }
+
+    test("does not count a message under an opaque cover coloured in a modern syntax", async ({ page }) => {
+        const cover = `<div style="position: absolute; inset: 0; background: oklch(50% 0.2 40 / 1)"></div>`;
+        await show(page, timeline(row("$target", "the wanted message") + cover));
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("does not count a message under an image", async ({ page }) => {
+        const cover = `<img style="position: absolute; inset: 0; width: 100%; height: 100%">`;
+        await show(page, timeline(row("$target", "the wanted message") + cover));
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("leaves the page's styles as they were after a thorough check", async ({ page }) => {
+        await show(page, timeline(row("$target", "the wanted message")));
+        const before = await page.evaluate(() => document.styleSheets.length);
+        expect(await readable(page, TARGET, true)).toBe(true);
+        expect(await page.evaluate(() => document.styleSheets.length)).toBe(before);
+    });
 });
