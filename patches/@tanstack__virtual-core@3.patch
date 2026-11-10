@@ -32,15 +32,18 @@ index c9065e73a2565430fc05ec61783490abc0a6d3c0..293ae7124a221f04f50d31e7ccfeb207
          (): VirtualItem[];
          updateDeps(newDeps: [number[], VirtualItem[]]): void;
 diff --git a/dist/esm/index.js b/dist/esm/index.js
-index dcba044582148f2b8923163b1a431571230bdfef..e49e447e9bee1cf2e193e91caf3e28b56ad0cbd8 100644
+index dcba044582148f2b8923163b1a431571230bdfef..ec616c3ef84437a76e40a467c3bf8dd6621b1cd7 100644
 --- a/dist/esm/index.js
 +++ b/dist/esm/index.js
-@@ -331,7 +331,24 @@ class Virtualizer {
+@@ -331,9 +331,29 @@ class Virtualizer {
          const didEdgeKeysChange = didCountChange || prevCount > 0 && nextCount > 0 && (merged.getItemKey(0) !== prevFirstKey || merged.getItemKey(nextCount - 1) !== prevLastKey);
          if (didEdgeKeysChange) {
            edgeKeysChanged = true;
 -          const item = prevCount > 0 ? this.getVirtualItemForOffset(this.getScrollOffset()) ?? measurements[0] : null;
-+          let item = prevCount > 0 ? this.getVirtualItemForOffset(this.getScrollOffset()) ?? measurements[0] : null;
++          // A scroll written in this task, such as scrollToOffsetNow placing the list, is not yet read back into
++          // scrollOffset: anchor to what that write shows. Element-web patch, pending upstream.
++          const anchorFromOffset = this._intendedScrollOffset ?? this.getScrollOffset();
++          let item = prevCount > 0 ? this.getVirtualItemForOffset(anchorFromOffset) ?? measurements[0] : null;
 +          // With anchorTo: "end" the scroll is re-pinned by the key of the item
 +          // under the current offset. If the consumer rejects that item as an
 +          // anchor via isValidAnchorItem — e.g. a transient placeholder/sentinel
@@ -59,9 +62,40 @@ index dcba044582148f2b8923163b1a431571230bdfef..e49e447e9bee1cf2e193e91caf3e28b5
 +            item = measurements[i] ?? item;
 +          }
            if (item) {
-             anchor = [item.key, this.getScrollOffset() - item.start];
+-            anchor = [item.key, this.getScrollOffset() - item.start];
++            anchor = [item.key, anchorFromOffset - item.start];
            }
-@@ -453,7 +470,23 @@ class Virtualizer {
+           const behavior = merged.followOnAppend === true ? "auto" : merged.followOnAppend || null;
+           if (behavior && nextCount > 0 && this.isAtEnd(prevOptions.scrollEndThreshold) && (prevCount === 0 || merged.getItemKey(nextCount - 1) !== prevLastKey)) {
+@@ -363,15 +383,18 @@ class Virtualizer {
+         while (idx < count && getItemKey(idx) !== anchorKey) {
+           idx++;
+         }
+-        if (idx < count) {
+-          const anchorItem = newMeasurements[idx];
+-          if (anchorItem) {
+-            const newOffset = Math.max(0, anchorItem.start + anchorOffset);
+-            if (!followOnAppend && newOffset !== this.scrollOffset) {
+-              anchorDelta = newOffset - this.scrollOffset;
+-              this.scrollOffset = newOffset;
+-              anchorResolved = true;
+-            }
++        const anchorItem = idx < count ? newMeasurements[idx] : void 0;
++        const newOffset = anchorItem ? Math.max(0, anchorItem.start + anchorOffset) : null;
++        if (newOffset !== null) {
++          // Moved from the offset the anchor was taken at. A scroll written in this task leaves that ahead of
++          // scrollOffset, and its offset moves with the rows too: corrections made before it is read back, such as
++          // for a row measured smaller than estimated, build on it. Element-web patch, pending upstream.
++          const fromOffset = this._intendedScrollOffset ?? this.scrollOffset;
++          if (!followOnAppend && newOffset !== fromOffset) {
++            anchorDelta = newOffset - fromOffset;
++            this.scrollOffset = newOffset;
++            if (this._intendedScrollOffset !== null) this._intendedScrollOffset = newOffset;
++            anchorResolved = true;
+           }
+         }
+       }
+@@ -453,7 +476,23 @@ class Virtualizer {
          });
          this.unsubs.push(
            this.options.observeElementRect(this, (rect) => {
@@ -85,7 +119,7 @@ index dcba044582148f2b8923163b1a431571230bdfef..e49e447e9bee1cf2e193e91caf3e28b5
              this.maybeNotify();
            })
          );
-@@ -943,9 +976,19 @@ class Virtualizer {
+@@ -943,9 +982,19 @@ class Virtualizer {
        const itemSize = this.itemSizeCache.get(key) ?? cachedSize;
        const delta = size - itemSize;
        if (delta !== 0) {
@@ -107,7 +141,7 @@ index dcba044582148f2b8923163b1a431571230bdfef..e49e447e9bee1cf2e193e91caf3e28b5
          const isFirstMeasure = !this.itemSizeCache.has(key);
          const defaultShouldAdjust = isFirstMeasure ? (
            // First measurement: compensate any item whose top sits above the
-@@ -958,9 +1001,12 @@ class Virtualizer {
+@@ -958,9 +1007,12 @@ class Virtualizer {
            // below — e.g. a streaming chat message growing at its bottom)
            // changes size *below* the anchor point, so shifting scrollTop by the
            // delta would drag the viewport downward on every growth (#1218).
@@ -123,7 +157,7 @@ index dcba044582148f2b8923163b1a431571230bdfef..e49e447e9bee1cf2e193e91caf3e28b5
          );
          const shouldAdjustScroll = ((_d = this.scrollState) == null ? void 0 : _d.behavior) !== "smooth" && (this.shouldAdjustScrollPositionOnItemSizeChange !== void 0 ? this.shouldAdjustScrollPositionOnItemSizeChange(
            // The callback expects a VirtualItem; build one lazily only
-@@ -1249,6 +1295,33 @@ class Virtualizer {
+@@ -1249,6 +1301,33 @@ class Virtualizer {
        }
        this.options.scrollToFn(offset, { behavior, adjustments }, this);
      };
@@ -157,7 +191,7 @@ index dcba044582148f2b8923163b1a431571230bdfef..e49e447e9bee1cf2e193e91caf3e28b5
      this.measure = () => {
        this.pendingMin = null;
        this.itemSizeCache.clear();
-@@ -1274,16 +1347,19 @@ class Virtualizer {
+@@ -1274,16 +1353,19 @@ class Virtualizer {
        }
        return false;
      } else {

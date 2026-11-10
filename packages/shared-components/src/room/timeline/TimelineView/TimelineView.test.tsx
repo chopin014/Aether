@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from "vitest";
 import { page } from "vitest/browser";
 
 import { TimelineView } from "./TimelineView";
-import type { TimelineItem, TimelineViewModel, TimelineViewSnapshot } from "./types";
+import { BACKWARD_LOADING_KEY, type TimelineItem, type TimelineViewModel, type TimelineViewSnapshot } from "./types";
 
 const baseSnapshot: TimelineViewSnapshot = {
     items: [],
@@ -832,6 +832,39 @@ describe("<TimelineView />", () => {
             const scroller = screen.getByTestId("timeline-scroller");
             await waitFor(() => expect(screen.getByTestId("row-evt-29")).toBeInTheDocument());
             await waitFor(() => expect(distanceFromBottom(scroller)).toBeLessThanOrEqual(1), { timeout: 2000 });
+        });
+
+        it("stays at the newest message it was placed at when older history starts loading above", async () => {
+            // A little more than a screenful, as in a new room: the spinner above is near enough to be drawn.
+            const items = eventItems(9);
+            const { vm, actions, update } = makeFakeVm({ items, pendingAnchor: { targetKey: "evt-8", align: "end" } });
+            // As the view model does once it takes note of the placement: it starts loading older history, which shows
+            // as a spinner above the messages, smaller than the height rows are first given.
+            // It does so at once, so the spinner arrives before the placed list is first painted.
+            actions.onAnchorReached.mockImplementation(() =>
+                update({ pendingAnchor: null, items: [{ key: BACKWARD_LOADING_KEY, kind: "loading" }, ...items] }),
+            );
+            render(
+                <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                    <TimelineView
+                        vm={vm}
+                        renderItem={(item) => (
+                            <div
+                                data-testid={`row-${item.key}`}
+                                style={{ height: item.kind === "loading" ? 32 : ROW_HEIGHT }}
+                            />
+                        )}
+                    />
+                </div>,
+            );
+            await waitFor(() => expect(screen.getByTestId(`row-${BACKWARD_LOADING_KEY}`)).toBeInTheDocument(), {
+                timeout: 5000,
+            });
+
+            const scroller = screen.getByTestId("timeline-scroller");
+            for (let frame = 0; frame < 10; frame++) await new Promise((resolve) => requestAnimationFrame(resolve));
+            expect(distanceFromBottom(scroller)).toBeLessThanOrEqual(1);
+            expect(actions.onAtBottomStateChange).not.toHaveBeenCalledWith(false);
         });
 
         it("stays at the bottom while the reader's own messages are sent one after another", async () => {
