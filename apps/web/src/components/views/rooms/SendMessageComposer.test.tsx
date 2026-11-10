@@ -33,6 +33,11 @@ import { MessageComposerUrlPreviewViewModel } from "../../../viewmodels/composer
 import { SDKContext } from "../../../contexts/SDKContext.ts";
 import { UrlPreviewApi } from "../../../modules/UrlPreviewApi.ts";
 import { attachUrlPreviews } from "../../../utils/messages";
+import {
+    clearRoomSwitchMarks,
+    ROOM_SWITCH_MARK_PREFIX,
+    type RoomSwitchMarksWindow,
+} from "../../../performance/RoomSwitchPerformance";
 
 vi.mock("../../../utils/local-room", () => ({
     doMaybeLocalRoomAction: vi.fn(),
@@ -217,6 +222,28 @@ describe("<SendMessageComposer/>", () => {
                 ),
             });
         };
+
+        it("marks the room's composer ready for a page measuring room switches, but not a thread's", () => {
+            const composerMarks = (): unknown[] =>
+                performance
+                    .getEntriesByName(ROOM_SWITCH_MARK_PREFIX + "composer", "mark")
+                    .map((mark) => (mark as PerformanceMark).detail);
+            (window as RoomSwitchMarksWindow).aetherRoomSwitchMarks = true;
+            clearRoomSwitchMarks();
+            try {
+                const { unmount } = getComponent();
+                expect(composerMarks()).toEqual([{ roomId: mockRoom.roomId }]);
+                unmount();
+                clearRoomSwitchMarks();
+
+                getComponent({}, { ...defaultRoomContext, timelineRenderingType: TimelineRenderingType.Thread });
+
+                expect(composerMarks()).toEqual([]);
+            } finally {
+                delete (window as RoomSwitchMarksWindow).aetherRoomSwitchMarks;
+                clearRoomSwitchMarks();
+            }
+        });
 
         it("renders text and placeholder correctly", () => {
             const { container } = getComponent({ placeholder: "placeholder string" });
