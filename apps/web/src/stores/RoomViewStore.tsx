@@ -58,6 +58,7 @@ import { isVideoRoom } from "../utils/video-rooms";
 import { ModuleApi } from "../modules/Api";
 import ActiveWidgetStore from "./ActiveWidgetStore";
 import { confirmVoiceChannelSwitch } from "../components/views/voip/confirmVoiceChannelSwitch";
+import { markRoomSwitch } from "../performance/RoomSwitchPerformance";
 
 const NUM_JOIN_RETRY = 5;
 
@@ -205,6 +206,7 @@ export class RoomViewStore extends EventEmitter {
         // A summary only describes the room it was fetched for.
         if (lastRoomId !== this.state.roomId) this.state.roomSummary = undefined;
         if (!this.lockedToRoomId && lastRoomId !== this.state.roomId) {
+            markRoomSwitch("navigation", this.state.roomId);
             if (lastRoomId) this.emitForRoom(lastRoomId, false);
             if (this.state.roomId) this.emitForRoom(this.state.roomId, true);
 

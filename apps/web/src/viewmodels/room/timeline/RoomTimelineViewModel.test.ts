@@ -41,6 +41,11 @@ import SettingsStore from "../../../settings/SettingsStore";
 import { SettingLevel } from "../../../settings/SettingLevel";
 import UserActivity from "../../../UserActivity";
 import { SlidingSyncManager } from "../../../SlidingSyncManager";
+import {
+    clearRoomSwitchMarks,
+    ROOM_SWITCH_MARK_PREFIX,
+    type RoomSwitchMarksWindow,
+} from "../../../performance/RoomSwitchPerformance";
 import { ModuleApi } from "../../../modules/Api";
 import { RoomTimelineViewModel } from "./RoomTimelineViewModel";
 
@@ -195,6 +200,26 @@ describe("RoomTimelineViewModel", () => {
             vm.start();
 
             expect(vm.getSnapshot().items).toBe(itemsAfterFirstStart);
+        });
+
+        it("marks when a page that asked for room switch marks gets its rows and its reader placed", async () => {
+            (window as RoomSwitchMarksWindow).aetherRoomSwitchMarks = true;
+            clearRoomSwitchMarks();
+            try {
+                seedTimeline([makeMessage("$a")]);
+                const vm = await createStartedViewModel();
+                vm.onAnchorReached();
+
+                const detail = (phase: string): unknown[] =>
+                    performance
+                        .getEntriesByName(ROOM_SWITCH_MARK_PREFIX + phase, "mark")
+                        .map((mark) => (mark as PerformanceMark).detail);
+                expect(detail("rows")).toEqual([{ roomId: ROOM_ID }]);
+                expect(detail("placed")).toEqual([{ roomId: ROOM_ID }]);
+            } finally {
+                delete (window as RoomSwitchMarksWindow).aetherRoomSwitchMarks;
+                clearRoomSwitchMarks();
+            }
         });
 
         it("ignores start() after dispose", () => {

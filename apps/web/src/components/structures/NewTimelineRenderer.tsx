@@ -37,6 +37,7 @@ import {
     type Room,
 } from "matrix-js-sdk/src/matrix";
 import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
+import { markRoomSwitch } from "../../performance/RoomSwitchPerformance";
 import type { RoomTimelineViewModel } from "../../viewmodels/room/timeline/RoomTimelineViewModel";
 import { sendStateOf } from "../../viewmodels/room/timeline/sendState";
 import { useMatrixClientContext } from "../../contexts/MatrixClientContext";
@@ -389,6 +390,7 @@ export function NewTimelineRenderer({
                     return event.getType() === EventType.RoomMessage && !event.isRedacted();
                 })
             ) {
+                markRoomSwitch("painted", room.roomId);
                 notifyRoomEntryReady(client, room.roomId);
                 setEntryPainted(true);
             }

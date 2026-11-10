@@ -43,6 +43,7 @@ import { ALTERNATE_KEY_NAME, KeyBindingAction } from "../../../accessibility/Key
 import { _t } from "../../../languageHandler";
 import { Landmark, LandmarkNavigation } from "../../../accessibility/LandmarkNavigation";
 import { SDKContext } from "../../../contexts/SDKContext.ts";
+import { markRoomSwitch } from "../../../performance/RoomSwitchPerformance";
 
 // matches emoticons which follow the start of a line or whitespace
 const REGEX_EMOTICON_WHITESPACE = new RegExp("(?:^|\\s)(" + EMOTICON_REGEX.source + ")\\s|:^$");
@@ -777,6 +778,7 @@ export default class BasicMessageEditor extends React.Component<IProps, IState> 
         this.editorRef.current?.addEventListener("compositionstart", this.onCompositionStart, true);
         this.editorRef.current?.addEventListener("compositionend", this.onCompositionEnd, true);
         this.editorRef.current?.focus();
+        markRoomSwitch("composer", this.props.room.roomId);
     }
 
     private getInitialCaretPosition(): DocumentPosition {

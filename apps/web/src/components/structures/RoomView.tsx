@@ -153,6 +153,7 @@ import { EncryptionEventViewModel } from "../../viewmodels/room/timeline/event-t
 import { ModuleApi } from "../../modules/Api.ts";
 import { RoomUploadContextProvider } from "../../viewmodels/room/RoomUploadViewModel.tsx";
 import { EventPresentationContextProvider } from "../../utils/EventPresentationContextProvider";
+import { markRoomSwitch } from "../../performance/RoomSwitchPerformance";
 
 const DEBUG = false;
 const PREVENT_MULTIPLE_JITSI_WITHIN = 30_000;
@@ -1127,6 +1128,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
 
     public componentDidMount(): void {
         this.unmounted = false;
+        markRoomSwitch("shell", this.roomViewStore.getRoomId());
 
         this.dispatcherRef = defaultDispatcher.register(this.onAction);
         if (this.context.client) {
