@@ -22,10 +22,11 @@ interface JoinCallViewProps {
     resizing: boolean;
     call: Call;
     role?: AriaRole;
+    label?: string;
     onClose: () => void;
 }
 
-const JoinCallView: FC<JoinCallViewProps> = ({ room, resizing, call, role, onClose }) => {
+const JoinCallView: FC<JoinCallViewProps> = ({ room, resizing, call, role, label, onClose }) => {
     const sdkContext = useContext(SDKContext);
     useTypedEventEmitter(call, CallEvent.Close, () => {
         // A call that is no longer presented closes because the user is already leaving its room, so there is nothing
@@ -48,7 +49,7 @@ const JoinCallView: FC<JoinCallViewProps> = ({ room, resizing, call, role, onClo
     }, [sdkContext.roomViewStore]);
 
     return (
-        <div className="mx_CallView" role={role}>
+        <div className="mx_CallView" role={role} aria-label={label}>
             <CallAppTile
                 app={call.widget}
                 room={room}
@@ -66,15 +67,20 @@ const JoinCallView: FC<JoinCallViewProps> = ({ room, resizing, call, role, onClo
 interface CallViewProps {
     room: Room;
     resizing: boolean;
+    /** The call's landmark role, such as `main` when the call fills the room. */
     role?: AriaRole;
+    /** The call's accessible name, which a `region` needs to be a landmark. */
+    label?: string;
     /**
      * Callback for when the user closes the call.
      */
     onClose: () => void;
 }
 
-export const CallView: FC<CallViewProps> = ({ room, resizing, role, onClose }) => {
+export const CallView: FC<CallViewProps> = ({ room, resizing, role, label, onClose }) => {
     const call = useCall(room.roomId);
 
-    return call && <JoinCallView room={room} resizing={resizing} call={call} role={role} onClose={onClose} />;
+    return (
+        call && <JoinCallView room={room} resizing={resizing} call={call} role={role} label={label} onClose={onClose} />
+    );
 };

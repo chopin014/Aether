@@ -3020,11 +3020,14 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 mainSplitContentClassName = conversationCall
                     ? "mx_MainSplit_timeline mx_RoomView_conversationCall"
                     : "mx_MainSplit_call";
+                // A conversation call sits above the timeline, which is the page's main content: the call is then a
+                // region of its own, as a page has one main landmark.
                 const callView = (
                     <CallView
                         room={this.state.room}
                         resizing={this.state.resizing}
-                        role="main"
+                        role={conversationCall ? "region" : "main"}
+                        label={conversationCall ? _t("voip|call_area") : undefined}
                         onClose={this.onCallClose}
                     />
                 );
