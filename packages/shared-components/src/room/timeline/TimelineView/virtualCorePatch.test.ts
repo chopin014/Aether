@@ -85,6 +85,22 @@ describe("virtual-core patch", () => {
         virtualizer.scroller.remove();
     });
 
+    it("lets a smooth scroll run on when rows are added above before it gets far", () => {
+        const keys = Array.from({ length: 50 }, (_, i) => `row-${i}`);
+        const virtualizer = makeVirtualizer(() => {}, 50);
+        virtualizer.setOptions({ ...virtualizer.options, anchorTo: "end", getItemKey: (index) => keys[index] });
+        virtualizer.scrollToOffset(1000, { behavior: "smooth" });
+
+        // Before the animation's first frame, a row is added above.
+        const withRow = ["new", ...keys];
+        virtualizer.setOptions({ ...virtualizer.options, count: 51, getItemKey: (index) => withRow[index] });
+        virtualizer._willUpdate();
+
+        // The animation goes on from where the view is, rather than the view jumping to where it was heading.
+        expect(virtualizer.scroller.scrollTop).toBeLessThan(1000);
+        virtualizer.scroller.remove();
+    });
+
     it("drops an iOS correction held for the end of a touch scroll when scrolling to an offset at once", () => {
         const virtualizer = makeVirtualizer(() => {}, 50);
         // On iOS, compensation for a row that grew during a touch scroll waits for the scroll to end. The offset
