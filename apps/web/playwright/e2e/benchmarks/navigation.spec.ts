@@ -36,6 +36,13 @@ import {
     withoutProbes,
 } from "./metrics";
 import { installReadableCheck, type ReadableTarget, type ReadableWindow } from "./readableTimeline";
+import {
+    ROOM_SWITCH_MARK_PREFIX,
+    ROOM_SWITCH_PHASES,
+    type RoomSwitchMarkDetail,
+    type RoomSwitchMarksWindow,
+    type RoomSwitchPhase,
+} from "../../../src/performance/RoomSwitchPerformance";
 
 const enabled = Boolean(process.env.AETHER_BENCHMARK);
 const RUNS = Number(process.env.AETHER_BENCHMARK_RUNS ?? 5);
@@ -277,6 +284,8 @@ interface SwitchTiming {
     longestTask: number;
     /** Milliseconds from the browser taking the click to the page's first handler for it running. */
     inputDelay: number;
+    /** Milliseconds from the click to each phase of opening the room the app marked; see `markRoomSwitch`. */
+    phases: Partial<Record<RoomSwitchPhase, number>>;
 }
 
 /** What {@link timeClickToText} keeps on the page's window while it measures. */
@@ -327,16 +336,35 @@ async function timeClickToText(page: Page, click: () => Promise<void>, target: R
         );
         // Long tasks are reported once they end, so wait for those still running, or put off, after the message shows.
         await page.waitForTimeout(AFTER_SWITCH_MS);
-        const { clickAt, shownAt, inputDelay, pageTasks, probes } = await page.evaluate(() => {
-            const win = window as unknown as ClickWindow;
-            return {
-                clickAt: win.aetherBenchClickAt!,
-                shownAt: win.aetherBenchShownAt!,
-                inputDelay: win.aetherBenchInputDelay ?? 0,
-                pageTasks: win.aetherBenchLongTasksNow?.() ?? [],
-                probes: win.aetherBenchProbes ?? [],
-            };
-        });
+        const { clickAt, shownAt, inputDelay, pageTasks, probes, phaseAt } = await page.evaluate(
+            ({ roomId, prefix, phases }) => {
+                const win = window as unknown as ClickWindow;
+                const clickAt = win.aetherBenchClickAt!;
+                // The first mark of each phase after the click for the room opened, not for the room left. They are
+                // cleared once read, so the next switch starts afresh.
+                const phaseAt: Record<string, number> = {};
+                for (const phase of phases) {
+                    const first = performance
+                        .getEntriesByName(prefix + phase, "mark")
+                        .find(
+                            (mark) =>
+                                mark.startTime >= clickAt &&
+                                ((mark as PerformanceMark).detail as RoomSwitchMarkDetail | null)?.roomId === roomId,
+                        );
+                    if (first) phaseAt[phase] = first.startTime;
+                    performance.clearMarks(prefix + phase);
+                }
+                return {
+                    clickAt,
+                    shownAt: win.aetherBenchShownAt!,
+                    inputDelay: win.aetherBenchInputDelay ?? 0,
+                    pageTasks: win.aetherBenchLongTasksNow?.() ?? [],
+                    probes: win.aetherBenchProbes ?? [],
+                    phaseAt,
+                };
+            },
+            { roomId: target.roomId, prefix: ROOM_SWITCH_MARK_PREFIX, phases: ROOM_SWITCH_PHASES },
+        );
         // The readable check's own work does not count against the page.
         const tasks = withoutProbes(pageTasks, probes);
         return {
@@ -344,6 +372,9 @@ async function timeClickToText(page: Page, click: () => Promise<void>, target: R
             // A task that began before the click but ran into it held the click up too.
             longestTask: Math.round(longestOverlapping(tasks, clickAt, shownAt + AFTER_SWITCH_MS)),
             inputDelay: Math.round(inputDelay),
+            phases: Object.fromEntries(
+                Object.entries(phaseAt).map(([phase, at]) => [phase, Math.round(at - clickAt)]),
+            ) as SwitchTiming["phases"],
         };
     } finally {
         await page.evaluate(() => (window as unknown as ClickWindow).aetherBenchCancel?.());
@@ -360,8 +391,9 @@ async function dismissToasts(page: Page): Promise<void> {
 }
 
 /**
- * {@link timeClickToText} into `samples` under `metric`, with its longest task under `<metric>, longest task` and how
- * long the click waited for the page under `<metric>, input delay`. Toasts
+ * {@link timeClickToText} into `samples` under `metric`, with its longest task under `<metric>, longest task`, how
+ * long the click waited for the page under `<metric>, input delay`, and when each phase of opening the room was reached
+ * under `<metric>, phase <name>`. Toasts
  * are closed first so they cannot block the click. Closing them happens outside the measurement, because clicking a
  * toast would count as the click being timed. A toast that appears during the click blocks it, so the measurement is
  * taken again; the first try already moved there, so its sample is not kept, but counted under
@@ -383,6 +415,7 @@ async function measureClick(
                 add(samples, metric, timing.ms);
                 add(samples, `${metric}, longest task`, timing.longestTask);
                 add(samples, `${metric}, input delay`, timing.inputDelay);
+                for (const phase of ROOM_SWITCH_PHASES) add(samples, `${metric}, phase ${phase}`, timing.phases[phase]);
             } else {
                 add(samples, `${metric}, measured again`, 1);
             }
@@ -430,6 +463,10 @@ for (const protocol of ["regular", "sliding"] as const) {
 
             // Opening the account for the first time on this device: nothing is cached.
             await page.addInitScript(installReadableCheck);
+            // The app marks the phases of opening a room only when asked, before it loads.
+            await page.addInitScript(() => {
+                (window as RoomSwitchMarksWindow).aetherRoomSwitchMarks = true;
+            });
             await watchForText(page, seeded.destination);
             await watchLongTasks(page);
             await page.goto(`/#/room/${seeded.destination.roomId}`);
