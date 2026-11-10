@@ -300,6 +300,8 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
      * screen, with the same rows, has to be reported again: otherwise a list too short to scroll never asks for more.
      */
     const placementCountRef = useRef(0);
+    /** The reading visit the reports above were made for; see `TimelineVisitState.generation`. */
+    const reportedVisitRef = useRef<number | undefined>(undefined);
 
     // Tells the view model what the user can currently see: which rows are on screen,
     // whether we are at the bottom, and whether either end of the loaded messages has been
@@ -309,10 +311,21 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
     // This only reads state, it never scrolls. It stays quiet until the first load has
     // finished and while we are scrolling to a message the view model asked for, because
     // until then the scroll position reflects our own automatic placement rather than
-    // anything the user did.
+    // anything the user did. It is quiet too while the rows shown are an earlier reading visit's.
     const reportVisibleState = useCallback(
         (v: Virtualizer<HTMLDivElement, Element>): void => {
             if (phaseRef.current !== "live" || snapshotRef.current.pendingAnchor !== null) return;
+            const visit = snapshotRef.current.visit;
+            if (visit && !visit.rowsReady) return;
+            // A new visit starts its reports over: the view model has forgotten what this view told it in the last one.
+            if (visit?.generation !== reportedVisitRef.current) {
+                reportedVisitRef.current = visit?.generation;
+                lastVisibleRangeRef.current = null;
+                lastAtBottomRef.current = null;
+                startEdgeTokenRef.current = "";
+                endEdgeTokenRef.current = "";
+                releaseBottom();
+            }
             const itemCount = itemsRef.current.length;
             const visibleRange = v.range;
 
@@ -395,7 +408,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
                 endEdgeTokenRef.current = "";
             }
         },
-        [vm],
+        [vm, releaseBottom],
     );
 
     const virtualizer = useVirtualizer({
@@ -463,7 +476,10 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
     // An accurate initial estimate may need no scroll event after placement. Report the
     // visible range and the ends shown once revealed and each time the view model has acknowledged an
     // anchor, even when they are as before: after a reload those positions hold other rows, and
-    // the view model reads what each placement shows.
+    // the view model reads what each placement shows. So too for each placement the view model counts, such as a
+    // load that placed nothing, or a reading visit's first rows.
+    const placementRevision = snapshot.visit?.placementRevision;
+    const visitRowsReady = snapshot.visit?.rowsReady;
     useEffect(() => {
         if (!revealed) return;
         if (snapshot.pendingAnchor === null) {
@@ -471,7 +487,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
             placementCountRef.current++;
         }
         reportVisibleState(virtualizer);
-    }, [revealed, snapshot.pendingAnchor, reportVisibleState, virtualizer]);
+    }, [revealed, snapshot.pendingAnchor, placementRevision, visitRowsReady, reportVisibleState, virtualizer]);
 
     // Works out how far down the list we would have to scroll, in pixels, to bring the row
     // with `targetKey` into view — `align` saying whether it should end up at the top,

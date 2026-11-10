@@ -143,7 +143,34 @@ export type ImmediateScroll = (anchor: NavigationAnchor) => void;
 
 // ─── Timeline view model contract ──────────────────────────────────
 
+/**
+ * Where a view model is in a reading visit, for a view that is kept from one visit to the next. A visit ends when the
+ * room stops being read, and a later one begins afresh; see {@link TimelineViewSnapshot.visit}.
+ */
+export interface TimelineVisitState {
+    /**
+     * Counts the visits. When it changes, what the view last reported belongs to an earlier visit, so it reports the
+     * range, the bottom and the ends it shows again, even where they are unchanged.
+     */
+    generation: number;
+    /**
+     * Whether the rows shown are this visit's. Until they are, the rows on screen, if any, are an earlier visit's, and
+     * the view reports nothing about them.
+     */
+    rowsReady: boolean;
+    /**
+     * Counts the placements the view model asks for, including a load that places nothing, so that the view reports
+     * what it shows once each is placed, even at the same positions as before.
+     */
+    placementRevision: number;
+}
+
 export interface TimelineViewSnapshot {
+    /**
+     * Where the view model is in a reading visit. A view model whose view lives for a single visit can leave it out.
+     */
+    visit?: TimelineVisitState;
+
     /** The ordered list of items to render. */
     items: TimelineItem[];
 

@@ -730,6 +730,78 @@ describe("<TimelineView />", () => {
         await waitFor(() => expect(actions.onVisibleRangeChanged).toHaveBeenCalledWith(start, end));
     });
 
+    describe("across reading visits", () => {
+        const visit = (
+            generation: number,
+            rowsReady: boolean,
+            placementRevision: number,
+        ): TimelineViewSnapshot["visit"] => ({
+            generation,
+            rowsReady,
+            placementRevision,
+        });
+
+        /** Render a live list of 30 rows placed at the newest, in visit 1, and wait until it has been reported. */
+        const placedInFirstVisit = async (): Promise<FakeVm & { start: number; end: number }> => {
+            const fake = makeFakeVm({ items: eventItems(30), visit: visit(1, true, 1) });
+            renderTimeline(fake.vm);
+            await waitFor(() => expect(fake.actions.onAtBottomStateChange).toHaveBeenCalledWith(true), {
+                timeout: 5000,
+            });
+            await waitFor(() => expect(fake.actions.onVisibleRangeChanged).toHaveBeenCalled());
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            const [start, end] = fake.actions.onVisibleRangeChanged.mock.calls.at(-1)!;
+            for (const action of Object.values(fake.actions)) action.mockClear();
+            return { ...fake, start, end };
+        };
+
+        it("reports nothing about an earlier visit's rows while a new visit waits for its own", async () => {
+            const { actions, update } = await placedInFirstVisit();
+
+            update({ visit: visit(2, false, 1) });
+            screen.getByTestId("timeline-scroller").scrollTop = 0;
+            await new Promise((resolve) => setTimeout(resolve, 100));
+
+            expect(actions.onVisibleRangeChanged).not.toHaveBeenCalled();
+            expect(actions.onAtBottomStateChange).not.toHaveBeenCalled();
+            expect(actions.onStartReached).not.toHaveBeenCalled();
+        });
+
+        it("tells a new visit where the reader is once its rows are shown, though nothing moved", async () => {
+            const { actions, update, start, end } = await placedInFirstVisit();
+
+            // A new visit begins, and its rows turn out the same as the last one's, with the reader still at the newest.
+            update({ visit: visit(2, false, 1) });
+            update({ visit: visit(2, true, 2) });
+
+            await waitFor(() => expect(actions.onVisibleRangeChanged).toHaveBeenCalledWith(start, end));
+            // The bottom and the end are told again too, though they are as they were in the last visit.
+            await waitFor(() => expect(actions.onAtBottomStateChange).toHaveBeenCalledWith(true));
+            expect(actions.onEndReached).toHaveBeenCalled();
+        });
+
+        it("reports what it shows after a placement that takes the reader nowhere new", async () => {
+            const { vm, actions, update } = makeFakeVm({ items: eventItems(30), visit: visit(1, true, 1) });
+            render(
+                <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                    <TimelineView
+                        vm={vm}
+                        renderItem={(item) => <div data-testid={`row-${item.key}`} style={{ height: 48 }} />}
+                    />
+                </div>,
+            );
+            await waitFor(() => expect(actions.onVisibleRangeChanged).toHaveBeenCalled(), { timeout: 5000 });
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            const [start, end] = actions.onVisibleRangeChanged.mock.calls.at(-1)!;
+            actions.onVisibleRangeChanged.mockClear();
+
+            // A load replaces the rows with others the same size and asks for no placement of its own.
+            update({ items: eventItems(30, 100), visit: visit(1, true, 2) });
+
+            await waitFor(() => expect(actions.onVisibleRangeChanged).toHaveBeenCalledWith(start, end));
+        });
+    });
+
     describe("placing a row a third of the way down, as the old timeline places the unread line", () => {
         const thirdDown = (key: string): number =>
             screen.getByTestId(`row-${key}`).getBoundingClientRect().bottom -
