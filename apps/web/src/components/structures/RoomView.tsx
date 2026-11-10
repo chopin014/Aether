@@ -459,6 +459,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
      * answered. URL previews follow this; see getPreviewUrlVisibility.
      */
     private checkedEncryption: boolean | null = null;
+    /** The check of whether the room is encrypted that still waits for crypto; see {@link getIsRoomEncrypted}. */
+    private pendingEncryptionCheck?: { room: Room; result: Promise<boolean> };
     private cancelMemberPreparation?: () => void;
     private permalinkCreators: Record<string, RoomPermalinkCreator> = {};
 
@@ -1687,14 +1689,27 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         return room?.currentState.getStateEvents(EventType.RoomTombstone, "") ?? undefined;
     }
 
-    private async getIsRoomEncrypted(roomId = this.state.roomId): Promise<boolean> {
+    /**
+     * Ask crypto whether the room is encrypted. A check of the same room still waiting for crypto answers every caller
+     * meanwhile, such as the room being set up and the room view store's update, unless `fresh` asks again because
+     * the room's encryption has changed since.
+     */
+    private async getIsRoomEncrypted(roomId = this.state.roomId, fresh = false): Promise<boolean> {
         if (!roomId) return false;
 
         const room = this.context.client?.getRoom(roomId);
         const crypto = this.context.client?.getCrypto();
         if (!room || !crypto) return false;
 
-        return isRoomEncrypted(room, crypto);
+        const pending = this.pendingEncryptionCheck;
+        if (!fresh && pending?.room === room) return pending.result;
+        const check = { room, result: isRoomEncrypted(room, crypto) };
+        this.pendingEncryptionCheck = check;
+        const settled = (): void => {
+            if (this.pendingEncryptionCheck === check) this.pendingEncryptionCheck = undefined;
+        };
+        check.result.then(settled, settled);
+        return check.result;
     }
 
     private async calculateRecommendedVersion(room: Room): Promise<void> {
@@ -1821,7 +1836,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 this.setState({ tombstone: this.getRoomTombstone() });
                 break;
             case EventType.RoomEncryption: {
-                await this.updateRoomEncrypted();
+                // Crypto takes in the event before the room's state does, so a check asked now has its answer.
+                await this.updateRoomEncrypted(this.state.room, true);
                 break;
             }
             default:
@@ -1829,10 +1845,11 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         }
     };
 
-    private async updateRoomEncrypted(room = this.state.room): Promise<void> {
+    /** @param fresh - Ask crypto again rather than share a check already waiting, as the room's encryption changed. */
+    private async updateRoomEncrypted(room = this.state.room, fresh = false): Promise<void> {
         if (!room || !this.context.client) return;
 
-        const isRoomEncrypted = await this.getIsRoomEncrypted(room.roomId);
+        const isRoomEncrypted = await this.getIsRoomEncrypted(room.roomId, fresh);
         const newE2EStatus = isRoomEncrypted ? await this.cacheAndGetE2EStatus(room, this.context.client) : null;
 
         this.checkedEncryption = isRoomEncrypted;

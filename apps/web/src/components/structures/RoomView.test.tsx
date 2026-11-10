@@ -1034,6 +1034,16 @@ describe("RoomView", () => {
             ask = vi.spyOn(crypto, "isEncryptionEnabledInRoom");
         });
 
+        const encryptionEvent = (): MatrixEvent =>
+            new MatrixEvent({
+                type: EventType.RoomEncryption,
+                state_key: "",
+                sender: cli.getSafeUserId(),
+                content: { algorithm: MEGOLM_ENCRYPTION_ALGORITHM },
+                event_id: "$encryption",
+                room_id: room.roomId,
+            });
+
         it("keeps URL previews off until crypto answers, even if their setting changes meanwhile", async () => {
             const answer = Promise.withResolvers<boolean>();
             ask.mockReturnValue(answer.promise);
@@ -1048,6 +1058,33 @@ describe("RoomView", () => {
 
             await act(async () => answer.resolve(false));
             await waitFor(() => expect(ref.current!.state.showUrlPreview).toBe(true));
+        });
+
+        it("asks crypto once as the room is set up", async () => {
+            ask.mockReturnValue(new Promise(() => {}));
+            await mountRoomView(undefined, { hideHeader: true, hideComposer: true });
+            expect(ask).toHaveBeenCalledTimes(1);
+        });
+
+        it("asks crypto again when the room is encrypted while a check waits", async () => {
+            const before = Promise.withResolvers<boolean>();
+            const after = Promise.withResolvers<boolean>();
+            ask.mockReturnValueOnce(before.promise).mockReturnValueOnce(after.promise);
+            const ref = createRef<RoomView>();
+            await mountRoomView(ref, { hideHeader: true, hideComposer: true });
+
+            act(() => {
+                const event = encryptionEvent();
+                room.currentState.setStateEvents([event]);
+                cli.emit(RoomStateEvent.Events, event, room.currentState, null);
+            });
+            expect(ask).toHaveBeenCalledTimes(2);
+
+            await act(async () => {
+                before.resolve(false);
+                after.resolve(true);
+            });
+            await waitFor(() => expect(ref.current!.state.isRoomEncrypted).toBe(true));
         });
     });
 
