@@ -2761,6 +2761,33 @@ describe("RoomTimelineViewModel", () => {
             slow.resolve();
         });
 
+        it("keeps the unread line gone once everything is marked read, when more history is then fetched", async () => {
+            seedTimeline(messages(3));
+            markerAt("$m0");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            expect(kinds(vm.getSnapshot().items)).toContain("read-marker");
+
+            vm.onMarkAllAsRead();
+            expect(kinds(vm.getSnapshot().items)).not.toContain("read-marker");
+
+            // A fetch of older messages starts, which draws the rows again with its spinner above them.
+            let finishPage!: (more: boolean) => void;
+            vi.spyOn((vm as any).timelineWindow, "paginate").mockReturnValue(
+                new Promise<boolean>((resolve) => {
+                    finishPage = resolve;
+                }),
+            );
+            vi.spyOn((vm as any).timelineWindow, "canPaginate").mockImplementation(
+                (...args: unknown[]) => args[0] === Direction.Backward,
+            );
+            vm.onStartReached();
+            await vi.waitFor(() => expect(kinds(vm.getSnapshot().items)).toContain("loading"));
+
+            expect(kinds(vm.getSnapshot().items)).not.toContain("read-marker");
+            finishPage(false);
+        });
+
         it("moves the marker on to the newest message when everything is marked read, never back", async () => {
             startsActive();
             seedTimeline(messages(6));

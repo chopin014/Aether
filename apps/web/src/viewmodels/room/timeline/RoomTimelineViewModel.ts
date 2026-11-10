@@ -2181,15 +2181,10 @@ export class RoomTimelineViewModel
         // That decides the line for the rest of the visit, even if the room's marker comes from the server only now.
         this.readMarkerFrozen = true;
         this.awaitingServerReadMarker = false;
-        const newItems = this.buildItems(); // removes the read-marker item
-        this.mergeSnapshot(
-            {
-                items: newItems,
-                canJumpToReadMarker: false,
-                pendingAnchor: this.anchorAmong(newItems, this.snapshot.current.pendingAnchor),
-            },
-            "mark-all-as-read",
-        );
+        // Rebuilt without the line, and kept as the rows every later update starts from, so the line does not come
+        // back with the next one, such as a history fetch showing its spinner.
+        this.commitItems(this.buildItems());
+        this.republish("mark-all-as-read", { canJumpToReadMarker: false });
         // And the marker moves on to the newest message, as the old timeline moves it to the receipt, so the line
         // does not come back next visit. The marker is kept until then, so nothing moves it back meanwhile.
         const newest = this.newestConfirmedEventId();
