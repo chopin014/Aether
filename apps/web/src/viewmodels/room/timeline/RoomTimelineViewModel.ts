@@ -1489,6 +1489,7 @@ export class RoomTimelineViewModel
                     window,
                     target.kind === "permalink" ? sdkLoadTarget : undefined,
                     target.kind === "live" ? 1 : MIN_INITIAL_EVENTS,
+                    superseded,
                 );
             }
             if (superseded()) return;
@@ -1631,11 +1632,15 @@ export class RoomTimelineViewModel
      * direction gets a couple of attempts at most, with one server request per attempt. The
      * SDK otherwise retries empty pages internally, multiplying our limit by ten. A room that
      * returns duplicate or hidden events should show what we have before loading more on scroll.
+     *
+     * Nothing more is fetched once `superseded` says the load is overtaken, such as by a newer load or by the end of
+     * the visit: its window is never shown.
      */
     private async fillInitialWindow(
         window: TimelineWindow,
         centreOn: string | undefined,
         minimumEvents: number,
+        superseded: () => boolean,
     ): Promise<void> {
         const MAX_FILL_REQUESTS_PER_DIRECTION = 2;
         const perDirectionTarget = centreOn ? Math.ceil(minimumEvents / 2) : minimumEvents;
@@ -1646,6 +1651,7 @@ export class RoomTimelineViewModel
 
             let requests = 0;
             while (
+                !superseded() &&
                 requests < MAX_FILL_REQUESTS_PER_DIRECTION &&
                 this.renderableEventCount(window, centreOn, direction) < perDirectionTarget &&
                 this.canExtend(window, direction)
@@ -1653,7 +1659,7 @@ export class RoomTimelineViewModel
                 requests++;
                 const before = window.getEvents().length;
                 await window.paginate(direction, PAGINATE_SIZE, true, 1);
-                if (this.isDisposed) return;
+                if (superseded()) return;
                 debug(
                     `[TimelineVM] fillInitialWindow — paginate(${direction === Direction.Backward ? "backward" : "forward"}) ` +
                         `window: ${before}→${window.getEvents().length}, ` +

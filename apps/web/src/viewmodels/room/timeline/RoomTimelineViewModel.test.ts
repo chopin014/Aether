@@ -3987,6 +3987,29 @@ describe("RoomTimelineViewModel", () => {
             await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a"]));
         });
 
+        it("fetches no more history to fill a load still running when the visit ends", async () => {
+            seedTimeline([makeMessage("$cached")]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            let finishPage!: (more: boolean) => void;
+            const fetchPage = vi.spyOn(client, "paginateEventTimeline").mockReturnValue(
+                new Promise<boolean>((resolve) => {
+                    finishPage = resolve;
+                }),
+            );
+            const vm = new RoomTimelineViewModel({ client, room, initialEventId: "$cached" });
+            vms.push(vm);
+            vm.start();
+            await vi.waitFor(() => expect(fetchPage).toHaveBeenCalledTimes(1));
+
+            vm.deactivate();
+            // An empty page, which would otherwise be followed by another.
+            finishPage(true);
+            await new Promise((r) => setTimeout(r, 10));
+
+            expect(fetchPage).toHaveBeenCalledTimes(1);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual([]);
+        });
+
         it("stops fetching history for a visit that has ended", async () => {
             seedTimeline([makeMessage("$a")]);
             const vm = await createStartedViewModel();
