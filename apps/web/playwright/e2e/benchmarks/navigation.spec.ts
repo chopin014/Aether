@@ -195,13 +195,15 @@ async function seedAccount(api: Api, serverName: string): Promise<SeededAccount>
 async function watchForText(page: Page, target: ReadableTarget): Promise<void> {
     await page.addInitScript((wanted) => {
         const win = window as unknown as ReadableWindow & { aetherBenchTextAt?: number };
-        const shown = (): boolean => win.aetherBenchReadable?.(wanted) ?? false;
+        const shown = (thorough: boolean): boolean => win.aetherBenchReadable?.(wanted, thorough) ?? false;
         const check = (): void => {
             if (win.aetherBenchTextAt !== undefined) return;
-            // Painted on the frame after it was first seen shown, if it is still shown then.
-            if (shown()) {
+            // Painted on the frame after it was first seen shown, if it is still shown then. That frame's time is taken
+            // before the thorough check, whose style recalculation must not count.
+            if (shown(false)) {
                 requestAnimationFrame(() => {
-                    if (shown()) win.aetherBenchTextAt ??= performance.now();
+                    const at = performance.now();
+                    if (shown(true)) win.aetherBenchTextAt ??= at;
                     else requestAnimationFrame(check);
                 });
                 return;
@@ -311,14 +313,16 @@ async function timeClickToText(page: Page, click: () => Promise<void>, target: R
             cancelAnimationFrame(frame);
             document.removeEventListener("pointerdown", onPointerDown, { capture: true });
         };
-        const shown = (): boolean => win.aetherBenchReadable?.(wanted) ?? false;
+        const shown = (thorough: boolean): boolean => win.aetherBenchReadable?.(wanted, thorough) ?? false;
         const check = (): void => {
             if (!active) return;
-            if (win.aetherBenchClickAt !== undefined && shown()) {
+            if (win.aetherBenchClickAt !== undefined && shown(false)) {
                 frame = requestAnimationFrame(() => {
                     if (!active) return;
-                    if (shown()) {
-                        win.aetherBenchShownAt = performance.now();
+                    // As in watchForText: the frame's time first, then the thorough check.
+                    const at = performance.now();
+                    if (shown(true)) {
+                        win.aetherBenchShownAt = at;
                         win.aetherBenchCancel?.();
                     } else {
                         frame = requestAnimationFrame(check);
@@ -532,7 +536,7 @@ for (const protocol of ["regular", "sliding"] as const) {
                 // channel into the measurements.
                 const reopened = space.channels[(RUNS - 1) % SERVER_SWITCH_CHANNELS];
                 await page.waitForFunction(
-                    (wanted) => (window as unknown as ReadableWindow).aetherBenchReadable?.(wanted) ?? false,
+                    (wanted) => (window as unknown as ReadableWindow).aetherBenchReadable?.(wanted, true) ?? false,
                     reopened,
                     { timeout: 10_000 },
                 );

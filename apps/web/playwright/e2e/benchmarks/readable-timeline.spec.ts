@@ -33,9 +33,16 @@ async function show(page: Page, body: string): Promise<void> {
     await page.evaluate(installReadableCheck);
 }
 
-async function readable(page: Page, target: ReadableTarget = TARGET): Promise<boolean> {
-    return page.evaluate((wanted) => (window as unknown as ReadableWindow).aetherBenchReadable!(wanted), target);
+async function readable(page: Page, target: ReadableTarget = TARGET, thorough = false): Promise<boolean> {
+    return page.evaluate(
+        ({ wanted, thorough }) => (window as unknown as ReadableWindow).aetherBenchReadable!(wanted, thorough),
+        { wanted: target, thorough },
+    );
 }
+
+/** The target event's row, holding `body` as its message body. */
+const rowWithBody = (body: string, bodyStyle = ""): string =>
+    `<div class="row" data-event-id="$target"><span class="mx_EventTile_body" style="${bodyStyle}">${body}</span></div>`;
 
 test.describe("readable timeline check", () => {
     test("reads the target message in view in its room's main timeline", async ({ page }) => {
@@ -103,5 +110,97 @@ test.describe("readable timeline check", () => {
         const cover = `<div style="position: absolute; inset: 0; background: white"></div>`;
         await show(page, timeline(row("$target", "the wanted message") + cover));
         expect(await readable(page)).toBe(false);
+    });
+
+    test("does not count text its own element clips", async ({ page }) => {
+        await show(page, timeline(rowWithBody("the wanted message", "display: block; height: 5px; overflow: hidden")));
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("does not count text under the timeline's scrollbar", async ({ page }) => {
+        await show(page, timeline(rowWithBody("the wanted message", "white-space: nowrap")));
+        // Move the line along until it ends in the middle of the vertical scrollbar.
+        const gutter = await page.evaluate(() => {
+            const scroller = document.querySelector<HTMLElement>(".scroller")!;
+            scroller.style.overflowY = "scroll";
+            scroller.style.overflowX = "hidden";
+            const gutter = scroller.offsetWidth - scroller.clientWidth - 2 * scroller.clientLeft;
+            const body = scroller.querySelector<HTMLElement>(".mx_EventTile_body")!;
+            const range = document.createRange();
+            range.selectNodeContents(body);
+            const line = range.getBoundingClientRect();
+            const contentEnd = scroller.getBoundingClientRect().left + scroller.clientLeft + scroller.clientWidth;
+            body.style.marginLeft = `${contentEnd + gutter / 2 - line.right}px`;
+            return gutter;
+        });
+        test.skip(gutter < 4, "Scrollbars overlay the content in this browser, so nothing is under one.");
+
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("does not count text under the timeline's border", async ({ page }) => {
+        await show(page, timeline(rowWithBody("the wanted message", "white-space: nowrap")));
+        // A thick right border, with the line moved along until it ends inside it: in the timeline's box, but not in
+        // the part of it that shows content.
+        await page.evaluate(() => {
+            const scroller = document.querySelector<HTMLElement>(".scroller")!;
+            scroller.style.borderRight = "20px solid black";
+            scroller.style.overflowX = "hidden";
+            const body = scroller.querySelector<HTMLElement>(".mx_EventTile_body")!;
+            const range = document.createRange();
+            range.selectNodeContents(body);
+            const line = range.getBoundingClientRect();
+            const contentEnd = scroller.getBoundingClientRect().left + scroller.clientLeft + scroller.clientWidth;
+            body.style.marginLeft = `${contentEnd + 10 - line.right}px`;
+        });
+
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("does not count text an element inside it covers", async ({ page }) => {
+        const cover = `<span style="position: absolute; inset: 0; background: white"></span>`;
+        await show(page, timeline(rowWithBody(`the wanted message${cover}`, "position: relative")));
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("counts a cover the pointer passes through only when asked to be thorough", async ({ page }) => {
+        const cover = `<div style="position: absolute; inset: 0; background: white; pointer-events: none"></div>`;
+        await show(page, timeline(row("$target", "the wanted message") + cover));
+        // The quick check sees through it, as the browser's hit testing does; the benchmark confirms thoroughly.
+        expect(await readable(page)).toBe(true);
+        expect(await readable(page, TARGET, true)).toBe(false);
+    });
+
+    test("reads text under a transparent layer the pointer passes through, as the timeline's floating buttons sit in", async ({
+        page,
+    }) => {
+        const layer = `<div style="position: absolute; inset: 0; z-index: 1000; pointer-events: none"></div>`;
+        await show(page, timeline(row("$target", "the wanted message") + layer));
+        expect(await readable(page)).toBe(true);
+        expect(await readable(page, TARGET, true)).toBe(true);
+    });
+
+    test("reads text under a canvas the pointer passes through, as the room's chat effects draw on", async ({
+        page,
+    }) => {
+        const canvas = `<canvas style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none"></canvas>`;
+        await show(page, timeline(row("$target", "the wanted message") + canvas));
+        expect(await readable(page, TARGET, true)).toBe(true);
+    });
+
+    for (const attribute of ["inert", 'aria-hidden="true"', "hidden"]) {
+        test(`does not count text inside the row marked ${attribute}`, async ({ page }) => {
+            await show(page, timeline(rowWithBody(`<span ${attribute}>the wanted message</span>`)));
+            expect(await readable(page)).toBe(false);
+        });
+    }
+
+    test("reads text that runs across nested elements, past a hidden copy before it", async ({ page }) => {
+        await show(
+            page,
+            timeline(rowWithBody(`<span hidden>the wanted message</span>the <b>wanted</b> <i>message</i>`)),
+        );
+        expect(await readable(page)).toBe(true);
+        expect(await readable(page, TARGET, true)).toBe(true);
     });
 });
