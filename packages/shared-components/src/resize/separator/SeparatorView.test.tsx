@@ -25,6 +25,7 @@ class MockViewModel extends BaseViewModel<ResizerViewSnapshot, unknown> implemen
     public onPointerMove: () => void = vi.fn();
     public onPointerDown: () => void = vi.fn();
     public onDoubleClick: () => void = vi.fn();
+    public onDraggingChange: (isDragging: boolean) => void = vi.fn();
 }
 
 function renderPanel(initialSnapshot?: Partial<ResizerViewSnapshot>): MockViewModel {
@@ -79,5 +80,34 @@ describe("<SeparatorView />", () => {
         const separator = screen.getByRole("separator");
         await userEvent.dblClick(separator);
         expect(vm.onDoubleClick).toHaveBeenCalledOnce();
+    });
+
+    it("tells the view model when a drag of the separator starts and ends", async () => {
+        const vm = renderPanel({ isCollapsed: false });
+        await userEvent.dragAndDrop(screen.getByRole("separator"), screen.getByText("Test"));
+        await vi.waitFor(() => expect(vm.onDraggingChange).toHaveBeenCalledTimes(2));
+        expect(vi.mocked(vm.onDraggingChange).mock.calls).toEqual([[true], [false]]);
+    });
+
+    it("ends the drag when the separator is removed while it is being dragged", async () => {
+        const vm = new MockViewModel({ isCollapsed: false, initialSize: 20 });
+        const { rerender } = render(
+            <ResizableGroup>
+                <Panel>Left</Panel>
+                <SeparatorView vm={vm} />
+                <Panel>Test</Panel>
+            </ResizableGroup>,
+        );
+        // The library marks the drag on the separator itself, as it does while the pointer holds it.
+        screen.getByRole("separator").setAttribute("data-separator", "active");
+        await vi.waitFor(() => expect(vm.onDraggingChange).toHaveBeenCalledWith(true));
+
+        rerender(
+            <ResizableGroup>
+                <Panel>Left</Panel>
+                <Panel>Test</Panel>
+            </ResizableGroup>,
+        );
+        expect(vi.mocked(vm.onDraggingChange).mock.calls).toEqual([[true], [false]]);
     });
 });

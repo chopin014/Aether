@@ -13,7 +13,7 @@ import { type PointerEvent } from "react";
 import { waitFor } from "test-utils-rtl";
 import { type PanelImperativeHandle } from "@element-hq/web-shared-components";
 
-import { ResizerViewModel } from "./ResizerViewModel";
+import { ResizerViewModel, SEPARATOR_DRAGGING_CLASS } from "./ResizerViewModel";
 import SettingsStore from "../../settings/SettingsStore";
 import { SettingLevel } from "../../settings/SettingLevel";
 import { CallStore } from "../../stores/CallStore";
@@ -206,5 +206,21 @@ describe("LeftPanelResizerViewModel", () => {
 
         vm.onLeftPanelResized(50);
         expect(mockHandle.resize).not.toHaveBeenCalled();
+    });
+
+    it("marks the body while the separator is dragged", () => {
+        const vm = new ResizerViewModel(CallStore.instance);
+        vm.onDraggingChange(true);
+        expect(document.body).toHaveClass(SEPARATOR_DRAGGING_CLASS);
+        vm.onDraggingChange(false);
+        expect(document.body).not.toHaveClass(SEPARATOR_DRAGGING_CLASS);
+        vm.dispose();
+    });
+
+    it("stops marking the body when it is disposed during a drag", () => {
+        const vm = new ResizerViewModel(CallStore.instance);
+        vm.onDraggingChange(true);
+        vm.dispose();
+        expect(document.body).not.toHaveClass(SEPARATOR_DRAGGING_CLASS);
     });
 });

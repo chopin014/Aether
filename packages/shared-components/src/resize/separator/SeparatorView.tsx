@@ -5,7 +5,7 @@
  * Please see LICENSE files in the repository root for full details.
  */
 
-import React from "react";
+import React, { useCallback, useRef } from "react";
 import { Separator } from "react-resizable-panels";
 import DragIcon from "@vector-im/compound-design-tokens/assets/web/icons/drag-list";
 import classNames from "classnames";
@@ -38,6 +38,11 @@ export interface SeparatorViewActions {
      * onDoubleClick handler for the separator.
      */
     onDoubleClick: () => void;
+
+    /**
+     * Called when a drag of the separator starts, with true, and when it ends, with false.
+     */
+    onDraggingChange: (isDragging: boolean) => void;
 }
 
 interface Props {
@@ -51,6 +56,7 @@ interface Props {
 export function SeparatorView({ vm, className }: Props): React.ReactNode {
     const { translate: _t } = useI18n();
     const { isCollapsed } = useViewModel(vm);
+    const watchDragging = useDraggingWatcher(vm.onDraggingChange);
 
     /**
      * There are two types of separator:
@@ -88,6 +94,7 @@ export function SeparatorView({ vm, className }: Props): React.ReactNode {
 
     return (
         <Separator
+            elementRef={watchDragging}
             className={classNames(styles.separator, className)}
             onPointerUp={vm.onPointerUp}
             onPointerMove={vm.onPointerMove}
@@ -99,5 +106,40 @@ export function SeparatorView({ vm, className }: Props): React.ReactNode {
         >
             {type === "bar" ? barContent : border}
         </Separator>
+    );
+}
+
+/**
+ * Returns a ref for the separator's element that calls `onDraggingChange` as a drag of it starts and ends.
+ *
+ * react-resizable-panels shows that the separator is being dragged only through its `data-separator` attribute,
+ * which it sets to "active" for the length of the drag, so this watches that attribute. A separator removed during
+ * a drag ends it.
+ */
+function useDraggingWatcher(onDraggingChange: (isDragging: boolean) => void): (element: HTMLDivElement | null) => void {
+    const stopRef = useRef<(() => void) | null>(null);
+
+    return useCallback(
+        (element: HTMLDivElement | null): void => {
+            stopRef.current?.();
+            stopRef.current = null;
+            if (!element) return;
+
+            let dragging = false;
+            const update = (): void => {
+                const now = element.getAttribute("data-separator") === "active";
+                if (now === dragging) return;
+                dragging = now;
+                onDraggingChange(now);
+            };
+            const observer = new MutationObserver(update);
+            observer.observe(element, { attributes: true, attributeFilter: ["data-separator"] });
+            update();
+            stopRef.current = (): void => {
+                observer.disconnect();
+                if (dragging) onDraggingChange(false);
+            };
+        },
+        [onDraggingChange],
     );
 }
