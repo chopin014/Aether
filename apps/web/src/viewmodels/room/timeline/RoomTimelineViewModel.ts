@@ -2014,6 +2014,18 @@ export class RoomTimelineViewModel
     }
 
     /**
+     * The anchor to publish with `items`. The unread line can go while the reader is being taken to it, such as once
+     * they mark everything read. The view could then never say it has placed them there, which would hold back reading
+     * for the rest of the visit, so they stay where they are instead, and count as placed.
+     */
+    private anchorAmong(items: readonly TimelineItem[], anchor: NavigationAnchor | null): NavigationAnchor | null {
+        if (anchor?.targetKey !== "read-marker" || items.some((item) => item.kind === "read-marker")) return anchor;
+        debug(`[TimelineVM] the unread line went while the reader was being taken to it — staying put`);
+        this.readerPlaced = true;
+        return null;
+    }
+
+    /**
      * Bring a loaded message into view if it is not visible, such as one someone starts editing. A message outside
      * the window is left alone.
      * @param eventId - The message.
@@ -2137,7 +2149,14 @@ export class RoomTimelineViewModel
         this.readMarkerFrozen = true;
         this.awaitingServerReadMarker = false;
         const newItems = this.buildItems(); // removes the read-marker item
-        this.mergeSnapshot({ items: newItems, canJumpToReadMarker: false }, "mark-all-as-read");
+        this.mergeSnapshot(
+            {
+                items: newItems,
+                canJumpToReadMarker: false,
+                pendingAnchor: this.anchorAmong(newItems, this.snapshot.current.pendingAnchor),
+            },
+            "mark-all-as-read",
+        );
         // And the marker moves on to the newest message, as the old timeline moves it to the receipt, so the line
         // does not come back next visit. The marker is kept until then, so nothing moves it back meanwhile.
         const newest = this.newestConfirmedEventId();
@@ -2360,12 +2379,14 @@ export class RoomTimelineViewModel
         }
         const events = this.loadedEvents();
         const isShown = this.shownEventTest();
+        const anchor = extra.pendingAnchor !== undefined ? extra.pendingAnchor : this.snapshot.current.pendingAnchor;
         this.mergeSnapshot(
             {
                 items,
                 readReceiptsByEvent: this.computeReadReceipts(events, isShown),
                 lastSuccessfulEventId: this.computeLastSuccessfulEventId(events, isShown),
                 ...extra,
+                pendingAnchor: this.anchorAmong(items, anchor),
             },
             reason,
         );

@@ -2601,6 +2601,20 @@ describe("RoomTimelineViewModel", () => {
             slow.resolve();
         });
 
+        it("lets the reader stay where they are when the unread line goes while they are being taken to it", async () => {
+            seedTimeline(messages(3));
+            markerAt("$m0");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.jumpToReadMarker();
+            expect(vm.getSnapshot().pendingAnchor?.targetKey).toBe("read-marker");
+
+            vm.onMarkAllAsRead();
+
+            // The view could never place them at a line that is gone.
+            expect(vm.getSnapshot().pendingAnchor).toBeNull();
+        });
+
         it("moves the marker on to the newest message when everything is marked read, never back", async () => {
             startsActive();
             seedTimeline(messages(6));
