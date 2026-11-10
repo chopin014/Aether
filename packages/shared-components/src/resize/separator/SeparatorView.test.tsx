@@ -89,6 +89,30 @@ describe("<SeparatorView />", () => {
         expect(vi.mocked(vm.onDraggingChange).mock.calls).toEqual([[true], [false]]);
     });
 
+    it("moves a drag in progress to a view model that replaces the separator's", async () => {
+        const first = new MockViewModel({ isCollapsed: false, initialSize: 20 });
+        const second = new MockViewModel({ isCollapsed: false, initialSize: 20 });
+        const renderWith = (vm: MockViewModel): React.ReactElement => (
+            <ResizableGroup>
+                <Panel>Left</Panel>
+                <SeparatorView vm={vm} />
+                <Panel>Test</Panel>
+            </ResizableGroup>
+        );
+        const { rerender } = render(renderWith(first));
+        screen.getByRole("separator").setAttribute("data-separator", "active");
+        await vi.waitFor(() => expect(first.onDraggingChange).toHaveBeenCalledWith(true));
+
+        rerender(renderWith(second));
+        await vi.waitFor(() => expect(second.onDraggingChange).toHaveBeenCalledWith(true));
+        expect(vi.mocked(first.onDraggingChange).mock.calls).toEqual([[true], [false]]);
+
+        // The drag goes on reporting to the view model now in charge.
+        screen.getByRole("separator").setAttribute("data-separator", "inactive");
+        await vi.waitFor(() => expect(second.onDraggingChange).toHaveBeenLastCalledWith(false));
+        expect(first.onDraggingChange).toHaveBeenCalledTimes(2);
+    });
+
     it("ends the drag when the separator is removed while it is being dragged", async () => {
         const vm = new MockViewModel({ isCollapsed: false, initialSize: 20 });
         const { rerender } = render(
