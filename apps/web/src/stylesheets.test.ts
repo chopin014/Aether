@@ -109,6 +109,15 @@ interface PseudoArgument {
 }
 
 /**
+ * The selector list of an `:nth-child()` argument: everything after its first "of". An `An+B` never holds one, and
+ * the list after it can hold more of its own.
+ */
+function afterOf(argument: string): string | undefined {
+    const of = /\sof\s/i.exec(argument);
+    return of ? argument.slice(of.index + of[0].length) : undefined;
+}
+
+/**
  * Splits a compound, with its strings emptied, into what it says of the element itself and the selector lists of its
  * functional pseudo-classes. Other functional pseudo-classes, such as `:lang()`, are left out of both.
  */
@@ -135,7 +144,7 @@ function splitCompound(compound: string): { own: string; pseudos: PseudoArgument
                 name === "is" || name === "where" || name === "not" || name === "has"
                     ? argument
                     : name === "nth-child" || name === "nth-last-child"
-                      ? argument.split(/\sof\s/i)[1]
+                      ? afterOf(argument)
                       : undefined;
             if (list !== undefined) {
                 pseudos.push({
@@ -234,6 +243,7 @@ describe("stylesheets", () => {
         ['.tile:has(.panel) :is([data-label=")"], .icon) {}'],
         [".tile:has(.panel) :nth-child(2n of .icon, span) {}"],
         ['.tile:has(.panel) [data-label="].icon"] {}'],
+        [".tile:has(.panel) :nth-child(2n of :is(.icon:nth-child(odd of .active), span)) {}"],
     ])("reports %s", (source) => {
         expect(problemsIn(source)).toHaveLength(1);
     });
@@ -250,6 +260,7 @@ describe("stylesheets", () => {
         [".mx_RoomView:not(.other):has(> .header) {}"],
         ['.tile:has([data-x="a, (b) ]"]) .line {}'],
         [".tile:has(.panel) :nth-child(2n of .a, .b) {}"],
+        [".tile:has(.panel) :nth-last-child(2n of :is(.icon:nth-child(odd of .active), .b)) {}"],
         [".tile:has(.panel) .line:lang(en) {}"],
     ])("accepts %s", (source) => {
         expect(problemsIn(source)).toEqual([]);
