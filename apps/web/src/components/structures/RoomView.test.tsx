@@ -1269,6 +1269,9 @@ describe("RoomView", () => {
             expect(screen.getByTestId("timeline")).toBeInTheDocument();
             expect(screen.getByRole("region", { name: "Message composer" })).toBeInTheDocument();
             expect(container.querySelector(".mx_RoomView_conversationCallStage")).toBeInTheDocument();
+            // The timeline is the page's one main landmark; the call above it is a region of its own.
+            expect(screen.getAllByRole("main")).toEqual([screen.getByTestId("timeline")]);
+            expect(screen.getByRole("region", { name: "Call" })).toBeInTheDocument();
             expect(container.querySelector(".mx_RoomView_immersive")).not.toBeInTheDocument();
             const separator = screen.getByRole("separator", { name: "Resize call area" });
             const callArea = container.querySelector<HTMLElement>(".mx_RoomView_conversationCallStage")!;
@@ -1284,6 +1287,22 @@ describe("RoomView", () => {
             expect(callArea.style.height).toBe("248px");
             fireEvent.doubleClick(separator);
             expect(callArea.style.height).toBe("40vh");
+        });
+
+        it("makes a call that fills the room the page's one main landmark", async () => {
+            await mountRoomView();
+            await act(() =>
+                stores.roomViewStore.viewRoom({
+                    action: Action.ViewRoom,
+                    room_id: room.roomId,
+                    view_call: true,
+                    metricsTrigger: undefined,
+                }),
+            );
+
+            const main = screen.getAllByRole("main");
+            expect(main).toHaveLength(1);
+            expect(main[0]).toHaveClass("mx_CallView");
         });
 
         it("hides the right panel chat when closing a call", async () => {
