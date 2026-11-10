@@ -33,23 +33,29 @@ class FakeResizeObserver {
 
 describe("<EffectsOverlay/>", () => {
     let isStarted: boolean;
+    let isStopped: boolean;
     let startedAtWidth: number | undefined;
     let room: HTMLElement;
     beforeEach(() => {
         FakeResizeObserver.instances = [];
         FakeResizeObserver.measureAtOnce = true;
         startedAtWidth = undefined;
+        isStopped = false;
         vi.stubGlobal("ResizeObserver", FakeResizeObserver);
         room = document.createElement("div");
         isStarted = false;
         vi.doMock("../../../effects/confetti/index.ts", () => {
             return {
                 default: class Confetti {
+                    public isRunning = false;
                     start = (canvas: HTMLCanvasElement) => {
                         isStarted = true;
                         startedAtWidth = canvas.width;
+                        this.isRunning = true;
                     };
-                    stop = vi.fn();
+                    stop = vi.fn(() => {
+                        isStopped = true;
+                    });
                 },
             };
         });
@@ -104,5 +110,14 @@ describe("<EffectsOverlay/>", () => {
         act(() => FakeResizeObserver.instances[0].report(480));
         await waitFor(() => expect(isStarted).toBe(true));
         expect(startedAtWidth).toBe(480);
+    });
+
+    it("stops a running effect when it goes away", async () => {
+        const { unmount } = render(<EffectsOverlay room={room} />);
+        dis.dispatch({ action: "effects.confetti" }, true);
+        await waitFor(() => expect(isStarted).toBe(true));
+
+        unmount();
+        expect(isStopped).toBe(true);
     });
 });
