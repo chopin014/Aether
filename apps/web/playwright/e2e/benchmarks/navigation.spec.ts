@@ -11,6 +11,7 @@ Please see LICENSE in the repository root for full details.
  *
  *   AETHER_BENCHMARK=1 [AETHER_BENCHMARK_OUT=results.jsonl] [AETHER_BENCHMARK_RUNS=5] \
  *     [AETHER_BENCHMARK_LABS=feature_new_timeline] [AETHER_BENCHMARK_LATENCY_MS=150] \
+ *     [AETHER_BENCHMARK_SWITCH_PASSES=20] [AETHER_BENCHMARK_AFTER_SWITCH_MS=300] [AETHER_BENCHMARK_ENCRYPTED=1] \
  *     pnpm exec playwright test playwright/e2e/benchmarks --project=Chrome
  *
  * A step the build cannot do, such as opening a Space's channels, is recorded under `failures` and fails the test
@@ -45,9 +46,32 @@ const SETTLE_MS = Number(process.env.AETHER_BENCHMARK_SETTLE_MS ?? 3000);
 // How long after the app shows a room at start its long tasks are counted, in milliseconds: what is left to load
 // then, such as the rest of the account, must not keep the page from answering.
 const AFTER_START_MS = Number(process.env.AETHER_BENCHMARK_AFTER_START_MS ?? 5000);
+// How many passes over the first Space's channels the channel switches make. Every pass after the first gives six
+// switches to channels already opened, so raising it gathers enough of them for a percentile to mean something.
+const SWITCH_PASSES = Number(process.env.AETHER_BENCHMARK_SWITCH_PASSES ?? 2);
+// How long after a switch shows its message its long tasks still count, in milliseconds: work put off until the message
+// shows keeps the page from answering all the same.
+const AFTER_SWITCH_MS = Number(process.env.AETHER_BENCHMARK_AFTER_SWITCH_MS ?? 300);
+// Whether every seeded room has encryption turned on, for what the app does differently in encrypted rooms. The
+// messages are still sent in the clear, as the seeding has no keys to encrypt with, so nothing is decrypted.
+const ENCRYPTED = Boolean(process.env.AETHER_BENCHMARK_ENCRYPTED);
 
 /** One protocol's results: each metric's samples in milliseconds. */
 type Samples = Record<string, number[]>;
+
+/** A long task, in the page's time: when it started and how long it ran, in milliseconds. */
+type LongTask = { start: number; duration: number };
+
+/** What {@link watchLongTasks} keeps on the page's window. */
+interface LongTaskWindow {
+    /** The long tasks the observer has delivered. */
+    aetherBenchLongTasks?: LongTask[];
+    /**
+     * Every long task so far, those the observer has not delivered yet included: it delivers at low priority, so a
+     * task that has ended may not have reached the list when it is read.
+     */
+    aetherBenchLongTasksNow?: () => LongTask[];
+}
 
 interface SeededAccount {
     /** A room opened directly at startup, with its newest message. */
@@ -86,7 +110,14 @@ class Api {
         );
     }
 
-    private async call(method: "POST" | "PUT", path: string, data: object): Promise<Record<string, unknown>> {
+    public async getState(roomId: string, type: string, stateKey = ""): Promise<Record<string, unknown>> {
+        return this.call(
+            "GET",
+            `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/${type}/${encodeURIComponent(stateKey)}`,
+        );
+    }
+
+    private async call(method: "GET" | "POST" | "PUT", path: string, data?: object): Promise<Record<string, unknown>> {
         for (let attempt = 0; ; attempt++) {
             const response = await this.request.fetch(`${this.credentials.homeserverBaseUrl}${path}`, {
                 method,
@@ -111,7 +142,9 @@ async function inBatches<T>(items: T[], limit: number, task: (item: T, index: nu
 }
 
 async function seedRoom(api: Api, name: string, extra: Record<string, unknown> = {}): Promise<string> {
-    const roomId = await api.createRoom({ name, preset: "private_chat", ...extra });
+    const encryption = { type: "m.room.encryption", state_key: "", content: { algorithm: "m.megolm.v1.aes-sha2" } };
+    const initialState = [...(ENCRYPTED ? [encryption] : []), ...((extra.initial_state as object[] | undefined) ?? [])];
+    const roomId = await api.createRoom({ name, preset: "private_chat", ...extra, initial_state: initialState });
     for (let i = 0; i < MESSAGES_PER_ROOM; i++) await api.sendMessage(roomId, `${name} message ${i}`);
     return roomId;
 }
@@ -123,6 +156,11 @@ async function seedAccount(api: Api, serverName: string): Promise<SeededAccount>
     });
     const destinationName = "Bench destination";
     const destinationId = await seedRoom(api, destinationName);
+    if (ENCRYPTED) {
+        // The server applies a new room's initial state as it sees fit, so check that encryption really is on.
+        const encryption = await api.getState(destinationId, "m.room.encryption");
+        expect(encryption.algorithm, "seeded rooms are encrypted").toBe("m.megolm.v1.aes-sha2");
+    }
 
     const spaces: SeededAccount["spaces"] = [];
     for (let s = 0; s < SPACES; s++) {
@@ -195,13 +233,19 @@ async function watchForText(page: Page, text: string): Promise<void> {
 /** Record the page's long tasks from the moment each page load starts. */
 async function watchLongTasks(page: Page): Promise<void> {
     await page.addInitScript(() => {
-        const win = window as unknown as { aetherBenchLongTasks?: { start: number; duration: number }[] };
-        win.aetherBenchLongTasks = [];
-        new PerformanceObserver((list) => {
-            for (const entry of list.getEntries()) {
-                win.aetherBenchLongTasks!.push({ start: entry.startTime, duration: entry.duration });
-            }
-        }).observe({ type: "longtask", buffered: true });
+        const win = window as unknown as LongTaskWindow;
+        const tasks: LongTask[] = [];
+        const record = (entries: PerformanceEntryList): void => {
+            for (const entry of entries) tasks.push({ start: entry.startTime, duration: entry.duration });
+        };
+        const observer = new PerformanceObserver((list) => record(list.getEntries()));
+        observer.observe({ type: "longtask", buffered: true });
+        win.aetherBenchLongTasks = tasks;
+        win.aetherBenchLongTasksNow = (): LongTask[] => {
+            // Only entries not delivered yet, so none is counted twice.
+            record(observer.takeRecords());
+            return tasks;
+        };
     });
 }
 
@@ -221,17 +265,14 @@ async function blockingAfterStart(page: Page): Promise<{ longest: number; blocki
     const busy = Math.round(((await taskTime()) - busyBefore) * 1000);
     await cdp.detach();
     const blocked = await page.evaluate((windowMs) => {
-        const win = window as unknown as {
-            aetherBenchTextAt?: number;
-            aetherBenchLongTasks?: { start: number; duration: number }[];
-        };
+        const win = window as unknown as LongTaskWindow & { aetherBenchTextAt?: number };
         const shownAt = win.aetherBenchTextAt!;
         const end = shownAt + windowMs;
-        const tasks = (win.aetherBenchLongTasks ?? []).filter(
+        const tasks = (win.aetherBenchLongTasksNow?.() ?? []).filter(
             (task) => task.start + task.duration > shownAt && task.start < end,
         );
         // Only the blocking inside the window counts, for a task that started before it or ends after it.
-        const blockingInWindow = (task: { start: number; duration: number }): number =>
+        const blockingInWindow = (task: LongTask): number =>
             Math.max(0, Math.min(task.start + task.duration, end) - Math.max(task.start + 50, shownAt));
         return {
             longest: Math.max(0, ...tasks.map((task) => task.duration)),
@@ -253,11 +294,19 @@ async function startupMarks(page: Page): Promise<Record<string, number>> {
     );
 }
 
+/** How a click to a message went. */
+interface SwitchTiming {
+    /** Milliseconds from the click to the message being painted. */
+    ms: number;
+    /** Milliseconds of the longest task overlapping that time or the {@link AFTER_SWITCH_MS} after it; 0 for none. */
+    longestTask: number;
+}
+
 /**
- * Time from a click to a message with `text` being painted, measured in the page.
- * @returns Milliseconds.
+ * Time from a click to a message with `text` being painted, measured in the page, and the longest task in that time or
+ * soon after. Long tasks come from {@link watchLongTasks}, which must have been set up before the page loaded.
  */
-async function timeClickToText(page: Page, click: () => Promise<void>, text: string): Promise<number> {
+async function timeClickToText(page: Page, click: () => Promise<void>, text: string): Promise<SwitchTiming> {
     await page.evaluate((wanted) => {
         const win = window as unknown as {
             aetherBenchClickAt?: number;
@@ -316,10 +365,24 @@ async function timeClickToText(page: Page, click: () => Promise<void>, text: str
             undefined,
             { timeout: 30_000 },
         );
-        return await page.evaluate(() => {
-            const win = window as unknown as { aetherBenchClickAt: number; aetherBenchShownAt: number };
-            return Math.round(win.aetherBenchShownAt - win.aetherBenchClickAt);
-        });
+        // Long tasks are reported once they end, so wait for those still running, or put off, after the message shows.
+        await page.waitForTimeout(AFTER_SWITCH_MS);
+        return await page.evaluate((afterMs) => {
+            const win = window as unknown as LongTaskWindow & {
+                aetherBenchClickAt: number;
+                aetherBenchShownAt: number;
+            };
+            const from = win.aetherBenchClickAt;
+            const to = win.aetherBenchShownAt + afterMs;
+            // A task that began before the click but ran into it held the click up too.
+            const overlapping = (win.aetherBenchLongTasksNow?.() ?? []).filter(
+                (task) => task.start + task.duration > from && task.start < to,
+            );
+            return {
+                ms: Math.round(win.aetherBenchShownAt - win.aetherBenchClickAt),
+                longestTask: Math.round(Math.max(0, ...overlapping.map((task) => task.duration))),
+            };
+        }, AFTER_SWITCH_MS);
     } finally {
         await page.evaluate(() => (window as unknown as { aetherBenchCancel?: () => void }).aetherBenchCancel?.());
     }
@@ -335,18 +398,31 @@ async function dismissToasts(page: Page): Promise<void> {
 }
 
 /**
- * {@link timeClickToText}, with toasts closed first so they cannot block the click. Closing them happens outside the
- * measurement, because clicking a toast would count as the click being timed. A toast that appears during the click
- * blocks it, so the measurement is taken again; the first try already moved there, so its sample is not kept.
+ * {@link timeClickToText} into `samples` under `metric`, with its longest task under `<metric>, longest task`. Toasts
+ * are closed first so they cannot block the click. Closing them happens outside the measurement, because clicking a
+ * toast would count as the click being timed. A toast that appears during the click blocks it, so the measurement is
+ * taken again; the first try already moved there, so its sample is not kept, but counted under
+ * `<metric>, measured again`, so that no percentile is read without knowing what was set aside.
  * @param click - Clicks through to the message. Each click must fail rather than wait when it is blocked.
- * @returns Milliseconds, or undefined when the measurement had to be taken again.
  */
-async function measureClick(page: Page, click: () => Promise<void>, text: string): Promise<number | undefined> {
+async function measureClick(
+    page: Page,
+    samples: Samples,
+    metric: string,
+    click: () => Promise<void>,
+    text: string,
+): Promise<void> {
     for (let attempt = 0; ; attempt++) {
         await dismissToasts(page);
         try {
-            const ms = await timeClickToText(page, click, text);
-            return attempt === 0 ? ms : undefined;
+            const timing = await timeClickToText(page, click, text);
+            if (attempt === 0) {
+                add(samples, metric, timing.ms);
+                add(samples, `${metric}, longest task`, timing.longestTask);
+            } else {
+                add(samples, `${metric}, measured again`, 1);
+            }
+            return;
         } catch (error) {
             if (attempt === 2) throw error;
             console.log(`[benchmark] click blocked, measuring again: ${String(error).split("\n")[0]}`);
@@ -480,24 +556,22 @@ for (const protocol of ["regular", "sliding"] as const) {
                         const firstVisit = run === 0;
                         opened.add(channel.name);
                         current = channel.name;
-                        add(
+                        await measureClick(
+                            page,
                             samples,
                             firstVisit ? "server switch: first visit, first channel" : "server switch: visited",
-                            await measureClick(
-                                page,
-                                async () => {
-                                    await rail
-                                        .getByLabel(space.name, { exact: true })
-                                        .first()
-                                        .click({ timeout: CLICK_TIMEOUT });
-                                    await page
-                                        .getByTestId("room-list")
-                                        .locator(`[title="${channel.name}"]`)
-                                        .first()
-                                        .click({ timeout: CLICK_TIMEOUT });
-                                },
-                                channel.text,
-                            ),
+                            async () => {
+                                await rail
+                                    .getByLabel(space.name, { exact: true })
+                                    .first()
+                                    .click({ timeout: CLICK_TIMEOUT });
+                                await page
+                                    .getByTestId("room-list")
+                                    .locator(`[title="${channel.name}"]`)
+                                    .first()
+                                    .click({ timeout: CLICK_TIMEOUT });
+                            },
+                            channel.text,
                         );
                     }
                 }
@@ -511,7 +585,7 @@ for (const protocol of ["regular", "sliding"] as const) {
                 const reopened = space.channels[(RUNS - 1) % SERVER_SWITCH_CHANNELS];
                 await expect(page.locator(".mx_EventTile_body", { hasText: reopened.text }).first()).toBeVisible();
                 current = reopened.name;
-                for (let run = 0; run < 2; run++) {
+                for (let run = 0; run < SWITCH_PASSES; run++) {
                     for (const channel of space.channels) {
                         // Clicking the channel already open measures nothing.
                         if (channel.name === current) continue;
@@ -520,19 +594,17 @@ for (const protocol of ["regular", "sliding"] as const) {
                             : "channel switch: first visit";
                         opened.add(channel.name);
                         current = channel.name;
-                        add(
+                        await measureClick(
+                            page,
                             samples,
                             metric,
-                            await measureClick(
-                                page,
-                                () =>
-                                    page
-                                        .getByTestId("room-list")
-                                        .locator(`[title="${channel.name}"]`)
-                                        .first()
-                                        .click({ timeout: CLICK_TIMEOUT }),
-                                channel.text,
-                            ),
+                            () =>
+                                page
+                                    .getByTestId("room-list")
+                                    .locator(`[title="${channel.name}"]`)
+                                    .first()
+                                    .click({ timeout: CLICK_TIMEOUT }),
+                            channel.text,
                         );
                     }
                 }
@@ -546,6 +618,9 @@ for (const protocol of ["regular", "sliding"] as const) {
                 latencyMs: LATENCY_MS,
                 settleMs: SETTLE_MS,
                 afterStartMs: AFTER_START_MS,
+                switchPasses: SWITCH_PASSES,
+                afterSwitchMs: AFTER_SWITCH_MS,
+                encrypted: ENCRYPTED,
                 homeserver: homeserver.baseUrl,
                 metrics: summarise(samples),
                 failures,
