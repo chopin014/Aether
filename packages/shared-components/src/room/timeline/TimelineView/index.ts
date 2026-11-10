@@ -13,6 +13,7 @@ export type {
     EventSendState,
     TimelineEvent,
     TimelineViewSnapshot,
+    TimelineVisitState,
     TimelineViewActions,
     TimelineViewModel,
     TimelineViewProps,
