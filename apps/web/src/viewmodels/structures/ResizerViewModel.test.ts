@@ -217,6 +217,14 @@ describe("LeftPanelResizerViewModel", () => {
         vm.dispose();
     });
 
+    it("leaves the body's attributes alone when no drag starts", () => {
+        const hadClass = document.body.hasAttribute("class");
+        const vm = new ResizerViewModel(CallStore.instance);
+        vm.onDraggingChange(false);
+        vm.dispose();
+        expect(document.body.hasAttribute("class")).toBe(hadClass);
+    });
+
     it("stops marking the body when it is disposed during a drag", () => {
         const vm = new ResizerViewModel(CallStore.instance);
         vm.onDraggingChange(true);
