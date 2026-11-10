@@ -547,23 +547,28 @@ body.mx_DesktopShell [class*="_tooltip_"]:has([data-server-hover-card]) {
     color: var(--server-hover-card-text);
     box-shadow: 0 8px 16px rgb(0 0 0 / 24%);
     text-align: start;
+}
 
-    > span:first-of-type {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        overflow: hidden;
-        clip-path: inset(50%);
-        white-space: nowrap;
-    }
+/*
+ * The tooltip's label, caption and arrow each find the card from themselves, beside them or within them. Styled from
+ * the tooltip's `:has()`, they would make the browser restyle every element with a class in any part of the page
+ * that also has a `:has()` rule, whenever anything there is added or removed.
+ */
+body.mx_DesktopShell [class*="_tooltip_"] > span:first-of-type:has(+ [class*="_caption_"] > [data-server-hover-card]) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
 
-    [class*="_caption_"] {
-        color: var(--server-hover-card-text);
-    }
+body.mx_DesktopShell [class*="_tooltip_"] > [class*="_caption_"]:has(> [data-server-hover-card]) {
+    color: var(--server-hover-card-text);
+}
 
-    [class*="_arrow_"] {
-        fill: var(--server-hover-card-background);
-    }
+body.mx_DesktopShell [class*="_tooltip_"] > [class*="_arrow_"]:has(~ [class*="_caption_"] > [data-server-hover-card]) {
+    fill: var(--server-hover-card-background);
 }
 
 .mx_MatrixChat_wrapper.mx_MatrixChat_desktopShell {
