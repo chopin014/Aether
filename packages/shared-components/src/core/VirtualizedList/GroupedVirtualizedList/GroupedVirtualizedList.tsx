@@ -320,14 +320,17 @@ export function GroupedVirtualizedList<Header, Item, Context>(
     // *state* value's `scrollTop` trips react-compiler's immutability check, and scroll updates are
     // driven by Virtuoso's `onScroll` prop — so no effect needs to re-subscribe when it mounts.
     const scrollerElRef = useRef<HTMLElement | null>(null);
+    // The scroll position as of the last scroll event. The position only moves through scroll events, and reading
+    // `scrollTop` at any other time makes the browser lay the page out first: when the list re-renders while a room
+    // is opening, that is the whole new room, laid out in the middle of opening it.
+    const scrollTopRef = useRef(0);
     const [currentGroupIndex, setCurrentGroupIndex] = useState(0);
 
     // Recompute which section the overlay backstop should mirror. Runs on every scroll frame, but
-    // it's cheap — it only reads scrollTop + the cached item offsets and updates a single state value.
+    // it's cheap — it only reads the last scroll position + the cached item offsets and updates a single state value.
     const updateSticky = useCallback((): void => {
-        const scroller = scrollerElRef.current;
-        if (!scroller || flatIndexToGroupIndex.length === 0) return;
-        const scrollTop = scroller.scrollTop;
+        if (!scrollerElRef.current || flatIndexToGroupIndex.length === 0) return;
+        const scrollTop = scrollTopRef.current;
         const rendered = renderedItemsRef.current;
 
         // Find the top-most rendered item: the greatest measured offset that's still at or above the
@@ -359,9 +362,22 @@ export function GroupedVirtualizedList<Header, Item, Context>(
     const handleScrollerRef = useCallback(
         (element: HTMLElement | Window | null): void => {
             hookScrollerRef?.(element);
-            scrollerElRef.current = element instanceof HTMLElement ? element : null;
+            const scroller = element instanceof HTMLElement ? element : null;
+            // A new scroller starts at the top, and any scroll Virtuoso gives it arrives as a scroll event.
+            if (scroller !== scrollerElRef.current) scrollTopRef.current = 0;
+            scrollerElRef.current = scroller;
         },
         [hookScrollerRef],
+    );
+
+    // The scroll handler is the one place the position is read. Virtuoso reads it in the same scroll event, so the
+    // page is laid out for it once either way.
+    const handleScroll = useCallback(
+        (event: React.UIEvent<HTMLElement>): void => {
+            scrollTopRef.current = event.currentTarget.scrollTop;
+            updateSticky();
+        },
+        [updateSticky],
     );
 
     // The overlay is interactive (so it can be clicked/hovered), which means it would otherwise
@@ -414,7 +430,7 @@ export function GroupedVirtualizedList<Header, Item, Context>(
                 // Keep the overlay backstop's section current as you scroll. The cover/reveal
                 // animation is native `position: sticky` (.stickyRow), so this only tracks which
                 // section the backstop should mirror.
-                onScroll={updateSticky}
+                onScroll={handleScroll}
             />
         </div>
     );
