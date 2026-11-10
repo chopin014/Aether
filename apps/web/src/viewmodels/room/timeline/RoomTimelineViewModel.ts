@@ -2019,18 +2019,18 @@ export class RoomTimelineViewModel
      * the rest of the visit.
      * - A message still there under another key, such as one of ours the server has given its id, or one now in a
      *   group, is still where they go. A group that splits into several rows is gone to by the part the anchor is
-     *   aligned by: its last row for an anchor at the bottom, such as the newest messages, its middle row for one in
-     *   the middle, else its first row.
+     *   aligned by, whichever part keeps its key: its last row for an anchor at the bottom, such as the newest
+     *   messages, its middle row for one in the middle, else its first row.
      * - For a message removed meanwhile, or the unread line once they mark everything read, they go to the nearest row
      *   left instead: the next one down, or else the one above, as shown now.
      * - With no row left, they stay where they are and count as placed.
      */
     private anchorAmong(items: readonly TimelineItem[], anchor: NavigationAnchor | null): NavigationAnchor | null {
-        if (!anchor || items.some((item) => item.key === anchor.targetKey)) return anchor;
+        if (!anchor) return anchor;
         const shown = this.snapshot.current.items;
-        const gone = shown.findIndex((item) => item.key === anchor.targetKey);
+        const was = shown.findIndex((item) => item.key === anchor.targetKey);
         // A row holds the event objects themselves, which keep their identity as their ids change.
-        const events = new Set(gone >= 0 ? this.itemEvents(shown[gone]) : []);
+        const events = new Set(was >= 0 ? this.itemEvents(shown[was]) : []);
         const holding =
             events.size > 0 ? items.filter((item) => this.itemEvents(item).some((event) => events.has(event))) : [];
         if (holding.length > 0) {
@@ -2040,14 +2040,16 @@ export class RoomTimelineViewModel
                     : anchor.align === "center"
                       ? Math.floor((holding.length - 1) / 2)
                       : 0;
-            return { ...anchor, targetKey: holding[part].key };
+            const targetKey = holding[part].key;
+            return targetKey === anchor.targetKey ? anchor : { ...anchor, targetKey };
         }
+        if (items.some((item) => item.key === anchor.targetKey)) return anchor;
         const left = new Set(items.filter((item) => item.kind !== "loading").map((item) => item.key));
-        if (gone >= 0) {
-            for (let i = gone + 1; i < shown.length; i++) {
+        if (was >= 0) {
+            for (let i = was + 1; i < shown.length; i++) {
                 if (left.has(shown[i].key)) return { ...anchor, targetKey: shown[i].key };
             }
-            for (let i = gone - 1; i >= 0; i--) {
+            for (let i = was - 1; i >= 0; i--) {
                 if (left.has(shown[i].key)) return { ...anchor, targetKey: shown[i].key };
             }
         }

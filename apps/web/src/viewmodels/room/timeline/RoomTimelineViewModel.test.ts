@@ -827,6 +827,39 @@ describe("RoomTimelineViewModel", () => {
             expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$third", align: "end" });
         });
 
+        it("takes the reader to the newest picture when an older part of a splitting gallery keeps its key", async () => {
+            vi.mocked(SettingsStore).getValue.mockImplementation(
+                (key): any => key === "sendReadReceipts" || key === "feature_desktop_shell" || key === "showRedactions",
+            );
+            seedTimeline([
+                makePicture("$first"),
+                makePicture("$second", { ts: T0 + 1000 }),
+                makePicture("$third", { ts: T0 + 2000 }),
+                makePicture("$fourth", { ts: T0 + 3000 }),
+                makePicture("$fifth", { ts: T0 + 4000 }),
+            ]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.jumpToLive();
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "gallery-$second", align: "end" });
+
+            room.tryApplyRedaction(
+                new MatrixEvent({
+                    type: EventType.RoomRedaction,
+                    sender: USER_ID,
+                    event_id: "$remove-fourth",
+                    room_id: ROOM_ID,
+                    redacts: "$fourth",
+                    content: {},
+                    origin_server_ts: T0 + 5000,
+                }),
+            );
+            // The gallery keeps its key for the pictures before the removed one, and the newest gets a row of its own.
+            await vi.waitFor(() => expect(galleries(vm)).toEqual([["$second", "$third"]]));
+
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$fifth", align: "end" });
+        });
+
         it("takes the reader to the middle of what a gallery splits into on the way to it", async () => {
             vi.mocked(SettingsStore).getValue.mockImplementation(
                 (key): any => key === "sendReadReceipts" || key === "feature_desktop_shell" || key === "showRedactions",
