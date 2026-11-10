@@ -3843,19 +3843,227 @@ describe("RoomTimelineViewModel", () => {
             ]);
         };
 
+        /** Messages from someone else, so the reader's receipt and marker can move on to them. */
+        const othersMessages = (...ids: string[]): MatrixEvent[] =>
+            ids.map((id) => makeMessage(id, { user: OTHER_USER_ID }));
+        const markerWrites = (): unknown[] =>
+            vi.mocked(client.setRoomReadMarkers).mock.calls.map(([, eventId]) => eventId);
+        /** The rows from the one for `first` to the one for `last` are on screen. */
+        const shows = (vm: RoomTimelineViewModel, first: string, last: string): void => {
+            const items = vm.getSnapshot().items;
+            vm.onVisibleRangeChanged(indexOfKey(items, first), indexOfKey(items, last));
+        };
+        /** Wait for a new visit to show its own rows, then have the view place the reader in them. */
+        const placeNewVisit = async (vm: RoomTimelineViewModel): Promise<void> => {
+            await vi.waitFor(() => expect(vm.getSnapshot().pendingAnchor).not.toBeNull());
+            vm.onAnchorReached();
+        };
+
         it("sends nothing as read between visits", async () => {
-            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            seedTimeline(othersMessages("$a", "$b"));
             const vm = await createStartedViewModel();
             vm.onAnchorReached();
+            // What the reader saw would be read once the wait for more scrolling is over.
+            shows(vm, "$a", "$b");
             vm.deactivate();
 
-            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            shows(vm, "$a", "$b");
             vm.sendReadReceiptNow();
             vm.moveReadMarkerOnNow();
             await new Promise((r) => setTimeout(r, 700));
 
             expect(client.sendReadReceipt).not.toHaveBeenCalled();
             expect(client.setRoomReadMarkers).not.toHaveBeenCalled();
+        });
+
+        it("drops a fully read marker write waiting its turn when its visit ends, even once another begins", async () => {
+            seedTimeline(othersMessages("$a", "$b", "$c"));
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            let finishFirst!: () => void;
+            vi.mocked(client.setRoomReadMarkers).mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        finishFirst = () => resolve({});
+                    }),
+            );
+            shows(vm, "$a", "$b");
+            vm.moveReadMarkerOnNow();
+            await vi.waitFor(() => expect(markerWrites()).toEqual(["$b"]));
+            // The reader reads on while that write is on its way, so the next one waits for it.
+            shows(vm, "$a", "$c");
+            vm.moveReadMarkerOnNow();
+
+            vm.deactivate();
+            vm.activate();
+            finishFirst();
+            await new Promise((r) => setTimeout(r, 10));
+
+            expect(markerWrites()).toEqual(["$b"]);
+        });
+
+        it("reads none of the last visit's rows still on screen as a new visit begins", async () => {
+            seedTimeline(othersMessages("$a", "$b"));
+            const vm = new RoomTimelineViewModel({ client, room, sendReadReceiptOnLoad: true });
+            vms.push(vm);
+            vm.start();
+            await vi.waitFor(() => expect(vm.getSnapshot().items.length).toBeGreaterThan(0));
+            // Placed, then gone before the view said what it showed.
+            vm.onAnchorReached();
+            vm.deactivate();
+            vm.activate();
+
+            // The view reports the rows it still shows before the new visit's arrive.
+            shows(vm, "$a", "$b");
+            await new Promise((r) => setTimeout(r, 700));
+            expect(client.sendReadReceipt).not.toHaveBeenCalled();
+
+            await placeNewVisit(vm);
+            shows(vm, "$a", "$b");
+            expect(client.sendReadReceipt).toHaveBeenCalledTimes(1);
+        });
+
+        it("reads a new visit only once placed in it, for a room view that reads when focused", async () => {
+            seedTimeline(othersMessages("$a", "$b"));
+            const vm = new RoomTimelineViewModel({ client, room, enableReadReceiptsAndMarkersOnActivity: false });
+            vms.push(vm);
+            vm.start();
+            await vi.waitFor(() => expect(vm.getSnapshot().items.length).toBeGreaterThan(0));
+            vm.onAnchorReached();
+            shows(vm, "$a", "$b");
+            vm.deactivate();
+            room.getUnfilteredTimelineSet().addLiveEvent(othersMessages("$c")[0], { addToState: false });
+            vm.activate();
+
+            // Focused before the new visit's rows are placed.
+            vm.sendReadReceiptNow();
+            vm.moveReadMarkerOnNow();
+            await placeNewVisit(vm);
+            shows(vm, "$a", "$c");
+            await new Promise((r) => setTimeout(r, 700));
+            expect(client.sendReadReceipt).not.toHaveBeenCalled();
+            expect(client.setRoomReadMarkers).not.toHaveBeenCalled();
+
+            vm.sendReadReceiptNow();
+            expect(client.sendReadReceipt).toHaveBeenCalledTimes(1);
+            expect(vi.mocked(client.sendReadReceipt).mock.calls[0][0]?.getId()).toBe("$c");
+        });
+
+        it("moves the fully read marker on in a new visit as in the first", async () => {
+            vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
+                if (key === "sendReadReceipts") return true;
+                if (key === "readMarkerInViewThresholdMs" || key === "readMarkerOutOfViewThresholdMs") return 20;
+                return undefined;
+            });
+            // The reader is around throughout.
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            seedTimeline(othersMessages("$a", "$b", "$c"));
+            markFullyRead("$a");
+            const vm = await createStartedViewModel();
+            vm.deactivate();
+            vm.activate();
+
+            await placeNewVisit(vm);
+            shows(vm, "$a", "$c");
+
+            await vi.waitFor(() => expect(markerWrites()).toEqual(["$c"]));
+            await new Promise((r) => setTimeout(r, 100));
+            expect(markerWrites()).toEqual(["$c"]);
+        });
+
+        it("shows nothing from a load still running when the visit ends, and loads afresh for the next", async () => {
+            seedTimeline([makeMessage("$a")]);
+            const vm = new RoomTimelineViewModel({ client, room });
+            vms.push(vm);
+            vm.start();
+            vm.deactivate();
+            await new Promise((r) => setTimeout(r, 10));
+            expect(vm.getSnapshot().items).toEqual([]);
+
+            vm.activate();
+
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a"]));
+        });
+
+        it("stops fetching history for a visit that has ended", async () => {
+            seedTimeline([makeMessage("$a")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            let finishPage!: (more: boolean) => void;
+            const paginate = vi.spyOn((vm as any).timelineWindow, "paginate").mockReturnValue(
+                new Promise<boolean>((resolve) => {
+                    finishPage = resolve;
+                }),
+            );
+            vi.spyOn((vm as any).timelineWindow, "canPaginate").mockImplementation(
+                (...args: unknown[]) => args[0] === Direction.Backward,
+            );
+            vm.onStartReached();
+            await vi.waitFor(() => expect(kinds(vm.getSnapshot().items)).toContain("loading"));
+            // Asked again while the first fetch runs, which would fetch once more after it.
+            vm.onStartReached();
+
+            vm.deactivate();
+            const atEnd = vm.getSnapshot();
+            finishPage(true);
+            await new Promise((r) => setTimeout(r, 10));
+            vm.onStartReached();
+
+            expect(vm.getSnapshot()).toBe(atEnd);
+            expect(paginate).toHaveBeenCalledTimes(1);
+            // The next visit drops the spinner with the fetch, before its own rows arrive.
+            vm.activate();
+            expect(kinds(vm.getSnapshot().items)).not.toContain("loading");
+        });
+
+        it("leaves a new visit's rows alone when history prepared for the last visit arrives", async () => {
+            const preparation = Promise.withResolvers<boolean>();
+            vi.spyOn(SlidingSyncManager.instance, "initialTimelinePreparation").mockReturnValue(preparation.promise);
+            seedTimeline([makeMessage("$a"), makeMessage("$b"), makeMessage("$c")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onAtBottomStateChange(false);
+            shows(vm, "$a", "$b");
+            vm.deactivate();
+            // Back where the reader was, which, as on a first visit, waits for no preparation.
+            vm.activate();
+            await vi.waitFor(() => expect(vm.getSnapshot().pendingAnchor?.targetKey).toBe("$b"));
+            vm.onAnchorReached("$b");
+            // The reader scrolls down to the newest messages.
+            shows(vm, "$a", "$c");
+            vm.onAtBottomStateChange(true);
+            const placed = vm.getSnapshot();
+
+            room.addEventsToTimeline([makeMessage("$expanded")], true, false, room.getLiveTimeline(), "older-again");
+            preparation.resolve(true);
+            await new Promise((r) => setTimeout(r, 10));
+
+            expect(vm.getSnapshot()).toBe(placed);
+        });
+
+        it("has a new visit at the newest messages wait for history still being prepared", async () => {
+            const preparation = Promise.withResolvers<boolean>();
+            vi.spyOn(SlidingSyncManager.instance, "initialTimelinePreparation").mockReturnValue(preparation.promise);
+            seedTimeline([makeMessage("$a")]);
+            room.getLiveTimeline().setPaginationToken("older", Direction.Backward);
+            const paginate = vi.spyOn(client, "paginateEventTimeline").mockImplementation(async (timeline) => {
+                timeline.setPaginationToken(null, Direction.Backward);
+                return false;
+            });
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.deactivate();
+            vm.activate();
+
+            await placeNewVisit(vm);
+            vm.onStartReached();
+            await new Promise((r) => setTimeout(r, 10));
+            expect(paginate).not.toHaveBeenCalled();
+
+            preparation.resolve(false);
+            await vi.waitFor(() => expect(paginate).toHaveBeenCalledTimes(1));
         });
 
         it("drops a fully read marker write still waiting its turn when the visit ends", async () => {
