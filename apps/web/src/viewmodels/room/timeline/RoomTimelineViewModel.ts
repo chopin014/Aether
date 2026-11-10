@@ -2073,7 +2073,11 @@ export class RoomTimelineViewModel
                 `canPaginate(Backward)=${this.timelineWindow.canPaginate(Direction.Backward)}, ` +
                 `canJumpToReadMarker=${this.snapshot.current.canJumpToReadMarker}`,
         );
-        if (rmIdx !== -1) {
+        if (rmIdx !== -1 && !this.readerPlaced) {
+            // The view has not placed the reader in these rows yet, such as while a load ran or a new visit began, and
+            // says when it has only for an anchor; see onAnchorReached. Until then what is on screen is not read.
+            this.jumpToReadMarker();
+        } else if (rmIdx !== -1) {
             // Marker is in the loaded window — scroll to it imperatively.
             const readMarkerKey = items[rmIdx].key;
             debug(
@@ -2140,6 +2144,9 @@ export class RoomTimelineViewModel
             // The newest messages are not loaded, so fetch them first. load() sets
             // pendingAnchor, which is what makes the view scroll there once they arrive.
             void this.load({ kind: "live" });
+        } else if (!this.readerPlaced) {
+            // Placed through an anchor the view confirms; see onJumpToReadMarker.
+            this.jumpToLive();
         } else {
             // Already have the latest events — scroll to the last item now.
             this.supersedeLoads();

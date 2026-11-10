@@ -1852,8 +1852,11 @@ describe("RoomTimelineViewModel", () => {
             vm.showEvent("$elsewhere");
             const scrollNow = vi.fn();
             vm.onJumpToLive(scrollNow);
-            expect(scrollNow).toHaveBeenCalledWith({ targetKey: "$b", align: "end" });
+            // The navigation took the reader out of their place, so the view places them again and says when it has.
+            expect(scrollNow).not.toHaveBeenCalled();
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$b", align: "end" });
             expect(vm.getSnapshot().highlightedEventId).toBeNull();
+            vm.onAnchorReached("$b");
 
             // The reader is at the newest messages again, so a gap in sync follows them on.
             vm.onAtBottomStateChange(true);
@@ -2571,6 +2574,32 @@ describe("RoomTimelineViewModel", () => {
             return settle;
         };
         const writes = (): unknown[] => vi.mocked(client.setRoomReadMarkers).mock.calls.map(([, eventId]) => eventId);
+
+        it("moves on again once the reader jumps back to the newest message from a navigation they abandon", async () => {
+            startsActive();
+            seedTimeline(messages(3));
+            markerAt("$m0");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const realLoad = TimelineWindow.prototype.load;
+            const slow = Promise.withResolvers<void>();
+            vi.spyOn(TimelineWindow.prototype, "load").mockImplementation(async function (
+                this: TimelineWindow,
+                eventId?: string,
+                size?: number,
+            ) {
+                if (eventId === "$elsewhere") await slow.promise;
+                return realLoad.call(this, eventId, size);
+            });
+            vm.showEvent("$elsewhere");
+
+            vm.onJumpToLive(vi.fn());
+            vm.onAnchorReached();
+            shows(vm, "$m0", "$m2");
+
+            await vi.waitFor(() => expect(writes()).toEqual(["$m2"]));
+            slow.resolve();
+        });
 
         it("moves the marker on to the newest message when everything is marked read, never back", async () => {
             startsActive();
@@ -4008,6 +4037,33 @@ describe("RoomTimelineViewModel", () => {
 
             expect(fetchPage).toHaveBeenCalledTimes(1);
             expect(eventKeys(vm.getSnapshot().items)).toEqual([]);
+        });
+
+        it.each([
+            ["the newest message", (vm: RoomTimelineViewModel): void => vm.onJumpToLive(vi.fn())],
+            ["the unread line", (vm: RoomTimelineViewModel): void => vm.onJumpToReadMarker(vi.fn())],
+        ])("moves the fully read marker on after a jump to %s as a new visit begins", async (_, jump) => {
+            vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
+                if (key === "sendReadReceipts") return true;
+                if (key === "readMarkerInViewThresholdMs" || key === "readMarkerOutOfViewThresholdMs") return 20;
+                return undefined;
+            });
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveRecently").mockImplementation((timer) => {
+                timer.start();
+            });
+            seedTimeline(othersMessages("$a", "$b"));
+            markFullyRead("$a");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.deactivate();
+            vm.activate();
+
+            // The reader jumps before the new visit's rows arrive, in the rows still shown.
+            jump(vm);
+            vm.onAnchorReached();
+            shows(vm, "$a", "$b");
+
+            await vi.waitFor(() => expect(markerWrites()).toEqual(["$b"]));
         });
 
         it("stops fetching history for a visit that has ended", async () => {
