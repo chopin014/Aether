@@ -454,6 +454,11 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     private unmounted = false;
     // Counts room view store updates, so one that waited on the server can tell that a newer one came meanwhile.
     private storeUpdates = 0;
+    /**
+     * Whether the room is encrypted, as crypto last answered while this view was shown, or `null` until it has
+     * answered. URL previews follow this; see getPreviewUrlVisibility.
+     */
+    private checkedEncryption: boolean | null = null;
     private cancelMemberPreparation?: () => void;
     private permalinkCreators: Record<string, RoomPermalinkCreator> = {};
 
@@ -903,8 +908,10 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
 
         // We don't block the initial setup but we want to make it early to not block the timeline rendering
         const isRoomEncrypted = await this.getIsRoomEncrypted(newState.roomId);
+        this.checkedEncryption = isRoomEncrypted;
         this.setState({
             isRoomEncrypted,
+            showUrlPreview: this.getPreviewUrlVisibility(),
             ...(isRoomEncrypted &&
                 newState.roomId && { e2eStatus: RoomView.e2eStatusCache.get(newState.roomId) ?? E2EStatus.Warning }),
         });
@@ -1733,13 +1740,17 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     }
 
     private updatePreviewUrlVisibility(): void {
-        this.setState(({ isRoomEncrypted }) => ({
-            showUrlPreview: this.getPreviewUrlVisibility(isRoomEncrypted),
-        }));
+        this.setState({ showUrlPreview: this.getPreviewUrlVisibility() });
     }
 
-    private getPreviewUrlVisibility(isRoomEncrypted: boolean | null): boolean {
-        return SettingsStore.getValue(isRoomEncrypted ? "urlPreviewsEnabled_e2ee" : "urlPreviewsEnabled");
+    /**
+     * Whether to show URL previews, which ask the homeserver about the links in messages: by the setting for encrypted
+     * rooms or the one for other rooms, as crypto last answered while this view was shown. Until it has answered, they
+     * stay off: a room whose encryption is not yet known may be encrypted.
+     */
+    private getPreviewUrlVisibility(): boolean {
+        if (this.checkedEncryption === null) return false;
+        return SettingsStore.getValue(this.checkedEncryption ? "urlPreviewsEnabled_e2ee" : "urlPreviewsEnabled");
     }
 
     private onRoom = (room: Room): void => {
@@ -1824,9 +1835,10 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         const isRoomEncrypted = await this.getIsRoomEncrypted(room.roomId);
         const newE2EStatus = isRoomEncrypted ? await this.cacheAndGetE2EStatus(room, this.context.client) : null;
 
+        this.checkedEncryption = isRoomEncrypted;
         this.setState({
             isRoomEncrypted,
-            showUrlPreview: this.getPreviewUrlVisibility(isRoomEncrypted),
+            showUrlPreview: this.getPreviewUrlVisibility(),
             ...(newE2EStatus && { e2eStatus: newE2EStatus }),
         });
     }

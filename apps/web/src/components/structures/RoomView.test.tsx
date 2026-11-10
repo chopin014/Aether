@@ -1025,6 +1025,32 @@ describe("RoomView", () => {
         expect(asFragment()).toMatchSnapshot();
     });
 
+    describe("while crypto is asked whether the room is encrypted", () => {
+        let ask: MockInstance<CryptoApi["isEncryptionEnabledInRoom"]>;
+
+        beforeEach(() => {
+            vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+            vi.spyOn(cli, "getCrypto").mockReturnValue(crypto);
+            ask = vi.spyOn(crypto, "isEncryptionEnabledInRoom");
+        });
+
+        it("keeps URL previews off until crypto answers, even if their setting changes meanwhile", async () => {
+            const answer = Promise.withResolvers<boolean>();
+            ask.mockReturnValue(answer.promise);
+            const ref = createRef<RoomView>();
+            await mountRoomView(ref, { hideHeader: true, hideComposer: true });
+
+            // As when either URL preview setting changes. Private, so called as the setting watchers call it.
+            act(() =>
+                (ref.current as unknown as { onUrlPreviewsEnabledChange: () => void }).onUrlPreviewsEnabledChange(),
+            );
+            expect(ref.current!.state.showUrlPreview).toBe(false);
+
+            await act(async () => answer.resolve(false));
+            await waitFor(() => expect(ref.current!.state.showUrlPreview).toBe(true));
+        });
+    });
+
     it("updates live timeline when a timeline reset happens", async () => {
         const roomViewInstance = await getRoomViewInstance();
         const oldTimeline = roomViewInstance.state.liveTimeline;
