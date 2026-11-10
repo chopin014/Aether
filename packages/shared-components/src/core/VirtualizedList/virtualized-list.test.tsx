@@ -847,8 +847,9 @@ describe("GroupedVirtualizedList pinned section header", () => {
         items: Array.from({ length: 5 }, (_, i) => ({ id: `item-${group}-${i}`, name: `Item ${group}-${i}` })),
     }));
 
-    const renderGrouped = (data: typeof groups): React.JSX.Element => (
+    const renderGrouped = (data: typeof groups, extraProps: Record<string, unknown> = {}): React.JSX.Element => (
         <GroupedVirtualizedList<TestGroupHeader, TestItem, undefined>
+            {...extraProps}
             groups={data}
             getItemComponent={(_index, item) => <div className="mx_item">{item.name}</div>}
             getGroupHeaderComponent={(_index, header) => <div className="mx_group_header">{header.name}</div>}
@@ -881,5 +882,32 @@ describe("GroupedVirtualizedList pinned section header", () => {
         rerender(renderGrouped(groups.map((group) => ({ ...group }))));
         expect(screen.getByTestId("pinned")).toHaveTextContent("Group 1");
         expect(reads).not.toHaveBeenCalled();
+    });
+
+    it("keeps the scroll position when the scroller's ref is replaced on the same element", () => {
+        // Rows rendered above the viewport, so a position forgotten back to the top would pin the first section.
+        const shortViewport = ({ children }: PropsWithChildren): React.JSX.Element => (
+            <VirtuosoMockContext.Provider value={{ viewportHeight: 200, itemHeight: 56 }}>
+                {children}
+            </VirtuosoMockContext.Provider>
+        );
+        const overscan = { increaseViewportBy: { top: 400, bottom: 0 } };
+        const { rerender } = render(renderGrouped(groups, { ...overscan, scrollerRef: () => {} }), {
+            wrapper: shortViewport,
+        });
+        const scroller = screen.getByRole("grid");
+        fireEvent.scroll(scroller, { target: { scrollTop: 340 } });
+        expect(screen.getByTestId("pinned")).toHaveTextContent("Group 1");
+
+        // A new ref callback makes Virtuoso detach and reattach the same element, which keeps its position.
+        rerender(renderGrouped(groups, { ...overscan, scrollerRef: () => {} }));
+        rerender(
+            renderGrouped(
+                groups.map((group) => ({ ...group })),
+                { ...overscan, scrollerRef: () => {} },
+            ),
+        );
+        expect(screen.getByRole("grid")).toBe(scroller);
+        expect(screen.getByTestId("pinned")).toHaveTextContent("Group 1");
     });
 });
