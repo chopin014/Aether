@@ -1025,6 +1025,122 @@ describe("RoomView", () => {
         expect(asFragment()).toMatchSnapshot();
     });
 
+    describe("while crypto is asked whether the room is encrypted", () => {
+        let ask: MockInstance<CryptoApi["isEncryptionEnabledInRoom"]>;
+
+        beforeEach(() => {
+            vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+            vi.spyOn(cli, "getCrypto").mockReturnValue(crypto);
+            ask = vi.spyOn(crypto, "isEncryptionEnabledInRoom");
+        });
+
+        const encryptionEvent = (): MatrixEvent =>
+            new MatrixEvent({
+                type: EventType.RoomEncryption,
+                state_key: "",
+                sender: cli.getSafeUserId(),
+                content: { algorithm: MEGOLM_ENCRYPTION_ALGORITHM },
+                event_id: "$encryption",
+                room_id: room.roomId,
+            });
+
+        it("keeps URL previews off until crypto answers, even if their setting changes meanwhile", async () => {
+            const answer = Promise.withResolvers<boolean>();
+            ask.mockReturnValue(answer.promise);
+            const ref = createRef<RoomView>();
+            await mountRoomView(ref, { hideHeader: true, hideComposer: true });
+
+            // As when either URL preview setting changes. Private, so called as the setting watchers call it.
+            act(() =>
+                (ref.current as unknown as { onUrlPreviewsEnabledChange: () => void }).onUrlPreviewsEnabledChange(),
+            );
+            expect(ref.current!.state.showUrlPreview).toBe(false);
+
+            await act(async () => answer.resolve(false));
+            await waitFor(() => expect(ref.current!.state.showUrlPreview).toBe(true));
+        });
+
+        it("asks crypto once as the room is set up", async () => {
+            ask.mockReturnValue(new Promise(() => {}));
+            await mountRoomView(undefined, { hideHeader: true, hideComposer: true });
+            expect(ask).toHaveBeenCalledTimes(1);
+        });
+
+        it("asks crypto again when the room is encrypted while a check waits", async () => {
+            const before = Promise.withResolvers<boolean>();
+            const after = Promise.withResolvers<boolean>();
+            ask.mockReturnValueOnce(before.promise).mockReturnValueOnce(after.promise);
+            const ref = createRef<RoomView>();
+            await mountRoomView(ref, { hideHeader: true, hideComposer: true });
+
+            act(() => {
+                const event = encryptionEvent();
+                room.currentState.setStateEvents([event]);
+                cli.emit(RoomStateEvent.Events, event, room.currentState, null);
+            });
+            expect(ask).toHaveBeenCalledTimes(2);
+
+            await act(async () => {
+                before.resolve(false);
+                after.resolve(true);
+            });
+            await waitFor(() => expect(ref.current!.state.isRoomEncrypted).toBe(true));
+        });
+
+        it("shows the newest answer when an older one comes back after it", async () => {
+            const before = Promise.withResolvers<boolean>();
+            const after = Promise.withResolvers<boolean>();
+            ask.mockReturnValueOnce(before.promise).mockReturnValueOnce(after.promise);
+            const ref = createRef<RoomView>();
+            await mountRoomView(ref, { hideHeader: true, hideComposer: true });
+
+            act(() => {
+                const event = encryptionEvent();
+                room.currentState.setStateEvents([event]);
+                cli.emit(RoomStateEvent.Events, event, room.currentState, null);
+            });
+            // The check asked once the room was encrypted answers first; the one asked before it comes back later.
+            await act(async () => after.resolve(true));
+            await act(async () => before.resolve(false));
+
+            expect(ref.current!.state.isRoomEncrypted).toBe(true);
+            // By the setting for encrypted rooms, off by default, rather than the one for other rooms.
+            expect(ref.current!.state.showUrlPreview).toBe(false);
+        });
+
+        it("stops URL previews as soon as the room is encrypted, before its trust shield is worked out", async () => {
+            ask.mockResolvedValue(false);
+            const ref = createRef<RoomView>();
+            await mountRoomView(ref, { hideHeader: true, hideComposer: true });
+            await waitFor(() => expect(ref.current!.state.showUrlPreview).toBe(true));
+
+            // Crypto has not answered yet, and the shield would wait for the room's members for good.
+            const answer = Promise.withResolvers<boolean>();
+            ask.mockReturnValue(answer.promise);
+            vi.spyOn(room, "getEncryptionTargetMembers").mockReturnValue(new Promise(() => {}));
+            act(() => {
+                const event = encryptionEvent();
+                room.currentState.setStateEvents([event]);
+                cli.emit(RoomStateEvent.Events, event, room.currentState, null);
+            });
+            expect(ref.current!.state.showUrlPreview).toBe(false);
+
+            await act(async () => answer.resolve(true));
+            expect(ref.current!.state.isRoomEncrypted).toBe(true);
+            expect(ref.current!.state.showUrlPreview).toBe(false);
+        });
+
+        it("goes by the room's state when there is no crypto, keeping URL previews to the encrypted rooms' setting", async () => {
+            vi.spyOn(cli, "getCrypto").mockReturnValue(undefined);
+            room.currentState.setStateEvents([encryptionEvent()]);
+            const ref = createRef<RoomView>();
+            await mountRoomView(ref, { hideHeader: true, hideComposer: true });
+
+            await waitFor(() => expect(ref.current!.state.isRoomEncrypted).toBe(true));
+            expect(ref.current!.state.showUrlPreview).toBe(false);
+        });
+    });
+
     it("updates live timeline when a timeline reset happens", async () => {
         const roomViewInstance = await getRoomViewInstance();
         const oldTimeline = roomViewInstance.state.liveTimeline;
@@ -1296,7 +1412,10 @@ describe("RoomView", () => {
 
                 it("should match the snapshot", async () => {
                     const { container } = await renderRoomView();
-                    await waitFor(() => expect(container).toMatchSnapshot());
+                    // Once the room's trust shield is worked out: a snapshot taken in a retried waitFor would only be
+                    // written anew.
+                    await waitFor(() => expect(screen.queryByTestId("e2e-icon")).not.toBeInTheDocument());
+                    expect(container).toMatchSnapshot();
                 });
             });
         });
