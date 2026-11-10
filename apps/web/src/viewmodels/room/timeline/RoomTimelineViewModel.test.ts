@@ -4075,6 +4075,81 @@ describe("RoomTimelineViewModel", () => {
             vm.onAnchorReached();
         };
 
+        it("tells the view where it is in a reading visit", async () => {
+            seedTimeline(othersMessages("$a", "$b"));
+            const vm = await createStartedViewModel();
+            const first = vm.getSnapshot().visit!;
+            expect(first.rowsReady).toBe(true);
+            vm.onAnchorReached();
+
+            vm.deactivate();
+            vm.activate();
+
+            // The last visit's rows are still shown, but they are not this visit's.
+            const second = vm.getSnapshot().visit!;
+            expect(second.generation).toBeGreaterThan(first.generation);
+            expect(second.rowsReady).toBe(false);
+            await placeNewVisit(vm);
+            const placed = vm.getSnapshot().visit!;
+            expect(placed.generation).toBe(second.generation);
+            expect(placed.rowsReady).toBe(true);
+            expect(placed.placementRevision).toBeGreaterThan(first.placementRevision);
+        });
+
+        it("has a new visit's rows ready by the time the view hears of them", async () => {
+            seedTimeline(othersMessages("$a", "$b"));
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.deactivate();
+            vm.activate();
+            // What the view model itself holds when the rows go out, as anything acting on them at once would find it.
+            const seen: boolean[] = [];
+            const unsubscribe = vm.subscribe(() => {
+                if (vm.getSnapshot().visit?.rowsReady) seen.push((vm as any).showingEarlierVisit);
+            });
+
+            await placeNewVisit(vm);
+            unsubscribe();
+
+            expect(seen.length).toBeGreaterThan(0);
+            expect(seen[0]).toBe(false);
+        });
+
+        it("counts every placement it asks of the view, the same message again and a failed load included", async () => {
+            seedTimeline(othersMessages("$a", "$b", "$c"));
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const revision = (): number => vm.getSnapshot().visit!.placementRevision;
+            const before = revision();
+
+            vm.showEvent("$b");
+            expect(revision()).toBe(before + 1);
+            vm.onAnchorReached("$b");
+            vm.showEvent("$b");
+            expect(revision()).toBe(before + 2);
+            vm.onAnchorReached("$b");
+
+            // A load that fails places nothing, but its rows are what the visit shows now.
+            vi.spyOn(TimelineWindow.prototype, "load").mockRejectedValue(new Error("offline"));
+            vm.showEvent("$unloaded");
+            await vi.waitFor(() => expect(revision()).toBe(before + 3));
+            expect(vm.getSnapshot().pendingAnchor).toBeNull();
+        });
+
+        it("opens a new visit at a message it is asked to, highlighted", async () => {
+            seedTimeline(othersMessages("$a", "$b", "$c"));
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.deactivate();
+
+            vm.activate("$a");
+
+            await vi.waitFor(() =>
+                expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$a", align: "center" }),
+            );
+            expect(vm.getSnapshot().highlightedEventId).toBe("$a");
+        });
+
         it("sends nothing as read between visits", async () => {
             seedTimeline(othersMessages("$a", "$b"));
             const vm = await createStartedViewModel();
