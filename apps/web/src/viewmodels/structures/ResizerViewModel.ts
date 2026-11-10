@@ -43,6 +43,12 @@ function getInitialState(): ResizerViewSnapshot {
 }
 
 /**
+ * The class on the page's body while the separator is dragged. The persisted element container stops taking pointer
+ * events then; see `_common.pcss`.
+ */
+export const SEPARATOR_DRAGGING_CLASS = "mx_LeftPanel_resizing";
+
+/**
  * Viewmodel that drives the resizable left panel.
  */
 export class ResizerViewModel
@@ -86,6 +92,7 @@ export class ResizerViewModel
             ),
         );
         this.disposables.track(() => this.onLeftPanelResize.cancel());
+        this.disposables.track(() => document.body.classList.remove(SEPARATOR_DRAGGING_CLASS));
     }
 
     public onLeftPanelResize = debounce((panelSize: PanelSize): void => {
@@ -147,6 +154,15 @@ export class ResizerViewModel
 
     public onPointerDown = (event: PointerEvent): void => {
         this.mouseClickHandler.onPointerDown(event.clientX, event.clientY);
+    };
+
+    /**
+     * A widget or call in the persisted element container is an iframe, which takes the pointer events over it from
+     * this page, so a drag across one would stop resizing the panel. Marks the body for as long as the drag lasts,
+     * which stops that container taking pointer events.
+     */
+    public onDraggingChange = (isDragging: boolean): void => {
+        document.body.classList.toggle(SEPARATOR_DRAGGING_CLASS, isDragging);
     };
 }
 

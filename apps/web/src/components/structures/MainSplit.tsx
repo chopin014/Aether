@@ -8,6 +8,7 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import React, { type JSX, type ReactNode } from "react";
+import classNames from "classnames";
 import { type NumberSize, Resizable } from "re-resizable";
 import { type Direction } from "re-resizable/lib/resizer";
 import { type WebPanelResize } from "@matrix-org/analytics-events/types/typescript/WebPanelResize";
@@ -132,7 +133,9 @@ export default class MainSplit extends React.Component<IProps> {
         }
 
         return (
-            <div className="mx_MainSplit">
+            // Marked while it shows the panel, so the body can be styled for it without a `:has()` that restyles
+            // the whole body whenever anything in it changes.
+            <div className={classNames("mx_MainSplit", { mx_MainSplit_withPanel: hasResizer })}>
                 {bodyView}
                 {children}
             </div>

@@ -78,7 +78,7 @@ export const RoomListSectionHeaderContent = memo(function RoomListSectionHeaderC
                         vm.createChannel?.();
                     }}
                 >
-                    <PlusIcon />
+                    <PlusIcon className={styles.icon} />
                 </IconButton>
             )}
         </Flex>
@@ -108,7 +108,7 @@ function MenuComponent({ vm }: MenuComponentProps): JSX.Element {
                     style={{ padding: "2px" }}
                     color="var(--cpd-color-icon-primary)"
                 >
-                    <OverflowHorizontalIcon fill="var(--cpd-color-icon-primary)" />
+                    <OverflowHorizontalIcon className={styles.icon} fill="var(--cpd-color-icon-primary)" />
                 </IconButton>
             }
         >
