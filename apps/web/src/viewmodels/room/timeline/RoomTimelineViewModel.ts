@@ -2014,17 +2014,27 @@ export class RoomTimelineViewModel
     }
 
     /**
-     * The anchor to publish with `items`. The row the reader is being taken to can go before the view has placed them
-     * there, such as a message removed meanwhile, or the unread line once they mark everything read. The view could
-     * then never say it has placed them, which would hold back reading for the rest of the visit. They are taken to the
-     * nearest row left instead, the next one down or else the one above, as shown now. With none, they stay where they
-     * are and count as placed.
+     * The anchor to publish with `items`. The row the reader is being taken to can change key or go before the view
+     * has placed them there, and the view could then never say it has placed them, which would hold back reading for
+     * the rest of the visit.
+     * - A message still there under another key, such as one of ours the server has given its id, or one now in a
+     *   group, is still where they go.
+     * - For a message removed meanwhile, or the unread line once they mark everything read, they go to the nearest row
+     *   left instead: the next one down, or else the one above, as shown now.
+     * - With no row left, they stay where they are and count as placed.
      */
     private anchorAmong(items: readonly TimelineItem[], anchor: NavigationAnchor | null): NavigationAnchor | null {
         if (!anchor || items.some((item) => item.key === anchor.targetKey)) return anchor;
-        const left = new Set(items.filter((item) => item.kind !== "loading").map((item) => item.key));
         const shown = this.snapshot.current.items;
         const gone = shown.findIndex((item) => item.key === anchor.targetKey);
+        // A row holds the event objects themselves, which keep their identity as their ids change.
+        const events = new Set(gone >= 0 ? this.itemEvents(shown[gone]) : []);
+        const moved =
+            events.size > 0
+                ? items.find((item) => this.itemEvents(item).some((event) => events.has(event)))
+                : undefined;
+        if (moved) return { ...anchor, targetKey: moved.key };
+        const left = new Set(items.filter((item) => item.kind !== "loading").map((item) => item.key));
         if (gone >= 0) {
             for (let i = gone + 1; i < shown.length; i++) {
                 if (left.has(shown[i].key)) return { ...anchor, targetKey: shown[i].key };

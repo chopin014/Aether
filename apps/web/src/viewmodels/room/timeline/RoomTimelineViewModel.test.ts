@@ -4398,6 +4398,25 @@ describe("RoomTimelineViewModel", () => {
             expect(vm.getSnapshot().atLiveEnd).toBe(true);
         });
 
+        it.each([
+            ["accepts", (pending: MatrixEvent): void => room.updatePendingEvent(pending, EventStatus.SENT, "$real")],
+            ["echoes", (pending: MatrixEvent): Promise<void> => receiveRemoteEcho(pending, "$real")],
+        ])("keeps taking the reader to a message of ours the server %s on the way there", async (_, giveId) => {
+            seedTimeline([makeMessage("$a")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const pending = addPendingMessage("~pending");
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "~pending"]));
+            vm.jumpToLive();
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "~pending", align: "end" });
+
+            // Its row takes the server's id before the view has placed the reader.
+            await giveId(pending);
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$real"]));
+
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$real", align: "end" });
+        });
+
         it("moves the 'Sent' tick onto a message being sent once the server accepts it", async () => {
             seedTimeline([makeMessage("$a", { user: USER_ID })]);
             const vm = await createStartedViewModel();
