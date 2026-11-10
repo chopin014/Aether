@@ -256,6 +256,19 @@ export class RoomTimelineViewModel
     /** Set by {@link start} so a double-start (e.g. via StrictMode) is a no-op. */
     private started = false;
 
+    /**
+     * Whether a reading visit is under way: from {@link activate} until {@link deactivate}. Only during one may
+     * anything be sent as read, so a view model whose room is no longer being read sends nothing.
+     */
+    private visitActive = false;
+    /** Counts the starts and ends of reading visits, so work begun in one visit cannot act in another. */
+    private visitGeneration = 0;
+    /**
+     * Whether the rows on screen are still the last visit's: from {@link activate} until this visit shows rows of its
+     * own, by loading them or by taking the reader somewhere. Until then nothing on screen counts as read.
+     */
+    private showingEarlierVisit = false;
+
     /** Set while a rebuild is queued for the next microtask; see {@link scheduleRebuild}. */
     private rebuildQueued = false;
     /** Set when a rebuild was asked for while a load ran, so it still happens if the load ends without building. */
@@ -501,13 +514,7 @@ export class RoomTimelineViewModel
             windowLimit: WINDOW_LIMIT,
         });
 
-        // Initialise the read marker from room account data.
-        const fullyRead =
-            (opts.room.getAccountData(EventType.FullyRead)?.getContent()?.event_id as string | undefined) ?? null;
-        // As the old timeline does, a room without a marker yet is read up to the reader's receipt, which the SDK
-        // also gives for the reader's own messages.
-        this.readMarkerEventId = fullyRead ?? opts.room.getEventReadUpTo(opts.client.getSafeUserId());
-        this.awaitingServerReadMarker = fullyRead === null;
+        this.readMarkerFromRoom();
 
         // NOTE: deliberately side-effect-free. React StrictMode (and useState
         // initializer checks) invoke `vmCreator` twice in dev, constructing
@@ -541,6 +548,8 @@ export class RoomTimelineViewModel
             loadTarget = savedEventId ? { kind: "restore", eventId: savedEventId } : { kind: "live" };
         }
 
+        // Begun first, so the load knows which visit it is for.
+        this.beginVisit();
         void this.loadInitialTimeline(loadTarget);
 
         // Listen for new events so live messages appear.
@@ -612,7 +621,115 @@ export class RoomTimelineViewModel
             ClientEvent.AccountData,
             this.onClientAccountData as (...args: unknown[]) => void,
         );
+    }
+
+    /** Take the room's fully read marker from its account data, as the room is opened. */
+    private readMarkerFromRoom(): void {
+        const fullyRead =
+            (this.opts.room.getAccountData(EventType.FullyRead)?.getContent()?.event_id as string | undefined) ?? null;
+        // As the old timeline does, a room without a marker yet is read up to the reader's receipt, which the SDK
+        // also gives for the reader's own messages.
+        this.readMarkerEventId = fullyRead ?? this.opts.room.getEventReadUpTo(this.opts.client.getSafeUserId());
+        this.awaitingServerReadMarker = fullyRead === null;
+    }
+
+    /** From now on, what the reader sees may be sent as read, and the fully read marker moves on while they are around. */
+    private beginVisit(): void {
+        this.visitActive = true;
+        this.visitGeneration++;
         if (this.readStateOnActivity) void this.moveReadMarkerOnWhileActive();
+    }
+
+    /**
+     * Begin a new reading visit to the room, after {@link deactivate} ended the last one. {@link start} begins the first.
+     *
+     * A new visit is read afresh, as if the room had been opened again: its unread line is decided from the room's
+     * marker as it is now, nothing seen in the last visit counts as seen in this one, and the window is loaded again
+     * where the reader left it, or at the newest messages, as the first visit loads it. What the reader sees is read
+     * once the view has placed them in this visit's rows, as on the first visit; the last visit's rows, still on
+     * screen until then, are not.
+     */
+    public activate(): void {
+        if (!this.started || this.visitActive || this.isDisposed) return;
+        this.lastReceiptTargetId = null;
+        this.seenWhileActiveEventId = null;
+        this.lastBottomEventId = null;
+        this.visibleStartArrayIndex = 0;
+        this.visibleEndArrayIndex = 0;
+        this.isAtBottom = false;
+        this.unreadMessageCount = 0;
+        this.creationDeclined = undefined;
+        this.sentReadMarkerIds.clear();
+        this.readMarkerFrozen = false;
+        this.frozenMarkerEventId = null;
+        this.readerPlaced = false;
+        this.receiptOnPlacement = false;
+        this.showingEarlierVisit = true;
+        this.readMarkerFromRoom();
+        // Where the last visit was still placing the reader no longer matters: this one places them afresh.
+        const visit: Partial<RoomTimelineViewSnapshot> = {
+            isAtBottom: false,
+            numUnreadMessages: 0,
+            canJumpToReadMarker: false,
+            pendingAnchor: null,
+        };
+        const items = this.snapshot.current.items;
+        // A spinner the last visit left, from history it stopped fetching, goes too.
+        if (items[0]?.kind === "loading" || items.at(-1)?.kind === "loading") this.republish("visit", visit);
+        else this.mergeSnapshot(visit, "visit");
+        this.beginVisit();
+        const savedEventId = RoomTimelineViewModel.readScrollTarget(this.opts.room.roomId);
+        void this.loadInitialTimeline(savedEventId ? { kind: "restore", eventId: savedEventId } : { kind: "live" });
+    }
+
+    /**
+     * End the reading visit: stop the read receipt and fully read marker timers, so nothing more is sent as read, stop
+     * loading for it, and save where the reader was.
+     *
+     * - A load or a fetch of history still running shows nothing when it ends, and one asked for meanwhile is not
+     *   started: the next visit loads its own window. Until then the rows shown still follow new messages.
+     * - Saves the bottommost message the reader saw to localStorage, so the next visit resumes there; clears it when
+     *   they were at the visual bottom, so the next visit starts at the live end. With no visible range recorded, the
+     *   saved position stays.
+     * - Starts no write of the fully read marker: leaving a room does not move it, so a glance at a room keeps its
+     *   unread line. A write already sent is neither waited for nor stopped, so it can still land after this; one
+     *   waiting its turn is not sent.
+     */
+    public deactivate(): void {
+        if (!this.visitActive) return;
+        this.visitActive = false;
+        this.visitGeneration++;
+        this.supersedeLoads();
+        // The fetches stop where they are, so their spinners go with the next rows shown.
+        this.backwardSpinnerVisible = false;
+        this.forwardSpinnerVisible = false;
+        this.backwardRerunRequested = false;
+        this.forwardRerunRequested = false;
+        this.backwardAfterInitialTimeline = false;
+        this.initialTimelinePending = false;
+        if (this.readReceiptDebounceTimer !== null) {
+            clearTimeout(this.readReceiptDebounceTimer);
+            this.readReceiptDebounceTimer = null;
+        }
+        const receiptTimer = this.receiptActivityTimer;
+        this.receiptActivityTimer = undefined;
+        // Settle the timer even if it never started, so UserActivity lets go of it.
+        receiptTimer?.start().abort();
+        const readMarkerTimer = this.readMarkerTimer;
+        this.readMarkerTimer = undefined;
+        // The loop may be waiting on a marker write rather than on the timer, so nothing else would see it abort.
+        readMarkerTimer?.finished().catch(() => {});
+        readMarkerTimer?.start().abort();
+
+        if (!this.lastBottomEventId) {
+            debug(`[TimelineVM] deactivate() — no visible range recorded, preserving saved position`);
+        } else if (this.isAtBottom) {
+            debug(`[TimelineVM] deactivate() — clearing saved scroll position (at visual bottom)`);
+            RoomTimelineViewModel.saveScrollTarget(this.opts.room.roomId, null);
+        } else {
+            debug(`[TimelineVM] deactivate() — saving scroll position eventId=${this.lastBottomEventId}`);
+            RoomTimelineViewModel.saveScrollTarget(this.opts.room.roomId, this.lastBottomEventId);
+        }
     }
 
     /**
@@ -685,6 +802,7 @@ export class RoomTimelineViewModel
      */
     private maySendReadState(): boolean {
         return (
+            this.visitActive &&
             !this.isDisposed &&
             this.opts.room.getMyMembership() === KnownMembership.Join &&
             !SettingsStore.getValue("lowBandwidth") &&
@@ -715,11 +833,14 @@ export class RoomTimelineViewModel
         const writes = RoomTimelineViewModel.readMarkerWrites;
         const state = writes.get(room) ?? { queue: Promise.resolve() };
         writes.set(room, state);
+        // Decided for this visit: one waiting its turn when the visit ends is not sent.
+        const visit = this.visitGeneration;
         const write = state.queue.then(async (): Promise<void> => {
             if (state.written && this.comesAfter(state.written, this.readMarkerEventId)) {
                 this.readMarkerEventId = state.written;
             }
-            if (!this.maySendReadState() || !this.comesAfter(eventId, this.readMarkerEventId)) return;
+            if (visit !== this.visitGeneration || !this.maySendReadState()) return;
+            if (!this.comesAfter(eventId, this.readMarkerEventId)) return;
             // Past the last marker written here too, whatever this view knows of it: one that cannot be placed against
             // it, such as in history it is no longer among, is left for later.
             if (state.written && !this.comesAfter(eventId, state.written)) return;
@@ -1294,8 +1415,12 @@ export class RoomTimelineViewModel
         return this.isDecrypting(event) || this.shouldIncludeEvent(event, false);
     }
 
-    /** Publish cached rows immediately, then incorporate native history before requesting more. */
+    /**
+     * Publish cached rows immediately, then incorporate native history before requesting more. Each visit loads this
+     * way, and what the preparation brings is for the visit that waited for it: a later visit waits again itself.
+     */
     private async loadInitialTimeline(target: LoadTarget): Promise<void> {
+        const visit = this.visitGeneration;
         const preparation =
             target.kind === "live"
                 ? SlidingSyncManager.instance.initialTimelinePreparation(this.opts.client, this.opts.room.roomId)
@@ -1310,6 +1435,8 @@ export class RoomTimelineViewModel
             await initialLoad;
             logger.warn("Native timeline preparation failed; allowing history pagination", error);
         }
+        // The visit ended meanwhile, and the next one, if any, has its own wait.
+        if (visit !== this.visitGeneration) return;
         this.initialTimelinePending = false;
         const deferredBackward = this.backwardAfterInitialTimeline;
         this.backwardAfterInitialTimeline = false;
@@ -1324,6 +1451,9 @@ export class RoomTimelineViewModel
     }
 
     private async load(target: LoadTarget): Promise<void> {
+        // Between visits nothing is loaded: the next visit loads its own window. A load running when a visit ends is
+        // overtaken; see deactivate.
+        if (!this.visitActive) return;
         const generation = ++this.loadGeneration;
         const superseded = (): boolean => this.isDisposed || generation !== this.loadGeneration;
         this.loading = true;
@@ -1359,6 +1489,7 @@ export class RoomTimelineViewModel
                     window,
                     target.kind === "permalink" ? sdkLoadTarget : undefined,
                     target.kind === "live" ? 1 : MIN_INITIAL_EVENTS,
+                    superseded,
                 );
             }
             if (superseded()) return;
@@ -1453,6 +1584,7 @@ export class RoomTimelineViewModel
                 canJumpToReadMarker: this.computeCanJumpToReadMarker(items),
             });
             this.receiptOnPlacement = this.sendReadReceiptOnLoad;
+            this.showingEarlierVisit = false;
 
             // An empty list cannot report either scroll edge. Search toward live content first,
             // or older history when we are already at the live end, instead of waiting forever.
@@ -1469,6 +1601,8 @@ export class RoomTimelineViewModel
             this.backwardSpinnerVisible = false;
             this.forwardSpinnerVisible = false;
             this.republish(`load(${target.kind})-error`);
+            // The rows left on screen are what this visit shows now: what the reader scrolls to among them is read.
+            this.showingEarlierVisit = false;
         } finally {
             if (generation === this.loadGeneration) {
                 this.loading = false;
@@ -1498,11 +1632,15 @@ export class RoomTimelineViewModel
      * direction gets a couple of attempts at most, with one server request per attempt. The
      * SDK otherwise retries empty pages internally, multiplying our limit by ten. A room that
      * returns duplicate or hidden events should show what we have before loading more on scroll.
+     *
+     * Nothing more is fetched once `superseded` says the load is overtaken, such as by a newer load or by the end of
+     * the visit: its window is never shown.
      */
     private async fillInitialWindow(
         window: TimelineWindow,
         centreOn: string | undefined,
         minimumEvents: number,
+        superseded: () => boolean,
     ): Promise<void> {
         const MAX_FILL_REQUESTS_PER_DIRECTION = 2;
         const perDirectionTarget = centreOn ? Math.ceil(minimumEvents / 2) : minimumEvents;
@@ -1513,6 +1651,7 @@ export class RoomTimelineViewModel
 
             let requests = 0;
             while (
+                !superseded() &&
                 requests < MAX_FILL_REQUESTS_PER_DIRECTION &&
                 this.renderableEventCount(window, centreOn, direction) < perDirectionTarget &&
                 this.canExtend(window, direction)
@@ -1520,7 +1659,7 @@ export class RoomTimelineViewModel
                 requests++;
                 const before = window.getEvents().length;
                 await window.paginate(direction, PAGINATE_SIZE, true, 1);
-                if (this.isDisposed) return;
+                if (superseded()) return;
                 debug(
                     `[TimelineVM] fillInitialWindow — paginate(${direction === Direction.Backward ? "backward" : "forward"}) ` +
                         `window: ${before}→${window.getEvents().length}, ` +
@@ -1590,6 +1729,8 @@ export class RoomTimelineViewModel
      * being snapped to the bottom by the virtualizer's grow-to-bottom trap (see the View's onSettled).
      */
     public onAnchorReached = (targetKey?: string | null): void => {
+        // Between visits the view places nobody: the next visit loads and places afresh.
+        if (!this.visitActive) return;
         const pending = this.snapshot.current.pendingAnchor;
         if (pending === null) return;
         // A newer anchor, such as a message navigated to while the first one was still being placed, stays.
@@ -1600,6 +1741,7 @@ export class RoomTimelineViewModel
     };
 
     public onAtBottomStateChange = (atBottom: boolean): void => {
+        if (!this.visitActive) return;
         this.isAtBottom = atBottom;
         if (atBottom && this.snapshot.current.atLiveEnd) {
             this.unreadMessageCount = 0;
@@ -1619,6 +1761,9 @@ export class RoomTimelineViewModel
      * then stores its ID for scroll-position persistence on dispose.
      */
     public onVisibleRangeChanged = (startIndex: number, endIndex: number): void => {
+        // Between visits nothing on screen is being read, and where the reader was is already saved. Nor is the last
+        // visit's rows when a new visit begins, before it shows its own.
+        if (!this.visitActive || this.showingEarlierVisit) return;
         // Don't record position while an anchor is pending — the range reflects
         // auto-placement, not the user's reading position. The View clears the
         // anchor (via onAnchorReached) once placement settles, after which normal
@@ -1783,6 +1928,8 @@ export class RoomTimelineViewModel
     private supersedeLoads(): void {
         // The reader is taken elsewhere; the view says again if that shows the start.
         this.startInView = false;
+        // Taken there in this visit, so the rows shown are this visit's from now on.
+        this.showingEarlierVisit = false;
         const wasLoading = this.loading;
         this.loadGeneration++;
         this.loading = false;
@@ -1837,8 +1984,12 @@ export class RoomTimelineViewModel
         }
     }
 
-    /** Show the unread line, loading history around it when it is not in the window. */
+    /**
+     * Show the unread line, loading history around it when it is not in the window. With no unread line, nothing
+     * happens.
+     */
     public jumpToReadMarker(): void {
+        this.drawVisitUnreadLine();
         const marker = this.snapshot.current.items.find((item) => item.kind === "read-marker");
         if (marker) {
             this.supersedeLoads();
@@ -1848,6 +1999,63 @@ export class RoomTimelineViewModel
         } else if (this.frozenMarkerEventId) {
             void this.load({ kind: "permalink", eventId: this.frozenMarkerEventId, toReadMarker: true });
         }
+    }
+
+    /**
+     * As a visit begins, the rows still on screen carry the last visit's unread line until this visit's load draws
+     * its own. For a jump to the line that does not wait for the load, decide this visit's line now from the room's
+     * marker, as the load would, and draw it in those rows.
+     */
+    private drawVisitUnreadLine(): void {
+        if (!this.showingEarlierVisit || this.readMarkerFrozen) return;
+        this.freezeReadMarkerForSession();
+        this.commitItems(this.buildItems());
+        this.republish("visit-unread-line", { canJumpToReadMarker: this.computeCanJumpToReadMarker(this.baseItems) });
+    }
+
+    /**
+     * The anchor to publish with `items`. The row the reader is being taken to can change key or go before the view
+     * has placed them there, and the view could then never say it has placed them, which would hold back reading for
+     * the rest of the visit.
+     * - A message still there under another key, such as one of ours the server has given its id, or one now in a
+     *   group, is still where they go. A group that splits into several rows is gone to by the part the anchor is
+     *   aligned by, whichever part keeps its key: its last row for an anchor at the bottom, such as the newest
+     *   messages, its middle row for one in the middle, else its first row.
+     * - For a message removed meanwhile, or the unread line once they mark everything read, they go to the nearest row
+     *   left instead: the next one down, or else the one above, as shown now.
+     * - With no row left, they stay where they are and count as placed.
+     */
+    private anchorAmong(items: readonly TimelineItem[], anchor: NavigationAnchor | null): NavigationAnchor | null {
+        if (!anchor) return anchor;
+        const shown = this.snapshot.current.items;
+        const was = shown.findIndex((item) => item.key === anchor.targetKey);
+        // A row holds the event objects themselves, which keep their identity as their ids change.
+        const events = new Set(was >= 0 ? this.itemEvents(shown[was]) : []);
+        const holding =
+            events.size > 0 ? items.filter((item) => this.itemEvents(item).some((event) => events.has(event))) : [];
+        if (holding.length > 0) {
+            const part =
+                anchor.align === "end"
+                    ? holding.length - 1
+                    : anchor.align === "center"
+                      ? Math.floor((holding.length - 1) / 2)
+                      : 0;
+            const targetKey = holding[part].key;
+            return targetKey === anchor.targetKey ? anchor : { ...anchor, targetKey };
+        }
+        if (items.some((item) => item.key === anchor.targetKey)) return anchor;
+        const left = new Set(items.filter((item) => item.kind !== "loading").map((item) => item.key));
+        if (was >= 0) {
+            for (let i = was + 1; i < shown.length; i++) {
+                if (left.has(shown[i].key)) return { ...anchor, targetKey: shown[i].key };
+            }
+            for (let i = was - 1; i >= 0; i--) {
+                if (left.has(shown[i].key)) return { ...anchor, targetKey: shown[i].key };
+            }
+        }
+        debug(`[TimelineVM] the row the reader was being taken to went, ${anchor.targetKey} — staying put`);
+        this.readerPlaced = true;
+        return null;
     }
 
     /**
@@ -1917,6 +2125,7 @@ export class RoomTimelineViewModel
     // ── Overlay button actions ───────────────────────────────────────
 
     public onJumpToReadMarker = (scrollNow: ImmediateScroll): void => {
+        this.drawVisitUnreadLine();
         const items = this.snapshot.current.items;
         const rmIdx = items.findIndex((item) => item.kind === "read-marker");
         debug(
@@ -1926,7 +2135,11 @@ export class RoomTimelineViewModel
                 `canPaginate(Backward)=${this.timelineWindow.canPaginate(Direction.Backward)}, ` +
                 `canJumpToReadMarker=${this.snapshot.current.canJumpToReadMarker}`,
         );
-        if (rmIdx !== -1) {
+        if (rmIdx !== -1 && !this.readerPlaced) {
+            // The view has not placed the reader in these rows yet, such as while a load ran or a new visit began, and
+            // says when it has only for an anchor; see onAnchorReached. Until then what is on screen is not read.
+            this.jumpToReadMarker();
+        } else if (rmIdx !== -1) {
             // Marker is in the loaded window — scroll to it imperatively.
             const readMarkerKey = items[rmIdx].key;
             debug(
@@ -1969,7 +2182,14 @@ export class RoomTimelineViewModel
         this.readMarkerFrozen = true;
         this.awaitingServerReadMarker = false;
         const newItems = this.buildItems(); // removes the read-marker item
-        this.mergeSnapshot({ items: newItems, canJumpToReadMarker: false }, "mark-all-as-read");
+        this.mergeSnapshot(
+            {
+                items: newItems,
+                canJumpToReadMarker: false,
+                pendingAnchor: this.anchorAmong(newItems, this.snapshot.current.pendingAnchor),
+            },
+            "mark-all-as-read",
+        );
         // And the marker moves on to the newest message, as the old timeline moves it to the receipt, so the line
         // does not come back next visit. The marker is kept until then, so nothing moves it back meanwhile.
         const newest = this.newestConfirmedEventId();
@@ -1993,6 +2213,9 @@ export class RoomTimelineViewModel
             // The newest messages are not loaded, so fetch them first. load() sets
             // pendingAnchor, which is what makes the view scroll there once they arrive.
             void this.load({ kind: "live" });
+        } else if (!this.readerPlaced) {
+            // Placed through an anchor the view confirms; see onJumpToReadMarker.
+            this.jumpToLive();
         } else {
             // Already have the latest events — scroll to the last item now.
             this.supersedeLoads();
@@ -2054,56 +2277,22 @@ export class RoomTimelineViewModel
     }
 
     /**
-     * Tear-down: stop the timers, save where the reader was, and stop listening.
+     * Tear-down: end the reading visit ({@link deactivate}: its timers stop and where the reader was is saved), stop
+     * the decryption timer, and stop listening.
      *
-     * - Stops the read receipt, fully read marker and decryption timers.
-     * - Saves the bottommost message the reader saw to localStorage, so the next visit
-     *   resumes there; clears it when they were at the visual bottom, so the next visit
-     *   starts at the live end. With no visible range recorded, the saved position stays.
-     * - Starts no write of the fully read marker: leaving a room does not move it, so a glance at
-     *   a room keeps its unread line. It moves on while the reader is around
-     *   ({@link moveReadMarkerOnWhileActive}), when a room view that moves it only on focus is
-     *   focused ({@link moveReadMarkerOnNow}), or on {@link onMarkAllAsRead}. A write already sent
-     *   is neither waited for nor stopped, so it can still land after this; one waiting its turn
-     *   is not sent.
-     * - Through `super.dispose()`, marks the view model disposed and releases its room and client
-     *   listeners and its settings watcher.
+     * The fully read marker is left alone: it moves on while the reader is around
+     * ({@link moveReadMarkerOnWhileActive}), when a room view that moves it only on focus is focused
+     * ({@link moveReadMarkerOnNow}), or on {@link onMarkAllAsRead}, so a glance at a room keeps its unread line.
+     *
+     * Through `super.dispose()`, marks the view model disposed and releases its room and client listeners and its
+     * settings watcher.
      */
     public override dispose(): void {
-        if (this.readReceiptDebounceTimer !== null) {
-            clearTimeout(this.readReceiptDebounceTimer);
-            this.readReceiptDebounceTimer = null;
-        }
-        const receiptTimer = this.receiptActivityTimer;
-        this.receiptActivityTimer = undefined;
-        // Settle the timer even if it never started, so UserActivity lets go of it.
-        receiptTimer?.start().abort();
-        const readMarkerTimer = this.readMarkerTimer;
-        this.readMarkerTimer = undefined;
-        // The loop may be waiting on a marker write rather than on the timer, so nothing else would see it abort.
-        readMarkerTimer?.finished().catch(() => {});
-        readMarkerTimer?.start().abort();
+        this.deactivate();
         if (this.decryptDebounceTimer !== null) {
             clearTimeout(this.decryptDebounceTimer);
             this.decryptDebounceTimer = null;
         }
-        if (!this.lastBottomEventId) {
-            debug(`[TimelineVM] dispose() — no visible range recorded, preserving saved position`);
-            super.dispose();
-            return;
-        }
-
-        if (this.isAtBottom) {
-            debug(`[TimelineVM] dispose() — clearing saved scroll position (at visual bottom)`);
-            RoomTimelineViewModel.saveScrollTarget(this.opts.room.roomId, null);
-        } else {
-            debug(`[TimelineVM] dispose() — saving scroll position eventId=${this.lastBottomEventId}`);
-            RoomTimelineViewModel.saveScrollTarget(this.opts.room.roomId, this.lastBottomEventId);
-        }
-
-        // The fully read marker is left alone: it moves on only once the reader has been around for a while, as in
-        // the old timeline (see moveReadMarkerOnWhileActive), so a glance at a room keeps its unread line.
-
         super.dispose();
     }
 
@@ -2115,6 +2304,8 @@ export class RoomTimelineViewModel
      * {@link backwardRerunRequested} for why it cannot just be dropped.
      */
     private triggerBackwardPaginate(): void {
+        // No history is fetched between visits, or for the last visit's rows before this one shows its own.
+        if (!this.visitActive || this.showingEarlierVisit) return;
         if (this.initialTimelinePending) {
             this.backwardAfterInitialTimeline = true;
             return;
@@ -2155,6 +2346,8 @@ export class RoomTimelineViewModel
      * calls behind a single in-flight chain.
      */
     private triggerForwardPaginate(): void {
+        // See triggerBackwardPaginate.
+        if (!this.visitActive || this.showingEarlierVisit) return;
         if (this.forwardPaginateChain) {
             // Remember it rather than dropping it; see backwardRerunRequested.
             this.forwardRerunRequested = true;
@@ -2219,12 +2412,14 @@ export class RoomTimelineViewModel
         }
         const events = this.loadedEvents();
         const isShown = this.shownEventTest();
+        const anchor = extra.pendingAnchor !== undefined ? extra.pendingAnchor : this.snapshot.current.pendingAnchor;
         this.mergeSnapshot(
             {
                 items,
                 readReceiptsByEvent: this.computeReadReceipts(events, isShown),
                 lastSuccessfulEventId: this.computeLastSuccessfulEventId(events, isShown),
                 ...extra,
+                pendingAnchor: this.anchorAmong(items, anchor),
             },
             reason,
         );
@@ -2348,9 +2543,12 @@ export class RoomTimelineViewModel
             this.republish("paginate(forward)-start");
         }
 
-        // The chain belongs to the window it started on. A load that replaces the window ends it.
+        // The chain belongs to the window and the visit it started in. A load that replaces the window ends it, as
+        // does the end of the visit.
         const window = this.timelineWindow;
-        const replaced = (): boolean => this.isDisposed || this.timelineWindow !== window;
+        const visit = this.visitGeneration;
+        const replaced = (): boolean =>
+            this.isDisposed || this.timelineWindow !== window || this.visitGeneration !== visit;
         try {
             let emptyBatches = 0;
 
@@ -2421,6 +2619,8 @@ export class RoomTimelineViewModel
             }
         } catch (e) {
             logger.error(`[TimelineVM] paginate(${dirLabel}) error`, e);
+            // The rows shown now are another window's or another visit's, with spinners of their own.
+            if (replaced()) return;
             if (isBackward) {
                 this.backwardSpinnerVisible = false;
                 this.republish("paginate(backward)-error");
