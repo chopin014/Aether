@@ -22,6 +22,8 @@ import type { TimelineItem } from "@element-hq/web-shared-components";
 import { createTestClient, mkEvent, mkMembership, mkMessage, TestSDKContext } from "test-utils";
 
 import { NewTimelinePanel } from "./NewTimelinePanel";
+import { NewTimelineRenderer } from "./NewTimelineRenderer";
+import { RoomTimelineViewModel } from "../../viewmodels/room/timeline/RoomTimelineViewModel";
 import type { RoomMessagePanel } from "./RoomMessagePanel";
 import { Layout } from "../../settings/enums/Layout";
 import EditorStateTransfer from "../../utils/EditorStateTransfer";
@@ -114,6 +116,8 @@ const { vmSpies } = vi.hoisted(() => ({
         sendReadReceiptNow: vi.fn(),
         moveReadMarkerOnNow: vi.fn(),
         onMarkAllAsRead: vi.fn(),
+        start: vi.fn(),
+        dispose: vi.fn(),
         constructorOpts: [] as Record<string, unknown>[],
         isAtLiveBottom: false,
         canJumpToReadMarker: false,
@@ -140,8 +144,8 @@ vi.mock("../../viewmodels/room/timeline/RoomTimelineViewModel", () => ({
         public get canJumpToReadMarker(): boolean {
             return vmSpies.canJumpToReadMarker;
         }
-        public start = (): void => {};
-        public dispose = (): void => {};
+        public start = vmSpies.start;
+        public dispose = vmSpies.dispose;
         public subscribe = (): (() => void) => (): void => {};
         public getSnapshot = (): Record<string, unknown> => vmState.snapshot;
     },
@@ -210,6 +214,8 @@ describe("<NewTimelinePanel />", () => {
             vmSpies.sendReadReceiptNow,
             vmSpies.moveReadMarkerOnNow,
             vmSpies.onMarkAllAsRead,
+            vmSpies.start,
+            vmSpies.dispose,
         ]) {
             spy.mockReset();
         }
@@ -221,6 +227,35 @@ describe("<NewTimelinePanel />", () => {
         vi.spyOn(client, "getRoom").mockReturnValue(room);
         event = mkMessage({ room: ROOM_ID, user: USER_ID, msg: "hello", event: true });
         room.getUnfilteredTimelineSet().addLiveEvent(event, { addToState: false });
+    });
+
+    it("starts the view model it makes once, and disposes of it when it goes", () => {
+        const { unmount } = renderPanel();
+        expect(vmSpies.constructorOpts).toHaveLength(1);
+        expect(vmSpies.start).toHaveBeenCalledTimes(1);
+        expect(vmSpies.dispose).not.toHaveBeenCalled();
+
+        unmount();
+
+        expect(vmSpies.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it("draws a view model it is given without starting or disposing of it", () => {
+        const vm = new RoomTimelineViewModel({ client, room });
+        withItems([eventRow(event)]);
+        const { unmount } = render(
+            <MatrixClientContext.Provider value={client}>
+                <SDKContext.Provider value={new TestSDKContext()}>
+                    <NewTimelineRenderer vm={vm} room={room} />
+                </SDKContext.Provider>
+            </MatrixClientContext.Provider>,
+        );
+        expect(screen.getAllByTestId("event-row")).toHaveLength(1);
+
+        unmount();
+
+        expect(vmSpies.start).not.toHaveBeenCalled();
+        expect(vmSpies.dispose).not.toHaveBeenCalled();
     });
 
     it("releases decorative loading only after conversation rows have painted", () => {
