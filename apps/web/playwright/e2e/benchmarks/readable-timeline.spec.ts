@@ -301,3 +301,119 @@ test.describe("readable timeline check", () => {
         expect(await page.evaluate(() => document.styleSheets.length)).toBe(before);
     });
 });
+
+/** What the watching tests keep on the page's window. */
+interface WatchWindow extends ReadableWindow {
+    readableAt?: number;
+    addedAt?: number;
+    stopWatching?: () => void;
+    inFrame?: boolean;
+    checks?: number;
+    checksInFrames?: number;
+}
+
+/** Start watching for `target`, keeping when it was found readable on the window. */
+async function watch(page: Page, target: ReadableTarget = TARGET): Promise<void> {
+    await page.evaluate((wanted) => {
+        const win = window as unknown as WatchWindow;
+        win.stopWatching = win.aetherBenchWatchReadable!(wanted, (at) => {
+            win.readableAt = at;
+        });
+    }, target);
+}
+
+/** Wait for `count` frames to be painted. */
+async function frames(page: Page, count: number): Promise<void> {
+    await page.evaluate(async (count) => {
+        for (let i = 0; i < count; i++) await new Promise((resolve) => requestAnimationFrame(resolve));
+    }, count);
+}
+
+async function readableAt(page: Page): Promise<number | undefined> {
+    return page.evaluate(() => (window as unknown as WatchWindow).readableAt);
+}
+
+/** Add the target's row to the timeline, keeping when it was added on the window. */
+async function addTarget(page: Page): Promise<void> {
+    await page.evaluate(
+        (html) => {
+            document.querySelector(".scroller")!.insertAdjacentHTML("beforeend", html);
+            (window as unknown as WatchWindow).addedAt = performance.now();
+        },
+        row("$target", "the wanted message"),
+    );
+}
+
+test.describe("watching for readable text", () => {
+    test("reports the frame after the one that painted the message readable", async ({ page }) => {
+        await show(page, timeline(row("$before", "an earlier message")));
+        await watch(page);
+        await frames(page, 3);
+        expect(await readableAt(page)).toBeUndefined();
+
+        await addTarget(page);
+        await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+        const { at, addedAt } = await page.evaluate(() => {
+            const win = window as unknown as WatchWindow;
+            return { at: win.readableAt!, addedAt: win.addedAt! };
+        });
+        expect(at).toBeGreaterThan(addedAt);
+    });
+
+    test("does not report a message under a cover the pointer passes through until it is gone", async ({ page }) => {
+        const cover = `<div class="cover" style="position: absolute; inset: 0; background: white; pointer-events: none"></div>`;
+        await show(page, timeline(row("$target", "the wanted message") + cover));
+        await watch(page);
+        await frames(page, 6);
+        expect(await readableAt(page)).toBeUndefined();
+
+        await page.evaluate(() => document.querySelector(".cover")!.remove());
+        await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+    });
+
+    test("reports nothing once stopped", async ({ page }) => {
+        await show(page, timeline(row("$before", "an earlier message")));
+        await watch(page);
+        await page.evaluate(() => (window as unknown as WatchWindow).stopWatching!());
+        await addTarget(page);
+        await frames(page, 6);
+        expect(await readableAt(page)).toBeUndefined();
+    });
+
+    test("checks outside the app's frames, so it never lengthens them", async ({ page }) => {
+        await show(page, timeline(row("$before", "an earlier message")));
+        // Note every check made while a frame's callbacks run.
+        await page.evaluate(() => {
+            const win = window as unknown as WatchWindow;
+            win.checks = 0;
+            win.checksInFrames = 0;
+            const request = window.requestAnimationFrame.bind(window);
+            window.requestAnimationFrame = (callback) =>
+                request((time) => {
+                    win.inFrame = true;
+                    try {
+                        callback(time);
+                    } finally {
+                        win.inFrame = false;
+                    }
+                });
+            const rects = Range.prototype.getClientRects;
+            Range.prototype.getClientRects = function (this: Range): DOMRectList {
+                win.checks = (win.checks ?? 0) + 1;
+                if (win.inFrame) win.checksInFrames = (win.checksInFrames ?? 0) + 1;
+                return rects.call(this);
+            };
+        });
+        await watch(page);
+        await frames(page, 3);
+        await addTarget(page);
+        await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+
+        const { checks, checksInFrames } = await page.evaluate(() => {
+            const win = window as unknown as WatchWindow;
+            return { checks: win.checks!, checksInFrames: win.checksInFrames! };
+        });
+        expect(checks).toBeGreaterThan(0);
+        expect(checksInFrames).toBe(0);
+    });
+});

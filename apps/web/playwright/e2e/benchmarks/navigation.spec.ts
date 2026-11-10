@@ -195,22 +195,9 @@ async function seedAccount(api: Api, serverName: string): Promise<SeededAccount>
 async function watchForText(page: Page, target: ReadableTarget): Promise<void> {
     await page.addInitScript((wanted) => {
         const win = window as unknown as ReadableWindow & { aetherBenchTextAt?: number };
-        const shown = (thorough: boolean): boolean => win.aetherBenchReadable?.(wanted, thorough) ?? false;
-        const check = (): void => {
-            if (win.aetherBenchTextAt !== undefined) return;
-            // Painted on the frame after it was first seen shown, if it is still shown then. That frame's time is taken
-            // before the thorough check, whose style recalculation must not count.
-            if (shown(false)) {
-                requestAnimationFrame(() => {
-                    const at = performance.now();
-                    if (shown(true)) win.aetherBenchTextAt ??= at;
-                    else requestAnimationFrame(check);
-                });
-                return;
-            }
-            requestAnimationFrame(check);
-        };
-        requestAnimationFrame(check);
+        win.aetherBenchWatchReadable!(wanted, (at) => {
+            win.aetherBenchTextAt ??= at;
+        });
     }, target);
 }
 
@@ -299,40 +286,23 @@ async function timeClickToText(page: Page, click: () => Promise<void>, target: R
         win.aetherBenchClickAt = undefined;
         win.aetherBenchInputDelay = undefined;
         win.aetherBenchShownAt = undefined;
-        let active = true;
-        let frame = 0;
+        let stopWatching: (() => void) | undefined;
         const onPointerDown = (event: PointerEvent): void => {
             if (win.aetherBenchClickAt !== undefined) return;
             win.aetherBenchClickAt = performance.now();
             // The event's time stamp is when the browser took it, so this is how long it waited for the page.
             win.aetherBenchInputDelay = Math.max(0, win.aetherBenchClickAt - event.timeStamp);
+            // Only what is painted after the click counts.
+            stopWatching = win.aetherBenchWatchReadable!(wanted, (at) => {
+                win.aetherBenchShownAt = at;
+                win.aetherBenchCancel?.();
+            });
         };
         document.addEventListener("pointerdown", onPointerDown, { capture: true, once: true });
         win.aetherBenchCancel = (): void => {
-            active = false;
-            cancelAnimationFrame(frame);
+            stopWatching?.();
             document.removeEventListener("pointerdown", onPointerDown, { capture: true });
         };
-        const shown = (thorough: boolean): boolean => win.aetherBenchReadable?.(wanted, thorough) ?? false;
-        const check = (): void => {
-            if (!active) return;
-            if (win.aetherBenchClickAt !== undefined && shown(false)) {
-                frame = requestAnimationFrame(() => {
-                    if (!active) return;
-                    // As in watchForText: the frame's time first, then the thorough check.
-                    const at = performance.now();
-                    if (shown(true)) {
-                        win.aetherBenchShownAt = at;
-                        win.aetherBenchCancel?.();
-                    } else {
-                        frame = requestAnimationFrame(check);
-                    }
-                });
-                return;
-            }
-            frame = requestAnimationFrame(check);
-        };
-        frame = requestAnimationFrame(check);
     }, target);
     try {
         await click();

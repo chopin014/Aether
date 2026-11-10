@@ -22,10 +22,18 @@ export interface ReadableWindow {
      * @param thorough - Also look for covers that let the pointer through, which costs restyling the page twice.
      */
     aetherBenchReadable?: (target: ReadableTarget, thorough?: boolean) => boolean;
+    /**
+     * Watch for `target` to be painted readable, and call `onReadable` once with when it was: the start of the frame
+     * after the first one painted with it readable, if it is still readable, checked thoroughly, after that frame too.
+     * Every check runs in a task of its own once a frame has been painted, so it never lengthens the app's frames and
+     * sees what was painted. Returns a function that stops watching.
+     */
+    aetherBenchWatchReadable?: (target: ReadableTarget, onReadable: (at: number) => void) => () => void;
 }
 
 /**
- * Puts `aetherBenchReadable` on the page's window: whether a target message can be read on screen.
+ * Puts `aetherBenchReadable` and `aetherBenchWatchReadable` on the page's window: whether a target message can be read
+ * on screen, and when it first was.
  *
  * Readable means all of these hold for one place the wanted text occurs, which may run across several nested elements.
  * Spaces between its words are not themselves checked.
@@ -246,6 +254,38 @@ export function installReadableCheck(): void {
             }
         }
     };
+    const watchReadable = (target: ReadableTarget, onReadable: (at: number) => void): (() => void) => {
+        let active = true;
+        let frame = 0;
+        // When the frame last painted started, and whether the target was readable after the one before it.
+        let frameAt = 0;
+        let seen = false;
+        const afterPaint = new MessageChannel();
+        const stop = (): void => {
+            active = false;
+            cancelAnimationFrame(frame);
+            afterPaint.port1.close();
+        };
+        // A message posted from a frame's callback is handled in a task of its own once that frame has been painted.
+        afterPaint.port1.onmessage = (): void => {
+            if (!active) return;
+            if (seen && readableNow(target, true)) {
+                stop();
+                onReadable(frameAt);
+                return;
+            }
+            // When the thorough check fails, start again from the next frame.
+            seen = !seen && readableNow(target);
+            frame = requestAnimationFrame(onFrame);
+        };
+        const onFrame = (): void => {
+            frameAt = performance.now();
+            afterPaint.port2.postMessage(null);
+        };
+        frame = requestAnimationFrame(onFrame);
+        return stop;
+    };
     const win = window as unknown as ReadableWindow;
     win.aetherBenchReadable = readableNow;
+    win.aetherBenchWatchReadable = watchReadable;
 }
