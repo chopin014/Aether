@@ -3141,9 +3141,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                     onFocus={this.onFocus}
                     tabIndex={-1}
                 >
-                    {showChatEffects && this.roomView.current && (
-                        <EffectsOverlay roomWidth={this.roomView.current.offsetWidth} />
-                    )}
+                    {showChatEffects && this.roomView.current && <EffectsOverlay room={this.roomView.current} />}
                     <ErrorBoundary>
                         {desktopShell && !this.props.hideHeader && (
                             <RoomHeader room={this.state.room} extraButtons={<>{extraButtons}</>} />

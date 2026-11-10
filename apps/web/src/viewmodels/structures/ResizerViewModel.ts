@@ -92,7 +92,7 @@ export class ResizerViewModel
             ),
         );
         this.disposables.track(() => this.onLeftPanelResize.cancel());
-        this.disposables.track(() => document.body.classList.remove(SEPARATOR_DRAGGING_CLASS));
+        this.disposables.track(() => this.onDraggingChange(false));
     }
 
     public onLeftPanelResize = debounce((panelSize: PanelSize): void => {
@@ -162,6 +162,8 @@ export class ResizerViewModel
      * which stops that container taking pointer events.
      */
     public onDraggingChange = (isDragging: boolean): void => {
+        // Only a real change touches the body, which otherwise keeps no class attribute it did not have.
+        if (document.body.classList.contains(SEPARATOR_DRAGGING_CLASS) === isDragging) return;
         document.body.classList.toggle(SEPARATOR_DRAGGING_CLASS, isDragging);
     };
 }
