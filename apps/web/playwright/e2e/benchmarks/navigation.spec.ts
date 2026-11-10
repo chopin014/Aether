@@ -26,6 +26,7 @@ import { rejectToastIfExists } from "@element-hq/element-web-playwright-common";
 
 import { expect, test } from "../../element-web-test";
 import type { Credentials } from "../../plugins/homeserver";
+import { add, blockingWithin, type LongTask, longestOverlapping, type Samples, summarise } from "./metrics";
 
 const enabled = Boolean(process.env.AETHER_BENCHMARK);
 const RUNS = Number(process.env.AETHER_BENCHMARK_RUNS ?? 5);
@@ -55,12 +56,6 @@ const AFTER_SWITCH_MS = Number(process.env.AETHER_BENCHMARK_AFTER_SWITCH_MS ?? 3
 // Whether every seeded room has encryption turned on, for what the app does differently in encrypted rooms. The
 // messages are still sent in the clear, as the seeding has no keys to encrypt with, so nothing is decrypted.
 const ENCRYPTED = Boolean(process.env.AETHER_BENCHMARK_ENCRYPTED);
-
-/** One protocol's results: each metric's samples in milliseconds. */
-type Samples = Record<string, number[]>;
-
-/** A long task, in the page's time: when it started and how long it ran, in milliseconds. */
-type LongTask = { start: number; duration: number };
 
 /** What {@link watchLongTasks} keeps on the page's window. */
 interface LongTaskWindow {
@@ -264,22 +259,12 @@ async function blockingAfterStart(page: Page): Promise<{ longest: number; blocki
     await page.waitForTimeout(AFTER_START_MS);
     const busy = Math.round(((await taskTime()) - busyBefore) * 1000);
     await cdp.detach();
-    const blocked = await page.evaluate((windowMs) => {
+    const { shownAt, tasks } = await page.evaluate(() => {
         const win = window as unknown as LongTaskWindow & { aetherBenchTextAt?: number };
-        const shownAt = win.aetherBenchTextAt!;
-        const end = shownAt + windowMs;
-        const tasks = (win.aetherBenchLongTasksNow?.() ?? []).filter(
-            (task) => task.start + task.duration > shownAt && task.start < end,
-        );
-        // Only the blocking inside the window counts, for a task that started before it or ends after it.
-        const blockingInWindow = (task: LongTask): number =>
-            Math.max(0, Math.min(task.start + task.duration, end) - Math.max(task.start + 50, shownAt));
-        return {
-            longest: Math.max(0, ...tasks.map((task) => task.duration)),
-            blocking: tasks.reduce((sum, task) => sum + blockingInWindow(task), 0),
-        };
-    }, AFTER_START_MS);
-    return { ...blocked, busy };
+        return { shownAt: win.aetherBenchTextAt!, tasks: win.aetherBenchLongTasksNow?.() ?? [] };
+    });
+    const end = shownAt + AFTER_START_MS;
+    return { longest: longestOverlapping(tasks, shownAt, end), blocking: blockingWithin(tasks, shownAt, end), busy };
 }
 
 /** Startup marks recorded by the app, in milliseconds since navigation. */
@@ -367,22 +352,22 @@ async function timeClickToText(page: Page, click: () => Promise<void>, text: str
         );
         // Long tasks are reported once they end, so wait for those still running, or put off, after the message shows.
         await page.waitForTimeout(AFTER_SWITCH_MS);
-        return await page.evaluate((afterMs) => {
+        const { clickAt, shownAt, tasks } = await page.evaluate(() => {
             const win = window as unknown as LongTaskWindow & {
                 aetherBenchClickAt: number;
                 aetherBenchShownAt: number;
             };
-            const from = win.aetherBenchClickAt;
-            const to = win.aetherBenchShownAt + afterMs;
-            // A task that began before the click but ran into it held the click up too.
-            const overlapping = (win.aetherBenchLongTasksNow?.() ?? []).filter(
-                (task) => task.start + task.duration > from && task.start < to,
-            );
             return {
-                ms: Math.round(win.aetherBenchShownAt - win.aetherBenchClickAt),
-                longestTask: Math.round(Math.max(0, ...overlapping.map((task) => task.duration))),
+                clickAt: win.aetherBenchClickAt,
+                shownAt: win.aetherBenchShownAt,
+                tasks: win.aetherBenchLongTasksNow?.() ?? [],
             };
-        }, AFTER_SWITCH_MS);
+        });
+        return {
+            ms: Math.round(shownAt - clickAt),
+            // A task that began before the click but ran into it held the click up too.
+            longestTask: Math.round(longestOverlapping(tasks, clickAt, shownAt + AFTER_SWITCH_MS)),
+        };
     } finally {
         await page.evaluate(() => (window as unknown as { aetherBenchCancel?: () => void }).aetherBenchCancel?.());
     }
@@ -431,32 +416,6 @@ async function measureClick(
 }
 
 const CLICK_TIMEOUT = 10_000;
-
-function percentile(samples: number[], p: number): number {
-    const sorted = [...samples].sort((a, b) => a - b);
-    return sorted[Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)];
-}
-
-function summarise(samples: Samples): Record<string, { n: number; p50: number; p95: number; max: number }> {
-    return Object.fromEntries(
-        Object.entries(samples)
-            .filter(([, values]) => values.length > 0)
-            .map(([metric, values]) => [
-                metric,
-                {
-                    n: values.length,
-                    p50: percentile(values, 50),
-                    p95: percentile(values, 95),
-                    max: Math.max(...values),
-                },
-            ]),
-    );
-}
-
-function add(samples: Samples, metric: string, value: number | undefined): void {
-    if (value === undefined || Number.isNaN(value)) return;
-    (samples[metric] ??= []).push(Math.round(value));
-}
 
 for (const protocol of ["regular", "sliding"] as const) {
     test.describe(`navigation benchmark (${protocol} sync)`, () => {
