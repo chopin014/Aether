@@ -1984,8 +1984,12 @@ export class RoomTimelineViewModel
         }
     }
 
-    /** Show the unread line, loading history around it when it is not in the window. */
+    /**
+     * Show the unread line, loading history around it when it is not in the window. With no unread line, nothing
+     * happens.
+     */
     public jumpToReadMarker(): void {
+        this.drawVisitUnreadLine();
         const marker = this.snapshot.current.items.find((item) => item.kind === "read-marker");
         if (marker) {
             this.supersedeLoads();
@@ -1995,6 +1999,18 @@ export class RoomTimelineViewModel
         } else if (this.frozenMarkerEventId) {
             void this.load({ kind: "permalink", eventId: this.frozenMarkerEventId, toReadMarker: true });
         }
+    }
+
+    /**
+     * As a visit begins, the rows still on screen carry the last visit's unread line until this visit's load draws
+     * its own. For a jump to the line that does not wait for the load, decide this visit's line now from the room's
+     * marker, as the load would, and draw it in those rows.
+     */
+    private drawVisitUnreadLine(): void {
+        if (!this.showingEarlierVisit || this.readMarkerFrozen) return;
+        this.freezeReadMarkerForSession();
+        this.commitItems(this.buildItems());
+        this.republish("visit-unread-line", { canJumpToReadMarker: this.computeCanJumpToReadMarker(this.baseItems) });
     }
 
     /**
@@ -2064,6 +2080,7 @@ export class RoomTimelineViewModel
     // ── Overlay button actions ───────────────────────────────────────
 
     public onJumpToReadMarker = (scrollNow: ImmediateScroll): void => {
+        this.drawVisitUnreadLine();
         const items = this.snapshot.current.items;
         const rmIdx = items.findIndex((item) => item.kind === "read-marker");
         debug(

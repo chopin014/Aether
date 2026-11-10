@@ -4040,9 +4040,9 @@ describe("RoomTimelineViewModel", () => {
         });
 
         it.each([
-            ["the newest message", (vm: RoomTimelineViewModel): void => vm.onJumpToLive(vi.fn())],
-            ["the unread line", (vm: RoomTimelineViewModel): void => vm.onJumpToReadMarker(vi.fn())],
-        ])("moves the fully read marker on after a jump to %s as a new visit begins", async (_, jump) => {
+            ["the newest message", (vm: RoomTimelineViewModel): void => vm.onJumpToLive(vi.fn()), "$b"],
+            ["the unread line", (vm: RoomTimelineViewModel): void => vm.onJumpToReadMarker(vi.fn()), "read-marker"],
+        ])("moves the fully read marker on after a jump to %s as a new visit begins", async (_, jump, target) => {
             vi.mocked(SettingsStore).getValue.mockImplementation((key): any => {
                 if (key === "sendReadReceipts") return true;
                 if (key === "readMarkerInViewThresholdMs" || key === "readMarkerOutOfViewThresholdMs") return 20;
@@ -4060,10 +4060,34 @@ describe("RoomTimelineViewModel", () => {
 
             // The reader jumps before the new visit's rows arrive, in the rows still shown.
             jump(vm);
-            vm.onAnchorReached();
+            await new Promise((r) => setTimeout(r, 10));
+            // The view can place the reader only at a row that is there.
+            expect(vm.getSnapshot().pendingAnchor?.targetKey).toBe(target);
+            expect(indexOfKey(vm.getSnapshot().items, target)).toBeGreaterThanOrEqual(0);
+            vm.onAnchorReached(target);
             shows(vm, "$a", "$b");
 
             await vi.waitFor(() => expect(markerWrites()).toEqual(["$b"]));
+        });
+
+        it("takes the reader to no unread line when a new visit has none, though the last visit's is still shown", async () => {
+            seedTimeline(othersMessages("$a", "$b"));
+            markFullyRead("$a");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            expect(firstUnreadKey(vm)).toBe("$b");
+            vm.deactivate();
+            // Read on another device meanwhile.
+            markFullyRead("$b");
+            vm.activate();
+
+            vm.onJumpToReadMarker(vi.fn());
+
+            expect(vm.getSnapshot().pendingAnchor).toBeNull();
+            expect(firstUnreadKey(vm)).toBeUndefined();
+            // The new visit's own rows still arrive.
+            await placeNewVisit(vm);
+            expect(firstUnreadKey(vm)).toBeUndefined();
         });
 
         it("stops fetching history for a visit that has ended", async () => {
