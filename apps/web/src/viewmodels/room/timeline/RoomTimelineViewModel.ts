@@ -2014,13 +2014,26 @@ export class RoomTimelineViewModel
     }
 
     /**
-     * The anchor to publish with `items`. The unread line can go while the reader is being taken to it, such as once
-     * they mark everything read. The view could then never say it has placed them there, which would hold back reading
-     * for the rest of the visit, so they stay where they are instead, and count as placed.
+     * The anchor to publish with `items`. The row the reader is being taken to can go before the view has placed them
+     * there, such as a message removed meanwhile, or the unread line once they mark everything read. The view could
+     * then never say it has placed them, which would hold back reading for the rest of the visit. They are taken to the
+     * nearest row left instead, the next one down or else the one above, as shown now. With none, they stay where they
+     * are and count as placed.
      */
     private anchorAmong(items: readonly TimelineItem[], anchor: NavigationAnchor | null): NavigationAnchor | null {
-        if (anchor?.targetKey !== "read-marker" || items.some((item) => item.kind === "read-marker")) return anchor;
-        debug(`[TimelineVM] the unread line went while the reader was being taken to it — staying put`);
+        if (!anchor || items.some((item) => item.key === anchor.targetKey)) return anchor;
+        const left = new Set(items.filter((item) => item.kind !== "loading").map((item) => item.key));
+        const shown = this.snapshot.current.items;
+        const gone = shown.findIndex((item) => item.key === anchor.targetKey);
+        if (gone >= 0) {
+            for (let i = gone + 1; i < shown.length; i++) {
+                if (left.has(shown[i].key)) return { ...anchor, targetKey: shown[i].key };
+            }
+            for (let i = gone - 1; i >= 0; i--) {
+                if (left.has(shown[i].key)) return { ...anchor, targetKey: shown[i].key };
+            }
+        }
+        debug(`[TimelineVM] the row the reader was being taken to went, ${anchor.targetKey} — staying put`);
         this.readerPlaced = true;
         return null;
     }

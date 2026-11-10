@@ -2601,7 +2601,7 @@ describe("RoomTimelineViewModel", () => {
             slow.resolve();
         });
 
-        it("lets the reader stay where they are when the unread line goes while they are being taken to it", async () => {
+        it("takes the reader to the row after the unread line when the line goes while they are taken to it", async () => {
             seedTimeline(messages(3));
             markerAt("$m0");
             const vm = await createStartedViewModel();
@@ -2611,8 +2611,51 @@ describe("RoomTimelineViewModel", () => {
 
             vm.onMarkAllAsRead();
 
-            // The view could never place them at a line that is gone.
-            expect(vm.getSnapshot().pendingAnchor).toBeNull();
+            // The view could never place them at a line that is gone, but it can at the first message after it.
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$m1", align: "third" });
+            expect(indexOfKey(vm.getSnapshot().items, "$m1")).toBeGreaterThanOrEqual(0);
+        });
+
+        it("still takes the reader down when the newest message is removed while they are taken to it", async () => {
+            startsActive();
+            seedTimeline(messages(3));
+            markerAt("$m0");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const realLoad = TimelineWindow.prototype.load;
+            const slow = Promise.withResolvers<void>();
+            vi.spyOn(TimelineWindow.prototype, "load").mockImplementation(async function (
+                this: TimelineWindow,
+                eventId?: string,
+                size?: number,
+            ) {
+                if (eventId === "$elsewhere") await slow.promise;
+                return realLoad.call(this, eventId, size);
+            });
+            vm.showEvent("$elsewhere");
+            vm.onJumpToLive(vi.fn());
+            expect(vm.getSnapshot().pendingAnchor?.targetKey).toBe("$m2");
+
+            // Removed by the client itself, as a retention policy removes messages.
+            room.tryApplyRedaction(
+                new MatrixEvent({
+                    type: EventType.RoomRedaction,
+                    sender: OTHER_USER_ID,
+                    event_id: "$removal",
+                    room_id: ROOM_ID,
+                    redacts: "$m2",
+                    content: {},
+                    origin_server_ts: Date.now(),
+                }),
+            );
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$m0", "$m1"]));
+
+            // Taken to the newest message left instead, which the view can place them at.
+            expect(vm.getSnapshot().pendingAnchor).toEqual({ targetKey: "$m1", align: "end" });
+            vm.onAnchorReached("$m1");
+            shows(vm, "$m0", "$m1");
+            await vi.waitFor(() => expect(writes()).toEqual(["$m1"]));
+            slow.resolve();
         });
 
         it("moves the marker on to the newest message when everything is marked read, never back", async () => {
