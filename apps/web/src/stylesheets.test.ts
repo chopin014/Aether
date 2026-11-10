@@ -110,10 +110,11 @@ interface PseudoArgument {
 
 /**
  * The selector list of an `:nth-child()` argument: everything after its first "of". An `An+B` never holds one, and
- * the list after it can hold more of its own.
+ * the list after it can hold more of its own. Space must come before "of" but need not follow it: `2n of.icon` is
+ * valid, so "of" is found as a whole word.
  */
 function afterOf(argument: string): string | undefined {
-    const of = /\sof\s/i.exec(argument);
+    const of = /\sof(?![\w-])/i.exec(argument);
     return of ? argument.slice(of.index + of[0].length) : undefined;
 }
 
@@ -244,6 +245,8 @@ describe("stylesheets", () => {
         [".tile:has(.panel) :nth-child(2n of .icon, span) {}"],
         ['.tile:has(.panel) [data-label="].icon"] {}'],
         [".tile:has(.panel) :nth-child(2n of :is(.icon:nth-child(odd of .active), span)) {}"],
+        [".tile:has(.panel) :nth-child(2n of:is(.icon:nth-child(odd of .active), span)) {}"],
+        [".tile:has(.panel) :nth-last-child(odd OF\tspan) {}"],
     ])("reports %s", (source) => {
         expect(problemsIn(source)).toHaveLength(1);
     });
@@ -260,6 +263,7 @@ describe("stylesheets", () => {
         [".mx_RoomView:not(.other):has(> .header) {}"],
         ['.tile:has([data-x="a, (b) ]"]) .line {}'],
         [".tile:has(.panel) :nth-child(2n of .a, .b) {}"],
+        [".tile:has(.panel) :nth-child(2n of.a) {}"],
         [".tile:has(.panel) :nth-last-child(2n of :is(.icon:nth-child(odd of .active), .b)) {}"],
         [".tile:has(.panel) .line:lang(en) {}"],
     ])("accepts %s", (source) => {
