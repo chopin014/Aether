@@ -509,13 +509,7 @@ export class RoomTimelineViewModel
             windowLimit: WINDOW_LIMIT,
         });
 
-        // Initialise the read marker from room account data.
-        const fullyRead =
-            (opts.room.getAccountData(EventType.FullyRead)?.getContent()?.event_id as string | undefined) ?? null;
-        // As the old timeline does, a room without a marker yet is read up to the reader's receipt, which the SDK
-        // also gives for the reader's own messages.
-        this.readMarkerEventId = fullyRead ?? opts.room.getEventReadUpTo(opts.client.getSafeUserId());
-        this.awaitingServerReadMarker = fullyRead === null;
+        this.readMarkerFromRoom();
 
         // NOTE: deliberately side-effect-free. React StrictMode (and useState
         // initializer checks) invoke `vmCreator` twice in dev, constructing
@@ -620,18 +614,52 @@ export class RoomTimelineViewModel
             ClientEvent.AccountData,
             this.onClientAccountData as (...args: unknown[]) => void,
         );
-        this.activate();
+        this.beginVisit();
     }
 
-    /**
-     * Begin a reading visit: from now on, what the reader sees may be sent as read, and the fully read marker moves on
-     * while they are around. {@link start} begins the first; {@link deactivate} ends it.
-     */
-    private activate(): void {
-        if (this.visitActive || this.isDisposed) return;
+    /** Take the room's fully read marker from its account data, as the room is opened. */
+    private readMarkerFromRoom(): void {
+        const fullyRead =
+            (this.opts.room.getAccountData(EventType.FullyRead)?.getContent()?.event_id as string | undefined) ?? null;
+        // As the old timeline does, a room without a marker yet is read up to the reader's receipt, which the SDK
+        // also gives for the reader's own messages.
+        this.readMarkerEventId = fullyRead ?? this.opts.room.getEventReadUpTo(this.opts.client.getSafeUserId());
+        this.awaitingServerReadMarker = fullyRead === null;
+    }
+
+    /** From now on, what the reader sees may be sent as read, and the fully read marker moves on while they are around. */
+    private beginVisit(): void {
         this.visitActive = true;
         this.visitGeneration++;
         if (this.readStateOnActivity) void this.moveReadMarkerOnWhileActive();
+    }
+
+    /**
+     * Begin a new reading visit to the room, after {@link deactivate} ended the last one. {@link start} begins the first.
+     *
+     * A new visit is read afresh, as if the room had been opened again: its unread line is decided from the room's
+     * marker as it is now, nothing seen in the last visit counts as seen in this one, and the window is loaded again
+     * where the reader left it, or at the newest messages. What the reader sees is read once the view has placed them
+     * there, as on the first visit.
+     */
+    public activate(): void {
+        if (!this.started || this.visitActive || this.isDisposed) return;
+        this.lastReceiptTargetId = null;
+        this.seenWhileActiveEventId = null;
+        this.lastBottomEventId = null;
+        this.visibleStartArrayIndex = 0;
+        this.visibleEndArrayIndex = 0;
+        this.isAtBottom = false;
+        this.unreadMessageCount = 0;
+        this.creationDeclined = undefined;
+        this.sentReadMarkerIds.clear();
+        this.readMarkerFrozen = false;
+        this.frozenMarkerEventId = null;
+        this.readMarkerFromRoom();
+        this.mergeSnapshot({ isAtBottom: false, numUnreadMessages: 0, canJumpToReadMarker: false }, "visit");
+        this.beginVisit();
+        const savedEventId = RoomTimelineViewModel.readScrollTarget(this.opts.room.roomId);
+        void this.load(savedEventId ? { kind: "restore", eventId: savedEventId } : { kind: "live" });
     }
 
     /**
@@ -645,7 +673,7 @@ export class RoomTimelineViewModel
      *   unread line. A write already sent is neither waited for nor stopped, so it can still land after this; one
      *   waiting its turn is not sent.
      */
-    private deactivate(): void {
+    public deactivate(): void {
         if (!this.visitActive) return;
         this.visitActive = false;
         this.visitGeneration++;
@@ -1653,6 +1681,8 @@ export class RoomTimelineViewModel
      * being snapped to the bottom by the virtualizer's grow-to-bottom trap (see the View's onSettled).
      */
     public onAnchorReached = (targetKey?: string | null): void => {
+        // Between visits the view places nobody: the next visit loads and places afresh.
+        if (!this.visitActive) return;
         const pending = this.snapshot.current.pendingAnchor;
         if (pending === null) return;
         // A newer anchor, such as a message navigated to while the first one was still being placed, stays.
@@ -1663,6 +1693,7 @@ export class RoomTimelineViewModel
     };
 
     public onAtBottomStateChange = (atBottom: boolean): void => {
+        if (!this.visitActive) return;
         this.isAtBottom = atBottom;
         if (atBottom && this.snapshot.current.atLiveEnd) {
             this.unreadMessageCount = 0;
@@ -1682,6 +1713,8 @@ export class RoomTimelineViewModel
      * then stores its ID for scroll-position persistence on dispose.
      */
     public onVisibleRangeChanged = (startIndex: number, endIndex: number): void => {
+        // Between visits nothing on screen is being read, and where the reader was is already saved.
+        if (!this.visitActive) return;
         // Don't record position while an anchor is pending — the range reflects
         // auto-placement, not the user's reading position. The View clears the
         // anchor (via onAnchorReached) once placement settles, after which normal

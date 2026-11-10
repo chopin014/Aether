@@ -3829,6 +3829,115 @@ describe("RoomTimelineViewModel", () => {
         });
     });
 
+    describe("reading visits", () => {
+        /** The key of the first row after the unread line, or undefined when there is no line. */
+        const firstUnreadKey = (vm: RoomTimelineViewModel): string | undefined => {
+            const items = vm.getSnapshot().items;
+            const line = indexOfKey(items, "read-marker");
+            return line < 0 ? undefined : items[line + 1]?.key;
+        };
+
+        const markFullyRead = (eventId: string): void => {
+            room.addAccountData([
+                new MatrixEvent({ type: EventType.FullyRead, room_id: ROOM_ID, content: { event_id: eventId } }),
+            ]);
+        };
+
+        it("sends nothing as read between visits", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.deactivate();
+
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            vm.sendReadReceiptNow();
+            vm.moveReadMarkerOnNow();
+            await new Promise((r) => setTimeout(r, 700));
+
+            expect(client.sendReadReceipt).not.toHaveBeenCalled();
+            expect(client.setRoomReadMarkers).not.toHaveBeenCalled();
+        });
+
+        it("drops a fully read marker write still waiting its turn when the visit ends", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+
+            vm.onMarkAllAsRead();
+            vm.deactivate();
+            await new Promise((r) => setTimeout(r, 10));
+
+            const markerWrites = vi
+                .mocked(client.http.authedRequest)
+                .mock.calls.filter(([, path]) => String(path).includes("/read_markers"));
+            expect(markerWrites).toEqual([]);
+        });
+
+        it("decides the unread line afresh on a new visit, from the room's marker as it is then", async () => {
+            vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+            seedTimeline([
+                makeMessage("$a", { user: OTHER_USER_ID }),
+                makeMessage("$b", { user: OTHER_USER_ID }),
+                makeMessage("$c", { user: OTHER_USER_ID }),
+            ]);
+            markFullyRead("$a");
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            expect(firstUnreadKey(vm)).toBe("$b");
+
+            // Another device reads on: the line drawn for this visit stays put.
+            markFullyRead("$b");
+            expect(firstUnreadKey(vm)).toBe("$b");
+
+            vm.deactivate();
+            vm.activate();
+
+            await vi.waitFor(() => expect(firstUnreadKey(vm)).toBe("$c"));
+        });
+
+        it("reads what a new visit shows once the view has placed the reader", async () => {
+            vi.mocked(UserActivity.sharedInstance().userActiveNow).mockReturnValue(false);
+            vi.spyOn(UserActivity.sharedInstance(), "timeWhileActiveNow").mockImplementation(() => {});
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = new RoomTimelineViewModel({ client, room, sendReadReceiptOnLoad: true });
+            vms.push(vm);
+            vm.start();
+            await vi.waitFor(() => expect(vm.getSnapshot().items.length).toBeGreaterThan(0));
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            expect(client.sendReadReceipt).toHaveBeenCalledTimes(1);
+
+            vm.deactivate();
+            room.getUnfilteredTimelineSet().addLiveEvent(makeMessage("$c"), { addToState: false });
+            vm.activate();
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain("$c"));
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            expect(client.sendReadReceipt).toHaveBeenCalledTimes(1);
+
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+
+            expect(client.sendReadReceipt).toHaveBeenCalledTimes(2);
+            expect(vi.mocked(client.sendReadReceipt).mock.calls[1][0]?.getId()).toBe("$c");
+        });
+
+        it("saves where the reader was once, as the visit ends", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b"), makeMessage("$c")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onAtBottomStateChange(false);
+            vm.onVisibleRangeChanged(0, indexOfKey(vm.getSnapshot().items, "$b"));
+
+            vm.deactivate();
+            expect(localStorage.getItem(`timeline_scroll_${ROOM_ID}`)).toBe("$b");
+
+            // A later view of the room moved on since; disposing this one does not save its old position again.
+            localStorage.setItem(`timeline_scroll_${ROOM_ID}`, "$a");
+            vm.dispose();
+            expect(localStorage.getItem(`timeline_scroll_${ROOM_ID}`)).toBe("$a");
+        });
+    });
+
     describe("messages being sent", () => {
         /** Put a message of ours into the room's pending list, as the SDK does when the composer sends. */
         const addPendingMessage = (id: string, opts: { ts?: number; relatesTo?: IEventRelation } = {}): MatrixEvent => {
