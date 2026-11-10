@@ -455,12 +455,15 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     // Counts room view store updates, so one that waited on the server can tell that a newer one came meanwhile.
     private storeUpdates = 0;
     /**
-     * Whether the room is encrypted, as crypto last answered while this view was shown, or `null` until it has
-     * answered. URL previews follow this; see getPreviewUrlVisibility.
+     * Whether the room is encrypted, as last answered while this view was shown, or `null` until an answer has come,
+     * and again while the room is asked about anew because its encryption changed. URL previews follow this; see
+     * getPreviewUrlVisibility.
      */
     private checkedEncryption: boolean | null = null;
+    /** Counts the checks of whether the room is encrypted started, so that only the newest one's answer is shown. */
+    private encryptionChecks = 0;
     /** The check of whether the room is encrypted that still waits for crypto; see {@link getIsRoomEncrypted}. */
-    private pendingEncryptionCheck?: { room: Room; result: Promise<boolean> };
+    private pendingEncryptionCheck?: { room: Room; check: number; result: Promise<boolean> };
     private cancelMemberPreparation?: () => void;
     private permalinkCreators: Record<string, RoomPermalinkCreator> = {};
 
@@ -909,14 +912,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         }
 
         // We don't block the initial setup but we want to make it early to not block the timeline rendering
-        const isRoomEncrypted = await this.getIsRoomEncrypted(newState.roomId);
-        this.checkedEncryption = isRoomEncrypted;
-        this.setState({
-            isRoomEncrypted,
-            showUrlPreview: this.getPreviewUrlVisibility(),
-            ...(isRoomEncrypted &&
-                newState.roomId && { e2eStatus: RoomView.e2eStatusCache.get(newState.roomId) ?? E2EStatus.Warning }),
-        });
+        const { check, encrypted } = await this.getIsRoomEncrypted(newState.roomId);
+        this.showEncryption(check, encrypted, newState.roomId);
     };
 
     private onCallClose = (): void => {
@@ -1690,26 +1687,49 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     }
 
     /**
-     * Ask crypto whether the room is encrypted. A check of the same room still waiting for crypto answers every caller
-     * meanwhile, such as the room being set up and the room view store's update, unless `fresh` asks again because
-     * the room's encryption has changed since.
+     * Ask whether the room is encrypted, and which check answers: only the newest check's answer is shown (see
+     * {@link showEncryption}), as an older one can come back later. A check of the same room still waiting for crypto
+     * answers every caller meanwhile, such as the room being set up and the room view store's update, unless `fresh`
+     * asks again because the room's encryption has changed since. Without crypto the room's state answers, and for a
+     * room not known the answer is `null`: not known either.
      */
-    private async getIsRoomEncrypted(roomId = this.state.roomId, fresh = false): Promise<boolean> {
-        if (!roomId) return false;
-
-        const room = this.context.client?.getRoom(roomId);
+    private async getIsRoomEncrypted(
+        roomId = this.state.roomId,
+        fresh = false,
+    ): Promise<{ check: number; encrypted: boolean | null }> {
+        const room = roomId ? this.context.client?.getRoom(roomId) : null;
         const crypto = this.context.client?.getCrypto();
-        if (!room || !crypto) return false;
+        if (!room) return { check: ++this.encryptionChecks, encrypted: null };
+        if (!crypto) return { check: ++this.encryptionChecks, encrypted: room.hasEncryptionStateEvent() };
 
-        const pending = this.pendingEncryptionCheck;
-        if (!fresh && pending?.room === room) return pending.result;
-        const check = { room, result: isRoomEncrypted(room, crypto) };
-        this.pendingEncryptionCheck = check;
-        const settled = (): void => {
-            if (this.pendingEncryptionCheck === check) this.pendingEncryptionCheck = undefined;
-        };
-        check.result.then(settled, settled);
-        return check.result;
+        let pending = this.pendingEncryptionCheck;
+        if (fresh || pending?.room !== room) {
+            const started = { room, check: ++this.encryptionChecks, result: isRoomEncrypted(room, crypto) };
+            const settled = (): void => {
+                if (this.pendingEncryptionCheck === started) this.pendingEncryptionCheck = undefined;
+            };
+            started.result.then(settled, settled);
+            this.pendingEncryptionCheck = pending = started;
+        }
+        return { check: pending.check, encrypted: await pending.result };
+    }
+
+    /**
+     * Show whether the room is encrypted as `check` answered, unless a newer check has started since: an older answer
+     * can predate the room being encrypted. URL previews follow it, and an encrypted room shows its last known trust
+     * shield, or a warning, until the shield is worked out again. A room not known shows as not encrypted, while its
+     * URL previews stay off.
+     * @returns Whether the answer was shown.
+     */
+    private showEncryption(check: number, encrypted: boolean | null, roomId = this.state.roomId): boolean {
+        if (this.unmounted || check !== this.encryptionChecks) return false;
+        this.checkedEncryption = encrypted;
+        this.setState({
+            isRoomEncrypted: encrypted ?? false,
+            showUrlPreview: this.getPreviewUrlVisibility(),
+            ...(encrypted && roomId && { e2eStatus: RoomView.e2eStatusCache.get(roomId) ?? E2EStatus.Warning }),
+        });
+        return true;
     }
 
     private async calculateRecommendedVersion(room: Room): Promise<void> {
@@ -1760,8 +1780,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
 
     /**
      * Whether to show URL previews, which ask the homeserver about the links in messages: by the setting for encrypted
-     * rooms or the one for other rooms, as crypto last answered while this view was shown. Until it has answered, they
-     * stay off: a room whose encryption is not yet known may be encrypted.
+     * rooms or the one for other rooms, as last answered while this view was shown (see {@link checkedEncryption}).
+     * Until then they stay off: a room whose encryption is not yet known may be encrypted.
      */
     private getPreviewUrlVisibility(): boolean {
         if (this.checkedEncryption === null) return false;
@@ -1836,6 +1856,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 this.setState({ tombstone: this.getRoomTombstone() });
                 break;
             case EventType.RoomEncryption: {
+                // The room may have just been encrypted: URL previews stop at once, until crypto has answered.
+                this.checkedEncryption = null;
+                this.updatePreviewUrlVisibility();
                 // Crypto takes in the event before the room's state does, so a check asked now has its answer.
                 await this.updateRoomEncrypted(this.state.room, true);
                 break;
@@ -1845,19 +1868,23 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         }
     };
 
-    /** @param fresh - Ask crypto again rather than share a check already waiting, as the room's encryption changed. */
+    /**
+     * Show whether the room is encrypted, then, for an encrypted room, work out its trust shield.
+     * @param fresh - Ask crypto again rather than share a check already waiting, as the room's encryption changed.
+     */
     private async updateRoomEncrypted(room = this.state.room, fresh = false): Promise<void> {
-        if (!room || !this.context.client) return;
+        const client = this.context.client;
+        if (!room || !client) return;
 
-        const isRoomEncrypted = await this.getIsRoomEncrypted(room.roomId, fresh);
-        const newE2EStatus = isRoomEncrypted ? await this.cacheAndGetE2EStatus(room, this.context.client) : null;
-
-        this.checkedEncryption = isRoomEncrypted;
-        this.setState({
-            isRoomEncrypted,
-            showUrlPreview: this.getPreviewUrlVisibility(),
-            ...(newE2EStatus && { e2eStatus: newE2EStatus }),
-        });
+        const { check, encrypted } = await this.getIsRoomEncrypted(room.roomId, fresh);
+        // Shown before the shield is worked out, which can take a while: URL previews must not wait for it.
+        this.showEncryption(check, encrypted, room.roomId);
+        // The shield is worked out even when a newer check answers, as the room view store's do not work it out, and
+        // encryption cannot be turned off again: the room stays encrypted.
+        if (!encrypted) return;
+        const e2eStatus = await this.cacheAndGetE2EStatus(room, client);
+        // Unless a newer answer has said since that the room is not encrypted, as one without crypto can.
+        if (!this.unmounted && this.checkedEncryption !== false) this.setState({ e2eStatus });
     }
 
     private onRoomStateUpdate = (state: RoomState): void => {
