@@ -27,6 +27,7 @@ import { rejectToastIfExists } from "@element-hq/element-web-playwright-common";
 import { expect, test } from "../../element-web-test";
 import type { Credentials } from "../../plugins/homeserver";
 import { add, blockingWithin, type LongTask, longestOverlapping, type Samples, summarise } from "./metrics";
+import { installReadableCheck, type ReadableTarget, type ReadableWindow } from "./readableTimeline";
 
 const enabled = Boolean(process.env.AETHER_BENCHMARK);
 const RUNS = Number(process.env.AETHER_BENCHMARK_RUNS ?? 5);
@@ -69,10 +70,10 @@ interface LongTaskWindow {
 }
 
 interface SeededAccount {
-    /** A room opened directly at startup, with its newest message. */
-    destination: { roomId: string; text: string };
-    /** Spaces with their channels, each channel with its newest message. */
-    spaces: { roomId: string; name: string; channels: { roomId: string; name: string; text: string }[] }[];
+    /** A room opened directly at startup, as its newest message. */
+    destination: ReadableTarget;
+    /** Spaces with their channels, each channel as its newest message. */
+    spaces: { roomId: string; name: string; channels: (ReadableTarget & { name: string })[] }[];
 }
 
 /** Sends client-server API requests as the seeded user. */
@@ -89,12 +90,15 @@ class Api {
         return response.room_id as string;
     }
 
-    public async sendMessage(roomId: string, body: string): Promise<void> {
+    /** Send a text message, returning its event id. */
+    public async sendMessage(roomId: string, body: string): Promise<string> {
         const txn = `bench-${Date.now()}-${this.txn++}`;
-        await this.call("PUT", `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txn}`, {
-            msgtype: "m.text",
-            body,
-        });
+        const response = await this.call(
+            "PUT",
+            `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txn}`,
+            { msgtype: "m.text", body },
+        );
+        return response.event_id as string;
     }
 
     public async sendState(roomId: string, type: string, stateKey: string, content: object): Promise<void> {
@@ -136,12 +140,14 @@ async function inBatches<T>(items: T[], limit: number, task: (item: T, index: nu
     }
 }
 
-async function seedRoom(api: Api, name: string, extra: Record<string, unknown> = {}): Promise<string> {
+/** Create a room with {@link MESSAGES_PER_ROOM} messages, returning it as its newest message. */
+async function seedRoom(api: Api, name: string, extra: Record<string, unknown> = {}): Promise<ReadableTarget> {
     const encryption = { type: "m.room.encryption", state_key: "", content: { algorithm: "m.megolm.v1.aes-sha2" } };
     const initialState = [...(ENCRYPTED ? [encryption] : []), ...((extra.initial_state as object[] | undefined) ?? [])];
     const roomId = await api.createRoom({ name, preset: "private_chat", ...extra, initial_state: initialState });
-    for (let i = 0; i < MESSAGES_PER_ROOM; i++) await api.sendMessage(roomId, `${name} message ${i}`);
-    return roomId;
+    let eventId = "";
+    for (let i = 0; i < MESSAGES_PER_ROOM; i++) eventId = await api.sendMessage(roomId, `${name} message ${i}`);
+    return { roomId, eventId, text: `${name} message ${MESSAGES_PER_ROOM - 1}` };
 }
 
 async function seedAccount(api: Api, serverName: string): Promise<SeededAccount> {
@@ -149,11 +155,10 @@ async function seedAccount(api: Api, serverName: string): Promise<SeededAccount>
     await inBatches(plain, 8, async (name) => {
         await seedRoom(api, name);
     });
-    const destinationName = "Bench destination";
-    const destinationId = await seedRoom(api, destinationName);
+    const destination = await seedRoom(api, "Bench destination");
     if (ENCRYPTED) {
         // The server applies a new room's initial state as it sees fit, so check that encryption really is on.
-        const encryption = await api.getState(destinationId, "m.room.encryption");
+        const encryption = await api.getState(destination.roomId, "m.room.encryption");
         expect(encryption.algorithm, "seeded rooms are encrypted").toBe("m.megolm.v1.aes-sha2");
     }
 
@@ -167,48 +172,30 @@ async function seedAccount(api: Api, serverName: string): Promise<SeededAccount>
             6,
             async (index) => {
                 const channelName = `server ${s} channel ${index}`;
-                const roomId = await seedRoom(api, channelName);
+                const channel = await seedRoom(api, channelName);
                 // The Space lists its channels in this order whatever order the requests finish in, so the channel
                 // a Space opens first is the first here.
                 const order = String(index).padStart(3, "0");
-                await api.sendState(spaceId, "m.space.child", roomId, { via: [serverName], order });
-                await api.sendState(roomId, "m.space.parent", spaceId, { via: [serverName], canonical: true });
-                channels[index] = {
-                    roomId,
-                    name: channelName,
-                    text: `${channelName} message ${MESSAGES_PER_ROOM - 1}`,
-                };
+                await api.sendState(spaceId, "m.space.child", channel.roomId, { via: [serverName], order });
+                await api.sendState(channel.roomId, "m.space.parent", spaceId, { via: [serverName], canonical: true });
+                channels[index] = { ...channel, name: channelName };
             },
         );
         spaces.push({ roomId: spaceId, name, channels });
         console.log(`[benchmark] seeded ${name}`);
     }
-    return {
-        destination: { roomId: destinationId, text: `${destinationName} message ${MESSAGES_PER_ROOM - 1}` },
-        spaces,
-    };
+    return { destination, spaces };
 }
 
 /**
- * Record, from navigation start, when a message with `text` is first painted. Installed before the app loads, so a
- * timeline drawn from a cache is seen as early as one drawn from the network.
+ * Record, from navigation start, when `target` is first painted readable; see {@link installReadableCheck}. Installed
+ * before the app loads, so a timeline drawn from a cache is seen as early as one drawn from the network. Needs the
+ * readable check installed before it.
  */
-async function watchForText(page: Page, text: string): Promise<void> {
+async function watchForText(page: Page, target: ReadableTarget): Promise<void> {
     await page.addInitScript((wanted) => {
-        const win = window as unknown as { aetherBenchTextAt?: number };
-        // Shown means visible to the eye: not laid out under a hidden list while the timeline places it, and inside
-        // the timeline's viewport.
-        const shown = (): boolean =>
-            [...document.querySelectorAll(".mx_EventTile_body")].some((body) => {
-                if (!body.textContent?.includes(wanted) || getComputedStyle(body).visibility !== "visible")
-                    return false;
-                const rect = body.getBoundingClientRect();
-                const viewport = (
-                    body.closest("[data-testid='timeline-scroller'], .mx_RoomView_messagePanel") ??
-                    document.documentElement
-                ).getBoundingClientRect();
-                return rect.height > 0 && rect.bottom > viewport.top && rect.top < viewport.bottom;
-            });
+        const win = window as unknown as ReadableWindow & { aetherBenchTextAt?: number };
+        const shown = (): boolean => win.aetherBenchReadable?.(wanted) ?? false;
         const check = (): void => {
             if (win.aetherBenchTextAt !== undefined) return;
             // Painted on the frame after it was first seen shown, if it is still shown then.
@@ -222,7 +209,7 @@ async function watchForText(page: Page, text: string): Promise<void> {
             requestAnimationFrame(check);
         };
         requestAnimationFrame(check);
-    }, text);
+    }, target);
 }
 
 /** Record the page's long tasks from the moment each page load starts. */
@@ -285,27 +272,38 @@ interface SwitchTiming {
     ms: number;
     /** Milliseconds of the longest task overlapping that time or the {@link AFTER_SWITCH_MS} after it; 0 for none. */
     longestTask: number;
+    /** Milliseconds from the browser taking the click to the page's first handler for it running. */
+    inputDelay: number;
+}
+
+/** What {@link timeClickToText} keeps on the page's window while it measures. */
+interface ClickWindow extends ReadableWindow, LongTaskWindow {
+    aetherBenchClickAt?: number;
+    aetherBenchInputDelay?: number;
+    aetherBenchShownAt?: number;
+    aetherBenchCancel?: () => void;
 }
 
 /**
- * Time from a click to a message with `text` being painted, measured in the page, and the longest task in that time or
- * soon after. Long tasks come from {@link watchLongTasks}, which must have been set up before the page loaded.
+ * Time from a click to `target` being painted readable, measured in the page, and the longest task in that time or
+ * soon after. Long tasks come from {@link watchLongTasks}, which must have been set up before the page loaded, as must
+ * the readable check; see {@link installReadableCheck}.
  */
-async function timeClickToText(page: Page, click: () => Promise<void>, text: string): Promise<SwitchTiming> {
+async function timeClickToText(page: Page, click: () => Promise<void>, target: ReadableTarget): Promise<SwitchTiming> {
     await page.evaluate((wanted) => {
-        const win = window as unknown as {
-            aetherBenchClickAt?: number;
-            aetherBenchShownAt?: number;
-            aetherBenchCancel?: () => void;
-        };
+        const win = window as unknown as ClickWindow;
         // An earlier attempt that failed must not keep watching, or record into this one.
         win.aetherBenchCancel?.();
         win.aetherBenchClickAt = undefined;
+        win.aetherBenchInputDelay = undefined;
         win.aetherBenchShownAt = undefined;
         let active = true;
         let frame = 0;
-        const onPointerDown = (): void => {
-            win.aetherBenchClickAt ??= performance.now();
+        const onPointerDown = (event: PointerEvent): void => {
+            if (win.aetherBenchClickAt !== undefined) return;
+            win.aetherBenchClickAt = performance.now();
+            // The event's time stamp is when the browser took it, so this is how long it waited for the page.
+            win.aetherBenchInputDelay = Math.max(0, win.aetherBenchClickAt - event.timeStamp);
         };
         document.addEventListener("pointerdown", onPointerDown, { capture: true, once: true });
         win.aetherBenchCancel = (): void => {
@@ -313,18 +311,7 @@ async function timeClickToText(page: Page, click: () => Promise<void>, text: str
             cancelAnimationFrame(frame);
             document.removeEventListener("pointerdown", onPointerDown, { capture: true });
         };
-        // Shown as in watchForText: visible, and inside the timeline's viewport.
-        const shown = (): boolean =>
-            [...document.querySelectorAll(".mx_EventTile_body")].some((body) => {
-                if (!body.textContent?.includes(wanted) || getComputedStyle(body).visibility !== "visible")
-                    return false;
-                const rect = body.getBoundingClientRect();
-                const viewport = (
-                    body.closest("[data-testid='timeline-scroller'], .mx_RoomView_messagePanel") ??
-                    document.documentElement
-                ).getBoundingClientRect();
-                return rect.height > 0 && rect.bottom > viewport.top && rect.top < viewport.bottom;
-            });
+        const shown = (): boolean => win.aetherBenchReadable?.(wanted) ?? false;
         const check = (): void => {
             if (!active) return;
             if (win.aetherBenchClickAt !== undefined && shown()) {
@@ -342,24 +329,22 @@ async function timeClickToText(page: Page, click: () => Promise<void>, text: str
             frame = requestAnimationFrame(check);
         };
         frame = requestAnimationFrame(check);
-    }, text);
+    }, target);
     try {
         await click();
         await page.waitForFunction(
-            () => (window as unknown as { aetherBenchShownAt?: number }).aetherBenchShownAt !== undefined,
+            () => (window as unknown as ClickWindow).aetherBenchShownAt !== undefined,
             undefined,
             { timeout: 30_000 },
         );
         // Long tasks are reported once they end, so wait for those still running, or put off, after the message shows.
         await page.waitForTimeout(AFTER_SWITCH_MS);
-        const { clickAt, shownAt, tasks } = await page.evaluate(() => {
-            const win = window as unknown as LongTaskWindow & {
-                aetherBenchClickAt: number;
-                aetherBenchShownAt: number;
-            };
+        const { clickAt, shownAt, inputDelay, tasks } = await page.evaluate(() => {
+            const win = window as unknown as ClickWindow;
             return {
-                clickAt: win.aetherBenchClickAt,
-                shownAt: win.aetherBenchShownAt,
+                clickAt: win.aetherBenchClickAt!,
+                shownAt: win.aetherBenchShownAt!,
+                inputDelay: win.aetherBenchInputDelay ?? 0,
                 tasks: win.aetherBenchLongTasksNow?.() ?? [],
             };
         });
@@ -367,9 +352,10 @@ async function timeClickToText(page: Page, click: () => Promise<void>, text: str
             ms: Math.round(shownAt - clickAt),
             // A task that began before the click but ran into it held the click up too.
             longestTask: Math.round(longestOverlapping(tasks, clickAt, shownAt + AFTER_SWITCH_MS)),
+            inputDelay: Math.round(inputDelay),
         };
     } finally {
-        await page.evaluate(() => (window as unknown as { aetherBenchCancel?: () => void }).aetherBenchCancel?.());
+        await page.evaluate(() => (window as unknown as ClickWindow).aetherBenchCancel?.());
     }
 }
 
@@ -383,7 +369,8 @@ async function dismissToasts(page: Page): Promise<void> {
 }
 
 /**
- * {@link timeClickToText} into `samples` under `metric`, with its longest task under `<metric>, longest task`. Toasts
+ * {@link timeClickToText} into `samples` under `metric`, with its longest task under `<metric>, longest task` and how
+ * long the click waited for the page under `<metric>, input delay`. Toasts
  * are closed first so they cannot block the click. Closing them happens outside the measurement, because clicking a
  * toast would count as the click being timed. A toast that appears during the click blocks it, so the measurement is
  * taken again; the first try already moved there, so its sample is not kept, but counted under
@@ -395,15 +382,16 @@ async function measureClick(
     samples: Samples,
     metric: string,
     click: () => Promise<void>,
-    text: string,
+    target: ReadableTarget,
 ): Promise<void> {
     for (let attempt = 0; ; attempt++) {
         await dismissToasts(page);
         try {
-            const timing = await timeClickToText(page, click, text);
+            const timing = await timeClickToText(page, click, target);
             if (attempt === 0) {
                 add(samples, metric, timing.ms);
                 add(samples, `${metric}, longest task`, timing.longestTask);
+                add(samples, `${metric}, input delay`, timing.inputDelay);
             } else {
                 add(samples, `${metric}, measured again`, 1);
             }
@@ -450,7 +438,8 @@ for (const protocol of ["regular", "sliding"] as const) {
             }
 
             // Opening the account for the first time on this device: nothing is cached.
-            await watchForText(page, seeded.destination.text);
+            await page.addInitScript(installReadableCheck);
+            await watchForText(page, seeded.destination);
             await watchLongTasks(page);
             await page.goto(`/#/room/${seeded.destination.roomId}`);
             await page.waitForFunction(
@@ -530,7 +519,7 @@ for (const protocol of ["regular", "sliding"] as const) {
                                     .first()
                                     .click({ timeout: CLICK_TIMEOUT });
                             },
-                            channel.text,
+                            channel,
                         );
                     }
                 }
@@ -542,7 +531,11 @@ for (const protocol of ["regular", "sliding"] as const) {
                 // The Space reopens the channel last opened in it. Check, so a different choice cannot slip an open
                 // channel into the measurements.
                 const reopened = space.channels[(RUNS - 1) % SERVER_SWITCH_CHANNELS];
-                await expect(page.locator(".mx_EventTile_body", { hasText: reopened.text }).first()).toBeVisible();
+                await page.waitForFunction(
+                    (wanted) => (window as unknown as ReadableWindow).aetherBenchReadable?.(wanted) ?? false,
+                    reopened,
+                    { timeout: 10_000 },
+                );
                 current = reopened.name;
                 for (let run = 0; run < SWITCH_PASSES; run++) {
                     for (const channel of space.channels) {
@@ -563,7 +556,7 @@ for (const protocol of ["regular", "sliding"] as const) {
                                     .locator(`[title="${channel.name}"]`)
                                     .first()
                                     .click({ timeout: CLICK_TIMEOUT }),
-                            channel.text,
+                            channel,
                         );
                     }
                 }
