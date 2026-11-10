@@ -90,11 +90,9 @@ const EffectsOverlay: FunctionComponent<IProps> = ({ room }) => {
         return () => {
             dis.unregister(dispatcherRef);
             UIStore.instance.off(UI_EVENTS.Resize, resize);
-            for (const effect in currentEffects) {
-                const effectModule: ICanvasEffect = currentEffects.get(effect)!;
-                if (effectModule && effectModule.isRunning) {
-                    void effectModule.stop();
-                }
+            // A Map's entries are not its properties, so they are taken from its values.
+            for (const effectModule of currentEffects.values()) {
+                if (effectModule.isRunning) void effectModule.stop();
             }
         };
     }, [startEffect]);
