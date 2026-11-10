@@ -46,7 +46,7 @@ const SETTLE_MS = Number(process.env.AETHER_BENCHMARK_SETTLE_MS ?? 3000);
 // How long after the app shows a room at start its long tasks are counted, in milliseconds: what is left to load
 // then, such as the rest of the account, must not keep the page from answering.
 const AFTER_START_MS = Number(process.env.AETHER_BENCHMARK_AFTER_START_MS ?? 5000);
-// How many passes over the first Space's channels the channel switches make. Every pass after the first gives five
+// How many passes over the first Space's channels the channel switches make. Every pass after the first gives six
 // switches to channels already opened, so raising it gathers enough of them for a percentile to mean something.
 const SWITCH_PASSES = Number(process.env.AETHER_BENCHMARK_SWITCH_PASSES ?? 2);
 // How long after a switch shows its message its long tasks still count, in milliseconds: work put off until the message
@@ -58,6 +58,20 @@ const ENCRYPTED = Boolean(process.env.AETHER_BENCHMARK_ENCRYPTED);
 
 /** One protocol's results: each metric's samples in milliseconds. */
 type Samples = Record<string, number[]>;
+
+/** A long task, in the page's time: when it started and how long it ran, in milliseconds. */
+type LongTask = { start: number; duration: number };
+
+/** What {@link watchLongTasks} keeps on the page's window. */
+interface LongTaskWindow {
+    /** The long tasks the observer has delivered. */
+    aetherBenchLongTasks?: LongTask[];
+    /**
+     * Every long task so far, those the observer has not delivered yet included: it delivers at low priority, so a
+     * task that has ended may not have reached the list when it is read.
+     */
+    aetherBenchLongTasksNow?: () => LongTask[];
+}
 
 interface SeededAccount {
     /** A room opened directly at startup, with its newest message. */
@@ -129,8 +143,8 @@ async function inBatches<T>(items: T[], limit: number, task: (item: T, index: nu
 
 async function seedRoom(api: Api, name: string, extra: Record<string, unknown> = {}): Promise<string> {
     const encryption = { type: "m.room.encryption", state_key: "", content: { algorithm: "m.megolm.v1.aes-sha2" } };
-    const initialState = ENCRYPTED ? { initial_state: [encryption] } : {};
-    const roomId = await api.createRoom({ name, preset: "private_chat", ...initialState, ...extra });
+    const initialState = [...(ENCRYPTED ? [encryption] : []), ...((extra.initial_state as object[] | undefined) ?? [])];
+    const roomId = await api.createRoom({ name, preset: "private_chat", ...extra, initial_state: initialState });
     for (let i = 0; i < MESSAGES_PER_ROOM; i++) await api.sendMessage(roomId, `${name} message ${i}`);
     return roomId;
 }
@@ -219,13 +233,19 @@ async function watchForText(page: Page, text: string): Promise<void> {
 /** Record the page's long tasks from the moment each page load starts. */
 async function watchLongTasks(page: Page): Promise<void> {
     await page.addInitScript(() => {
-        const win = window as unknown as { aetherBenchLongTasks?: { start: number; duration: number }[] };
-        win.aetherBenchLongTasks = [];
-        new PerformanceObserver((list) => {
-            for (const entry of list.getEntries()) {
-                win.aetherBenchLongTasks!.push({ start: entry.startTime, duration: entry.duration });
-            }
-        }).observe({ type: "longtask", buffered: true });
+        const win = window as unknown as LongTaskWindow;
+        const tasks: LongTask[] = [];
+        const record = (entries: PerformanceEntryList): void => {
+            for (const entry of entries) tasks.push({ start: entry.startTime, duration: entry.duration });
+        };
+        const observer = new PerformanceObserver((list) => record(list.getEntries()));
+        observer.observe({ type: "longtask", buffered: true });
+        win.aetherBenchLongTasks = tasks;
+        win.aetherBenchLongTasksNow = (): LongTask[] => {
+            // Only entries not delivered yet, so none is counted twice.
+            record(observer.takeRecords());
+            return tasks;
+        };
     });
 }
 
@@ -245,17 +265,14 @@ async function blockingAfterStart(page: Page): Promise<{ longest: number; blocki
     const busy = Math.round(((await taskTime()) - busyBefore) * 1000);
     await cdp.detach();
     const blocked = await page.evaluate((windowMs) => {
-        const win = window as unknown as {
-            aetherBenchTextAt?: number;
-            aetherBenchLongTasks?: { start: number; duration: number }[];
-        };
+        const win = window as unknown as LongTaskWindow & { aetherBenchTextAt?: number };
         const shownAt = win.aetherBenchTextAt!;
         const end = shownAt + windowMs;
-        const tasks = (win.aetherBenchLongTasks ?? []).filter(
+        const tasks = (win.aetherBenchLongTasksNow?.() ?? []).filter(
             (task) => task.start + task.duration > shownAt && task.start < end,
         );
         // Only the blocking inside the window counts, for a task that started before it or ends after it.
-        const blockingInWindow = (task: { start: number; duration: number }): number =>
+        const blockingInWindow = (task: LongTask): number =>
             Math.max(0, Math.min(task.start + task.duration, end) - Math.max(task.start + 50, shownAt));
         return {
             longest: Math.max(0, ...tasks.map((task) => task.duration)),
@@ -351,15 +368,14 @@ async function timeClickToText(page: Page, click: () => Promise<void>, text: str
         // Long tasks are reported once they end, so wait for those still running, or put off, after the message shows.
         await page.waitForTimeout(AFTER_SWITCH_MS);
         return await page.evaluate((afterMs) => {
-            const win = window as unknown as {
+            const win = window as unknown as LongTaskWindow & {
                 aetherBenchClickAt: number;
                 aetherBenchShownAt: number;
-                aetherBenchLongTasks?: { start: number; duration: number }[];
             };
             const from = win.aetherBenchClickAt;
             const to = win.aetherBenchShownAt + afterMs;
             // A task that began before the click but ran into it held the click up too.
-            const overlapping = (win.aetherBenchLongTasks ?? []).filter(
+            const overlapping = (win.aetherBenchLongTasksNow?.() ?? []).filter(
                 (task) => task.start + task.duration > from && task.start < to,
             );
             return {
@@ -602,6 +618,9 @@ for (const protocol of ["regular", "sliding"] as const) {
                 latencyMs: LATENCY_MS,
                 settleMs: SETTLE_MS,
                 afterStartMs: AFTER_START_MS,
+                switchPasses: SWITCH_PASSES,
+                afterSwitchMs: AFTER_SWITCH_MS,
+                encrypted: ENCRYPTED,
                 homeserver: homeserver.baseUrl,
                 metrics: summarise(samples),
                 failures,
