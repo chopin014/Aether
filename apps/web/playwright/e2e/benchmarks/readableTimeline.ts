@@ -214,20 +214,23 @@ export function installReadableCheck(): void {
             (style) =>
                 (style.position === "absolute" || style.position === "fixed") && !(Number.parseInt(style.zIndex) < 0),
         );
-    // Whether more than one character of `range` is drawn on `line`.
+    const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    // Whether more than one character of `range` is drawn on `line`, counting characters as a reader does: an emoji or
+    // a letter with an accent written apart from it is one, though the text holds it in several code units.
     const severalCharactersOn = (line: DOMRect, range: Range): boolean => {
         const node = range.startContainer as Text;
         const character = document.createRange();
         let count = 0;
-        for (let offset = range.startOffset; offset < range.endOffset && count < 2; offset++) {
-            character.setStart(node, offset);
-            character.setEnd(node, offset + 1);
+        for (const { index, segment } of graphemes.segment(node.data.slice(range.startOffset, range.endOffset))) {
+            character.setStart(node, range.startOffset + index);
+            character.setEnd(node, range.startOffset + index + segment.length);
             const box = character.getBoundingClientRect();
             const x = box.left + box.width / 2;
             const y = box.top + box.height / 2;
             if (box.width > 0 && x >= line.left && x <= line.right && y >= line.top && y <= line.bottom) count++;
+            if (count > 1) return true;
         }
-        return count > 1;
+        return false;
     };
     // Whether the pointer would land on the text of `range` on one of its lines, rather than on a box the text's element
     // draws there. Such a box on top moves the caret to an end of the element's text, so at the middle of a line of

@@ -270,28 +270,36 @@ test.describe("readable timeline check", () => {
         expect(await readable(page, TARGET, true)).toBe(true);
     });
 
-    test("reads a single character beside a box its own element positions absolutely", async ({ page }) => {
-        const style = `<style>
-            .mx_EventTile_body::after {
-                content: ""; position: absolute; left: -30px; top: 0; width: 20px; height: 20px; background: white;
-            }
-        </style>`;
-        await show(page, style + timeline(rowWithBody("x", "position: relative; margin-left: 40px")));
-        const x = { ...TARGET, text: "x" };
-        expect(await readable(page, x)).toBe(true);
-        expect(await readable(page, x, true)).toBe(true);
-    });
+    // An emoji, and a letter with its accent written apart from it, are single characters held in two code units.
+    for (const [name, text] of [
+        ["a letter", "x"],
+        ["an emoji", "\u{1F600}"],
+        ["a letter with an accent apart", "e\u0301"],
+    ]) {
+        for (const dir of ["ltr", "rtl"]) {
+            test(`reads ${name} alone (${dir}) beside a box its own element positions, but not under one`, async ({
+                page,
+            }) => {
+                const single = { ...TARGET, text };
+                const box = (pseudo: string, place: string): string =>
+                    `<style>.mx_EventTile_body${pseudo} { content: ""; position: absolute; ${place}; background: white; }</style>`;
+                const draw = (style: string): Promise<void> =>
+                    show(
+                        page,
+                        style + timeline(rowWithBody(text, "position: relative; margin: 0 40px"), ROOM, `dir="${dir}"`),
+                    );
 
-    for (const pseudo of ["::before", "::after"]) {
-        test(`does not count a single character its own element's ${pseudo} box covers`, async ({ page }) => {
-            const style = `<style>
-                .mx_EventTile_body${pseudo} { content: ""; position: absolute; inset: 0; background: white; }
-            </style>`;
-            await show(page, style + timeline(rowWithBody("x", "position: relative")));
-            const x = { ...TARGET, text: "x" };
-            expect(await readable(page, x)).toBe(false);
-            expect(await readable(page, x, true)).toBe(false);
-        });
+                await draw(box("::after", "left: -30px; top: 0; width: 20px; height: 20px"));
+                expect(await readable(page, single)).toBe(true);
+                expect(await readable(page, single, true)).toBe(true);
+
+                for (const pseudo of ["::before", "::after"]) {
+                    await draw(box(pseudo, "inset: 0"));
+                    expect(await readable(page, single), pseudo).toBe(false);
+                    expect(await readable(page, single, true), pseudo).toBe(false);
+                }
+            });
+        }
     }
 
     for (const [name, cover] of [
