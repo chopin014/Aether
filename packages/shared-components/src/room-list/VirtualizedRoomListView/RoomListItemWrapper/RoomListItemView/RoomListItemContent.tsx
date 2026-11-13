@@ -8,12 +8,13 @@
 import React, { type JSX, memo, type ReactNode } from "react";
 import { Text, Tooltip } from "@vector-im/compound-web";
 import classNames from "classnames";
-import { VolumeOnIcon, VolumeOnSolidIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
+import { LockSolidIcon, VolumeOnIcon, VolumeOnSolidIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { Flex } from "../../../../core/utils/Flex";
 import { useViewModel } from "../../../../core/viewmodel";
 import { TextChannelIcon } from "../../../../desktop/TextChannelIcon";
-import { NotificationDecoration } from "./NotificationDecoration";
+import { NotificationDecoration, type NotificationDecorationData } from "./NotificationDecoration";
+import { ChannelRowActions } from "./ChannelRowActions";
 import { RoomListItemHoverMenu } from "./RoomListItemHoverMenu";
 import { type Room, type RoomListItemViewModel } from "./RoomListItemView";
 import styles from "./RoomListItemView.module.css";
@@ -42,33 +43,55 @@ export const RoomListItemContent = memo(function RoomListItemContent({
     isDragging = false,
 }: RoomListItemContentProps): JSX.Element {
     const item = useViewModel(vm);
+    const isChannel = !!item.channelKind;
     // An occupied voice channel stands out from empty ones, and shows how long it has been occupied.
     const occupied = item.channelKind === "voice" && !!item.callParticipants?.length;
+    // A channel shows what Discord shows: a mention count, an unsent message or a call. Plain unread activity is
+    // the bold name and the marker at the row's edge, and a muted text channel is dimmed rather than marked with a
+    // bell. Voice channels aren't dimmed: their notifications are about messages nobody sends there, so being muted
+    // says nothing about the call.
+    const notification = isChannel ? channelNotification(item.notification, occupied) : item.notification;
+    const mentionCount = isChannel && item.notification.isMention ? (item.mentionCount ?? 1) : 0;
+    const showsDuration = occupied && item.callStartedAt !== undefined;
+    const hasDecoration = mentionCount > 0 || notification.isUnsentMessage || !!notification.callType || showsDuration;
 
     return (
         <Flex
             className={classNames(styles.container, {
                 [styles.dragging]: isDragging,
-                [styles.channel]: !!item.channelKind,
+                [styles.channel]: isChannel,
+                [styles.mutedChannel]: item.channelKind === "text" && item.notification.muted,
             })}
             gap="var(--cpd-space-3x)"
             align="center"
         >
+            {isChannel && item.isBold && <span className={styles.unreadMarker} data-testid="channel-unread" />}
             {item.channelKind ? (
                 // The kind symbol stays when the channel has a custom icon, because any image can be used for
                 // either kind and would not say whether clicking joins a call.
                 <span className={styles.channelSymbols}>
-                    {occupied ? (
-                        <VolumeOnSolidIcon
-                            className={classNames(styles.channelIcon, styles.occupied)}
-                            data-testid="channel-kind-voice"
-                            aria-hidden
-                        />
-                    ) : item.channelKind === "voice" ? (
-                        <VolumeOnIcon className={styles.channelIcon} data-testid="channel-kind-voice" aria-hidden />
-                    ) : (
-                        <TextChannelIcon className={styles.channelIcon} data-testid="channel-kind-text" aria-hidden />
-                    )}
+                    <span
+                        className={classNames(styles.channelSymbol, { [styles.privateChannel]: item.isPrivateChannel })}
+                    >
+                        {occupied ? (
+                            <VolumeOnSolidIcon
+                                className={classNames(styles.channelIcon, styles.occupied)}
+                                data-testid="channel-kind-voice"
+                                aria-hidden
+                            />
+                        ) : item.channelKind === "voice" ? (
+                            <VolumeOnIcon className={styles.channelIcon} data-testid="channel-kind-voice" aria-hidden />
+                        ) : (
+                            <TextChannelIcon
+                                className={styles.channelIcon}
+                                data-testid="channel-kind-text"
+                                aria-hidden
+                            />
+                        )}
+                        {item.isPrivateChannel && (
+                            <LockSolidIcon className={styles.channelLock} data-testid="channel-private" aria-hidden />
+                        )}
+                    </span>
                     {item.channelIconUrl && <img className={styles.channelImage} src={item.channelIconUrl} alt="" />}
                 </span>
             ) : (
@@ -88,13 +111,14 @@ export const RoomListItemContent = memo(function RoomListItemContent({
                         )}
                     </div>
 
-                    {item.messagePreview && !item.channelKind && (
+                    {item.messagePreview && !isChannel && (
                         <Text as="div" size="sm" className={styles.ellipsis} title={item.messagePreview}>
                             {item.messagePreview}
                         </Text>
                     )}
                 </div>
-                {!isDragging && (item.showMoreOptionsMenu || item.showNotificationMenu) && (
+                {!isDragging && isChannel && <ChannelRowActions vm={vm} hasDecoration={hasDecoration} />}
+                {!isDragging && !isChannel && (item.showMoreOptionsMenu || item.showNotificationMenu) && (
                     <RoomListItemHoverMenu
                         showMoreOptionsMenu={item.showMoreOptionsMenu}
                         showNotificationMenu={item.showNotificationMenu}
@@ -107,13 +131,33 @@ export const RoomListItemContent = memo(function RoomListItemContent({
                     {occupied && item.callStartedAt !== undefined && (
                         <VoiceChannelDuration since={item.callStartedAt} />
                     )}
-                    {/* The occupied channel's own icon already says there is a call in it. */}
-                    <NotificationDecoration
-                        {...item.notification}
-                        callType={occupied ? undefined : item.notification.callType}
-                    />
+                    <NotificationDecoration {...notification} />
+                    {mentionCount > 0 && (
+                        <span className={styles.mentionBadge} data-testid="channel-mentions">
+                            {mentionCount > 99 ? "99+" : mentionCount}
+                        </span>
+                    )}
                 </div>
             </Flex>
         </Flex>
     );
 });
+
+/**
+ * The part of a room's notification state a desktop channel row draws as icons: an unsent message, and a call that
+ * an occupied voice channel does not already show. Mentions get the channel's own count badge instead.
+ */
+function channelNotification(notification: NotificationDecorationData, occupied: boolean): NotificationDecorationData {
+    const callType = occupied ? undefined : notification.callType;
+    return {
+        ...notification,
+        hasAnyNotificationOrActivity: notification.isUnsentMessage || !!callType,
+        invited: false,
+        isMention: false,
+        isNotification: false,
+        isActivityNotification: false,
+        hasUnreadCount: false,
+        muted: false,
+        callType,
+    };
+}

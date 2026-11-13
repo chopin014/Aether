@@ -14,7 +14,9 @@ import {
     MatrixEvent,
     MatrixEventEvent,
     EventType,
+    JoinRule,
     KnownMembership,
+    NotificationCountType,
     Room,
     RoomEvent,
     RoomStateEvent,
@@ -36,6 +38,7 @@ import { Action } from "../../dispatcher/actions";
 import { CallStore, CallStoreEvent } from "../../stores/CallStore";
 import { CallEvent, type Call } from "../../models/Call";
 import { RoomListItemViewModel } from "./RoomListItemViewModel";
+import * as RoomNotifs from "../../RoomNotifs";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import { VoiceUserPreferences, VoiceUserPreferencesEvent } from "../../audio/desktop/VoiceUserPreferences";
 import { mediaFromMxc } from "../../customisations/Media";
@@ -207,6 +210,61 @@ describe("RoomListItemViewModel", () => {
             expect(maySend).toHaveBeenCalledWith(EventType.RoomName, matrixClient.getSafeUserId());
         });
 
+        it.each([
+            [JoinRule.Invite, true],
+            [JoinRule.Knock, true],
+            [JoinRule.Private, true],
+            [JoinRule.Restricted, false],
+            [JoinRule.Public, false],
+        ])("marks a channel with the %s join rule as private: %s", (joinRule, isPrivate) => {
+            vi.spyOn(room, "getJoinRule").mockReturnValue(joinRule);
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            expect(viewModel.getSnapshot().isPrivateChannel).toBe(isPrivate);
+        });
+
+        it("counts only a channel's mentions for its badge", () => {
+            vi.spyOn(notificationState, "isMention", "get").mockReturnValue(true);
+            vi.spyOn(notificationState, "count", "get").mockReturnValue(12);
+            const unread = vi.spyOn(RoomNotifs, "getUnreadNotificationCount").mockReturnValue(2);
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            expect(viewModel.getSnapshot().mentionCount).toBe(2);
+            expect(unread).toHaveBeenCalledWith(room, NotificationCountType.Highlight, true);
+
+            // A mention the server did not count still shows as one.
+            unread.mockReturnValue(0);
+            notificationState.emit(NotificationStateEvents.Update);
+            expect(viewModel.getSnapshot().mentionCount).toBe(1);
+        });
+
+        it("follows a channel's mention count when only that count changes", () => {
+            vi.spyOn(notificationState, "isMention", "get").mockReturnValue(true);
+            const unread = vi.spyOn(RoomNotifs, "getUnreadNotificationCount").mockReturnValue(1);
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            unread.mockReturnValue(2);
+            room.emit(RoomEvent.UnreadNotifications);
+            expect(viewModel.getSnapshot().mentionCount).toBe(2);
+        });
+
+        it("has no mention count without a mention", () => {
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            expect(viewModel.getSnapshot().mentionCount).toBeUndefined();
+        });
+
+        it("follows a channel's join rule as it changes", () => {
+            const joinRule = vi.spyOn(room, "getJoinRule").mockReturnValue(JoinRule.Restricted);
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            expect(viewModel.getSnapshot().isPrivateChannel).toBe(false);
+
+            joinRule.mockReturnValue(JoinRule.Invite);
+            room.emit(
+                RoomStateEvent.Events,
+                new MatrixEvent({ type: EventType.RoomJoinRules, state_key: "" }),
+                room.currentState,
+                null,
+            );
+            expect(viewModel.getSnapshot().isPrivateChannel).toBe(true);
+        });
+
         it("opens the channel's general settings to edit it", () => {
             const dispatch = vi.spyOn(dispatcher, "dispatch");
             viewModel = new RoomListItemViewModel({ room, client: matrixClient });
@@ -229,7 +287,11 @@ describe("RoomListItemViewModel", () => {
             vi.mocked(DMRoomMap.shared().getUserIdForRoomId).mockReturnValue("@alice:server");
             vi.spyOn(room, "getMxcAvatarUrl").mockReturnValue("mxc://example.org/alice");
             viewModel = new RoomListItemViewModel({ room, client: matrixClient });
-            expect(viewModel.getSnapshot()).toMatchObject({ channelIconUrl: undefined, canEditChannel: false });
+            expect(viewModel.getSnapshot()).toMatchObject({
+                channelIconUrl: undefined,
+                canEditChannel: false,
+                isPrivateChannel: false,
+            });
         });
     });
 
