@@ -9,9 +9,9 @@ Please see LICENSE files in the repository root for full details.
 
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import React from "react";
-import { render, screen, waitFor } from "test-utils-rtl";
+import { act, render, screen, waitFor } from "test-utils-rtl";
 import userEvent from "@testing-library/user-event";
-import { EventType, type MatrixClient, type MatrixEvent, type Room } from "matrix-js-sdk/src/matrix";
+import { EventType, type MatrixClient, MatrixEvent, Room, RoomStateEvent } from "matrix-js-sdk/src/matrix";
 import { mkStubRoom, stubClient } from "test-utils";
 
 import RoomProfileSettings from "./RoomProfileSettings";
@@ -101,5 +101,79 @@ describe("RoomProfileSetting", () => {
         await user.click(screen.getByRole("button", { name: "Cancel" }));
 
         expect(roomNameInput).toHaveValue("");
+    });
+
+    describe("when the room's state arrives after the settings open", () => {
+        // Under sliding sync, a room someone has not opened has no name or topic state until its subscription is
+        // answered.
+        let liveRoom: Room;
+
+        beforeEach(() => {
+            liveRoom = new Room(ROOM_ID, client, client.getSafeUserId());
+            vi.mocked(client.getRoom).mockReturnValue(liveRoom);
+        });
+
+        function arrive(type: EventType, content: object): void {
+            const event = new MatrixEvent({
+                type,
+                state_key: "",
+                content,
+                room_id: ROOM_ID,
+                sender: "@other:itty",
+                event_id: `$${type}`,
+            });
+            act(() => {
+                liveRoom.currentState.setStateEvents([event]);
+                client.emit(RoomStateEvent.Events, event, liveRoom.currentState, null);
+            });
+        }
+
+        it("shows the room's name and topic", () => {
+            render(<RoomProfileSettings roomId={ROOM_ID} />);
+            expect(screen.getByLabelText("Room Name")).toHaveValue("");
+            expect(screen.getByLabelText("Room Topic")).toHaveValue("");
+
+            arrive(EventType.RoomName, { name: "Garden" });
+            arrive(EventType.RoomTopic, { topic: "Plants" });
+
+            expect(screen.getByLabelText("Room Name")).toHaveValue("Garden");
+            expect(screen.getByLabelText("Room Topic")).toHaveValue("Plants");
+            expect(screen.getByRole("button", { name: "Save" })).toHaveAttribute("aria-disabled", "true");
+        });
+
+        it("keeps what someone has typed, and saves only that", async () => {
+            const user = userEvent.setup();
+            render(<RoomProfileSettings roomId={ROOM_ID} />);
+            await user.type(screen.getByLabelText("Room Topic"), "Trees");
+
+            arrive(EventType.RoomName, { name: "Garden" });
+            arrive(EventType.RoomTopic, { topic: "Plants" });
+
+            expect(screen.getByLabelText("Room Name")).toHaveValue("Garden");
+            expect(screen.getByLabelText("Room Topic")).toHaveValue("Trees");
+            await user.click(screen.getByRole("button", { name: "Save" }));
+            await waitFor(() => expect(client.setRoomTopic).toHaveBeenCalledWith(ROOM_ID, "Trees", undefined));
+            expect(client.setRoomName).not.toHaveBeenCalled();
+        });
+
+        it("ignores other rooms and stops listening once closed", () => {
+            const removeListener = vi.spyOn(client, "removeListener");
+            const { unmount } = render(<RoomProfileSettings roomId={ROOM_ID} />);
+            const event = new MatrixEvent({
+                type: EventType.RoomTopic,
+                state_key: "",
+                content: { topic: "Elsewhere" },
+                room_id: "!other:itty",
+                sender: "@other:itty",
+                event_id: "$elsewhere",
+            });
+            act(() => {
+                client.emit(RoomStateEvent.Events, event, liveRoom.currentState, null);
+            });
+            expect(screen.getByLabelText("Room Topic")).toHaveValue("");
+
+            unmount();
+            expect(removeListener).toHaveBeenCalledWith(RoomStateEvent.Events, expect.any(Function));
+        });
     });
 });

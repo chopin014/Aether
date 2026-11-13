@@ -48,6 +48,7 @@ import { MatrixClientPeg } from "../MatrixClientPeg";
 import MediaDeviceHandler, { MediaDeviceKindEnum } from "../MediaDeviceHandler";
 import { storeRoomAliasInCache } from "../RoomAliasCache.ts";
 import { prefetchAliasPreview } from "../performance/AliasRoomSummary";
+import * as roomSwitch from "../performance/RoomSwitchPerformance";
 import { type Call, ConnectionState } from "../models/Call.ts";
 import ActiveWidgetStore from "./ActiveWidgetStore";
 import { ModuleApi } from "../modules/Api";
@@ -295,6 +296,20 @@ describe("RoomViewStore", function () {
         payload = (await untilDispatch(Action.ActiveRoomChanged, dis)) as ActiveRoomChangedPayload;
         expect(payload.newRoomId).toEqual(roomId2);
         expect(payload.oldRoomId).toEqual(roomId);
+    });
+
+    it("marks the navigation phase of opening a room for each room the view changes to", async () => {
+        const mark = vi.spyOn(roomSwitch, "markRoomSwitch");
+        dis.dispatch({ action: Action.ViewRoom, room_id: roomId });
+        await untilDispatch(Action.ActiveRoomChanged, dis);
+        dis.dispatch({ action: Action.ViewRoom, room_id: roomId2 });
+        await untilDispatch(Action.ActiveRoomChanged, dis);
+
+        expect(mark.mock.calls).toEqual([
+            ["navigation", roomId],
+            ["navigation", roomId2],
+        ]);
+        mark.mockRestore();
     });
 
     it("invokes room activity listeners when the viewed room changes", async () => {
@@ -894,6 +909,8 @@ describe("RoomViewStore", function () {
             vi.spyOn(SettingsStore, "getValue").mockImplementation((settingName, roomId, value) => {
                 return settingName === "feature_simplified_sliding_sync"; // this is enabled, everything else is disabled.
             });
+            // The client syncs with sliding sync.
+            vi.mocked(slidingSyncManager.isActiveFor).mockReturnValue(true);
         });
 
         afterEach(() => {
@@ -903,6 +920,16 @@ describe("RoomViewStore", function () {
             // and can cause a dangling re-dispatch that fires during a later test and crashes on
             // MatrixClientPeg.safeGet() once that room is no longer set up.
             vi.mocked(SettingsStore.getValue).mockRestore();
+            vi.mocked(slidingSyncManager.isActiveFor).mockReset();
+        });
+
+        it("opens rooms as regular sync does when the client fell back to it", async () => {
+            vi.mocked(slidingSyncManager.isActiveFor).mockReturnValue(false);
+            const setRoomVisible = vi.spyOn(slidingSyncManager, "setRoomVisible");
+            dis.dispatch({ action: Action.ViewRoom, room_id: "!sub1:localhost" });
+            await untilDispatch(Action.ActiveRoomChanged, dis);
+            expect(roomViewStore.getRoomId()).toBe("!sub1:localhost");
+            expect(setRoomVisible).not.toHaveBeenCalled();
         });
 
         it("subscribes to the room", async () => {
@@ -953,6 +980,19 @@ describe("RoomViewStore", function () {
                 expect(roomViewStore.getRoomId()).toBe("!fast:localhost");
             },
         );
+
+        it("opens a room the client has at once, updating its subscription alongside", async () => {
+            // The subscription is still being updated when the room is shown.
+            const setRoomVisible = vi
+                .spyOn(slidingSyncManager, "setRoomVisible")
+                .mockReturnValue(new Promise(() => {}));
+            dis.dispatch({ action: Action.ViewRoom, room_id: room.roomId });
+            await untilDispatch(Action.ActiveRoomChanged, dis);
+            expect(roomViewStore.getRoomId()).toBe(room.roomId);
+            expect(roomViewStore.isRoomLoading()).toBe(false);
+            expect(roomViewStore.isLoadedForView()).toBe(true);
+            expect(setRoomVisible).toHaveBeenCalledWith(room.roomId);
+        });
 
         it("opens a room the server did not send, so the room view can offer to join it", async () => {
             vi.spyOn(slidingSyncManager, "setRoomVisible").mockResolvedValue("absent");

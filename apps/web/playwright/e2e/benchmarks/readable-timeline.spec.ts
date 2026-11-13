@@ -1,0 +1,756 @@
+/*
+Copyright 2026 chopin014
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+// What the navigation benchmark counts as a message being readable, checked against small pages built for it: no app
+// or homeserver is needed.
+import { expect, type Page, test } from "@playwright/test";
+
+import { installReadableCheck, type ReadableTarget, type ReadableWindow } from "./readableTimeline";
+
+const ROOM = "!room:example.org";
+const TARGET: ReadableTarget = { roomId: ROOM, eventId: "$target", text: "the wanted message" };
+
+/** A row for `eventId` with `text`, as the timeline draws one. */
+const row = (eventId: string, text: string, style = ""): string =>
+    `<div class="row" data-event-id="${eventId}" style="${style}"><span class="mx_EventTile_body">${text}</span></div>`;
+
+/** A room's main timeline holding `rows`, in a scroller 200 px high. */
+const timeline = (rows: string, roomId = ROOM, mainAttributes = ""): string =>
+    `<main data-room-id="${roomId}" ${mainAttributes}><div class="scroller">${rows}</div></main>`;
+
+async function show(page: Page, body: string): Promise<void> {
+    await page.setContent(`<!doctype html>
+        <style>
+            body { margin: 0; font: 16px/20px sans-serif; }
+            .scroller { position: relative; height: 200px; width: 400px; overflow: auto; }
+            .row { min-height: 20px; }
+        </style>
+        <body>${body}</body>`);
+    await page.evaluate(installReadableCheck);
+}
+
+async function readable(page: Page, target: ReadableTarget = TARGET, thorough = false): Promise<boolean> {
+    return page.evaluate(
+        ({ wanted, thorough }) => (window as unknown as ReadableWindow).aetherBenchReadable!(wanted, thorough),
+        { wanted: target, thorough },
+    );
+}
+
+/** The target event's row, holding `body` as its message body. */
+const rowWithBody = (body: string, bodyStyle = ""): string =>
+    `<div class="row" data-event-id="$target"><span class="mx_EventTile_body" style="${bodyStyle}">${body}</span></div>`;
+
+test.describe("readable timeline check", () => {
+    test("reads the target message in view in its room's main timeline", async ({ page }) => {
+        await show(page, timeline(row("$before", "an earlier message") + row("$target", "the wanted message")));
+        expect(await readable(page)).toBe(true);
+    });
+
+    test("only counts the target event in the target room", async ({ page }) => {
+        await show(
+            page,
+            timeline(row("$target", "the wanted message"), "!other:example.org") +
+                timeline(row("$other", "the wanted message")),
+        );
+        expect(await readable(page)).toBe(false);
+        expect(await readable(page, { ...TARGET, roomId: "!other:example.org" })).toBe(true);
+        expect(await readable(page, { ...TARGET, eventId: "$other" })).toBe(true);
+    });
+
+    for (const [name, wrap] of [
+        ["hidden", (rows: string) => `<div hidden>${rows}</div>`],
+        ["inert", (rows: string) => `<div inert>${rows}</div>`],
+        ["hidden from assistive technology", (rows: string) => `<div aria-hidden="true">${rows}</div>`],
+        ["not displayed", (rows: string) => `<div style="display: none">${rows}</div>`],
+        ["invisible", (rows: string) => `<div style="visibility: hidden">${rows}</div>`],
+        ["transparent", (rows: string) => `<div style="opacity: 0">${rows}</div>`],
+    ] as const) {
+        test(`does not count a ${name} copy`, async ({ page }) => {
+            await show(page, timeline(wrap(row("$target", "the wanted message"))));
+            expect(await readable(page)).toBe(false);
+        });
+    }
+
+    test("does not count a copy outside the main timeline, such as in the right panel or search results", async ({
+        page,
+    }) => {
+        await show(
+            page,
+            `<aside><div class="scroller">${row("$target", "the wanted message")}</div></aside>` +
+                timeline(`<div class="mx_RoomView_searchResultsPanel">${row("$target", "the wanted message")}</div>`),
+        );
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("does not count text scrolled out of the timeline's view until it is scrolled in", async ({ page }) => {
+        await show(page, timeline(`<div style="height: 500px"></div>` + row("$target", "the wanted message")));
+        expect(await readable(page)).toBe(false);
+
+        await page.evaluate(() => document.querySelector(".scroller")!.scrollTo(0, 1000));
+        expect(await readable(page)).toBe(true);
+    });
+
+    test("does not count a line only partly in view", async ({ page }) => {
+        // The line spans 190 to 210 px of a 200 px scroller.
+        await show(page, timeline(`<div style="height: 190px"></div>` + row("$target", "the wanted message")));
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("does not count a tall message whose box is in view while the wanted text is not", async ({ page }) => {
+        const tall = `<div style="height: 300px">the start of a long message</div>the wanted message`;
+        await show(page, timeline(row("$target", tall)));
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("does not count a message something else covers", async ({ page }) => {
+        const cover = `<div style="position: absolute; inset: 0; background: white"></div>`;
+        await show(page, timeline(row("$target", "the wanted message") + cover));
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("does not count text its own element clips", async ({ page }) => {
+        await show(page, timeline(rowWithBody("the wanted message", "display: block; height: 5px; overflow: hidden")));
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("does not count text under the timeline's scrollbar", async ({ page }) => {
+        await show(page, timeline(rowWithBody("the wanted message", "white-space: nowrap")));
+        // Move the line along until it ends in the middle of the vertical scrollbar.
+        const gutter = await page.evaluate(() => {
+            const scroller = document.querySelector<HTMLElement>(".scroller")!;
+            scroller.style.overflowY = "scroll";
+            scroller.style.overflowX = "hidden";
+            const gutter = scroller.offsetWidth - scroller.clientWidth - 2 * scroller.clientLeft;
+            const body = scroller.querySelector<HTMLElement>(".mx_EventTile_body")!;
+            const range = document.createRange();
+            range.selectNodeContents(body);
+            const line = range.getBoundingClientRect();
+            const contentEnd = scroller.getBoundingClientRect().left + scroller.clientLeft + scroller.clientWidth;
+            body.style.marginLeft = `${contentEnd + gutter / 2 - line.right}px`;
+            return gutter;
+        });
+        test.skip(gutter < 4, "Scrollbars overlay the content in this browser, so nothing is under one.");
+
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("does not count text under the timeline's border", async ({ page }) => {
+        await show(page, timeline(rowWithBody("the wanted message", "white-space: nowrap")));
+        // A thick right border, with the line moved along until it ends inside it: in the timeline's box, but not in
+        // the part of it that shows content.
+        await page.evaluate(() => {
+            const scroller = document.querySelector<HTMLElement>(".scroller")!;
+            scroller.style.borderRight = "20px solid black";
+            scroller.style.overflowX = "hidden";
+            const body = scroller.querySelector<HTMLElement>(".mx_EventTile_body")!;
+            const range = document.createRange();
+            range.selectNodeContents(body);
+            const line = range.getBoundingClientRect();
+            const contentEnd = scroller.getBoundingClientRect().left + scroller.clientLeft + scroller.clientWidth;
+            body.style.marginLeft = `${contentEnd + 10 - line.right}px`;
+        });
+
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("does not count text an element inside it covers", async ({ page }) => {
+        const cover = `<span style="position: absolute; inset: 0; background: white"></span>`;
+        await show(page, timeline(rowWithBody(`the wanted message${cover}`, "position: relative")));
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("counts a cover the pointer passes through only when asked to be thorough", async ({ page }) => {
+        const cover = `<div style="position: absolute; inset: 0; background: white; pointer-events: none"></div>`;
+        await show(page, timeline(row("$target", "the wanted message") + cover));
+        // The quick check sees through it, as the browser's hit testing does; the benchmark confirms thoroughly.
+        expect(await readable(page)).toBe(true);
+        expect(await readable(page, TARGET, true)).toBe(false);
+    });
+
+    test("reads text under a transparent layer the pointer passes through, as the timeline's floating buttons sit in", async ({
+        page,
+    }) => {
+        const layer = `<div style="position: absolute; inset: 0; z-index: 1000; pointer-events: none"></div>`;
+        await show(page, timeline(row("$target", "the wanted message") + layer));
+        expect(await readable(page)).toBe(true);
+        expect(await readable(page, TARGET, true)).toBe(true);
+    });
+
+    test("reads text under a canvas the pointer passes through, as the room's chat effects draw on", async ({
+        page,
+    }) => {
+        const canvas = `<canvas style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none"></canvas>`;
+        await show(page, timeline(row("$target", "the wanted message") + canvas));
+        expect(await readable(page, TARGET, true)).toBe(true);
+    });
+
+    for (const attribute of ["inert", 'aria-hidden="true"', "hidden"]) {
+        test(`does not count text inside the row marked ${attribute}`, async ({ page }) => {
+            await show(page, timeline(rowWithBody(`<span ${attribute}>the wanted message</span>`)));
+            expect(await readable(page)).toBe(false);
+        });
+    }
+
+    test("reads text that runs across nested elements, past a hidden copy before it", async ({ page }) => {
+        await show(
+            page,
+            timeline(rowWithBody(`<span hidden>the wanted message</span>the <b>wanted</b> <i>message</i>`)),
+        );
+        expect(await readable(page)).toBe(true);
+        expect(await readable(page, TARGET, true)).toBe(true);
+    });
+
+    test("does not count text running across elements when an element inside clips part of it", async ({ page }) => {
+        await show(
+            page,
+            timeline(
+                rowWithBody(
+                    `<span style="display: inline-block; width: 2px; overflow: hidden">the wanted</span> message`,
+                ),
+            ),
+        );
+        expect(await readable(page)).toBe(false);
+        expect(await readable(page, TARGET, true)).toBe(false);
+    });
+
+    test("does not count text with a part sized to nothing", async ({ page }) => {
+        await show(page, timeline(rowWithBody(`the <b style="font-size: 0">wanted</b> message`)));
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("reads text in an inline element set to clip, as overflow does not apply to inline boxes", async ({
+        page,
+    }) => {
+        await show(page, timeline(rowWithBody(`<span style="overflow: hidden">the wanted message</span>`)));
+        expect(await readable(page)).toBe(true);
+    });
+
+    test("does not count text outside an element with paint containment", async ({ page }) => {
+        await show(page, timeline(rowWithBody("the wanted message", "display: block; height: 5px; contain: paint")));
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("does not count a message a transparent element's pseudo-element covers", async ({ page }) => {
+        const cover = `<style>.cover::before { content: ""; position: absolute; inset: 0; background: white; }</style>
+            <div class="cover" style="position: absolute; inset: 0"></div>`;
+        await show(page, timeline(row("$target", "the wanted message") + cover));
+        expect(await readable(page)).toBe(false);
+        expect(await readable(page, TARGET, true)).toBe(false);
+    });
+
+    test("does not count text a pseudo-element of its own element covers", async ({ page }) => {
+        const style = `<style>.mx_EventTile_body::after { content: ""; position: absolute; inset: 0; background: white; }</style>`;
+        await show(page, style + timeline(rowWithBody("the wanted message", "position: relative")));
+        expect(await readable(page)).toBe(false);
+        expect(await readable(page, TARGET, true)).toBe(false);
+    });
+
+    test("reads text beside its element's own pseudo-element, or over one positioned behind it", async ({ page }) => {
+        const style = `<style>
+            .mx_EventTile_body::before { content: "•"; background: yellow; }
+            .mx_EventTile_body::after { content: ""; position: absolute; inset: 0; z-index: -1; background: yellow; }
+        </style>`;
+        await show(page, style + timeline(rowWithBody("the wanted message", "position: relative")));
+        expect(await readable(page)).toBe(true);
+        expect(await readable(page, TARGET, true)).toBe(true);
+    });
+
+    test("reads text beside a box its own element positions absolutely", async ({ page }) => {
+        const style = `<style>
+            .mx_EventTile_body::before {
+                content: ""; position: absolute; left: -30px; top: 0; width: 20px; height: 20px; background: red;
+            }
+        </style>`;
+        await show(page, style + timeline(rowWithBody("the wanted message", "position: relative; margin-left: 40px")));
+        expect(await readable(page)).toBe(true);
+        expect(await readable(page, TARGET, true)).toBe(true);
+    });
+
+    test("reads part of a single character beside a box its own element positions, as the whole character", async ({
+        page,
+    }) => {
+        // One family emoji: four people joined by three zero-width joiners. The part asked for starts at a joiner.
+        const family = "\u{1F469}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}";
+        const style = `<style>
+            .mx_EventTile_body::after {
+                content: ""; position: absolute; left: -30px; top: 0; width: 20px; height: 20px; background: white;
+            }
+        </style>`;
+        await show(page, style + timeline(rowWithBody(family, "position: relative; margin-left: 40px")));
+        expect(await readable(page, { ...TARGET, text: family })).toBe(true);
+        expect(await readable(page, { ...TARGET, text: family.slice(2) })).toBe(true);
+    });
+
+    // An emoji, and a letter with its accent written apart from it, are single characters held in two code units.
+    for (const [name, text] of [
+        ["a letter", "x"],
+        ["an emoji", "\u{1F600}"],
+        ["a letter with an accent apart", "e\u0301"],
+    ]) {
+        for (const dir of ["ltr", "rtl"]) {
+            test(`reads ${name} alone (${dir}) beside a box its own element positions, but not under one`, async ({
+                page,
+            }) => {
+                const single = { ...TARGET, text };
+                const box = (pseudo: string, place: string): string =>
+                    `<style>.mx_EventTile_body${pseudo} { content: ""; position: absolute; ${place}; background: white; }</style>`;
+                const draw = (style: string): Promise<void> =>
+                    show(
+                        page,
+                        style + timeline(rowWithBody(text, "position: relative; margin: 0 40px"), ROOM, `dir="${dir}"`),
+                    );
+
+                await draw(box("::after", "left: -30px; top: 0; width: 20px; height: 20px"));
+                expect(await readable(page, single)).toBe(true);
+                expect(await readable(page, single, true)).toBe(true);
+
+                for (const pseudo of ["::before", "::after"]) {
+                    await draw(box(pseudo, "inset: 0"));
+                    expect(await readable(page, single), pseudo).toBe(false);
+                    expect(await readable(page, single, true), pseudo).toBe(false);
+                }
+            });
+        }
+    }
+
+    for (const [name, cover] of [
+        ["transparent", `<div style="position: absolute; inset: 0; background: white; opacity: 0"></div>`],
+        [
+            "inside a transparent element",
+            `<div style="opacity: 0"><div style="position: absolute; inset: 0; background: white"></div></div>`,
+        ],
+        [
+            "filtered to nothing",
+            `<div style="position: absolute; inset: 0; background: white; filter: opacity(0)"></div>`,
+        ],
+        ["a transparent image", `<img style="position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0">`],
+        [
+            "coloured transparent in a modern syntax",
+            `<div style="position: absolute; inset: 0; background: oklch(50% 0.2 40 / 0)"></div>`,
+        ],
+    ] as const) {
+        test(`reads a message under a cover that is ${name}`, async ({ page }) => {
+            await show(page, timeline(row("$target", "the wanted message") + cover));
+            expect(await readable(page)).toBe(true);
+            expect(await readable(page, TARGET, true)).toBe(true);
+        });
+    }
+
+    test("does not count a message under an opaque cover coloured in a modern syntax", async ({ page }) => {
+        const cover = `<div style="position: absolute; inset: 0; background: oklch(50% 0.2 40 / 1)"></div>`;
+        await show(page, timeline(row("$target", "the wanted message") + cover));
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("does not count a message under an image", async ({ page }) => {
+        const cover = `<img style="position: absolute; inset: 0; width: 100%; height: 100%">`;
+        await show(page, timeline(row("$target", "the wanted message") + cover));
+        expect(await readable(page)).toBe(false);
+    });
+
+    test("leaves the page's styles as they were after a thorough check", async ({ page }) => {
+        await show(page, timeline(row("$target", "the wanted message")));
+        const before = await page.evaluate(() => document.styleSheets.length);
+        expect(await readable(page, TARGET, true)).toBe(true);
+        expect(await page.evaluate(() => document.styleSheets.length)).toBe(before);
+    });
+});
+
+/** What the watching tests keep on the page's window. */
+interface WatchWindow extends ReadableWindow {
+    readableAt?: number;
+    /** When the frame after the one that first painted the added target started. */
+    nextFrameAt?: number;
+    stopWatching?: () => void;
+    inFrame?: boolean;
+    restyles?: number;
+    restylesInFrames?: number;
+    /** When the thorough check first restyled the page. */
+    firstRestyleAt?: number;
+    /** Set to stop what a test does on every frame. */
+    settled?: boolean;
+}
+
+/** Start watching for `target`, keeping when it was found readable on the window. */
+async function watch(page: Page, target: ReadableTarget = TARGET): Promise<void> {
+    await page.evaluate((wanted) => {
+        const win = window as unknown as WatchWindow;
+        win.stopWatching = win.aetherBenchWatchReadable!(wanted, (at) => {
+            win.readableAt = at;
+        });
+    }, target);
+}
+
+/** Wait for `count` frames to be painted. */
+async function frames(page: Page, count: number): Promise<void> {
+    await page.evaluate(async (count) => {
+        for (let i = 0; i < count; i++) await new Promise((resolve) => requestAnimationFrame(resolve));
+    }, count);
+}
+
+async function readableAt(page: Page): Promise<number | undefined> {
+    return page.evaluate(() => (window as unknown as WatchWindow).readableAt);
+}
+
+/** Add the target's row to the timeline, keeping when the frame after the one that paints it starts on the window. */
+async function addTarget(page: Page): Promise<void> {
+    await page.evaluate(
+        (html) => {
+            document.querySelector(".scroller")!.insertAdjacentHTML("beforeend", html);
+            // A frame's callbacks are all given the time it started.
+            requestAnimationFrame(() =>
+                requestAnimationFrame((time) => {
+                    (window as unknown as WatchWindow).nextFrameAt = time;
+                }),
+            );
+        },
+        row("$target", "the wanted message"),
+    );
+}
+
+/**
+ * Take the target out of sight in a callback of every frame, so every frame is painted without it, and put it back
+ * just after each frame is painted, until the window is marked settled.
+ * @param how - Whether it is hidden by its own style or by a rule of the style sheet `#rules`, its timeline scrolled
+ * away from it, or the element `.cover`, which lets the pointer through, shown over it.
+ */
+async function outOfSightWhenPainted(
+    page: Page,
+    how: "hidden" | "hidden by a style rule" | "scrolled away" | "covered",
+): Promise<void> {
+    await page.evaluate((how) => {
+        const win = window as unknown as WatchWindow & {
+            scheduler: { postTask: (task: () => void, options: { priority: string }) => Promise<unknown> };
+        };
+        const body = document.querySelector<HTMLElement>(".mx_EventTile_body")!;
+        const scroller = document.querySelector<HTMLElement>(".scroller")!;
+        const inSight = (shown: boolean): void => {
+            if (how === "hidden") body.style.visibility = shown ? "" : "hidden";
+            else if (how === "hidden by a style rule") {
+                const rule = document.querySelector<HTMLStyleElement>("#rules")!.sheet!.cssRules[0] as CSSStyleRule;
+                rule.style.visibility = shown ? "" : "hidden";
+            } else if (how === "covered") document.querySelector<HTMLElement>(".cover")!.hidden = shown;
+            else scroller.scrollTop = shown ? 1000 : 0;
+        };
+        const onFrame = (): void => {
+            if (win.settled) return;
+            inSight(false);
+            // Posted ahead of the watcher's check, so it runs first, before anything else after the paint.
+            void win.scheduler.postTask(() => inSight(true), { priority: "user-blocking" });
+            requestAnimationFrame(onFrame);
+        };
+        requestAnimationFrame(onFrame);
+    }, how);
+}
+
+test.describe("watching for readable text", () => {
+    test("reports the start of the frame after the one that first painted the message readable", async ({ page }) => {
+        await show(page, timeline(row("$before", "an earlier message")));
+        await watch(page);
+        await frames(page, 3);
+        expect(await readableAt(page)).toBeUndefined();
+
+        await addTarget(page);
+        await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+        const { at, nextFrameAt } = await page.evaluate(() => {
+            const win = window as unknown as WatchWindow;
+            return { at: win.readableAt!, nextFrameAt: win.nextFrameAt! };
+        });
+        // Taken within that next frame, so no earlier than its start, allowing for the browser coarsening its clock.
+        expect(at).toBeGreaterThan(nextFrameAt - 1);
+    });
+
+    test("does not report a message hidden whenever a frame is painted, and shown between frames", async ({ page }) => {
+        await show(page, timeline(row("$target", "the wanted message")));
+        await outOfSightWhenPainted(page, "hidden");
+        await watch(page);
+        await frames(page, 10);
+        expect(await readableAt(page)).toBeUndefined();
+
+        await page.evaluate(() => ((window as unknown as WatchWindow).settled = true));
+        await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+    });
+
+    test("does not report a message hidden by a style rule whenever a frame is painted, and shown between frames", async ({
+        page,
+    }) => {
+        await show(
+            page,
+            `<style id="rules">.mx_EventTile_body {}</style>` + timeline(row("$target", "the wanted message")),
+        );
+        await outOfSightWhenPainted(page, "hidden by a style rule");
+        await watch(page);
+        await frames(page, 10);
+        expect(await readableAt(page)).toBeUndefined();
+
+        await page.evaluate(() => ((window as unknown as WatchWindow).settled = true));
+        await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+    });
+
+    test("does not report a message covered whenever a frame is painted, by a cover the pointer passes through", async ({
+        page,
+    }) => {
+        const cover = `<div class="cover" hidden style="position: absolute; inset: 0; background: white; pointer-events: none"></div>`;
+        await show(page, timeline(row("$target", "the wanted message") + cover));
+        await outOfSightWhenPainted(page, "covered");
+        await watch(page);
+        await frames(page, 10);
+        expect(await readableAt(page)).toBeUndefined();
+
+        await page.evaluate(() => ((window as unknown as WatchWindow).settled = true));
+        await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+    });
+
+    test("does not report a message scrolled away whenever a frame is painted, and back between frames", async ({
+        page,
+    }) => {
+        await show(page, timeline(`<div style="height: 500px"></div>` + row("$target", "the wanted message")));
+        await page.evaluate(() => document.querySelector(".scroller")!.scrollTo(0, 1000));
+        await outOfSightWhenPainted(page, "scrolled away");
+        await watch(page);
+        await frames(page, 10);
+        expect(await readableAt(page)).toBeUndefined();
+
+        await page.evaluate(() => ((window as unknown as WatchWindow).settled = true));
+        await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+    });
+
+    test("does not report a message painted readable in only one frame", async ({ page }) => {
+        await show(page, timeline(rowWithBody("the wanted message", "visibility: hidden")));
+        await watch(page);
+        await frames(page, 3);
+        // Shown for one frame, and hidden again in the next.
+        await page.evaluate(() => {
+            const body = document.querySelector<HTMLElement>(".mx_EventTile_body")!;
+            requestAnimationFrame(() => {
+                body.style.visibility = "visible";
+                requestAnimationFrame(() => {
+                    body.style.visibility = "hidden";
+                });
+            });
+        });
+        await frames(page, 10);
+        expect(await readableAt(page)).toBeUndefined();
+    });
+
+    test("does not report a message under a cover the pointer passes through until it is gone", async ({ page }) => {
+        const cover = `<div class="cover" style="position: absolute; inset: 0; background: white; pointer-events: none"></div>`;
+        await show(page, timeline(row("$target", "the wanted message") + cover));
+        await watch(page);
+        await frames(page, 6);
+        expect(await readableAt(page)).toBeUndefined();
+
+        await page.evaluate(() => document.querySelector(".cover")!.remove());
+        await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+    });
+
+    for (const how of [
+        "in its callback",
+        "in a microtask its callback queues",
+        "in a microtask queued by one its callback queues",
+    ]) {
+        test(`does not report a message a later round of the page's resize observers hides ${how} before each paint`, async ({
+            page,
+        }) => {
+            await show(
+                page,
+                `<style id="rules">.mx_EventTile_body {} #outer { width: 10px } #inner { width: 10px; height: 1px }</style>` +
+                    timeline(row("$target", "the wanted message")) +
+                    `<div id="outer"><div id="inner"></div></div>`,
+            );
+            await page.evaluate((how) => {
+                const win = window as unknown as WatchWindow & {
+                    scheduler: { postTask: (task: () => void, options: { priority: string }) => Promise<unknown> };
+                };
+                const sheet = document.querySelector<HTMLStyleElement>("#rules")!.sheet!;
+                const [text, outer, inner] = [0, 1, 2].map((index) => (sheet.cssRules[index] as CSSStyleRule).style);
+                let step = 0;
+                // Each frame resizes the outer element. Its observer resizes the inner one, whose observer then runs in a
+                // later round of the frame's layout and hides the text, which a task just after the paint shows again.
+                new ResizeObserver(() => {
+                    if (win.settled) return;
+                    inner.width = `${20 + step}px`;
+                    void win.scheduler.postTask(() => (text.visibility = ""), { priority: "user-blocking" });
+                }).observe(document.querySelector("#outer")!);
+                const hide = (): void => {
+                    if (!win.settled) text.visibility = "hidden";
+                };
+                new ResizeObserver(() => {
+                    if (how === "in its callback") hide();
+                    else if (how === "in a microtask its callback queues") queueMicrotask(hide);
+                    else queueMicrotask(() => queueMicrotask(hide));
+                }).observe(document.querySelector("#inner")!);
+                const onFrame = (): void => {
+                    if (win.settled) return;
+                    outer.width = `${30 + ++step}px`;
+                    requestAnimationFrame(onFrame);
+                };
+                requestAnimationFrame(onFrame);
+            }, how);
+            await watch(page);
+            await frames(page, 12);
+            expect(await readableAt(page)).toBeUndefined();
+
+            await page.evaluate(() => ((window as unknown as WatchWindow).settled = true));
+            await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+        });
+    }
+
+    test("does not report a message a handler of a resize loop error hides before each paint", async ({ page }) => {
+        await show(
+            page,
+            `<style id="rules">.mx_EventTile_body {} :root { height: 600px }</style>` +
+                timeline(row("$target", "the wanted message")),
+        );
+        await page.evaluate(() => {
+            const win = window as unknown as WatchWindow & {
+                scheduler: { postTask: (task: () => void, options: { priority: string }) => Promise<unknown> };
+            };
+            const sheet = document.querySelector<HTMLStyleElement>("#rules")!.sheet!;
+            const [text, root] = [0, 1].map((index) => (sheet.cssRules[index] as CSSStyleRule).style);
+            let step = 0;
+            // An observer of the root, older than the watching's own, resizes the root each frame. As nothing is
+            // shallower than the root, the browser cannot deliver that before the paint, and reports a resize loop
+            // error instead, whose handler hides the text. No resize observer callback of the page's runs after the
+            // watching's check. A task posted earlier in the frame shows the text again after the paint.
+            new ResizeObserver(() => {
+                if (!win.settled) root.height = `${600 + (++step % 2)}px`;
+            }).observe(document.documentElement);
+            window.addEventListener("error", (event) => {
+                if (!win.settled && /ResizeObserver loop/.test(event.message)) text.visibility = "hidden";
+            });
+            const onFrame = (): void => {
+                if (win.settled) return;
+                void win.scheduler.postTask(() => (text.visibility = ""), { priority: "user-blocking" });
+                requestAnimationFrame(onFrame);
+            };
+            requestAnimationFrame(onFrame);
+        });
+        await watch(page);
+        await frames(page, 12);
+        expect(await readableAt(page)).toBeUndefined();
+
+        await page.evaluate(() => ((window as unknown as WatchWindow).settled = true));
+        await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+    });
+
+    test("calls the page's resize observer callbacks as the browser would", async ({ page }) => {
+        await show(page, timeline(row("$target", "the wanted message")));
+        const calls = await page.evaluate(
+            () =>
+                new Promise<{ self: boolean; entries: number; target: boolean }[]>((resolve) => {
+                    const observed = document.querySelector(".scroller")!;
+                    const calls: { self: boolean; entries: number; target: boolean }[] = [];
+                    const observer = new ResizeObserver(function (
+                        this: ResizeObserver,
+                        entries: ResizeObserverEntry[],
+                        given: ResizeObserver,
+                    ) {
+                        calls.push({
+                            self: this === observer && given === observer,
+                            entries: entries.length,
+                            target: entries[0].target === observed,
+                        });
+                        observer.disconnect();
+                        resolve(calls);
+                    });
+                    observer.observe(observed);
+                }),
+        );
+        expect(calls).toEqual([{ self: true, entries: 1, target: true }]);
+    });
+
+    test("reports nothing once stopped", async ({ page }) => {
+        await show(page, timeline(row("$before", "an earlier message")));
+        await watch(page);
+        await page.evaluate(() => (window as unknown as WatchWindow).stopWatching!());
+        await addTarget(page);
+        await frames(page, 6);
+        expect(await readableAt(page)).toBeUndefined();
+    });
+
+    test("takes the time to report before its thorough check, so that check's restyling cannot delay it", async ({
+        page,
+    }) => {
+        await show(page, timeline(row("$before", "an earlier message")));
+        // Make every restyle for the thorough check take 60 ms, noting when the first began.
+        await page.evaluate(() => {
+            const win = window as unknown as WatchWindow;
+            const append = Element.prototype.append;
+            Element.prototype.append = function (this: Element, ...nodes: (Node | string)[]): void {
+                if (nodes.some((node) => node instanceof HTMLStyleElement)) {
+                    win.firstRestyleAt ??= performance.now();
+                    for (const end = performance.now() + 60; performance.now() < end;);
+                }
+                append.apply(this, nodes);
+            };
+        });
+        await watch(page);
+        await frames(page, 3);
+        await addTarget(page);
+        await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+
+        const { at, firstRestyleAt } = await page.evaluate(() => {
+            const win = window as unknown as WatchWindow;
+            return { at: win.readableAt!, firstRestyleAt: win.firstRestyleAt! };
+        });
+        expect(at).toBeLessThan(firstRestyleAt);
+    });
+
+    test("restyles for its thorough check only outside the app's frames, and notes the time its work takes", async ({
+        page,
+    }) => {
+        await show(page, timeline(row("$before", "an earlier message")));
+        // Note every stylesheet the check adds while a frame's callbacks run: those for animation frames, and for
+        // resize observers, which run after layout.
+        await page.evaluate(() => {
+            const win = window as unknown as WatchWindow;
+            win.restyles = 0;
+            win.restylesInFrames = 0;
+            const inFrame = <T extends unknown[]>(callback: (...args: T) => void, ...args: T): void => {
+                win.inFrame = true;
+                try {
+                    callback(...args);
+                } finally {
+                    win.inFrame = false;
+                }
+            };
+            const request = window.requestAnimationFrame.bind(window);
+            window.requestAnimationFrame = (callback) => request((time) => inFrame(callback, time));
+            const Observer = window.ResizeObserver;
+            window.ResizeObserver = class extends Observer {
+                public constructor(callback: ResizeObserverCallback) {
+                    super((entries, observer) => inFrame(callback, entries, observer));
+                }
+            };
+            const append = Element.prototype.append;
+            Element.prototype.append = function (this: Element, ...nodes: (Node | string)[]): void {
+                if (nodes.some((node) => node instanceof HTMLStyleElement)) {
+                    win.restyles = (win.restyles ?? 0) + 1;
+                    if (win.inFrame) win.restylesInFrames = (win.restylesInFrames ?? 0) + 1;
+                }
+                append.apply(this, nodes);
+            };
+        });
+        // Installed again, so the watching's own resize observer is one of those noted.
+        await page.evaluate(installReadableCheck);
+        await watch(page);
+        await frames(page, 3);
+        await addTarget(page);
+        await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+
+        const { restyles, restylesInFrames, probes } = await page.evaluate(() => {
+            const win = window as unknown as WatchWindow;
+            return { restyles: win.restyles!, restylesInFrames: win.restylesInFrames!, probes: win.aetherBenchProbes! };
+        });
+        expect(restyles).toBeGreaterThan(0);
+        expect(restylesInFrames).toBe(0);
+        // A note for every frame checked, and for each thorough check.
+        expect(probes.length).toBeGreaterThan(restyles);
+        for (const probe of probes) expect(probe.duration).toBeGreaterThanOrEqual(0);
+    });
+});

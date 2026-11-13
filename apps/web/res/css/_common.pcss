@@ -58,8 +58,11 @@ Please see LICENSE files in the repository root for full details.
  * Disable pointer events inside the persistentElement container when the room-list is being resized.
  * This is necessary to avoid the pointer events from being hijacked by the content rendered inside
  * that div.
+ *
+ * ResizerViewModel marks the body while the separator is dragged. A `:has()` on the page root, finding the dragged
+ * separator itself, would make the browser restyle much of the page whenever anything is added to it or removed.
  */
-:root:has(.mx_Separator[data-separator="active"]) #mx_PersistedElement_container {
+body.mx_LeftPanel_resizing #mx_PersistedElement_container {
     pointer-events: none;
 }
 

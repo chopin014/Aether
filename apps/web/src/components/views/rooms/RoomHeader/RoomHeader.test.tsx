@@ -1036,6 +1036,8 @@ describe("RoomHeader", () => {
             vi.spyOn(CallStore.instance, "getConfiguredRTCTransports").mockReturnValue([
                 { type: "livekit", livekit_service_url: "https://example.org" },
             ]);
+            // A DM is encrypted, and the header works out a shield only for an encrypted room.
+            vi.mocked(client.getCrypto()!).isEncryptionEnabledInRoom.mockResolvedValue(true);
         });
 
         afterEach(() => {

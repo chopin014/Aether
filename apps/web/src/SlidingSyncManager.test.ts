@@ -14,12 +14,14 @@ import {
     SlidingSyncEvent,
     SlidingSyncState,
     type MSC3575RoomData,
+    type MSC3575SlidingSyncResponse,
 } from "matrix-js-sdk/src/sliding-sync";
 import {
     ClientEvent,
     EventType,
     createClient,
     type MatrixClient,
+    MatrixError,
     MatrixEvent,
     Room,
     RoomEvent,
@@ -36,10 +38,17 @@ import EventEmitter from "node:events";
 import { waitFor } from "test-utils-rtl";
 import { mkStubRoom, stubClient } from "test-utils";
 
-import { SlidingSyncManager } from "./SlidingSyncManager";
+import {
+    MAX_DEMANDED_SELECTORS_PER_ROOM,
+    MAX_STATE_READ_ROOMS,
+    SlidingSyncManager,
+    UNUSABLE_RETRY_MS,
+} from "./SlidingSyncManager";
+import SettingsStore from "./settings/SettingsStore";
 import { SlidingSyncCache } from "./sliding-sync/SlidingSyncCache";
 import { CATALOG_STATE } from "./sliding-sync/roomStateProfiles";
 import { type RoomSubscriptionLeases } from "./sliding-sync/RoomSubscriptionLeases";
+import { DEMAND_LINGER_MS, RoomStateUnavailableError } from "./sliding-sync/RoomStateDemands";
 import { JitsiCallMemberEventType } from "./call-types";
 
 class MockSlidingSync extends EventEmitter {
@@ -56,6 +65,8 @@ class MockSlidingSync extends EventEmitter {
     getListData = vi.fn();
     extensions = vi.fn();
     desiredRoomSubscriptions = vi.fn();
+    hasSavedRoom = vi.fn().mockReturnValue(false);
+    restoreSavedRooms = vi.fn().mockResolvedValue(undefined);
 }
 
 describe("SlidingSyncManager", () => {
@@ -216,8 +227,8 @@ describe("SlidingSyncManager", () => {
             complete(sync, {});
             await vi.waitFor(() => expect(sync.getListParams("recent")?.timeline_limit).toBe(20));
             complete(sync, {});
-            // Only the manager's own tracking of responses stays.
-            await vi.waitFor(() => expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(1));
+            // Only the manager's own tracking of responses stays, with the notification counts' and the saved rooms'.
+            await vi.waitFor(() => expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(3));
             const select = vi.spyOn(sync, "useCustomSubscription");
             const visible = manager.setRoomVisible(roomId);
             await vi.waitFor(() => expect(select).toHaveBeenCalledWith(roomId, "bootstrap"));
@@ -234,7 +245,7 @@ describe("SlidingSyncManager", () => {
             complete(sync, { [roomId]: response });
             await expect(preparation).resolves.toBe(true);
             expect(select).toHaveBeenLastCalledWith(roomId, "room");
-            expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(1);
+            expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(3);
             sync.stop();
         });
 
@@ -551,6 +562,58 @@ describe("SlidingSyncManager", () => {
         expect(current.getListParams("untagged")).toBeNull();
     });
 
+    describe("message retention", () => {
+        const RETENTION = ["m.room.retention", ""];
+        const UNSTABLE_RETENTION = ["org.matrix.msc1763.retention", ""];
+        const LISTS = ["recent", "spaces", "invites", "favourites", "dms", "untagged"];
+
+        function retentionIs(on: boolean): void {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation(((name: string, ...rest: unknown[]) =>
+                name === "feature_retention"
+                    ? on
+                    : (getValue as (...args: unknown[]) => unknown)(name, ...rest)) as typeof SettingsStore.getValue);
+        }
+
+        afterEach(() => {
+            vi.mocked(SettingsStore.getValue).mockRestore();
+        });
+
+        it("asks every list and subscription for each room's retention policy while it is on", async () => {
+            retentionIs(true);
+            const sync = (await manager.setup(client))!;
+            for (const name of LISTS) {
+                expect({ name, state: sync.getListParams(name)?.required_state }).toEqual({
+                    name,
+                    state: expect.arrayContaining([RETENTION, UNSTABLE_RETENTION]),
+                });
+            }
+            const subscriptions = (
+                sync as unknown as { customSubscriptions: Map<string, { required_state: string[][] }> }
+            ).customSubscriptions;
+            expect(subscriptions.get("room")?.required_state).toEqual(expect.arrayContaining([RETENTION]));
+            // An encrypted room's subscription asks for all of its state already.
+            expect(subscriptions.get("encrypted")?.required_state).toEqual([["*", "*"]]);
+        });
+
+        it("asks for it in lists made after a room opened at start", async () => {
+            retentionIs(true);
+            const sync = (await manager.setup(client, "!selected:example.org"))!;
+            expect(sync.getListParams("untagged")).toBeNull();
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, null);
+            await vi.waitFor(() => expect(sync.getListParams("untagged")).not.toBeNull());
+            expect(sync.getListParams("untagged")?.required_state).toEqual(expect.arrayContaining([RETENTION]));
+        });
+
+        it("asks for no retention policy while it is off", async () => {
+            retentionIs(false);
+            const sync = (await manager.setup(client))!;
+            for (const name of LISTS) {
+                expect(sync.getListParams(name)?.required_state).not.toContainEqual(RETENTION);
+            }
+        });
+    });
+
     it("starts with small lists then restores recent messages after the first response", async () => {
         const sync = await manager.setup(client);
         for (const name of ["spaces", "invites", "favourites", "dms", "untagged"]) {
@@ -667,8 +730,8 @@ describe("SlidingSyncManager", () => {
             await vi.waitFor(() => expect(sync.getListParams("recent")?.timeline_limit).toBe(20));
             sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, null);
             await new Promise((resolve) => setTimeout(resolve, 60));
-            // Only the manager's own tracking of responses stays.
-            expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(1);
+            // Only the manager's own tracking of responses stays, with the notification counts' and the saved rooms'.
+            expect(sync.listenerCount(SlidingSyncEvent.Lifecycle)).toBe(3);
             const roomId = "!new:example.org";
             const selectSubscription = vi.spyOn(sync, "useCustomSubscription");
             const visible = manager.setRoomVisible(roomId);
@@ -713,6 +776,10 @@ describe("SlidingSyncManager", () => {
         await new Promise((resolve) => setTimeout(resolve, 60));
         expect(current.getListParams("untagged")?.timeline_limit).toBe(1);
         expect(previous.getListParams("untagged")?.timeline_limit).toBe(1);
+    });
+
+    it("expects no room to arrive without sliding sync", () => {
+        expect(new SlidingSyncManager().mayStillArrive("!room:id")).toBe(false);
     });
 
     describe("setRoomVisible", () => {
@@ -894,6 +961,66 @@ describe("SlidingSyncManager", () => {
             await manager.checkSupport(client);
             expect(SlidingSyncManager.serverSupportsSlidingSync).toBeTruthy();
         });
+
+        it.each([true, false])(
+            "says whether the server offers sliding sync (%s), and keeps the answer",
+            async (offers) => {
+                localStorage.clear();
+                SlidingSyncManager.serverSupportsSlidingSync = !offers;
+                vi.spyOn(manager, "nativeSlidingSyncSupport").mockResolvedValue(offers);
+                expect(manager.knownServerSupport(client)).toBeUndefined();
+                await expect(manager.serverOffersSlidingSync(client)).resolves.toBe(offers);
+                expect(SlidingSyncManager.serverSupportsSlidingSync).toBe(offers);
+                // Kept on this device for the next start, for this homeserver only.
+                expect(manager.knownServerSupport(client)).toBe(offers);
+                const elsewhere = createClient({ baseUrl: "https://elsewhere.example.org" });
+                expect(manager.knownServerSupport(elsewhere)).toBeUndefined();
+            },
+        );
+
+        it("cannot say whether the server offers sliding sync when it cannot be asked", async () => {
+            localStorage.clear();
+            vi.spyOn(manager, "nativeSlidingSyncSupport").mockRejectedValue(new Error("offline"));
+            await expect(manager.serverOffersSlidingSync(client)).resolves.toBeUndefined();
+            expect(SlidingSyncManager.serverSupportsSlidingSync).toBe(false);
+            expect(manager.knownServerSupport(client)).toBeUndefined();
+        });
+
+        it("drops an answer it cannot update, rather than leave it stale", async () => {
+            localStorage.clear();
+            vi.spyOn(manager, "nativeSlidingSyncSupport").mockResolvedValue(true);
+            await manager.serverOffersSlidingSync(client);
+            expect(manager.knownServerSupport(client)).toBe(true);
+            // The server stops offering it while storage is full.
+            vi.spyOn(manager, "nativeSlidingSyncSupport").mockResolvedValue(false);
+            const setItem = vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+                throw new DOMException("full", "QuotaExceededError");
+            });
+            try {
+                await expect(manager.serverOffersSlidingSync(client)).resolves.toBe(false);
+            } finally {
+                setItem.mockRestore();
+            }
+            expect(manager.knownServerSupport(client)).toBeUndefined();
+        });
+
+        it("takes a server whose versions list no unstable features as offering no sliding sync", async () => {
+            const real = createClient({ baseUrl: "https://versions.example.org" });
+            fetchMock.get("https://versions.example.org/_matrix/client/versions", { versions: ["v1.11"] });
+            await expect(manager.serverOffersSlidingSync(real)).resolves.toBe(false);
+        });
+    });
+
+    describe("isActiveFor", () => {
+        it("is true only for the client sliding sync was set up for", async () => {
+            const other = new SlidingSyncManager();
+            expect(other.isActiveFor(client)).toBe(false);
+            const sync = (await other.setup(client))!;
+            expect(other.isActiveFor(client)).toBe(true);
+            expect(other.isActiveFor(stubClient())).toBe(false);
+            expect(other.isActiveFor(null)).toBe(false);
+            sync.stop();
+        });
     });
     describe("room subscription leases", () => {
         const rooms = new Map<string, Room>();
@@ -901,7 +1028,6 @@ describe("SlidingSyncManager", () => {
         let internals: {
             roomIdToCustomSubscription: Map<string, string>;
             customSubscriptions: Map<string, { timeline_limit: number; required_state: string[][] }>;
-            confirmedRoomSubscriptions: Set<string>;
         };
         const nameOf = (roomId: string): string | undefined => internals.roomIdToCustomSubscription.get(roomId);
         const subscriptionOf = (roomId: string): { timeline_limit: number; required_state: string[][] } =>
@@ -947,6 +1073,21 @@ describe("SlidingSyncManager", () => {
         afterEach(() => {
             vi.useRealTimers();
             sync.stop();
+        });
+
+        it("asks for every Space's soundboard, which a voice channel offers from every Space the user is in", () => {
+            expect(sync.getListParams("spaces")?.required_state).toContainEqual(["io.aether.soundboard.sound", "*"]);
+            // Rooms are listed with the catalog only.
+            expect(sync.getListParams("untagged")?.required_state).not.toContainEqual([
+                "io.aether.soundboard.sound",
+                "*",
+            ]);
+        });
+
+        it("lists rooms without asking for older rooms, which simplified sliding sync does not serve", () => {
+            for (const listName of ["recent", "spaces", "invites", "favourites", "dms", "untagged"]) {
+                expect(sync.getListParams(listName)).not.toHaveProperty("include_old_rooms");
+            }
         });
 
         it("gives an opened room the state its views read, by kind of room", async () => {
@@ -999,26 +1140,187 @@ describe("SlidingSyncManager", () => {
         });
 
         it("reports a room the server answered without as absent", async () => {
+            const changes = vi.fn();
+            manager.onArrivalChange(changes);
             const visible = manager.setRoomVisible("!missing");
             await tick();
             expect(nameOf("!missing")).toBe("bootstrap");
-            // A response to an older request, before the subscription was acknowledged, proves nothing.
-            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, {
-                pos: "1",
-                lists: {},
-                rooms: {},
-                extensions: {},
-            });
-            internals.confirmedRoomSubscriptions.add("!missing");
-            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, {
-                pos: "2",
-                lists: {},
-                rooms: {},
-                extensions: {},
-            });
+            expect(manager.mayStillArrive("!missing")).toBe(true);
+            // A response to an older request, which did not ask about the room, proves nothing.
+            const older = { pos: "1", lists: {}, rooms: {}, extensions: {} };
+            const answered = { pos: "2", lists: {}, rooms: {}, extensions: {} };
+            vi.spyOn(sync, "getRequestForResponse").mockImplementation((response) =>
+                response === answered
+                    ? { roomSubscriptions: new Map([["!missing", subscriptionOf("!missing")]]) }
+                    : { roomSubscriptions: new Map() },
+            );
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, older);
+            await tick();
+            expect(manager.mayStillArrive("!missing")).toBe(true);
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, answered);
             await expect(visible).resolves.toBe("absent");
+            expect(changes).toHaveBeenCalled();
             expect((manager as unknown as { bootstrapRooms: Set<string> }).bootstrapRooms.has("!missing")).toBe(false);
             expect(manager.initialTimelinePreparation(client, "!missing")).toBeUndefined();
+            expect(manager.mayStillArrive("!missing")).toBe(false);
+            // Once it has arrived after all, it is no longer taken to be missing.
+            client.emit(ClientEvent.Room, knownRoom("!missing"));
+            rooms.delete("!missing");
+            expect(manager.mayStillArrive("!missing")).toBe(true);
+        });
+
+        it("counts no room as sent once the connection is started afresh, until it is sent again", async () => {
+            const changes = vi.fn();
+            manager.onArrivalChange(changes);
+            const data = { name: "Live", required_state: [], timeline: [] };
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+            sync.emit(SlidingSyncEvent.RoomData, "!live", data);
+            await applied();
+            expect(manager.hasLiveData("!live")).toBe(true);
+            changes.mockClear();
+
+            // The server forgot the connection: the SDK starts it afresh.
+            const forgotten = new MatrixError({ errcode: "M_UNKNOWN_POS", error: "Unknown pos" }, 400);
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null, forgotten);
+            expect(manager.hasLiveData("!live")).toBe(false);
+            expect(changes).toHaveBeenCalled();
+
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+            sync.emit(SlidingSyncEvent.RoomData, "!live", data);
+            await applied();
+            expect(manager.hasLiveData("!live")).toBe(true);
+        });
+
+        describe("sliding sync that fails though offered", () => {
+            const failed = (httpStatus: number, errcode: string): MatrixError =>
+                new MatrixError({ errcode, error: errcode }, httpStatus);
+
+            afterEach(() => {
+                localStorage.clear();
+            });
+
+            it("lets it go for a while where the server has no sliding sync endpoint", () => {
+                const told = vi.fn();
+                manager.onUnusable(told);
+                sync.emit(
+                    SlidingSyncEvent.Lifecycle,
+                    SlidingSyncState.RequestFinished,
+                    null,
+                    failed(404, "M_UNRECOGNIZED"),
+                );
+                expect(manager.isUnusable(client)).toBe(true);
+                expect(told).toHaveBeenCalledOnce();
+            });
+
+            it("lets it go once the server has rejected requests in a row before answering one", () => {
+                for (let i = 0; i < 2; i++) {
+                    sync.emit(
+                        SlidingSyncEvent.Lifecycle,
+                        SlidingSyncState.RequestFinished,
+                        null,
+                        failed(400, "M_BAD_JSON"),
+                    );
+                }
+                expect(manager.isUnusable(client)).toBe(false);
+                sync.emit(
+                    SlidingSyncEvent.Lifecycle,
+                    SlidingSyncState.RequestFinished,
+                    null,
+                    failed(400, "M_BAD_JSON"),
+                );
+                expect(manager.isUnusable(client)).toBe(true);
+            });
+
+            /** A request finishes: answered, or failed with the error. */
+            const finish = (error?: Error): void => {
+                sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null, error);
+            };
+
+            it("counts neither a connection the server forgot, then answered afresh, nor a request with no answer", () => {
+                for (let i = 0; i < 5; i++) {
+                    finish(failed(400, "M_UNKNOWN_POS"));
+                    finish(new Error("offline"));
+                    finish();
+                }
+                expect(manager.isUnusable(client)).toBe(false);
+            });
+
+            it("lets it go when the server says it does not know even the fresh connection, again and again", () => {
+                // The first is a connection forgotten; each one after it is a fresh request rejected.
+                for (let i = 0; i < 3; i++) finish(failed(400, "M_UNKNOWN_POS"));
+                expect(manager.isUnusable(client)).toBe(false);
+                finish(failed(400, "M_UNKNOWN_POS"));
+                expect(manager.isUnusable(client)).toBe(true);
+            });
+
+            it("lets it go when it stops working after answering, once it has failed a few times in a row", () => {
+                finish();
+                for (let i = 0; i < 2; i++) finish(failed(404, "M_UNRECOGNIZED"));
+                expect(manager.isUnusable(client)).toBe(false);
+                finish(failed(404, "M_UNRECOGNIZED"));
+                expect(manager.isUnusable(client)).toBe(true);
+            });
+
+            it("keeps it while failures are answered in between", () => {
+                for (let i = 0; i < 5; i++) {
+                    finish();
+                    finish(failed(404, "M_UNRECOGNIZED"));
+                    finish(failed(400, "M_BAD_JSON"));
+                }
+                expect(manager.isUnusable(client)).toBe(false);
+            });
+
+            it("tries it again once a while has passed", () => {
+                sync.emit(
+                    SlidingSyncEvent.Lifecycle,
+                    SlidingSyncState.RequestFinished,
+                    null,
+                    failed(405, "M_UNRECOGNIZED"),
+                );
+                const now = Date.now();
+                vi.spyOn(Date, "now").mockReturnValue(now + UNUSABLE_RETRY_MS + 1);
+                expect(manager.isUnusable(client)).toBe(false);
+                vi.mocked(Date.now).mockRestore();
+            });
+        });
+
+        it("notes which rooms the server has sent on this connection, once the response is applied", async () => {
+            const changes = vi.fn();
+            const stop = manager.onArrivalChange(changes);
+            const data = { name: "Live", required_state: [], timeline: [] };
+            expect(manager.hasLiveData("!live")).toBe(false);
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+            sync.emit(SlidingSyncEvent.RoomData, "!live", data);
+            sync.emit(SlidingSyncEvent.RoomData, "!live", data);
+            // Its membership, say, is applied after its data arrives: not live until the response completes.
+            expect(manager.hasLiveData("!live")).toBe(false);
+            expect(changes).not.toHaveBeenCalled();
+            await applied();
+            expect(manager.hasLiveData("!live")).toBe(true);
+            expect(changes).toHaveBeenCalled();
+            // A request that fails applies nothing.
+            sync.emit(SlidingSyncEvent.RoomData, "!failed", data);
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null, new Error("gone"));
+            await applied();
+            expect(manager.hasLiveData("!failed")).toBe(false);
+            // A listener that stopped is told nothing more.
+            const told = changes.mock.calls.length;
+            stop();
+            sync.emit(SlidingSyncEvent.RoomData, "!other", data);
+            await applied();
+            expect(changes).toHaveBeenCalledTimes(told);
+        });
+
+        it("opens a room from this device's saved data, without waiting for the server", async () => {
+            const restore = vi.fn(async (roomIds: string[]) => {
+                for (const roomId of roomIds) client.emit(ClientEvent.Room, knownRoom(roomId));
+            });
+            sync.setSavedRooms({ has: (roomId) => roomId === "!saved" && !rooms.has(roomId), restore });
+            expect(manager.mayStillArrive("!saved")).toBe(true);
+            await expect(manager.setRoomVisible("!saved")).resolves.toBe("known");
+            expect(restore).toHaveBeenCalledExactlyOnceWith(["!saved"], false);
+            await tick();
+            expect(nameOf("!saved")).toBe("room");
         });
 
         it("stops waiting for a room the server has not answered for in time", async () => {
@@ -1491,7 +1793,7 @@ describe("SlidingSyncManager", () => {
             expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!new-category", "!c"]));
         });
 
-        it("keeps the first channels in the Space's own order when it has too many", async () => {
+        it("asks about the first channels nobody has seen in the Space's own order, a few at a time", async () => {
             const space = knownRoom("!server", "space");
             // Listed in reverse of their order, so the Space's order decides, not arrival.
             const events = Array.from({ length: 250 }, (_, i) => 249 - i).map(
@@ -1508,9 +1810,71 @@ describe("SlidingSyncManager", () => {
             space.currentState.setStateEvents(events);
             manager.setActiveSpace("!server");
             await tick();
-            expect(sync.getRoomSubscriptions()).toEqual(
-                new Set(["!server", ...Array.from({ length: 200 }, (_, i) => `!channel${i}`)]),
+            const first = Array.from({ length: 8 }, (_, i) => `!channel${i}`);
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", ...first]));
+
+            // The tree read again before an answer, such as when a child is added, asks about no more of them.
+            addChildren(space, ["!late"], { via: ["example.org"], order: "999" });
+            await tick();
+            addChildren(space, ["!later"], { via: ["example.org"], order: "999" });
+            await tick();
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", ...first]));
+
+            // Answered without them, as the server does not serve rooms the user has never been in: the next ones
+            // are asked about instead, and those are not asked about again.
+            const response = { pos: "p", lists: {}, rooms: {}, extensions: {} };
+            vi.spyOn(sync, "getRequestForResponse").mockImplementation((answered) =>
+                answered === response
+                    ? { roomSubscriptions: new Map(first.map((roomId) => [roomId, subscriptionOf(roomId)])) }
+                    : undefined,
             );
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, response);
+            await tick();
+            expect(sync.getRoomSubscriptions()).toEqual(
+                new Set(["!server", ...Array.from({ length: 8 }, (_, i) => `!channel${i + 8}`)]),
+            );
+        });
+
+        it("asks about a channel the server did not send again once someone opens it", async () => {
+            const space = knownRoom("!server", "space");
+            addChildren(space, ["!private"]);
+            manager.setActiveSpace("!server");
+            await tick();
+            expect(sync.getRoomSubscriptions()).toContain("!private");
+            const response = { pos: "p", lists: {}, rooms: {}, extensions: {} };
+            vi.spyOn(sync, "getRequestForResponse").mockImplementation((answered) =>
+                answered === response
+                    ? { roomSubscriptions: new Map([["!private", subscriptionOf("!private")]]) }
+                    : undefined,
+            );
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, response);
+            await tick();
+            expect(sync.getRoomSubscriptions()).not.toContain("!private");
+
+            void manager.setRoomVisible("!private");
+            await tick();
+            expect(sync.getRoomSubscriptions()).toContain("!private");
+            // Once the user has looked away, it is a channel to ask about again, as before.
+            expect((manager as unknown as { unsuppliedRooms: Set<string> }).unsuppliedRooms.has("!private")).toBe(
+                false,
+            );
+        });
+
+        it("asks about a channel that has arrived no more: it is a known channel", async () => {
+            const space = knownRoom("!server", "space");
+            addChildren(space, ["!new"]);
+            manager.setActiveSpace("!server");
+            await tick();
+            const response = { pos: "p", lists: {}, rooms: {}, extensions: {} };
+            vi.spyOn(sync, "getRequestForResponse").mockImplementation((answered) =>
+                answered === response ? { roomSubscriptions: new Map([["!new", subscriptionOf("!new")]]) } : undefined,
+            );
+            // It arrives in the response, so it stays subscribed as a known channel until the lists cover it.
+            client.emit(ClientEvent.Room, knownRoom("!new"));
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.Complete, response);
+            await tick();
+            expect(sync.getRoomSubscriptions()).toContain("!new");
+            expect(nameOf("!new")).toBe("channel");
         });
 
         it("sends a Space and its channels along with the channel opened next, in one request", async () => {
@@ -1540,12 +1904,33 @@ describe("SlidingSyncManager", () => {
             await tick();
             expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!joined", "!unseen"]));
             // Spidering finishes: every list covers all the rooms there are.
+            const covered = vi.fn();
+            manager.onArrivalChange(covered);
             vi.spyOn(sync, "getListData").mockReturnValue({ joinedCount: 0 });
             await (
                 manager as unknown as { startSpidering(sync: SlidingSync, batch: number, gap: number): Promise<void> }
             ).startSpidering(sync, 10, 1);
             await applied();
             await vi.waitFor(() => expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!unseen"])));
+            // A room the lists did not bring is not the user's, unless this device saved it and has not applied it.
+            expect(manager.mayStillArrive("!elsewhere")).toBe(false);
+            expect(covered).toHaveBeenCalled();
+            sync.setSavedRooms({ has: (roomId) => roomId === "!elsewhere", restore: async () => {} });
+            expect(manager.mayStillArrive("!elsewhere")).toBe(true);
+        });
+
+        it("applies the open Space's saved channels while the page is idle, asking once for each", async () => {
+            const space = knownRoom("!server", "space");
+            addChildren(space, ["!a", "!b"]);
+            const restore = vi.fn(async () => {});
+            sync.setSavedRooms({ has: (roomId) => roomId === "!a", restore });
+            manager.setActiveSpace("!server");
+            await tick();
+            expect(restore).toHaveBeenCalledExactlyOnceWith(["!a"], true);
+            addChildren(space, ["!c"]);
+            await applied();
+            await vi.waitFor(() => expect(sync.getRoomSubscriptions()).toContain("!c"));
+            expect(restore).toHaveBeenCalledTimes(1);
         });
 
         it("subscribes joined channels again when a list outgrows its range after spidering", async () => {
@@ -1609,7 +1994,7 @@ describe("SlidingSyncManager", () => {
             expect(lookups.mock.calls.length).toBeLessThan(2500);
         });
 
-        it("gives a channel someone points at the shorter history of a likely visit, and keeps it", async () => {
+        it("gives a channel someone points at the shorter history of a likely visit, then a channel's again", async () => {
             vi.useFakeTimers();
             const space = knownRoom("!server", "space");
             knownRoom("!a");
@@ -1619,8 +2004,9 @@ describe("SlidingSyncManager", () => {
             manager.prefetchRoom("!a");
             await vi.advanceTimersByTimeAsync(200);
             expect(nameOf("!a")).toBe("prefetch");
+            // Every request carries every subscription, so once the visit is no longer likely a channel's will do.
             await vi.advanceTimersByTimeAsync(60_000);
-            expect(nameOf("!a")).toBe("prefetch");
+            expect(nameOf("!a")).toBe("channel");
             expect(sync.getRoomSubscriptions()).toContain("!a");
         });
 
@@ -1645,7 +2031,7 @@ describe("SlidingSyncManager", () => {
             expect(sync.getRoomSubscriptions()).not.toContain("!elsewhere");
         });
 
-        it("gives an open channel its room subscription, and keeps it after the room is left", async () => {
+        it("gives an open channel its room subscription, then a channel's once its grace period ends", async () => {
             vi.useFakeTimers();
             const space = knownRoom("!server", "space");
             knownRoom("!a");
@@ -1658,19 +2044,36 @@ describe("SlidingSyncManager", () => {
             expect(nameOf("!a")).toBe("room");
             lease.release();
             await vi.advanceTimersByTimeAsync(120_000);
-            expect(nameOf("!a")).toBe("room");
+            expect(nameOf("!a")).toBe("channel");
             expect(sync.getRoomSubscriptions()).toContain("!a");
         });
 
-        it("subscribes no more than 200 channels of a Space", async () => {
+        it("subscribes no more than 32 channels of a Space, as every request carries them all", async () => {
             const space = knownRoom("!server", "space");
-            addChildren(
-                space,
-                Array.from({ length: 250 }, (_, i) => `!channel${i}`),
-            );
+            const channels = Array.from({ length: 250 }, (_, i) => `!channel${i}`);
+            for (const roomId of channels) knownRoom(roomId);
+            addChildren(space, channels);
             manager.setActiveSpace("!server");
             await tick();
-            expect(sync.getRoomSubscriptions().size).toBe(201);
+            // Without an order of their own, the Space orders them by room ID.
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", ...[...channels].sort().slice(0, 32)]));
+        });
+
+        it("holds back the Space's channels that would make a request too large, but not the open room", async () => {
+            const space = knownRoom("!server", "space");
+            const channels = Array.from({ length: 10 }, (_, i) => `!channel${i}`);
+            for (const roomId of channels) knownRoom(roomId);
+            addChildren(space, channels);
+            knownRoom("!open");
+            // Lists as large as the whole budget leave no room for optional subscriptions.
+            vi.spyOn(sync, "getListParams").mockReturnValue({
+                ranges: [[0, 0]],
+                required_state: [["x".repeat(64 * 1024), ""]],
+            });
+            await manager.setRoomVisible("!open");
+            manager.setActiveSpace("!server");
+            await tick();
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!server", "!open"]));
         });
 
         it("applies a Space selected before the connection existed", async () => {
@@ -1679,6 +2082,474 @@ describe("SlidingSyncManager", () => {
             const freshSync = (await fresh.setup(client))!;
             expect(freshSync.getRoomSubscriptions()).toContain("!early");
             freshSync.stop();
+        });
+
+        it("keeps a room held for its settings subscribed as an open room, until the last hold is released", async () => {
+            vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+            knownRoom("!listed");
+            knownRoom("!server", "space");
+            const releaseRoom = manager.holdRoom("!listed");
+            const releaseAgain = manager.holdRoom("!listed");
+            const releaseSpace = manager.holdRoom("!server");
+            // Someone is waiting for the settings: the subscriptions go out with the next request.
+            await vi.advanceTimersByTimeAsync(0);
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!listed", "!server"]));
+            expect(nameOf("!listed")).toBe("room");
+            expect(nameOf("!server")).toBe("space");
+
+            releaseRoom();
+            releaseRoom();
+            releaseSpace();
+            await vi.advanceTimersByTimeAsync(60_200);
+            expect(sync.getRoomSubscriptions()).toEqual(new Set(["!listed"]));
+            releaseAgain();
+            await vi.advanceTimersByTimeAsync(60_200);
+            expect(sync.getRoomSubscriptions()).toEqual(new Set());
+        });
+
+        it("ignores holds on room aliases", async () => {
+            const release = manager.holdRoom("#garden:example.org");
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(sync.getRoomSubscriptions()).toEqual(new Set());
+            expect(release).not.toThrow();
+        });
+
+        it("subscribes held rooms on a connection that starts later, and on one that replaces it", async () => {
+            vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+            const fresh = new SlidingSyncManager();
+            const release = fresh.holdRoom("!early");
+            const first = (await fresh.setup(client))!;
+            expect(first.getRoomSubscriptions()).toContain("!early");
+            const second = (await fresh.setup(client))!;
+            expect(second.getRoomSubscriptions()).toContain("!early");
+
+            release();
+            await vi.advanceTimersByTimeAsync(60_200);
+            expect(second.getRoomSubscriptions()).not.toContain("!early");
+            first.stop();
+            second.stop();
+        });
+
+        describe("demanded room state", () => {
+            const INSTALLATIONS = "io.element.integrations.installations";
+
+            /** Apply an answer to a request that carried these rooms' current subscriptions. */
+            function answer(roomIds: string[], rooms: Record<string, object> = {}): void {
+                const response = { pos: "n", lists: {}, rooms, extensions: {} } as MSC3575SlidingSyncResponse;
+                vi.spyOn(sync, "getRequestForResponse").mockReturnValue({
+                    roomSubscriptions: new Map(roomIds.map((roomId) => [roomId, subscriptionOf(roomId)])),
+                });
+                sync.emit(SlidingSyncEvent.Applied, response);
+            }
+
+            it("subscribes a room only read from with a list entry's state and the demanded state", async () => {
+                knownRoom("!plain");
+                knownRoom("!secret", "encrypted");
+                manager.demandRoomState("!plain", [{ type: INSTALLATIONS }]);
+                manager.demandRoomState("!secret", [{ type: INSTALLATIONS, stateKey: "abc" }]);
+                await tick();
+                expect(sync.getRoomSubscriptions()).toEqual(new Set(["!plain", "!secret"]));
+                expect(subscriptionOf("!plain").timeline_limit).toBe(0);
+                expect(subscriptionOf("!plain").required_state).toEqual([...CATALOG_STATE, [INSTALLATIONS, "*"]]);
+                // An encrypted room is not given every member just to read some of its state.
+                expect(subscriptionOf("!secret").required_state).toContainEqual([INSTALLATIONS, "abc"]);
+                expect(subscriptionOf("!secret").required_state).not.toContainEqual(["*", "*"]);
+            });
+
+            it("adds demanded state to an open room's subscription, unless it brings it already", async () => {
+                knownRoom("!open");
+                knownRoom("!secret", "encrypted");
+                await manager.setRoomVisible("!open");
+                manager.setCallRooms(["!secret"]);
+                manager.demandRoomState("!open", [{ type: INSTALLATIONS }]);
+                manager.demandRoomState("!secret", [{ type: INSTALLATIONS }]);
+                await tick();
+                expect(subscriptionOf("!open").timeline_limit).toBe(50);
+                expect(subscriptionOf("!open").required_state).toContainEqual([INSTALLATIONS, "*"]);
+                expect(nameOf("!secret")).toBe("encrypted");
+            });
+
+            it("reads demanded state once an answer naming it has been applied, then lets go", async () => {
+                vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+                const room = knownRoom("!plain");
+                const read = manager.readRoomState(client, "!plain", { type: INSTALLATIONS, stateKey: "abc" });
+                await vi.advanceTimersByTimeAsync(0);
+                expect(sync.getRoomSubscriptions()).toContain("!plain");
+
+                // An answer to the request sent before the demand does not name its state.
+                vi.spyOn(sync, "getRequestForResponse").mockReturnValue({
+                    roomSubscriptions: new Map([["!plain", { timeline_limit: 0, required_state: CATALOG_STATE }]]),
+                });
+                sync.emit(SlidingSyncEvent.Applied, { pos: "o", lists: {}, rooms: {}, extensions: {} });
+                const event = new MatrixEvent({
+                    type: INSTALLATIONS,
+                    state_key: "abc",
+                    content: { foo: "bar" },
+                    room_id: "!plain",
+                    sender: client.getUserId()!,
+                    event_id: "$installation",
+                });
+                room.currentState.setStateEvents([event]);
+                answer(["!plain"]);
+                await expect(read).resolves.toEqual([event]);
+
+                await vi.advanceTimersByTimeAsync(DEMAND_LINGER_MS + 200);
+                expect(sync.getRoomSubscriptions()).not.toContain("!plain");
+            });
+
+            it("finds no state in a room the server does not serve", async () => {
+                const read = manager.readRoomState(client, "!unknown", { type: INSTALLATIONS });
+                await tick();
+                expect(sync.getRoomSubscriptions()).toContain("!unknown");
+                answer(["!unknown"]);
+                await expect(read).resolves.toEqual([]);
+            });
+
+            it("gives up when the server does not answer in time", async () => {
+                vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+                knownRoom("!plain");
+                const outcome = manager
+                    .readRoomState(client, "!plain", { type: INSTALLATIONS }, 1000)
+                    .catch((error: unknown) => error);
+                await vi.advanceTimersByTimeAsync(1000);
+                expect(await outcome).toBeInstanceOf(RoomStateUnavailableError);
+            });
+
+            it("reads a list entry's state at once", async () => {
+                knownRoom("!listed");
+                (manager as unknown as { liveRooms: Set<string> }).liveRooms.add("!listed");
+                const modify = vi.spyOn(sync, "modifyRoomSubscriptions");
+                await expect(
+                    manager.readRoomState(client, "!listed", {
+                        type: "io.element.functional_members",
+                        stateKey: "",
+                    }),
+                ).resolves.toEqual([]);
+                await tick();
+                expect(modify).not.toHaveBeenCalled();
+            });
+
+            it("reads every member as loaded, without asking for them all", async () => {
+                // As under regular sync, members are loaded lazily: asking for all of them would bring every
+                // member of a large room.
+                knownRoom("!large");
+                await expect(manager.readRoomState(client, "!large", { type: EventType.RoomMember })).resolves.toEqual(
+                    [],
+                );
+                await tick();
+                expect(sync.getRoomSubscriptions()).not.toContain("!large");
+            });
+
+            it("reads a few rooms at a time", async () => {
+                const roomIds = Array.from({ length: MAX_STATE_READ_ROOMS + 1 }, (_, i) => `!room${i}`);
+                for (const roomId of roomIds) knownRoom(roomId);
+                const reads = roomIds.map((roomId) => manager.readRoomState(client, roomId, { type: INSTALLATIONS }));
+                await tick();
+                expect(sync.getRoomSubscriptions().size).toBe(MAX_STATE_READ_ROOMS);
+                expect(sync.getRoomSubscriptions()).not.toContain(roomIds[MAX_STATE_READ_ROOMS]);
+
+                answer([roomIds[0]]);
+                await expect(reads[0]).resolves.toEqual([]);
+                await tick();
+                expect(sync.getRoomSubscriptions()).toContain(roomIds[MAX_STATE_READ_ROOMS]);
+                answer(roomIds);
+                await expect(Promise.all(reads)).resolves.toHaveLength(roomIds.length);
+            });
+
+            it("asks for state demanded before sliding sync started, once it has", async () => {
+                const fresh = new SlidingSyncManager();
+                const demand = fresh.demandRoomState("!early", [{ type: INSTALLATIONS }]);
+                // Without sliding sync the room's state is all here.
+                expect(demand.isReady()).toBe(true);
+                const freshSync = (await fresh.setup(client))!;
+                expect(freshSync.getRoomSubscriptions()).toContain("!early");
+                expect(demand.isReady()).toBe(false);
+                demand.release();
+                freshSync.stop();
+            });
+
+            it("asks nothing for state every list entry brings, once the room's entry has arrived", async () => {
+                knownRoom("!listed");
+                (manager as unknown as { liveRooms: Set<string> }).liveRooms.add("!listed");
+                const demand = manager.demandRoomState("!listed", [
+                    { type: "io.element.functional_members", stateKey: "" },
+                ]);
+                await tick();
+                expect(demand.isReady()).toBe(true);
+                expect(sync.getRoomSubscriptions()).not.toContain("!listed");
+            });
+
+            it("asks for a list entry's state for a room whose entry has not arrived", async () => {
+                // Such as a room restored from this device, or one the lists have not reached yet.
+                knownRoom("!restored");
+                const demand = manager.demandRoomState("!restored", [
+                    { type: "io.element.functional_members", stateKey: "" },
+                ]);
+                await tick();
+                expect(demand.isReady()).toBe(false);
+                expect(sync.getRoomSubscriptions()).toContain("!restored");
+                answer(["!restored"]);
+                expect(demand.isReady()).toBe(true);
+            });
+
+            it("gives each room one subscription for its demanded state, follows it, and forgets it once unused", async () => {
+                vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+                knownRoom("!plain");
+                const first = manager.demandRoomState("!plain", [{ type: INSTALLATIONS }]);
+                await vi.advanceTimersByTimeAsync(0);
+                expect(nameOf("!plain")).toBe("state+!plain");
+
+                const second = manager.demandRoomState("!plain", [{ type: "org.example.layout", stateKey: "" }]);
+                await vi.advanceTimersByTimeAsync(0);
+                expect(nameOf("!plain")).toBe("state+!plain");
+                expect(subscriptionOf("!plain").required_state).toEqual(
+                    expect.arrayContaining([
+                        [INSTALLATIONS, "*"],
+                        ["org.example.layout", ""],
+                    ]),
+                );
+
+                first.release();
+                second.release();
+                await vi.advanceTimersByTimeAsync(DEMAND_LINGER_MS + 200);
+                expect(sync.getRoomSubscriptions()).not.toContain("!plain");
+                expect(internals.customSubscriptions.has("state+!plain")).toBe(false);
+            });
+
+            it("gives demanded rooms room in a request up to its limits, and fails reads beyond them", async () => {
+                // Every request carries every subscription: live demands, such as ban lists, are given room first.
+                const live = Array.from({ length: 120 }, (_, i) => `!live${i}`);
+                for (const roomId of live) {
+                    knownRoom(roomId);
+                    manager.demandRoomState(roomId, [{ type: INSTALLATIONS }]);
+                }
+                await tick();
+                const subscribed = sync.getRoomSubscriptions().size;
+                expect(subscribed).toBeGreaterThan(0);
+                expect(subscribed).toBeLessThan(live.length);
+
+                knownRoom("!read");
+                await expect(manager.readRoomState(client, "!read", { type: INSTALLATIONS })).rejects.toMatchObject({
+                    reason: "capacity",
+                });
+                expect(sync.getRoomSubscriptions()).not.toContain("!read");
+            });
+
+            it("counts what demanded state adds to a room subscribed anyway against the request's limits", async () => {
+                knownRoom("!open");
+                await manager.setRoomVisible("!open");
+                // More selectors than one room may be given, from demands each within their own limit.
+                const types = Array.from({ length: MAX_DEMANDED_SELECTORS_PER_ROOM + 1 }, (_, i) => `org.example.${i}`);
+                for (let i = 0; i < types.length; i += 16) {
+                    manager.demandRoomState(
+                        "!open",
+                        types.slice(i, i + 16).map((type) => ({ type })),
+                    );
+                }
+                await tick();
+                // The room stays subscribed as an open room, without the state that does not fit.
+                expect(nameOf("!open")).toBe("room");
+                await expect(
+                    manager.readRoomState(client, "!open", { type: "org.example.read" }),
+                ).rejects.toMatchObject({ reason: "capacity" });
+            });
+
+            it("counts the bytes demanded state adds to a room subscribed anyway", async () => {
+                knownRoom("!open");
+                await manager.setRoomVisible("!open");
+                // Few selectors, but long enough together to outgrow a whole request.
+                const long = (i: number): { type: string } => ({ type: `org.example.${i}.${"x".repeat(3_000)}` });
+                for (let demand = 0; demand < 2; demand++) {
+                    manager.demandRoomState(
+                        "!open",
+                        Array.from({ length: 12 }, (_, i) => long(demand * 12 + i)),
+                    );
+                }
+                await tick();
+                expect(nameOf("!open")).toBe("room");
+            });
+
+            it("gives a waiting live demand room once another lets go", async () => {
+                const live = Array.from({ length: 120 }, (_, i) => `!live${i}`);
+                const demands = live.map((roomId) => {
+                    knownRoom(roomId);
+                    return manager.demandRoomState(roomId, [{ type: INSTALLATIONS }]);
+                });
+                await tick();
+                const before = sync.getRoomSubscriptions();
+                const waiting = live.find((roomId) => !before.has(roomId))!;
+                const admitted = live.findIndex((roomId) => before.has(roomId));
+                demands[admitted].release();
+                await tick();
+                expect(sync.getRoomSubscriptions()).toContain(waiting);
+            });
+
+            it("keeps admitting the same demanded state on applies that change nothing", async () => {
+                knownRoom("!open");
+                await manager.setRoomVisible("!open");
+                // Large enough that counting it twice would not fit a request.
+                manager.demandRoomState("!open", [{ type: `org.example.${"x".repeat(35_000)}` }]);
+                await tick();
+                expect(nameOf("!open")).toBe("room+!open");
+                const apply = (manager as unknown as { applySubscriptions(sliding: SlidingSync): void })
+                    .applySubscriptions;
+                const modify = vi.spyOn(sync, "modifyRoomSubscriptions");
+                apply.call(manager, sync);
+                apply.call(manager, sync);
+                expect(nameOf("!open")).toBe("room+!open");
+                expect(modify).not.toHaveBeenCalled();
+            });
+
+            it("does not count state an answer brought once the room no longer asks for it", async () => {
+                knownRoom("!open");
+                await manager.setRoomVisible("!open");
+                const demand = manager.demandRoomState("!open", [{ type: INSTALLATIONS }]);
+                await tick();
+                const sentSubscription = subscriptionOf("!open");
+                // The demanded state outgrows what one room is given before the answer is applied.
+                const types = Array.from({ length: MAX_DEMANDED_SELECTORS_PER_ROOM }, (_, i) => `org.example.${i}`);
+                for (let i = 0; i < types.length; i += 16) {
+                    manager.demandRoomState(
+                        "!open",
+                        types.slice(i, i + 16).map((type) => ({ type })),
+                    );
+                }
+                await tick();
+                expect(nameOf("!open")).toBe("room");
+                vi.spyOn(sync, "getRequestForResponse").mockReturnValue({
+                    roomSubscriptions: new Map([["!open", sentSubscription]]),
+                });
+                sync.emit(SlidingSyncEvent.Applied, { pos: "n", lists: {}, rooms: {}, extensions: {} });
+                expect(demand.isReady()).toBe(false);
+            });
+
+            it("stops counting state once the room's subscription no longer asks for it", async () => {
+                vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+                knownRoom("!open");
+                (manager as unknown as { liveRooms: Set<string> }).liveRooms.add("!open");
+                await manager.setRoomVisible("!open");
+                const first = manager.demandRoomState("!open", [{ type: INSTALLATIONS }]);
+                await vi.advanceTimersByTimeAsync(0);
+                answer(["!open"]);
+                expect(first.isReady()).toBe(true);
+
+                // Once let go and no longer lingering, the room is subscribed with its profile alone.
+                first.release();
+                await vi.advanceTimersByTimeAsync(DEMAND_LINGER_MS + 200);
+                expect(nameOf("!open")).toBe("room");
+
+                const again = manager.demandRoomState("!open", [{ type: INSTALLATIONS }]);
+                expect(again.isReady()).toBe(false);
+                await vi.advanceTimersByTimeAsync(0);
+                expect(nameOf("!open")).toBe("room+!open");
+                answer(["!open"]);
+                expect(again.isReady()).toBe(true);
+            });
+
+            it("keeps counting state the room's profile asks for when its demanded state loses its room", async () => {
+                knownRoom("!open");
+                (manager as unknown as { liveRooms: Set<string> }).liveRooms.add("!open");
+                await manager.setRoomVisible("!open");
+                const demand = manager.demandRoomState("!open", [{ type: INSTALLATIONS }]);
+                await tick();
+                answer(["!open"]);
+                expect(demand.isReady()).toBe(true);
+
+                // More state is demanded than one room is given: the room falls back to its profile.
+                const types = Array.from({ length: MAX_DEMANDED_SELECTORS_PER_ROOM }, (_, i) => `org.example.${i}`);
+                for (let i = 0; i < types.length; i += 16) {
+                    manager.demandRoomState(
+                        "!open",
+                        types.slice(i, i + 16).map((type) => ({ type })),
+                    );
+                }
+                await tick();
+                expect(nameOf("!open")).toBe("room");
+
+                expect(demand.isReady()).toBe(false);
+                // The topic is part of the open-room profile, so it is still kept current.
+                await expect(
+                    manager.readRoomState(client, "!open", { type: EventType.RoomTopic, stateKey: "" }),
+                ).resolves.toEqual([]);
+            });
+
+            it("counts state a wider answer brought for a room still asking for it", async () => {
+                // Such as an encrypted room's answer, with every state event, applied after its view was let go.
+                knownRoom("!secret", "encrypted");
+                const demand = manager.demandRoomState("!secret", [{ type: INSTALLATIONS }]);
+                await tick();
+                expect(nameOf("!secret")).toBe("state+!secret");
+                vi.spyOn(sync, "getRequestForResponse").mockReturnValue({
+                    roomSubscriptions: new Map([["!secret", { timeline_limit: 50, required_state: [["*", "*"]] }]]),
+                });
+                sync.emit(SlidingSyncEvent.Applied, { pos: "n", lists: {}, rooms: {}, extensions: {} });
+                expect(demand.isReady()).toBe(true);
+            });
+
+            it("waits for the answer to be applied, not only confirmed", async () => {
+                // The SDK confirms a subscription before it applies the answer's rooms.
+                knownRoom("!open");
+                (manager as unknown as { liveRooms: Set<string> }).liveRooms.add("!open");
+                await manager.setRoomVisible("!open");
+                vi.spyOn(sync, "isRoomSubscriptionConfirmed").mockReturnValue(true);
+                const demand = manager.demandRoomState("!open", [{ type: INSTALLATIONS }]);
+                await tick();
+                expect(demand.isReady()).toBe(false);
+                answer(["!open"]);
+                expect(demand.isReady()).toBe(true);
+            });
+
+            it("ends reads when the connection is replaced, without asking the new one for them", async () => {
+                const roomIds = Array.from({ length: MAX_STATE_READ_ROOMS + 1 }, (_, i) => `!room${i}`);
+                for (const roomId of roomIds) knownRoom(roomId);
+                const reads = roomIds.map((roomId) =>
+                    manager.readRoomState(client, roomId, { type: INSTALLATIONS }).catch((error: unknown) => error),
+                );
+                await tick();
+                const next = (await manager.setup(client))!;
+                const outcomes = await Promise.all(reads);
+                expect(outcomes.every((outcome) => outcome instanceof RoomStateUnavailableError)).toBe(true);
+                await tick();
+                for (const roomId of roomIds) expect(next.getRoomSubscriptions()).not.toContain(roomId);
+                next.stop();
+            });
+
+            it("refuses to ask for every event type", () => {
+                expect(() => manager.demandRoomState("!plain", [{ type: "*" }])).toThrow();
+            });
+
+            it("asks for demanded state again on a new connection", async () => {
+                knownRoom("!plain");
+                const demand = manager.demandRoomState("!plain", [{ type: INSTALLATIONS }]);
+                await tick();
+                answer(["!plain"]);
+                expect(demand.isReady()).toBe(true);
+
+                const next = (await manager.setup(client))!;
+                expect(demand.isReady()).toBe(false);
+                expect(next.getRoomSubscriptions()).toContain("!plain");
+                next.stop();
+            });
+        });
+
+        it("reads a client's state as it is without sliding sync", async () => {
+            const room = knownRoom("!plain");
+            const event = new MatrixEvent({
+                type: "io.element.integrations.installations",
+                state_key: "abc",
+                content: {},
+                room_id: "!plain",
+                sender: client.getUserId()!,
+                event_id: "$installation",
+            });
+            room.currentState.setStateEvents([event]);
+            const idle = new SlidingSyncManager();
+            await expect(
+                idle.readRoomState(client, "!plain", { type: "io.element.integrations.installations" }),
+            ).resolves.toEqual([event]);
+            expect(idle.demandRoomState("!plain", [{ type: "io.element.integrations.installations" }]).isReady()).toBe(
+                true,
+            );
         });
 
         it("does nothing for prefetches and calls without sliding sync", () => {
@@ -1774,6 +2645,34 @@ describe("SlidingSyncManager", () => {
             await expect(loaded).resolves.toBeNull();
         });
 
+        it("says whether this device has rooms saved from sliding sync for a client, from the early read", async () => {
+            const load = vi.spyOn(SlidingSyncCache.prototype, "load");
+            await expect(manager.hasPrefetchedSnapshot(client)).resolves.toBe(false);
+
+            load.mockResolvedValueOnce(null);
+            manager.prefetchSnapshot(client);
+            await expect(manager.hasPrefetchedSnapshot(client)).resolves.toBe(false);
+
+            load.mockResolvedValueOnce({ rooms: {} });
+            manager.prefetchSnapshot(client);
+            await expect(manager.hasPrefetchedSnapshot(client)).resolves.toBe(true);
+            // Not for another client, nor when the read fails.
+            await expect(manager.hasPrefetchedSnapshot(stubClient())).resolves.toBe(false);
+            load.mockRejectedValueOnce(new Error("storage broken"));
+            manager.prefetchSnapshot(client);
+            await expect(manager.hasPrefetchedSnapshot(client)).resolves.toBe(false);
+        });
+
+        it("lets go of an early read when the client syncs without sliding sync after all", async () => {
+            const dispose = vi.spyOn(SlidingSyncCache.prototype, "dispose");
+            vi.spyOn(SlidingSyncCache.prototype, "load").mockResolvedValue(null);
+            manager.prefetchSnapshot(client);
+            const early = (manager as unknown as { prefetched: { cache: SlidingSyncCache } }).prefetched.cache;
+            manager.discardPrefetchedSnapshot();
+            expect(dispose.mock.contexts).toContain(early);
+            expect((manager as unknown as { prefetched?: unknown }).prefetched).toBeUndefined();
+        });
+
         it("lets go of an early read made for another client", async () => {
             const dispose = vi.spyOn(SlidingSyncCache.prototype, "dispose");
             vi.spyOn(SlidingSyncCache.prototype, "load").mockResolvedValue(null);
@@ -1841,10 +2740,20 @@ describe("SlidingSyncManager", () => {
             await new Promise((resolve) => setTimeout(resolve, 0));
             expect(forget).not.toHaveBeenCalled();
             respond();
+            const changes = vi.fn();
+            manager.onArrivalChange(changes);
             await vi.waitFor(() => expect(forget).toHaveBeenCalledExactlyOnceWith(["!gone:example.org"]));
             expect(rooms.get("!gone:example.org")!.getMyMembership()).toBe(KnownMembership.Leave);
             expect(rooms.get("!kept:example.org")!.getMyMembership()).toBe(KnownMembership.Join);
             expect(rooms.get("!invited:example.org")!.getMyMembership()).toBe(KnownMembership.Invite);
+            // Said to have been left while this device was away, until the user is back in it.
+            expect(manager.wasLeftWhileAway("!gone:example.org")).toBe(true);
+            expect(manager.wasLeftWhileAway("!kept:example.org")).toBe(false);
+            expect(changes).toHaveBeenCalled();
+            const rejoined = rooms.get("!gone:example.org")!;
+            rejoined.updateMyMembership(KnownMembership.Join);
+            client.emit(RoomEvent.MyMembership, rejoined, KnownMembership.Join, KnownMembership.Leave);
+            expect(manager.wasLeftWhileAway("!gone:example.org")).toBe(false);
             // Checked once per connection.
             respond();
             await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1921,6 +2830,92 @@ describe("SlidingSyncManager", () => {
             expect(untypedManager.configure).toHaveBeenCalled();
             expect(untypedManager.configure).toHaveBeenCalledWith(client, client.baseUrl, undefined);
             expect(untypedManager.startSpidering).toHaveBeenCalled();
+        });
+    });
+
+    describe("holding work while a response is applied", () => {
+        it("holds what is registered from a response's arrival until it is applied", async () => {
+            const sync = (await manager.setup(client))!;
+            const release = vi.fn();
+            const hold = vi.fn(() => release);
+            const stopHolding = manager.holdWhileApplyingRooms(hold);
+
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+            expect(hold).toHaveBeenCalledTimes(1);
+            expect(release).not.toHaveBeenCalled();
+            sync.emit(SlidingSyncEvent.Applied, { pos: "1", lists: {}, rooms: {}, extensions: {} });
+            expect(release).toHaveBeenCalledTimes(1);
+
+            // A request that failed applies nothing, so nothing is held.
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null, new Error("offline"));
+            expect(hold).toHaveBeenCalledTimes(1);
+
+            stopHolding();
+            sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+            expect(hold).toHaveBeenCalledTimes(1);
+            sync.stop();
+        });
+
+        it("holds for each batch of saved rooms the SDK applies, for a while at most", () => {
+            vi.useFakeTimers();
+            try {
+                const releases: ReturnType<typeof vi.fn>[] = [];
+                manager.holdWhileApplyingRooms(() => {
+                    const release = vi.fn();
+                    releases.push(release);
+                    return release;
+                });
+
+                const end = manager.holdForSavedRooms();
+                expect(releases).toHaveLength(1);
+                end();
+                end();
+                expect(releases[0]).toHaveBeenCalledTimes(1);
+
+                // A batch that never ends holds nothing for long.
+                manager.holdForSavedRooms();
+                vi.advanceTimersByTime(15_000);
+                expect(releases[1]).toHaveBeenCalledTimes(1);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it("ends the hold of a response that is cut short, replaced or never finishes applying", async () => {
+            vi.useFakeTimers();
+            try {
+                const sync = (await manager.setup(client))!;
+                const releases: ReturnType<typeof vi.fn>[] = [];
+                manager.holdWhileApplyingRooms(() => {
+                    const release = vi.fn();
+                    releases.push(release);
+                    return release;
+                });
+
+                // Failing after it arrived, such as on a server error.
+                sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+                sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null, new Error("offline"));
+                expect(releases[0]).toHaveBeenCalledTimes(1);
+
+                // Another response arriving first.
+                sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+                sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+                expect(releases[1]).toHaveBeenCalledTimes(1);
+                expect(releases[2]).not.toHaveBeenCalled();
+
+                // Never applied in full.
+                vi.advanceTimersByTime(15_000);
+                expect(releases[2]).toHaveBeenCalledTimes(1);
+
+                // Stopped while being applied.
+                sync.emit(SlidingSyncEvent.Lifecycle, SlidingSyncState.RequestFinished, null);
+                sync.stop();
+                expect(releases[3]).toHaveBeenCalledTimes(1);
+                sync.emit(SlidingSyncEvent.Applied, { pos: "1", lists: {}, rooms: {}, extensions: {} });
+                expect(releases[3]).toHaveBeenCalledTimes(1);
+            } finally {
+                vi.useRealTimers();
+            }
         });
     });
 });

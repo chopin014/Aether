@@ -153,11 +153,8 @@ export class RoomNotificationState extends NotificationState implements IDestroy
 
     private updateNotificationState(): void {
         const snapshot = this.snapshot();
-        const { level, symbol, count, invited } = RoomNotifs.determineUnreadState(
-            this.room,
-            undefined,
-            this.includeThreads,
-        );
+        const { level, symbol, count, invited, countIsLowerBound, countIsApproximate } =
+            RoomNotifs.determineUnreadState(this.room, undefined, this.includeThreads);
         const muted =
             RoomNotifs.getRoomNotifsState(this.room.client, this.room.roomId) === RoomNotifs.RoomNotifState.Mute;
         const knocked =
@@ -165,6 +162,8 @@ export class RoomNotificationState extends NotificationState implements IDestroy
         this._level = level;
         this._symbol = symbol;
         this._count = count;
+        this._countIsLowerBound = !!countIsLowerBound;
+        this._countIsApproximate = !!countIsApproximate;
         this._muted = muted;
         this._knocked = knocked;
         this._invited = invited;

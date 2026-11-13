@@ -282,7 +282,13 @@ Response:
 
 */
 
-import { type IContent, type MatrixEvent, type IEvent, type StateEvents } from "matrix-js-sdk/src/matrix";
+import {
+    type IContent,
+    type MatrixClient,
+    type MatrixEvent,
+    type IEvent,
+    type StateEvents,
+} from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { logger } from "matrix-js-sdk/src/logger";
 
@@ -295,6 +301,7 @@ import { WidgetType } from "./widgets/WidgetType";
 import { objectClone } from "./utils/objects";
 import { EffectiveMembership, getEffectiveMembership } from "./utils/membership";
 import { SDKContextClass } from "./contexts/SDKContextClass";
+import { SlidingSyncManager } from "./SlidingSyncManager";
 
 enum Action {
     CloseScalar = "close_scalar",
@@ -615,17 +622,38 @@ async function setBotPower(
 
 function getMembershipState(event: MessageEvent, roomId: string, userId: string): void {
     logger.log(`membership_state of ${userId} in room ${roomId} requested.`);
-    returnStateEvent(event, roomId, "m.room.member", userId);
+    void returnStateEvent(event, roomId, "m.room.member", userId);
 }
 
 function getJoinRules(event: MessageEvent, roomId: string): void {
     logger.log(`join_rules of ${roomId} requested.`);
-    returnStateEvent(event, roomId, "m.room.join_rules", "");
+    void returnStateEvent(event, roomId, "m.room.join_rules", "");
 }
 
 function botOptions(event: MessageEvent, roomId: string, userId: string): void {
     logger.log(`bot_options of ${userId} in room ${roomId} requested.`);
-    returnStateEvent(event, roomId, "m.room.bot.options", "_" + userId);
+    void returnStateEvent(event, roomId, "m.room.bot.options", "_" + userId);
+}
+
+/**
+ * Read some of a room's state for an integration manager. Under sliding sync a room has only the state its
+ * subscriptions name, such as none of an integration's own, so the server is asked for it first.
+ * @returns The events, or undefined after reporting an error to the integration manager.
+ */
+async function readStateForManager(
+    event: MessageEvent,
+    client: MatrixClient,
+    roomId: string,
+    eventType: string,
+    stateKey?: string,
+): Promise<MatrixEvent[] | undefined> {
+    try {
+        return await SlidingSyncManager.instance.readRoomState(client, roomId, { type: eventType, stateKey });
+    } catch (err) {
+        const error = err instanceof Error ? err : undefined;
+        sendError(event, _t("scalar|failed_read_event"), error);
+        return undefined;
+    }
 }
 
 function getMembershipCount(event: MessageEvent, roomId: string): void {
@@ -677,7 +705,12 @@ function canSendEvent(event: MessageEvent, roomId: string): void {
     sendResponse(event, true);
 }
 
-function returnStateEvent(event: MessageEvent, roomId: string, eventType: string, stateKey: string): void {
+async function returnStateEvent(
+    event: MessageEvent,
+    roomId: string,
+    eventType: string,
+    stateKey: string,
+): Promise<void> {
     const client = MatrixClientPeg.get();
     if (!client) {
         sendError(event, _t("widget|error_need_to_be_logged_in"));
@@ -688,7 +721,9 @@ function returnStateEvent(event: MessageEvent, roomId: string, eventType: string
         sendError(event, _t("scalar|error_room_unknown"));
         return;
     }
-    const stateEvent = room.currentState.getStateEvents(eventType, stateKey);
+    const events = await readStateForManager(event, client, roomId, eventType, stateKey);
+    if (!events) return;
+    const [stateEvent] = events;
     if (!stateEvent) {
         sendResponse(event, null);
         return;
@@ -826,9 +861,9 @@ async function readEvents(
         // When `true` is passed for state key, get events with any state key.
         const effectiveStateKey = stateKey === true ? undefined : stateKey;
 
-        let events: MatrixEvent[] = [];
-        events = events.concat(room.currentState.getStateEvents(eventType, effectiveStateKey!) || []);
-        events = events.slice(0, effectiveLimit);
+        const stateEvents = await readStateForManager(event, client, roomId, eventType, effectiveStateKey);
+        if (!stateEvents) return;
+        const events = stateEvents.slice(0, effectiveLimit);
 
         sendResponse(event, {
             events: events.map((e) => e.getEffectiveEvent()),

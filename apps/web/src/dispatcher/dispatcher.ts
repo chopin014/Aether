@@ -132,10 +132,17 @@ export class MatrixDispatcher {
     /**
      * Clear bookkeeping used for dispatching.
      *
+     * Nothing reads which callbacks are pending or handled outside a dispatch, and the next dispatch sets both afresh
+     * for every callback registered by then. Clearing them here keeps them from holding an entry for every callback
+     * ever registered: `unregister` removes only the callback, and room views, for one, register and unregister
+     * callbacks on every room switch.
+     *
      * @internal
      */
     private stopDispatching(): void {
         this.pendingPayload = undefined;
+        this.isPending.clear();
+        this.isHandled.clear();
     }
 
     /**

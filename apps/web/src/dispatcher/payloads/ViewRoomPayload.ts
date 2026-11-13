@@ -39,6 +39,11 @@ interface BaseViewRoomPayload extends Pick<ActionPayload, "action"> {
     view_call?: boolean; // Whether to view the call or call lobby for the room
     skipLobby?: boolean; // Whether to skip the call lobby when showing the call (only supported for element calls)
     voiceOnly?: boolean; // Whether the call is voice only (only supported for element calls)
+    /**
+     * Set by the room view store alone, when it views the room again once sliding sync has loaded it: the view goes on
+     * from where the first one, made while the room loaded, left off.
+     */
+    sliding_sync_loaded?: boolean;
     opts?: JoinRoomPayload["opts"];
 
     deferred_action?: ActionPayload; // Action to fire after MatrixChat handles this ViewRoom action

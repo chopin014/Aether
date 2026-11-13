@@ -22,7 +22,7 @@ import {
 import { determineUnreadState } from "../../../RoomNotifs";
 import { NotificationLevel } from "../../../stores/notifications/NotificationLevel";
 import SettingsStore from "../../../settings/SettingsStore";
-import { formatCount } from "../../../utils/FormattingUtils";
+import { formatUnreadCount } from "../../../utils/FormattingUtils";
 
 const notificationChangeEvents = [
     RoomEvent.Receipt,
@@ -66,8 +66,8 @@ export class UnreadNotificationBadgeViewModel
     private listenerCleanups: Array<() => void> = [];
 
     private static readonly computeSnapshot = (props: InternalProps): NotificationBadgeViewSnapshot => {
-        const { symbol, count, level } = determineUnreadState(props.room, props.threadId, false);
-        const displaySymbol = symbol ?? (count > 0 ? formatCount(count) : null);
+        const { symbol, count, level, countIsLowerBound } = determineUnreadState(props.room, props.threadId, false);
+        const displaySymbol = symbol ?? (count > 0 ? formatUnreadCount(count, countIsLowerBound) : null);
         const hasUnreadCount = level >= NotificationLevel.Notification && (count > 0 || symbol !== null);
         const isSuppressedActivity = props.hideBold && level === NotificationLevel.Activity;
 

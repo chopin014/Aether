@@ -73,6 +73,7 @@ test.describe("Profile customisation", () => {
         // Images only leave this computer on Save, and then have to come back through the real media API.
         const sample = getSampleFilePath("riot.png");
         await dialog.locator("input[type=file][aria-label='Change banner']").setInputFiles(sample);
+        await app.applyImageCrop();
         await expect(preview.locator("img[src^='blob:']")).toBeVisible();
         await dialog.locator("input[type=file][aria-label='Add picture']").setInputFiles(sample);
         await dialog.getByLabel("Title").fill("Riot");
