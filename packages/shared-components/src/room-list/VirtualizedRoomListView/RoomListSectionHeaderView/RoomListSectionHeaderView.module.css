@@ -13,7 +13,7 @@
 
     width: 100%;
     cursor: pointer;
-    font: var(--cpd-font-body-sm-regular);
+    font: var(--mx-desktop-category-font, var(--cpd-font-body-sm-regular));
     letter-spacing: var(--cpd-font-letter-spacing-body-sm);
     color: var(--cpd-color-text-secondary);
     padding: var(--mx-desktop-category-padding, var(--cpd-space-1x)) 0;
@@ -50,6 +50,10 @@
 
     .chevron {
         transition: transform 0.05s linear;
+        /* The desktop shell puts a smaller chevron after the category's name, as Discord does. */
+        order: var(--mx-desktop-category-chevron-order, 0);
+        width: var(--mx-desktop-category-chevron-size, 24px);
+        height: var(--mx-desktop-category-chevron-size, 24px);
     }
 
     @media (prefers-reduced-motion: reduce) {

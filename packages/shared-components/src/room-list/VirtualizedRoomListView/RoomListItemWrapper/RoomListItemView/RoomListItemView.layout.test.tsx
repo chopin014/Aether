@@ -9,12 +9,14 @@ import React from "react";
 import { render, screen } from "@test-utils";
 import { composeStories } from "@storybook/react-vite";
 import { describe, expect, it } from "vitest";
+import { page } from "vitest/browser";
 
 import "@vector-im/compound-design-tokens/assets/web/css/compound-design-tokens.css";
 import "@vector-im/compound-web/dist/style.css";
 import * as stories from "./RoomListItemView.stories";
 
-const { DesktopVoiceChannelOccupied, DesktopVoiceChannelWithIconAndParticipants } = composeStories(stories);
+const { DesktopSelectedChannel, DesktopVoiceChannelOccupied, DesktopVoiceChannelWithIconAndParticipants } =
+    composeStories(stories);
 
 describe("Voice channel grid", () => {
     const left = (element: Element | null): number => element!.getBoundingClientRect().left;
@@ -36,5 +38,17 @@ describe("Voice channel grid", () => {
         render(<DesktopVoiceChannelOccupied />);
         expect(left(screen.getByTestId("room-name"))).toBe(left(avatar()));
         expect(left(participantName())).toBeGreaterThan(left(avatar()));
+    });
+});
+
+describe("Channel row buttons", () => {
+    it("should stay in place on a selected channel when pointed at", async () => {
+        render(<DesktopSelectedChannel />);
+        const invite = screen.getByRole("button", { name: "Invite people to boas-vindas" });
+        const before = invite.getBoundingClientRect().toJSON();
+        await page.getByRole("option").hover();
+        expect(invite.getBoundingClientRect().toJSON()).toEqual(before);
+        await page.getByRole("button", { name: "Invite people to boas-vindas" }).hover();
+        expect(invite.getBoundingClientRect().toJSON()).toEqual(before);
     });
 });
