@@ -15,6 +15,7 @@ import { configureMediaAcceleration, mediaRelaunchCommand } from "./mediaAcceler
 
 import { app, BrowserWindow, Menu, dialog, type Input, type Event, session, protocol, desktopCapturer } from "electron";
 import path from "node:path";
+import { homedir } from "node:os";
 import { spawn } from "node:child_process";
 import windowStateKeeper from "electron-window-state";
 import { URL, fileURLToPath } from "node:url";
@@ -39,6 +40,7 @@ import { type RendererRecovery, setupRendererRecovery } from "./renderer-recover
 import { getBuildConfig } from "./build-config.js";
 import { getAsarPath } from "./asar.js";
 import { getIconPath } from "./icon.js";
+import { getXdgDataHome, registerAppImageDesktopEntry, removeAppImageDesktopEntry } from "./appimage-desktop-entry.js";
 import { getArgs } from "./args.js";
 import { devToolsAllowed } from "./devtools-policy.js";
 import { type ConfigOptions, loadConfig } from "./config.js";
@@ -298,6 +300,28 @@ app.on("ready", async () => {
     } catch (e) {
         console.error(e);
         app.exit(1);
+    }
+
+    // A downloaded AppImage has no launcher, so without one the browser cannot hand sign-in links back to the app.
+    // It must exist before the protocol handler registers it as the default for the app's links.
+    // A packaged install such as the .deb ships its own launcher, which an old AppImage launcher would hide.
+    if (process.platform === "linux" && app.isPackaged) {
+        const dataHome = getXdgDataHome(process.env, homedir());
+        try {
+            if (process.env.APPIMAGE) {
+                await registerAppImageDesktopEntry({
+                    appImagePath: process.env.APPIMAGE,
+                    iconSource: await getIconPath(),
+                    dataHome,
+                    desktopName: buildConfig.desktopName,
+                    protocol: buildConfig.protocol,
+                });
+            } else {
+                await removeAppImageDesktopEntry(dataHome, buildConfig.desktopName);
+            }
+        } catch (e) {
+            console.error("Could not update the desktop launcher", e);
+        }
     }
 
     // do this after we know we are the primary instance of the app

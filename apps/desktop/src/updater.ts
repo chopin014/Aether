@@ -7,12 +7,10 @@ Please see LICENSE files in the repository root for full details.
 
 import electronUpdater, { type AppUpdater, type UpdateDownloadedEvent } from "electron-updater";
 import { app, ipcMain, type IpcMainEvent, type WebContents } from "electron";
-import fs from "node:fs/promises";
+import fs, { constants } from "node:fs/promises";
 import path from "node:path";
 
 import type { DesktopUpdateState } from "shared-types";
-
-const { autoUpdater } = electronUpdater;
 
 const UPDATE_POLL_INTERVAL_MS = 60 * 60 * 1000;
 const INITIAL_UPDATE_DELAY_MS = 30 * 1000;
@@ -39,6 +37,9 @@ export interface RuntimeUpdateEnvironment {
     executablePath: string;
 }
 
+/** How a Linux build was installed, which decides how it updates. */
+export type LinuxPackage = "appimage" | "deb";
+
 type UpdateSupportResolver = (environment: RuntimeUpdateEnvironment) => Promise<UnsupportedReason | undefined>;
 
 interface DesktopUpdaterOptions {
@@ -46,6 +47,8 @@ interface DesktopUpdaterOptions {
     resolveUnsupportedReason: UpdateSupportResolver;
     initialDelayMs?: number;
     pollIntervalMs?: number;
+    /** Whether a downloaded update installs when the app quits, rather than only when the user restarts for it. */
+    installOnQuit?: boolean;
 }
 
 function hasExpectedGitHubConfiguration(config: string): boolean {
@@ -63,6 +66,28 @@ function hasExpectedGitHubConfiguration(config: string): boolean {
 }
 
 /**
+ * Works out how a Linux build was installed. electron-builder writes the deb's `package-type` file into the folder the
+ * AppImage is also packed from, so an AppImage can carry it too. A running AppImage therefore wins over that file.
+ * @param appImagePath The `APPIMAGE` environment variable.
+ * @param resourcesPath The app's resources folder.
+ */
+export async function detectLinuxPackage(
+    appImagePath: string | undefined,
+    resourcesPath: string,
+): Promise<LinuxPackage | undefined> {
+    if (appImagePath !== undefined) {
+        const isAppImage = path.isAbsolute(appImagePath) && path.extname(appImagePath).toLowerCase() === ".appimage";
+        return isAppImage ? "appimage" : undefined;
+    }
+    try {
+        const packageType = await fs.readFile(path.join(resourcesPath, "package-type"), "utf8");
+        return packageType.trim() === "deb" ? "deb" : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+/**
  * Determines whether this build has the GitHub metadata and install form required for automatic updates.
  * @param environment Platform, packaging, command line and resources metadata for the running app.
  */
@@ -72,14 +97,11 @@ export async function resolveRuntimeUnsupportedReason(
     if (!environment.enabled) return "disabled";
     if (!environment.isPackaged) return "development";
     if (environment.platform !== "win32" && environment.platform !== "linux") return "platform";
-    if (
-        environment.platform === "linux" &&
-        (!environment.appImagePath ||
-            !path.isAbsolute(environment.appImagePath) ||
-            path.extname(environment.appImagePath).toLowerCase() !== ".appimage")
-    ) {
-        return "package";
-    }
+    const linuxPackage =
+        environment.platform === "linux"
+            ? await detectLinuxPackage(environment.appImagePath, environment.resourcesPath)
+            : undefined;
+    if (environment.platform === "linux" && !linuxPackage) return "package";
     if (environment.platform === "win32") {
         try {
             await fs.access(path.join(path.dirname(environment.executablePath), "Uninstall Aether.exe"));
@@ -93,6 +115,15 @@ export async function resolveRuntimeUnsupportedReason(
         if (!hasExpectedGitHubConfiguration(config)) return "package";
     } catch {
         return "package";
+    }
+
+    // An AppImage update replaces the file in its own folder, which fails in a folder the user cannot write to.
+    if (linuxPackage === "appimage") {
+        try {
+            await fs.access(path.dirname(environment.appImagePath!), constants.W_OK);
+        } catch {
+            return "location";
+        }
     }
 
     return undefined;
@@ -137,6 +168,7 @@ export class DesktopUpdater {
     private readonly resolveUnsupportedReason: UpdateSupportResolver;
     private readonly initialDelayMs: number;
     private readonly pollIntervalMs: number;
+    private readonly installOnQuit: boolean;
     private state: DesktopUpdateState;
     private initialized = false;
     private supported = false;
@@ -213,6 +245,7 @@ export class DesktopUpdater {
         this.resolveUnsupportedReason = options.resolveUnsupportedReason;
         this.initialDelayMs = options.initialDelayMs ?? INITIAL_UPDATE_DELAY_MS;
         this.pollIntervalMs = options.pollIntervalMs ?? UPDATE_POLL_INTERVAL_MS;
+        this.installOnQuit = options.installOnQuit ?? true;
         this.state = { status: "idle", currentVersion: this.currentVersion };
 
         // All Aether production builds follow stable releases. This also lets existing dev builds
@@ -253,7 +286,7 @@ export class DesktopUpdater {
         }
 
         this.supported = true;
-        this.updater.autoInstallOnAppQuit = true;
+        this.updater.autoInstallOnAppQuit = this.installOnQuit;
         this.setState({ status: "idle" });
         this.initialCheckTimer = setTimeout(() => void this.checkForUpdates(), this.initialDelayMs);
         this.pollTimer = setInterval(() => void this.checkForUpdates(), this.pollIntervalMs);
@@ -403,11 +436,22 @@ export class DesktopUpdater {
     }
 }
 
+/** A .deb build installs its updates as root, which asks for the user's password. */
+const isDebBuild = process.platform === "linux" && process.env.APPIMAGE === undefined;
+
 /** Shared main-process updater instance used by IPC and Electron startup. */
-export const desktopUpdater = new DesktopUpdater(autoUpdater, {
-    currentVersion: app.getVersion(),
-    resolveUnsupportedReason: resolveRuntimeUnsupportedReason,
-});
+export const desktopUpdater = new DesktopUpdater(
+    // Choose the AppImage updater from the running process, not from a package-type file it may carry.
+    process.platform === "linux" && process.env.APPIMAGE !== undefined
+        ? new electronUpdater.AppImageUpdater()
+        : electronUpdater.autoUpdater,
+    {
+        currentVersion: app.getVersion(),
+        resolveUnsupportedReason: resolveRuntimeUnsupportedReason,
+        // A password prompt while quitting would be a surprise, so a .deb update waits for the user to restart for it.
+        installOnQuit: !isDebBuild,
+    },
+);
 
 ipcMain.on("install_update", (event: IpcMainEvent) => {
     if (isMainFrame(event)) desktopUpdater.installUpdate();

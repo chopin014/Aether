@@ -25,21 +25,24 @@ async function writeValidPlatformArtifacts(
     version: string,
     platform: "linux" | "win",
 ): Promise<void> {
-    const stem = `Aether-${version}-${platform}-x64`;
-    const installerName = platform === "win" ? `${stem}.exe` : `Aether-${version}-linux-x86_64.AppImage`;
-    const installer = Buffer.from(`${platform} installer bytes`);
-    const sha512 = createHash("sha512").update(installer).digest("base64");
-    await writeFile(path.join(directory, installerName), installer);
+    const installerNames =
+        platform === "win"
+            ? [`Aether-${version}-win-x64.exe`]
+            : [`Aether-${version}-linux-x86_64.AppImage`, `Aether-${version}-linux-amd64.deb`];
+    let files = "";
+    for (const installerName of installerNames) {
+        const installer = Buffer.from(`${installerName} bytes`);
+        const sha512 = createHash("sha512").update(installer).digest("base64");
+        await writeFile(path.join(directory, installerName), installer);
+        files += `  - url: ${installerName}\n    sha512: ${sha512}\n`;
+    }
 
     if (platform === "win") {
-        await writeFile(path.join(directory, `${installerName}.blockmap`), "blockmap");
+        await writeFile(path.join(directory, `${installerNames[0]}.blockmap`), "blockmap");
     }
 
     const manifestName = platform === "win" ? "latest.yml" : "latest-linux.yml";
-    await writeFile(
-        path.join(directory, manifestName),
-        `version: ${version}\nfiles:\n  - url: ${installerName}\n    sha512: ${sha512}\n`,
-    );
+    await writeFile(path.join(directory, manifestName), `version: ${version}\nfiles:\n${files}`);
 }
 
 describe("Aether distribution identity", () => {
@@ -152,7 +155,7 @@ describe("Aether distribution identity", () => {
             },
         ]);
         expect(config.generateUpdatesFilesForAllChannels).toBe(true);
-        expect(config.linux.target).toEqual(["AppImage"]);
+        expect(config.linux.target).toEqual(["AppImage", "deb"]);
         expect(config.linux.extraResources).toContainEqual({ from: "native-dist", to: "native/nvenc" });
         expect(config.linux.maintainer).toBe("Aether contributors <156453220+chopin014@users.noreply.github.com>");
         expect(config.win.target).toEqual(["nsis"]);
@@ -198,35 +201,43 @@ describe("Aether distribution identity", () => {
             await rm(directory, { recursive: true, force: true });
         }
     });
-    it("requires the Linux AppImage and Linux update manifest", async () => {
+    it("requires the Linux AppImage, the .deb and a manifest listing both", async () => {
         const directory = await mkdtemp(path.join(tmpdir(), "aether-linux-release-"));
         const version = "0.1.0";
         const appImageName = `Aether-${version}-linux-x86_64.AppImage`;
-        const appImage = Buffer.from("test AppImage bytes");
-        const sha512 = createHash("sha512").update(appImage).digest("base64");
+        const debName = `Aether-${version}-linux-amd64.deb`;
 
         try {
-            await writeFile(path.join(directory, appImageName), appImage);
+            await writeValidPlatformArtifacts(directory, version, "linux");
+            await expect(validatePlatformArtifacts(directory, version, "linux")).resolves.toBeUndefined();
+
+            const sha512 = createHash("sha512").update(`${appImageName} bytes`).digest("base64");
             await writeFile(
                 path.join(directory, "latest-linux.yml"),
                 `version: ${version}\nfiles:\n  - url: ${appImageName}\n    sha512: ${sha512}\n`,
             );
+            await expect(validatePlatformArtifacts(directory, version, "linux")).rejects.toThrow(
+                `latest-linux.yml does not reference the ${debName} updater artifact`,
+            );
 
-            await expect(validatePlatformArtifacts(directory, version, "linux")).resolves.toBeUndefined();
+            await rm(path.join(directory, debName));
+            await expect(validatePlatformArtifacts(directory, version, "linux")).rejects.toThrow(
+                `Release asset is missing: ${debName}`,
+            );
         } finally {
             await rm(directory, { recursive: true, force: true });
         }
     });
-    it.each(["deb", "tar.gz"])("rejects a Linux release containing a manual %s package", async (extension) => {
+    it("rejects a Linux release containing a tar.gz package that cannot update", async () => {
         const directory = await mkdtemp(path.join(tmpdir(), "aether-manual-package-"));
         const version = "0.1.0";
 
         try {
             await writeValidPlatformArtifacts(directory, version, "linux");
-            await writeFile(path.join(directory, `Aether-${version}-linux-x64.${extension}`), "manual package");
+            await writeFile(path.join(directory, `Aether-${version}-linux-x64.tar.gz`), "manual package");
 
             await expect(validatePlatformArtifacts(directory, version, "linux")).rejects.toThrow(
-                "Linux release assets must use AppImage for in-app updates",
+                "Linux release assets must only contain packages that update in the app",
             );
         } finally {
             await rm(directory, { recursive: true, force: true });

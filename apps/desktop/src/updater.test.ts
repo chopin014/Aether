@@ -6,13 +6,13 @@ Please see LICENSE in the repository root for full details.
 */
 
 import { EventEmitter } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppUpdater, UpdateDownloadedEvent, UpdateCheckResult } from "electron-updater";
 
-import { DesktopUpdater, desktopUpdater, resolveRuntimeUnsupportedReason } from "./updater.js";
+import { DesktopUpdater, desktopUpdater, detectLinuxPackage, resolveRuntimeUnsupportedReason } from "./updater.js";
 
 const { ipcHandlers, upstreamListeners, upstreamUpdater } = vi.hoisted(() => {
     const listeners = new Map<string, (...args: unknown[]) => void>();
@@ -91,13 +91,15 @@ function createFakeUpdater(): FakeUpdater {
 
 function createController(
     fake: FakeUpdater,
-    unsupportedReason?: "disabled" | "development" | "package" | "platform",
+    unsupportedReason?: "disabled" | "development" | "location" | "package" | "platform",
+    installOnQuit?: boolean,
 ): DesktopUpdater {
     return new DesktopUpdater(fake.updater, {
         currentVersion: "0.1.0-dev.2",
         resolveUnsupportedReason: async () => unsupportedReason,
         initialDelayMs: 50,
         pollIntervalMs: 100,
+        installOnQuit,
     });
 }
 
@@ -375,6 +377,21 @@ describe("DesktopUpdater", () => {
         expect(fake.quitAndInstall).not.toHaveBeenCalled();
     });
 
+    it("installs supported updates on quit unless the build asks to wait for an explicit restart", async () => {
+        const appImage = createFakeUpdater();
+        await createController(appImage).start(true);
+        expect(appImage.updater.autoInstallOnAppQuit).toBe(true);
+
+        const deb = createFakeUpdater();
+        const updater = createController(deb, undefined, false);
+        await updater.start(true);
+        deb.emit("update-downloaded", downloadedUpdate());
+        expect(deb.updater.autoInstallOnAppQuit).toBe(false);
+
+        updater.installUpdate();
+        expect(deb.quitAndInstall).toHaveBeenCalledWith(true, true);
+    });
+
     it("honors --no-update and keeps a cached update from installing on quit", async () => {
         const fake = createFakeUpdater();
         const updater = createController(fake, "disabled");
@@ -446,5 +463,68 @@ describe("DesktopUpdater", () => {
         } finally {
             await rm(resourcesPath, { recursive: true, force: true });
         }
+    });
+
+    describe("on Linux", () => {
+        let root: string;
+        let resourcesPath: string;
+        let appImageFolder: string;
+        const linuxEnvironment = (appImagePath?: string): Parameters<typeof resolveRuntimeUnsupportedReason>[0] => ({
+            enabled: true,
+            isPackaged: true,
+            platform: "linux",
+            resourcesPath,
+            appImagePath,
+            executablePath: path.join(resourcesPath, "..", "aether"),
+        });
+
+        beforeEach(async () => {
+            vi.useRealTimers();
+            root = await mkdtemp(path.join(tmpdir(), "aether-linux-update-"));
+            resourcesPath = path.join(root, "resources");
+            appImageFolder = path.join(root, "Applications");
+            await mkdir(resourcesPath);
+            await mkdir(appImageFolder);
+            await writeFile(
+                path.join(resourcesPath, "app-update.yml"),
+                "provider: github\nowner: chopin014\nrepo: Aether\n",
+            );
+        });
+
+        afterEach(async () => {
+            await chmod(appImageFolder, 0o755);
+            await rm(root, { recursive: true, force: true });
+        });
+
+        it("treats a running AppImage as an AppImage even if it carries the deb package-type file", async () => {
+            await writeFile(path.join(resourcesPath, "package-type"), "deb\n");
+
+            await expect(detectLinuxPackage(path.join(appImageFolder, "Aether.AppImage"), resourcesPath)).resolves.toBe(
+                "appimage",
+            );
+            await expect(detectLinuxPackage("relative/Aether.AppImage", resourcesPath)).resolves.toBeUndefined();
+            await expect(detectLinuxPackage(undefined, resourcesPath)).resolves.toBe("deb");
+        });
+
+        it("updates a .deb install and rejects other Linux packages", async () => {
+            await expect(resolveRuntimeUnsupportedReason(linuxEnvironment())).resolves.toBe("package");
+
+            await writeFile(path.join(resourcesPath, "package-type"), "rpm\n");
+            await expect(resolveRuntimeUnsupportedReason(linuxEnvironment())).resolves.toBe("package");
+
+            await writeFile(path.join(resourcesPath, "package-type"), "deb\n");
+            await expect(resolveRuntimeUnsupportedReason(linuxEnvironment())).resolves.toBeUndefined();
+        });
+
+        it.skipIf(process.getuid?.() === 0)(
+            "explains when an AppImage cannot update because its folder is read-only",
+            async () => {
+                const appImagePath = path.join(appImageFolder, "Aether.AppImage");
+                await expect(resolveRuntimeUnsupportedReason(linuxEnvironment(appImagePath))).resolves.toBeUndefined();
+
+                await chmod(appImageFolder, 0o555);
+                await expect(resolveRuntimeUnsupportedReason(linuxEnvironment(appImagePath))).resolves.toBe("location");
+            },
+        );
     });
 });
