@@ -196,18 +196,42 @@ export function installReadableCheck(): void {
             (style) =>
                 (style.position === "absolute" || style.position === "fixed") && !(Number.parseInt(style.zIndex) < 0),
         );
-    // Whether the pointer would land on `node`'s own text at a point: inside it, rather than at either end, where it
-    // lands when a box the text's element draws is on top there.
-    const textOnTop = (x: number, y: number, node: Text): boolean => {
-        const caret = document.caretPositionFromPoint(x, y);
-        return caret?.offsetNode === node && caret.offset > 0 && caret.offset < node.length;
+    // Whether more than one character of `range` is drawn on `line`.
+    const severalCharactersOn = (line: DOMRect, range: Range): boolean => {
+        const node = range.startContainer as Text;
+        const character = document.createRange();
+        let count = 0;
+        for (let offset = range.startOffset; offset < range.endOffset && count < 2; offset++) {
+            character.setStart(node, offset);
+            character.setEnd(node, offset + 1);
+            const box = character.getBoundingClientRect();
+            const x = box.left + box.width / 2;
+            const y = box.top + box.height / 2;
+            if (box.width > 0 && x >= line.left && x <= line.right && y >= line.top && y <= line.bottom) count++;
+        }
+        return count > 1;
     };
-    // Whether something is drawn over the text in `node` at a point: going down the elements there from the top, one is
-    // reached that draws over the text before the text's own element, or one around it, is.
-    const coveredAt = (x: number, y: number, node: Text, holder: Element): boolean => {
-        for (const element of document.elementsFromPoint(x, y)) {
+    // Whether the pointer would land on the text of `range` on one of its lines, rather than on a box the text's element
+    // draws there. Such a box on top moves the caret to an end of the element's text, so at the middle of a line of
+    // several characters the caret must fall inside the text node. A line of a single character has no inside, so there
+    // the caret must move from one side of it to the other between its two halves, where on a box it would stay put.
+    const textOnTop = (line: DOMRect, range: Range): boolean => {
+        const node = range.startContainer as Text;
+        const y = line.top + line.height / 2;
+        const middle = document.caretPositionFromPoint(line.left + line.width / 2, y);
+        if (middle?.offsetNode !== node) return false;
+        if (middle.offset > 0 && middle.offset < node.length) return true;
+        if (severalCharactersOn(line, range)) return false;
+        const before = document.caretPositionFromPoint(line.left + line.width / 4, y);
+        const after = document.caretPositionFromPoint(line.right - line.width / 4, y);
+        return before?.offsetNode === node && after?.offsetNode === node && before.offset !== after.offset;
+    };
+    // Whether something is drawn over the text of `range` at the middle of one of its lines: going down the elements
+    // there from the top, one is reached that draws over the text before the text's own element, or one around it, is.
+    const covered = (line: DOMRect, range: Range, holder: Element): boolean => {
+        for (const element of document.elementsFromPoint(line.left + line.width / 2, line.top + line.height / 2)) {
             if (element === holder || element.contains(holder)) {
-                return drawsOverContent(element) && !textOnTop(x, y, node);
+                return drawsOverContent(element) && !textOnTop(line, range);
             }
             if (drawsOver(element)) return true;
         }
@@ -229,9 +253,7 @@ export function installReadableCheck(): void {
             for (const line of range.getClientRects()) {
                 if (line.width <= 0 || line.height <= 0) continue;
                 if (!boxes.every((box) => within(line, box))) return false;
-                const x = line.left + line.width / 2;
-                const y = line.top + line.height / 2;
-                if (coveredAt(x, y, range.startContainer as Text, holder)) return false;
+                if (covered(line, range, holder)) return false;
                 lines++;
             }
             // A piece with no line drawn, such as one sized to nothing, cannot be read.

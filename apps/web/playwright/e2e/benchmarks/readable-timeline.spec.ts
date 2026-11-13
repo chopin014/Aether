@@ -270,6 +270,30 @@ test.describe("readable timeline check", () => {
         expect(await readable(page, TARGET, true)).toBe(true);
     });
 
+    test("reads a single character beside a box its own element positions absolutely", async ({ page }) => {
+        const style = `<style>
+            .mx_EventTile_body::after {
+                content: ""; position: absolute; left: -30px; top: 0; width: 20px; height: 20px; background: white;
+            }
+        </style>`;
+        await show(page, style + timeline(rowWithBody("x", "position: relative; margin-left: 40px")));
+        const x = { ...TARGET, text: "x" };
+        expect(await readable(page, x)).toBe(true);
+        expect(await readable(page, x, true)).toBe(true);
+    });
+
+    for (const pseudo of ["::before", "::after"]) {
+        test(`does not count a single character its own element's ${pseudo} box covers`, async ({ page }) => {
+            const style = `<style>
+                .mx_EventTile_body${pseudo} { content: ""; position: absolute; inset: 0; background: white; }
+            </style>`;
+            await show(page, style + timeline(rowWithBody("x", "position: relative")));
+            const x = { ...TARGET, text: "x" };
+            expect(await readable(page, x)).toBe(false);
+            expect(await readable(page, x, true)).toBe(false);
+        });
+    }
+
     for (const [name, cover] of [
         ["transparent", `<div style="position: absolute; inset: 0; background: white; opacity: 0"></div>`],
         [
