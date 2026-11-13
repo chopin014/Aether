@@ -48,6 +48,11 @@ export interface ImageCropViewSnapshot {
     centreY: number;
     /** The image moves, and editing it keeps only a still frame. */
     animated: boolean;
+    /**
+     * The image moves and its framing is applied wherever it is shown, so it keeps moving. It cannot be turned, as
+     * turning would mean redrawing it.
+     */
+    keepsAnimation?: boolean;
     /** The edited image is being made. */
     busy: boolean;
     /** Why the edited image could not be made, ready to show. */
@@ -215,12 +220,22 @@ export function ImageCropView({ vm }: { /** The editor's model. */ vm: ImageCrop
                     />
                     <ZoomInIcon className={styles.zoomIcon} aria-hidden="true" />
                 </div>
-                <IconButton size="32px" tooltip={_t("desktop|image_crop|rotate")} disabled={s.busy} onClick={vm.rotate}>
+                <IconButton
+                    size="32px"
+                    tooltip={_t("desktop|image_crop|rotate")}
+                    disabled={s.busy || s.keepsAnimation}
+                    onClick={vm.rotate}
+                >
                     <RotateRightIcon />
                 </IconButton>
             </div>
 
-            {s.animated && (
+            {s.animated && s.keepsAnimation && (
+                <Text as="p" size="sm" className={styles.notice}>
+                    {_t("desktop|image_crop|animation_kept")}
+                </Text>
+            )}
+            {s.animated && !s.keepsAnimation && (
                 <div className={styles.notice}>
                     <Text as="p" size="sm">
                         {_t("desktop|image_crop|animated")}

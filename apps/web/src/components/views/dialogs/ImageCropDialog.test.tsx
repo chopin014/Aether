@@ -12,7 +12,7 @@ import { render, screen } from "test-utils-rtl";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { editImage, ImageCropDialog } from "./ImageCropDialog";
+import { editImage, frameImage, ImageCropDialog } from "./ImageCropDialog";
 import Modal from "../../../Modal";
 import BaseDialog from "./BaseDialog";
 
@@ -60,7 +60,7 @@ describe("ImageCropDialog", () => {
     });
 });
 
-describe("editImage", () => {
+describe("editImage and frameImage", () => {
     let decode: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
@@ -92,19 +92,33 @@ describe("editImage", () => {
             .spyOn(Modal, "createDialog")
             .mockReturnValue({ finished: Promise.resolve([edited]), close: vi.fn() });
         const file = new File(["x"], "a.gif", { type: "image/gif" });
-        expect(await editImage(file, "banner")).toBe(edited);
+        expect(await editImage(file, "icon")).toBe(edited);
         expect(createDialog).toHaveBeenCalledWith(
             ImageCropDialog,
             expect.objectContaining({
                 file,
-                shape: "rectangle",
-                aspectRatio: 3,
+                shape: "rounded",
+                aspectRatio: 1,
                 imageWidth: 640,
                 imageHeight: 480,
                 animated: true,
             }),
         );
+        expect(createDialog.mock.calls[0][1]).not.toHaveProperty("keepsAnimation");
         expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:picture");
+    });
+
+    it("keeps an animated banner as it is and returns where to frame it", async () => {
+        const frame = { x: 0, y: 0.2, width: 1, height: 0.44 };
+        const file = new File(["x"], "a.gif", { type: "image/gif" });
+        const createDialog = vi
+            .spyOn(Modal, "createDialog")
+            .mockReturnValue({ finished: Promise.resolve([file, frame]), close: vi.fn() });
+        expect(await frameImage(file, "banner")).toEqual({ file, frame });
+        expect(createDialog).toHaveBeenCalledWith(
+            ImageCropDialog,
+            expect.objectContaining({ shape: "rectangle", aspectRatio: 3, animated: true, keepsAnimation: true }),
+        );
     });
 
     it("returns nothing when the editor is dismissed", async () => {

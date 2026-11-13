@@ -1872,6 +1872,7 @@
             "other": "%(count)s Members"
         },
         "filter_placeholder": "Search room members",
+        "in_voice_channel": "In %(channel)s",
         "invite_button_no_perms_tooltip": "You do not have permission to invite users",
         "invited_label": "Invited",
         "list_title": "Member list",

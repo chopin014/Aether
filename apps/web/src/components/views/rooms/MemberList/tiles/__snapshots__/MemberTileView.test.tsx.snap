@@ -10,6 +10,7 @@ exports[`MemberTileView > RoomMemberTileView > should display an verified E2EIco
       aria-setsize="1"
       class="mx_AccessibleButton mx_MemberTileView"
       role="option"
+      style="--profile-motion: paused;"
       tabindex="0"
     >
       <div
@@ -91,6 +92,7 @@ exports[`MemberTileView > RoomMemberTileView > should display an warning E2EIcon
       aria-setsize="1"
       class="mx_AccessibleButton mx_MemberTileView"
       role="option"
+      style="--profile-motion: paused;"
       tabindex="0"
     >
       <div
@@ -172,6 +174,7 @@ exports[`MemberTileView > RoomMemberTileView > should not display an E2EIcon whe
       aria-setsize="1"
       class="mx_AccessibleButton mx_MemberTileView"
       role="option"
+      style="--profile-motion: paused;"
       tabindex="0"
     >
       <div

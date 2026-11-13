@@ -47,6 +47,20 @@ describe("useProfileMotion", () => {
         expect(result.current.live).toBe(false);
     });
 
+    it("stops while the window is in the background, and says when motion is allowed at all", () => {
+        stubReducedMotion(false);
+        const { result } = renderHook(() => useProfileMotion());
+        expect(result.current).toMatchObject({ live: true, allowed: true });
+        act(() => {
+            window.dispatchEvent(new Event("blur"));
+        });
+        expect(result.current).toMatchObject({ live: false, allowed: false });
+        act(() => {
+            window.dispatchEvent(new Event("focus"));
+        });
+        expect(result.current.allowed).toBe(true);
+    });
+
     it("never moves for someone who asked for reduced motion", () => {
         stubReducedMotion(true);
         const { result } = renderHook(() => useProfileMotion());

@@ -1582,8 +1582,14 @@ body.mx_DesktopShell [class*="_tooltip_"] > [class*="_arrow_"]:has(~ [class*="_c
             &:hover,
             &:focus-visible {
                 background: var(--cpd-color-bg-action-tertiary-hovered);
-                /* A list of decorated people stays still until the pointer or keyboard reaches one of them. */
-                --profile-motion: running;
+            }
+
+            /*
+             * Offline people fade back, exactly as Discord's member list does: the whole row at 30%, and fully back
+             * the moment it is hovered or focused, with no transition, so scanning the list stays crisp.
+             */
+            &.mx_MemberTileView_offline:not(:hover, :focus-visible) {
+                opacity: 0.3;
             }
 
             .mx_MemberTileView_left,
@@ -1602,6 +1608,13 @@ body.mx_DesktopShell [class*="_tooltip_"] > [class*="_arrow_"]:has(~ [class*="_c
                 font: var(--cpd-font-body-xs-regular);
                 text-overflow: ellipsis;
                 white-space: nowrap;
+            }
+
+            /* Discord's speaker before someone in a voice channel. */
+            .mx_MemberTileView_voice {
+                margin-inline-end: 4px;
+                vertical-align: -3px;
+                color: var(--cpd-color-icon-success-primary);
             }
 
             .mx_MemberTileView_userLabel {

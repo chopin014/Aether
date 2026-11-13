@@ -53,6 +53,11 @@ function makeVm(snapshot: Partial<DesktopFullProfileViewSnapshot> = {}) {
     );
 }
 
+/** Compound's spacing scale, which the test page does not load. */
+const SPACING = Object.fromEntries(
+    [1, 1.5, 2, 3, 4, 5, 6, 8, 10, 12, 16].map((n) => [`--cpd-space-${String(n).replace(".", "-")}x`, `${n * 4}px`]),
+) as React.CSSProperties;
+
 describe("DesktopFullProfileView", () => {
     it("shows identity, membership date and verification state", () => {
         render(<DesktopFullProfileView vm={makeVm()} />);
@@ -140,5 +145,48 @@ describe("DesktopFullProfileView", () => {
         expect(screen.queryByLabelText(/only you and your homeserver/)).toBeNull();
         await userEvent.click(screen.getByRole("button", { name: "Edit profile" }));
         expect(vm.editProfile).toHaveBeenCalled();
+    });
+
+    it("opens on what the person is doing and joins their voice channel", async () => {
+        const vm = makeVm({
+            activity: {
+                kind: "voice",
+                roomId: "!voice:example.org",
+                channelName: "Lounge",
+                spaceName: "Aether HQ",
+                count: 2,
+                people: [{ id: "@robin:example.org", name: "Robin" }],
+            },
+        });
+        render(<DesktopFullProfileView vm={vm} />);
+        expect(screen.getByRole("tab", { name: "Activity", selected: true })).toBeVisible();
+        expect(screen.getByText("Lounge")).toBeVisible();
+        expect(screen.getByText(/in Aether HQ/)).toBeVisible();
+        await userEvent.click(screen.getByRole("button", { name: "Join voice channel" }));
+        expect(vm.openRoom).toHaveBeenCalledWith("!voice:example.org");
+    });
+
+    it("says so when the person is not doing anything", async () => {
+        render(<DesktopFullProfileView vm={makeVm()} />);
+        await userEvent.click(screen.getByRole("tab", { name: "Activity" }));
+        expect(screen.getByText("Robin isn't doing anything right now")).toBeVisible();
+    });
+
+    it("sets the presence dot on the edge of the avatar, as Discord does", () => {
+        // The test page has none of Compound's spacing tokens, so the ones the layout uses are given here.
+        render(
+            <div style={SPACING}>
+                <DesktopFullProfileView vm={makeVm()} />
+            </div>,
+        );
+        const dot = screen.getByRole("img", { name: "Away" }).getBoundingClientRect();
+        // The box that holds the avatar is exactly the avatar's size.
+        const avatar = document.querySelector('[class*="avatarBox"]')!.getBoundingClientRect();
+        const distance = Math.hypot(
+            dot.x + dot.width / 2 - (avatar.x + avatar.width / 2),
+            dot.y + dot.height / 2 - (avatar.y + avatar.height / 2),
+        );
+        expect(avatar.width).toBeCloseTo(120, 0);
+        expect(Math.abs(distance - 120 / 2)).toBeLessThan(2);
     });
 });

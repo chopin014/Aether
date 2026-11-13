@@ -9,6 +9,7 @@ Please see LICENSE in the repository root for full details.
 
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import {
+    TypedEventEmitter,
     EventType,
     MatrixEvent,
     Room,
@@ -32,6 +33,11 @@ import {
     unignoreUser,
 } from "../../components/viewmodels/right_panel/user_info/UserInfoIgnoreButtonViewModel";
 import SettingsStore from "../../settings/SettingsStore";
+import * as voiceActivityModule from "../../profile/voiceActivity";
+import { VoiceActivityIndex } from "../../profile/voiceActivity";
+import * as presenceModule from "../../presence/useMergedPresence";
+import { AetherPresenceService } from "../../presence/AetherPresenceService";
+import { AetherPresenceStoreEvent } from "../../presence/AetherPresenceStore";
 
 const { copy } = vi.hoisted(() => ({ copy: vi.fn() }));
 vi.mock("@element-hq/element-web-shared-utils", async (importOriginal) => ({
@@ -176,6 +182,37 @@ describe("DesktopProfileViewModel", () => {
         user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "unavailable" } }));
         client.emit(UserEvent.LastPresenceTs, user.events.presence!, user);
         expect(vm.getSnapshot().presence).toBe("unavailable");
+    });
+
+    it("shows the status Aether reports when the homeserver shares none, and follows it", () => {
+        // A homeserver like matrix.org shares no presence: every user stays offline as far as it knows.
+        delete user.events.presence;
+        user.presence = "offline";
+        const store = new TypedEventEmitter<string, Record<string, (userId: string) => void>>();
+        vi.spyOn(AetherPresenceService.instance, "store", "get").mockReturnValue(
+            store as unknown as AetherPresenceService["store"],
+        );
+        const merged = vi.spyOn(presenceModule, "getMergedPresence").mockReturnValue({
+            state: "unavailable",
+            source: "aether",
+        } as ReturnType<typeof presenceModule.getMergedPresence>);
+        const vm = create();
+        expect(vm.getSnapshot().presence).toBe("unavailable");
+
+        merged.mockReturnValue({ state: "busy", source: "aether" } as ReturnType<
+            typeof presenceModule.getMergedPresence
+        >);
+        store.emit(AetherPresenceStoreEvent.Update, "@someone-else:example.org");
+        expect(vm.getSnapshot().presence).toBe("unavailable");
+        store.emit(AetherPresenceStoreEvent.Update, member.userId);
+        expect(vm.getSnapshot().presence).toBe("busy");
+
+        // Seen activity alone is not a status, as in the member list.
+        merged.mockReturnValue({ state: "online", source: "activity" } as ReturnType<
+            typeof presenceModule.getMergedPresence
+        >);
+        store.emit(AetherPresenceStoreEvent.Update, member.userId);
+        expect(vm.getSnapshot().presence).toBe("offline");
     });
 
     it("shows the standard power-level role, and the Space role when the room is in the active Space", () => {
@@ -444,6 +481,31 @@ describe("DesktopProfileViewModel", () => {
             vi.spyOn(space, "getMember").mockReturnValue(member);
             vi.mocked(client.getRooms).mockReturnValue([room, space]);
             expect(create({ full: true }).getSnapshot().mutualSpaces).toMatchObject([{ id: space.roomId }]);
+            // The popout shows a count with the first few icons, without the full list.
+            expect(create({ full: false }).getSnapshot()).toMatchObject({
+                mutualSpaces: [],
+                mutual: { count: 1, faces: [{ id: space.roomId }] },
+            });
+        });
+
+        it("shows the voice channel the person is in, and follows them as they move", () => {
+            const index = VoiceActivityIndex.instance;
+            const roomOf = vi.spyOn(index, "roomOf").mockReturnValue(undefined);
+            const activity = vi.spyOn(voiceActivityModule, "voiceActivity");
+            const vm = create({ full: false });
+            expect(vm.getSnapshot().activity).toBeUndefined();
+            roomOf.mockReturnValue("!lounge:example.org");
+            activity.mockReturnValue({
+                kind: "voice",
+                roomId: "!lounge:example.org",
+                channelName: "Lounge",
+                count: 1,
+                people: [],
+            });
+            // Anyone joining or leaving a call makes the card look again.
+            (index as unknown as { listeners: Set<() => void> }).listeners.forEach((listener) => listener());
+            expect(activity).toHaveBeenLastCalledWith(client, "!lounge:example.org");
+            expect(vm.getSnapshot().activity?.channelName).toBe("Lounge");
         });
 
         it("opens a mutual room and closes", () => {

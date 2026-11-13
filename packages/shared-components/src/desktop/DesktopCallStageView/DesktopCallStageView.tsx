@@ -821,7 +821,14 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                         ) : (
                             <div className={styles.avatarFallback}>
                                 {tile.appearance?.effect && (
-                                    <ProfileEffectLayer id={tile.appearance.effect} seed={tile.userId} />
+                                    // A grid of tiles can hold many effects at once, so they move only while the stage is active, and at a
+                                    // calmer frame rate.
+                                    <ProfileEffectLayer
+                                        id={tile.appearance.effect}
+                                        seed={tile.userId}
+                                        live={live}
+                                        fps={30}
+                                    />
                                 )}
                                 <div className={styles.decoratedAvatar}>
                                     <div className={styles.avatarCircle}>

@@ -124,6 +124,13 @@ describe("ImageCropView", () => {
         expect(vm.keepOriginal).toHaveBeenCalledOnce();
     });
 
+    it("keeps an animated banner moving, framed where it is shown, and so cannot turn it", () => {
+        show({ animated: true, keepsAnimation: true, shape: "rectangle", aspectRatio: 3 });
+        expect(screen.getByText(/Its animation is kept/)).toBeVisible();
+        expect(screen.queryByRole("button", { name: "Use original" })).toBeNull();
+        expect(screen.getByRole("button", { name: "Rotate" })).toBeDisabled();
+    });
+
     it("shows a failure and holds every control while busy", () => {
         show({ busy: true, error: "Could not edit." });
         expect(screen.getByRole("alert")).toHaveTextContent("Could not edit.");

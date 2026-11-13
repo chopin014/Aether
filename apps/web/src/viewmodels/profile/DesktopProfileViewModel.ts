@@ -32,8 +32,10 @@ import { CryptoEvent } from "matrix-js-sdk/src/crypto-api";
 import { copyPlainTextToClipboard } from "@element-hq/element-web-shared-utils";
 import { logger } from "matrix-js-sdk/src/logger";
 
-import { getKnownPresence } from "../../utils/knownPresence";
-import { isPresenceEnabled } from "../../utils/presence";
+import { getMergedPresence } from "../../presence/useMergedPresence";
+import { AetherPresenceService } from "../../presence/AetherPresenceService";
+import { AetherPresenceStoreEvent } from "../../presence/AetherPresenceStore";
+import Presence from "../../Presence";
 import { mediaFromMxc } from "../../customisations/Media";
 import { getPowerLevelRole } from "../../Roles";
 import { fetchUserStatus } from "../../utils/userStatus";
@@ -67,6 +69,7 @@ import {
 } from "../../profile/richProfileView";
 import { wornSpaceTag } from "../../profile/spaceTag";
 import { getUserNote, setUserNote } from "../../profile/userNotes";
+import { VoiceActivityIndex, voiceActivity } from "../../profile/voiceActivity";
 
 /** One snapshot serves both the popout card and the full profile. */
 export type DesktopProfileViewSnapshot = DesktopFullProfileViewSnapshot & DesktopProfilePopoutViewSnapshot;
@@ -123,6 +126,17 @@ export class DesktopProfileViewModel
         this.disposables.trackListener(client, ClientEvent.Event, this.onEvent);
         const store = RichProfileStore.forClient(client);
         this.disposables.track(store.subscribe(props.member.userId, this.refresh));
+        this.disposables.track(VoiceActivityIndex.instance.subscribe(this.refresh));
+        const presenceStore = AetherPresenceService.instance.store;
+        if (presenceStore) {
+            this.disposables.trackListener(presenceStore, AetherPresenceStoreEvent.Update, (userId: unknown) => {
+                if (userId === props.member.userId) this.refresh();
+            });
+        }
+        // Your own status changes when you pick another, without anything arriving from the server.
+        if (props.member.userId === client.getUserId()) {
+            this.disposables.track(Presence.forClient(client).watchDesired(this.refresh));
+        }
         void store.request(props.member.userId, { onOpen: true });
         void this.loadVerification();
         void this.loadStatus();
@@ -179,9 +193,13 @@ export class DesktopProfileViewModel
         },
     ): DesktopProfileViewSnapshot {
         const { client, room } = props;
-        const { userId, name, mxc, user, member } = DesktopProfileViewModel.identity(props);
+        const { userId, name, mxc, member } = DesktopProfileViewModel.identity(props);
         const isMe = userId === client.getUserId();
-        const presence = isPresenceEnabled(client) ? getKnownPresence(user) : undefined;
+        // The same status the member list shows: the homeserver's, merged with what Aether clients report and with
+        // your own choice, so it is right on servers that do not share presence. Seen activity alone, as in the
+        // member list, is not a status.
+        const merged = getMergedPresence(client, userId);
+        const presence = merged && merged.source !== "activity" ? merged.state : undefined;
         const me = room?.getMember(client.getSafeUserId());
         const canModerate =
             !isMe &&
@@ -196,6 +214,7 @@ export class DesktopProfileViewModel
         const memberSince =
             props.full && room && member?.membership === KnownMembership.Join ? joinedAt(room, userId) : undefined;
         // An ignored person's styling goes with their messages, and the viewer may have turned all of it off.
+        const shared = isMe ? [] : mutualSpaces(client, userId);
         const rich =
             client.isUserIgnored(userId) || !SettingsStore.getValue("showProfileAppearance")
                 ? undefined
@@ -205,7 +224,7 @@ export class DesktopProfileViewModel
             displayName: name,
             avatarUrl: mxc ? (mediaFromMxc(mxc).getThumbnailOfSourceHttp(160, 160, "crop") ?? undefined) : undefined,
             avatarPreviewUrl: mxc ? props.avatarPreviewUrls?.find((url) => showsMedia(url, mxc)) : undefined,
-            presence: presence === "online" || presence === "unavailable" ? presence : "offline",
+            presence: presence === "online" || presence === "unavailable" || presence === "busy" ? presence : "offline",
             roles: DesktopProfileViewModel.roles(props, userId, member),
             status: extra.status ?? rich?.status,
             appearance: rich && appearanceFromRichProfile(rich, mxc),
@@ -242,7 +261,9 @@ export class DesktopProfileViewModel
                     ? { verified: verification.verified, deviceCount: verification.deviceCount }
                     : undefined,
             mutualRooms: extra.mutualRooms ?? { state: props.full ? "loading" : "unsupported", items: [] },
-            mutualSpaces: props.full && !isMe ? mutualSpaces(client, userId) : [],
+            mutualSpaces: props.full ? shared : [],
+            mutual: isMe ? undefined : { count: shared.length, faces: shared.slice(0, 3) },
+            activity: voiceActivity(client, VoiceActivityIndex.instance.roomOf(userId)),
         };
     }
 

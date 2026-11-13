@@ -43,13 +43,59 @@ function makeVm(snapshot: Partial<DesktopProfilePopoutViewSnapshot> = {}) {
             toggleIgnore: vi.fn(),
             moderate: vi.fn(),
             openFullProfile: vi.fn(),
+            openRoom: vi.fn(),
             editProfile: vi.fn(),
             close: vi.fn(),
         } satisfies DesktopProfilePopoutViewActions,
     );
 }
 
+/** Compound's spacing scale, which the test page does not load. */
+const SPACING = Object.fromEntries(
+    [1, 1.5, 2, 3, 4, 5, 6, 8, 10, 12, 16].map((n) => [`--cpd-space-${String(n).replace(".", "-")}x`, `${n * 4}px`]),
+) as React.CSSProperties;
+
 describe("DesktopProfilePopoutView", () => {
+    it("shows the Spaces you share and the voice channel the person is in, with a way to join them", async () => {
+        const vm = makeVm({
+            mutual: { count: 2, faces: [{ id: "!a:example.org", name: "Aether HQ" }] },
+            activity: {
+                kind: "voice",
+                roomId: "!voice:example.org",
+                channelName: "Lounge",
+                count: 3,
+                people: [
+                    { id: "@robin:example.org", name: "Robin" },
+                    { id: "@sam:example.org", name: "Sam" },
+                ],
+            },
+        });
+        render(<DesktopProfilePopoutView vm={vm} />);
+        expect(screen.getByText("2 mutual servers")).toBeVisible();
+        expect(screen.getByRole("region", { name: "In voice" }).textContent).toContain("Lounge");
+        expect(screen.getByText("3 people in voice")).toBeVisible();
+        await userEvent.click(screen.getByRole("button", { name: "Join voice channel" }));
+        expect(vm.openRoom).toHaveBeenCalledWith("!voice:example.org");
+    });
+
+    it("does not offer to join your own voice channel", () => {
+        const activity = {
+            kind: "voice" as const,
+            roomId: "!v:example.org",
+            channelName: "Lounge",
+            count: 1,
+            people: [],
+        };
+        render(<DesktopProfilePopoutView vm={makeVm({ isMe: true, canMessage: false, activity })} />);
+        expect(screen.getByText("Lounge")).toBeVisible();
+        expect(screen.queryByRole("button", { name: "Join voice channel" })).toBeNull();
+    });
+
+    it("shows do not disturb", () => {
+        render(<DesktopProfilePopoutView vm={makeVm({ presence: "busy" })} />);
+        expect(screen.getByRole("img", { name: "Do not disturb" })).toHaveAttribute("data-presence", "busy");
+    });
+
     it("shows the name, Matrix ID, role chips and presence", () => {
         render(<DesktopProfilePopoutView vm={makeVm()} />);
         expect(screen.getByRole("heading", { name: "Robin" })).toBeVisible();
@@ -226,5 +272,23 @@ describe("DesktopProfilePopoutView", () => {
         expect(measure(decoration).width).toBeCloseTo(measure(decoration).height, 1);
         expect(measure(decoration).top + measure(decoration).height / 2).toBeCloseTo(measure(box).top + 40, 1);
         expect(measure(decoration).left + measure(decoration).width / 2).toBeCloseTo(measure(box).left + 40, 1);
+    });
+
+    it("sets the presence dot on the edge of the avatar, as Discord does", () => {
+        // The test page has none of Compound's spacing tokens, so the ones the layout uses are given here.
+        render(
+            <div style={SPACING}>
+                <DesktopProfilePopoutView vm={makeVm()} />
+            </div>,
+        );
+        const dot = screen.getByRole("img", { name: "Online" }).getBoundingClientRect();
+        // The box that holds the avatar is exactly the avatar's size.
+        const avatar = document.querySelector('[class*="avatarBox"]')!.getBoundingClientRect();
+        const distance = Math.hypot(
+            dot.x + dot.width / 2 - (avatar.x + avatar.width / 2),
+            dot.y + dot.height / 2 - (avatar.y + avatar.height / 2),
+        );
+        expect(avatar.width).toBeCloseTo(80, 0);
+        expect(Math.abs(distance - 80 / 2)).toBeLessThan(2);
     });
 });

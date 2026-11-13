@@ -5,7 +5,8 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import React, { useEffect, useRef, type JSX } from "react";
+import React, { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, type JSX } from "react";
+import classNames from "classnames";
 
 import AccessibleButton from "../../../../elements/AccessibleButton";
 
@@ -22,8 +23,21 @@ interface Props {
     iconJsx?: JSX.Element;
     tabIndex?: number;
     focused?: boolean;
-    /** Drawn behind the whole row, such as the person's nameplate. */
-    backgroundJsx?: JSX.Element;
+    /**
+     * Drawn behind the whole row, such as the person's nameplate. It is given the row's text, so artwork can stay
+     * faint behind it.
+     */
+    renderBackground?: (textRef: RefObject<HTMLDivElement | null>) => ReactNode;
+    /** The person is offline: the row is dimmed, as Discord does, until it is hovered or focused. */
+    offline?: boolean;
+    /** Hover and focus handlers, and the style they drive, so the row's artwork can move while it is active. */
+    motion?: {
+        style: CSSProperties;
+        onPointerEnter: () => void;
+        onPointerLeave: () => void;
+        onFocus: () => void;
+        onBlur: () => void;
+    };
     /** A second line under the name, such as the person's status. */
     subtitleJsx?: JSX.Element;
 }
@@ -34,6 +48,7 @@ export function MemberTileView(props: Props): JSX.Element {
         userLabelJsx = <div className="mx_MemberTileView_userLabel">{props.userLabel}</div>;
     }
     const ref = useRef<HTMLDivElement | null>(null);
+    const textRef = useRef<HTMLDivElement | null>(null);
     useEffect(() => {
         if (props.focused) {
             ref.current?.focus({ preventScroll: true, focusVisible: true });
@@ -44,9 +59,16 @@ export function MemberTileView(props: Props): JSX.Element {
         <div>
             <AccessibleButton
                 ref={ref}
-                className="mx_MemberTileView"
+                className={classNames("mx_MemberTileView", { mx_MemberTileView_offline: props.offline })}
+                style={props.motion?.style}
+                onPointerEnter={props.motion?.onPointerEnter}
+                onPointerLeave={props.motion?.onPointerLeave}
+                onBlur={props.motion?.onBlur}
                 onClick={props.onClick}
-                onFocus={props.onFocus}
+                onFocus={(event: React.FocusEvent) => {
+                    props.motion?.onFocus();
+                    props.onFocus(event);
+                }}
                 aria-label={props?.ariaLabel}
                 tabIndex={props.tabIndex}
                 role="option"
@@ -54,19 +76,21 @@ export function MemberTileView(props: Props): JSX.Element {
                 aria-posinset={props.memberIndex + 1}
                 aria-setsize={props.memberCount}
             >
-                {props.backgroundJsx}
+                {props.renderBackground?.(textRef)}
                 <div aria-hidden className="mx_MemberTileView_left">
                     <div className="mx_MemberTileView_avatar">
                         {props.avatarJsx}
                         <div className="mx_MemberTileView_presence">{props.presenceJsx}</div>
                     </div>
                     {props.subtitleJsx ? (
-                        <div className="mx_MemberTileView_text">
+                        <div className="mx_MemberTileView_text" ref={textRef}>
                             <div className="mx_MemberTileView_name">{props.nameJsx}</div>
                             {props.subtitleJsx}
                         </div>
                     ) : (
-                        <div className="mx_MemberTileView_name">{props.nameJsx}</div>
+                        <div className="mx_MemberTileView_name" ref={textRef}>
+                            {props.nameJsx}
+                        </div>
                     )}
                 </div>
                 <div aria-hidden className="mx_MemberTileView_right">

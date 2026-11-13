@@ -1667,7 +1667,8 @@
         "invite_button_no_perms_tooltip": "Você não tem permissão para convidar usuários",
         "invited_label": "Convidado",
         "list_title": "Lista de membros",
-        "no_matches": "Sem correspondências"
+        "no_matches": "Sem correspondências",
+        "in_voice_channel": "Em %(channel)s"
     },
     "member_list_back_action_label": "Membros da sala",
     "message_edit_dialog_title": "Edições na mensagem",

@@ -45,6 +45,7 @@ export function appearanceFromRichProfile(
             profile.bannerMxc && profile.bannerAnimated
                 ? (mediaFromMxc(profile.bannerMxc).srcHttp ?? undefined)
                 : undefined,
+        bannerFrame: profile.bannerMxc ? profile.bannerFrame : undefined,
         avatarAnimatedUrl:
             avatarMxc && profile.animatedAvatarMxc === avatarMxc
                 ? (mediaFromMxc(avatarMxc).srcHttp ?? undefined)
@@ -56,7 +57,13 @@ export function appearanceFromRichProfile(
             nameplate && "preset" in nameplate
                 ? nameplate
                 : nameplate
-                  ? { imageUrl: thumbnail(nameplate.mxc, 480, 96) ?? "" }
+                  ? {
+                        imageUrl: thumbnail(nameplate.mxc, 480, 96) ?? "",
+                        // The original plays while the row is active; a thumbnail of an animation is a still.
+                        animatedUrl: nameplate.animated
+                            ? (mediaFromMxc(nameplate.mxc).srcHttp ?? undefined)
+                            : undefined,
+                    }
                   : undefined,
         nameStyle: nameStyleFromRichProfile(profile),
     };

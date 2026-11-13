@@ -177,4 +177,22 @@ describe("DesktopProfileEditorView", () => {
         expect(document.querySelector('[data-decoration="halo"]')).not.toBeNull();
         expect(document.querySelector('[data-nameplate="tides"]')).not.toBeNull();
     });
+
+    it("follows a dragged colour at once but passes only a few of its steps to the editor, ending on the last", async () => {
+        const vm = makeVm();
+        render(<DesktopProfileEditorView vm={vm} />);
+        const input = screen.getByLabelText("Primary") as HTMLInputElement;
+        const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+        vi.mocked(vm.update).mockClear();
+        const steps = Array.from({ length: 30 }, (_, i) => `#${(i * 8).toString(16).padStart(2, "0")}2040`);
+        for (const step of steps) {
+            setValue.call(input, step);
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        expect(input.value).toBe(steps.at(-1));
+        await vi.waitFor(() => expect(vm.update).toHaveBeenCalled());
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        expect(vi.mocked(vm.update).mock.calls.length).toBeLessThan(5);
+        expect(vm.update).toHaveBeenLastCalledWith({ theme: expect.objectContaining({ primary: steps.at(-1) }) });
+    });
 });

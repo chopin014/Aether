@@ -17,6 +17,7 @@ import {
     type ProfileNameEffect,
     type ProfileNameFont,
     type ProfileNameplateId,
+    type ProfileImageFrame,
     type ProfileTheme,
     type UserStatus,
 } from "@element-hq/web-shared-components";
@@ -49,8 +50,8 @@ export const MAX_BOARD_ITEM_CAPTION_LENGTH = 80;
 /** The whole profile may not exceed 64 KiB, and it has to leave room for the other fields and other clients. */
 export const MAX_RICH_FIELD_BYTES = 32 * 1024;
 
-/** A built-in nameplate, or the person's own image. */
-export type RichNameplate = { preset: ProfileNameplateId } | { mxc: string };
+/** A built-in nameplate, or the person's own image, which may be animated. */
+export type RichNameplate = { preset: ProfileNameplateId } | { mxc: string; animated?: boolean };
 
 /** One tile of a person's board. */
 export interface RichBoardItem {
@@ -70,6 +71,8 @@ export interface RichProfile {
     bannerMxc?: string;
     /** The banner is animated, so its original should play rather than a still thumbnail. */
     bannerAnimated?: boolean;
+    /** The part of an animated banner to show, kept separately so the file can stay animated. */
+    bannerFrame?: ProfileImageFrame;
     /** The avatar with this MXC URI is animated. Compared against the current avatar, so it cannot go stale. */
     animatedAvatarMxc?: string;
     bio?: string;
@@ -194,6 +197,21 @@ function parseTimezone(raw: Record<string, unknown>): string | undefined {
     return undefined;
 }
 
+/**
+ * A framing rectangle, as fractions of the image, that stays inside it. Any size the editor can produce is accepted:
+ * zoomed all the way in on a square or tall image, the kept height is well under a tenth.
+ */
+function parseFrame(value: unknown): ProfileImageFrame | undefined {
+    if (!isObject(value)) return undefined;
+    const { x, y, width, height } = value;
+    const fractions = [x, y, width, height];
+    if (!fractions.every((n) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1)) return undefined;
+    const [fx, fy, fw, fh] = fractions as number[];
+    // Rounding when stored can push the far edge a hair past the image, which is harmless.
+    if (fw <= 0 || fh <= 0 || fx + fw > 1.001 || fy + fh > 1.001) return undefined;
+    return { x: fx, y: fy, width: fw, height: fh };
+}
+
 function parseLinks(value: unknown): RichLink[] {
     if (!Array.isArray(value)) return [];
     const links: RichLink[] = [];
@@ -243,6 +261,7 @@ export function parseRichProfile(raw: Record<string, unknown>): RichProfile {
     return {
         bannerMxc: isMxc(banner) ? banner : undefined,
         bannerAnimated: own.banner_animated === true || undefined,
+        bannerFrame: isMxc(banner) ? parseFrame(own.banner_frame) : undefined,
         animatedAvatarMxc: isMxc(own.animated_avatar) ? own.animated_avatar : undefined,
         bio: parseBio(raw),
         pronouns: parsePronouns(raw),
@@ -254,7 +273,11 @@ export function parseRichProfile(raw: Record<string, unknown>): RichProfile {
                 : undefined,
         decoration: oneOf(PROFILE_DECORATIONS, own.decoration),
         effect: oneOf(PROFILE_EFFECTS, own.effect),
-        nameplate: nameplatePreset ? { preset: nameplatePreset } : isMxc(plate.mxc) ? { mxc: plate.mxc } : undefined,
+        nameplate: nameplatePreset
+            ? { preset: nameplatePreset }
+            : isMxc(plate.mxc)
+              ? { mxc: plate.mxc, ...(plate.animated === true ? { animated: true } : {}) }
+              : undefined,
         nameFont: oneOf(PROFILE_NAME_FONTS, name.font),
         nameEffect: oneOf(PROFILE_NAME_EFFECTS, name.effect),
         nameColour,
@@ -263,6 +286,13 @@ export function parseRichProfile(raw: Record<string, unknown>): RichProfile {
         ...parseBoard(own.board),
         tagSpaceId: typeof own.tag === "string" && ROOM_ID.test(own.tag) ? own.tag : undefined,
     };
+}
+
+/** A frame with its fractions rounded, so a stored profile stays small and saves compare cleanly. */
+function roundFrame(frame: ProfileImageFrame | undefined): ProfileImageFrame | undefined {
+    if (!frame) return undefined;
+    const round = (n: number): number => Math.round(n * 10000) / 10000;
+    return { x: round(frame.x), y: round(frame.y), width: round(frame.width), height: round(frame.height) };
 }
 
 /** Drop undefined values and empty containers, so an unset profile stores nothing at all. */
@@ -282,6 +312,7 @@ export function serialiseRichField(profile: RichProfile, existing?: unknown): Re
     const preserved: Record<string, unknown> = isObject(existing) ? { ...existing } : {};
     const known = compact({
         banner_animated: profile.bannerMxc && profile.bannerAnimated ? true : undefined,
+        banner_frame: profile.bannerMxc ? roundFrame(profile.bannerFrame) : undefined,
         animated_avatar: profile.animatedAvatarMxc,
         theme: profile.theme,
         decoration: profile.decoration,
@@ -305,6 +336,7 @@ export function serialiseRichField(profile: RichProfile, existing?: unknown): Re
     for (const key of [
         "v",
         "banner_animated",
+        "banner_frame",
         "animated_avatar",
         "theme",
         "decoration",

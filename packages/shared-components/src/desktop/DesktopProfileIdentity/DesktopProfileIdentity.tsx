@@ -17,6 +17,7 @@ import React, {
 } from "react";
 import classNames from "classnames";
 import { Avatar, Text, useIdColorHash } from "@vector-im/compound-web";
+import VolumeOnIcon from "@vector-im/compound-design-tokens/assets/web/icons/volume-on";
 
 import { useI18n } from "../../core/i18n/i18nContext";
 import { type UserStatus } from "../../core/userStatus";
@@ -27,12 +28,16 @@ import {
     ProfileEffectLayer,
     ProfileName,
     profileThemeStyle,
+    ProfileLiveContext,
+    useProfileLive,
+    imageFrameStyle,
+    useImageColour,
     useProfileMotion,
 } from "../ProfileAppearance";
 import styles from "./DesktopProfileIdentity.module.css";
 
 /** Presence shown on a profile; the host maps unknown status to offline. */
-export type DesktopProfilePresence = "online" | "unavailable" | "offline";
+export type DesktopProfilePresence = "online" | "unavailable" | "busy" | "offline";
 
 /** A Matrix power-level role shown where Discord shows server roles. */
 export interface DesktopProfileRole {
@@ -57,6 +62,37 @@ export interface DesktopProfileTag {
     spaceName: string;
 }
 
+/** A person, room or Space shown as a small round picture. */
+export interface DesktopProfileFace {
+    id: string;
+    name: string;
+    avatarUrl?: string;
+}
+
+/**
+ * What the person is doing right now, shown as a card on their profile. Voice comes from the MatrixRTC calls the
+ * viewer can see; games will join it as another kind.
+ */
+export interface DesktopProfileActivity {
+    kind: "voice";
+    /** The voice channel's room. */
+    roomId: string;
+    channelName: string;
+    /** The Space the channel belongs to, when there is one. */
+    spaceName?: string;
+    /** Everyone in the channel. */
+    count: number;
+    /** The first few of them, to show their faces. */
+    people: DesktopProfileFace[];
+}
+
+/** Spaces the viewer shares with the person, from members this client already knows. */
+export interface DesktopProfileMutual {
+    count: number;
+    /** The first few, to show their icons. */
+    faces: DesktopProfileFace[];
+}
+
 /** Who the profile is about, shared by the popout card, the full profile and the editor's preview. */
 export interface DesktopProfileIdentitySnapshot {
     userId: string;
@@ -79,10 +115,14 @@ export interface DesktopProfileIdentitySnapshot {
     tag?: DesktopProfileTag;
     /** The time where the person is, formatted for the viewer, when they share a timezone. */
     localTime?: string;
+    /** What the person is doing right now. */
+    activity?: DesktopProfileActivity;
+    /** Spaces both people are in. Omitted on the viewer's own profile. */
+    mutual?: DesktopProfileMutual;
 }
 
-/** Whether the surrounding surface is active, which is when animated media plays. */
-const ProfileLiveContext = createContext(false);
+/** Whether motion is allowed in the card at all: open, in a focused window, without reduced motion. */
+const ProfileMotionAllowedContext = createContext(false);
 
 interface DesktopProfileSurfaceProps {
     identity: Pick<DesktopProfileIdentitySnapshot, "appearance" | "userId">;
@@ -111,31 +151,34 @@ export function DesktopProfileSurface({
     const backdropImage = backdrop ? appearance?.bannerUrl : undefined;
     return (
         <ProfileLiveContext.Provider value={motion.live}>
-            <div
-                {...motion.bind}
-                className={classNames(styles.surface, className)}
-                data-tone={themed?.tone}
-                style={{ ...motion.bind.style, ...themed?.style }}
-            >
-                {backdropImage && (
-                    <img className={styles.backdrop} src={backdropImage} alt="" aria-hidden="true" loading="lazy" />
-                )}
-                {appearance?.effect && (
-                    // Fades away when the card goes quiet, rather than leaving frozen particles over the text.
-                    <div className={styles.effectHost} data-live={motion.live}>
-                        <ProfileEffectLayer id={appearance.effect} seed={userId} />
-                    </div>
-                )}
-                {children}
-            </div>
+            <ProfileMotionAllowedContext.Provider value={motion.allowed}>
+                <div
+                    {...motion.bind}
+                    className={classNames(styles.surface, className)}
+                    data-tone={themed?.tone}
+                    style={{ ...motion.bind.style, ...themed?.style }}
+                >
+                    {backdropImage && (
+                        <img className={styles.backdrop} src={backdropImage} alt="" aria-hidden="true" loading="lazy" />
+                    )}
+                    {appearance?.effect && (
+                        <ProfileEffectLayer
+                            id={appearance.effect}
+                            seed={userId}
+                            live={motion.allowed}
+                            // A card steps its effect back while it is being read. A full profile fills the whole
+                            // dialog, so dimming there would fade the effect in and out with every pointer movement.
+                            dimmed={motion.hovered && !backdrop}
+                        />
+                    )}
+                    {children}
+                </div>
+            </ProfileMotionAllowedContext.Provider>
         </ProfileLiveContext.Provider>
     );
 }
 
-/** Whether the profile surface around this component is active. */
-export function useProfileLive(): boolean {
-    return useContext(ProfileLiveContext);
-}
+export { useProfileLive };
 
 interface PresenceBadgeProps {
     presence: DesktopProfilePresence;
@@ -147,6 +190,7 @@ function PresenceBadge({ presence }: PresenceBadgeProps): JSX.Element {
     const labels: Record<DesktopProfilePresence, string> = {
         online: _t("desktop|profile|presence_online"),
         unavailable: _t("desktop|profile|presence_unavailable"),
+        busy: _t("desktop|profile|presence_busy"),
         offline: _t("desktop|profile|presence_offline"),
     };
     const label = labels[presence];
@@ -158,44 +202,12 @@ function PresenceBadge({ presence }: PresenceBadgeProps): JSX.Element {
 }
 
 /**
- * The average colour of an avatar, which gives a plain banner something that belongs to its owner. Images a canvas
- * may not read (a media server without CORS headers) leave this undefined and the ID's colour takes over.
+ * The colour that best represents an avatar: its most common vivid hue rather than the muddy average of every pixel,
+ * so a plain banner takes the colour people associate with its owner, as Discord's does. Images a canvas may not read
+ * (a media server without CORS headers) leave this undefined and the ID's colour takes over.
  */
 export function useDominantColour(url: string | undefined, enabled: boolean): string | undefined {
-    const [colour, setColour] = useState<string>();
-    useEffect(() => {
-        setColour(undefined);
-        if (!url || !enabled) return;
-        let cancelled = false;
-        const image = new Image();
-        image.crossOrigin = "anonymous";
-        image.onload = () => {
-            if (cancelled) return;
-            try {
-                const canvas = document.createElement("canvas");
-                canvas.width = canvas.height = 8;
-                const context = canvas.getContext("2d", { willReadFrequently: true });
-                if (!context) return;
-                context.drawImage(image, 0, 0, 8, 8);
-                const { data } = context.getImageData(0, 0, 8, 8);
-                const total = [0, 0, 0];
-                for (let i = 0; i < data.length; i += 4) {
-                    total[0] += data[i];
-                    total[1] += data[i + 1];
-                    total[2] += data[i + 2];
-                }
-                const [r, g, b] = total.map((value) => Math.round(value / (data.length / 4)));
-                setColour(`rgb(${r} ${g} ${b})`);
-            } catch {
-                // A tainted canvas: the ID's colour is the fallback.
-            }
-        };
-        image.src = url;
-        return () => {
-            cancelled = true;
-        };
-    }, [url, enabled]);
-    return colour;
+    return useImageColour(url, enabled);
 }
 
 /** Show `preview` until `url` has finished loading, then `url`. Without a preview this is simply `url`. */
@@ -236,6 +248,7 @@ export function DesktopProfileBanner({
     renderAvatar,
 }: DesktopProfileBannerProps): JSX.Element {
     const live = useProfileLive();
+    const motionAllowed = useContext(ProfileMotionAllowedContext);
     const { appearance } = identity;
     const hashColour = useIdColorHash(identity.userId);
     // The preview is already decoded, so sampling it gives the banner its colour at once rather than after a load.
@@ -245,7 +258,9 @@ export function DesktopProfileBanner({
     );
     const avatarUrl = useProgressiveImage(identity.avatarUrl, identity.avatarPreviewUrl);
     const [animatedBannerReady, setAnimatedBannerReady] = useState(false);
-    const animatedBanner = live ? appearance?.bannerAnimatedUrl : undefined;
+    // An animated banner plays for as long as the card is open, as Discord's does, not only while it is hovered.
+    const animatedBanner = motionAllowed ? appearance?.bannerAnimatedUrl : undefined;
+    const bannerFrame = imageFrameStyle(appearance?.bannerFrame) as CSSProperties | undefined;
     const bannerColour = (dominant ? { "--desktop-profile-banner": dominant } : undefined) as CSSProperties | undefined;
 
     const avatar = (
@@ -259,9 +274,21 @@ export function DesktopProfileBanner({
     );
     return (
         <div className={classNames(styles.banner, size === "popout" ? styles.popoutBanner : styles.fullBanner)}>
-            <div className={styles.bannerColour} data-colour={hashColour} style={bannerColour} aria-hidden="true">
+            <div
+                className={styles.bannerColour}
+                data-colour={hashColour}
+                data-from-avatar={!!dominant}
+                style={bannerColour}
+                aria-hidden="true"
+            >
                 {appearance?.bannerUrl && (
-                    <img className={styles.bannerImage} src={appearance.bannerUrl} alt="" loading="lazy" />
+                    <img
+                        className={styles.bannerImage}
+                        src={appearance.bannerUrl}
+                        alt=""
+                        loading="lazy"
+                        style={bannerFrame}
+                    />
                 )}
                 {animatedBanner && (
                     <img
@@ -269,6 +296,7 @@ export function DesktopProfileBanner({
                         data-ready={animatedBannerReady}
                         src={animatedBanner}
                         alt=""
+                        style={bannerFrame}
                         onLoad={() => setAnimatedBannerReady(true)}
                     />
                 )}
@@ -407,5 +435,84 @@ export function DesktopProfileBio({ bio, onViewFull }: DesktopProfileBioProps): 
                 </button>
             )}
         </div>
+    );
+}
+
+/** Faces overlapping one another, each ringed in the card's colour so they read as separate. */
+function FaceStack({ faces, size }: { faces: DesktopProfileFace[]; size: "16px" | "20px" }): JSX.Element {
+    return (
+        <span className={styles.faces} aria-hidden="true">
+            {faces.map((face) => (
+                <span key={face.id} className={styles.face}>
+                    <Avatar id={face.id} name={face.name} src={face.avatarUrl} size={size} type="round" />
+                </span>
+            ))}
+        </span>
+    );
+}
+
+/** "3 mutual Spaces", with their icons, as Discord shows mutual friends and servers. */
+export function DesktopProfileMutualLine({ mutual }: { mutual: DesktopProfileMutual }): JSX.Element | null {
+    const { translate: _t } = useI18n();
+    if (!mutual.count) return null;
+    return (
+        <Text as="p" size="sm" className={styles.mutual}>
+            <FaceStack faces={mutual.faces} size="16px" />
+            {_t("desktop|profile|mutual_spaces_count", { count: mutual.count })}
+        </Text>
+    );
+}
+
+interface DesktopProfileActivityCardProps {
+    activity: DesktopProfileActivity;
+    /** Join the channel. Omitted on the viewer's own profile. */
+    onJoin?: () => void;
+}
+
+/** Where the person is right now and who is with them, with a way to join them, like Discord's "In voice" card. */
+export function DesktopProfileActivityCard({ activity, onJoin }: DesktopProfileActivityCardProps): JSX.Element {
+    const { translate: _t } = useI18n();
+    const others = activity.count - activity.people.length;
+    return (
+        <section className={styles.activity} aria-label={_t("desktop|profile|in_voice")}>
+            <Text as="h3" size="xs" weight="semibold" className={styles.activityHeading}>
+                {_t("desktop|profile|in_voice")}
+            </Text>
+            <div className={styles.activityBody}>
+                <span
+                    className={styles.activityFaces}
+                    data-count={Math.min(4, activity.people.length)}
+                    aria-hidden="true"
+                >
+                    {activity.people.slice(0, 4).map((person) => (
+                        <Avatar
+                            key={person.id}
+                            id={person.id}
+                            name={person.name}
+                            src={person.avatarUrl}
+                            size="24px"
+                            type="round"
+                        />
+                    ))}
+                </span>
+                <div className={styles.activityText}>
+                    <Text as="p" size="sm" weight="semibold" className={styles.activityTitle}>
+                        <VolumeOnIcon aria-hidden="true" width="16px" height="16px" />
+                        <span>{activity.channelName}</span>
+                    </Text>
+                    <Text as="p" size="xs" className={styles.activityDetail}>
+                        {activity.spaceName
+                            ? _t("desktop|profile|in_space", { space: activity.spaceName })
+                            : _t("desktop|profile|people_in_voice", { count: activity.count })}
+                        {others > 0 && activity.spaceName && ` · +${others}`}
+                    </Text>
+                </div>
+            </div>
+            {onJoin && (
+                <button type="button" className={styles.activityJoin} onClick={onJoin}>
+                    {_t("desktop|profile|join_voice")}
+                </button>
+            )}
+        </section>
     );
 }
