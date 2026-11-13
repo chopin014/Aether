@@ -1217,6 +1217,11 @@
             "user_volume": "Volume do usuário",
             "user_volume_for": "Volume de %(name)s",
             "verify": "Verificar"
+        },
+        "channel_row": {
+            "invite_to": "Convidar pessoas para %(channel)s",
+            "edit_named": "Editar %(channel)s",
+            "private": "Canal privado"
         }
     },
     "threads": {

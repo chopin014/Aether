@@ -51,10 +51,15 @@ body.mx_DesktopShell {
      * belonging to what follows it rather than floating between two lists.
      */
     --mx-desktop-category-padding: 16px 0 2px;
-    --mx-desktop-category-inner-padding: 2px 8px 2px 4px;
+    /* The name lines up with the channel symbols below it, and a small chevron follows it, as in Discord. */
+    --mx-desktop-category-inner-padding: 2px 4px 2px 8px;
+    --mx-desktop-category-font: var(--cpd-font-body-sm-medium);
+    --mx-desktop-category-chevron-order: 1;
+    --mx-desktop-category-chevron-size: 16px;
     --mx-desktop-room-margin: 8px;
     --mx-desktop-room-radius: 6px;
     --mx-desktop-room-marker: transparent;
+    --mx-desktop-badge-text: var(--ae-branco);
     /* The dock's account row, which the message composer matches. */
     --mx-desktop-dock-row-height: 60px;
     /* The account dock floats 8px above the bottom; its height is measured by DesktopAccountDockContainer. */
