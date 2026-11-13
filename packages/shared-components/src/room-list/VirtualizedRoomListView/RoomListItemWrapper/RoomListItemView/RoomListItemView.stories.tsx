@@ -20,6 +20,7 @@ import { withViewDocs } from "../../../../../.storybook/withViewDocs";
 import { defaultSnapshot } from "./default-snapshot";
 import { renderAvatar } from "../../../story-mocks";
 import { mockedActions } from "./mocked-actions";
+import { RoomNotifState } from "./RoomNotifs";
 
 type RoomListItemProps = RoomListItemViewSnapshot &
     RoomListItemViewActions & {
@@ -50,6 +51,7 @@ const RoomListItemWrapperImpl = ({
     onCreateSection,
     onToggleSection,
     onRemoveFromSection,
+    onEditChannel,
     isSelected,
     isFocused,
     onFocus,
@@ -76,6 +78,7 @@ const RoomListItemWrapperImpl = ({
         onCreateSection,
         onToggleSection,
         onRemoveFromSection,
+        onEditChannel,
     });
     return (
         <RoomListItemView
@@ -371,6 +374,65 @@ export const DesktopChannelWithIcon: Story = {
         channelIconUrl:
             "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'><rect width='20' height='20' fill='%238ed8ea'/></svg>",
     },
+};
+
+/** A channel people join by invitation carries a lock on its symbol. */
+export const DesktopPrivateChannel: Story = {
+    args: { channelKind: "text", name: "chat-governamental", isPrivateChannel: true },
+};
+
+/** A private voice channel. */
+export const DesktopPrivateVoiceChannel: Story = {
+    args: { channelKind: "voice", name: "Segredos do Gordola", isPrivateChannel: true },
+};
+
+/** A muted channel is dimmed instead of carrying a bell. */
+export const DesktopMutedChannel: Story = {
+    args: {
+        channelKind: "text",
+        name: "memes",
+        notification: { ...defaultSnapshot.notification, muted: true },
+        roomNotifState: RoomNotifState.Mute,
+    },
+};
+
+/** Unread messages in a channel: a bold name and a marker against the sidebar's edge, without a count. */
+export const DesktopUnreadChannel: Story = {
+    args: {
+        channelKind: "text",
+        name: "chat-geral",
+        isBold: true,
+        notification: {
+            ...defaultSnapshot.notification,
+            hasAnyNotificationOrActivity: true,
+            isNotification: true,
+            hasUnreadCount: true,
+            count: 12,
+        },
+    },
+};
+
+/** Mentions in a channel show their count in a red badge, not the count of every message that notified. */
+export const DesktopChannelWithMentions: Story = {
+    args: {
+        channelKind: "text",
+        name: "chat-geral",
+        isBold: true,
+        mentionCount: 3,
+        notification: {
+            ...defaultSnapshot.notification,
+            hasAnyNotificationOrActivity: true,
+            isMention: true,
+            isNotification: true,
+            hasUnreadCount: true,
+            count: 12,
+        },
+    },
+};
+
+/** The open channel keeps its invite and edit buttons in view. */
+export const DesktopSelectedChannel: Story = {
+    args: { channelKind: "text", name: "boas-vindas", isSelected: true, canEditChannel: true },
 };
 
 /** A channel's icon and its participants' avatars share a column. */
