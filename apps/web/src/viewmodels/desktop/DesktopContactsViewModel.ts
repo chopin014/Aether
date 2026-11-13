@@ -72,11 +72,12 @@ export class DesktopContactsViewModel
     private queueRefresh = (): void => {
         if (this.refreshQueued || this.isDisposed) return;
         this.refreshQueued = true;
-        // Membership imports emit a name event per member. Rebuild once after the batch.
-        queueMicrotask(() => {
+        // Rebuild once after the batch: membership imports emit a name event per member, and sync emits events for
+        // every room it applies, letting promises settle between rooms. Each rebuild looks at every room.
+        setTimeout(() => {
             this.refreshQueued = false;
             if (!this.isDisposed) this.refresh();
-        });
+        }, 0);
     };
 
     private contactFor = (userId: string, room?: Room): DesktopContact => {

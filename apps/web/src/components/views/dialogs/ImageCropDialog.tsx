@@ -37,7 +37,15 @@ export function ImageCropDialog(props: ImageCropViewModelProps): JSX.Element {
     const vm = useCreateAutoDisposedViewModel(() => new ImageCropViewModel(props));
     const { busy } = useViewModel(vm);
     return (
-        <BaseDialog title={_t("image_crop|title")} onFinished={vm.cancel} hasCancel={!busy} fixedWidth={false}>
+        // Named by its own title: opened over another dialog, such as settings, the title would otherwise be
+        // found by an ID both share.
+        <BaseDialog
+            title={_t("image_crop|title")}
+            aria-label={_t("image_crop|title")}
+            onFinished={vm.cancel}
+            hasCancel={!busy}
+            fixedWidth={false}
+        >
             <ImageCropView vm={vm} />
         </BaseDialog>
     );

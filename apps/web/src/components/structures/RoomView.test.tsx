@@ -71,6 +71,7 @@ import { type LocalRoom, LocalRoomState } from "../../models/LocalRoom";
 import { DirectoryMember } from "../../utils/direct-messages";
 import { createDmLocalRoom } from "../../utils/dm/createDmLocalRoom";
 import { UPDATE_EVENT } from "../../stores/AsyncStore";
+import RoomScrollStateStore from "../../stores/RoomScrollStateStore";
 import { SDKContext } from "../../contexts/SDKContext";
 import WidgetUtils from "../../utils/WidgetUtils";
 import { WidgetType } from "../../widgets/WidgetType";
@@ -85,6 +86,7 @@ import MediaDeviceHandler, { MediaDeviceKindEnum } from "../../MediaDeviceHandle
 import Modal, { type ComponentProps } from "../../Modal.tsx";
 import ErrorDialog from "../views/dialogs/ErrorDialog.tsx";
 import * as pinnedEventHooks from "../../hooks/usePinnedEvents";
+import * as roomSwitch from "../../performance/RoomSwitchPerformance";
 import { TimelineRenderingType } from "../../contexts/RoomContext";
 import { ModuleApi } from "../../modules/Api";
 import MatrixClientBackedController from "../../settings/controllers/MatrixClientBackedController.ts";
@@ -92,6 +94,7 @@ import { type ComposerInsertPayload, ComposerType } from "../../dispatcher/paylo
 import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
 import { ElementCall } from "../../models/Call";
 import { ScopedRoomContextProvider } from "../../contexts/ScopedRoomContext";
+import { RoomTimelineViewModel } from "../../viewmodels/room/timeline/RoomTimelineViewModel";
 
 // Used by group calls
 vi.spyOn(MediaDeviceHandler, "getDevices").mockResolvedValue({
@@ -311,6 +314,13 @@ describe("RoomView", () => {
         expect(view.state.initialEventId).toBeUndefined();
     });
 
+    it("marks the shell phase of opening its room once it is mounted", async () => {
+        const mark = vi.spyOn(roomSwitch, "markRoomSwitch");
+        await mountRoomView();
+        expect(mark).toHaveBeenCalledWith("shell", room.roomId);
+        mark.mockRestore();
+    });
+
     it("gets a room view store from MultiRoomViewStore when given a room ID", async () => {
         stores.multiRoomViewStore.getRoomViewStoreForRoom = vi.fn().mockReturnValue(stores.roomViewStore);
 
@@ -419,6 +429,167 @@ describe("RoomView", () => {
         // Check that the pinned message banner is not rendered
         await expect(screen.findByTestId("pinned-message-banner")).rejects.toThrow();
         expect(asFragment()).toMatchSnapshot();
+    });
+
+    it("keeps a newer view when an older permalink's event arrives after it", async () => {
+        // The event of a permalink the client does not have is fetched first; someone may ask for the room's latest
+        // messages meanwhile.
+        const ref = createRef<RoomView>();
+        await mountRoomView(ref);
+        const fetched = Promise.withResolvers<Awaited<ReturnType<MatrixClient["fetchRoomEvent"]>>>();
+        cli.fetchRoomEvent = vi.fn().mockReturnValue(fetched.promise);
+
+        await act(async () => {
+            defaultDispatcher.dispatch<ViewRoomPayload>(
+                { action: Action.ViewRoom, room_id: room.roomId, event_id: "$elsewhere", metricsTrigger: undefined },
+                true,
+            );
+            await flushPromises();
+        });
+        await waitFor(() => expect(cli.fetchRoomEvent).toHaveBeenCalledWith(room.roomId, "$elsewhere"));
+        await act(async () => {
+            defaultDispatcher.dispatch<ViewRoomPayload>(
+                { action: Action.ViewRoom, room_id: room.roomId, metricsTrigger: undefined },
+                true,
+            );
+            await flushPromises();
+        });
+        expect(ref.current?.state.initialEventId).toBeUndefined();
+
+        await act(async () => {
+            fetched.resolve({
+                event_id: "$elsewhere",
+                room_id: room.roomId,
+                type: "m.room.message",
+                sender: "@other:example.org",
+                origin_server_ts: 1,
+                content: { body: "Old", msgtype: "m.text" },
+            });
+            await flushPromises();
+        });
+        expect(ref.current?.state.initialEventId).toBeUndefined();
+    });
+
+    it("sets the room up when someone moves on while the permalink it opened on is fetched", async () => {
+        // While the first update waits, others are ignored: the room view has no room yet.
+        const fetched = Promise.withResolvers<Awaited<ReturnType<MatrixClient["fetchRoomEvent"]>>>();
+        cli.fetchRoomEvent = vi.fn().mockReturnValue(fetched.promise);
+        const named = new Promise<void>((resolve) => {
+            const onUpdate = (): void => {
+                if (!stores.roomViewStore.getRoomId()) return;
+                stores.roomViewStore.off(UPDATE_EVENT, onUpdate);
+                resolve();
+            };
+            stores.roomViewStore.on(UPDATE_EVENT, onUpdate);
+        });
+        act(() =>
+            defaultDispatcher.dispatch<ViewRoomPayload>({
+                action: Action.ViewRoom,
+                room_id: room.roomId,
+                event_id: "$elsewhere",
+                metricsTrigger: undefined,
+            }),
+        );
+        await named;
+        expect(stores.roomViewStore.getInitialEventId()).toBe("$elsewhere");
+        const ref = createRef<RoomView>();
+        await mountRoomView(ref);
+        await waitFor(() => expect(cli.fetchRoomEvent).toHaveBeenCalledWith(room.roomId, "$elsewhere"));
+        expect(ref.current?.state.roomId).toBeUndefined();
+
+        await act(async () => {
+            defaultDispatcher.dispatch<ViewRoomPayload>(
+                { action: Action.ViewRoom, room_id: room.roomId, metricsTrigger: undefined },
+                true,
+            );
+            await flushPromises();
+        });
+        await act(async () => {
+            fetched.resolve({
+                event_id: "$elsewhere",
+                room_id: room.roomId,
+                type: "m.room.message",
+                sender: "@other:example.org",
+                origin_server_ts: 1,
+                content: { body: "Old", msgtype: "m.text" },
+            });
+            await flushPromises();
+        });
+        await waitFor(() => expect(ref.current?.state.roomId).toBe(room.roomId));
+        expect(ref.current?.state.room).toBe(room);
+        expect(ref.current?.state.initialEventId).toBeUndefined();
+    });
+
+    // Given as long as its waits may take together on a loaded machine, beyond the default five seconds for a test.
+    it("returns to the position someone left a room at, once sliding sync has loaded it", async () => {
+        // Under sliding sync a room the client does not have yet is named while its subscription loads, then again
+        // once it has brought the room.
+        RoomScrollStateStore.setScrollState(room.roomId, { focussedEvent: "$left-here", pixelOffset: 42 });
+        vi.spyOn(stores.slidingSyncManager, "isActiveFor").mockReturnValue(true);
+        const visible = Promise.withResolvers<"known">();
+        vi.spyOn(stores.slidingSyncManager, "setRoomVisible").mockReturnValue(visible.promise);
+        rooms.delete(room.roomId);
+        const ref = createRef<RoomView>();
+        await mountRoomView(ref);
+        expect(stores.roomViewStore.isRoomLoading()).toBe(true);
+
+        await act(async () => {
+            rooms.set(room.roomId, room);
+            visible.resolve("known");
+            await flushPromises();
+        });
+        // Given time on a loaded machine: the store's second update is dispatched asynchronously.
+        await waitFor(() => expect(stores.roomViewStore.isRoomLoading()).toBe(false), { timeout: 5000 });
+        await waitFor(() => expect(ref.current?.state.initialEventId).toBe("$left-here"), { timeout: 5000 });
+        expect(ref.current?.state.initialEventPixelOffset).toBe(42);
+        RoomScrollStateStore.setScrollState(room.roomId, null);
+    }, 15_000);
+
+    it("opens the latest messages when asked again for the room while sliding sync loads it", async () => {
+        // Such as someone clicking the room again: a request for its live timeline, not the end of the first load.
+        RoomScrollStateStore.setScrollState(room.roomId, { focussedEvent: "$left-here", pixelOffset: 42 });
+        vi.spyOn(stores.slidingSyncManager, "isActiveFor").mockReturnValue(true);
+        const visible = Promise.withResolvers<"known">();
+        vi.spyOn(stores.slidingSyncManager, "setRoomVisible").mockReturnValue(visible.promise);
+        rooms.delete(room.roomId);
+        const ref = createRef<RoomView>();
+        await mountRoomView(ref);
+        expect(stores.roomViewStore.isRoomLoading()).toBe(true);
+
+        await act(async () => {
+            defaultDispatcher.dispatch<ViewRoomPayload>({
+                action: Action.ViewRoom,
+                room_id: room.roomId,
+                metricsTrigger: undefined,
+            });
+            await flushPromises();
+        });
+        await waitFor(() => expect(stores.roomViewStore.isRoomLoading()).toBe(false));
+        expect(ref.current?.state.initialEventId).toBeUndefined();
+
+        // The first request's load finishing later changes nothing: the newer request replaced it.
+        await act(async () => {
+            rooms.set(room.roomId, room);
+            visible.resolve("known");
+            await flushPromises();
+        });
+        expect(ref.current?.state.initialEventId).toBeUndefined();
+        RoomScrollStateStore.setScrollState(room.roomId, null);
+    });
+
+    it("opens a room the client has at once under sliding sync, at the position it was left at", async () => {
+        RoomScrollStateStore.setScrollState(room.roomId, { focussedEvent: "$left-here", pixelOffset: 42 });
+        vi.spyOn(stores.slidingSyncManager, "isActiveFor").mockReturnValue(true);
+        // The room's subscription is still being updated.
+        vi.spyOn(stores.slidingSyncManager, "setRoomVisible").mockReturnValue(new Promise(() => {}));
+        const ref = createRef<RoomView>();
+        await mountRoomView(ref);
+
+        expect(stores.roomViewStore.isRoomLoading()).toBe(false);
+        await waitFor(() => expect(ref.current?.state.initialEventId).toBe("$left-here"));
+        expect(ref.current?.state.initialEventPixelOffset).toBe(42);
+        expect(ref.current?.state.room).toBe(room);
+        RoomScrollStateStore.setScrollState(room.roomId, null);
     });
 
     it("shares native sliding-sync roster hydration with the member list instead of importing cached members", async () => {
@@ -581,6 +752,27 @@ describe("RoomView", () => {
         });
     });
 
+    it("watches each setting of the room once, however often the room view store updates", async () => {
+        const watch = vi.spyOn(SettingsStore, "watchSetting");
+        const unwatch = vi.spyOn(SettingsStore, "unwatchSetting");
+        const { unmount } = await mountRoomView();
+        // The store updates many times while a room is shown, such as for each reply quoted.
+        for (let i = 0; i < 3; i++) {
+            await act(async () => {
+                stores.roomViewStore.emit(UPDATE_EVENT);
+            });
+        }
+        await flushPromises();
+
+        const isRoomWatch = ([name, roomId]: Parameters<typeof SettingsStore.watchSetting>): boolean =>
+            name === "showDisplaynameChanges" && roomId === room.roomId;
+        expect(watch.mock.calls.filter(isRoomWatch)).toHaveLength(1);
+        const watcher = watch.mock.results[watch.mock.calls.findIndex(isRoomWatch)].value;
+
+        unmount();
+        expect(unwatch).toHaveBeenCalledWith(watcher);
+    });
+
     describe("enableReadReceiptsAndMarkersOnActivity", () => {
         it.each([
             {
@@ -627,6 +819,29 @@ describe("RoomView", () => {
 
             // Verify that sendReadReceipts and updateReadMarker were called or not based on the enabled state
             checkCall(sendReadReceiptsSpy, updateReadMarkerSpy);
+        });
+
+        it("leaves read state to focus in the MVVM timeline when disabled", async () => {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+                name === "feature_new_timeline" ? true : getValue(name, ...args),
+            );
+            vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+            // Private: the view model's loop that moves the fully read marker on while the reader is active.
+            const onActivity = vi.spyOn(RoomTimelineViewModel.prototype as any, "moveReadMarkerOnWhileActive");
+            const sendReceipt = vi.spyOn(RoomTimelineViewModel.prototype, "sendReadReceiptNow");
+            const moveMarker = vi.spyOn(RoomTimelineViewModel.prototype, "moveReadMarkerOnNow");
+            const { container } = await mountRoomView(undefined, { enableReadReceiptsAndMarkersOnActivity: false });
+            await waitFor(() => expect(container.querySelector(".mx_NewTimelinePanel")).not.toBeNull());
+            expect(onActivity).not.toHaveBeenCalled();
+            // The room view can already take focus as it mounts; count from a focus of our own.
+            sendReceipt.mockClear();
+            moveMarker.mockClear();
+
+            fireEvent.focus(screen.getByTestId("timeline"));
+
+            expect(sendReceipt).toHaveBeenCalledTimes(1);
+            expect(moveMarker).toHaveBeenCalledTimes(1);
         });
     });
 
@@ -818,6 +1033,122 @@ describe("RoomView", () => {
         expect(asFragment()).toMatchSnapshot();
     });
 
+    describe("while crypto is asked whether the room is encrypted", () => {
+        let ask: MockInstance<CryptoApi["isEncryptionEnabledInRoom"]>;
+
+        beforeEach(() => {
+            vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+            vi.spyOn(cli, "getCrypto").mockReturnValue(crypto);
+            ask = vi.spyOn(crypto, "isEncryptionEnabledInRoom");
+        });
+
+        const encryptionEvent = (): MatrixEvent =>
+            new MatrixEvent({
+                type: EventType.RoomEncryption,
+                state_key: "",
+                sender: cli.getSafeUserId(),
+                content: { algorithm: MEGOLM_ENCRYPTION_ALGORITHM },
+                event_id: "$encryption",
+                room_id: room.roomId,
+            });
+
+        it("keeps URL previews off until crypto answers, even if their setting changes meanwhile", async () => {
+            const answer = Promise.withResolvers<boolean>();
+            ask.mockReturnValue(answer.promise);
+            const ref = createRef<RoomView>();
+            await mountRoomView(ref, { hideHeader: true, hideComposer: true });
+
+            // As when either URL preview setting changes. Private, so called as the setting watchers call it.
+            act(() =>
+                (ref.current as unknown as { onUrlPreviewsEnabledChange: () => void }).onUrlPreviewsEnabledChange(),
+            );
+            expect(ref.current!.state.showUrlPreview).toBe(false);
+
+            await act(async () => answer.resolve(false));
+            await waitFor(() => expect(ref.current!.state.showUrlPreview).toBe(true));
+        });
+
+        it("asks crypto once as the room is set up", async () => {
+            ask.mockReturnValue(new Promise(() => {}));
+            await mountRoomView(undefined, { hideHeader: true, hideComposer: true });
+            expect(ask).toHaveBeenCalledTimes(1);
+        });
+
+        it("asks crypto again when the room is encrypted while a check waits", async () => {
+            const before = Promise.withResolvers<boolean>();
+            const after = Promise.withResolvers<boolean>();
+            ask.mockReturnValueOnce(before.promise).mockReturnValueOnce(after.promise);
+            const ref = createRef<RoomView>();
+            await mountRoomView(ref, { hideHeader: true, hideComposer: true });
+
+            act(() => {
+                const event = encryptionEvent();
+                room.currentState.setStateEvents([event]);
+                cli.emit(RoomStateEvent.Events, event, room.currentState, null);
+            });
+            expect(ask).toHaveBeenCalledTimes(2);
+
+            await act(async () => {
+                before.resolve(false);
+                after.resolve(true);
+            });
+            await waitFor(() => expect(ref.current!.state.isRoomEncrypted).toBe(true));
+        });
+
+        it("shows the newest answer when an older one comes back after it", async () => {
+            const before = Promise.withResolvers<boolean>();
+            const after = Promise.withResolvers<boolean>();
+            ask.mockReturnValueOnce(before.promise).mockReturnValueOnce(after.promise);
+            const ref = createRef<RoomView>();
+            await mountRoomView(ref, { hideHeader: true, hideComposer: true });
+
+            act(() => {
+                const event = encryptionEvent();
+                room.currentState.setStateEvents([event]);
+                cli.emit(RoomStateEvent.Events, event, room.currentState, null);
+            });
+            // The check asked once the room was encrypted answers first; the one asked before it comes back later.
+            await act(async () => after.resolve(true));
+            await act(async () => before.resolve(false));
+
+            expect(ref.current!.state.isRoomEncrypted).toBe(true);
+            // By the setting for encrypted rooms, off by default, rather than the one for other rooms.
+            expect(ref.current!.state.showUrlPreview).toBe(false);
+        });
+
+        it("stops URL previews as soon as the room is encrypted, before its trust shield is worked out", async () => {
+            ask.mockResolvedValue(false);
+            const ref = createRef<RoomView>();
+            await mountRoomView(ref, { hideHeader: true, hideComposer: true });
+            await waitFor(() => expect(ref.current!.state.showUrlPreview).toBe(true));
+
+            // Crypto has not answered yet, and the shield would wait for the room's members for good.
+            const answer = Promise.withResolvers<boolean>();
+            ask.mockReturnValue(answer.promise);
+            vi.spyOn(room, "getEncryptionTargetMembers").mockReturnValue(new Promise(() => {}));
+            act(() => {
+                const event = encryptionEvent();
+                room.currentState.setStateEvents([event]);
+                cli.emit(RoomStateEvent.Events, event, room.currentState, null);
+            });
+            expect(ref.current!.state.showUrlPreview).toBe(false);
+
+            await act(async () => answer.resolve(true));
+            expect(ref.current!.state.isRoomEncrypted).toBe(true);
+            expect(ref.current!.state.showUrlPreview).toBe(false);
+        });
+
+        it("goes by the room's state when there is no crypto, keeping URL previews to the encrypted rooms' setting", async () => {
+            vi.spyOn(cli, "getCrypto").mockReturnValue(undefined);
+            room.currentState.setStateEvents([encryptionEvent()]);
+            const ref = createRef<RoomView>();
+            await mountRoomView(ref, { hideHeader: true, hideComposer: true });
+
+            await waitFor(() => expect(ref.current!.state.isRoomEncrypted).toBe(true));
+            expect(ref.current!.state.showUrlPreview).toBe(false);
+        });
+    });
+
     it("updates live timeline when a timeline reset happens", async () => {
         const roomViewInstance = await getRoomViewInstance();
         const oldTimeline = roomViewInstance.state.liveTimeline;
@@ -946,6 +1277,9 @@ describe("RoomView", () => {
             expect(screen.getByTestId("timeline")).toBeInTheDocument();
             expect(screen.getByRole("region", { name: "Message composer" })).toBeInTheDocument();
             expect(container.querySelector(".mx_RoomView_conversationCallStage")).toBeInTheDocument();
+            // The timeline is the page's one main landmark; the call above it is a region of its own.
+            expect(screen.getAllByRole("main")).toEqual([screen.getByTestId("timeline")]);
+            expect(screen.getByRole("region", { name: "Call" })).toBeInTheDocument();
             expect(container.querySelector(".mx_RoomView_immersive")).not.toBeInTheDocument();
             const separator = screen.getByRole("separator", { name: "Resize call area" });
             const callArea = container.querySelector<HTMLElement>(".mx_RoomView_conversationCallStage")!;
@@ -961,6 +1295,22 @@ describe("RoomView", () => {
             expect(callArea.style.height).toBe("248px");
             fireEvent.doubleClick(separator);
             expect(callArea.style.height).toBe("40vh");
+        });
+
+        it("makes a call that fills the room the page's one main landmark", async () => {
+            await mountRoomView();
+            await act(() =>
+                stores.roomViewStore.viewRoom({
+                    action: Action.ViewRoom,
+                    room_id: room.roomId,
+                    view_call: true,
+                    metricsTrigger: undefined,
+                }),
+            );
+
+            const main = screen.getAllByRole("main");
+            expect(main).toHaveLength(1);
+            expect(main[0]).toHaveClass("mx_CallView");
         });
 
         it("hides the right panel chat when closing a call", async () => {
@@ -1089,7 +1439,10 @@ describe("RoomView", () => {
 
                 it("should match the snapshot", async () => {
                     const { container } = await renderRoomView();
-                    await waitFor(() => expect(container).toMatchSnapshot());
+                    // Once the room's trust shield is worked out: a snapshot taken in a retried waitFor would only be
+                    // written anew.
+                    await waitFor(() => expect(screen.queryByTestId("e2e-icon")).not.toBeInTheDocument());
+                    expect(container).toMatchSnapshot();
                 });
             });
         });

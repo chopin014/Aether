@@ -21,6 +21,7 @@ test.describe("Devtools", () => {
         const userSettings = await app.settings.openUserSettings("Account");
         const profileSettings = userSettings.locator(".mx_UserProfileSettings");
         await profileSettings.getByAltText("Upload").setInputFiles(getSampleFilePath("riot.png"));
+        await app.applyImageCrop();
         await app.closeDialog();
         await rejectToast(page, "Verify this device");
 

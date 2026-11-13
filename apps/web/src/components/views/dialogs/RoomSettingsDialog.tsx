@@ -53,6 +53,7 @@ import {
     type DesktopRoomSettingsViewModelProps,
     desktopRoomSettingsTabLabel,
 } from "../../../viewmodels/desktop/DesktopRoomSettingsViewModel";
+import { SlidingSyncManager } from "../../../SlidingSyncManager";
 
 interface IProps {
     roomId: string;
@@ -69,6 +70,9 @@ interface IState {
 class RoomSettingsDialog extends React.Component<IProps, IState> {
     private dispatcherRef?: string;
     private desktopSettingsViewModel?: DesktopRoomSettingsViewModel;
+    // Under sliding sync, a room someone has not opened has only the state the room list needs. It stays subscribed
+    // while its settings are mounted, so their tabs fill in. Unmounting releases it, however the dialog closes.
+    private releaseRoomHold?: () => void;
 
     public constructor(props: IProps) {
         super(props);
@@ -78,6 +82,7 @@ class RoomSettingsDialog extends React.Component<IProps, IState> {
     }
 
     public componentDidMount(): void {
+        this.releaseRoomHold = SlidingSyncManager.instance.holdRoom(this.props.roomId);
         this.dispatcherRef = dis.register(this.onAction);
         MatrixClientPeg.safeGet().on(RoomEvent.Name, this.onRoomName);
         MatrixClientPeg.safeGet().on(RoomStateEvent.Events, this.onStateEvent);
@@ -87,7 +92,12 @@ class RoomSettingsDialog extends React.Component<IProps, IState> {
         this.onRoomName();
     }
 
-    public componentDidUpdate(): void {
+    public componentDidUpdate(prevProps: IProps): void {
+        if (prevProps.roomId !== this.props.roomId) {
+            const previous = this.releaseRoomHold;
+            this.releaseRoomHold = SlidingSyncManager.instance.holdRoom(this.props.roomId);
+            previous?.();
+        }
         if (this.props.roomId !== this.state.room.roomId) {
             const room = this.getRoom();
             this.setState({ room });
@@ -97,6 +107,8 @@ class RoomSettingsDialog extends React.Component<IProps, IState> {
     }
 
     public componentWillUnmount(): void {
+        this.releaseRoomHold?.();
+        this.releaseRoomHold = undefined;
         dis.unregister(this.dispatcherRef);
         this.desktopSettingsViewModel?.dispose();
 

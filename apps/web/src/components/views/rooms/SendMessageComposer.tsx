@@ -54,6 +54,7 @@ import SettingsStore from "../../../settings/SettingsStore";
 import { type ActionPayload } from "../../../dispatcher/payloads";
 import { decorateStartSendingTime, sendRoundTripMetric } from "../../../sendTimePerformanceMetrics";
 import RoomContext, { TimelineRenderingType } from "../../../contexts/RoomContext";
+import { markRoomSwitch } from "../../../performance/RoomSwitchPerformance";
 import DocumentPosition from "../../../editor/position";
 import { ComposerType } from "../../../dispatcher/payloads/ComposerInsertPayload";
 import { getSlashCommand, isSlashCommand, runSlashCommand, shouldSendAnyway } from "../../../editor/commands";
@@ -189,6 +190,11 @@ export class SendMessageComposer extends React.Component<ISendMessageComposerPro
         const parts = this.restoreStoredEditorState(this.model.partCreator);
         if (parts) {
             this.model.reset(parts);
+        }
+        // The editor inside has mounted and taken focus by now. Only the room's own composer is part of opening a room:
+        // not a thread's, nor the composer that edits a message.
+        if (this.context.timelineRenderingType === TimelineRenderingType.Room) {
+            markRoomSwitch("composer", this.props.room.roomId);
         }
     }
 

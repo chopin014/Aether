@@ -1,0 +1,212 @@
+/*
+Copyright 2026 chopin014
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+    DEMAND_LINGER_MS,
+    MAX_LINGERING_ROOMS,
+    MAX_SELECTORS_PER_DEMAND,
+    RoomStateDemands,
+    RoomStateUnavailableError,
+    requiredStateCovers,
+    requiredStateFor,
+} from "./RoomStateDemands";
+
+const INSTALLATIONS = "io.element.integrations.installations";
+
+describe("RoomStateDemands", () => {
+    describe("selectors", () => {
+        it("asks for one state key, or every key", () => {
+            expect(requiredStateFor({ type: INSTALLATIONS, stateKey: "abc" })).toEqual([INSTALLATIONS, "abc"]);
+            expect(requiredStateFor({ type: INSTALLATIONS, stateKey: "" })).toEqual([INSTALLATIONS, ""]);
+            expect(requiredStateFor({ type: INSTALLATIONS })).toEqual([INSTALLATIONS, "*"]);
+        });
+
+        it("asks for every key when the state key is a protocol token, which it cannot be sent as", () => {
+            for (const stateKey of ["*", "$ME", "$LAZY"]) {
+                expect(requiredStateFor({ type: INSTALLATIONS, stateKey })).toEqual([INSTALLATIONS, "*"]);
+            }
+        });
+
+        it("refuses every event type, which would bring every member of large rooms", () => {
+            expect(() => requiredStateFor({ type: "*" })).toThrow();
+            expect(() => requiredStateFor({ type: "" })).toThrow();
+        });
+
+        it("knows what a subscription brings", () => {
+            expect(requiredStateCovers([[INSTALLATIONS, "*"]], { type: INSTALLATIONS, stateKey: "x" })).toBe(true);
+            expect(requiredStateCovers([[INSTALLATIONS, "x"]], { type: INSTALLATIONS, stateKey: "x" })).toBe(true);
+            expect(requiredStateCovers([[INSTALLATIONS, "x"]], { type: INSTALLATIONS, stateKey: "y" })).toBe(false);
+            expect(requiredStateCovers([[INSTALLATIONS, "x"]], { type: INSTALLATIONS })).toBe(false);
+            expect(requiredStateCovers([["*", "*"]], { type: INSTALLATIONS })).toBe(true);
+            expect(requiredStateCovers([["*", ""]], { type: INSTALLATIONS, stateKey: "" })).toBe(false);
+        });
+    });
+
+    describe("demands", () => {
+        let onChange: () => void;
+        let demands: RoomStateDemands;
+
+        beforeEach(() => {
+            vi.useFakeTimers();
+            onChange = vi.fn();
+            demands = new RoomStateDemands(onChange, {
+                now: () => Date.now(),
+                setTimeout: (callback, ms) => setTimeout(callback, ms),
+                clearTimeout: (timer) => clearTimeout(timer),
+            });
+        });
+
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        it("is ready once an answer to a request naming its state has been applied", async () => {
+            const demand = demands.acquire("!room", [{ type: INSTALLATIONS }]);
+            expect(onChange).toHaveBeenCalledTimes(1);
+            expect(demands.selectorsFor("!room")).toEqual([{ type: INSTALLATIONS }]);
+            expect(demand.isReady()).toBe(false);
+            const ready = demand.whenReady(1000);
+
+            // An answer to a request sent before the demand does not name its state.
+            demands.answered("!room", [["m.room.create", ""]]);
+            expect(demand.isReady()).toBe(false);
+            demands.answered("!room", [
+                ["m.room.create", ""],
+                [INSTALLATIONS, "*"],
+            ]);
+            expect(demand.isReady()).toBe(true);
+            await expect(ready).resolves.toBeUndefined();
+        });
+
+        it("gives up waiting after the timeout, or when the server does not serve the room", async () => {
+            const slow = demands.acquire("!room", [{ type: INSTALLATIONS }]).whenReady(1000);
+            vi.advanceTimersByTime(1000);
+            await expect(slow).rejects.toEqual(new RoomStateUnavailableError("timeout", "!room"));
+
+            const missing = demands.acquire("!gone", [{ type: INSTALLATIONS }]).whenReady(1000);
+            demands.absent("!gone");
+            await expect(missing).rejects.toMatchObject({ reason: "absent" });
+        });
+
+        it("keeps released state asked for a while, ready for the next read", async () => {
+            const first = demands.acquire("!room", [{ type: INSTALLATIONS }]);
+            demands.answered("!room", [[INSTALLATIONS, "*"]]);
+            first.release();
+            first.release();
+            expect(demands.has("!room")).toBe(true);
+            expect(demands.selectorsFor("!room")).toEqual([{ type: INSTALLATIONS }]);
+
+            // Ready at once: the state is still asked for, and arrived.
+            const again = demands.acquire("!room", [{ type: INSTALLATIONS, stateKey: "abc" }]);
+            expect(again.isReady()).toBe(true);
+            again.release();
+
+            vi.mocked(onChange).mockClear();
+            vi.advanceTimersByTime(DEMAND_LINGER_MS);
+            expect(demands.has("!room")).toBe(false);
+            expect(onChange).toHaveBeenCalledTimes(1);
+        });
+
+        it("tells of every change in what is asked for, so requests are given room afresh", () => {
+            // A released live demand becomes state kept for a while, which comes last when requests are given room.
+            vi.mocked(onChange).mockClear();
+            const demand = demands.acquire("!room", [{ type: INSTALLATIONS }]);
+            expect(onChange).toHaveBeenCalledTimes(1);
+            demand.release();
+            expect(onChange).toHaveBeenCalledTimes(2);
+        });
+
+        it("needs a new answer once a request has no room for the state", async () => {
+            // What arrived is no longer kept current while the room's state is not asked for.
+            const demand = demands.acquire("!room", [{ type: INSTALLATIONS }]);
+            demands.answered("!room", [[INSTALLATIONS, "*"]]);
+            expect(demand.isReady()).toBe(true);
+            demands.acquire("!room", [{ type: "org.example.other" }]).release();
+            demands.answered("!room", [
+                [INSTALLATIONS, "*"],
+                ["org.example.other", "*"],
+            ]);
+
+            demands.overCapacity("!room");
+            expect(demand.isReady()).toBe(false);
+            expect(demands.acquire("!room", [{ type: "org.example.other" }]).isReady()).toBe(false);
+            demands.answered("!room", [[INSTALLATIONS, "*"]]);
+            expect(demand.isReady()).toBe(true);
+        });
+
+        it("keeps only the most recently released rooms asked for", () => {
+            const roomIds = Array.from({ length: MAX_LINGERING_ROOMS + 1 }, (_, i) => `!room${i}`);
+            for (const roomId of roomIds) demands.acquire(roomId, [{ type: INSTALLATIONS }]).release();
+            expect(demands.has("!room0")).toBe(false);
+            for (const roomId of roomIds.slice(1)) expect(demands.has(roomId)).toBe(true);
+        });
+
+        it("bounds the selectors a demand names, and those a room keeps once released", () => {
+            const many = Array.from({ length: MAX_SELECTORS_PER_DEMAND + 1 }, (_, i) => ({ type: `org.example.${i}` }));
+            expect(() => demands.acquire("!room", many)).toThrow(RangeError);
+            for (const selector of many) demands.acquire("!room", [selector]).release();
+            // The most recently released are kept.
+            expect(demands.selectorsFor("!room")).toEqual(many.slice(1));
+        });
+
+        it("gives live demands room first, then reads, then what is only kept for a while", () => {
+            demands.acquire("!kept", [{ type: INSTALLATIONS }]).release();
+            demands.acquire("!read", [{ type: INSTALLATIONS }], "read");
+            demands.acquire("!live", [{ type: INSTALLATIONS }]);
+            expect(demands.roomIdsByPriority()).toEqual(["!live", "!read", "!kept"]);
+        });
+
+        it("fails reads a request has no room for, and keeps live demands waiting", async () => {
+            const live = demands.acquire("!room", [{ type: INSTALLATIONS }]);
+            const read = demands.acquire("!room", [{ type: INSTALLATIONS }], "read").whenReady(1000);
+            const liveReady = live.whenReady(1000);
+            demands.overCapacity("!room");
+            await expect(read).rejects.toMatchObject({ reason: "capacity" });
+            demands.answered("!room", [[INSTALLATIONS, "*"]]);
+            await expect(liveReady).resolves.toBeUndefined();
+        });
+
+        it("ends reads when their connection is replaced, without keeping their state asked for", async () => {
+            const read = demands.acquire("!room", [{ type: INSTALLATIONS }], "read");
+            const live = demands.acquire("!other", [{ type: INSTALLATIONS }]);
+            const ready = read.whenReady(1000);
+            demands.cancelReads();
+            await expect(ready).rejects.toMatchObject({ reason: "released" });
+            read.release();
+            expect(demands.has("!room")).toBe(false);
+            expect(demands.has("!other")).toBe(true);
+            live.release();
+        });
+
+        it("rejects a released demand's wait", async () => {
+            const demand = demands.acquire("!room", [{ type: INSTALLATIONS }]);
+            const ready = demand.whenReady(1000);
+            demand.release();
+            await expect(ready).rejects.toMatchObject({ reason: "released" });
+            await expect(demand.whenReady(1000)).rejects.toMatchObject({ reason: "released" });
+        });
+
+        it("asks again on a new connection, and waits for it", async () => {
+            const demand = demands.acquire("!room", [{ type: INSTALLATIONS }]);
+            demands.answered("!room", [[INSTALLATIONS, "*"]]);
+            demands.reset();
+            expect(demand.isReady()).toBe(false);
+            const ready = demand.whenReady(1000);
+            demands.answered("!room", [[INSTALLATIONS, "*"]]);
+            await expect(ready).resolves.toBeUndefined();
+        });
+
+        it("cancels every wait when disposed", async () => {
+            const ready = demands.acquire("!room", [{ type: INSTALLATIONS }]).whenReady(1000);
+            demands.dispose();
+            await expect(ready).rejects.toMatchObject({ reason: "released" });
+            expect(demands.has("!room")).toBe(false);
+        });
+    });
+});

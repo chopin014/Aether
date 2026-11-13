@@ -15,6 +15,7 @@ import { test, expect } from "../../element-web-test";
 import { getSampleFilePath } from "../../sample-files";
 import { autoJoin, createSecondBotDevice, createSharedEncryptedRoomWithUser } from "../crypto/utils";
 import { bootstrapCrossSigningForClient } from "../../pages/client";
+import { messageList } from "../../pages/timeline";
 
 test.use({
     displayName: "Alice",
@@ -57,7 +58,7 @@ test("groups messages and shows mentions as @name with a highlight", async ({ pa
     });
     await app.client.sendMessage(roomId, "yes, here");
 
-    const timeline = page.locator(".mx_RoomView_MessageList");
+    const timeline = messageList(page);
     await expect(timeline.getByText("yes, here")).toBeVisible();
 
     const pill = timeline.locator(".mx_Pill_desktopMention").first();
@@ -143,7 +144,7 @@ test("plays video with Aether's controls and keeps audio readable", async ({ pag
     await expect(player.locator("video")).not.toHaveAttribute("controls");
     await expect(player.getByRole("button", { name: "Play" }).first()).toBeVisible();
 
-    const timeline = page.locator(".mx_RoomView_MessageList");
+    const timeline = messageList(page);
     await expect(timeline.locator(".mx_MVoiceMessageBody")).toBeVisible();
 
     await capture(timeline, testInfo, "timeline-media.png");
@@ -283,7 +284,7 @@ test("sends several files with text from the composer's attachment tray", async 
     await app.getComposerField().fill("look at this");
     await page.keyboard.press("Enter");
 
-    const timeline = page.locator(".mx_RoomView_MessageList");
+    const timeline = messageList(page);
     const captioned = timeline.locator(".mx_EventTile_captioned").last();
     await expect(captioned.getByText("look at this")).toBeVisible();
     await expect(composer.getByRole("list")).toHaveCount(0);
@@ -317,7 +318,7 @@ test("offers cozy and compact messages instead of Element's layouts", async ({ p
     await panel.locator("label").filter({ hasText: "24px" }).click();
     await app.settings.closeDialog();
 
-    const timeline = page.locator(".mx_RoomView_MessageList");
+    const timeline = messageList(page);
     const tile = timeline.locator("[data-event-id]").filter({ hasText: "short reply" });
     await expect(tile.getByTestId("event-tile-slot-avatar")).toBeHidden();
     await capture(page.locator(".mx_RoomView_body"), testInfo, "timeline-compact.png");

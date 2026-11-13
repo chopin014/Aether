@@ -188,7 +188,9 @@ export function DiscoverView({ vm }: { vm: DiscoverViewModel }): JSX.Element {
                     </div>
                     {status === "error" ? (
                         <div className={styles.state} role="alert">
-                            <Text weight="semibold">{_t("desktop|discover|error_title", { server })}</Text>
+                            <Text weight="semibold" className={styles.stateTitle}>
+                                {_t("desktop|discover|error_title", { server })}
+                            </Text>
                             <Text size="sm">{_t("desktop|discover|error_description")}</Text>
                             <Button kind="secondary" size="md" Icon={RestartIcon} onClick={vm.retry}>
                                 {_t("desktop|discover|retry")}
@@ -197,7 +199,7 @@ export function DiscoverView({ vm }: { vm: DiscoverViewModel }): JSX.Element {
                     ) : status === "ready" && entries.length === 0 ? (
                         <div className={styles.state}>
                             <SearchIcon />
-                            <Text weight="semibold">
+                            <Text weight="semibold" className={styles.stateTitle}>
                                 {trimmedQuery
                                     ? _t("desktop|discover|empty_query_title", { query: trimmedQuery })
                                     : _t("desktop|discover|empty_title")}

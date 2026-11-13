@@ -44,10 +44,17 @@ export class RoomNode {
     /**
      * Check if this room belongs to the active space and store the result
      * in {@link RoomNode#isInActiveSpace}.
+     * @param asLastWorkedOut - Read the Space's rooms as the Space store last worked them out, such as for a room
+     *   just arrived: the store tells the list again once it has worked out the rooms of a batch.
      */
-    public checkIfRoomBelongsToActiveSpace(): void {
+    public checkIfRoomBelongsToActiveSpace(asLastWorkedOut = false): void {
         const activeSpace = SDKContextClass.instance.spaceStore.activeSpace;
-        this._isInActiveSpace = SDKContextClass.instance.spaceStore.isRoomInSpace(activeSpace, this.room.roomId);
+        this._isInActiveSpace = SDKContextClass.instance.spaceStore.isRoomInSpace(
+            activeSpace,
+            this.room.roomId,
+            true,
+            asLastWorkedOut,
+        );
     }
 
     /**

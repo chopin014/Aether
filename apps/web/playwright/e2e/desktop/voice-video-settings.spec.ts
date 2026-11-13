@@ -21,16 +21,19 @@ test.use({
 });
 
 test.beforeEach(async ({ pageWithCredentials: page }) => {
-    // Remember every stream and every sound the page opens, so the tests can check they are used and released.
+    // Remember every stream and every sound the page opens, and every element that plays a stream back, so the
+    // tests can check they are used and released.
     await page.addInitScript(() => {
         const win = window as unknown as {
             __streams: MediaStream[];
             __sounds: string[];
             __soundElements: HTMLMediaElement[];
+            __streamPlayers: HTMLMediaElement[];
         };
         win.__streams = [];
         win.__sounds = [];
         win.__soundElements = [];
+        win.__streamPlayers = [];
         const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
         navigator.mediaDevices.getUserMedia = async (constraints) => {
             const stream = await getUserMedia(constraints);
@@ -42,6 +45,9 @@ test.beforeEach(async ({ pageWithCredentials: page }) => {
             if (this.src.endsWith(".wav")) {
                 win.__sounds.push(this.src);
                 win.__soundElements.push(this);
+            }
+            if (this instanceof HTMLAudioElement && this.srcObject instanceof MediaStream) {
+                win.__streamPlayers.push(this);
             }
             return play.call(this);
         };
@@ -70,13 +76,36 @@ async function openVoiceVideo(page: Page): Promise<Locator> {
     return dialog;
 }
 
-const liveTracks = (page: Page): Promise<number> =>
+/** How many tracks the page opened are still live, of one kind or of any. */
+const liveTracks = (page: Page, kind?: "audio" | "video"): Promise<number> =>
     page.evaluate(
-        () =>
+        (kind) =>
             (window as unknown as { __streams: MediaStream[] }).__streams
                 .flatMap((stream) => stream.getTracks())
-                .filter((track) => track.readyState === "live").length,
+                .filter((track) => track.readyState === "live" && (!kind || track.kind === kind)).length,
+        kind,
     );
+
+/** How many elements are playing a stream back, such as the microphone test letting you hear yourself. */
+const streamsPlayedBack = (page: Page): Promise<number> =>
+    page.evaluate(
+        () =>
+            (window as unknown as { __streamPlayers: HTMLMediaElement[] }).__streamPlayers.filter(
+                (element) => !element.paused && element.srcObject,
+            ).length,
+    );
+
+/**
+ * Stopping the microphone test stops playing it back. The page keeps measuring the microphone, without playing it,
+ * so the input sensitivity shows where the voice sits; closing the settings releases it.
+ */
+async function expectMicrophoneTestStopped(page: Page): Promise<void> {
+    await expect.poll(() => streamsPlayedBack(page)).toBe(0);
+    await expect.poll(() => liveTracks(page, "audio")).toBe(1);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).not.toBeVisible();
+    await expect.poll(() => liveTracks(page)).toBe(0);
+}
 
 test.describe("Voice & Video settings in the desktop shell", () => {
     test("lists the sections under the tab and scrolls to them", async ({ page }) => {
@@ -97,12 +126,13 @@ test.describe("Voice & Video settings in the desktop shell", () => {
         );
     });
 
-    test("offers no noise suppression, Krisp or OpenH264", async ({ page }) => {
+    test("offers Aether's own noise suppression, without Krisp or OpenH264", async ({ page }) => {
         const dialog = await openVoiceVideo(page);
-        await expect(dialog.getByText(/noise suppression|krisp|voice isolation|openh264/i)).toHaveCount(0);
+        await expect(dialog.getByRole("combobox", { name: "Noise suppression" })).toBeVisible();
+        await expect(dialog.getByText(/krisp|openh264/i)).toHaveCount(0);
     });
 
-    test("tests the microphone with a live meter and releases it when stopped", async ({ page }) => {
+    test("tests the microphone with a live meter and stops playing it back when stopped", async ({ page }) => {
         const dialog = await openVoiceVideo(page);
         // Chromium's fake microphone beeps, which noise suppression removes because it is not speech.
         await dialog.getByRole("radio", { name: "Custom" }).check();
@@ -113,6 +143,7 @@ test.describe("Voice & Video settings in the desktop shell", () => {
         await dialog.getByRole("button", { name: "Let's check" }).click();
         await expect(dialog.getByRole("button", { name: "Stop testing" })).toBeVisible();
         await expect.poll(() => liveTracks(page)).toBeGreaterThan(0);
+        await expect.poll(() => streamsPlayedBack(page)).toBe(1);
         // Chromium's fake microphone beeps, so the level moves above silence.
         await expect
             .poll(async () => Number(await meter.getAttribute("aria-valuenow")), { timeout: 15_000 })
@@ -120,7 +151,7 @@ test.describe("Voice & Video settings in the desktop shell", () => {
 
         await dialog.getByRole("button", { name: "Stop testing" }).click();
         await expect(meter).toHaveAttribute("aria-valuenow", "-100");
-        await expect.poll(() => liveTracks(page)).toBe(0);
+        await expectMicrophoneTestStopped(page);
     });
 
     test("removes noise with enhanced noise suppression during the microphone test", async ({ page }) => {
@@ -145,7 +176,7 @@ test.describe("Voice & Video settings in the desktop shell", () => {
             .poll(async () => Number(await meter.getAttribute("aria-valuenow")), { timeout: 15_000 })
             .toBeGreaterThan(-100);
         await dialog.getByRole("button", { name: "Stop testing" }).click();
-        await expect.poll(() => liveTracks(page)).toBe(0);
+        await expectMicrophoneTestStopped(page);
     });
 
     test("releases the microphone when the settings are closed during a test", async ({ page }) => {
@@ -166,6 +197,11 @@ test.describe("Voice & Video settings in the desktop shell", () => {
         await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.videoWidth)).toBeGreaterThan(0);
         await dialog.getByRole("button", { name: "Stop test" }).click();
         await expect(video).toHaveCount(0);
+        await expect.poll(() => liveTracks(page, "video")).toBe(0);
+        // Only the microphone measured for the input sensitivity is left, and closing the settings releases it.
+        await expect.poll(() => liveTracks(page, "audio")).toBe(1);
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("dialog")).not.toBeVisible();
         await expect.poll(() => liveTracks(page)).toBe(0);
     });
 

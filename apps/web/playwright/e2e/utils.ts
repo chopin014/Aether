@@ -75,3 +75,11 @@ export async function selectHomeserver(page: Page, homeserverUrl: string) {
 }
 
 export const CommandOrControl = process.platform === "darwin" ? "Meta" : "Control";
+
+/**
+ * Whether a request is a sync request: `/sync` v2, or simplified sliding sync (MSC4186). For `page.route`, so that
+ * only sync is held up or failed, not another request whose path happens to end in "sync".
+ */
+export function isSyncRequest(url: URL): boolean {
+    return /^\/_matrix\/client\/(v3|r0|unstable\/org\.matrix\.simplified_msc3575)\/sync$/.test(url.pathname);
+}

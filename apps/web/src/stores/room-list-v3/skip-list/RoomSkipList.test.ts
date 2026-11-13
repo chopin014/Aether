@@ -131,6 +131,23 @@ describe("RoomSkipList", () => {
         expect(comparisons).toBeLessThan(200);
     });
 
+    it("reads a new room's Space as the Space store last worked it out, and every room's when the Space changes", () => {
+        const client = stubClient();
+        const skipList = new RoomSkipList(new RecencySorter(client.getSafeUserId()));
+        const [newRoom, ...rooms] = getMockedRooms(client, 6);
+        skipList.seed(rooms);
+        const isRoomInSpace = vi.mocked(SDKContextClass.instance.spaceStore.isRoomInSpace);
+        isRoomInSpace.mockClear();
+
+        // The Space store tells the list again once it has worked out a batch of rooms arriving.
+        skipList.addNewRoom(newRoom);
+        expect(isRoomInSpace).toHaveBeenCalledWith(MetaSpace.Home, newRoom.roomId, true, true);
+
+        isRoomInSpace.mockClear();
+        skipList.calculateActiveSpaceForNodes();
+        expect(isRoomInSpace).toHaveBeenCalledWith(MetaSpace.Home, newRoom.roomId, true, false);
+    });
+
     it("Room is not duplicated when same room is added via addNewRoom", () => {
         const { skipList, rooms } = generateSkipList();
         const room = rooms[5];

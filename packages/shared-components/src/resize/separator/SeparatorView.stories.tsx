@@ -21,9 +21,16 @@ const Wrapper = ({
     onPointerMove,
     onPointerUp,
     onDoubleClick,
+    onDraggingChange,
     ...snapshot
 }: SeparatorViewProps): JSX.Element => {
-    const vm = useMockedViewModel(snapshot, { onPointerDown, onPointerMove, onPointerUp, onDoubleClick });
+    const vm = useMockedViewModel(snapshot, {
+        onPointerDown,
+        onPointerMove,
+        onPointerUp,
+        onDoubleClick,
+        onDraggingChange,
+    });
     return <SeparatorView className="Separator" vm={vm} />;
 };
 
@@ -38,6 +45,7 @@ const meta = {
         onPointerMove: fn(),
         onPointerDown: fn(),
         onDoubleClick: fn(),
+        onDraggingChange: fn(),
         isCollapsed: true,
     },
     parameters: {

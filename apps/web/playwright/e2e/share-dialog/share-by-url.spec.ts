@@ -6,6 +6,7 @@
  */
 
 import { test, expect } from "../../element-web-test";
+import { messageList } from "../../pages/timeline";
 
 test.describe("share from URL", () => {
     test.use({
@@ -27,7 +28,7 @@ test.describe("share from URL", () => {
         await dialog.getByRole("listitem" /*, { name: "A test room" }*/).getByRole("button", { name: "Send" }).click();
         await dialog.getByRole("button", { name: "Close" }).click();
         await app.viewRoomByName("A test room");
-        const lastMessage = page.locator(".mx_RoomView_MessageList .mx_EventTile").last();
+        const lastMessage = messageList(page).locator(".mx_EventTile").last();
         await expect(lastMessage).toBeVisible();
         const lastMessageText = await lastMessage.getByTestId("event-tile-slot-body").innerText();
         expect(lastMessageText).toBe("Hello world");

@@ -166,6 +166,16 @@ describe("notifications", () => {
             expect(room.getUnreadNotificationCount(NotificationCountType.Total)).toBe(0);
         });
 
+        it("leaves the counts alone when they are worked out on this device", async () => {
+            vi.mocked(client.hasLocalNotificationCounts).mockReturnValue(true);
+            room.setUnreadNotificationCount(NotificationCountType.Total, 5);
+            sendReadReceiptSpy = vi.spyOn(client, "sendReadReceipt").mockReset().mockRejectedValue({ error: 42 });
+
+            // Nothing here resets them: they follow the receipt, and none was sent.
+            await expect(clearRoomNotification(room, client)).rejects.toEqual({ error: 42 });
+            expect(room.getUnreadNotificationCount(NotificationCountType.Total)).toBe(5);
+        });
+
         describe("when sendReadReceipts setting is disabled", () => {
             it("should send a private read receipt", async () => {
                 await SettingsStore.setValue("sendReadReceipts", null, SettingLevel.DEVICE, false);
