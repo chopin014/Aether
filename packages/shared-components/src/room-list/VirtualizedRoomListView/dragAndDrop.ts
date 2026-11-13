@@ -7,10 +7,15 @@
 
 /** Drag payload for a section header. */
 export type SectionDragData = { type: "section"; index: number };
-/** Drag payload for a room item. */
-export type RoomDragData = { type: "room"; isDm: boolean };
+/** Drag payload for a room item. `index` is its position in the whole list, sections included. */
+export type RoomDragData = { type: "room"; isDm: boolean; index?: number };
+/**
+ * A room as a place to drop another room next to, in a section whose order the person may change, such as a server
+ * category. `index` is its position in the whole list.
+ */
+export type RoomSlotData = { type: "slot"; index: number };
 /** Discriminated union of all drag payloads in the room list. */
-export type RoomListDragData = SectionDragData | RoomDragData;
+export type RoomListDragData = SectionDragData | RoomDragData | RoomSlotData;
 
 /**
  * Type guard: true when the drag source is a section header. Narrows to {@link SectionDragData}.
@@ -46,4 +51,20 @@ export function rejectsDraggedRoom(accepted: AcceptedRoomKind, dragged: RoomList
         case "none":
             return true;
     }
+}
+
+/**
+ * Type guard: true when the drop target is a room to drop the dragged room next to.
+ */
+export function isRoomSlotData(data: RoomListDragData | undefined): data is RoomSlotData {
+    return data?.type === "slot";
+}
+
+/**
+ * Which side of the room it is dropped on a dragged room goes: a room dragged up goes before it, one dragged down
+ * after it, the same rule sections follow.
+ */
+export function dropSide(source: RoomListDragData | undefined, target: RoomSlotData): "before" | "after" {
+    const from = isRoomDragData(source) ? (source.index ?? -1) : -1;
+    return from > target.index ? "before" : "after";
 }

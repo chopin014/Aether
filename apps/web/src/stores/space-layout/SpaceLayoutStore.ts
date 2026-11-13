@@ -102,11 +102,9 @@ export class SpaceLayoutStore extends TypedEventEmitter<SpaceLayoutStoreEvent, E
 
     /** Whether this user may change the Space's categories and channel placements. */
     public canEditLayout(space: Room): boolean {
+        if (space.getMyMembership() !== KnownMembership.Join) return false;
         const userId = space.client.getSafeUserId();
-        return (
-            space.getMyMembership() === KnownMembership.Join &&
-            SPACE_LAYOUT_EVENT_TYPES.every((type) => space.currentState.maySendStateEvent(type, userId))
-        );
+        return SPACE_LAYOUT_EVENT_TYPES.every((type) => space.currentState.maySendStateEvent(type, userId));
     }
 
     /**

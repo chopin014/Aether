@@ -10,7 +10,7 @@ import { configure, Plugin, type Plugins } from "@dnd-kit/abstract";
 import { Accessibility, type Draggable, type DragDropManager, type Droppable } from "@dnd-kit/dom";
 
 import { useI18n } from "../../core/i18n/i18nContext";
-import { isSectionDragData, type RoomListDragData } from "./dragAndDrop";
+import { dropSide, isRoomSlotData, isSectionDragData, type RoomListDragData } from "./dragAndDrop";
 import type { RoomListViewModel } from "../RoomListView";
 
 type Manager = DragDropManager;
@@ -212,6 +212,15 @@ export function useRoomListAccessibilityPlugin(
         [vm],
     );
 
+    // The name of a drop target: the room a room is dropped next to, or the section header it is dropped on.
+    const getDropTargetName = useCallback(
+        (target: Droppable<RoomListDragData>): string | undefined => {
+            if (isRoomSlotData(target.data)) return vm.getRoomItemViewModel(target.id as string)?.getSnapshot().name;
+            return vm.getSectionHeaderViewModel(target.id as string).getSnapshot().title;
+        },
+        [vm],
+    );
+
     const announcements = useMemo(
         () => ({
             dragstart: ({ operation: { source } }: A11yData) => {
@@ -229,7 +238,13 @@ export function useRoomListAccessibilityPlugin(
                     return _t("room_list|a11y|drag_over_original", { source: sourceName });
                 }
                 if (!target) return;
-                const targetTitle = vm.getSectionHeaderViewModel(target.id as string).getSnapshot().title;
+                const targetTitle = getDropTargetName(target);
+                if (targetTitle === undefined) return;
+                if (isRoomSlotData(target.data)) {
+                    return dropSide(source.data, target.data) === "before"
+                        ? _t("room_list|a11y|drag_over_before", { source: sourceName, target: targetTitle })
+                        : _t("room_list|a11y|drag_over_after", { source: sourceName, target: targetTitle });
+                }
                 if (isSectionDragData(source.data) && isSectionDragData(target.data)) {
                     const droppedBefore = source.data.index > target.data.index;
 
@@ -250,7 +265,13 @@ export function useRoomListAccessibilityPlugin(
                 }
 
                 if (!target) return;
-                const targetTitle = vm.getSectionHeaderViewModel(target.id as string).getSnapshot().title;
+                const targetTitle = getDropTargetName(target);
+                if (targetTitle === undefined) return;
+                if (isRoomSlotData(target.data)) {
+                    return dropSide(source.data, target.data) === "before"
+                        ? _t("room_list|a11y|drag_end_before", { source: sourceName, target: targetTitle })
+                        : _t("room_list|a11y|drag_end_after", { source: sourceName, target: targetTitle });
+                }
                 if (isSectionDragData(source.data) && isSectionDragData(target.data)) {
                     const droppedBefore = source.data.index > target.data.index;
                     return droppedBefore
@@ -260,7 +281,7 @@ export function useRoomListAccessibilityPlugin(
                 return _t("room_list|a11y|drag_end", { source: sourceName, target: targetTitle });
             },
         }),
-        [vm, _t, getDragSourceName],
+        [_t, getDragSourceName, getDropTargetName],
     );
 
     const instructions = _t("room_list|a11y|drag_instructions");

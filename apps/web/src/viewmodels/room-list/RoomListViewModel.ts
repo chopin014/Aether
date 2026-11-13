@@ -260,7 +260,7 @@ export class RoomListViewModel
                 filterKeys: undefined,
             },
             isFlatList,
-            sections: toRoomListSection(sections),
+            sections: toRoomListSection(sections, canEditLayout(props.client, roomsResult.spaceId)),
             canCreateRoom,
         });
 
@@ -1061,7 +1061,7 @@ export class RoomListViewModel
         // Update filter keys - only update if they have actually changed to prevent unnecessary re-renders of the room list
         const previousFilterKeys = this.snapshot.current.roomListState.filterKeys;
         const newFilterKeys = this.roomsResult.filterKeys?.map((k) => String(k));
-        const viewSections = toRoomListSection(this.sections);
+        const viewSections = toRoomListSection(this.sections, canEdit);
 
         const resolvedScrollToSectionTag =
             scrollToSectionTag && viewSections.some((s) => s.id === scrollToSectionTag)
@@ -1246,7 +1246,9 @@ export class RoomListViewModel
         void this.updateRoomListData(false, null, sourceTag);
     };
 
-    public onSectionOrRoomDragStart = (): void => {
+    public onSectionOrRoomDragStart = (isSectionDrag = true): void => {
+        // A channel is dropped beside other channels in a server, so they stay in view while it is dragged.
+        if (!isSectionDrag && isDesktopChannelList(this.roomsResult.spaceId)) return;
         this.savedExpansionStates.clear();
         for (const [tag, sectionVM] of this.roomSectionHeaderViewModels) {
             this.savedExpansionStates.set(tag, sectionVM.isExpanded);
@@ -1262,6 +1264,15 @@ export class RoomListViewModel
         }
         this.savedExpansionStates.clear();
         void this.updateRoomListData();
+    };
+
+    public moveRoomBeside = (roomId: string, targetRoomId: string, side: "before" | "after"): void => {
+        const space = this.channelListSpace;
+        const section = this.sections.find((s) => s.rooms.some((room) => room.roomId === targetRoomId));
+        if (!space || !section || !isDesktopChannelSection(section.tag) || roomId === targetRoomId) return;
+        // The channels outside any category have no category id.
+        const categoryId = categoryIdOfTag(section.tag) ?? null;
+        moveChannel(space, roomId, categoryId, { anchor: targetRoomId, side }).catch(reportLayoutError);
     };
 
     public changeRoomSection = (roomId: string, tag: string): void => {
@@ -1333,10 +1344,12 @@ function computeSections(
 /**
  * Convert from the internal Section type used in the view model to the RoomListSection type used in the snapshot.
  */
-function toRoomListSection(sections: Section[]): RoomListSection[] {
+function toRoomListSection(sections: Section[], canEditLayout: boolean): RoomListSection[] {
     return sections.map(({ tag, rooms }) => ({
         id: tag,
         roomIds: rooms.map((room) => room.roomId),
+        // The people who may edit a server's layout reorder its channels by dropping one beside another.
+        ...(canEditLayout && isDesktopChannelSection(tag) ? { canReorder: true } : {}),
     }));
 }
 
