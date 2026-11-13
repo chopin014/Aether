@@ -209,7 +209,12 @@ describe("<SpaceMenuView />", () => {
                     ...defaultSnapshot,
                     canCreateRoom: false,
                     canCreateVideoRoom: false,
-                    serverMenu: { canCreateCategory: true, hideMutedChannels: false },
+                    serverMenu: {
+                        canCreateCategory: true,
+                        isMuted: false,
+                        notificationLevel: "all",
+                        hideMutedChannels: false,
+                    },
                 }),
                 { createCategory: vi.fn(), toggleHideMutedChannels: vi.fn() },
             );
