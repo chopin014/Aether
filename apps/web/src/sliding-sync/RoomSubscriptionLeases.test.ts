@@ -41,6 +41,15 @@ describe("RoomSubscriptionLeases", () => {
         expect(onChange).toHaveBeenCalledWith(false);
     });
 
+    it("asks for an opened room or a call straight away, and sends a Space with the next batch", () => {
+        leases.acquire("!room", "view");
+        expect(onChange).toHaveBeenLastCalledWith(true);
+        leases.acquire("!call", "call");
+        expect(onChange).toHaveBeenLastCalledWith(true);
+        leases.acquire("!space", "space");
+        expect(onChange).toHaveBeenLastCalledWith(false);
+    });
+
     it("counts holds, and releasing a hold twice has no further effect", () => {
         const first = leases.acquire("!a", "call");
         const second = leases.acquire("!a", "call");

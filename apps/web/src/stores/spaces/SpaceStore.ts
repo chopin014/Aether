@@ -23,6 +23,8 @@ import { KnownMembership } from "matrix-js-sdk/src/types";
 import { logger } from "matrix-js-sdk/src/logger";
 
 import { AsyncStoreWithClient } from "../AsyncStoreWithClient";
+import { UPDATE_EVENT } from "../AsyncStore";
+import { getChildOrder, validOrder } from "./childOrder";
 import { type MatrixDispatcher } from "../../dispatcher/dispatcher.ts";
 import RoomListStoreV3 from "../room-list-v3/RoomListStoreV3";
 import SettingsStore from "../../settings/SettingsStore";
@@ -83,23 +85,7 @@ const partitionSpacesAndRooms = (arr: Room[]): [Room[], Room[]] => {
     );
 };
 
-const validOrder = (order?: string): string | undefined => {
-    if (
-        typeof order === "string" &&
-        order.length <= 50 &&
-        Array.from(order).every((c: string) => {
-            const charCode = c.charCodeAt(0);
-            return charCode >= 0x20 && charCode <= 0x7e;
-        })
-    ) {
-        return order;
-    }
-};
-
-// For sorting space children using a validated `order`, `origin_server_ts`, `room_id`
-export const getChildOrder = (order: string | undefined, ts: number, roomId: string): Array<string | number> => {
-    return [validOrder(order) ?? NaN, ts, roomId]; // NaN has lodash sort it at the end in asc
-};
+export { getChildOrder } from "./childOrder";
 
 type SpaceStoreActions =
     | SettingUpdatedPayload
@@ -131,6 +117,9 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
     // The space currently selected in the Space Panel
     private _activeSpace: SpaceKey = MetaSpace.Home; // set properly by onReady
     private cancelMemberPreparation?: () => void;
+    // The remembered channel opened before it arrived, and what stops following it.
+    private followedChannel?: string;
+    private stopFollowingRememberedChannel?: () => void;
     private _suggestedRooms: ISuggestedRoom[] = [];
     private _invitedSpaces = new Set<Room>();
     private spaceOrderLocalEchoMap = new Map<string, string | undefined>();
@@ -140,6 +129,12 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
     /** Whether the feature flag is set for MSC3946 */
     private _msc3946ProcessDynamicPredecessor: boolean = SettingsStore.getValue("feature_dynamic_room_predecessors");
     private _storeReadyDeferred = Promise.withResolvers<void>();
+    // Holds on telling everyone about changes to the rooms of every Space, such as while sync applies a batch of
+    // rooms; whether rooms changed while held and are not worked out yet; and the Spaces whose change is not told yet.
+    private readonly roomUpdateHolds = new Set<object>();
+    private roomsStale = false;
+    private readonly untoldSpaces = new Set<SpaceKey>();
+    private stopHoldingForBatches?: () => void;
 
     public constructor(
         dispatcher: MatrixDispatcher,
@@ -158,6 +153,50 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
      */
     public get storeReadyPromise(): Promise<void> {
         return this._storeReadyDeferred.promise;
+    }
+
+    /**
+     * Hold off working out the rooms of every Space as rooms arrive or change membership, and telling everyone, until
+     * the returned function is called. Working them out looks at every room, so a batch of rooms, such as a sliding
+     * sync response bringing the whole account, is worked out once and told once at the end. Reading the rooms of a
+     * Space meanwhile works out what changed first, so it is always current; only the telling waits. Holds can
+     * overlap.
+     * @returns A function ending the hold. Calling it again does nothing.
+     */
+    public holdRoomUpdates(): () => void {
+        const hold = {};
+        this.roomUpdateHolds.add(hold);
+        return () => {
+            if (!this.roomUpdateHolds.delete(hold)) return;
+            if (this.roomUpdateHolds.size === 0) this.tellHeldRoomUpdates();
+        };
+    }
+
+    /** Work out the rooms of every Space if rooms changed while held, so they are current, without telling anyone. */
+    private refreshHeldRooms(): void {
+        if (!this.roomsStale || !this.matrixClient) return;
+        for (const key of this.computeRooms()) this.untoldSpaces.add(key);
+    }
+
+    /** The holds ended: work out what changed while held, and tell everyone. */
+    private tellHeldRoomUpdates(): void {
+        if (!this.matrixClient || (!this.roomsStale && this.untoldSpaces.size === 0)) return;
+        this.publishRooms(this.roomsStale ? this.computeRooms() : new Set());
+    }
+
+    /** Rooms arrived or changed: work out every Space's rooms and tell everyone, now or once the holds end. */
+    private onRoomsChanged(): void {
+        if (this.roomUpdateHolds.size > 0) {
+            this.roomsStale = true;
+            return;
+        }
+        this.onRoomsUpdate();
+    }
+
+    /** Tell everyone a Space changed, now or, while held, along with the rest once the holds end. */
+    private emitSpaceChange(key: SpaceKey): void {
+        if (this.roomUpdateHolds.size > 0) this.untoldSpaces.add(key);
+        else this.emit(key);
     }
 
     public get invitedSpaces(): Room[] {
@@ -239,15 +278,19 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
         window.localStorage.setItem(ACTIVE_SPACE_LS_KEY, (this._activeSpace = space)); // Update & persist selected space
         this.cancelMemberPreparation?.();
+        this.stopFollowingRememberedChannel?.();
         let destinationRoomId =
             this.sdkContext.roomViewStore.getRoomId() ?? this.getLastSelectedRoomIdForSpace(space) ?? undefined;
 
         if (contextSwitch) {
+            // A remembered channel sliding sync has not brought yet still opens: the room view shows it once it
+            // arrives, rather than quietly opening another channel.
             const canView = (roomId: string | null): roomId is string =>
                 !!roomId &&
                 cliSpace?.getMyMembership() !== KnownMembership.Invite &&
-                this.matrixClient!.getRoom(roomId)?.getMyMembership() === KnownMembership.Join &&
-                this.isRoomInSpace(space, roomId);
+                ((this.matrixClient!.getRoom(roomId)?.getMyMembership() === KnownMembership.Join &&
+                    this.isRoomInSpace(space, roomId)) ||
+                    this.isChannelOnItsWay(space, roomId));
             // view last selected room from space; without one, the desktop shell opens the space's first text
             // channel, so that opening a server lands in a chat rather than the space overview
             const lastRoomId = this.getLastSelectedRoomIdForSpace(space);
@@ -261,12 +304,14 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
             // else view space home or home depending on what is being clicked on
             if (canView(roomId)) {
                 destinationRoomId = roomId;
+                const onItsWay = !this.matrixClient.getRoom(roomId);
                 this.dispatcher.dispatch<ViewRoomPayload>({
                     action: Action.ViewRoom,
                     room_id: roomId,
                     context_switch: true,
                     metricsTrigger: "WebSpaceContextSwitch",
                 });
+                if (onItsWay) this.followRememberedChannel(space, roomId);
             } else if (cliSpace) {
                 this.dispatcher.dispatch<ViewRoomPayload>({
                     action: Action.ViewRoom,
@@ -286,11 +331,8 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
         this.emit(UPDATE_SELECTED_SPACE, this.activeSpace);
         this.emit(UPDATE_SUGGESTED_ROOMS, (this._suggestedRooms = []));
-        // With sliding sync, the selected Space's channels are listed first. Home keeps the last Space's lists.
-        this.sdkContext.slidingSyncManager.setActiveSpace(
-            cliSpace?.roomId ?? null,
-            cliSpace ? this.getChildSpaces(cliSpace.roomId).map((child) => child.roomId) : [],
-        );
+        // With sliding sync, the selected Space's channels are loaded first. Home keeps the last Space's channels.
+        this.sdkContext.slidingSyncManager.setActiveSpace(cliSpace?.roomId ?? null);
 
         if (cliSpace) {
             void this.loadSuggestedRooms(cliSpace);
@@ -331,7 +373,111 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
             room.getMyMembership() === KnownMembership.Join
         )
             return roomId;
+        // Sliding sync may not have brought the remembered channel yet. It is kept rather than replaced.
+        if (!room && roomId && this.isChannelOnItsWay(space, roomId)) return roomId;
         return this.getFirstTextChannel(space);
+    }
+
+    /**
+     * Whether a room is a channel of the Space that sliding sync may still bring: the client does not know it yet,
+     * and the Space, or a joined Space inside it, lists it as a child.
+     */
+    private isChannelOnItsWay(space: SpaceKey, roomId: string): boolean {
+        if (isMetaSpace(space) || !roomId.startsWith("!")) return false;
+        if (!this.sdkContext.slidingSyncManager.mayStillArrive(roomId)) return false;
+        const visited = new Set<string>();
+        const queue = [space];
+        while (queue.length > 0) {
+            const spaceId = queue.shift()!;
+            if (visited.has(spaceId)) continue;
+            visited.add(spaceId);
+            const child = this.matrixClient
+                ?.getRoom(spaceId)
+                ?.currentState.getStateEvents(EventType.SpaceChild, roomId);
+            // As in getChildren, a child event without `via` has been removed.
+            if (child?.getContent()?.via) return true;
+            queue.push(...this.getChildSpaces(spaceId).map((subspace) => subspace.roomId));
+        }
+        return false;
+    }
+
+    /**
+     * Note that the user is leaving a room, by any means: a remembered channel being followed is no longer followed,
+     * as where they land after is the leave's to decide.
+     * @param roomId - The room being left.
+     */
+    public noteLeavingRoom(roomId: string): void {
+        if (roomId === this.followedChannel) this.stopFollowingRememberedChannel?.();
+    }
+
+    /**
+     * Follow a remembered channel opened before sliding sync brought it, while it stays open in this Space. If it
+     * turns out the user is no longer in it, the channel is forgotten and the Space's first channel opens instead.
+     * That can be known late: after the room view gave up waiting, once the lists cover the whole account, or once
+     * saved rooms are checked against the server after a restart. Following ends once the channel is joined and the
+     * server has sent it on this connection.
+     */
+    private followRememberedChannel(space: string, roomId: string): void {
+        const client = this.matrixClient;
+        if (!client) return;
+        const roomViewStore = this.sdkContext.roomViewStore;
+        const manager = this.sdkContext.slidingSyncManager;
+        // The room view opens it with the next dispatch. Until then, other room view updates are not a move away.
+        let opened = false;
+        const check = (): void => {
+            if (this._activeSpace !== space) return stop();
+            if (roomViewStore.getRoomId() !== roomId) {
+                if (opened) stop();
+                return;
+            }
+            opened = true;
+            const room = client.getRoom(roomId);
+            if (!room) {
+                if (!manager.mayStillArrive(roomId)) gone();
+                return;
+            }
+            // The user's own member event, or the server's list of joined rooms after a restart, decides. The SDK
+            // reports "leave" for a room it has no membership for yet, so that alone does not.
+            const userId = client.getUserId();
+            const membership = userId
+                ? room.currentState.getStateEvents(EventType.RoomMember, userId)?.getContent().membership
+                : undefined;
+            if (membership === KnownMembership.Leave || membership === KnownMembership.Ban) return gone();
+            if (manager.wasLeftWhileAway(roomId)) return gone();
+            if (room.getMyMembership() === KnownMembership.Join && manager.hasLiveData(roomId)) stop();
+        };
+        const onMembership = (room: Room): void => {
+            if (room.roomId === roomId) check();
+        };
+        const stopArrivals = manager.onArrivalChange(check);
+        const stop = (): void => {
+            roomViewStore.off(UPDATE_EVENT, check);
+            client.off(ClientEvent.Room, onMembership);
+            client.off(RoomEvent.MyMembership, onMembership);
+            stopArrivals();
+            if (this.stopFollowingRememberedChannel === stop) {
+                this.stopFollowingRememberedChannel = undefined;
+                this.followedChannel = undefined;
+            }
+        };
+        const gone = (): void => {
+            stop();
+            logger.info(`Space ${space} no longer has its remembered channel ${roomId}`);
+            window.localStorage.removeItem(getSpaceContextKey(space));
+            this.dispatcher.dispatch<ViewRoomPayload>({
+                action: Action.ViewRoom,
+                // Sliding sync marks the rooms it sends as joined, so the channel itself is passed over.
+                room_id: this.getFirstTextChannel(space, roomId) ?? space,
+                context_switch: true,
+                metricsTrigger: "WebSpaceContextSwitch",
+            });
+        };
+        this.stopFollowingRememberedChannel?.();
+        this.stopFollowingRememberedChannel = stop;
+        this.followedChannel = roomId;
+        roomViewStore.on(UPDATE_EVENT, check);
+        client.on(ClientEvent.Room, onMembership);
+        client.on(RoomEvent.MyMembership, onMembership);
     }
 
     private async loadSuggestedRooms(space: Room): Promise<void> {
@@ -416,11 +562,17 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         return this.getChildren(spaceId).filter((r) => !r.isSpaceRoom());
     }
 
-    /** The first joined room of a space, in the space's own order, that is a chat rather than a call. */
-    private getFirstTextChannel(spaceId: string): string | null {
+    /**
+     * The first joined room of a space, in the space's own order, that is a chat rather than a call.
+     * @param except - A room to pass over, such as a channel the user turned out to have left.
+     */
+    private getFirstTextChannel(spaceId: string, except?: string): string | null {
         const channel = this.getChildRooms(spaceId).find(
             (room) =>
-                room.getMyMembership() === KnownMembership.Join && !room.isCallRoom() && !room.isElementVideoRoom(),
+                room.roomId !== except &&
+                room.getMyMembership() === KnownMembership.Join &&
+                !room.isCallRoom() &&
+                !room.isElementVideoRoom(),
         );
         return channel?.roomId ?? null;
     }
@@ -466,20 +618,36 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
     }
 
     public getKnownParents(roomId: string, includeAncestors?: boolean): Set<string> {
+        this.refreshHeldRooms();
         if (includeAncestors) {
             return flattenSpaceHierarchy(this.parentMap, this.parentMap, roomId);
         }
         return this.parentMap.get(roomId) || new Set();
     }
 
-    public isRoomInSpace(space: SpaceKey, roomId: string, includeDescendantSpaces = true): boolean {
+    /**
+     * Whether a room is in a Space.
+     * @param space - The Space.
+     * @param roomId - The room.
+     * @param includeDescendantSpaces - Whether the rooms of the Space's sub-Spaces count.
+     * @param asLastWorkedOut - Read the rooms of each Space as last worked out, without working out rooms that
+     *   changed while updates are held. For readers told when a Space changes, such as the room list checking each
+     *   room as it arrives, which would otherwise work out every Space again for each room of a batch.
+     */
+    public isRoomInSpace(
+        space: SpaceKey,
+        roomId: string,
+        includeDescendantSpaces = true,
+        asLastWorkedOut = false,
+    ): boolean {
+        if (!asLastWorkedOut) this.refreshHeldRooms();
         if (space === MetaSpace.Home && this.allRoomsInHome) {
             return true;
         }
         if (space === MetaSpace.VideoRooms) {
             return !!this.matrixClient?.getRoom(roomId)?.isCallRoom();
         }
-        if (this.getSpaceFilteredRoomIds(space, includeDescendantSpaces)?.has(roomId)) {
+        if (this.spaceFilteredRoomIds(space, includeDescendantSpaces)?.has(roomId)) {
             return true;
         }
 
@@ -504,6 +672,11 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         includeDescendantSpaces = true,
         useCache = true,
     ): Set<string> => {
+        this.refreshHeldRooms();
+        return this.spaceFilteredRoomIds(space, includeDescendantSpaces, useCache);
+    };
+
+    private spaceFilteredRoomIds = (space: SpaceKey, includeDescendantSpaces = true, useCache = true): Set<string> => {
         if (space === MetaSpace.Home && this.allRoomsInHome) {
             return new Set(
                 this.matrixClient!.getVisibleRooms(this._msc3946ProcessDynamicPredecessor).map((r) => r.roomId),
@@ -524,6 +697,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         includeDescendantSpaces = true,
         useCache = true,
     ): Set<string> | undefined => {
+        this.refreshHeldRooms();
         if (space === MetaSpace.Home && this.allRoomsInHome) {
             return undefined;
         }
@@ -649,7 +823,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         PosthogAnalytics.instance.setProperty("numSpaces", joinedSpaces.length);
     };
 
-    private rebuildHomeSpace = (): void => {
+    private rebuildHomeSpace = (switchIfNeeded = true): void => {
         if (this.allRoomsInHome) {
             // this is a special-case to not have to maintain a set of all rooms
             this.roomIdsBySpace.delete(MetaSpace.Home);
@@ -662,18 +836,18 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
             this.roomIdsBySpace.set(MetaSpace.Home, rooms);
         }
 
-        if (this.activeSpace === MetaSpace.Home) {
+        if (switchIfNeeded && this.activeSpace === MetaSpace.Home) {
             this.switchSpaceIfNeeded();
         }
     };
 
-    private rebuildMetaSpaces = (): void => {
+    private rebuildMetaSpaces = (switchIfNeeded = true): void => {
         if (!this.matrixClient) return;
         const enabledMetaSpaces = new Set(this.enabledMetaSpaces);
         const visibleRooms = this.matrixClient.getVisibleRooms(this._msc3946ProcessDynamicPredecessor);
 
         if (enabledMetaSpaces.has(MetaSpace.Home)) {
-            this.rebuildHomeSpace();
+            this.rebuildHomeSpace(switchIfNeeded);
         } else {
             this.roomIdsBySpace.delete(MetaSpace.Home);
         }
@@ -690,7 +864,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
             this.roomIdsBySpace.set(MetaSpace.Orphans, new Set(orphans.map((r) => r.roomId)));
         }
 
-        if (isMetaSpace(this.activeSpace)) {
+        if (switchIfNeeded && isMetaSpace(this.activeSpace)) {
             this.switchSpaceIfNeeded();
         }
     };
@@ -749,6 +923,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
     // Method for resolving the impact of a single user's membership change in the given Space and its hierarchy
     private onMemberUpdate = (space: Room, userId: string): void => {
+        this.refreshHeldRooms();
         const inSpace = SpaceStore.isInSpace(space.getMember(userId));
 
         if (inSpace) {
@@ -772,6 +947,17 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
     private onRoomsUpdate = (): void => {
         if (!this.matrixClient) return;
+        this.publishRooms(this.computeRooms());
+    };
+
+    /**
+     * Work out the rooms, members and sub-Spaces of every Space again, rooms changed while held included, without
+     * telling anyone.
+     * @returns The Spaces that changed, with their parents.
+     */
+    private computeRooms(): Set<SpaceKey> {
+        this.roomsStale = false;
+        if (!this.matrixClient) return new Set();
         const visibleRooms = this.matrixClient.getVisibleRooms(this._msc3946ProcessDynamicPredecessor);
 
         const prevRoomsBySpace = this.roomIdsBySpace;
@@ -783,8 +969,8 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         this.childSpacesBySpace = new Map();
 
         this.rebuildParentMap();
-        // mutates this.roomIdsBySpace
-        this.rebuildMetaSpaces();
+        // mutates this.roomIdsBySpace. Switching away from a meta space waits until everything is worked out.
+        this.rebuildMetaSpaces(false);
 
         const hiddenChildren = new EnhancedMap<string, Set<string>>();
         visibleRooms.forEach((room) => {
@@ -886,6 +1072,18 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         // bust aggregate cache
         this._aggregatedSpaceCache.roomIdsBySpace.clear();
         this._aggregatedSpaceCache.userIdsBySpace.clear();
+        return changeSet;
+    }
+
+    /** Tell everyone which Spaces changed, along with those that changed while held and were not told yet. */
+    private publishRooms(changeSet: Set<SpaceKey>): void {
+        for (const key of this.untoldSpaces) changeSet.add(key);
+        this.untoldSpaces.clear();
+
+        // The room being viewed may no longer be in the meta space shown, as working out the meta spaces found.
+        if (isMetaSpace(this.activeSpace)) {
+            this.switchSpaceIfNeeded();
+        }
 
         changeSet.forEach((k) => {
             this.emit(k);
@@ -896,7 +1094,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         }
 
         this.updateNotificationStates([...changeSet]);
-    };
+    }
 
     private switchSpaceIfNeeded = (roomId = this.sdkContext.roomViewStore.getRoomId()): void => {
         if (!roomId) return;
@@ -939,7 +1137,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         const membership = newMembership || roomMembership;
 
         if (!room.isSpaceRoom()) {
-            this.onRoomsUpdate();
+            this.onRoomsChanged();
 
             if (membership === KnownMembership.Join) {
                 // the user just joined a room, remove it from the suggested list if it was there
@@ -1013,9 +1211,9 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
                         this.rebuildSpaceHierarchy();
                         this.emit(target.roomId);
                     } else {
-                        this.onRoomsUpdate();
+                        this.onRoomsChanged();
                     }
-                    this.emit(room.roomId);
+                    this.emitSpaceChange(room.roomId);
                 }
 
                 if (
@@ -1035,19 +1233,19 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
                 if (room.isSpaceRoom()) {
                     this.rebuildSpaceHierarchy();
                 } else {
-                    this.onRoomsUpdate();
+                    this.onRoomsChanged();
                 }
-                this.emit(room.roomId);
+                this.emitSpaceChange(room.roomId);
                 break;
 
             case EventType.RoomPowerLevels:
                 if (room.isSpaceRoom()) {
-                    this.onRoomsUpdate();
+                    this.onRoomsChanged();
                 }
                 break;
             case EventType.RoomCreate:
                 // The room might become a video room. We need to tag it for that videoRooms space.
-                this.onRoomsUpdate();
+                this.onRoomsChanged();
                 break;
         }
     };
@@ -1078,6 +1276,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
     };
 
     private onRoomDmChange(room: Room, isDm: boolean): void {
+        this.refreshHeldRooms();
         const enabledMetaSpaces = new Set(this.enabledMetaSpaces);
 
         if (!this.allRoomsInHome && enabledMetaSpaces.has(MetaSpace.Home)) {
@@ -1120,6 +1319,7 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
 
     protected async reset(): Promise<void> {
         this.cancelMemberPreparation?.();
+        this.stopFollowingRememberedChannel?.();
         this.rootSpaces = [];
         this.parentMap = new EnhancedMap();
         this.notificationStateMap = new Map();
@@ -1131,6 +1331,9 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         this._suggestedRooms = [];
         this._invitedSpaces = new Set();
         this._enabledMetaSpaces = [];
+        this.roomUpdateHolds.clear();
+        this.roomsStale = false;
+        this.untoldSpaces.clear();
     }
 
     protected async onNotReady(): Promise<void> {
@@ -1142,6 +1345,8 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
             this.matrixClient.removeListener(RoomStateEvent.Members, this.onRoomStateMembers);
             this.matrixClient.removeListener(ClientEvent.AccountData, this.onAccountData);
         }
+        this.stopHoldingForBatches?.();
+        this.stopHoldingForBatches = undefined;
         await this.reset();
     }
 
@@ -1153,6 +1358,12 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
         this.matrixClient.on(RoomStateEvent.Events, this.onRoomState);
         this.matrixClient.on(RoomStateEvent.Members, this.onRoomStateMembers);
         this.matrixClient.on(ClientEvent.AccountData, this.onAccountData);
+        // Sliding sync brings rooms in batches, such as a response bringing the whole account, or the rooms this
+        // device saved: each batch is worked out once it is applied.
+        this.stopHoldingForBatches?.();
+        this.stopHoldingForBatches = this.sdkContext.slidingSyncManager.holdWhileApplyingRooms(() =>
+            this.holdRoomUpdates(),
+        );
 
         const oldMetaSpaces = this._enabledMetaSpaces;
         const enabledMetaSpaces = SettingsStore.getValue("Spaces.enabledMetaSpaces");

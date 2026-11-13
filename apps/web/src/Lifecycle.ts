@@ -63,6 +63,7 @@ import { messageForLoginError } from "./utils/ErrorUtils";
 import { completeOAuthLogin, type CompleteOAuthLoginResponse } from "./utils/oauth/authorize";
 import { getOAuthErrorMessage } from "./utils/oauth/error";
 import { getStoredOAuthClientId, persistOAuthClientId } from "./utils/oauth/persistOAuthSettings";
+import { AccessTokenRenewal, claimStoredSession } from "./utils/tokens/AccessTokenRenewal";
 import {
     ACCESS_TOKEN_NAME,
     ACCESS_TOKEN_STORAGE_KEY,
@@ -130,6 +131,9 @@ export function setSessionLockNotStolen(): void {
  */
 export async function onSessionLockStolen(): Promise<void> {
     sessionLockStolen = true;
+    // A refresh under way replaces the refresh token. The instance taking over must read the new one, so it is
+    // stored before the session is handed over.
+    await AccessTokenRenewal.settle(MatrixClientPeg.get());
     stopMatrixClient();
 }
 
@@ -773,6 +777,7 @@ export async function restoreSessionFromStorage(opts?: { ignoreGuest?: boolean }
             },
             false,
             freshLogin,
+            true,
         );
         return true;
     } else {
@@ -873,6 +878,8 @@ export async function hydrateSession(credentials: IMatrixClientCreds): Promise<M
  * @param {IMatrixClientCreds} credentials The credentials to use
  * @param {Boolean} clearStorageEnabled True to clear storage before starting the new client
  * @param {Boolean} isFreshLogin True if this is a fresh login, false if it is previous session being restored
+ * @param restoredFromStorage True when the credentials were read from this device's storage, so the stored session
+ *     is already theirs
  *
  * @returns {Promise} promise which resolves to the new MatrixClient once it has been started
  */
@@ -880,6 +887,7 @@ async function doSetLoggedIn(
     credentials: IMatrixClientCreds,
     clearStorageEnabled: boolean,
     isFreshLogin: boolean,
+    restoredFromStorage = false,
 ): Promise<MatrixClient> {
     checkSessionLock();
     credentials.guest = Boolean(credentials.guest);
@@ -937,9 +945,13 @@ async function doSetLoggedIn(
         PosthogAnalytics.instance.startListeningToSettingsChanges(client);
     }
 
+    // A session restored from storage is the stored one already, even if writing its credentials again fails below.
+    // Another becomes it once its credentials are stored. Only then are the tokens it refreshes stored too.
+    if (restoredFromStorage) claimStoredSession(client);
     if (localStorage) {
         try {
             await persistCredentials(credentials);
+            claimStoredSession(client);
             // make sure we don't think that it's a fresh login any more
             sessionStorage.removeItem("mx_fresh_login");
         } catch (e) {
@@ -1324,6 +1336,8 @@ export function stopMatrixClient(unsetClient = true): void {
     if (cli) {
         // Before stopping, so profile lookups finishing later cannot write this account's data back.
         RichProfileStore.endSession(cli);
+        // Its session stops being the stored one, so tokens it refreshes later are not stored.
+        AccessTokenRenewal.release(cli);
         cli.stopClient();
         cli.removeAllListeners();
 

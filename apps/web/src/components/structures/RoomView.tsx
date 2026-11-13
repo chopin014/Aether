@@ -153,6 +153,7 @@ import { EncryptionEventViewModel } from "../../viewmodels/room/timeline/event-t
 import { ModuleApi } from "../../modules/Api.ts";
 import { RoomUploadContextProvider } from "../../viewmodels/room/RoomUploadViewModel.tsx";
 import { EventPresentationContextProvider } from "../../utils/EventPresentationContextProvider";
+import { markRoomSwitch } from "../../performance/RoomSwitchPerformance";
 
 const DEBUG = false;
 const PREVENT_MULTIPLE_JITSI_WITHIN = 30_000;
@@ -448,8 +449,22 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     private readonly askToJoinEnabled: boolean;
     private dispatcherRef?: string;
     private settingWatchers: string[] = [];
+    /** The watchers of the settings that can differ per room, and the room they watch; see {@link watchRoomSettings}. */
+    private roomSettingWatchers: { roomId: string | null; watchers: string[] } | null = null;
 
     private unmounted = false;
+    // Counts room view store updates, so one that waited on the server can tell that a newer one came meanwhile.
+    private storeUpdates = 0;
+    /**
+     * Whether the room is encrypted, as last answered while this view was shown, or `null` until an answer has come,
+     * and again while the room is asked about anew because its encryption changed. URL previews follow this; see
+     * getPreviewUrlVisibility.
+     */
+    private checkedEncryption: boolean | null = null;
+    /** Counts the checks of whether the room is encrypted started, so that only the newest one's answer is shown. */
+    private encryptionChecks = 0;
+    /** The check of whether the room is encrypted that still waits for crypto; see {@link getIsRoomEncrypted}. */
+    private pendingEncryptionCheck?: { room: Room; check: number; result: Promise<boolean> };
     private cancelMemberPreparation?: () => void;
     private permalinkCreators: Record<string, RoomPermalinkCreator> = {};
 
@@ -651,6 +666,44 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         return MainSplitContentType.Timeline;
     };
 
+    /**
+     * Watch the settings that can differ per room for `roomId`, once: the store updates many times while a room is shown,
+     * such as for a reply being quoted, and each watcher added again would call back again on every change. Watchers of
+     * another room, such as the room being looked up before it was known, are replaced.
+     */
+    private watchRoomSettings(roomId: string | null): void {
+        if (this.roomSettingWatchers?.roomId === roomId) return;
+        this.unwatchRoomSettings();
+        this.roomSettingWatchers = {
+            roomId,
+            watchers: [
+                SettingsStore.watchSetting("showReadReceipts", roomId, (...[, , , value]) =>
+                    this.setState({ showReadReceipts: value! }),
+                ),
+                SettingsStore.watchSetting("showRedactions", roomId, (...[, , , value]) =>
+                    this.setState({ showRedactions: value! }),
+                ),
+                SettingsStore.watchSetting("showJoinLeaves", roomId, (...[, , , value]) =>
+                    this.setState({ showJoinLeaves: value! }),
+                ),
+                SettingsStore.watchSetting("showAvatarChanges", roomId, (...[, , , value]) =>
+                    this.setState({ showAvatarChanges: value! }),
+                ),
+                SettingsStore.watchSetting("showDisplaynameChanges", roomId, (...[, , , value]) =>
+                    this.setState({ showDisplaynameChanges: value! }),
+                ),
+            ],
+        };
+    }
+
+    /** Stop the watchers {@link watchRoomSettings} added. */
+    private unwatchRoomSettings(): void {
+        for (const watcher of this.roomSettingWatchers?.watchers ?? []) {
+            SettingsStore.unwatchSetting(watcher);
+        }
+        this.roomSettingWatchers = null;
+    }
+
     private onRoomViewStoreUpdate = async (initial?: boolean): Promise<void> => {
         if (this.unmounted) {
             return;
@@ -671,6 +724,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             // it was, it means we're about to be unmounted.
             return;
         }
+        // Only an update that goes on takes a number: one ignored above must not cancel one still waiting.
+        const update = ++this.storeUpdates;
         const roomViewStore = this.roomViewStore;
         const roomId = roomViewStore.getRoomId() ?? null;
         const roomAlias = roomViewStore.getRoomAlias() ?? undefined;
@@ -717,6 +772,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
 
         // A cleared target means return to the live timeline; retaining the old ID reopens that permalink.
         const initialEventId = this.roomViewStore.getInitialEventId();
+        // A newer view, such as of the latest messages, may come while the event is fetched: it stands. The first
+        // update still sets the room up, without the event, then shows what the store asks for by then.
+        let overtaken = false;
         if (initialEventId) {
             let initialEvent = room?.findEventById(initialEventId);
             // The event does not exist in the current sync data
@@ -730,6 +788,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             if (!initialEvent && this.context.client && roomId) {
                 initialEvent = (await fetchInitialEvent(this.context.client, roomId, initialEventId)) ?? undefined;
                 if (this.unmounted) return;
+                // Updates while this one is the first are ignored above, so the store's target is checked as well.
+                overtaken = update !== this.storeUpdates || this.roomViewStore.getInitialEventId() !== initialEventId;
+                if (overtaken && !initial) return;
             }
 
             // If we have an initial event, we want to reset the event pixel offset to ensure it ends up visible
@@ -738,7 +799,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             const thread = initialEvent?.getThread();
             // Handle the use case of a link to a thread message
             // ie: #/room/roomId/eventId (eventId of a thread message)
-            if (thread?.rootEvent && !initialEvent?.isThreadRoot) {
+            if (overtaken) {
+                // Leave the target to the newer view.
+            } else if (thread?.rootEvent && !initialEvent?.isThreadRoot) {
                 defaultDispatcher.dispatch<ShowThreadPayload>({
                     action: Action.ShowThread,
                     rootEvent: thread.rootEvent,
@@ -753,24 +816,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             }
         }
 
-        // Add watchers for each of the settings we just looked up
-        this.settingWatchers = this.settingWatchers.concat([
-            SettingsStore.watchSetting("showReadReceipts", roomId, (...[, , , value]) =>
-                this.setState({ showReadReceipts: value! }),
-            ),
-            SettingsStore.watchSetting("showRedactions", roomId, (...[, , , value]) =>
-                this.setState({ showRedactions: value! }),
-            ),
-            SettingsStore.watchSetting("showJoinLeaves", roomId, (...[, , , value]) =>
-                this.setState({ showJoinLeaves: value! }),
-            ),
-            SettingsStore.watchSetting("showAvatarChanges", roomId, (...[, , , value]) =>
-                this.setState({ showAvatarChanges: value! }),
-            ),
-            SettingsStore.watchSetting("showDisplaynameChanges", roomId, (...[, , , value]) =>
-                this.setState({ showDisplaynameChanges: value! }),
-            ),
-        ]);
+        // Follow the settings we just looked up for this room.
+        this.watchRoomSettings(roomId);
 
         if (!initial && this.state.shouldPeek && !newState.shouldPeek) {
             // Stop peeking because we have joined this room now
@@ -803,7 +850,16 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             }
         }
 
-        if (this.state.roomId === undefined && newState.roomId !== undefined) {
+        // The room is entered when it is first named. Under sliding sync it is named again once its subscription has
+        // loaded, and that update clears the position read before unless it is read again. A later request to view the
+        // room, such as one for its latest messages, is not that update.
+        const enteringRoom =
+            this.state.roomId === undefined ||
+            (this.state.roomLoading &&
+                !roomLoading &&
+                this.state.roomId === newState.roomId &&
+                roomViewStore.isLoadedForView());
+        if (enteringRoom && newState.roomId !== undefined) {
             // Get the scroll state for the new room
 
             // If an event ID wasn't specified, default to the one saved for this room
@@ -837,7 +893,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             this.context.rightPanelStore.setCard({ phase: RightPanelPhases.Timeline }, true, room.roomId);
         }
 
-        this.setState(newState as IRoomState);
+        // Once the room is set up, the newer view is no longer ignored: it is shown then.
+        this.setState(newState as IRoomState, overtaken ? () => void this.onRoomViewStoreUpdate() : undefined);
         // At this point, newState.roomId could be null (e.g. the alias might not
         // have been resolved yet) so anything called here must handle this case.
 
@@ -845,17 +902,19 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         // observe the new state but we don't want to put it in the setState
         // callback because this would prevent the setStates from being batched,
         // ie. cause it to render RoomView twice rather than the once that is necessary.
-        if (initial && !newState.joining) {
-            await this.setupRoom(newState.room, newState.roomId, !!newState.shouldPeek);
+        // A summary held back while sliding sync looked for the room is asked for once it stops looking.
+        const summaryDue =
+            this.summaryWaitingFor !== undefined && this.summaryWaitingFor === newState.roomId && !roomLoading;
+        if ((initial || summaryDue) && !newState.joining) {
+            this.summaryWaitingFor = undefined;
+            // Only an initial update carries the room; one that sliding sync found meanwhile is known by now.
+            const room = newState.room ?? this.context.client?.getRoom(newState.roomId) ?? undefined;
+            await this.setupRoom(room, newState.roomId, !!newState.shouldPeek);
         }
 
         // We don't block the initial setup but we want to make it early to not block the timeline rendering
-        const isRoomEncrypted = await this.getIsRoomEncrypted(newState.roomId);
-        this.setState({
-            isRoomEncrypted,
-            ...(isRoomEncrypted &&
-                newState.roomId && { e2eStatus: RoomView.e2eStatusCache.get(newState.roomId) ?? E2EStatus.Warning }),
-        });
+        const { check, encrypted } = await this.getIsRoomEncrypted(newState.roomId);
+        this.showEncryption(check, encrypted, newState.roomId);
     };
 
     private onCallClose = (): void => {
@@ -908,6 +967,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         return this.permalinkCreators[room.roomId];
     }
 
+    // The room whose summary waits for sliding sync to stop looking for it.
+    private summaryWaitingFor?: string;
+
     private stopAllPermalinkCreators(): void {
         if (!this.permalinkCreators) return;
         for (const roomId of Object.keys(this.permalinkCreators)) {
@@ -929,6 +991,12 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         // We don't have a roomId to set up a room for, so we can't do anything
         if (!roomId) return;
         if (!this.state.matrixClientIsReady && !client.clientRunning) return;
+        // Sliding sync is still looking for this room, such as one it is restoring from this device. A summary is
+        // only needed if it does not find it, so asking for one waits until it stops looking.
+        if (this.roomViewStore.isRoomLoading()) {
+            this.summaryWaitingFor = roomId;
+            return;
+        }
 
         // if this is an unknown room then we're in one of these states:
         // - We are already joined, but sync has not caught up with the room yet. (we can /peek)
@@ -1060,6 +1128,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
 
     public componentDidMount(): void {
         this.unmounted = false;
+        markRoomSwitch("shell", this.roomViewStore.getRoomId());
 
         this.dispatcherRef = defaultDispatcher.register(this.onAction);
         if (this.context.client) {
@@ -1219,6 +1288,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         for (const watcher of this.settingWatchers) {
             SettingsStore.unwatchSetting(watcher);
         }
+        this.unwatchRoomSettings();
 
         if (this.viewsLocalRoom && this.state.room) {
             // clean up if this was a local room
@@ -1618,14 +1688,50 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         return room?.currentState.getStateEvents(EventType.RoomTombstone, "") ?? undefined;
     }
 
-    private async getIsRoomEncrypted(roomId = this.state.roomId): Promise<boolean> {
-        if (!roomId) return false;
-
-        const room = this.context.client?.getRoom(roomId);
+    /**
+     * Ask whether the room is encrypted, and which check answers: only the newest check's answer is shown (see
+     * {@link showEncryption}), as an older one can come back later. A check of the same room still waiting for crypto
+     * answers every caller meanwhile, such as the room being set up and the room view store's update, unless `fresh`
+     * asks again because the room's encryption has changed since. Without crypto the room's state answers, and for a
+     * room not known the answer is `null`: not known either.
+     */
+    private async getIsRoomEncrypted(
+        roomId = this.state.roomId,
+        fresh = false,
+    ): Promise<{ check: number; encrypted: boolean | null }> {
+        const room = roomId ? this.context.client?.getRoom(roomId) : null;
         const crypto = this.context.client?.getCrypto();
-        if (!room || !crypto) return false;
+        if (!room) return { check: ++this.encryptionChecks, encrypted: null };
+        if (!crypto) return { check: ++this.encryptionChecks, encrypted: room.hasEncryptionStateEvent() };
 
-        return isRoomEncrypted(room, crypto);
+        let pending = this.pendingEncryptionCheck;
+        if (fresh || pending?.room !== room) {
+            const started = { room, check: ++this.encryptionChecks, result: isRoomEncrypted(room, crypto) };
+            const settled = (): void => {
+                if (this.pendingEncryptionCheck === started) this.pendingEncryptionCheck = undefined;
+            };
+            started.result.then(settled, settled);
+            this.pendingEncryptionCheck = pending = started;
+        }
+        return { check: pending.check, encrypted: await pending.result };
+    }
+
+    /**
+     * Show whether the room is encrypted as `check` answered, unless a newer check has started since: an older answer
+     * can predate the room being encrypted. URL previews follow it, and an encrypted room shows its last known trust
+     * shield, or a warning, until the shield is worked out again. A room not known shows as not encrypted, while its
+     * URL previews stay off.
+     * @returns Whether the answer was shown.
+     */
+    private showEncryption(check: number, encrypted: boolean | null, roomId = this.state.roomId): boolean {
+        if (this.unmounted || check !== this.encryptionChecks) return false;
+        this.checkedEncryption = encrypted;
+        this.setState({
+            isRoomEncrypted: encrypted ?? false,
+            showUrlPreview: this.getPreviewUrlVisibility(),
+            ...(encrypted && roomId && { e2eStatus: RoomView.e2eStatusCache.get(roomId) ?? E2EStatus.Warning }),
+        });
+        return true;
     }
 
     private async calculateRecommendedVersion(room: Room): Promise<void> {
@@ -1671,13 +1777,17 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     }
 
     private updatePreviewUrlVisibility(): void {
-        this.setState(({ isRoomEncrypted }) => ({
-            showUrlPreview: this.getPreviewUrlVisibility(isRoomEncrypted),
-        }));
+        this.setState({ showUrlPreview: this.getPreviewUrlVisibility() });
     }
 
-    private getPreviewUrlVisibility(isRoomEncrypted: boolean | null): boolean {
-        return SettingsStore.getValue(isRoomEncrypted ? "urlPreviewsEnabled_e2ee" : "urlPreviewsEnabled");
+    /**
+     * Whether to show URL previews, which ask the homeserver about the links in messages: by the setting for encrypted
+     * rooms or the one for other rooms, as last answered while this view was shown (see {@link checkedEncryption}).
+     * Until then they stay off: a room whose encryption is not yet known may be encrypted.
+     */
+    private getPreviewUrlVisibility(): boolean {
+        if (this.checkedEncryption === null) return false;
+        return SettingsStore.getValue(this.checkedEncryption ? "urlPreviewsEnabled_e2ee" : "urlPreviewsEnabled");
     }
 
     private onRoom = (room: Room): void => {
@@ -1748,7 +1858,11 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 this.setState({ tombstone: this.getRoomTombstone() });
                 break;
             case EventType.RoomEncryption: {
-                await this.updateRoomEncrypted();
+                // The room may have just been encrypted: URL previews stop at once, until crypto has answered.
+                this.checkedEncryption = null;
+                this.updatePreviewUrlVisibility();
+                // Crypto takes in the event before the room's state does, so a check asked now has its answer.
+                await this.updateRoomEncrypted(this.state.room, true);
                 break;
             }
             default:
@@ -1756,17 +1870,23 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         }
     };
 
-    private async updateRoomEncrypted(room = this.state.room): Promise<void> {
-        if (!room || !this.context.client) return;
+    /**
+     * Show whether the room is encrypted, then, for an encrypted room, work out its trust shield.
+     * @param fresh - Ask crypto again rather than share a check already waiting, as the room's encryption changed.
+     */
+    private async updateRoomEncrypted(room = this.state.room, fresh = false): Promise<void> {
+        const client = this.context.client;
+        if (!room || !client) return;
 
-        const isRoomEncrypted = await this.getIsRoomEncrypted(room.roomId);
-        const newE2EStatus = isRoomEncrypted ? await this.cacheAndGetE2EStatus(room, this.context.client) : null;
-
-        this.setState({
-            isRoomEncrypted,
-            showUrlPreview: this.getPreviewUrlVisibility(isRoomEncrypted),
-            ...(newE2EStatus && { e2eStatus: newE2EStatus }),
-        });
+        const { check, encrypted } = await this.getIsRoomEncrypted(room.roomId, fresh);
+        // Shown before the shield is worked out, which can take a while: URL previews must not wait for it.
+        this.showEncryption(check, encrypted, room.roomId);
+        // The shield is worked out even when a newer check answers, as the room view store's do not work it out, and
+        // encryption cannot be turned off again: the room stays encrypted.
+        if (!encrypted) return;
+        const e2eStatus = await this.cacheAndGetE2EStatus(room, client);
+        // Unless a newer answer has said since that the room is not encrypted, as one without crypto can.
+        if (!this.unmounted && this.checkedEncryption !== false) this.setState({ e2eStatus });
     }
 
     private onRoomStateUpdate = (state: RoomState): void => {
@@ -2757,6 +2877,10 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                         showReactions={true}
                         editState={this.state.editState}
                         showReadReceipts={this.state.showReadReceipts}
+                        sendReadReceiptOnLoad={
+                            !this.state.wasContextSwitch && this.props.enableReadReceiptsAndMarkersOnActivity
+                        }
+                        enableReadReceiptsAndMarkersOnActivity={this.props.enableReadReceiptsAndMarkersOnActivity}
                     />
                 </EventPresentationContextProvider>
             );
@@ -2862,7 +2986,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 <Measured sensor={this.roomViewBody} onMeasurement={this.onMeasurement} />
                 {auxPanel}
                 {pinnedMessageBanner}
-                <main className={timelineClasses} data-testid="timeline">
+                {/* The room's id says which room this main timeline belongs to, such as to tell it from a timeline in
+                    the right panel, and is kept in production builds, unlike the test id. */}
+                <main className={timelineClasses} data-testid="timeline" data-room-id={this.state.room.roomId}>
                     <FileDropTarget parent={this.roomView.current} />
                     {topUnreadMessagesBar}
                     {jumpToBottom}
@@ -2898,11 +3024,14 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 mainSplitContentClassName = conversationCall
                     ? "mx_MainSplit_timeline mx_RoomView_conversationCall"
                     : "mx_MainSplit_call";
+                // A conversation call sits above the timeline, which is the page's main content: the call is then a
+                // region of its own, as a page has one main landmark.
                 const callView = (
                     <CallView
                         room={this.state.room}
                         resizing={this.state.resizing}
-                        role="main"
+                        role={conversationCall ? "region" : "main"}
+                        label={conversationCall ? _t("voip|call_area") : undefined}
                         onClose={this.onCallClose}
                     />
                 );
@@ -3019,9 +3148,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                     onFocus={this.onFocus}
                     tabIndex={-1}
                 >
-                    {showChatEffects && this.roomView.current && (
-                        <EffectsOverlay roomWidth={this.roomView.current.offsetWidth} />
-                    )}
+                    {showChatEffects && this.roomView.current && <EffectsOverlay room={this.roomView.current} />}
                     <ErrorBoundary>
                         {desktopShell && !this.props.hideHeader && (
                             <RoomHeader room={this.state.room} extraButtons={<>{extraButtons}</>} />

@@ -79,6 +79,7 @@ test.describe("Spaces", () => {
             await contextMenu
                 .locator('.mx_SpaceBasicSettings_avatarContainer input[type="file"]')
                 .setInputFiles(getSampleFilePath("riot.png"));
+            await app.applyImageCrop();
             await contextMenu.getByRole("textbox", { name: "Name" }).fill("Let's have a Riot");
             await expect(contextMenu.getByRole("textbox", { name: "Address" })).toHaveValue("lets-have-a-riot");
             await contextMenu
@@ -114,6 +115,7 @@ test.describe("Spaces", () => {
         await menu
             .locator('.mx_SpaceBasicSettings_avatarContainer input[type="file"]')
             .setInputFiles(getSampleFilePath("riot.png"));
+        await app.applyImageCrop();
         await menu.getByRole("textbox", { name: "Name" }).fill("This is not a Riot");
         await expect(menu.getByRole("textbox", { name: "Address" })).not.toBeVisible();
         await menu.getByRole("textbox", { name: "Description" }).fill("This is a private space of mourning Riot.im...");
@@ -149,6 +151,25 @@ test.describe("Spaces", () => {
         ).toBeVisible();
     });
 
+    test("lists a room added to the open space, and drops one removed from it", async ({ page, app, user }) => {
+        const setChild = (spaceId: string, roomId: string, content: object): Promise<unknown> =>
+            app.client.sendStateEvent(spaceId, "m.space.child", content, roomId);
+        const spaceId = await app.client.createSpace({ name: "Guild" });
+        const first = await app.client.createRoom({ name: "First channel" });
+        await setChild(spaceId, first, { via: [user.homeServer] });
+        await rejectToast(page, "Verify this device");
+        await (await app.getSpacePanelButton("Guild")).click();
+        const names = page.getByTestId("room-list").getByTestId("room-name");
+        await expect(names).toHaveText(["First channel"]);
+
+        // Someone adds a room to the space while it is open, then removes the first one.
+        const second = await app.client.createRoom({ name: "Second channel" });
+        await setChild(spaceId, second, { via: [user.homeServer] });
+        await expect(names).toHaveText(["Second channel", "First channel"]);
+        await setChild(spaceId, first, {});
+        await expect(names).toHaveText(["Second channel"]);
+    });
+
     test("should allow user to create just-me space", async ({ page, app, user }) => {
         await app.client.createRoom({
             name: "Sample Room",
@@ -161,6 +182,9 @@ test.describe("Spaces", () => {
         await menu
             .locator('.mx_SpaceBasicSettings_avatarContainer input[type="file"]')
             .setInputFiles(getSampleFilePath("riot.png"));
+        await app.applyImageCrop();
+        // The menu is shown again with the focus back in it, ready to go on.
+        await expect(menu.locator(":focus")).toHaveCount(1);
         await expect(menu.getByRole("textbox", { name: "Address" })).not.toBeVisible();
         await menu.getByRole("textbox", { name: "Description" }).fill("This is a personal space to mourn Riot.im...");
         await menu.getByRole("textbox", { name: "Name" }).fill("This is my Riot");
@@ -196,6 +220,7 @@ test.describe("Spaces", () => {
             await menu
                 .locator('.mx_SpaceBasicSettings_avatarContainer input[type="file"]')
                 .setInputFiles(getSampleFilePath("riot.png"));
+            await app.applyImageCrop();
             await expect(menu.getByRole("textbox", { name: "Address" })).not.toBeVisible();
             await menu
                 .getByRole("textbox", { name: "Description" })
@@ -500,6 +525,7 @@ test.describe("Spaces", () => {
             await menu
                 .locator('.mx_SpaceBasicSettings_avatarContainer input[type="file"]')
                 .setInputFiles(getSampleFilePath("riot.png"));
+            await app.applyImageCrop();
             await menu.getByRole("textbox", { name: "Name" }).fill("This is a private space");
             await expect(menu.getByRole("textbox", { name: "Address" })).not.toBeVisible();
             await menu

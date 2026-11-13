@@ -51,7 +51,15 @@ const determineIntroMessage = (room: Room, encryptedSingle3rdPartyInvite: boolea
     return _td("room|intro|start_of_dm_history");
 };
 
-const NewRoomIntro: React.FC = () => {
+interface Props {
+    /**
+     * The element to render as: a list item, as the old timeline needs, or a plain block where the intro shares a
+     * row of a list with other content, as in the new timeline.
+     */
+    as?: "li" | "div";
+}
+
+const NewRoomIntro: React.FC<Props> = ({ as: Element = "li" }) => {
     const sdkContext = useContext(SDKContext);
     const cli = sdkContext.client!;
     const { room, roomId } = useScopedRoomContext("room", "roomId");
@@ -320,7 +328,7 @@ const NewRoomIntro: React.FC = () => {
     );
 
     return (
-        <li className={desktopSpace ? "mx_NewRoomIntro mx_DesktopShell_serverIntro" : "mx_NewRoomIntro"}>
+        <Element className={desktopSpace ? "mx_NewRoomIntro mx_DesktopShell_serverIntro" : "mx_NewRoomIntro"}>
             {!hasExpectedEncryptionSettings(cli, room) && (
                 <EventTileBubble
                     icon={<ErrorSolidIcon color="var(--cpd-color-icon-critical-primary)" />}
@@ -331,7 +339,7 @@ const NewRoomIntro: React.FC = () => {
             )}
 
             {body}
-        </li>
+        </Element>
     );
 };
 

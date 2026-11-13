@@ -521,7 +521,7 @@ test.describe("Room list", () => {
             "should render a message preview when enable in settings",
             { tag: "@screenshot" },
             async ({ page, app, user, bot }) => {
-                await app.settings.openUserSettings("Preferences");
+                await app.settings.openUserSettings("Chat");
                 await page.getByRole("switch", { name: "Show message previews" }).click();
                 await app.closeDialog();
 
@@ -604,23 +604,8 @@ test.describe("Room list", () => {
         });
     });
 
-    test.describe("Show people in space", () => {
-        const SPACE_NAME = "My space";
-
-        /**
-         * Toggle the "People" checkbox in the preferences of the given space.
-         */
-        async function togglePeopleInSpace(page: Page, app: ElementAppPage, spaceName: string): Promise<void> {
-            const spaceButton = await app.getSpacePanelButton(spaceName);
-            await spaceButton.click({ button: "right" });
-            await page.getByRole("menuitem", { name: "Preferences" }).click();
-
-            const dialog = page.getByRole("dialog");
-            await dialog.getByRole("checkbox", { name: "People" }).click();
-            await app.settings.closeDialog();
-        }
-
-        test("should hide and show the DMs of a space when the People preference is toggled", async ({
+    test.describe("People in a server", () => {
+        test("should keep a DM out of a server, even when the other person is in it", async ({
             page,
             app,
             user,
@@ -630,7 +615,7 @@ test.describe("Room list", () => {
 
             const roomId = await app.client.createRoom({ name: "Space room" });
             const spaceId = await app.client.createSpace({
-                name: SPACE_NAME,
+                name: "My space",
                 initial_state: [
                     {
                         type: "m.space.child",
@@ -639,7 +624,6 @@ test.describe("Room list", () => {
                     },
                 ],
             });
-            // A DM only shows up in a space when the other user is a member of the space itself.
             await app.client.inviteUser(spaceId, botUserId);
 
             await app.client.evaluate(async (cli, botUserId) => {
@@ -647,25 +631,18 @@ test.describe("Room list", () => {
                 await cli.setAccountData("m.direct" as keyof AccountDataEvents, { [botUserId]: [dmRoomId] });
             }, botUserId);
 
-            await app.viewSpaceByName(SPACE_NAME);
-
+            // The list turns flat when it has one section, which changes a room's role, so match on its label.
             const roomListView = getRoomList(page);
-            // Hiding the DM leaves the Rooms section on its own, which turns the list flat and
-            // changes the role of a room from a treegrid button to a listbox option. The label is
-            // the same in both, so match on it instead.
             const dm = roomListView.getByLabel("Open room BotBob");
             const room = roomListView.getByLabel("Open room Space room");
-            await expect(dm).toBeVisible();
-            await expect(room).toBeVisible();
 
-            // Turning the preference off hides the DM straight away, without switching space
-            await togglePeopleInSpace(page, app, SPACE_NAME);
-            await expect(dm).not.toBeVisible();
-            await expect(room).toBeVisible();
-
-            // Turning it back on brings the DM back
-            await togglePeopleInSpace(page, app, SPACE_NAME);
+            // The DM is listed at home
             await expect(dm).toBeVisible();
+
+            // but not in the server, which lists only its own rooms
+            await app.viewSpaceByName("My space");
+            await expect(room).toBeVisible();
+            await expect(dm).toHaveCount(0);
         });
     });
 });

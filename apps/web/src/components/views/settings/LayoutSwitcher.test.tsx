@@ -48,6 +48,17 @@ describe("<LayoutSwitcher />", () => {
         expect(asFragment()).toMatchSnapshot();
     });
 
+    it("marks each preview with the layout its tile is drawn in", async () => {
+        const { container } = await renderLayoutSwitcher();
+        const previews = container.querySelectorAll(".mxLayoutSwitcher_LayoutSelector_LayoutRadio_EventTilePreview");
+        const layouts = [...previews].map((preview) => {
+            const layout = preview.querySelector("[data-event-layout]")?.getAttribute("data-event-layout");
+            expect(preview).toHaveClass(`mxLayoutSwitcher_LayoutSelector_LayoutRadio_EventTilePreview--${layout}`);
+            return layout;
+        });
+        expect(layouts).toEqual([Layout.Group, Layout.Bubble, Layout.IRC]);
+    });
+
     describe("layout selection", () => {
         it("should display the modern layout", async () => {
             await renderLayoutSwitcher();

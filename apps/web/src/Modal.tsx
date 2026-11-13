@@ -73,6 +73,9 @@ export interface IModal<C extends ComponentType> {
      * the call to {@link close} (normally from the `onFinished` callback).
      */
     deferred?: PromiseWithResolvers<OnFinishedParams<C> | []>;
+
+    /** When the dialog was created, counting from one: a later dialog has a larger number. */
+    order: number;
 }
 
 /** The result of {@link Modal.createDialog}.
@@ -137,6 +140,8 @@ export class ModalManager extends TypedEventEmitter<ModalManagerEvent, HandlerMa
     // A list of the modals we have stacked up, with the most recent at [0]
     // Neither the static nor priority modal will be in this list.
     private modals: IModal<any>[] = [];
+    // The order given to the last dialog created.
+    private lastOrder = 0;
 
     private static root?: Root;
     private static getOrCreateRoot(): Root {
@@ -175,6 +180,19 @@ export class ModalManager extends TypedEventEmitter<ModalManagerEvent, HandlerMa
         const modal = this.getCurrentModal();
         if (!modal) return;
         modal.hidden = !modal.hidden;
+    }
+
+    /** The order the last dialog created was given; 0 before any. Dialogs created later have larger ones. */
+    public get lastDialogOrder(): number {
+        return this.lastOrder;
+    }
+
+    /**
+     * The order the dialog on top was given when it was created, or 0 when there is none: such as to tell whether
+     * a dialog opened after a menu is over it.
+     */
+    public get topDialogOrder(): number {
+        return this.getCurrentModal()?.order ?? 0;
     }
 
     public hasDialogs(): boolean {
@@ -233,6 +251,7 @@ export class ModalManager extends TypedEventEmitter<ModalManagerEvent, HandlerMa
         const modal = {
             onBeforeClose: options?.onBeforeClose,
             className,
+            order: ++this.lastOrder,
 
             // these will be set below but we need an object reference to pass to getCloseFn before we can do that
             elem: null,

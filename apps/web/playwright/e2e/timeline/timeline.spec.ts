@@ -17,6 +17,7 @@ import { type Client } from "../../pages/client";
 import { type ElementAppPage } from "../../pages/ElementAppPage";
 import { Bot } from "../../pages/bot";
 import { getSampleFilePath, readSampleFileSync } from "../../sample-files";
+import { timelineScroller, topLevelTiles } from "../../pages/timeline";
 
 // The avatar size used in the timeline
 const AVATAR_SIZE = 30;
@@ -405,9 +406,9 @@ test.describe("Timeline", () => {
                 await composer.press("Enter");
 
                 // Make sure the second message was sent
-                await expect(
-                    page.locator(".mx_RoomView_MessageList > .mx_EventTile").last().getByRole("status"),
-                ).toHaveAccessibleName("Your message was sent");
+                await expect(topLevelTiles(page).last().getByRole("status")).toHaveAccessibleName(
+                    "Your message was sent",
+                );
 
                 // 1. Alignment of collapsed GELS (generic event list summary) and messages
                 await captureTimeline("collapsed-gels-and-messages-irc-layout.png");
@@ -419,7 +420,7 @@ test.describe("Timeline", () => {
 
                 // 3. Alignment of expanded GELS and placeholder of deleted message
                 // Delete the second (last) message
-                const lastTile = page.locator(".mx_RoomView_MessageList > .mx_EventTile").last();
+                const lastTile = topLevelTiles(page).last();
                 await lastTile.hover();
                 await lastTile.getByRole("button", { name: "Options" }).click();
                 await page.getByRole("menuitem", { name: "Remove" }).click();
@@ -1225,7 +1226,7 @@ test.describe("Timeline", () => {
                 await expect(lastEventTileIrc.locator(".mx_MTextBody").first()).toBeVisible();
                 await expect(lastEventTileIrc.getByRole("status")).toHaveAccessibleName("Your message was sent"); // rendered at the bottom of EventTile
                 // Take a snapshot in IRC layout
-                await expect(page.locator(".mx_ScrollPanel")).toMatchScreenshot(
+                await expect(timelineScroller(page)).toMatchScreenshot(
                     "long-strings-with-reply-irc-layout.png",
                     screenshotOptions,
                 );
@@ -1237,7 +1238,7 @@ test.describe("Timeline", () => {
                 const lastEventTileGroup = page.locator(".mx_EventTile").last();
                 await expect(lastEventTileGroup.locator(".mx_MTextBody").first()).toBeVisible();
                 await expect(lastEventTileGroup.getByRole("status")).toHaveAccessibleName("Your message was sent");
-                await expect(page.locator(".mx_ScrollPanel")).toMatchScreenshot(
+                await expect(timelineScroller(page)).toMatchScreenshot(
                     "long-strings-with-reply-modern-layout.png",
                     screenshotOptions,
                 );
@@ -1249,7 +1250,7 @@ test.describe("Timeline", () => {
                 const lastEventTileBubble = page.locator(".mx_EventTile").last();
                 await expect(lastEventTileBubble.locator(".mx_MTextBody").first()).toBeVisible();
                 await expect(lastEventTileBubble.getByRole("status")).toHaveAccessibleName("Your message was sent");
-                await expect(page.locator(".mx_ScrollPanel")).toMatchScreenshot(
+                await expect(timelineScroller(page)).toMatchScreenshot(
                     "long-strings-with-reply-bubble-layout.png",
                     screenshotOptions,
                 );
@@ -1281,7 +1282,7 @@ test.describe("Timeline", () => {
                 `,
             };
 
-            await expect(page.locator(".mx_ScrollPanel")).toMatchScreenshot(
+            await expect(timelineScroller(page)).toMatchScreenshot(
                 "image-in-timeline-default-layout.png",
                 screenshotOptions,
             );

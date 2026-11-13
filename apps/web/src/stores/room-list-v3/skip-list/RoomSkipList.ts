@@ -132,7 +132,9 @@ export class RoomSkipList implements Iterable<Room> {
      */
     private insertRoom(room: Room): void {
         const newNode = new RoomNode(room);
-        newNode.checkIfRoomBelongsToActiveSpace();
+        // Rooms arrive in batches, such as a whole account as sliding sync starts: the Space store tells the list
+        // again once it has worked out a batch, rather than working out every Space for each room.
+        newNode.checkIfRoomBelongsToActiveSpace(true);
         newNode.applyFilters(this.filters);
         this.roomNodeMap.set(room.roomId, newNode);
 
