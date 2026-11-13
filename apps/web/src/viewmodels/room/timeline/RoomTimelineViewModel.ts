@@ -58,6 +58,7 @@ import { GALLERY_WINDOW_MS, isGalleryMedia } from "../../../utils/gallery";
 import { wantsDateSeparator } from "../../../DateUtils";
 import { getLateEventInfo } from "../../../components/structures/grouper/LateEventGrouper";
 import { sendStateOf } from "./sendState";
+import { markRoomSwitch } from "../../../performance/RoomSwitchPerformance";
 
 const DEBUG_TIMELINE = false;
 
@@ -1613,6 +1614,7 @@ export class RoomTimelineViewModel
                 canJumpToReadMarker: this.computeCanJumpToReadMarker(items),
                 visit: this.visitState(),
             });
+            markRoomSwitch("rows", this.opts.room.roomId);
 
             // An empty list cannot report either scroll edge. Search toward live content first,
             // or older history when we are already at the live end, instead of waiting forever.
@@ -1767,6 +1769,7 @@ export class RoomTimelineViewModel
         if (targetKey !== undefined && pending.targetKey !== targetKey) return;
         debug(`[TimelineVM] onAnchorReached — placement settled, clearing pendingAnchor`);
         this.readerPlaced = true;
+        markRoomSwitch("placed", this.opts.room.roomId);
         this.mergeSnapshot({ pendingAnchor: null }, "anchor-settled");
     };
 
