@@ -259,6 +259,17 @@ test.describe("readable timeline check", () => {
         expect(await readable(page, TARGET, true)).toBe(true);
     });
 
+    test("reads text beside a box its own element positions absolutely", async ({ page }) => {
+        const style = `<style>
+            .mx_EventTile_body::before {
+                content: ""; position: absolute; left: -30px; top: 0; width: 20px; height: 20px; background: red;
+            }
+        </style>`;
+        await show(page, style + timeline(rowWithBody("the wanted message", "position: relative; margin-left: 40px")));
+        expect(await readable(page)).toBe(true);
+        expect(await readable(page, TARGET, true)).toBe(true);
+    });
+
     for (const [name, cover] of [
         ["transparent", `<div style="position: absolute; inset: 0; background: white; opacity: 0"></div>`],
         [

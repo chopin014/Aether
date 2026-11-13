@@ -46,8 +46,9 @@ export interface ReadableWindow {
  *   lets show along each axis it clips, by overflow or paint containment: its padding box, less any scrollbar.
  * - At the middle of each of those lines nothing visible is drawn over the text: no element above it there, inside it
  *   or elsewhere, paints media or a background, or has a `::before` or `::after` box that does. Of the text's own
- *   element and those around it, only boxes they position absolutely, and not behind their content, count. Asked to be
- *   thorough, this also catches covers the pointer passes through.
+ *   element and those around it, only such boxes they position absolutely, and not behind their content, count, and
+ *   only when the text is not what the pointer would land on there. Asked to be thorough, this also catches covers the
+ *   pointer passes through.
  *
  * Not caught: text drawn over it by an element without a background, what a canvas holds, and clipping by `clip-path`.
  *
@@ -194,11 +195,19 @@ export function installReadableCheck(): void {
             (style) =>
                 (style.position === "absolute" || style.position === "fixed") && !(Number.parseInt(style.zIndex) < 0),
         );
-    // Whether something is drawn over the text at a point: going down the elements there from the top, one is reached
-    // that draws over the text before the text's own element, or one around it, is.
-    const coveredAt = (x: number, y: number, holder: Element): boolean => {
+    // Whether the pointer would land on `node`'s own text at a point: inside it, rather than at either end, where it
+    // lands when a box the text's element draws is on top there.
+    const textOnTop = (x: number, y: number, node: Text): boolean => {
+        const caret = document.caretPositionFromPoint(x, y);
+        return caret?.offsetNode === node && caret.offset > 0 && caret.offset < node.length;
+    };
+    // Whether something is drawn over the text in `node` at a point: going down the elements there from the top, one is
+    // reached that draws over the text before the text's own element, or one around it, is.
+    const coveredAt = (x: number, y: number, node: Text, holder: Element): boolean => {
         for (const element of document.elementsFromPoint(x, y)) {
-            if (element === holder || element.contains(holder)) return drawsOverContent(element);
+            if (element === holder || element.contains(holder)) {
+                return drawsOverContent(element) && !textOnTop(x, y, node);
+            }
             if (drawsOver(element)) return true;
         }
         // The text is not there at all.
@@ -219,7 +228,9 @@ export function installReadableCheck(): void {
             for (const line of range.getClientRects()) {
                 if (line.width <= 0 || line.height <= 0) continue;
                 if (!boxes.every((box) => within(line, box))) return false;
-                if (coveredAt(line.left + line.width / 2, line.top + line.height / 2, holder)) return false;
+                const x = line.left + line.width / 2;
+                const y = line.top + line.height / 2;
+                if (coveredAt(x, y, range.startContainer as Text, holder)) return false;
                 lines++;
             }
             // A piece with no line drawn, such as one sized to nothing, cannot be read.
