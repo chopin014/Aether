@@ -5,15 +5,15 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import React, { useEffect, type JSX } from "react";
+import React, { useEffect, type ComponentProps, type JSX } from "react";
 import { useCreateAutoDisposedViewModel } from "@element-hq/web-shared-components";
 
 import { RoomTimelineViewModel } from "../../viewmodels/room/timeline/RoomTimelineViewModel";
 import { useMatrixClientContext } from "../../contexts/MatrixClientContext";
-import { NewTimelineRenderer, type NewTimelineRendererProps } from "./NewTimelineRenderer";
+import { NewTimelineRenderer } from "./NewTimelineRenderer";
 
 /** A room timeline that owns its view model; see {@link NewTimelinePanel}. */
-export interface NewTimelinePanelProps extends NewTimelineRendererProps {
+interface NewTimelinePanelProps extends Omit<ComponentProps<typeof NewTimelineRenderer>, "vm"> {
     /**
      * Whether what the timeline shows once it has loaded is read straight away, without waiting for the reader to be
      * active. The room view sets it when the reader opened the room themselves, as for the old timeline.

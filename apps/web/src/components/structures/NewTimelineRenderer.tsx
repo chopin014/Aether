@@ -63,7 +63,7 @@ import { KeyBindingAction } from "../../accessibility/KeyboardShortcuts";
 import type { RoomMessagePanel } from "./RoomMessagePanel";
 
 /** What {@link NewTimelineRenderer} draws, and how, besides the view model it is given. */
-export interface NewTimelineRendererProps {
+interface NewTimelineRendererProps {
     room: Room;
     highlightedEventId?: string;
     /**
