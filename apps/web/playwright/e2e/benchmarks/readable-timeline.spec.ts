@@ -270,6 +270,21 @@ test.describe("readable timeline check", () => {
         expect(await readable(page, TARGET, true)).toBe(true);
     });
 
+    test("reads part of a single character beside a box its own element positions, as the whole character", async ({
+        page,
+    }) => {
+        // One family emoji: four people joined by three zero-width joiners. The part asked for starts at a joiner.
+        const family = "\u{1F469}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}";
+        const style = `<style>
+            .mx_EventTile_body::after {
+                content: ""; position: absolute; left: -30px; top: 0; width: 20px; height: 20px; background: white;
+            }
+        </style>`;
+        await show(page, style + timeline(rowWithBody(family, "position: relative; margin-left: 40px")));
+        expect(await readable(page, { ...TARGET, text: family })).toBe(true);
+        expect(await readable(page, { ...TARGET, text: family.slice(2) })).toBe(true);
+    });
+
     // An emoji, and a letter with its accent written apart from it, are single characters held in two code units.
     for (const [name, text] of [
         ["a letter", "x"],

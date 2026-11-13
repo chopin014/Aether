@@ -246,9 +246,13 @@ export function installReadableCheck(): void {
         const node = range.startContainer as Text;
         const character = document.createRange();
         let count = 0;
-        for (const { index, segment } of graphemes.segment(node.data.slice(range.startOffset, range.endOffset))) {
-            character.setStart(node, range.startOffset + index);
-            character.setEnd(node, range.startOffset + index + segment.length);
+        // The whole node is split into characters, as it is drawn, since the range may start or end inside one.
+        for (const { index, segment } of graphemes.segment(node.data)) {
+            const end = index + segment.length;
+            if (end <= range.startOffset) continue;
+            if (index >= range.endOffset) break;
+            character.setStart(node, index);
+            character.setEnd(node, end);
             const box = character.getBoundingClientRect();
             const x = box.left + box.width / 2;
             const y = box.top + box.height / 2;
