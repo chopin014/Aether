@@ -6,22 +6,20 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import { TypedEventEmitter } from "matrix-js-sdk/src/matrix";
 import React, {
     type JSX,
     type ContextType,
-    createContext,
     memo,
     type ReactNode,
     useContext,
     useEffect,
     useMemo,
-    useState,
+    useRef,
+    useSyncExternalStore,
 } from "react";
 
-import { objectKeyChanges } from "../utils/objects.ts";
-import { useTypedEventEmitter } from "../hooks/useEventEmitter.ts";
 import RoomContext from "./RoomContext.ts";
+import { ScopedRoomContext, ScopedRoomContextStore } from "./scoped-room-context-store.ts";
 
 // React Contexts with frequently changing values (like State where the object reference is changed on every update)
 // cause performance issues by triggering a re-render on every component subscribed to that context.
@@ -30,62 +28,73 @@ import RoomContext from "./RoomContext.ts";
 
 type ContextValue = ContextType<typeof RoomContext>;
 
-export enum NotificationStateEvents {
-    Update = "update",
-}
-
-type EventHandlerMap<C extends Record<string, any>> = {
-    [NotificationStateEvents.Update]: (keys: Array<keyof C>) => void;
-};
-
-class EfficientContext<C extends Record<string, any>> extends TypedEventEmitter<
-    NotificationStateEvents,
-    EventHandlerMap<C>
-> {
-    public constructor(public state: C) {
-        super();
-        // One listener for each component in the room that reads the context, which can be any number.
-        this.setMaxListeners(0);
-    }
-
-    public setState(state: C): void {
-        const changedKeys = objectKeyChanges(this.state ?? ({} as C), state);
-        this.state = state;
-        this.emit(NotificationStateEvents.Update, changedKeys);
-    }
-}
-
-const ScopedRoomContext = createContext<EfficientContext<ContextValue> | undefined>(undefined);
-
 // Uses react memo and leverages splatting the value to ensure that the context is only updated when the state changes (shallow compare)
 export const ScopedRoomContextProvider = memo(
     ({ children, ...state }: { children: ReactNode } & ContextValue): JSX.Element => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        const context = useMemo(() => new EfficientContext<ContextValue>(state), []);
+        const store = useMemo(() => new ScopedRoomContextStore(state), []);
+        const revision = useRef(0);
+        // Published once committed, after the components under it, which read the store as they render.
         useEffect(() => {
-            context.setState(state);
-        }, [context, state]);
+            store.publish(state, ++revision.current);
+        }, [store, state]);
 
         // Includes the legacy RoomContext provider for backwards compatibility with class components
         return (
             <RoomContext.Provider value={state}>
-                <ScopedRoomContext.Provider value={context}>{children}</ScopedRoomContext.Provider>
+                <ScopedRoomContext.Provider value={store}>{children}</ScopedRoomContext.Provider>
             </RoomContext.Provider>
         );
     },
 );
 
-type ScopedRoomContext<K extends Array<keyof ContextValue>> = { [key in K[number]]: ContextValue[key] };
+type ScopedRoomContextFields<K extends Array<keyof ContextValue>> = Pick<ContextValue, K[number]>;
 
-export function useScopedRoomContext<K extends Array<keyof ContextValue>>(...keys: K): ScopedRoomContext<K> {
-    const context = useContext(ScopedRoomContext);
-    const [state, setState] = useState<ScopedRoomContext<K>>(context?.state ?? ({} as ScopedRoomContext<K>));
+/** What a component reads without a scoped room context provider above it: nothing. */
+const NO_CONTEXT = Object.freeze({});
 
-    useTypedEventEmitter(context, NotificationStateEvents.Update, (updatedKeys: K): void => {
-        if (context?.state && updatedKeys.some((updatedKey) => keys.includes(updatedKey))) {
-            setState(context.state);
-        }
-    });
+// Joins a list of keys into one string, so the list can be compared by its value rather than its identity.
+const KEY_SEPARATOR = "\u0000";
 
-    return state;
+/**
+ * A subscription to the fields `keyList` names, for `useSyncExternalStore`. It hands out the same object while none of
+ * those fields changes, so a change to any other field neither re-renders the component nor gives it a new object.
+ */
+function selectionOf(
+    store: ScopedRoomContextStore | undefined,
+    keyList: string,
+): { subscribe: (onChange: () => void) => () => void; getSnapshot: () => object } {
+    if (!store) return { subscribe: () => () => {}, getSnapshot: () => NO_CONTEXT };
+    const keys = keyList.split(KEY_SEPARATOR) as Array<keyof ContextValue>;
+    let selectedFrom: ContextValue | undefined;
+    let selected: object = NO_CONTEXT;
+    return {
+        subscribe: store.subscribe,
+        getSnapshot: (): object => {
+            const value = store.getSnapshot().value;
+            if (value === selectedFrom) return selected;
+            const from = selectedFrom;
+            selectedFrom = value;
+            if (from === undefined || keys.some((key) => !Object.is(from[key], value[key]))) {
+                selected = Object.fromEntries(keys.map((key) => [key, value[key]]));
+            }
+            return selected;
+        },
+    };
+}
+
+/**
+ * The fields `keys` of the room context the nearest scoped room context provider gives, re-rendering only when one of
+ * them changes. Without a provider, an empty object.
+ */
+export function useScopedRoomContext<K extends Array<keyof ContextValue>>(...keys: K): ScopedRoomContextFields<K> {
+    const store = useContext(ScopedRoomContext);
+    const keyList = keys.join(KEY_SEPARATOR);
+    const selection = useMemo(() => selectionOf(store, keyList), [store, keyList]);
+    // Rendering to static markup, as a chat export does, reads the store as it is: it holds the provider's value.
+    return useSyncExternalStore(
+        selection.subscribe,
+        selection.getSnapshot,
+        selection.getSnapshot,
+    ) as ScopedRoomContextFields<K>;
 }
