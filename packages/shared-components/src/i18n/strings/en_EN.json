@@ -1130,9 +1130,17 @@
                 "one": "Open room %(roomName)s with 1 unread mention.",
                 "other": "Open room %(roomName)s with %(count)s unread mentions."
             },
+            "mention_at_least": {
+                "one": "Open room %(roomName)s with at least 1 unread mention.",
+                "other": "Open room %(roomName)s with at least %(count)s unread mentions."
+            },
             "unread": {
                 "one": "Open room %(roomName)s with 1 unread message.",
                 "other": "Open room %(roomName)s with %(count)s unread messages."
+            },
+            "unread_at_least": {
+                "one": "Open room %(roomName)s with at least 1 unread message.",
+                "other": "Open room %(roomName)s with at least %(count)s unread messages."
             },
             "unsent_message": "Open room %(roomName)s with an unsent message.",
             "video_call": "Open room %(roomName)s, video call in progress.",

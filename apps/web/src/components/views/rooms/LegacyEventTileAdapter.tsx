@@ -22,6 +22,11 @@ import type EditorStateTransfer from "../../../utils/EditorStateTransfer";
  */
 export interface LegacyEventTileAdapterProps {
     mxEvent: MatrixEvent;
+    /**
+     * The tile's element. A `div` by default, as the shared TimelineView puts each row in its own list item; a list
+     * of tiles inside a row, such as a gallery, makes each tile an `li`.
+     */
+    as?: "div" | "li";
 
     // Position / continuation
     continuation?: boolean;
@@ -79,7 +84,7 @@ export function LegacyEventTileAdapter(props: Readonly<LegacyEventTileAdapterPro
         <EventTile
             // The shared TimelineView wraps each row in its own semantic <li>, so
             // the tile itself renders as a <div> to avoid a nested list item.
-            as="div"
+            as={props.as ?? "div"}
             mxEvent={props.mxEvent}
             continuation={props.continuation}
             last={props.last}

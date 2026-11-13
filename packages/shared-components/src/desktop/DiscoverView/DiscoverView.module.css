@@ -209,8 +209,9 @@ Please see LICENSE in the repository root for full details.
     height: var(--cpd-space-10x);
     color: var(--cpd-color-icon-tertiary);
 }
-.state > :first-child:not(svg),
-.state > svg + * {
+/* The state's title. A class, not `svg + *`: that form makes the browser restyle the whole page whenever any
+   element anywhere is added or removed. */
+.stateTitle {
     color: var(--cpd-color-text-primary);
 }
 

@@ -19,6 +19,7 @@ import { DefaultTagID } from "../room-list-v3/skip-list/tag";
 import * as RoomNotifs from "../../RoomNotifs";
 import SettingsStore from "../../settings/SettingsStore";
 import { MatrixDispatcher } from "../../dispatcher/dispatcher";
+import { InexactCount, setInexactCounts } from "../../sliding-sync/notification-counts/publishedCounts";
 
 describe("RoomNotificationStateStore", function () {
     let store: RoomNotificationStateStore;
@@ -78,6 +79,32 @@ describe("RoomNotificationStateStore", function () {
 
             // Then the summary catches up without waiting for the next sync response
             expect(store.emit).toHaveBeenCalledWith(UPDATE_STATUS_INDICATOR, expect.anything(), "SYNCING");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("Emits an event when a count only becomes, or stops being, a lower bound", async () => {
+        vi.useFakeTimers();
+        try {
+            const room = fakeRoom(3);
+            vi.mocked(client.getVisibleRooms).mockReturnValue([room]);
+            client.emit(ClientEvent.Sync, SyncState.Syncing, SyncState.Syncing);
+            expect(store.globalState.countIsLowerBound).toBe(false);
+            vi.mocked(store.emit).mockClear();
+
+            setInexactCounts(room, { main: InexactCount.LowerBound, threads: new Map() });
+            room.emit(RoomEvent.UnreadNotifications, {});
+            vi.advanceTimersByTime(100);
+            expect(store.emit).toHaveBeenCalledWith(UPDATE_STATUS_INDICATOR, expect.anything(), "SYNCING");
+            expect(store.globalState).toMatchObject({ count: 3, countIsLowerBound: true });
+            vi.mocked(store.emit).mockClear();
+
+            setInexactCounts(room, undefined);
+            room.emit(RoomEvent.UnreadNotifications, {});
+            vi.advanceTimersByTime(100);
+            expect(store.emit).toHaveBeenCalledWith(UPDATE_STATUS_INDICATOR, expect.anything(), "SYNCING");
+            expect(store.globalState).toMatchObject({ count: 3, countIsLowerBound: false });
         } finally {
             vi.useRealTimers();
         }

@@ -6,8 +6,10 @@ Please see LICENSE files in the repository root for full details.
 */
 
 /* EventTileView owns the generic action-bar geometry. These are application
-   context exceptions and intentionally target only the outer slot wrapper. */
-.mx_EventTile_line > :has(> .mx_MessageActionBar)::before {
+   context exceptions and intentionally target only the outer slot wrapper. The
+   slot is named by its class: picked out by `:has()` alone, it made the browser
+   restyle the whole page whenever any element was added or removed. */
+.mx_EventTile_line > .mx_EventTile_actionBarSlot:has(> .mx_MessageActionBar)::before {
     /* Improve clickability of the first event below a collapsed bubble summary. */
     .mx_GenericEventListSummary[data-layout="bubble"]
         .mx_GenericEventListSummary_toggle

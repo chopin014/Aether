@@ -49,6 +49,20 @@ describe("<MainSplit/>", () => {
         expect(container.querySelector<HTMLElement>(".mx_RightPanel_ResizeWrapper")!.style.width).toBe("500px");
     });
 
+    it("is marked only while it shows the panel", () => {
+        const { container, rerender } = render(
+            <MainSplit children={children} panel={panel} analyticsRoomType="other_room" />,
+        );
+        const split = container.querySelector(".mx_MainSplit");
+        expect(split).toHaveClass("mx_MainSplit_withPanel");
+
+        rerender(<MainSplit children={children} panel={panel} collapsedRhs analyticsRoomType="other_room" />);
+        expect(split).not.toHaveClass("mx_MainSplit_withPanel");
+
+        rerender(<MainSplit children={children} analyticsRoomType="other_room" />);
+        expect(split).not.toHaveClass("mx_MainSplit_withPanel");
+    });
+
     it("supports the compact desktop member panel without changing other panel sizes", () => {
         const { container } = render(
             <MainSplit

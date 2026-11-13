@@ -45,7 +45,45 @@ diff --git a/src/client.ts b/src/client.ts
  import { SlidingSyncSdk } from "./sliding-sync-sdk.ts";
  import {
      determineFeatureSupport,
-@@ -507,6 +512,12 @@
+@@ -501,12 +506,50 @@
+     Detached = "detached",
+ }
+ 
++/** How a sync timeline relates to what the room had: see {@link RoomHistoryObserver.onSyncTimeline}. */
++export interface SyncTimelineInfo {
++    /** The server left out events between the previous response and this timeline. */
++    limited: boolean;
++    /** The room is new to this connection, so the timeline may overlap events the room already has. */
++    initial: boolean;
++    /** The timeline reaches further back than before because its limit was raised. */
++    expanded: boolean;
++    /** The room was restored from data saved on this device, not received from the server. */
++    fromSnapshot: boolean;
++}
++
++/**
++ * Hears every event a room's history gains, in room order, before the events are split between the main timeline
++ * and threads. Used to count notifications on the client: see {@link MatrixClient.setLocalNotificationCounts}.
++ */
++export interface RoomHistoryObserver {
++    /**
++     * Called once a sliding sync response's timeline for a joined room has been added to the room.
++     * @param events - The whole timeline the server sent, oldest first, including events the room already had.
++     */
++    onSyncTimeline(room: Room, events: MatrixEvent[], info: SyncTimelineInfo): void;
++    /**
++     * Called when a page of history arrives for a room's main timeline set, before it is added.
++     * @param events - The page, oldest first, including thread events the timeline itself leaves out.
++     * @param link - The event the page comes just before or just after, when the timeline had one.
++     */
++    onHistoryPage(room: Room, events: MatrixEvent[], link: { before?: string; after?: string }): void;
++    /** Called once a room restored from saved data has its saved account data and receipts too. */
++    onSavedRoomApplied(room: Room): void;
++}
++
+ export interface IStartClientOpts {
+     /**
+      * The event `limit=` to apply to initial sync. Default: 8.
       */
      initialSyncLimit?: number;
  
@@ -58,7 +96,7 @@ diff --git a/src/client.ts b/src/client.ts
      /**
       * True to put `archived=true</code> on the <code>/initialSync` request. Default: false.
       */
-@@ -567,6 +578,13 @@
+@@ -567,6 +610,21 @@
       */
      slidingSync?: SlidingSync;
  
@@ -69,13 +107,225 @@ diff --git a/src/client.ts b/src/client.ts
 +     */
 +    slidingSyncSnapshot?: () => Promise<SlidingSyncSnapshot | null>;
 +
++    /**
++     * Called as the client starts applying a batch of rooms saved by an earlier sliding sync session, such as those
++     * applied in one idle period. The function it returns is called once the batch is applied. Lets the app work out
++     * what depends on every room once for the batch, rather than for each room.
++     * @experimental
++     */
++    slidingSyncSavedRoomsBatch?: () => () => void;
++
      /**
       * Include user profiles in sync responses.
       * Will only work if the server supports MSC4429.
+@@ -1317,6 +1375,8 @@
+     protected syncApi?: SlidingSyncSdk | SyncApi;
+     public roomNameGenerator?: ICreateClientOpts["roomNameGenerator"];
+     public pushRules?: IPushRules;
++    private localNotificationCounts = false;
++    private roomHistoryObserver?: RoomHistoryObserver;
+     protected syncLeftRoomsPromise?: Promise<Room[]>;
+     protected syncedLeftRooms = false;
+     protected clientOpts?: IStoredClientOpts;
+@@ -4417,6 +4477,30 @@
+      * Useful when an event just got decrypted
+      * @returns A dict of actions to perform.
+      */
++    /**
++     * Count notifications on this device instead of taking the server's counts: for sync that does not send real
++     * counts, such as Synapse's Simplified Sliding Sync. The SDK then leaves every room's counts alone; the app sets
++     * them with {@link Room#setNotificationCounts}.
++     */
++    public setLocalNotificationCounts(enabled: boolean): void {
++        this.localNotificationCounts = enabled;
++    }
++
++    /** Whether notifications are counted on this device: see {@link setLocalNotificationCounts}. */
++    public hasLocalNotificationCounts(): boolean {
++        return this.localNotificationCounts;
++    }
++
++    /** Hear the events each room's history gains, in room order. Only one observer is kept. */
++    public setRoomHistoryObserver(observer: RoomHistoryObserver | undefined): void {
++        this.roomHistoryObserver = observer;
++    }
++
++    /** The observer set with {@link setRoomHistoryObserver}. */
++    public getRoomHistoryObserver(): RoomHistoryObserver | undefined {
++        return this.roomHistoryObserver;
++    }
++
+     public getPushActionsForEvent(event: MatrixEvent, forceRecalculate = false): IActionsObject | null {
+         if (!event.getPushActions() || forceRecalculate) {
+             const { actions, rule } = this.pushProcessor.actionsAndRuleForEvent(event);
+@@ -5265,7 +5349,7 @@
+                         await thread?.processEvent(event);
+                         const sender = event.getSender()!;
+                         if (!backwards || thread?.getEventReadUpTo(sender) === null) {
+-                            room.addLocalEchoReceipt(sender, event, ReceiptType.Read);
++                            room.addLocalEchoReceipt(sender, event, ReceiptType.Read, false, true);
+                         }
+                     }
+ 
+@@ -5315,6 +5399,21 @@
+                     const matrixEvents = res.chunk.filter(noUnsafeEventProps).map(this.getEventMapper());
+ 
+                     const timelineSet = eventTimeline.getTimelineSet();
++                    const observer = this.roomHistoryObserver;
++                    if (observer && matrixEvents.length > 0 && timelineSet === room.getUnfilteredTimelineSet()) {
++                        const known = eventTimeline.getEvents();
++                        try {
++                            observer.onHistoryPage(
++                                room,
++                                backwards ? matrixEvents.slice().reverse() : matrixEvents,
++                                backwards
++                                    ? { before: known[0]?.getId() }
++                                    : { after: known[known.length - 1]?.getId() },
++                            );
++                        } catch (error) {
++                            this.logger.warn("Room history observer failed", error);
++                        }
++                    }
+                     const [timelineEvents, , unknownRelations] = room.partitionThreadedEvents(matrixEvents);
+                     timelineSet.addEventsToTimeline(timelineEvents, backwards, false, eventTimeline, token);
+                     this.processAggregatedTimelineEvents(room, timelineEvents);
+@@ -6037,7 +6136,9 @@
+      * we have on record matches.
+      */
+     private fixupRoomNotifications = (): void => {
+-        if (this.isInitialSyncComplete()) {
++        if (this.isInitialSyncComplete() && this.localNotificationCounts) {
++            this.off(ClientEvent.Sync, this.fixupRoomNotifications);
++        } else if (this.isInitialSyncComplete()) {
+             const unreadRooms = (this.getRooms() ?? []).filter((room) => {
+                 return room.getUnreadNotificationCount(NotificationCountType.Total) > 0;
+             });
+@@ -9153,6 +9254,8 @@
+  * accurate notification_count
+  */
+ export function fixNotificationCountOnDecryption(cli: MatrixClient, event: MatrixEvent): void {
++    // Counted elsewhere, from the decrypted event too.
++    if (cli.hasLocalNotificationCounts()) return;
+     const ourUserId = cli.getUserId();
+     const eventId = event.getId();
+ 
 diff --git a/src/models/room.ts b/src/models/room.ts
 --- a/src/models/room.ts
 +++ b/src/models/room.ts
-@@ -3117,6 +3117,23 @@
+@@ -223,6 +223,10 @@
+      * Fires whenever a receipt is received for a room
+      * @param event - The receipt event
+      * @param room - The room whose receipts was updated.
++     * @param synthetic - Whether the receipt was made up on this device, such as the echo of one it sends, rather
++     * than received from the server.
++     * @param implicit - Whether it was made up for the sender of an event, who has read up to it, rather than for a
++     * receipt that was sent.
+      * @example
+      * ```
+      * matrixClient.on("Room.receipt", function(event, room){
+@@ -230,7 +234,7 @@
+      * });
+      * ```
+      */
+-    [RoomEvent.Receipt]: (event: MatrixEvent, room: Room) => void;
++    [RoomEvent.Receipt]: (event: MatrixEvent, room: Room, synthetic?: boolean, implicit?: boolean) => void;
+     /**
+      * Fires whenever the name of a room is updated.
+      * @param room - The room whose Room.name was updated.
+@@ -1355,7 +1359,8 @@
+     }
+ 
+     private onReceipt = (event: MatrixEvent): void => {
+-        if (this.hasEncryptionStateEvent()) {
++        // Counted elsewhere: see MatrixClient.setLocalNotificationCounts.
++        if (this.hasEncryptionStateEvent() && !this.client.hasLocalNotificationCounts()) {
+             this.clearNotificationsOnReceipt(event);
+         }
+     };
+@@ -1506,6 +1511,23 @@
+         return this.timelineNeedsRefresh;
+     }
+ 
++    /**
++     * Find an event of the room's current state by its ID, such as one a relation is to that the timeline does not
++     * hold: a state event from before the user could see the room's history, which sliding sync sends as state only.
++     * Room members are not looked through, as there can be very many of them and nothing relates to them.
++     * @param eventId - The event ID.
++     * @returns The state event, if the room's current state has it.
++     */
++    private findCurrentStateEventById(eventId: string): MatrixEvent | undefined {
++        for (const [eventType, byStateKey] of this.currentState.events) {
++            if (eventType === EventType.RoomMember) continue;
++            for (const event of byStateKey.values()) {
++                if (event.getId() === eventId) return event;
++            }
++        }
++        return undefined;
++    }
++
+     /**
+      * Get an event which is stored in our unfiltered timeline set, or in a thread
+      *
+@@ -1670,6 +1692,37 @@
+         return this.bumpStamp;
+     }
+ 
++    /**
++     * Replace every notification count of this room at once: its main timeline's and each thread's. Threads left
++     * out have none. Emits {@link RoomEvent.UnreadNotifications} once for the main timeline and once for each
++     * thread whose counts changed, and not at all when nothing did.
++     * @param main - The main timeline's counts, without its threads'.
++     * @param threads - Each thread's counts, by root event ID.
++     */
++    public setNotificationCounts(main: NotificationCount, threads: Map<string, NotificationCount>): void {
++        const same = (a: NotificationCount | undefined, b: NotificationCount | undefined): boolean =>
++            (a?.total ?? 0) === (b?.total ?? 0) && (a?.highlight ?? 0) === (b?.highlight ?? 0);
++        const changedThreads: string[] = [];
++        for (const threadId of new Set([...this.threadNotifications.keys(), ...threads.keys()])) {
++            if (!same(this.threadNotifications.get(threadId), threads.get(threadId))) changedThreads.push(threadId);
++        }
++        const mainChanged = !same(this.notificationCounts, main);
++        if (!mainChanged && changedThreads.length === 0) return;
++        this.notificationCounts = { total: main.total ?? 0, highlight: main.highlight ?? 0 };
++        this.threadNotifications.clear();
++        for (const [threadId, counts] of threads) {
++            this.threadNotifications.set(threadId, { total: counts.total ?? 0, highlight: counts.highlight ?? 0 });
++        }
++        if (mainChanged) this.emit(RoomEvent.UnreadNotifications, this.notificationCounts);
++        for (const threadId of changedThreads) {
++            this.emit(
++                RoomEvent.UnreadNotifications,
++                this.threadNotifications.get(threadId) ?? { total: 0, highlight: 0 },
++                threadId,
++            );
++        }
++    }
++
+     /**
+      * Set one of the notification counts for this room
+      * @param type - The type of notification count to set.
+@@ -2423,7 +2476,10 @@
+ 
+         let parentEvent: MatrixEvent | undefined;
+         if (parentEventId) {
+-            parentEvent = this.findEventById(parentEventId) ?? events?.find((e) => e.getId() === parentEventId);
++            parentEvent =
++                this.findEventById(parentEventId) ??
++                events?.find((e) => e.getId() === parentEventId) ??
++                this.findCurrentStateEventById(parentEventId);
+         }
+ 
+         // Treat non-thread-relations, redactions, and replies as extensions of their parents so evaluate parentEvent instead
+@@ -2760,7 +2816,7 @@
+         // pointing to an event that wasn't yet in the timeline
+         // Don't synthesize RR for m.room.redaction as this causes the RR to go missing.
+         if (event.sender && event.getType() !== EventType.RoomRedaction) {
+-            this.addReceipt(synthesizeReceipt(event.sender.userId, event, ReceiptType.Read), true);
++            this.addReceipt(synthesizeReceipt(event.sender.userId, event, ReceiptType.Read), true, true);
+ 
+             // Any live events from a user could be taken as implicit
+             // presence information: evidence that they are currently active.
+@@ -3117,6 +3173,23 @@
          // List of extra events to check for being parents of any relations encountered
          const neighbouringEvents = [...events];
  
@@ -99,7 +349,7 @@ diff --git a/src/models/room.ts b/src/models/room.ts
          for (const event of events) {
              // TODO: We should have a filter to say "only add state event types X Y Z to the timeline".
              this.processLiveEvent(event);
-@@ -3141,7 +3158,8 @@
+@@ -3141,7 +3214,8 @@
              if (!fromCache && !shouldLiveInThread && !shouldLiveInRoom && event.isRelation()) {
                  try {
                      const parentEvent = new MatrixEvent(
@@ -109,7 +359,39 @@ diff --git a/src/models/room.ts b/src/models/room.ts
                      );
                      neighbouringEvents.push(parentEvent);
                      if (parentEvent.threadRootId) {
-@@ -4085,3 +4103,25 @@
+@@ -3237,7 +3311,7 @@
+      * @param event - The m.receipt event.
+      * @param synthetic - True if this event is implicit.
+      */
+-    public addReceipt(event: MatrixEvent, synthetic = false): void {
++    public addReceipt(event: MatrixEvent, synthetic = false, implicit = false): void {
+         const content = event.getContent<ReceiptContent>();
+ 
+         this.roomReceipts.add(content, synthetic);
+@@ -3274,7 +3348,12 @@
+                         // just read a message, not when we are e.g. receiving
+                         // an event during the sync. More explanation at:
+                         // https://github.com/matrix-org/matrix-js-sdk/issues/3684
+-                        if (!synthetic && this.client.isInitialSyncComplete() && userId === this.client.getUserId()) {
++                        if (
++                            !synthetic &&
++                            this.client.isInitialSyncComplete() &&
++                            userId === this.client.getUserId() &&
++                            !this.client.hasLocalNotificationCounts()
++                        ) {
+                             const lastEvent = receiptDestination.timeline[receiptDestination.timeline.length - 1];
+                             if (lastEvent && eventId === lastEvent.getId() && userId === lastEvent.getSender()) {
+                                 receiptDestination.setUnread(NotificationCountType.Total, 0);
+@@ -3308,7 +3387,7 @@
+ 
+         // send events after we've regenerated the structure & cache, otherwise things that
+         // listened for the event would read stale data.
+-        this.emit(RoomEvent.Receipt, event, this);
++        this.emit(RoomEvent.Receipt, event, this, synthetic, implicit);
+     }
+ 
+     /**
+@@ -4085,3 +4164,25 @@
          }
      }
  }
@@ -211,19 +493,146 @@ diff --git a/src/sync.ts b/src/sync.ts
 diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 --- a/src/sliding-sync-sdk.ts
 +++ b/src/sliding-sync-sdk.ts
-@@ -49,9 +49,10 @@
+@@ -17,7 +17,6 @@
+ import type { SyncCryptoCallbacks } from "./common-crypto/CryptoBackend.ts";
+ import { NotificationCountType, Room, RoomEvent } from "./models/room.ts";
+ import { logger } from "./logger.ts";
+-import { promiseMapSeries } from "./utils.ts";
+ import { EventTimeline } from "./models/event-timeline.ts";
+ import { ClientEvent, type IStoredClientOpts, type MatrixClient } from "./client.ts";
+ import {
+@@ -30,7 +29,8 @@
+     type SetPresence,
+     processSyncCryptoChanges,
+ } from "./sync.ts";
+-import { type MatrixEvent } from "./models/event.ts";
++import { type MatrixEvent, MatrixEventEvent } from "./models/event.ts";
++import { type SyncUserProfile } from "./models/user.ts";
+ import {
+     type IMinimalEvent,
+     type IRoomEvent,
+@@ -49,13 +49,16 @@
      type MSC3575SlidingSyncResponse,
      type SlidingSync,
      SlidingSyncEvent,
 +    type SlidingSyncSnapshot,
      SlidingSyncState,
++    yieldToEventLoop,
  } from "./sliding-sync.ts";
 -import { EventType } from "./@types/event.ts";
 +import { EventType, RoomType } from "./@types/event.ts";
  import { type IPushRules } from "./@types/PushRules.ts";
  import { RoomStateEvent } from "./models/room-state.ts";
  import { RoomMemberEvent } from "./models/room-member.ts";
-@@ -254,28 +255,65 @@
+ import { KnownMembership } from "./@types/membership.ts";
++import { M_BEACON_INFO } from "./@types/beacon.ts";
+ 
+ // Number of consecutive failed syncs that will lead to a syncState of ERROR as opposed
+ // to RECONNECTING. This is needed to inform the client of server issues when the
+@@ -83,6 +86,11 @@
+     private toDeviceEvents: IToDeviceEvent[] = [];
+     private e2ee?: ExtensionE2EEResponse;
+     private hasChanges = false;
++    // Marking every tracked user's devices as out of date, for a fresh connection; and whether syncing stopped.
++    private invalidation?: Promise<void>;
++    private stopped = false;
++    // Resolved once syncing stops, so a wait for the crypto layer or a retry does not outlive it.
++    private readonly stopping = Promise.withResolvers<void>();
+ 
+     public constructor(
+         private readonly client: MatrixClient,
+@@ -99,13 +107,66 @@
+         this.hasChanges = true;
+     }
+ 
++    /**
++     * Mark every tracked user's device list as out of date, without waiting for it: changes collected meanwhile are
++     * applied once it has succeeded, when the collector is next flushed.
++     */
++    public invalidateDeviceLists(): void {
++        const crypto = this.cryptoCallbacks;
++        if (!crypto) return;
++        const invalidation = crypto.markAllTrackedUsersAsDirty();
++        // Waited for in flush(); a failure there is retried, so it must not surface as unhandled meanwhile.
++        invalidation.catch(() => undefined);
++        this.invalidation = invalidation;
++    }
++
++    /** Stop waiting and retrying, and drop the changes not yet handled, as syncing has stopped. */
++    public stop(): void {
++        this.stopped = true;
++        this.invalidation = undefined;
++        this.toDeviceEvents = [];
++        this.e2ee = undefined;
++        this.hasChanges = false;
++        this.stopping.resolve();
++    }
++
++    /** Wait for the promise, or until syncing stops. A rejection is passed on. */
++    private async unlessStopped(promise: Promise<unknown>): Promise<void> {
++        await Promise.race([promise, this.stopping.promise]);
++    }
++
+     /**
+      * Pass the collected changes to the crypto layer, and emit the resulting to-device messages on the client.
+      *
+      * A no-op if nothing has been collected since the last flush, so it is safe to call once per extension.
+      */
+     public async flush(): Promise<void> {
+-        if (!this.hasChanges) return;
++        // A fresh connection's device list changes, and its to-device messages, are only handled once every device
++        // list is marked out of date. A marking that fails is made again, backing off, with the changes held.
++        if (this.invalidation) {
++            let invalidation: Promise<void> = this.invalidation;
++            for (let attempt = 1; ; attempt++) {
++                try {
++                    await this.unlessStopped(invalidation);
++                    if (this.stopped) return;
++                    break;
++                } catch (error) {
++                    if (this.stopped) return;
++                    logger.warn("E2EE: could not mark device lists out of date; trying again", error);
++                }
++                let timer: ReturnType<typeof setTimeout> | undefined;
++                await this.unlessStopped(
++                    new Promise((resolve) => (timer = setTimeout(resolve, Math.min(30_000, 500 * 2 ** (attempt - 1))))),
++                );
++                clearTimeout(timer);
++                if (this.stopped) return;
++                invalidation = this.cryptoCallbacks!.markAllTrackedUsersAsDirty();
++                invalidation.catch(() => undefined);
++                this.invalidation = invalidation;
++            }
++            this.invalidation = undefined;
++        }
++        if (this.stopped || !this.hasChanges) return;
+         const toDeviceEvents = this.toDeviceEvents;
+         const e2ee = this.e2ee;
+         this.toDeviceEvents = [];
+@@ -127,10 +188,7 @@
+ }
+ 
+ class ExtensionE2EE implements Extension<ExtensionE2EERequest, ExtensionE2EEResponse> {
+-    public constructor(
+-        private readonly crypto: SyncCryptoCallbacks,
+-        private readonly collector: E2EESyncChangesCollector,
+-    ) {}
++    public constructor(private readonly collector: E2EESyncChangesCollector) {}
+ 
+     public name(): string {
+         return "e2ee";
+@@ -149,7 +207,9 @@
+             // to encrypt for new devices. This is an expensive call, so we should
+             // really really remember `?pos=` wherever possible.
+             logger.log("ExtensionE2EE: invalidating all device lists due to missing 'pos'");
+-            await this.crypto.markAllTrackedUsersAsDirty();
++            // It can take a round trip, so the request does not wait for it. The response's device list changes and
++            // to-device messages are applied once it has succeeded; see E2EESyncChangesCollector.flush.
++            this.collector.invalidateDeviceLists();
+         }
+         return {
+             enabled: true, // this is sticky so only send it on the initial request
+@@ -254,28 +314,52 @@
      }
  
      private processGlobalAccountData(globalAccountData: IMinimalEvent[]): void {
@@ -292,23 +701,98 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +    return new Promise((resolve) => globalThis.requestIdleCallback(resolve, { timeout: 1000 }));
 +}
 +
-+/** Let other work run, without the delay nested timers impose. */
-+function yieldToEventLoop(): Promise<void> {
-+    return new Promise<void>((resolve) => {
-+        const { port1, port2 } = new MessageChannel();
-+        port1.onmessage = (): void => {
-+            port1.close();
-+            port2.close();
-+            resolve();
-+        };
-+        port2.postMessage(null);
-+    });
-+}
-+
  type ExtensionTypingRequest = {
      enabled: boolean;
  };
-@@ -428,6 +466,13 @@
+@@ -375,6 +459,87 @@
+  * outside the list window. Sticky events already in a room's timeline are excluded here, so
+  * `processRoomData` picks those up separately.
+  */
++interface ExtensionProfilesRequest {
++    enabled: boolean;
++    fields?: string[];
++}
++
++interface ExtensionProfilesResponse {
++    // Null for a user whose profile is no longer sent, such as once no room is shared with them.
++    users?: Record<string, { updated?: SyncUserProfile; removed?: string[] } | null>;
++}
++
++/**
++ * The profile updates extension (MSC4262): profile fields of the users the syncing user shares rooms with, as regular
++ * sync sends them with MSC4429. They are stored, and announced as {@link ClientEvent.UserProfileUpdate}, as there.
++ */
++class ExtensionProfiles implements Extension<ExtensionProfilesRequest, ExtensionProfilesResponse> {
++    public constructor(
++        private readonly client: MatrixClient,
++        private readonly fields: string[],
++    ) {}
++
++    public name(): string {
++        return "org.matrix.msc4262.profiles";
++    }
++
++    public when(): ExtensionState {
++        return ExtensionState.PostProcess;
++    }
++
++    public async onRequest(isInitial: boolean): Promise<ExtensionProfilesRequest> {
++        return { enabled: true, fields: this.fields };
++    }
++
++    public async onResponse(data: ExtensionProfilesResponse): Promise<void> {
++        const users = data?.users;
++        if (typeof users !== "object" || users === null) return;
++        const entries = Object.entries(users);
++        // Read the profiles known so far together: a response can carry many users.
++        const known = await Promise.all(
++            entries.map(([userId, update]) => (update ? this.client.store.getUserProfile(userId) : undefined)),
++        );
++        const removed: string[] = [];
++        const changes = new Map<string, SyncUserProfile>();
++        entries.forEach(([userId, update], i) => {
++            if (update === null) {
++                removed.push(userId);
++                return;
++            }
++            // Only changed fields are kept. The server repeats unchanged ones, such as for each message's sender, and
++            // a field it removed is null, as regular sync reports it.
++            const existing = known[i] ?? {};
++            const change: SyncUserProfile = {};
++            if (typeof update?.updated === "object" && update.updated !== null) {
++                for (const [field, value] of Object.entries(update.updated)) {
++                    if (!profileValuesEqual(existing[field], value)) change[field] = value;
++                }
++            }
++            for (const field of Array.isArray(update?.removed) ? update.removed : []) {
++                if (typeof field === "string" && existing[field] !== null) change[field] = null;
++            }
++            if (Object.keys(change).length > 0) changes.set(userId, change);
++        });
++        if (removed.length) await this.client.store.removeUserProfiles(removed);
++        if (changes.size) {
++            const knownById = new Map(entries.map(([userId], i) => [userId, known[i]]));
++            await this.client.store.storeUserProfiles(
++                new Map([...changes].map(([userId, change]) => [userId, { ...knownById.get(userId), ...change }])),
++            );
++        }
++        // After storing, so a listener reading the stored profile sees the update.
++        for (const userId of removed) this.client.emit(ClientEvent.UserProfileUpdate, userId, null);
++        for (const [userId, change] of changes) this.client.emit(ClientEvent.UserProfileUpdate, userId, change);
++    }
++}
++
++/** Whether two profile field values are the same, comparing objects by their JSON. */
++function profileValuesEqual(a: unknown, b: unknown): boolean {
++    if (a === b) return true;
++    if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
++    return JSON.stringify(a) === JSON.stringify(b);
++}
++
+ class ExtensionStickyEvents implements Extension<ExtensionStickyEventsRequest, ExtensionStickyEventsResponse> {
+     private nextBatch?: string;
+ 
+@@ -428,7 +593,24 @@
      private syncStateData?: ISyncStateData;
      private lastPos: string | null = null;
      private failCount = 0;
@@ -320,13 +804,59 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +    // Set once a saved snapshot has been announced as Prepared, so the first response does not announce it again.
 +    private preparedFromSnapshot = false;
      private notifEvents: MatrixEvent[] = []; // accumulator of sync events in the current sync response
++    // Encrypted state events (MSC4362) that could not be decrypted, by room, then by their event type and state key as
++    // sent, waiting for their keys. Each is added to its room's state once decrypted, unless state for what it
++    // decrypts to arrived in a later response.
++    private readonly undecryptedState = new Map<string, Map<string, UndecryptedStateWait>>();
++    // For rooms with state waiting for keys: the response that last brought state, by event type and state key.
++    private readonly stateArrivals = new Map<string, Map<string, number>>();
++    // Counts the responses that brought room state, to tell which came later.
++    private stateResponses = 0;
++    // Collects the e2ee and to-device extensions' changes for the crypto layer.
++    private readonly e2eeCollector: E2EESyncChangesCollector;
  
      public constructor(
-@@ -463,7 +508,13 @@
+         private readonly slidingSync: SlidingSync,
+@@ -445,9 +627,11 @@
+ 
+         this.slidingSync.on(SlidingSyncEvent.Lifecycle, this.onLifecycle.bind(this));
+         this.slidingSync.on(SlidingSyncEvent.RoomData, this.onRoomData.bind(this));
++        this.client.on(ClientEvent.DeleteRoom, this.onDeleteRoom);
+         // The `e2ee` and `to_device` extensions feed a shared collector, so that the crypto layer sees all the
+         // encryption-relevant data from a response in a single call.
+         const e2eeCollector = new E2EESyncChangesCollector(this.client, this.syncOpts.cryptoCallbacks);
++        this.e2eeCollector = e2eeCollector;
+         const extensions: Extension<any, any>[] = [
+             new ExtensionToDevice(e2eeCollector),
+             new ExtensionAccountData(this.client),
+@@ -455,28 +639,41 @@
+             new ExtensionReceipts(this.client),
+             new ExtensionStickyEvents(this.client),
+         ];
++        // The profile fields asked for are those regular sync asks for with MSC4429.
++        const profileFields = this.opts.unstableMSC4429SyncUserProfileFields;
++        if (profileFields?.length) extensions.push(new ExtensionProfiles(this.client, profileFields));
+         if (this.syncOpts.cryptoCallbacks) {
+-            extensions.push(new ExtensionE2EE(this.syncOpts.cryptoCallbacks, e2eeCollector));
++            extensions.push(new ExtensionE2EE(e2eeCollector));
+         }
+         extensions.forEach((ext) => {
+             this.slidingSync.registerExtension(ext);
          });
      }
  
 -    private async onRoomData(roomId: string, roomData: MSC3575RoomData): Promise<void> {
+-        let room = this.client.store.getRoom(roomId);
+-        if (!room) {
+-            if (!roomData.initial) {
+-                this.syncOpts.logger.debug(
+-                    "initial flag not set but no stored room exists for room ",
+-                    roomId,
+-                    roomData,
+-                );
+-                return;
+-            }
+-            room = _createAndReEmitRoom(this.client, roomId, this.opts);
 +    private async onRoomData(roomId: string, roomData: MSC3575RoomData, fromSnapshot = false): Promise<void> {
 +        // Live data lands on top of the room's saved data, which may still be waiting its turn.
 +        if (!fromSnapshot) {
@@ -334,19 +864,28 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +            if (restore) await restore;
 +            if (this.stopped) return;
 +        }
-         let room = this.client.store.getRoom(roomId);
-         if (!room) {
-             if (!roomData.initial) {
-@@ -476,7 +527,7 @@
-             }
-             room = _createAndReEmitRoom(this.client, roomId, this.opts);
++        const stored = this.client.store.getRoom(roomId);
++        if (stored) {
++            await this.processRoomData(this.client, stored, roomData, fromSnapshot);
++            return;
++        }
++        if (!roomData.initial) {
++            this.syncOpts.logger.debug("initial flag not set but no stored room exists for room ", roomId, roomData);
++            return;
++        }
++        const room = _createAndReEmitRoom(this.client, roomId, this.opts);
++        try {
++            await this.processRoomData(this.client, room, roomData, fromSnapshot);
++        } finally {
++            // A room seen for the first time that was not added, such as when adding it failed, leaves nothing waiting
++            // for keys on it.
++            if (this.client.getRoom(roomId) !== room) this.stopWaitingForKeys(roomId);
          }
 -        await this.processRoomData(this.client, room, roomData);
-+        await this.processRoomData(this.client, room, roomData, fromSnapshot);
      }
  
      private onLifecycle(state: SlidingSyncState, resp: MSC3575SlidingSyncResponse | null, err?: Error): void {
-@@ -490,7 +541,7 @@
+@@ -490,7 +687,7 @@
                      break;
                  }
                  // Element won't stop showing the initial loading spinner unless we fire SyncState.Prepared
@@ -355,7 +894,17 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                      this.updateSyncState(SyncState.Prepared, {
                          oldSyncToken: undefined,
                          nextSyncToken: resp.pos,
-@@ -651,7 +702,12 @@
+@@ -512,7 +709,8 @@
+                 if (err) {
+                     this.failCount += 1;
+                     this.updateSyncState(
+-                        this.failCount > FAILED_SYNC_ERROR_THRESHOLD ? SyncState.Error : SyncState.Reconnecting,
++                        // As /sync v2 does: the connection counts as lost from the third failure in a row.
++                        this.failCount >= FAILED_SYNC_ERROR_THRESHOLD ? SyncState.Error : SyncState.Reconnecting,
+                         {
+                             error: new MatrixError(err),
+                         },
+@@ -651,7 +849,12 @@
          return false;
      }
  
@@ -369,7 +918,16 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          roomData = ensureNameEvent(client, room.roomId, roomData);
          const stateEvents = mapEvents(this.client, room.roomId, roomData.required_state);
          // Prevent events from being decrypted ahead of time
-@@ -669,6 +725,8 @@
+@@ -659,6 +862,8 @@
+         // room::decryptCriticalEvent is in charge of decrypting all the events
+         // required for a client to function properly
+         let timelineEvents = mapEvents(this.client, room.roomId, roomData.timeline, false);
++        // Everything the server sent, in order, for whoever counts notifications on this device.
++        const sentTimeline = timelineEvents;
+         const ephemeralEvents: MatrixEvent[] = []; // TODO this.mapSyncEventsFormat(joinObj.ephemeral);
+ 
+         // TODO: handle threaded / beacon events
+@@ -669,6 +874,8 @@
          // necessarily set `initial` in the latter case, so without checking `expanded_timeline` the older events would
          // be appended after the newer ones we already have.
          const expandedTimeline = roomData.expanded_timeline || roomData.unstable_expanded_timeline;
@@ -378,7 +936,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
          if (roomData.limited || roomData.initial || expandedTimeline) {
              // we should not know about any of these timeline entries if this is a genuinely new room.
              // If we do, then we've effectively done scrollback.
-@@ -703,10 +761,19 @@
+@@ -703,20 +910,33 @@
                      newEvents.unshift(recvEvent);
                  }
              }
@@ -398,20 +956,39 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +                if (oldEvents.length > 0) {
 +                    // old events are scrollback, insert them now
 +                    room.addEventsToTimeline(oldEvents, true, false, room.getLiveTimeline(), roomData.prev_batch);
++                    // As for history fetched by pagination: votes and location updates in it count.
++                    this.client.processAggregatedTimelineEvents(room, oldEvents);
 +                }
              }
          }
  
-@@ -739,6 +806,8 @@
+         const encrypted = room.hasEncryptionStateEvent();
++        // Counts worked out on this device replace the server's: see MatrixClient.setLocalNotificationCounts.
++        const serverCounts = !client.hasLocalNotificationCounts();
+         // we do this first so it's correct when any of the events fire
+-        if (roomData.notification_count != null) {
++        if (serverCounts && roomData.notification_count != null) {
+             room.setUnreadNotificationCount(NotificationCountType.Total, roomData.notification_count);
+         }
+ 
+-        if (roomData.highlight_count != null) {
++        if (serverCounts && roomData.highlight_count != null) {
+             // We track unread notifications ourselves in encrypted rooms, so don't
+             // bother setting it here. We trust our calculations better than the
+             // server's for this case, and therefore will assume that our non-zero
+@@ -738,7 +958,11 @@
+ 
          if (roomData.invite_state) {
              const inviteStateEvents = mapEvents(this.client, room.roomId, roomData.invite_state);
++            // An invitation's state replaces what was known of the room, so nothing waiting for keys is added later.
++            this.stopWaitingForKeys(room.roomId);
              await this.injectRoomEvents(room, inviteStateEvents);
 +            // A client stopped meanwhile is not changed any more.
 +            if (this.stopped) return;
              if (roomData.initial) {
                  room.recalculate();
                  this.client.store.storeRoom(room);
-@@ -750,9 +819,15 @@
+@@ -750,9 +974,15 @@
              return;
          }
  
@@ -428,16 +1005,65 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
              room.getLiveTimeline().setPaginationToken(roomData.prev_batch ?? null, EventTimeline.BACKWARDS);
          }
  
-@@ -810,6 +885,8 @@
+@@ -809,7 +1039,36 @@
+             }
          } */
  
-         await this.injectRoomEvents(room, stateEvents, timelineEvents, roomData.num_live);
+-        await this.injectRoomEvents(room, stateEvents, timelineEvents, roomData.num_live);
++        // As /sync v2 does, the crypto layer learns how the room is encrypted before the room's state says so. Whoever
++        // acts on the room becoming encrypted, such as a new room's creator setting its name, then finds encryption,
++        // and the room's choice to encrypt its state, already set up: otherwise that name would be sent in the clear.
++        if (this.syncOpts.cryptoCallbacks) {
++            // The current encryption event is sent as state, and in the timeline too when it is recent.
++            const seen = new Set<string | undefined>();
++            for (const e of [...stateEvents, ...timelineEvents]) {
++                if (e.isState() && e.getType() === EventType.RoomEncryption && e.getStateKey() === "") {
++                    if (seen.has(e.getId())) continue;
++                    seen.add(e.getId());
++                    await this.syncOpts.cryptoCallbacks.onCryptoEvent(room, e);
++                    // A client stopped meanwhile is not changed any more.
++                    if (this.stopped) return;
++                }
++            }
++        }
++
++        // Encrypted state events (MSC4362) are decrypted before they are added, as /sync v2 does: state events are
++        // expected in the clear, and room state files an event under the type and state key it has when it is added.
++        // One that cannot be decrypted has neither, so it waits for its keys.
++        const encryptedState = [...stateEvents, ...timelineEvents].filter((e) => e.isState() && e.isEncrypted());
++        if (encryptedState.length > 0) {
++            await Promise.all(encryptedState.map((e) => this.client.decryptEventIfNeeded(e)));
++            if (this.stopped) return;
++        }
++        const roomState = this.stateToAdd(room, stateEvents);
++
++        await this.injectRoomEvents(room, roomState, timelineEvents, roomData.num_live);
 +        // A client stopped meanwhile is not changed any more.
 +        if (this.stopped) return;
  
          // we deliberately don't add ephemeral events to the timeline
          room.addEphemeralEvents(ephemeralEvents);
-@@ -832,9 +909,12 @@
+@@ -825,6 +1084,19 @@
+         room._unstable_addStickyEvents(timelineEvents.filter((e) => e.unstableStickyInfo !== undefined));
+ 
+         room.recalculate();
++        const observer = client.getRoomHistoryObserver();
++        if (observer) {
++            try {
++                observer.onSyncTimeline(room, sentTimeline, {
++                    limited: !!roomData.limited,
++                    initial: !!roomData.initial,
++                    expanded: !!expandedTimeline,
++                    fromSnapshot,
++                });
++            } catch (error) {
++                this.syncOpts.logger.warn("Room history observer failed", error);
++            }
++        }
+         if (roomData.initial) {
+             client.store.storeRoom(room);
+             client.emit(ClientEvent.Room, room);
+@@ -832,17 +1104,15 @@
  
          // check if any timeline events should bing and add them to the notifEvents array:
          // we'll purge this once we've fully processed the sync response
@@ -445,21 +1071,146 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +        // Saved events were notified about when they arrived.
 +        if (!fromSnapshot) this.addNotifications(timelineEvents);
  
-         const processRoomEvent = async (e: MatrixEvent): Promise<void> => {
-+            // The crypto layer can take a while with an event; a client stopped meanwhile hears no more.
+-        const processRoomEvent = async (e: MatrixEvent): Promise<void> => {
++        for (const e of [...stateEvents, ...timelineEvents]) {
++            // A listener may stop the client: one stopped hears no more.
 +            if (this.stopped) return;
              client.emit(ClientEvent.Event, e);
-             if (e.isState() && e.getType() == EventType.RoomEncryption && this.syncOpts.cryptoCallbacks) {
-                 await this.syncOpts.cryptoCallbacks.onCryptoEvent(room, e);
-@@ -843,6 +923,7 @@
- 
-         await promiseMapSeries(stateEvents, processRoomEvent);
-         await promiseMapSeries(timelineEvents, processRoomEvent);
+-            if (e.isState() && e.getType() == EventType.RoomEncryption && this.syncOpts.cryptoCallbacks) {
+-                await this.syncOpts.cryptoCallbacks.onCryptoEvent(room, e);
+-            }
+-        };
+-
+-        await promiseMapSeries(stateEvents, processRoomEvent);
+-        await promiseMapSeries(timelineEvents, processRoomEvent);
++        }
 +        if (this.stopped) return;
          ephemeralEvents.forEach(function (e) {
              client.emit(ClientEvent.Event, e);
          });
-@@ -991,12 +1072,144 @@
+@@ -853,6 +1123,82 @@
+         room.decryptCriticalEvents();
+     }
+ 
++    /**
++     * The state events to add to a room's state now. One that could not be decrypted waits for its keys instead, and
++     * is added once decrypted, unless state for what it decrypts to arrived in a later response.
++     */
++    private stateToAdd(room: Room, stateEvents: MatrixEvent[]): MatrixEvent[] {
++        const response = ++this.stateResponses;
++        const plain: MatrixEvent[] = [];
++        const decrypted: MatrixEvent[] = [];
++        for (const event of stateEvents) {
++            // A newer event sent as the same type and state key, decrypted or not, replaces whatever waited.
++            this.undecryptedState.get(room.roomId)?.get(sentSlot(event))?.stopWaiting();
++            if (event.isDecryptionFailure()) {
++                this.waitForKeys(room, event, response);
++                continue;
++            }
++            (event.getWireType() === EventType.RoomMessageEncrypted ? decrypted : plain).push(event);
++            this.stateArrivals.get(room.roomId)?.set(clearSlot(event), response);
++        }
++        // In a room that encrypts its state, an encrypted event is the one to trust over a plain event for the same
++        // type and state key in the same response: it is added last, as one whose keys arrive later is added later.
++        return [...plain, ...decrypted];
++    }
++
++    /** Add a state event that could not be decrypted to its room's state once its keys arrive. */
++    private waitForKeys(room: Room, event: MatrixEvent, response: number): void {
++        const roomId = room.roomId;
++        const roomWaits = this.undecryptedState.get(roomId) ?? new Map<string, UndecryptedStateWait>();
++        if (!this.undecryptedState.has(roomId)) {
++            this.undecryptedState.set(roomId, roomWaits);
++            this.stateArrivals.set(roomId, new Map());
++        }
++        const slot = sentSlot(event);
++        const onDecrypted = (): void => {
++            // Nothing is added once the client stopped, the room was forgotten or replaced, or the wait ended, even by
++            // a listener told of the decryption first. A room still being added, not yet stored, is not replaced.
++            if (this.stopped || roomWaits.get(slot) !== wait) return;
++            const stored = this.client.getRoom(roomId);
++            if (stored && stored !== room) {
++                wait.stopWaiting();
++                return;
++            }
++            if (event.isDecryptionFailure()) return;
++            const arrived = this.stateArrivals.get(roomId)?.get(clearSlot(event));
++            wait.stopWaiting();
++            if (arrived !== undefined && arrived > response) return;
++            room.currentState.setStateEvents([event]);
++            room.recalculate();
++            // As when it arrives with its keys: a live location share is given the locations already in the timeline.
++            if (M_BEACON_INFO.matches(event.getType())) {
++                void room.currentState.processBeaconEvents(room.getLiveTimeline().getEvents(), this.client);
++            }
++        };
++        const wait: UndecryptedStateWait = {
++            event,
++            stopWaiting: (): void => {
++                event.off(MatrixEventEvent.Decrypted, onDecrypted);
++                if (roomWaits.get(slot) !== wait) return;
++                roomWaits.delete(slot);
++                if (roomWaits.size > 0 || this.undecryptedState.get(roomId) !== roomWaits) return;
++                this.undecryptedState.delete(roomId);
++                this.stateArrivals.delete(roomId);
++            },
++        };
++        roomWaits.set(slot, wait);
++        event.on(MatrixEventEvent.Decrypted, onDecrypted);
++    }
++
++    /** Stop waiting for the keys of a room's state, adding none of it later. */
++    private stopWaitingForKeys(roomId: string): void {
++        for (const wait of [...(this.undecryptedState.get(roomId)?.values() ?? [])]) wait.stopWaiting();
++    }
++
++    private readonly onDeleteRoom = (roomId: string): void => {
++        this.stopWaitingForKeys(roomId);
++    };
++
+     /**
+      * Injects events into a room's model.
+      * @param stateEventList - A list of state events. This is the state
+@@ -887,20 +1233,11 @@
+             liveTimeline.initialiseState(stateEventList);
+         }
+ 
+-        // If the timeline wasn't empty, we process the state events here: they're
+-        // defined as updates to the state before the start of the timeline, so this
+-        // starts to roll the state forward.
+-        // XXX: That's what we *should* do, but this can happen if we were previously
+-        // peeking in a room, in which case we obviously do *not* want to add the
+-        // state events here onto the end of the timeline. Historically, the js-sdk
+-        // has just set these new state events on the old and new state. This seems
+-        // very wrong because there could be events in the timeline that diverge the
+-        // state, in which case this is going to leave things out of sync. However,
+-        // for now I think it;s best to behave the same as the code has done previously.
++        // If the timeline wasn't empty, the state events are changes to the room's current state. Sliding sync's
++        // required_state is the server's resolved current state, not the state before the timeline as in /sync v2,
++        // so it is not rolled forward through the timeline: timeline events are history, added with addToState
++        // false below, and the server may resolve state differently from the order they arrived in.
+         if (!timelineWasEmpty) {
+-            // XXX: As above, don't do this...
+-            //room.addLiveEvents(stateEventList || []);
+-            // Do this instead...
+             room.oldState.setStateEvents(stateEventList);
+             room.currentState.setStateEvents(stateEventList);
+         }
+@@ -931,6 +1268,13 @@
+                 addToState: false,
+             });
+         }
++        // As /sync v2 does: poll responses and live location updates are aggregated onto what they refer to.
++        this.client.processAggregatedTimelineEvents(room, [...timelineEventList, ...liveTimelineEvents]);
++        if (stateEventList.some((event) => M_BEACON_INFO.matches(event.getType()))) {
++            // A live location share can arrive as state after its locations are in the timeline, as when a listed
++            // room is opened: they found no share then, so they are given to it now.
++            void room.currentState.processBeaconEvents(room.getLiveTimeline().getEvents(), this.client);
++        }
+ 
+         room.recalculate();
+ 
+@@ -991,12 +1335,192 @@
      public async sync(): Promise<void> {
          this.syncOpts.logger.debug("Sliding sync init loop");
  
@@ -491,6 +1242,15 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +        }
 +        if (!snapshot || this.stopped) return;
 +        this.snapshot = snapshot;
++        // Until every saved room is applied, a room someone asks for can be applied ahead of its turn.
++        this.slidingSync.setSavedRooms({
++            has: (roomId) => !!this.snapshot?.rooms[roomId] || this.roomRestores.has(roomId),
++            restore: (roomIds, background) =>
++                this.restoreRooms(
++                    roomIds.filter((roomId) => this.snapshot?.rooms[roomId] || this.roomRestores.has(roomId)),
++                    background,
++                ),
++        });
 +        try {
 +            if (snapshot.accountData?.length) applyGlobalAccountData(this.client, snapshot.accountData);
 +        } catch (error) {
@@ -531,6 +1291,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +            // Every saved room is in place: later live data needs no check, and the snapshot can be let go.
 +            this.snapshot = undefined;
 +            this.roomRestores.clear();
++            this.slidingSync.setSavedRooms(undefined);
 +        });
 +    }
 +
@@ -541,20 +1302,57 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +    private async restoreRooms(roomIds: string[], background = false): Promise<void> {
 +        let deadline: IdleDeadline | undefined;
 +        let sinceWait = 0;
-+        for (let i = 0; i < roomIds.length; i++) {
-+            if (background) {
-+                // A busy page still gets a few rooms each second.
-+                const budgetLeft = deadline?.didTimeout ? sinceWait < 4 : (deadline?.timeRemaining() ?? 0) > 4;
-+                if (!budgetLeft) {
-+                    deadline = await waitForIdle();
-+                    sinceWait = 0;
++        // The rooms applied between two waits are a batch, which the app can work out once rather than for each room.
++        let endBatch: (() => void) | undefined;
++        const batchDone = (): void => {
++            endBatch?.();
++            endBatch = undefined;
++        };
++        try {
++            for (let i = 0; i < roomIds.length; i++) {
++                if (background) {
++                    // A busy page still gets a few rooms each second.
++                    const budgetLeft = deadline?.didTimeout ? sinceWait < 4 : (deadline?.timeRemaining() ?? 0) > 4;
++                    if (!budgetLeft) {
++                        batchDone();
++                        deadline = await waitForIdle();
++                        sinceWait = 0;
++                    }
++                } else if (i > 0 && i % 8 === 0) {
++                    batchDone();
++                    await yieldToEventLoop();
 +                }
-+            } else if (i > 0 && i % 8 === 0) {
-+                await yieldToEventLoop();
++                if (this.stopped) return;
++                endBatch ??= this.startSavedRoomsBatch();
++                await this.restoreRoom(roomIds[i]);
++                sinceWait++;
 +            }
-+            if (this.stopped) return;
-+            await this.restoreRoom(roomIds[i]);
-+            sinceWait++;
++        } finally {
++            batchDone();
++        }
++    }
++
++    /**
++     * Tell the app a batch of saved rooms is being applied, as {@link IStartClientOpts.slidingSyncSavedRoomsBatch}.
++     * A failing app callback only loses the batching: the rooms are applied all the same.
++     * @returns What ends the batch.
++     */
++    private startSavedRoomsBatch(): () => void {
++        const logger = this.syncOpts.logger;
++        const start = this.opts.slidingSyncSavedRoomsBatch;
++        if (!start) return () => {};
++        try {
++            const end = start();
++            return (): void => {
++                try {
++                    end();
++                } catch (error) {
++                    logger.warn("Sliding sync: could not end a batch of saved rooms", error);
++                }
++            };
++        } catch (error) {
++            logger.warn("Sliding sync: could not start a batch of saved rooms", error);
++            return () => {};
 +        }
 +    }
 +
@@ -587,6 +1385,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
 +            if (!room) return;
 +            if (accountData) room.addAccountData(mapEvents(this.client, roomId, accountData));
 +            if (receipt) processEphemeralEvents(this.client, roomId, [receipt]);
++            this.client.getRoomHistoryObserver()?.onSavedRoomApplied(room);
 +        } catch (error) {
 +            this.syncOpts.logger.warn(`Sliding sync: could not apply the saved room ${roomId}`, error);
 +        }
@@ -608,7 +1407,7 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
                  this.syncOpts.logger.debug("Got push rules");
                  this.client.pushRules = result;
                  break;
-@@ -1007,9 +1220,6 @@
+@@ -1007,9 +1531,6 @@
                  }
              }
          }
@@ -618,17 +1417,45 @@ diff --git a/src/sliding-sync-sdk.ts b/src/sliding-sync-sdk.ts
      }
  
      /**
-@@ -1017,6 +1227,10 @@
+@@ -1017,7 +1538,15 @@
       */
      public stop(): void {
          this.syncOpts.logger.debug("SyncApi.stop");
 +        this.stopped = true;
++        this.e2eeCollector.stop();
 +        // Saved rooms not applied yet are let go.
 +        this.snapshot = undefined;
 +        this.roomRestores.clear();
++        this.slidingSync.setSavedRooms(undefined);
          this.slidingSync.stop();
++        this.client.off(ClientEvent.DeleteRoom, this.onDeleteRoom);
++        for (const roomId of [...this.undecryptedState.keys()]) this.stopWaitingForKeys(roomId);
      }
  
+     /**
+@@ -1099,6 +1628,22 @@
+     return roomData;
+ }
+ 
++/** A state event waiting for its keys. */
++interface UndecryptedStateWait {
++    event: MatrixEvent;
++    stopWaiting: () => void;
++}
++
++/** The event type and state key a state event was sent as: `m.room.encrypted` and a packed key, if encrypted. */
++function sentSlot(event: MatrixEvent): string {
++    return JSON.stringify([event.getWireType(), event.getWireStateKey()]);
++}
++
++/** The event type and state key a state event sets, once decrypted. */
++function clearSlot(event: MatrixEvent): string {
++    return JSON.stringify([event.getType(), event.getStateKey()]);
++}
++
+ type TaggedEvent = (IStrippedState | IRoomEvent | IStateEvent | IMinimalEvent) & { room_id?: string };
+ 
+ // Helper functions which set up JS SDK structs are below and are identical to the sync v2 counterparts,
 diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 --- a/src/sliding-sync.ts
 +++ b/src/sliding-sync.ts
@@ -645,7 +1472,18 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
  
  // /sync requests allow you to set a timeout= but the request may continue
  // beyond that and wedge forever, so we need to track how long we are willing
-@@ -55,6 +55,23 @@
+@@ -27,6 +27,10 @@
+ // to determine the max time we're willing to wait.
+ const BUFFER_PERIOD_MS = 10 * 1000;
+ 
++// How long a response's rooms are applied before input and drawing get a turn. The first response of a new
++// connection can hold every room in the account, which would otherwise block the page until all are applied.
++const ROOMS_SLICE_MS = 16;
++
+ export const MSC3575_WILDCARD = "*";
+ export const MSC3575_STATE_KEY_ME = "$ME";
+ export const MSC3575_STATE_KEY_LAZY = "$LAZY";
+@@ -55,6 +59,34 @@
      not_tags?: string[];
  }
  
@@ -666,10 +1504,92 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 +    priorityRoomIds?: string[];
 +}
 +
++/**
++ * Saved room data the client holds but has not applied yet, such as the rooms of a {@link SlidingSyncSnapshot} it
++ * applies in the background.
++ */
++export interface SlidingSyncSavedRooms {
++    /** Whether the room's saved data is still to be applied, or being applied. */
++    has(roomId: string): boolean;
++    /** Apply the rooms' saved data now. Background rooms wait for the page to be idle. */
++    restore(roomIds: string[], background: boolean): Promise<void>;
++}
++
  /**
   * Represents a list subscription.
   */
-@@ -317,8 +334,12 @@
+@@ -296,6 +328,11 @@
+      *  - SlidingSyncState.Complete: Fires after the response has been processed.
+      */
+     Lifecycle = "SlidingSync.Lifecycle",
++    /**
++     * This event fires once a response has been fully applied: its rooms and every extension, such as receipts.
++     * Unlike `SlidingSyncState.Complete`, which fires before the extensions that run after the rooms.
++     */
++    Applied = "SlidingSync.Applied",
+ }
+ 
+ export type SlidingSyncEventHandlerMap = {
+@@ -305,8 +342,58 @@
+         resp: MSC3575SlidingSyncResponse | null,
+         err?: Error,
+     ) => void;
++    [SlidingSyncEvent.Applied]: (resp: MSC3575SlidingSyncResponse) => void;
+ };
+ 
++/** A room subscription as a request carried it. */
++interface SentRoomSubscription {
++    /** A frozen copy of the subscription, as it was sent. */
++    subscription: Readonly<MSC3575RoomSubscription>;
++    /** The room's subscription revision when the request was sent. */
++    revision: number;
++}
++
++/** Let other work run, without the delay nested timers impose. */
++export function yieldToEventLoop(): Promise<void> {
++    return new Promise<void>((resolve) => {
++        const { port1, port2 } = new MessageChannel();
++        port1.onmessage = (): void => {
++            port1.close();
++            port2.close();
++            resolve();
++        };
++        port2.postMessage(null);
++    });
++}
++
++/**
++ * Let input and drawing in, then carry on ahead of other waiting work where the platform can, so applying a response
++ * is not held up by everything else that is queued.
++ */
++function yieldToInput(): Promise<void> {
++    const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
++    if (typeof scheduler?.yield === "function") return scheduler.yield();
++    return yieldToEventLoop();
++}
++
++/** A frozen deep copy of a value, so what was sent stays as it was whatever the caller does with its own. */
++function frozenCopy<T>(value: T): T {
++    const freeze = (item: unknown): void => {
++        if (!item || typeof item !== "object") return;
++        for (const child of Object.values(item)) freeze(child);
++        Object.freeze(item);
++    };
++    const copy = structuredClone(value);
++    freeze(copy);
++    return copy;
++}
++
++/** What a request carried, for whoever applies its response. */
++export interface SlidingSyncSentRequest {
++    /** Every room subscription the request carried, by room ID, frozen as it was sent. */
++    roomSubscriptions: ReadonlyMap<string, Readonly<MSC3575RoomSubscription>>;
++}
++
+ /**
+  * SlidingSync is a high-level data structure which controls the majority of sliding sync.
+  * It has no hooks into JS SDK except for needing a MatrixClient to perform the HTTP request.
+@@ -317,13 +404,24 @@
      private lists: Map<string, SlidingList>;
      private listModifiedCount = 0;
      private terminated = false;
@@ -682,24 +1602,181 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      // map of extension name to req/resp handler
      private extensions: Record<string, Extension<any, any>> = {};
  
-@@ -465,6 +486,16 @@
+     private desiredRoomSubscriptions = new Set<string>(); // the *desired* room subscriptions
+-    private confirmedRoomSubscriptions = new Set<string>();
++    // Each desired room's subscription revision. It changes when the room is subscribed afresh or its subscription
++    // changes, so the answer to a request sent before cannot confirm what the room is subscribed with now.
++    private subscriptionRevisions = new Map<string, number>();
++    private nextSubscriptionRevision = 0;
++    // For each room, the revision the last answered request carried.
++    private confirmedRoomSubscriptions = new Map<string, number>();
++    // The room subscriptions each response's request carried.
++    private readonly sentRequests = new WeakMap<MSC3575SlidingSyncResponse, SlidingSyncSentRequest>();
+ 
+     // map of custom subscription name to the subscription
+     private customSubscriptions: Map<string, MSC3575RoomSubscription> = new Map();
+@@ -332,6 +430,8 @@
+ 
+     private pendingReq?: Promise<MSC3575SlidingSyncResponse>;
+     private abortController?: AbortController;
++    // Saved room data the client has not applied yet, while it holds some.
++    private savedRooms?: SlidingSyncSavedRooms;
+ 
+     /**
+      * Create a new sliding sync instance
+@@ -363,11 +463,29 @@
+      * @param sub - The subscription information.
+      */
+     public addCustomSubscription(name: string, sub: MSC3575RoomSubscription): void {
+-        if (this.customSubscriptions.has(name)) {
+-            logger.warn(`addCustomSubscription: ${name} already exists as a custom subscription, ignoring.`);
+-            return;
+-        }
++        if (this.customSubscriptions.get(name) === sub) return;
+         this.customSubscriptions.set(name, sub);
++        // Rooms already using the name were sent the default, or the replaced subscription, until now.
++        for (const [roomId, customSubName] of this.roomIdToCustomSubscription) {
++            if (customSubName === name) this.reviseSubscription(roomId);
++        }
++    }
++
++    /**
++     * Forget a custom room subscription no subscribed room uses any more, with what rooms no longer subscribed
++     * remember of it. No requests are sent by calling this method.
++     * @param name - The name it was added under.
++     * @returns False, and the subscription is kept, while a subscribed room still uses it.
++     */
++    public removeCustomSubscription(name: string): boolean {
++        for (const [roomId, customSubName] of this.roomIdToCustomSubscription) {
++            if (customSubName === name && this.desiredRoomSubscriptions.has(roomId)) return false;
++        }
++        for (const [roomId, customSubName] of this.roomIdToCustomSubscription) {
++            if (customSubName === name) this.roomIdToCustomSubscription.delete(roomId);
++        }
++        this.customSubscriptions.delete(name);
++        return true;
+     }
+ 
+     /**
+@@ -378,14 +496,22 @@
+      * will be used.
+      */
+     public useCustomSubscription(roomId: string, name: string): void {
+-        // We already know about this custom subscription, as it is immutable,
+-        // we don't need to unconfirm the subscription.
+-        if (this.roomIdToCustomSubscription.get(roomId) === name) {
+-            return;
+-        }
++        if (this.roomIdToCustomSubscription.get(roomId) === name) return;
+         this.roomIdToCustomSubscription.set(roomId, name);
+-        // unconfirm this subscription so a resend() will send it up afresh.
+-        this.confirmedRoomSubscriptions.delete(roomId);
++        this.reviseSubscription(roomId);
++    }
++
++    /** Note that a room's subscription changed: it is confirmed again only by an answer to a request carrying it. */
++    private reviseSubscription(roomId: string): void {
++        if (this.desiredRoomSubscriptions.has(roomId)) {
++            this.subscriptionRevisions.set(roomId, ++this.nextSubscriptionRevision);
++        }
++    }
++
++    /** The subscription a room is sent with: its custom one, or the default. */
++    private subscriptionFor(roomId: string): MSC3575RoomSubscription {
++        const customSubName = this.roomIdToCustomSubscription.get(roomId);
++        return (customSubName && this.customSubscriptions.get(customSubName)) || this.roomSubscriptionInfo;
+     }
+ 
+     /**
+@@ -465,6 +591,54 @@
          return new Set(Array.from(this.desiredRoomSubscriptions));
      }
  
 +    /**
-+     * Whether the server has answered a request carrying this room's current subscription. A room missing
-+     * from that answer is one the server will not send, for example because the user cannot see it.
++     * Whether the server has answered a request carrying this room's current subscription, since the room was last
++     * subscribed. It says only that the request was answered: a room missing from the answer may be one the server
++     * will not send, or one with nothing new.
 +     * @param roomId - The subscribed room.
 +     * @returns True once the subscription, in its current form, has been acknowledged by a response.
 +     */
 +    public isRoomSubscriptionConfirmed(roomId: string): boolean {
-+        return this.confirmedRoomSubscriptions.has(roomId);
++        const revision = this.subscriptionRevisions.get(roomId);
++        return revision !== undefined && this.confirmedRoomSubscriptions.get(roomId) === revision;
++    }
++
++    /**
++     * What the request a response answers carried, such as which rooms it asked about and with which
++     * subscriptions. Only for responses this connection received.
++     * @param resp - The response.
++     */
++    public getRequestForResponse(resp: MSC3575SlidingSyncResponse): SlidingSyncSentRequest | undefined {
++        return this.sentRequests.get(resp);
++    }
++
++    /**
++     * Set by the client while it holds saved room data it has not applied yet.
++     * @param savedRooms - The saved rooms, or undefined once there are none left to apply.
++     */
++    public setSavedRooms(savedRooms: SlidingSyncSavedRooms | undefined): void {
++        this.savedRooms = savedRooms;
++    }
++
++    /**
++     * Whether the client holds saved data for a room that it has not applied yet, such as from an earlier session.
++     * @param roomId - The room.
++     */
++    public hasSavedRoom(roomId: string): boolean {
++        return this.savedRooms?.has(roomId) ?? false;
++    }
++
++    /**
++     * Apply the saved data for these rooms now rather than in its turn, such as for a room someone opens. Rooms with
++     * no saved data left to apply are skipped.
++     * @param roomIds - The rooms, the most wanted first.
++     * @param background - Wait for the page to be idle, such as for rooms someone may open soon.
++     * @returns Resolves once the rooms are applied.
++     */
++    public restoreSavedRooms(roomIds: string[], background = false): Promise<void> {
++        return this.savedRooms?.restore(roomIds, background) ?? Promise.resolve();
 +    }
 +
      /**
       * Modify the room subscriptions for the sync API. Calling this function will interrupt the
       * /sync request to resend new subscriptions. If the /sync stream has not started, this will
-@@ -569,6 +600,7 @@
+@@ -472,7 +646,18 @@
+      * @param s - The new desired room subscriptions.
+      */
+     public modifyRoomSubscriptions(s: Set<string>): void {
+-        this.desiredRoomSubscriptions = s;
++        for (const roomId of s) {
++            if (!this.desiredRoomSubscriptions.has(roomId)) {
++                this.subscriptionRevisions.set(roomId, ++this.nextSubscriptionRevision);
++            }
++        }
++        for (const roomId of this.desiredRoomSubscriptions) {
++            if (!s.has(roomId)) {
++                this.subscriptionRevisions.delete(roomId);
++                this.confirmedRoomSubscriptions.delete(roomId);
++            }
++        }
++        this.desiredRoomSubscriptions = new Set(s);
+         this.resend();
+     }
+ 
+@@ -482,8 +667,11 @@
+      * @param rs - The new room subscription fields to fetch.
+      */
+     public modifyRoomSubscriptionInfo(rs: MSC3575RoomSubscription): void {
++        const usingDefault = [...this.desiredRoomSubscriptions].filter(
++            (roomId) => this.subscriptionFor(roomId) === this.roomSubscriptionInfo,
++        );
+         this.roomSubscriptionInfo = rs;
+-        this.confirmedRoomSubscriptions = new Set<string>();
++        for (const roomId of usingDefault) this.reviseSubscription(roomId);
+         this.resend();
+     }
+ 
+@@ -569,6 +757,7 @@
       */
      public resend(): void {
          this.needsResend = true;
@@ -707,7 +1784,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
          this.abortController?.abort();
          this.abortController = new AbortController();
      }
-@@ -578,12 +610,21 @@
+@@ -578,12 +767,21 @@
       */
      public stop(): void {
          this.terminated = true;
@@ -729,7 +1806,15 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
      /**
       * Re-setup this connection e.g in the event of an expired session.
       */
-@@ -600,15 +641,41 @@
+@@ -593,22 +791,50 @@
+         this.lists.forEach((l) => {
+             l.setModified(true);
+         });
+-        this.confirmedRoomSubscriptions = new Set<string>(); // leave desired ones alone though!
++        this.confirmedRoomSubscriptions.clear(); // leave desired ones alone though!
+         // reset the connection as we might be wedged
+         this.resend();
+     }
  
      /**
       * Start syncing with the server. Blocks until stopped.
@@ -753,6 +1838,8 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
          let currentPos: string | undefined;
 +        // Consecutive rejected requests, other than for an expired connection, to back off between fresh starts.
 +        let rejectedRequests = 0;
++        // Requests in a row that failed otherwise, such as with a server error or no connection.
++        let failedRequests = 0;
          while (!this.terminated) {
 -            this.needsResend = false;
 +            let changed = false;
@@ -773,7 +1860,7 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
                  const reqLists: Record<string, MSC3575List> = {};
                  this.lists.forEach((l: SlidingList, key: string) => {
                      reqLists[key] = l.getList(true);
-@@ -616,9 +683,9 @@
+@@ -616,37 +842,50 @@
                  const reqBody: MSC3575SlidingSyncRequest = {
                      lists: reqLists,
                      pos: currentPos,
@@ -784,25 +1871,71 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 +                    clientTimeout: timeoutMS + BUFFER_PERIOD_MS,
 +                    extensions,
                  };
-                 // check if we are (un)subscribing to a room and modify request this one time for it
-                 const newSubscriptions = difference(this.desiredRoomSubscriptions, this.confirmedRoomSubscriptions);
-@@ -637,8 +704,15 @@
-                         reqBody.room_subscriptions[roomId] = sub;
+-                // check if we are (un)subscribing to a room and modify request this one time for it
+-                const newSubscriptions = difference(this.desiredRoomSubscriptions, this.confirmedRoomSubscriptions);
+-                const unsubscriptions = difference(this.confirmedRoomSubscriptions, this.desiredRoomSubscriptions);
+-                if (unsubscriptions.size > 0) {
+-                    reqBody.unsubscribe_rooms = Array.from(unsubscriptions);
+-                }
+-                if (newSubscriptions.size > 0) {
++                // Every request carries every room subscription in full: the server keeps none from one request to
++                // the next, so a room left out is one it stops sending what its subscription asks for. Leaving a room
++                // out is how it is unsubscribed.
++                const sent = new Map<string, SentRoomSubscription>();
++                if (this.desiredRoomSubscriptions.size > 0) {
+                     reqBody.room_subscriptions = {};
+-                    for (const roomId of newSubscriptions) {
+-                        const customSubName = this.roomIdToCustomSubscription.get(roomId);
+-                        let sub = this.roomSubscriptionInfo;
+-                        if (customSubName && this.customSubscriptions.has(customSubName)) {
+-                            sub = this.customSubscriptions.get(customSubName)!;
+-                        }
+-                        reqBody.room_subscriptions[roomId] = sub;
++                    for (const roomId of this.desiredRoomSubscriptions) {
++                        const subscription = frozenCopy(this.subscriptionFor(roomId));
++                        reqBody.room_subscriptions[roomId] = subscription;
++                        sent.set(roomId, { subscription, revision: this.subscriptionRevisions.get(roomId)! });
                      }
                  }
+-                this.pendingReq = this.client.slidingSync(reqBody, this.proxyBaseUrl, this.abortController.signal);
 +                requestSent = true;
-                 this.pendingReq = this.client.slidingSync(reqBody, this.proxyBaseUrl, this.abortController.signal);
++                const signal = this.abortController.signal;
++                this.pendingReq = this.client.slidingSync(reqBody, this.proxyBaseUrl, signal);
                  resp = await this.pendingReq;
+-                currentPos = resp.pos;
+-                // update what we think we're subscribed to.
+-                for (const roomId of newSubscriptions) {
+-                    this.confirmedRoomSubscriptions.add(roomId);
 +                if (ready) {
 +                    const canProcess = await Promise.race([ready, this.stopped.promise.then(() => false)]);
 +                    if (!canProcess || this.terminated) return;
 +                    ready = undefined;
-+                }
+                 }
+-                for (const roomId of unsubscriptions) {
+-                    this.confirmedRoomSubscriptions.delete(roomId);
 +                if (this.terminated) return;
-                 currentPos = resp.pos;
-                 // update what we think we're subscribed to.
-                 for (const roomId of newSubscriptions) {
-@@ -664,25 +738,43 @@
++                // Cancelled after its answer arrived, such as by a change made while the answer waited for the
++                // startup gate: the answer is to a request that no longer stands. The server keeps the position it
++                // was sent from, so the next request asks again from there.
++                if (signal.aborted) {
++                    resp = undefined;
++                    continue;
++                }
++                currentPos = resp.pos;
++                // The server has answered these subscriptions. A room unsubscribed meanwhile, subscribed afresh or
++                // given another subscription is not confirmed by it.
++                for (const [roomId, { revision }] of sent) {
++                    if (this.subscriptionRevisions.get(roomId) === revision) {
++                        this.confirmedRoomSubscriptions.set(roomId, revision);
++                    }
+                 }
++                this.sentRequests.set(resp, {
++                    roomSubscriptions: new Map([...sent].map(([roomId, { subscription }]) => [roomId, subscription])),
++                });
+                 // mark all these lists as having been sent as sticky so we don't keep sending sticky params
+                 this.lists.forEach((l) => {
+                     l.setModified(false);
+@@ -664,42 +903,74 @@
                  });
                  this.invokeLifecycleListeners(SlidingSyncState.RequestFinished, resp);
              } catch (err) {
@@ -818,11 +1951,14 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 +                    if (httpStatus === 400) {
 +                        // The server forgot this connection (M_UNKNOWN_POS) or rejected the request. Either way,
 +                        // start the connection afresh; keep the desired lists and subscriptions.
++                        const errcode = (<MatrixError>err).errcode;
++                        // Only a connection already under way can have been forgotten: a fresh request the server
++                        // says it does not know is rejected like any other, so it is not sent again at once forever.
++                        const forgotten = errcode === "M_UNKNOWN_POS" && currentPos !== undefined;
                          this.resetup();
                          currentPos = undefined;
 -                        await sleep(50); // in case the 400 was for something else; don't tightloop
-+                        const errcode = (<MatrixError>err).errcode;
-+                        if (errcode === "M_UNKNOWN_POS") {
++                        if (forgotten) {
 +                            rejectedRequests = 0;
 +                            continue;
 +                        }
@@ -841,18 +1977,53 @@ diff --git a/src/sliding-sync.ts b/src/sliding-sync.ts
 -                } else if (this.needsResend || (<Error>err).name === "AbortError") {
 +                } else if (requestSent && (this.needsResend || (<Error>err).name === "AbortError")) {
                      continue; // don't sleep as we caused this error by abort()ing the request.
++                } else {
++                    // A request that failed without an answer, such as with no connection, failed all the same: the
++                    // client counts it towards telling the user the connection is lost.
++                    this.invokeLifecycleListeners(SlidingSyncState.RequestFinished, null, <Error>err);
                  }
                  logger.error(err);
 -                await sleep(5000);
-+                await this.sleepUnlessStopped(5000);
++                // As /sync v2 does, try again soon at first, so a lost connection is noticed and reported promptly,
++                // then every 5 seconds.
++                failedRequests += 1;
++                await this.sleepUnlessStopped(Math.min(5000, 1000 * 2 ** failedRequests));
              }
              if (!resp) {
                  continue;
              }
 +            rejectedRequests = 0;
++            failedRequests = 0;
              await this.onPreExtensionsResponse(resp.extensions);
  
++            // Rooms are applied in order, in slices of time with input and drawing let in between.
++            let sliceStart = Date.now();
              // oxlint-disable-next-line guard-for-in
+             for (const roomId in resp.rooms) {
++                if (Date.now() - sliceStart >= ROOMS_SLICE_MS) {
++                    await yieldToInput();
++                    // A connection stopped meanwhile applies nothing more.
++                    if (this.terminated) return;
++                    sliceStart = Date.now();
++                }
+                 await this.invokeRoomDataListeners(roomId, resp.rooms[roomId]);
+             }
+ 
+             this.invokeLifecycleListeners(SlidingSyncState.Complete, resp);
+             await this.onPostExtensionsResponse(resp.extensions);
++            this.emit(SlidingSyncEvent.Applied, resp);
+         }
+     }
+ }
+ 
+-const difference = (setA: Set<string>, setB: Set<string>): Set<string> => {
+-    const diff = new Set(setA);
+-    for (const elem of setB) {
+-        diff.delete(elem);
+-    }
+-    return diff;
+-};
++
 diff --git a/src/http-api/logging.ts b/src/http-api/logging.ts
 --- a/src/http-api/logging.ts
 +++ b/src/http-api/logging.ts
@@ -922,3 +2093,212 @@ diff --git a/src/matrixrtc/MembershipManager.ts b/src/matrixrtc/MembershipManage
          return await this.clientSendMembership(myMembership)
              .then(() => {
                  this.setAndEmitProbablyLeft(false);
+diff --git a/src/http-api/fetch.ts b/src/http-api/fetch.ts
+--- a/src/http-api/fetch.ts
++++ b/src/http-api/fetch.ts
+@@ -68,6 +68,30 @@
+         return this.tokenManager.revokeTokens();
+     }
+ 
++    /**
++     * Refresh the access token of an OAuth2-native session now, rather than when a request finds it expired.
++     * Requests made meanwhile wait for it. See {@link TokenManager.refreshNow}.
++     * @returns Whether new tokens were obtained.
++     */
++    public refreshAccessToken(): Promise<boolean> {
++        return this.tokenManager.refreshNow();
++    }
++
++    /**
++     * Wait for a token refresh under way, if any, to finish and store its tokens. See
++     * {@link TokenManager.whenRefreshSettled}.
++     */
++    public whenTokenRefreshSettled(): Promise<void> {
++        return this.tokenManager.whenRefreshSettled();
++    }
++
++    /**
++     * Refresh no more tokens, and abort a refresh under way. See {@link TokenManager.stop}.
++     */
++    public stopTokenRefresh(): void {
++        this.tokenManager.stop();
++    }
++
+     public fetch(resource: URL | string, options?: RequestInit): ReturnType<typeof globalThis.fetch> {
+         if (this.opts.fetchFn) {
+             return this.opts.fetchFn(resource, options);
+diff --git a/src/http-api/refresh.ts b/src/http-api/refresh.ts
+--- a/src/http-api/refresh.ts
++++ b/src/http-api/refresh.ts
+@@ -83,6 +83,10 @@
+     // rather than racing to discover it independently.
+     private tokenRefresherPromise?: Promise<TokenRefresher>;
+ 
++    // Set by stop(): no more refreshes, and the one under way is aborted.
++    private stopped = false;
++    private readonly stopping = new AbortController();
++
+     /**
+      * This function is called before every request to ensure that the access token is valid.
+      * @returns a snapshot containing the access token and other properties which must be passed to the handleUnknownToken
+@@ -100,6 +104,7 @@
+     }
+ 
+     private async refreshIfNeeded(): Promise<unknown> {
++        if (this.stopped) return;
+         if (this.tokenRefreshPromise) {
+             return this.tokenRefreshPromise;
+         }
+@@ -112,6 +117,36 @@
+         }
+     }
+ 
++    /**
++     * Refresh the access token now, rather than when a request finds it expired, such as at start-up when the
++     * stored token has expired or soon will. Requests made meanwhile wait for the refresh, so they do not fail first.
++     * A failed refresh is not acted on: a request that then finds the token unknown handles it as usual.
++     * @returns Whether new tokens were obtained. False without a refresh token or OAuth2 client configuration.
++     */
++    public async refreshNow(): Promise<boolean> {
++        if (this.stopped || !this.opts.refreshToken || !this.opts.oauth2ClientConfig) return false;
++        return (await this._handleUnknownToken()) === TokenRefreshOutcome.Success;
++    }
++
++    /**
++     * Refresh no more tokens, and abort a refresh under way, such as when the session is handed to another instance:
++     * a refresh finishing later would replace a refresh token that instance already uses. Revoking tokens still
++     * works.
++     */
++    public stop(): void {
++        this.stopped = true;
++        this.stopping.abort();
++    }
++
++    /**
++     * Wait for a refresh under way, if any, to finish, including the {@link IHttpOpts.onTokenRefresh} callback that
++     * stores the new tokens. Use it before handing the session to another instance, so that it starts from the
++     * tokens the server last issued.
++     */
++    public async whenRefreshSettled(): Promise<void> {
++        await this.tokenRefreshPromise?.catch(() => undefined);
++    }
++
+     /**
+      * This function is called when an M_UNKNOWN_TOKEN error is encountered.
+      * It will attempt to refresh the access token if it is unknown, and will return a TokenRefreshOutcome.
+@@ -126,6 +161,8 @@
+     private async _handleUnknownToken(): Promise<TokenRefreshOutcome>;
+     private async _handleUnknownToken(snapshot: AccessTokens, attempt: number): Promise<TokenRefreshOutcome>;
+     private async _handleUnknownToken(snapshot?: AccessTokens, attempt?: number): Promise<TokenRefreshOutcome> {
++        // A stopped session refreshes nothing more; the request fails as on a failed refresh.
++        if (this.stopped) return TokenRefreshOutcome.Failure;
+         if (snapshot?.expiry) {
+             // If our token is unknown, but it should not have expired yet, then we should not refresh
+             const expiresIn = snapshot.expiry.getTime() - Date.now();
+@@ -175,9 +212,12 @@
+                 // We already checked `oauth2ClientConfig` is set above, so this should be unreachable.
+                 return TokenRefreshOutcome.Logout;
+             }
++            // Stopped while the auth server was found: no grant is asked for.
++            if (this.stopped) return TokenRefreshOutcome.Failure;
+ 
++            const outer = this.getAbortSignal?.();
+             const { accessToken, refreshToken, expiry } = await tokenRefresher.refreshTokens(this.opts.refreshToken, {
+-                abortSignal: this.getAbortSignal?.(),
++                abortSignal: outer ? AbortSignal.any([outer, this.stopping.signal]) : this.stopping.signal,
+             });
+             this.opts.accessToken = accessToken;
+             this.opts.refreshToken = refreshToken;
+diff --git a/src/models/read-receipt.ts b/src/models/read-receipt.ts
+--- a/src/models/read-receipt.ts
++++ b/src/models/read-receipt.ts
+@@ -340,7 +340,7 @@
+         return this.receiptCacheByEventId.get(event.getId()!) || [];
+     }
+ 
+-    public abstract addReceipt(event: MatrixEvent, synthetic: boolean): void;
++    public abstract addReceipt(event: MatrixEvent, synthetic: boolean, implicit?: boolean): void;
+ 
+     public abstract setUnread(type: NotificationCountType, count: number): void;
+ 
+@@ -379,9 +379,17 @@
+      * @param e - The event that is to be acknowledged
+      * @param receiptType - The type of receipt
+      * @param unthreaded - the receipt is unthreaded
++     * @param implicit - the receipt stands for the sender having read up to their own event, rather than for a
++     * receipt that was sent
+      */
+-    public addLocalEchoReceipt(userId: string, e: MatrixEvent, receiptType: ReceiptType, unthreaded = false): void {
+-        this.addReceipt(synthesizeReceipt(userId, e, receiptType, unthreaded), true);
++    public addLocalEchoReceipt(
++        userId: string,
++        e: MatrixEvent,
++        receiptType: ReceiptType,
++        unthreaded = false,
++        implicit = false,
++    ): void {
++        this.addReceipt(synthesizeReceipt(userId, e, receiptType, unthreaded), true, implicit);
+     }
+ 
+     /**
+diff --git a/src/models/thread.ts b/src/models/thread.ts
+--- a/src/models/thread.ts
++++ b/src/models/thread.ts
+@@ -290,7 +290,7 @@
+         if (!toStartOfTimeline) {
+             const sender = event.getSender();
+             if (sender && room && this.shouldSendLocalEchoReceipt(sender, event)) {
+-                room.addLocalEchoReceipt(sender, event, ReceiptType.Read);
++                room.addLocalEchoReceipt(sender, event, ReceiptType.Read, false, true);
+             }
+             if (event.getId() !== this.id && event.isRelation(THREAD_RELATION_TYPE.name)) {
+                 this.replyCount++;
+@@ -847,7 +847,7 @@
+         return this.timelineSet;
+     }
+ 
+-    public addReceipt(event: MatrixEvent, synthetic: boolean): void {
++    public addReceipt(event: MatrixEvent, synthetic: boolean, implicit?: boolean): void {
+         throw new Error("Unsupported function on the thread model");
+     }
+ 
+diff --git a/src/models/room-state.ts b/src/models/room-state.ts
+--- a/src/models/room-state.ts
++++ b/src/models/room-state.ts
+@@ -582,16 +582,18 @@
+ 
+             const beacon = beaconByEventIdDict[beaconInfoEventId];
+ 
+-            if (beacon) {
++            // The share may have been replaced or have ended while the location was being decrypted: a location
++            // belongs only to the share it names, while that share is still the room's.
++            if (beacon && beacon.beaconInfoId === beaconInfoEventId && this.beacons.get(beacon.identifier) === beacon) {
+                 beacon.addLocations([event]);
+             }
+         };
+ 
+         for (const event of events) {
+             const relatedToEventId = event.getRelation()?.event_id;
+-            // not related to a beacon we know about; discard
+-            if (!relatedToEventId || !beaconByEventIdDict[relatedToEventId]) return;
+-            if (!M_BEACON.matches(event.getType()) && !event.isEncrypted()) return;
++            // not related to a beacon we know about, or not a location: skip it, and keep looking through the rest
++            if (!relatedToEventId || !beaconByEventIdDict[relatedToEventId]) continue;
++            if (!M_BEACON.matches(event.getType()) && !event.isEncrypted()) continue;
+ 
+             try {
+                 await matrixClient.decryptEventIfNeeded(event);
+diff --git a/src/matrixrtc/MatrixRTCSession.ts b/src/matrixrtc/MatrixRTCSession.ts
+--- a/src/matrixrtc/MatrixRTCSession.ts
++++ b/src/matrixrtc/MatrixRTCSession.ts
+@@ -920,9 +920,8 @@
+             // If anyone else joins the session it is no longer our responsibility to send the notification.
+             // (If we were the joiner we already did sent the notification in the block above.)
+             if (this.memberships.length > 0) this.pendingNotificationToSend = undefined;
+-        } else {
+-            this.logger.debug(`No membership changes detected for room ${this.roomSubset.roomId}`);
+         }
++        // Nothing is logged when nothing changed: that is every room without a call, each time the client loads it.
+         // This also needs to be done if `changed` = false
+         // A member might have updated their fingerprint (created_ts)
+         this.encryptionManager?.onMembershipsUpdate(oldMemberships);

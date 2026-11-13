@@ -172,6 +172,10 @@ export function createTestClient(): MatrixClient {
         }),
 
         getPushActionsForEvent: vi.fn(),
+        hasLocalNotificationCounts: vi.fn().mockReturnValue(false),
+        setLocalNotificationCounts: vi.fn(),
+        getRoomHistoryObserver: vi.fn(),
+        setRoomHistoryObserver: vi.fn(),
         getRoom: vi.fn().mockImplementation((roomId) => {
             // If the test called `createRoom`, return the mocked room it created.
             if (createdRoom) {

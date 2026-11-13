@@ -47,8 +47,12 @@ Please see LICENSE in the repository root for full details.
     color: var(--cpd-color-text-critical-primary);
 }
 
-/* The name and ID sit beside the avatar, which hangs below the banner. */
+/*
+ * The name and ID sit beside the avatar, which hangs below the banner. The banner is positioned and reserves the
+ * space the avatar hangs into, so this row is positioned too, after it, to stay clickable where the two overlap.
+ */
 .identity {
+    position: relative;
     display: flex;
     align-items: center;
     gap: var(--cpd-space-4x);

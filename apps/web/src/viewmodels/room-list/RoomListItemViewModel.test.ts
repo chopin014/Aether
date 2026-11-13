@@ -625,6 +625,16 @@ describe("RoomListItemViewModel", () => {
             expect(snapshot.notification.count).toBe(5);
         });
 
+        it("should say whether the count is only a lower bound", async () => {
+            vi.spyOn(notificationState, "count", "get").mockReturnValue(4);
+            vi.spyOn(notificationState, "countIsLowerBound", "get").mockReturnValue(true);
+
+            viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            await flushPromises();
+
+            expect(viewModel.getSnapshot().notification).toMatchObject({ count: 4, countIsLowerBound: true });
+        });
+
         it("should update when notification state changes", async () => {
             viewModel = new RoomListItemViewModel({ room, client: matrixClient });
 

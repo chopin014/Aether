@@ -35,7 +35,8 @@ body.mx_DesktopShell {
     --mx-desktop-search-border: var(--mx-desktop-header-border);
     /* With the sidebar's top border, the padding centres a 32px button on the same line as the room header's. */
     --mx-desktop-search-padding: 7px 10px 8px;
-    --mx-desktop-search-button-padding: 0 8px;
+    --mx-desktop-search-button-padding-block: 0;
+    --mx-desktop-search-button-padding-inline: 8px;
     --mx-desktop-search-button-size: 32px;
     --mx-desktop-search-background: var(--cpd-color-bg-subtle-primary);
     /*
@@ -551,23 +552,28 @@ body.mx_DesktopShell [class*="_tooltip_"]:has([data-server-hover-card]) {
     color: var(--server-hover-card-text);
     box-shadow: 0 8px 16px rgb(0 0 0 / 24%);
     text-align: start;
+}
 
-    > span:first-of-type {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        overflow: hidden;
-        clip-path: inset(50%);
-        white-space: nowrap;
-    }
+/*
+ * The tooltip's label, caption and arrow each find the card from themselves, beside them or within them. Styled from
+ * the tooltip's `:has()`, they would make the browser restyle every element with a class in any part of the page
+ * that also has a `:has()` rule, whenever anything there is added or removed.
+ */
+body.mx_DesktopShell [class*="_tooltip_"] > span:first-of-type:has(+ [class*="_caption_"] > [data-server-hover-card]) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
 
-    [class*="_caption_"] {
-        color: var(--server-hover-card-text);
-    }
+body.mx_DesktopShell [class*="_tooltip_"] > [class*="_caption_"]:has(> [data-server-hover-card]) {
+    color: var(--server-hover-card-text);
+}
 
-    [class*="_arrow_"] {
-        fill: var(--server-hover-card-background);
-    }
+body.mx_DesktopShell [class*="_tooltip_"] > [class*="_arrow_"]:has(~ [class*="_caption_"] > [data-server-hover-card]) {
+    fill: var(--server-hover-card-background);
 }
 
 .mx_MatrixChat_wrapper.mx_MatrixChat_desktopShell {
@@ -605,9 +611,11 @@ body.mx_DesktopShell [class*="_tooltip_"]:has([data-server-hover-card]) {
         }
     }
 
-    /* Whatever reaches the top right corner keeps clear of the window controls. */
-    .mx_RoomView > .mx_RoomHeader,
-    .mx_RoomView:not(:has(.mx_RightPanel)) .mx_RoomHeader {
+    /*
+     * Whatever reaches the top right corner keeps clear of the window controls. In the desktop shell a room's header
+     * always sits directly in the room view, across the top of every content column.
+     */
+    .mx_RoomView > .mx_RoomHeader {
         padding-inline-end: calc(var(--cpd-space-3x) + var(--mx-window-controls-inline-size));
     }
 
@@ -1478,8 +1486,11 @@ body.mx_DesktopShell [class*="_tooltip_"]:has([data-server-hover-card]) {
         }
     }
 
-    /* A shared room header already keeps every content column below the native controls. */
-    .mx_RoomView:has(> .mx_RoomHeader) .mx_RightPanel {
+    /*
+     * A shared room header already keeps every content column below the native controls. Found as the split's
+     * sibling: a `:has()` on the room view would restyle all of it whenever anything in it changes.
+     */
+    .mx_RoomView > .mx_RoomHeader ~ .mx_MainSplit .mx_RightPanel {
         padding-block-start: 0;
         background-image: none;
     }
@@ -1532,11 +1543,15 @@ body.mx_DesktopShell [class*="_tooltip_"]:has([data-server-hover-card]) {
     @media (width < 800px) {
         .mx_MainSplit:has(.mx_ThreadView) {
             position: relative;
+        }
 
-            /* Keep the channel's raised status area below the thread overlay. */
-            > .mx_RoomView_body {
-                isolation: isolate;
-            }
+        /*
+         * Keep the channel's raised status area below the thread overlay. The channel finds the thread beside it:
+         * a `:has()` on the split, styling the channel within it, would restyle the whole channel whenever anything
+         * in it changes.
+         */
+        .mx_MainSplit > .mx_RoomView_body:has(~ .mx_RightPanel_ResizeWrapper .mx_ThreadView) {
+            isolation: isolate;
         }
 
         .mx_RightPanel_ResizeWrapper:has(.mx_ThreadView) {

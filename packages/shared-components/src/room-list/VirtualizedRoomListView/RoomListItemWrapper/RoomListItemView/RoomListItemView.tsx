@@ -42,9 +42,13 @@ function getA11yLabel(roomName: string, notification: NotificationDecorationData
     } else if (notification.invited) {
         return _t("room_list|a11y|invitation", { roomName });
     } else if (notification.isMention && notification.count) {
-        return _t("room_list|a11y|mention", { roomName, count: notification.count });
+        return notification.countIsLowerBound
+            ? _t("room_list|a11y|mention_at_least", { roomName, count: notification.count })
+            : _t("room_list|a11y|mention", { roomName, count: notification.count });
     } else if (notification.hasUnreadCount && notification.count) {
-        return _t("room_list|a11y|unread", { roomName, count: notification.count });
+        return notification.countIsLowerBound
+            ? _t("room_list|a11y|unread_at_least", { roomName, count: notification.count })
+            : _t("room_list|a11y|unread", { roomName, count: notification.count });
     } else if (notification.callType === "voice") {
         return _t("room_list|a11y|voice_call", { roomName });
     } else if (notification.callType === "video") {

@@ -7,7 +7,7 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import React, { useState } from "react";
-import { type Room, EventType, type MatrixClient } from "matrix-js-sdk/src/matrix";
+import { type Room, EventType, type MatrixClient, RoomEvent } from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
 
 import { _t } from "../../../languageHandler";
@@ -16,7 +16,8 @@ import SpaceBasicSettings from "./SpaceBasicSettings";
 import { avatarUrlForRoom } from "../../../Avatar";
 import { htmlSerializeFromMdIfNeeded } from "../../../editor/serialize";
 import { leaveSpace } from "../../../utils/leave-behaviour";
-import { getTopic } from "../../../hooks/room/useTopic";
+import { useTopic } from "../../../hooks/room/useTopic";
+import { useTypedEventEmitterState } from "../../../hooks/useEventEmitter";
 import SettingsTab from "../settings/tabs/SettingsTab";
 import { SettingsSection } from "../settings/shared/SettingsSection";
 import { SettingsSubsection } from "../settings/shared/SettingsSubsection";
@@ -39,22 +40,27 @@ const SpaceSettingsGeneralTab: React.FC<IProps> = ({ matrixClient: cli, space })
     const canSetAvatar = space.currentState.maySendStateEvent(EventType.RoomAvatar, userId);
     const avatarChanged = newAvatar !== null;
 
-    const [name, setName] = useState<string>(space.name);
+    // The name and topic follow the Space until they are edited. Under sliding sync, a Space that has not been
+    // looked at gets its topic after the settings open, and saving must not replace it with the empty field.
+    const currentName = useTypedEventEmitterState(space, RoomEvent.Name, () => space.name);
+    const [editedName, setEditedName] = useState<string>();
+    const name = editedName ?? currentName;
     const canSetName = space.currentState.maySendStateEvent(EventType.RoomName, userId);
     const canDelete =
         space.currentState.maySendStateEvent(EventType.RoomPowerLevels, userId) &&
         space.currentState.maySendStateEvent(EventType.RoomJoinRules, userId);
-    const nameChanged = name !== space.name;
+    const nameChanged = name !== currentName;
 
-    const currentTopic = getTopic(space)?.text ?? "";
-    const [topic, setTopic] = useState(currentTopic);
+    const currentTopic = useTopic(space)?.text ?? "";
+    const [editedTopic, setEditedTopic] = useState<string>();
+    const topic = editedTopic ?? currentTopic;
     const canSetTopic = space.currentState.maySendStateEvent(EventType.RoomTopic, userId);
     const topicChanged = topic !== currentTopic;
 
     const onCancel = (): void => {
         setNewAvatar(null);
-        setName(space.name);
-        setTopic(currentTopic);
+        setEditedName(undefined);
+        setEditedTopic(undefined);
     };
 
     const onSave = async (): Promise<void> => {
@@ -106,10 +112,10 @@ const SpaceSettingsGeneralTab: React.FC<IProps> = ({ matrixClient: cli, space })
                         setAvatar={setNewAvatar}
                         name={name}
                         nameDisabled={busy || !canSetName}
-                        setName={setName}
+                        setName={setEditedName}
                         topic={topic}
                         topicDisabled={busy || !canSetTopic}
-                        setTopic={setTopic}
+                        setTopic={setEditedTopic}
                     />
 
                     <AccessibleButton

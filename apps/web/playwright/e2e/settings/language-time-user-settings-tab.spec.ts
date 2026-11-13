@@ -14,21 +14,20 @@ test.use({
     timezoneId: "Europe/London",
 });
 
-test.describe("Preferences user settings tab", () => {
+test.describe("Language & time user settings tab", () => {
     test.use({
         displayName: "Bob",
         uut: async ({ app, user }, use) => {
-            const locator = await app.settings.openUserSettings("Preferences");
+            const locator = await app.settings.openUserSettings("Language & time");
             await use(locator);
         },
     });
 
-    test("should be rendered properly", { tag: "@screenshot" }, async ({ app, page, user, axe }) => {
-        await page.setViewportSize({ width: 1024, height: 4000 });
-        const tab = await app.settings.openUserSettings("Preferences");
+    test("should be rendered properly", { tag: "@screenshot" }, async ({ app, user, axe }) => {
+        const tab = await app.settings.openUserSettings("Language & time");
         // Assert that the top heading is rendered
-        await expect(tab.getByRole("heading", { name: "Preferences" })).toBeVisible();
-        await expect(tab).toMatchScreenshot("Preferences-user-settings-tab-should-be-rendered-properly-1.png", {
+        await expect(tab.getByRole("heading", { name: "Language", exact: true })).toBeVisible();
+        await expect(tab).toMatchScreenshot("language-time-user-settings-tab.png", {
             // masked with fixed-width due to daylight saving time making the text content vary
             mask: [tab.locator("#mx_dropdownUserTimezone_value")],
             css: `

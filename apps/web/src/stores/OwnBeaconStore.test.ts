@@ -33,6 +33,7 @@ import { makeBeaconInfoEvent, mockGeolocation, watchPositionMockImplementation }
 import { getMockClientWithEventEmitter } from "test-utils/client";
 
 import { OwnBeaconStore, OwnBeaconStoreEvent } from "./OwnBeaconStore";
+import { SlidingSyncManager } from "../SlidingSyncManager";
 import SettingsStore from "../settings/SettingsStore";
 
 // modern fake timers and lodash.debounce are a faff
@@ -160,6 +161,94 @@ describe("OwnBeaconStore", () => {
 
     afterAll(() => {
         localStorageGetSpy.mockRestore();
+    });
+
+    describe("under sliding sync", () => {
+        // Rooms the server has sent on this connection. The rest are only restored from what this device saved, and
+        // may be out of date, such as with a share stopped on another device meanwhile.
+        const fresh = new Set<string>();
+        let announceArrivals: () => void = () => {};
+        const releases = new Map<string, ReturnType<typeof vi.fn>>();
+
+        beforeEach(() => {
+            fresh.clear();
+            releases.clear();
+            const manager = SlidingSyncManager.instance;
+            vi.spyOn(manager, "isActiveFor").mockReturnValue(true);
+            vi.spyOn(manager, "hasLiveData").mockImplementation((roomId) => fresh.has(roomId));
+            vi.spyOn(manager, "onArrivalChange").mockImplementation((listener) => {
+                announceArrivals = listener;
+                return () => {};
+            });
+            vi.spyOn(manager, "holdRoom").mockImplementation((roomId) => {
+                const release = vi.fn();
+                releases.set(roomId, release);
+                return release;
+            });
+            localStorageGetSpy.mockReturnValue(JSON.stringify([alicesRoom1BeaconInfo.getId()]));
+        });
+
+        afterEach(() => {
+            const manager = SlidingSyncManager.instance;
+            for (const method of ["isActiveFor", "hasLiveData", "onArrivalChange", "holdRoom"] as const) {
+                vi.mocked(manager[method]).mockRestore();
+            }
+        });
+
+        it("shows a share whose room the server has not sent again, sharing its location only once it is", async () => {
+            makeRoomsWithStateEvents([alicesRoom1BeaconInfo]);
+            const store = await makeOwnBeaconStore();
+            await flushPromisesWithFakeTimers();
+            // The share can be seen and stopped, and its room is kept subscribed, but nothing is sent to it.
+            expect(store.getLiveBeaconIds()).toEqual([getBeaconInfoIdentifier(alicesRoom1BeaconInfo)]);
+            expect(releases.has(room1Id)).toBe(true);
+            expect(mockClient.sendEvent).not.toHaveBeenCalled();
+
+            fresh.add(room1Id);
+            announceArrivals();
+            await flushPromisesWithFakeTimers();
+
+            expect(mockClient.sendEvent).toHaveBeenCalledWith(
+                room1Id,
+                M_BEACON.name,
+                ContentHelpers.makeBeaconContent(defaultLocationUri, now, alicesRoom1BeaconInfo.getId()!),
+            );
+            expect(releases.get(room1Id)).not.toHaveBeenCalled();
+        });
+
+        it("shares no location to a share once the connection restarts, until its room is sent again", async () => {
+            geolocation.watchPosition.mockImplementation(watchPositionMockImplementation([0, 6000, 6000]));
+            fresh.add(room1Id);
+            makeRoomsWithStateEvents([alicesRoom1BeaconInfo]);
+            const store = await makeOwnBeaconStore();
+            await flushPromisesWithFakeTimers();
+            expect(mockClient.sendEvent).toHaveBeenCalledTimes(1);
+
+            // The connection restarts, and the next location comes before the room is sent on the new connection.
+            fresh.delete(room1Id);
+            announceArrivals();
+            vi.advanceTimersByTime(6000);
+            await flushPromisesWithFakeTimers();
+            expect(mockClient.sendEvent).toHaveBeenCalledTimes(1);
+            expect(store.getLiveBeaconIds()).toHaveLength(1);
+
+            fresh.add(room1Id);
+            announceArrivals();
+            await flushPromisesWithFakeTimers();
+            expect(mockClient.sendEvent).toHaveBeenCalledTimes(2);
+        });
+
+        it("lets the room go once the share ends", async () => {
+            fresh.add(room1Id);
+            makeRoomsWithStateEvents([alicesRoom1BeaconInfo]);
+            const store = await makeOwnBeaconStore();
+            expect(store.getLiveBeaconIds()).toHaveLength(1);
+
+            expireBeaconAndEmit(store, alicesRoom1BeaconInfo);
+
+            expect(store.getLiveBeaconIds()).toEqual([]);
+            expect(releases.get(room1Id)).toHaveBeenCalled();
+        });
     });
 
     describe("onReady()", () => {

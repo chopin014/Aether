@@ -72,6 +72,36 @@ describe("NotificationBadgeViewModel", () => {
         });
     });
 
+    it("shows a count that is only a lower bound as at least it", () => {
+        const vm = new NotificationBadgeViewModel({
+            symbol: null,
+            count: 7,
+            countIsLowerBound: true,
+            level: NotificationLevel.Notification,
+        });
+        expect(vm.getSnapshot()).toMatchObject({ symbol: "7+", badgeType: "badge_2char" });
+
+        vm.setNotificationData({
+            symbol: null,
+            count: 12,
+            countIsLowerBound: true,
+            level: NotificationLevel.Highlight,
+        });
+        expect(vm.getSnapshot()).toMatchObject({ symbol: "12+", badgeType: "badge_3char", isHighlight: true });
+
+        vm.setNotificationData({
+            symbol: null,
+            count: 12,
+            countIsLowerBound: false,
+            level: NotificationLevel.Highlight,
+        });
+        expect(vm.getSnapshot()).toMatchObject({ symbol: "12" });
+
+        // A symbol, such as an unsent message's, stays as it is.
+        vm.setNotificationData({ symbol: "!", count: 1, countIsLowerBound: true, level: NotificationLevel.Unsent });
+        expect(vm.getSnapshot()).toMatchObject({ symbol: "!" });
+    });
+
     it("hides activity badges when hide bold is enabled", () => {
         const vm = new NotificationBadgeViewModel({
             symbol: "",

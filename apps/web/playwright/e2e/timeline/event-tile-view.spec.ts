@@ -9,8 +9,20 @@ import type { Page } from "@playwright/test";
 import { expect, test } from "../../element-web-test";
 import { SettingLevel } from "../../../src/settings/SettingLevel";
 import { Layout } from "../../../src/settings/enums/Layout";
+import { messageList } from "../../pages/timeline";
 
-const roomMessageList = (page: Page) => page.locator(".mx_RoomView_MessageList");
+const roomMessageList = (page: Page) => messageList(page);
+
+/**
+ * For the layout screenshots: the times, and the unread line before Bob's messages. Whether that line shows depends on
+ * whether Alice's receipt has arrived when the room opens, which is not what these screenshots are about. It is taken
+ * out of the layout, so that it leaves no gap either way.
+ */
+const LAYOUT_SCREENSHOT_CSS = `
+    .mx_MessageTimestamp { visibility: hidden; }
+    .mx_MessagePanel_myReadMarker,
+    .mx_TimelineView_tile:has([role="separator"][aria-label="New"]) { display: none !important; }
+`;
 
 test.describe("EventTileView application coverage", () => {
     test.use({
@@ -47,17 +59,13 @@ test.describe("EventTileView application coverage", () => {
 
                 await expect(messageTiles).toHaveCount(4);
 
-                await expect(messages).toMatchScreenshot(`event-tile-${layout}.png`, {
-                    css: ".mx_MessageTimestamp { visibility: hidden; }",
-                });
+                await expect(messages).toMatchScreenshot(`event-tile-${layout}.png`, { css: LAYOUT_SCREENSHOT_CSS });
             }
 
             await app.settings.setValue("layout", null, SettingLevel.DEVICE, Layout.Group);
             await app.settings.setValue("useCompactLayout", null, SettingLevel.DEVICE, true);
             await expect(messageTiles).toHaveCount(4);
-            await expect(messages).toMatchScreenshot("event-tile-group-compact.png", {
-                css: ".mx_MessageTimestamp { visibility: hidden; }",
-            });
+            await expect(messages).toMatchScreenshot("event-tile-group-compact.png", { css: LAYOUT_SCREENSHOT_CSS });
         },
     );
 
@@ -72,7 +80,7 @@ test.describe("EventTileView application coverage", () => {
             const event = await app.client.sendMessage(roomId, "Interaction target");
             await app.viewRoomById(roomId);
 
-            const tile = page.locator(`.mx_RoomView_MessageList .mx_EventTile[data-event-id='${event.event_id}']`);
+            const tile = messageList(page).locator(`.mx_EventTile[data-event-id='${event.event_id}']`);
             const line = tile.locator(".mx_EventTile_line");
             const actionBar = tile
                 .getByTestId("event-tile-slot-actionBar")

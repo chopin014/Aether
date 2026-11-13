@@ -10,7 +10,7 @@
 
 import { vi, describe, it, expect, beforeAll } from "vitest";
 import React, { type ComponentProps } from "react";
-import { render, screen } from "test-utils-rtl";
+import { act, render, screen, waitFor } from "test-utils-rtl";
 import userEvent from "@testing-library/user-event";
 import { stubClient } from "test-utils";
 import { populateThread } from "test-utils/threads";
@@ -21,6 +21,11 @@ import { NotificationLevel } from "../../../../stores/notifications/Notification
 import { MatrixClientPeg } from "../../../../MatrixClientPeg";
 import MatrixClientContext from "../../../../contexts/MatrixClientContext";
 import DMRoomMap from "../../../../utils/DMRoomMap";
+import {
+    announceCountsChanged,
+    InexactCount,
+    setInexactCounts,
+} from "../../../../sliding-sync/notification-counts/publishedCounts";
 
 describe("ThreadsActivityCentre", () => {
     const getTACButton = () => {
@@ -274,6 +279,30 @@ describe("ThreadsActivityCentre", () => {
         );
     });
 
+    it("should show a count that is only a lower bound as at least it, and keep up while open", async () => {
+        cli.getVisibleRooms = vi.fn().mockReturnValue([roomWithManyNotifs]);
+        const threadId = roomWithManyNotifs.getThreads()[0].id;
+        setInexactCounts(roomWithManyNotifs, { threads: new Map([[threadId, InexactCount.LowerBound]]) });
+        try {
+            renderTAC();
+            await userEvent.click(getTACButton());
+
+            expect(getRowDecoration()).toHaveTextContent("3+");
+            expect(screen.getAllByRole("menuitem")[0]).toHaveAccessibleName(
+                /^Open thread in .+, with at least 3 unread messages\.$/,
+            );
+
+            // History fills the gap between syncs: the same count, now exact.
+            act(() => {
+                setInexactCounts(roomWithManyNotifs, undefined);
+                announceCountsChanged(roomWithManyNotifs);
+            });
+            await waitFor(() => expect(getRowDecoration()).toHaveTextContent(/^3$/), { timeout: 2000 });
+        } finally {
+            setInexactCounts(roomWithManyNotifs, undefined);
+        }
+    });
+
     it("should show other threads in the Other threads tab", async () => {
         cli.getVisibleRooms = vi.fn().mockReturnValue([roomWithOtherThread]);
         renderTAC();
@@ -375,6 +404,11 @@ describe("threadDecorationProps", () => {
                 hasUnreadCount: false,
             }),
         );
+    });
+
+    it("passes whether the count is only a lower bound through", () => {
+        expect(threadDecorationProps(NotificationLevel.Notification, 5, false, true).countIsLowerBound).toBe(true);
+        expect(threadDecorationProps(NotificationLevel.Notification, 5, false).countIsLowerBound).toBe(false);
     });
 
     it("passes the muted flag through", () => {
