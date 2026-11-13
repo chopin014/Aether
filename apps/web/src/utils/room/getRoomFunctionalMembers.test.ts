@@ -49,4 +49,22 @@ describe("getRoomFunctionalMembers", () => {
         ]);
         expect(getFunctionalMembers(room)).toEqual(["@user:example.com"]);
     });
+
+    it("reads only the event with an empty state key", () => {
+        const other = new Room("!other:example.com", client, client.getUserId()!);
+        const functionalUsers = (skey: string, members: string[]): ReturnType<typeof mkEvent> =>
+            mkEvent({
+                event: true,
+                type: UNSTABLE_ELEMENT_FUNCTIONAL_USERS.name,
+                user: "@user:example.com",
+                room: other.roomId,
+                skey,
+                content: { service_members: members },
+            });
+        other.currentState.setStateEvents([functionalUsers("elsewhere", ["@impostor:example.com"])]);
+        expect(getFunctionalMembers(other)).toEqual([]);
+
+        other.currentState.setStateEvents([functionalUsers("", ["@bot:example.com"])]);
+        expect(getFunctionalMembers(other)).toEqual(["@bot:example.com"]);
+    });
 });

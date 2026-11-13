@@ -19,6 +19,7 @@ type OverlayStoryProps = TimelineViewSnapshot & TimelineViewActions & { scrollNo
 
 const TimelineOverlayButtonsWrapper = ({
     onStartReached,
+    onStartLeft,
     onEndReached,
     onAnchorReached,
     onVisibleRangeChanged,
@@ -31,6 +32,7 @@ const TimelineOverlayButtonsWrapper = ({
 }: OverlayStoryProps): JSX.Element => {
     const vm: TimelineViewActions = {
         onStartReached,
+        onStartLeft,
         onEndReached,
         onAnchorReached,
         onVisibleRangeChanged,
@@ -58,6 +60,7 @@ const meta = {
         hasHighlights: false,
         // Actions.
         onStartReached: fn(),
+        onStartLeft: fn(),
         onEndReached: fn(),
         onAnchorReached: fn(),
         onVisibleRangeChanged: fn(),

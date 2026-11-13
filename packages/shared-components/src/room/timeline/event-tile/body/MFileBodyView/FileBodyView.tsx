@@ -227,6 +227,10 @@ export function FileBodyView({ vm, refIFrame, refLink, className }: Readonly<Fil
 
     const resolvedDownloadLabel = downloadLabel ?? _t("action|download");
 
+    // Actions that live inside the info row, to the right of the file name. Absent unless the view
+    // model asks for them, which keeps the row exactly as it was for file types we cannot open.
+    const hasInfoActions = Boolean(showInlineDownload || (showOpen && openLabel));
+
     const infoButton = (
         <Button
             as="button"
@@ -235,40 +239,38 @@ export function FileBodyView({ vm, refIFrame, refLink, className }: Readonly<Fil
             aria-label={resolvedInfoLabel}
             Icon={resolvedInfoIcon}
             onClick={vm.onInfoClick}
+            className={hasInfoActions ? styles.nameBesideActions : undefined}
         >
             <span>{resolvedInfoLabel}</span>
         </Button>
     );
 
-    // Actions that live inside the info row, to the right of the file name. Absent unless the view
-    // model asks for them, which keeps the row exactly as it was for file types we cannot open.
-    const infoActions =
-        showInlineDownload || (showOpen && openLabel) ? (
-            <div data-type="actions">
-                {showInlineDownload && (
-                    <IconButton
-                        size="28px"
-                        kind="secondary"
-                        aria-label={resolvedDownloadLabel}
-                        tooltip={resolvedDownloadLabel}
-                        onClick={vm.onInfoClick}
-                    >
-                        <DownloadIcon />
-                    </IconButton>
-                )}
-                {showOpen && openLabel && (
-                    <IconButton
-                        size="28px"
-                        kind="secondary"
-                        aria-label={openLabel}
-                        tooltip={openLabel}
-                        onClick={vm.onOpenClick}
-                    >
-                        <ExpandIcon />
-                    </IconButton>
-                )}
-            </div>
-        ) : null;
+    const infoActions = hasInfoActions ? (
+        <div data-type="actions">
+            {showInlineDownload && (
+                <IconButton
+                    size="28px"
+                    kind="secondary"
+                    aria-label={resolvedDownloadLabel}
+                    tooltip={resolvedDownloadLabel}
+                    onClick={vm.onInfoClick}
+                >
+                    <DownloadIcon />
+                </IconButton>
+            )}
+            {showOpen && openLabel && (
+                <IconButton
+                    size="28px"
+                    kind="secondary"
+                    aria-label={openLabel}
+                    tooltip={openLabel}
+                    onClick={vm.onOpenClick}
+                >
+                    <ExpandIcon />
+                </IconButton>
+            )}
+        </div>
+    ) : null;
 
     // With actions present the tooltip moves onto the name itself, so that hovering an action shows
     // that action's tooltip rather than the file name's.

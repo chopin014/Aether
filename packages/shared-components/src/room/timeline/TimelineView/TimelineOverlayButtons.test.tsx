@@ -29,6 +29,7 @@ const baseSnapshot: TimelineViewSnapshot = {
 function makeActions(): TimelineViewActions {
     return {
         onStartReached: vi.fn(),
+        onStartLeft: vi.fn(),
         onEndReached: vi.fn(),
         onAnchorReached: vi.fn(),
         onVisibleRangeChanged: vi.fn(),

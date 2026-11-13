@@ -10,9 +10,9 @@ Please see LICENSE files in the repository root for full details.
 
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render } from "test-utils-rtl";
+import { act, render } from "test-utils-rtl";
 import { getMockClientWithEventEmitter, withClientContextRenderOptions } from "test-utils";
-import { MatrixEvent, Room } from "matrix-js-sdk/src/matrix";
+import { MatrixEvent, Room, RoomStateEvent } from "matrix-js-sdk/src/matrix";
 
 import BridgeSettingsTab from "./BridgeSettingsTab";
 
@@ -52,5 +52,28 @@ describe("<BridgeSettingsTab />", () => {
         const { container } = getComponent(room);
 
         expect(container).toMatchSnapshot();
+    });
+
+    it("shows bridges that arrive after it opens, and stops listening once closed", () => {
+        // Under sliding sync, a room nobody has opened gets its bridges once its settings hold it.
+        const room = new Room(roomId, client, userId);
+        client.getRoom.mockReturnValue(room);
+        const { container, unmount } = getComponent(room);
+        expect(container.querySelector(".mx_RoomSettingsDialog_BridgeList")).toBeNull();
+
+        const bridgeEvent = new MatrixEvent({
+            type: "uk.half-shot.bridge",
+            content: { channel: { id: "channel-test" }, protocol: { id: "protocol-test" }, bridgebot: "test" },
+            room_id: roomId,
+            state_key: "1",
+        });
+        act(() => {
+            room.currentState.setStateEvents([bridgeEvent]);
+            client.emit(RoomStateEvent.Events, bridgeEvent, room.currentState, null);
+        });
+        expect(container.querySelector(".mx_RoomSettingsDialog_BridgeList")).not.toBeNull();
+
+        unmount();
+        expect(client.listenerCount(RoomStateEvent.Events)).toBe(0);
     });
 });

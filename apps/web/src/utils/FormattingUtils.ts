@@ -35,6 +35,14 @@ export function formatCount(count: number): string {
     return getCachedCompactFormatter().format(count);
 }
 
+/**
+ * Format an unread count for a badge, as {@link formatCount} does, as "N+" when it is only a lower bound: more could
+ * be unread than it says.
+ */
+export function formatUnreadCount(count: number, isLowerBound = false): string {
+    return isLowerBound ? `${formatCount(count)}+` : formatCount(count);
+}
+
 // It's quite costly to instanciate `Intl.NumberFormat`, hence why we do not do
 // it in every function call
 const getCachedFormatter = (): Intl.NumberFormat => {

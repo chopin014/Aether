@@ -37,6 +37,7 @@ import defaultDispatcher from "../../../../dispatcher/dispatcher";
 import SdkConfig from "../../../../SdkConfig";
 import { Action } from "../../../../dispatcher/actions";
 import { MetaSpace } from "../../../../stores/spaces";
+import { RoomNotificationStateStore } from "../../../../stores/notifications/RoomNotificationStateStore";
 import { SDKContextClass } from "../../../../contexts/SDKContextClass";
 
 vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -458,6 +459,22 @@ describe("Spotlight Dialog", () => {
             expect(options).toHaveLength(5);
             expect(options[0]!.innerHTML).not.toContain(testLocalRoom.name);
         });
+    });
+
+    it("should say when a room's unread count is only a lower bound", async () => {
+        const state = RoomNotificationStateStore.instance.getRoomState(testRoom);
+        vi.spyOn(state, "hasUnreadCount", "get").mockReturnValue(true);
+        vi.spyOn(state, "count", "get").mockReturnValue(4);
+        vi.spyOn(state, "countIsLowerBound", "get").mockReturnValue(true);
+
+        render(<SpotlightDialog initialText="test23" onFinished={() => null} />);
+        // search is debounced
+        vi.advanceTimersByTime(200);
+        await flushPromisesWithFakeTimers();
+
+        expect(
+            screen.getByRole("option", { name: `${testRoom.name} At least 4 unread messages.` }),
+        ).toBeInTheDocument();
     });
 
     it("should not filter out users sent by the server", async () => {

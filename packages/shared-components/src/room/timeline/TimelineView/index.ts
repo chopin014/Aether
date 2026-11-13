@@ -6,13 +6,14 @@
  */
 
 export { TimelineView } from "./TimelineView";
-export { BACKWARD_LOADING_KEY, FORWARD_LOADING_KEY } from "./types";
+export { BACKWARD_LOADING_KEY, FORWARD_LOADING_KEY, tileKeyOf } from "./types";
 export type {
     TimelineItem,
     TimelineItemKind,
     EventSendState,
     TimelineEvent,
     TimelineViewSnapshot,
+    TimelineVisitState,
     TimelineViewActions,
     TimelineViewModel,
     TimelineViewProps,

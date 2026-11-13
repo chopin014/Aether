@@ -642,6 +642,7 @@ export class RoomListItemViewModel
                 isNotification: notifState.isNotification,
                 hasUnreadCount: notifState.hasUnreadCount,
                 count: notifState.count,
+                countIsLowerBound: notifState.countIsLowerBound,
                 muted: isNotificationMute,
                 callType: hasParticipantsInCall ? callType : undefined,
             },

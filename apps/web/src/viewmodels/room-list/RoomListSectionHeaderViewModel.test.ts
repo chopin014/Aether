@@ -709,6 +709,57 @@ describe("RoomListSectionHeaderViewModel", () => {
                 );
             });
 
+            it("should sum counts to a lower bound when one of them is one", () => {
+                const room2 = mkRoom(matrixClient, "!room2:server");
+                const notificationState2 = new RoomNotificationState(room2, false);
+                vi.spyOn(RoomNotificationStateStore.instance, "getRoomState")
+                    .mockReturnValueOnce(notificationState)
+                    .mockReturnValue(notificationState2);
+                vi.spyOn(notificationState, "isNotification", "get").mockReturnValue(true);
+                vi.spyOn(notificationState, "count", "get").mockReturnValue(3);
+                vi.spyOn(notificationState2, "isNotification", "get").mockReturnValue(true);
+                vi.spyOn(notificationState2, "count", "get").mockReturnValue(1);
+                vi.spyOn(notificationState2, "countIsLowerBound", "get").mockReturnValue(true);
+
+                const vm = new RoomListSectionHeaderViewModel({
+                    tag: "m.favourite",
+                    title: "Favourites",
+                    spaceId: "!space:server",
+                    onToggleExpanded,
+                });
+                vm.setRooms([room, room2]);
+
+                expect(vm.getSnapshot().notification).toEqual(
+                    expect.objectContaining({ count: 4, countIsLowerBound: true }),
+                );
+            });
+
+            it("should not sum counts to a lower bound when one of them could be too high", () => {
+                const room2 = mkRoom(matrixClient, "!room2:server");
+                const notificationState2 = new RoomNotificationState(room2, false);
+                vi.spyOn(RoomNotificationStateStore.instance, "getRoomState")
+                    .mockReturnValueOnce(notificationState)
+                    .mockReturnValue(notificationState2);
+                vi.spyOn(notificationState, "isNotification", "get").mockReturnValue(true);
+                vi.spyOn(notificationState, "count", "get").mockReturnValue(3);
+                vi.spyOn(notificationState, "countIsApproximate", "get").mockReturnValue(true);
+                vi.spyOn(notificationState2, "isNotification", "get").mockReturnValue(true);
+                vi.spyOn(notificationState2, "count", "get").mockReturnValue(1);
+                vi.spyOn(notificationState2, "countIsLowerBound", "get").mockReturnValue(true);
+
+                const vm = new RoomListSectionHeaderViewModel({
+                    tag: "m.favourite",
+                    title: "Favourites",
+                    spaceId: "!space:server",
+                    onToggleExpanded,
+                });
+                vm.setRooms([room, room2]);
+
+                expect(vm.getSnapshot().notification).toEqual(
+                    expect.objectContaining({ count: 4, countIsLowerBound: false }),
+                );
+            });
+
             it("should surface an unsent message from any room", () => {
                 vi.spyOn(notificationState, "isUnsentMessage", "get").mockReturnValue(true);
 

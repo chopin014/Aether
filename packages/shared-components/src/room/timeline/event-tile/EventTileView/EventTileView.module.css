@@ -7,6 +7,12 @@
 
 /* Shared root constants. */
 .root {
+    /*
+     * Hold what floats inside, such as the read receipts, as the old timeline's list holds each of its tiles. Without
+     * this, a tile placed as a plain block lets them hang below it, and its background stops short of its row.
+     */
+    display: flow-root;
+
     /* Group geometry. */
     --event-tile-group-gutter: 64px;
     --event-tile-group-line-spacing-block-start: 1px;
@@ -1232,15 +1238,16 @@
         width: auto;
         margin-inline: var(--event-tile-thread-margin-inline);
 
-        .line {
-            /* Reserve the legacy body-to-receipt gap even though the receipt
-               itself is positioned in the outer Thread gutter. */
-            &:has(> .slotReceipt)::after {
-                content: "";
-                /* The line's existing gap supplies the 5px spacing. */
-                flex: 0 0 0;
-            }
+        /* Reserve the legacy body-to-receipt gap even though the receipt
+           itself is positioned in the outer Thread gutter. The root says it has
+           a receipt, which a thread tile draws in its line, so no `:has()` is needed. */
+        &.hasReceiptSlot .line::after {
+            content: "";
+            /* The line's existing gap supplies the 5px spacing. */
+            flex: 0 0 0;
+        }
 
+        .line {
             > .slotReceipt {
                 position: absolute;
                 z-index: 1;
@@ -1830,7 +1837,7 @@
 }
 
 /* Channel presentation keeps the existing event slots and actions while changing their geometry. */
-.root.layoutGroup:has(> .desktopMessage) {
+.root.layoutGroup.desktopMessageRoot {
     /* Message text sits a step below Compound's large body size so more of the conversation fits. */
     --desktop-message-font-size: 0.9375rem;
     --desktop-message-line-height: 1.375rem;
@@ -2010,7 +2017,7 @@
  * at the start of the line, so the first line of text follows them and later lines wrap under the name, where the
  * line's own padding starts.
  */
-.root.layoutGroup.densityCompact:has(> .desktopMessage) {
+.root.layoutGroup.densityCompact.desktopMessageRoot {
     /* The time's column, plus the gap before the name. */
     --event-tile-group-gutter: var(--cpd-space-16x);
 

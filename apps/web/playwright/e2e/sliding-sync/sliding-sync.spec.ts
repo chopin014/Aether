@@ -128,6 +128,38 @@ test.describe("Sliding Sync", () => {
         await expect(page.getByText("Arrived after the server answered")).toBeVisible();
     });
 
+    test("shows the unread counts saved on this device before the server answers on the next start", async ({
+        page,
+        user,
+        joinedBot: bob,
+        testRoom,
+    }) => {
+        await bob.sendMessage(testRoom.roomId, "Hello World");
+        await bob.sendMessage(testRoom.roomId, `Hello ${user.displayName}`);
+        const unread = "Open room Test Room with 2 unread mentions.";
+        await expect(page.getByRole("option", { name: unread })).toBeVisible();
+        // Changes are written in batches, a moment after they arrive.
+        await page.waitForTimeout(3000);
+
+        // Hold every sliding sync response back for a while on the next start.
+        const release = Promise.withResolvers<void>();
+        await page.route("**/org.matrix.simplified_msc3575/sync**", async (route) => {
+            await release.promise;
+            await route.continue();
+        });
+        await page.reload();
+        const room = page.getByRole("option", { name: unread });
+        await expect(room).toBeVisible({ timeout: 10_000 });
+        await expect(room.getByTestId("notification-decoration")).toHaveText("2");
+
+        // The server's answer agrees, and reading the room clears it.
+        release.resolve();
+        await room.click();
+        await expect(
+            page.getByRole("option", { name: "Open room Test Room" }).getByTestId("notification-decoration"),
+        ).not.toBeAttached();
+    });
+
     test("lists the channels of a Space someone opens, and keeps syncing", async ({ page, app, user }) => {
         // Opening a Space used to ask the server for lists filtered by Space, which Synapse cannot do: every sync
         // request failed from then on.
@@ -145,6 +177,54 @@ test.describe("Sliding Sync", () => {
 
         // Sync keeps working: creating a room waits for it to arrive through sync.
         await app.client.createRoom({ name: "Elsewhere" });
+    });
+
+    test("shows the topic in the settings of a Space nobody has opened", async ({ page, app }) => {
+        // The server rail lists Spaces with only part of their state, without their topic: their settings ask for
+        // the rest.
+        await app.client.createSpace({ name: "Garden", topic: "Plants and trees" });
+        await (await app.getSpacePanelButton("Garden")).click({ button: "right" });
+        await page.getByRole("menuitem", { name: "Settings" }).click();
+
+        const dialog = page.getByRole("dialog", { name: "Settings - Garden" });
+        await expect(dialog.getByRole("textbox", { name: "Description" })).toHaveValue("Plants and trees");
+        await expect(dialog.getByRole("button", { name: "Cancel" })).toHaveAttribute("aria-disabled", "true");
+    });
+
+    test.describe("in the desktop shell", () => {
+        test.use({ config: { features: { feature_simplified_sliding_sync: true, feature_desktop_shell: true } } });
+
+        test("shows the topic in the settings of a channel nobody has opened", async ({ page, app }) => {
+            await app.client.createRoom({ name: "Greenhouse", topic: "Seedlings" });
+            await page.getByRole("option", { name: /^Open room Greenhouse/ }).click({ button: "right" });
+            await page.getByRole("menu").getByRole("menuitem", { name: "Edit channel" }).click();
+
+            const settings = page.getByRole("dialog", { name: "Channel settings for Greenhouse" });
+            await expect(settings.getByRole("textbox", { name: /topic/i })).toHaveValue("Seedlings");
+        });
+    });
+
+    test("keeps the state read about rooms nobody has opened", async ({ app, user }) => {
+        // Only state a request asks for arrives: these are read for rooms in the list, such as which members are
+        // bots or where the widgets sit, so the list asks for them.
+        const roomId = await app.client.createRoom({ name: "Unopened" });
+        const state: Array<[string, object]> = [
+            ["im.vector.web.settings", { "aether.example": true }],
+            ["io.element.functional_members", { service_members: [`@bot:${user.homeServer}`] }],
+            ["io.element.widgets.layout", { widgets: {} }],
+            ["org.matrix.room.preview_urls", { disable: true }],
+        ];
+        for (const [type, content] of state) await app.client.sendStateEvent(roomId, type, content, "");
+
+        await expect
+            .poll(() =>
+                app.client.evaluate(
+                    (client, { roomId, types }) =>
+                        types.filter((type) => !client.getRoom(roomId)?.currentState.getStateEvents(type, "")),
+                    { roomId, types: state.map(([type]) => type) },
+                ),
+            )
+            .toEqual([]);
     });
 
     test("should move rooms around as new events arrive", async ({ page, app, testRoom }) => {
@@ -198,25 +278,27 @@ test.describe("Sliding Sync", () => {
         await checkOrder(["Apple", "Orange", "Pineapple", "Test Room"], page);
     });
 
-    test.skip("should show the right unread notifications", async ({ page, user, joinedBot: bob, testRoom }) => {
-        // send a message in the test room: unread notification count should increment
+    test("should count unread messages and mentions", async ({ page, user, joinedBot: bob, testRoom }) => {
+        const room = page.getByRole("option", { name: /^Open room Test Room/ });
+
+        // Synapse sends no real counts over sliding sync: these are worked out by the client.
         await bob.sendMessage(testRoom.roomId, "Hello World");
+        await expect(room.getByTestId("notification-decoration")).toHaveText("1");
+        await expect(room).toHaveAccessibleName("Open room Test Room with 1 unread message.");
 
-        const itemLocator1 = page.getByRole("option", { name: "Open room David Langley with 1 unread message." });
-        await expect(itemLocator1.getByTestId("notification-decoration")).toHaveText("1");
-
-        // send an @mention: highlight count (red) should be 2.
+        // A mention highlights the room.
         await bob.sendMessage(testRoom.roomId, `Hello ${user.displayName}`);
-        const itemLocator2 = page.getByRole("treeitem", {
-            name: "Open room Test Room 2 unread messages including mentions.",
-        });
-        await expect(itemLocator2.getByTestId("notification-decoration")).toHaveText("2");
+        await expect(room.getByTestId("notification-decoration")).toHaveText("2");
+        await expect(room).toHaveAccessibleName("Open room Test Room with 2 unread mentions.");
 
-        // click on the room, the notif counts should disappear
-        await page.getByRole("option", { name: "Open room Test Room 2 unread messages including mentions." }).click();
-        await expect(
-            page.getByRole("option", { name: "Open room Test Room" }).getByTestId("notification-decoration"),
-        ).not.toBeAttached();
+        // Opening the room reads it.
+        await room.click();
+        await expect(room.getByTestId("notification-decoration")).not.toBeAttached();
+
+        // Read stays read when the client starts again and works the counts out afresh.
+        await page.reload();
+        await expect(page.getByRole("option", { name: "Open room Test Room" })).toBeVisible();
+        await expect(room.getByTestId("notification-decoration")).not.toBeAttached();
     });
 
     test("should show unread indicators", async ({ page, app, joinedBot: bot, testRoom }) => {
@@ -236,7 +318,7 @@ test.describe("Sliding Sync", () => {
     });
 
     test("should update user settings promptly", async ({ page, app }) => {
-        await app.settings.openUserSettings("Preferences");
+        await app.settings.openUserSettings("Language & time");
         const locator = page.getByRole("switch", { name: "Show timestamps in 12 hour format" });
         await expect(locator).toBeVisible();
         await locator.check();

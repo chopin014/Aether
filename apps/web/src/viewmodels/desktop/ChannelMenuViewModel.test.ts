@@ -266,6 +266,8 @@ describe("ChannelMenuViewModel", () => {
                 if (name === "feature_simplified_sliding_sync") return true;
                 return getValue(name, ...args);
             });
+            // The client syncs with sliding sync.
+            vi.spyOn(context.slidingSyncManager, "isActiveFor").mockImplementation((active) => active === client);
             const parent = new Room("!parent:example.org", client, USER_ID);
             for (const target of [room, parent]) {
                 target.currentState.setStateEvents([

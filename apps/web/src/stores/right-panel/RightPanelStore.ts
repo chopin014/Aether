@@ -65,6 +65,7 @@ export default class RightPanelStore extends ReadyWatchingStore {
 
     private constructor() {
         super(defaultDispatcher);
+        this.setMaxListeners(100); // One for each room in the room list
         this.reset();
     }
 

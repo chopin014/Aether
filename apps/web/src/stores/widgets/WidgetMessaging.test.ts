@@ -34,6 +34,7 @@ import {
 } from "matrix-js-sdk/src/matrix";
 import {
     ClientWidgetApi,
+    EventDirection,
     type IModalWidgetOpenRequest,
     type IStickerActionRequest,
     type IStickyActionRequest,
@@ -41,6 +42,7 @@ import {
     MatrixCapabilities,
     WidgetApiDirection,
     WidgetApiFromWidgetAction,
+    WidgetEventCapability,
 } from "matrix-widget-api";
 import type * as MatrixWidgetApi from "matrix-widget-api";
 import { waitFor } from "test-utils-rtl";
@@ -61,6 +63,8 @@ import { ElementWidgetCapabilities } from "./ElementWidgetCapabilities";
 import { WidgetType } from "../../widgets/WidgetType";
 import { IntegrationManagers } from "../../integrations/IntegrationManagers";
 import { type IntegrationManagerInstance } from "../../integrations/IntegrationManagerInstance";
+import { ElementWidgetDriver } from "./ElementWidgetDriver";
+import { SlidingSyncManager } from "../../SlidingSyncManager";
 
 vi.mock("matrix-widget-api", async () => {
     const actual = await vi.importActual<typeof MatrixWidgetApi>("matrix-widget-api");
@@ -76,6 +80,8 @@ vi.mock("matrix-widget-api", async () => {
                 setViewedRoomId: vi.fn(),
                 hasCapability: vi.fn(),
                 updateTheme: vi.fn(),
+                stop: vi.fn(),
+                removeAllListeners: vi.fn(),
             };
         }),
     };
@@ -755,6 +761,64 @@ describe("WidgetMessaging action handling for stickerpicker", () => {
             });
             expect(messaging.transport.reply).toHaveBeenCalledWith(ev.detail, {});
             expect(openIntegrationManager).toHaveBeenCalledWith(room, `type_my_integ_type`, "my_integ_id");
+        });
+    });
+
+    describe("state the widget may receive", () => {
+        it("is asked of sliding sync in the widget's rooms while it runs", () => {
+            // Under sliding sync a room has only the state its subscriptions name: changes to other state never arrive.
+            const app: IApp = {
+                id: "running",
+                creatorUserId: "@alice:example.org",
+                type: "example",
+                url: "https://example.org",
+                roomId: "!1:example.org",
+            };
+            const running = new WidgetMessaging(new ElementWidget(app), {
+                app,
+                room: mkRoom(MatrixClientPeg.safeGet(), "!1:example.org"),
+                userId: "@alice:example.org",
+                creatorUserId: "@alice:example.org",
+                waitForIframeLoad: true,
+                userWidget: false,
+            });
+            running.start(document.createElement("iframe"));
+            const api = vi.mocked(last(vi.mocked(ClientWidgetApi).mock.instances)!);
+            const release = vi.fn();
+            const demand = vi.spyOn(SlidingSyncManager.instance, "demandRoomState").mockImplementation((roomId) => ({
+                roomId,
+                isReady: () => true,
+                whenReady: () => Promise.resolve(),
+                release,
+            }));
+            vi.spyOn(ElementWidgetDriver.prototype, "getApprovedCapabilities").mockReturnValue(
+                new Set([
+                    WidgetEventCapability.forStateEvent(EventDirection.Receive, "org.example.layout").raw,
+                    WidgetEventCapability.forStateEvent(EventDirection.Receive, "org.example.config", "main").raw,
+                    // Members are loaded lazily, as under regular sync.
+                    WidgetEventCapability.forStateEvent(EventDirection.Receive, EventType.RoomMember).raw,
+                    WidgetEventCapability.forStateEvent(EventDirection.Send, "org.example.sent").raw,
+                    "org.matrix.msc2762.timeline:!2:example.org",
+                    // Every room cannot be kept subscribed.
+                    "org.matrix.msc2762.timeline:*",
+                ]),
+            );
+            const onCapabilities = api.on.mock.calls.find(([event]) => event === "capabilitiesNotified")![1];
+            onCapabilities();
+
+            const selectors = [{ type: "org.example.layout" }, { type: "org.example.config", stateKey: "main" }];
+            expect(demand).toHaveBeenCalledTimes(2);
+            expect(demand).toHaveBeenCalledWith("!1:example.org", selectors);
+            expect(demand).toHaveBeenCalledWith("!2:example.org", selectors);
+            expect(release).not.toHaveBeenCalled();
+
+            // Renegotiated capabilities are asked for afresh, then the earlier demands are let go.
+            onCapabilities();
+            expect(demand).toHaveBeenCalledTimes(4);
+            expect(release).toHaveBeenCalledTimes(2);
+
+            running.stop();
+            expect(release).toHaveBeenCalledTimes(4);
         });
     });
 });

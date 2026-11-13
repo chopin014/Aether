@@ -109,11 +109,14 @@ export async function clearRoomNotification(room: Room, client: MatrixClient): P
         // This resets the notification on a room, even though no read receipt
         // has been sent, particularly useful when the clients has incorrectly
         // notified a user.
-        room.setUnreadNotificationCount(NotificationCountType.Highlight, 0);
-        room.setUnreadNotificationCount(NotificationCountType.Total, 0);
-        for (const thread of room.getThreads()) {
-            room.setThreadUnreadNotificationCount(thread.id, NotificationCountType.Highlight, 0);
-            room.setThreadUnreadNotificationCount(thread.id, NotificationCountType.Total, 0);
+        // Counts worked out on this device follow the receipt instead.
+        if (!client.hasLocalNotificationCounts()) {
+            room.setUnreadNotificationCount(NotificationCountType.Highlight, 0);
+            room.setUnreadNotificationCount(NotificationCountType.Total, 0);
+            for (const thread of room.getThreads()) {
+                room.setThreadUnreadNotificationCount(thread.id, NotificationCountType.Highlight, 0);
+                room.setThreadUnreadNotificationCount(thread.id, NotificationCountType.Total, 0);
+            }
         }
     }
 }

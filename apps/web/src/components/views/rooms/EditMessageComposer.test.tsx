@@ -33,6 +33,7 @@ import Autocompleter, { type IProviderCompletions } from "../../../autocomplete/
 import NotifProvider from "../../../autocomplete/NotifProvider";
 import DMRoomMap from "../../../utils/DMRoomMap";
 import { ScopedRoomContextProvider } from "../../../contexts/ScopedRoomContext.tsx";
+import { ROOM_SWITCH_MARK_PREFIX, type RoomSwitchMarksWindow } from "../../../performance/RoomSwitchPerformance";
 import type { RoomContextType } from "../../../contexts/RoomContext.ts";
 import { SDKContext } from "../../../contexts/SDKContext.ts";
 import { SDKContextClass } from "../../../contexts/SDKContextClass.ts";
@@ -293,6 +294,19 @@ describe("<EditMessageComposer/>", () => {
                 "m.mentions": {},
             });
         });
+    });
+
+    it("marks no room switch when it opens, as editing a message opens no room", () => {
+        (window as RoomSwitchMarksWindow).aetherRoomSwitchMarks = true;
+        performance.clearMarks();
+        try {
+            getComponent(new EditorStateTransfer(editedEvent));
+
+            expect(performance.getEntriesByName(ROOM_SWITCH_MARK_PREFIX + "composer", "mark")).toHaveLength(0);
+        } finally {
+            delete (window as RoomSwitchMarksWindow).aetherRoomSwitchMarks;
+            performance.clearMarks();
+        }
     });
 
     describe("when message is not a reply", () => {

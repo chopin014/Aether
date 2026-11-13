@@ -15,11 +15,13 @@ import {
 
 import { NotificationLevel } from "../../../stores/notifications/NotificationLevel";
 import { type NotificationState } from "../../../stores/notifications/NotificationState";
-import { formatCount } from "../../../utils/FormattingUtils";
+import { formatUnreadCount } from "../../../utils/FormattingUtils";
 
 export interface NotificationBadgeData {
     symbol: string | null;
     count: number;
+    /** Whether the count is only a lower bound, shown as "N+". */
+    countIsLowerBound?: boolean;
     level: NotificationLevel;
     knocked?: boolean;
 }
@@ -72,6 +74,7 @@ export function notificationBadgeDataFromNotification(notification: Notification
     return {
         symbol: notification.symbol,
         count: notification.count,
+        countIsLowerBound: notification.countIsLowerBound,
         level: notification.level,
         knocked: notification.knocked,
     };
@@ -92,7 +95,10 @@ export class NotificationBadgeViewModel
         const isEmptyBadge = props.symbol === null && props.count === 0;
         const isRendered = !((isIdle || hiddenByBoldSetting) && !knocked) && !hiddenByDotSetting;
         const isVisible = isEmptyBadge || knocked || hasUnreadCount;
-        const displaySymbol = props.symbol === null && props.count > 0 ? formatCount(props.count) : props.symbol;
+        const displaySymbol =
+            props.symbol === null && props.count > 0
+                ? formatUnreadCount(props.count, props.countIsLowerBound)
+                : props.symbol;
 
         return {
             shouldRender: isRendered,

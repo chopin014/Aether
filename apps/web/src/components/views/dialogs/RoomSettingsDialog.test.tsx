@@ -8,7 +8,7 @@ Please see LICENSE files in the repository root for full details.
 
 // @vitest-environment happy-dom
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "test-utils-rtl";
 import {
@@ -20,9 +20,12 @@ import {
     RoomStateEvent,
     Visibility,
 } from "matrix-js-sdk/src/matrix";
-import { getMockClientWithEventEmitter, mockClientMethodsUser, TestSDKContext } from "test-utils";
+import { clearAllModals, getMockClientWithEventEmitter, mockClientMethodsUser, TestSDKContext } from "test-utils";
 
 import RoomSettingsDialog from "./RoomSettingsDialog";
+import InfoDialog from "./InfoDialog";
+import Modal from "../../../Modal";
+import { SlidingSyncManager } from "../../../SlidingSyncManager";
 import MatrixClientContext from "../../../contexts/MatrixClientContext";
 import { SDKContextClass } from "../../../contexts/SDKContextClass";
 import SettingsStore from "../../../settings/SettingsStore";
@@ -95,6 +98,53 @@ describe("<RoomSettingsDialog />", () => {
         rerender(<RoomSettingsDialog roomId={room2.roomId} onFinished={vi.fn()} sdkContext={sdkContext} />);
 
         expect(getByText(`Room Settings - ${room2.name}`)).toBeInTheDocument();
+    });
+
+    describe("under sliding sync", () => {
+        afterEach(async () => {
+            await clearAllModals();
+        });
+
+        it("keeps the room subscribed while open, follows a new room and lets go when closed", () => {
+            const releaseFirst = vi.fn();
+            const releaseSecond = vi.fn();
+            const hold = vi
+                .spyOn(SlidingSyncManager.instance, "holdRoom")
+                .mockReturnValueOnce(releaseFirst)
+                .mockReturnValueOnce(releaseSecond);
+            const { rerender, unmount } = getComponent(undefined, roomId);
+            expect(hold).toHaveBeenCalledWith(roomId);
+
+            rerender(<RoomSettingsDialog roomId={room2.roomId} onFinished={vi.fn()} sdkContext={sdkContext} />);
+            expect(hold).toHaveBeenLastCalledWith(room2.roomId);
+            expect(releaseFirst).toHaveBeenCalledTimes(1);
+            expect(releaseSecond).not.toHaveBeenCalled();
+
+            unmount();
+            expect(releaseSecond).toHaveBeenCalledTimes(1);
+        });
+
+        it("lets go of the room when another static dialog takes its place", async () => {
+            // Replacing a static dialog never settles its `finished`, so only unmounting can release the room.
+            // Dialogs render in strict mode, which mounts them twice: count the holds still held.
+            let held = 0;
+            vi.spyOn(SlidingSyncManager.instance, "holdRoom").mockImplementation(() => {
+                ++held;
+                let released = false;
+                return () => {
+                    if (released) return;
+                    released = true;
+                    --held;
+                };
+            });
+            Modal.createDialog(RoomSettingsDialog, { roomId, sdkContext }, undefined, false, true);
+            await screen.findByText(`Room Settings - ${room.name}`);
+            expect(held).toBe(1);
+
+            Modal.createDialog(InfoDialog, { title: "Elsewhere" }, undefined, false, true);
+            await screen.findByText("Elsewhere");
+            await waitFor(() => expect(held).toBe(0));
+        });
     });
 
     describe("Settings tabs", () => {

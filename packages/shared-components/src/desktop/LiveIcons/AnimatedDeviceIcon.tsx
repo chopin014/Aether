@@ -5,11 +5,13 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import React, { type JSX, useEffect, useId, useRef, useState } from "react";
+import React, { type JSX, useEffect, useRef, useState } from "react";
+import classNames from "classnames";
 
-import styles from "./DesktopVoiceControlsView.module.css";
+import styles from "./LiveIcons.module.css";
+import { useMaskId } from "./useMaskId";
 
-/** The solid microphone and headphones from Compound, drawn here so the slash can be animated over them. */
+/** The solid microphone, headphones and camera from Compound, drawn here so the slash can be animated over them. */
 const SHAPES = {
     microphone: [
         "M8 6a4 4 0 1 1 8 0v6a4 4 0 0 1-8 0z",
@@ -18,22 +20,25 @@ const SHAPES = {
     headphones: [
         "M12 3a8 8 0 0 0-8 8v3h2a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-9C2 5.477 6.477 1 12 1s10 4.477 10 10v9a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h2v-3a8 8 0 0 0-8-8",
     ],
+    camera: [
+        "M6 4h10a2 2 0 0 1 2 2v4.286l3.35-2.871a1 1 0 0 1 1.65.76v7.65a1 1 0 0 1-1.65.76L18 13.715V18a2 2 0 0 1-2 2H6a4 4 0 0 1-4-4V8a4 4 0 0 1 4-4",
+    ],
 } as const;
 
 interface AnimatedDeviceIconProps {
     device: keyof typeof SHAPES;
-    /** Whether the device is muted, drawn as a slash through it. */
+    /** Whether the device is muted or turned off, drawn as a slash through it. */
     off: boolean;
 }
 
 /**
- * A microphone or headphones icon whose slash draws across when muted and retracts when unmuted. The icon cuts a
- * gap around the slash, like Compound's own "off" icons. Muting also shakes the icon and sends a ring out from it;
- * unmuting makes it bounce back.
+ * A microphone, headphones or camera icon whose slash draws across when turned off and retracts when turned on. The
+ * icon cuts a gap around the slash, like Compound's own "off" icons. Turning off also shakes the icon and sends a
+ * ring out from it; turning on makes it bounce back. Hovering its button acts the device out: the microphone sways,
+ * the headphones bob and the camera looks around.
  */
 export function AnimatedDeviceIcon({ device, off }: AnimatedDeviceIconProps): JSX.Element {
-    // React's ids contain characters that would need escaping inside url().
-    const mask = `device-slash-${useId().replace(/[^\w-]/g, "")}`;
+    const mask = useMaskId("device-slash");
     // Only animate changes the user sees happen, not the state the dock first renders with.
     const initial = useRef(off);
     const [changed, setChanged] = useState(false);
@@ -41,7 +46,13 @@ export function AnimatedDeviceIcon({ device, off }: AnimatedDeviceIconProps): JS
         if (off !== initial.current) setChanged(true);
     }, [off]);
     return (
-        <span className={styles.deviceIcon} data-off={off} data-animate={changed || undefined} aria-hidden="true">
+        <span
+            className={classNames(styles.live, styles.deviceIcon)}
+            data-device={device}
+            data-off={off}
+            data-animate={changed || undefined}
+            aria-hidden="true"
+        >
             <span className={styles.deviceRipple} />
             <svg viewBox="0 0 24 24" fill="currentColor">
                 <mask id={mask} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">

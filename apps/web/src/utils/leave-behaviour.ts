@@ -60,6 +60,11 @@ export async function leaveRoomBehaviour(
         throw new Error(`Expected to find room for id ${roomId}`);
     }
 
+    // Where the user lands after leaving is decided here, not by a Space following the channel it opened. Leaving the
+    // current version leaves every version of the room, so each is noted.
+    const leaving = leavingAllVersions && history?.length ? history.map((version) => version.roomId) : [roomId];
+    for (const leavingRoomId of leaving) SDKContextClass.instance.spaceStore.noteLeavingRoom(leavingRoomId);
+
     // attempt to hang up legacy based calls
     try {
         SDKContextClass.instance.legacyCallHandler.hangupOrReject(roomId);

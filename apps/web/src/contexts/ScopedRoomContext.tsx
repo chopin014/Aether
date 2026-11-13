@@ -44,6 +44,8 @@ class EfficientContext<C extends Record<string, any>> extends TypedEventEmitter<
 > {
     public constructor(public state: C) {
         super();
+        // One listener for each component in the room that reads the context, which can be any number.
+        this.setMaxListeners(0);
     }
 
     public setState(state: C): void {

@@ -12,7 +12,7 @@ import { InlineSpinner } from "@vector-im/compound-web";
 
 import { useViewModel } from "../../../core/viewmodel/useViewModel";
 import type { AnchorAlign, ImmediateScroll, TimelineItem, TimelineViewProps } from "./types";
-import { BACKWARD_LOADING_KEY, FORWARD_LOADING_KEY } from "./types";
+import { BACKWARD_LOADING_KEY, FORWARD_LOADING_KEY, tileKeyOf } from "./types";
 import { TimelineOverlayButtons } from "./TimelineOverlayButtons";
 import styles from "./TimelineView.module.css";
 
@@ -98,7 +98,74 @@ const REVEAL_TIMEOUT_MS = 1000;
  */
 type Phase = "init" | "placing" | "live";
 
-export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewProps): JSX.Element {
+/**
+ * The scroll offset that puts row `index` at `align` in the viewport, from the virtualizer's measurements, or undefined
+ * when the row is unknown. TanStack places `start` and `end`, keeping the list's padding in view at either end.
+ * `center` is placed here, as TanStack would take the padding off the row's position first and place it below the
+ * middle; `third` puts the row's end a third of the way down, as the old timeline places the unread line.
+ */
+function offsetForIndex(
+    virtualizer: Virtualizer<HTMLDivElement, Element>,
+    index: number,
+    align: AnchorAlign,
+): number | undefined {
+    if (align === "start" || align === "end") return virtualizer.getOffsetForIndex(index, align)?.[0];
+    const row = virtualizer.measurementsCache[index];
+    if (!row) return undefined;
+    const viewport = virtualizer.scrollRect?.height ?? 0;
+    const max = Math.max(0, virtualizer.getTotalSize() - viewport);
+    const offset = align === "center" ? row.start + (row.size - viewport) / 2 : row.end - viewport / 3;
+    return Math.min(max, Math.max(0, offset));
+}
+
+/**
+ * Place the first load before it is painted, when that can be done in one go: measure the mounted rows together,
+ * scroll the target into position, and check that every row that then shows was among them. The measurements are
+ * read in one batch, after React has written the rows, so this forces a single layout rather than one per row.
+ * @returns Whether the list is in place and can be shown.
+ */
+function placeBeforePaint(
+    virtualizer: Virtualizer<HTMLDivElement, Element>,
+    scroller: HTMLDivElement | null,
+    index: number,
+    align: AnchorAlign,
+    measured: WeakSet<Element>,
+): boolean {
+    // A viewport that has no size yet, such as in a hidden window, cannot be placed in. Without ResizeObserver,
+    // rows are measured as they mount, and settling over frames positions them.
+    if (!scroller || scroller.clientHeight === 0 || index < 0) return false;
+    if (!scroller.ownerDocument.defaultView?.ResizeObserver) return false;
+    const mounted = [...virtualizer.elementsCache.values()].filter((element) => element.isConnected);
+    if (mounted.length === 0) return false;
+    // Read every height first, then record them in one batch: the virtualizer moves the rows once, after the last
+    // one, so measuring does not force a layout per row.
+    const heights = mounted.map((element) => Math.round(element.getBoundingClientRect().height));
+    const sizes: [number, number][] = [];
+    mounted.forEach((element, i) => {
+        const rowIndex = virtualizer.indexFromElement(element);
+        if (rowIndex >= 0) sizes.push([rowIndex, heights[i]]);
+        measured.add(element);
+    });
+    virtualizer.resizeItems(sizes);
+    // Row positions are worked out again only when asked for. The total size asks, so the offset below and the
+    // check after it use the heights just measured.
+    virtualizer.getTotalSize();
+    const target = offsetForIndex(virtualizer, index, align);
+    if (target === undefined) return false;
+    // Through the virtualizer, so a row resizing before the scroll is read back is compensated from this offset.
+    virtualizer.scrollToOffsetNow(target);
+    const top = scroller.scrollTop;
+    // The browser clamps the scroll; a short list is in place at whatever it allows.
+    if (Math.abs(target - top) > 1.5 && top + scroller.clientHeight < scroller.scrollHeight - 1.5) return false;
+    const bottom = top + scroller.clientHeight;
+    const mountedIndexes = new Set(mounted.map((element) => virtualizer.indexFromElement(element)));
+    // Every row now on screen must be one that was measured above, or it would show at an estimated height.
+    return virtualizer.measurementsCache.every(
+        (row) => row.end <= top || row.start >= bottom || mountedIndexes.has(row.index),
+    );
+}
+
+export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 }: TimelineViewProps): JSX.Element {
     const snapshot = useViewModel(vm);
 
     // The effects and callbacks below run outside React's render — from scroll events and
@@ -117,6 +184,13 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
     itemsRef.current = items;
 
     const scrollerRef = useRef<HTMLDivElement | null>(null);
+    // The virtualizer reads its starting offset once, when it first has rows. Starting it only once the viewport is
+    // mounted lets that offset be estimated from the viewport, so the rows near the target render first, even
+    // when the first snapshot already has messages. It costs one commit, before anything is painted.
+    const [scrollerReady, setScrollerReady] = useState(false);
+    useLayoutEffect(() => {
+        if (scrollerRef.current) setScrollerReady(true);
+    }, []);
 
     // On the first load we lay the rows out, scroll to the message we should start at, and
     // only then show the result. Otherwise the user would watch the list shuffle around as
@@ -125,6 +199,12 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
     const [revealed, setRevealed] = useState(false);
     const revealedRef = useRef(false);
     const measuredElementsRef = useRef(new WeakSet<Element>());
+    // The message the view last scrolled to for a pending anchor; see the later-jump effect.
+    const lastPlacedAnchorKeyRef = useRef<string | null>(null);
+    // The first load's target while it is placed before the first paint; see the effect that uses it.
+    const placementRef = useRef<{ index: number; align: AnchorAlign; reveal: () => void; attempts: number } | null>(
+        null,
+    );
     const receivedResizeEntryRef = useRef(false);
 
     useEffect(() => {
@@ -166,11 +246,14 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
         [],
     );
 
-    // Gives each row a stable identity (its event id). TanStack uses these to recognise the
-    // same row from one update to the next, which is what makes the scroll anchoring
+    // Gives each row a stable identity (its event id, or what outlasts it; see `tileKeyOf`). TanStack uses these to
+    // recognise the same row from one update to the next, which is what makes the scroll anchoring
     // possible at all. It also compares the first row's key between renders to spot when
     // rows have been added or removed at the top, so this must always read the current list.
-    const getItemKey = useCallback((index: number): string => items[index]?.key ?? String(index), [items]);
+    const getItemKey = useCallback(
+        (index: number): string => (items[index] ? tileKeyOf(items[index]) : String(index)),
+        [items],
+    );
 
     // Refuses loading spinners as the row the scroll position is anchored to; see the note
     // on `isValidAnchorItem` in the file comment above for why anchoring to one breaks.
@@ -190,13 +273,35 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
     // hold the last values we sent and repeats are skipped.
     const lastVisibleRangeRef = useRef<{ start: number; end: number } | null>(null);
     const lastAtBottomRef = useRef<boolean | null>(null);
+    /**
+     * The scroll position of the end when the reader was last there, while they are held at the bottom; null once
+     * they are not. Rows arriving below move the end but not the reader, while the reader scrolling up moves them
+     * away from it, however little at a time. See `reportVisibleState`.
+     */
+    const heldAtRef = useRef<number | null>(null);
+    /** Set while a scroll back to the end is waiting for the next frame; see `reportVisibleState`. */
+    const repinFrameRef = useRef<number | undefined>(undefined);
+    /** Stop holding the reader at the bottom, and drop any scroll back to it, as they are being taken elsewhere. */
+    const releaseBottom = useCallback((): void => {
+        if (repinFrameRef.current !== undefined) cancelAnimationFrame(repinFrameRef.current);
+        repinFrameRef.current = undefined;
+        heldAtRef.current = null;
+    }, []);
     // For the "reached the top/bottom" reports we remember a short description of the
-    // situation we last reported, in the form "<number of rows>:<row index>", and clear it
-    // whenever we move away from that end. This stops us reporting over and over while
+    // situation we last reported, in the form "<placement>:<number of rows>:<row index>", and
+    // clear it whenever we move away from that end. This stops us reporting over and over while
     // sitting still at the end, while still reporting again once more history has loaded
     // and the user scrolls further into it.
     const startEdgeTokenRef = useRef("");
     const endEdgeTokenRef = useRef("");
+    /**
+     * Counts the placements the view model has acknowledged, so that each one reports the ends it shows afresh. The
+     * view model starts over with each load and is told nothing while it places the list, so an end that is still on
+     * screen, with the same rows, has to be reported again: otherwise a list too short to scroll never asks for more.
+     */
+    const placementCountRef = useRef(0);
+    /** The reading visit the reports above were made for; see `TimelineVisitState.generation`. */
+    const reportedVisitRef = useRef<number | undefined>(undefined);
 
     // Tells the view model what the user can currently see: which rows are on screen,
     // whether we are at the bottom, and whether either end of the loaded messages has been
@@ -206,10 +311,21 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
     // This only reads state, it never scrolls. It stays quiet until the first load has
     // finished and while we are scrolling to a message the view model asked for, because
     // until then the scroll position reflects our own automatic placement rather than
-    // anything the user did.
+    // anything the user did. It is quiet too while the rows shown are an earlier reading visit's.
     const reportVisibleState = useCallback(
         (v: Virtualizer<HTMLDivElement, Element>): void => {
             if (phaseRef.current !== "live" || snapshotRef.current.pendingAnchor !== null) return;
+            const visit = snapshotRef.current.visit;
+            if (visit && !visit.rowsReady) return;
+            // A new visit starts its reports over: the view model has forgotten what this view told it in the last one.
+            if (visit?.generation !== reportedVisitRef.current) {
+                reportedVisitRef.current = visit?.generation;
+                lastVisibleRangeRef.current = null;
+                lastAtBottomRef.current = null;
+                startEdgeTokenRef.current = "";
+                endEdgeTokenRef.current = "";
+                releaseBottom();
+            }
             const itemCount = itemsRef.current.length;
             const visibleRange = v.range;
 
@@ -229,7 +345,38 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             const scrollOffset = v.scrollOffset ?? 0;
             const viewportHeight = v.scrollRect?.height ?? 0;
             const totalSize = v.getTotalSize();
-            const atBottom = viewportHeight > 0 && scrollOffset + viewportHeight >= totalSize - AT_BOTTOM_THRESHOLD_PX;
+            const atEnd = viewportHeight > 0 && scrollOffset + viewportHeight >= totalSize - AT_BOTTOM_THRESHOLD_PX;
+            // A reader at the bottom stays there, as with the old timeline's ScrollPanel, until they scroll up. Rows
+            // arriving below push the end away for a moment before `followOnAppend` follows them; that is not the
+            // reader leaving, and treating it so would, for one, keep them on an old timeline after a gap in sync.
+            if (atEnd) heldAtRef.current = Math.max(0, totalSize - viewportHeight);
+            const heldAt = heldAtRef.current;
+            const following = snapshotRef.current.atLiveEnd && snapshotRef.current.pendingAnchor === null;
+            const atBottom =
+                atEnd ||
+                (following &&
+                    lastAtBottomRef.current === true &&
+                    heldAt !== null &&
+                    scrollOffset >= heldAt - AT_BOTTOM_THRESHOLD_PX);
+            if (!atBottom) heldAtRef.current = null;
+            // Still at the bottom, but the end has moved away without TanStack following it, such as when a row near
+            // it grew as a message was sent: go back to it, as ScrollPanel does for a reader stuck at the bottom.
+            // TanStack only follows rows added while the list is at its end, so without this it would stop for good.
+            if (atBottom && !atEnd && following && repinFrameRef.current === undefined) {
+                repinFrameRef.current = requestAnimationFrame(() => {
+                    repinFrameRef.current = undefined;
+                    // Much can happen before the frame: a jump to a message, the newest messages being unloaded, or
+                    // the reader scrolling up before TanStack has told us. Go back only if they are still held here.
+                    const held = heldAtRef.current;
+                    const latest = vm.getSnapshot();
+                    const scroller = scrollerRef.current;
+                    if (held === null || lastAtBottomRef.current !== true || !scroller) return;
+                    if (!latest.atLiveEnd || latest.pendingAnchor !== null) return;
+                    if (scroller.scrollTop < held - AT_BOTTOM_THRESHOLD_PX) return;
+                    const height = v.scrollRect?.height ?? 0;
+                    v.scrollToOffset(Math.max(0, v.getTotalSize() - height));
+                });
+            }
             if (atBottom !== lastAtBottomRef.current) {
                 lastAtBottomRef.current = atBottom;
                 vm.onAtBottomStateChange(atBottom);
@@ -242,16 +389,17 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             const firstRenderedIndex = renderedItems.length ? renderedItems[0].index : -1;
             const lastRenderedIndex = renderedItems.length ? renderedItems[renderedItems.length - 1].index : -1;
             if (firstRenderedIndex === 0) {
-                const token = `${itemCount}:${visibleRange ? visibleRange.startIndex : 0}`;
+                const token = `${placementCountRef.current}:${itemCount}:${visibleRange ? visibleRange.startIndex : 0}`;
                 if (startEdgeTokenRef.current !== token) {
                     startEdgeTokenRef.current = token;
                     vm.onStartReached();
                 }
-            } else {
+            } else if (startEdgeTokenRef.current !== "") {
                 startEdgeTokenRef.current = "";
+                vm.onStartLeft();
             }
             if (itemCount > 0 && lastRenderedIndex === itemCount - 1) {
-                const token = `${itemCount}:${visibleRange ? visibleRange.endIndex : 0}`;
+                const token = `${placementCountRef.current}:${itemCount}:${visibleRange ? visibleRange.endIndex : 0}`;
                 if (endEdgeTokenRef.current !== token) {
                     endEdgeTokenRef.current = token;
                     vm.onEndReached();
@@ -260,14 +408,14 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
                 endEdgeTokenRef.current = "";
             }
         },
-        [vm],
+        [vm, releaseBottom],
     );
 
     const virtualizer = useVirtualizer({
         count: items.length,
         // Keep the initial offset unset until messages arrive, then render near the destination
         // instead of measuring the top of the list before scrolling to its initial anchor.
-        enabled: items.length > 0,
+        enabled: items.length > 0 && scrollerReady,
         initialOffset: () => {
             // A nonempty first snapshot can render before the viewport mounts. In that case,
             // leave placement to the existing measured scroll instead of guessing its height.
@@ -278,20 +426,28 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             const index = targetIndex >= 0 ? targetIndex : list.length - 1;
             const height = scrollerRef.current?.clientHeight ?? 0;
             const align = anchor?.align ?? "end";
-            const start = index * ESTIMATED_ITEM_HEIGHT;
+            const start = paddingBlock + index * ESTIMATED_ITEM_HEIGHT;
             const offset =
                 align === "start"
                     ? start
                     : align === "center"
                       ? start + (ESTIMATED_ITEM_HEIGHT - height) / 2
-                      : start + ESTIMATED_ITEM_HEIGHT - height;
-            return Math.max(0, Math.min(offset, list.length * ESTIMATED_ITEM_HEIGHT - height));
+                      : align === "third"
+                        ? start + ESTIMATED_ITEM_HEIGHT - height / 3
+                        : start + ESTIMATED_ITEM_HEIGHT - height;
+            return Math.max(0, Math.min(offset, list.length * ESTIMATED_ITEM_HEIGHT + 2 * paddingBlock - height));
         },
         getScrollElement: () => scrollerRef.current,
         // Only consulted for rows that have not been measured yet. TanStack measures each
         // row as it renders and remembers the result by key, reusing it as rows are added,
         // trimmed or reloaded, so we do not need a size cache of our own.
         estimateSize: () => ESTIMATED_ITEM_HEIGHT,
+        // The space before the first row and after the last. Aligning a row to an end keeps it in view too, so
+        // going to the newest message shows the space below it, as at the bottom of the list.
+        paddingStart: paddingBlock,
+        paddingEnd: paddingBlock,
+        scrollPaddingStart: paddingBlock,
+        scrollPaddingEnd: paddingBlock,
         measureElement: measureRow,
         getItemKey,
         overscan: OVERSCAN,
@@ -318,10 +474,20 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
     });
 
     // An accurate initial estimate may need no scroll event after placement. Report the
-    // first visible range once revealed and the view model has acknowledged its anchor.
+    // visible range and the ends shown once revealed and each time the view model has acknowledged an
+    // anchor, even when they are as before: after a reload those positions hold other rows, and
+    // the view model reads what each placement shows. So too for each placement the view model counts, such as a
+    // load that placed nothing, or a reading visit's first rows.
+    const placementRevision = snapshot.visit?.placementRevision;
+    const visitRowsReady = snapshot.visit?.rowsReady;
     useEffect(() => {
-        if (revealed) reportVisibleState(virtualizer);
-    }, [revealed, snapshot.pendingAnchor, reportVisibleState, virtualizer]);
+        if (!revealed) return;
+        if (snapshot.pendingAnchor === null) {
+            lastVisibleRangeRef.current = null;
+            placementCountRef.current++;
+        }
+        reportVisibleState(virtualizer);
+    }, [revealed, snapshot.pendingAnchor, placementRevision, visitRowsReady, reportVisibleState, virtualizer]);
 
     // Works out how far down the list we would have to scroll, in pixels, to bring the row
     // with `targetKey` into view — `align` saying whether it should end up at the top,
@@ -336,8 +502,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
         (targetKey: string | null, align: AnchorAlign): number | null => {
             const idx = targetKey ? itemsRef.current.findIndex((i) => i.key === targetKey) : -1;
             if (idx < 0) return null;
-            const info = virtualizer.getOffsetForIndex(idx, align);
-            return info ? info[0] : null;
+            return offsetForIndex(virtualizer, idx, align) ?? null;
         },
         [virtualizer],
     );
@@ -351,6 +516,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
     useEffect(() => {
         return () => {
             if (coldRafRef.current !== undefined) cancelAnimationFrame(coldRafRef.current);
+            if (repinFrameRef.current !== undefined) cancelAnimationFrame(repinFrameRef.current);
         };
     }, []);
     useLayoutEffect(() => {
@@ -371,9 +537,25 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
         // Now watch each frame until that row actually reaches the position it was heading
         // for, and reveal the timeline once it has. requestAnimationFrame passes the frame's
         // timestamp, so we can measure how long we have been waiting in real time and give up
+        const reveal = (): void => {
+            phaseRef.current = "live";
+            // The later-jump effect can run in the same commit, with this render's anchor: it is already placed.
+            lastPlacedAnchorKeyRef.current = anchor?.targetKey ?? null;
+            if (!revealedRef.current) {
+                revealedRef.current = true;
+                setRevealed(true);
+            }
+            // Only the anchor this placement was for has settled. One set meanwhile, such as a message navigated
+            // to while the first one was placed, is placed once the list is shown.
+            vm.onAnchorReached(anchor?.targetKey ?? null);
+        };
+        // Usually the list can be placed before the browser first paints it; see the effect below. The frames
+        // that follow settle it otherwise, such as while rows are still changing height.
+        placementRef.current = { index: idx, align, reveal, attempts: 0 };
         let startedAt: number | undefined;
         let startedPlacement = false;
         const tick = (now: number): void => {
+            if (phaseRef.current === "live") return;
             startedAt ??= now;
             // An estimated scroll offset can land before ResizeObserver runs. Keep the
             // cover until the mounted range has real measurements, including any rows
@@ -389,30 +571,60 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             // discarded estimates would move the reader when they scroll back to it later.
             if (!startedPlacement && canPlace) {
                 startedPlacement = true;
-                if (idx >= 0) virtualizer.scrollToIndex(idx, { align, behavior: "auto" });
+                if (idx >= 0) {
+                    if (align === "third" || align === "center") {
+                        // TanStack has no third, and centres below the middle with padding (see offsetForIndex): these
+                        // are aimed at again each frame below until they land.
+                        const target = offsetForIndex(virtualizer, idx, align);
+                        if (target !== undefined) virtualizer.scrollToOffset(target);
+                    } else {
+                        virtualizer.scrollToIndex(idx, { align, behavior: "auto" });
+                    }
+                }
                 coldRafRef.current = requestAnimationFrame(tick);
                 return;
             }
-            const info = virtualizer.getOffsetForIndex(idx, align);
+            const target = offsetForIndex(virtualizer, idx, align);
             // The browser can clamp a short list to zero without emitting a scroll event,
             // leaving the virtualizer's cached offset stale after its resize compensation.
             const offset = scrollerRef.current?.scrollTop ?? virtualizer.scrollOffset ?? 0;
-            const landed = startedPlacement && info !== undefined && Math.abs(info[0] - offset) <= 1.5;
+            const landed = startedPlacement && target !== undefined && Math.abs(target - offset) <= 1.5;
+            if (startedPlacement && !landed && (align === "third" || align === "center") && target !== undefined) {
+                virtualizer.scrollToOffset(target);
+            }
             if ((measured && (landed || timedOut)) || (timedOut && !receivedResizeEntryRef.current)) {
-                phaseRef.current = "live";
-                if (!revealedRef.current) {
-                    revealedRef.current = true;
-                    setRevealed(true);
-                }
-                // Only the anchor this placement was for has settled. One set meanwhile, such as a message navigated
-                // to while the first one was placed, is placed once the list is shown.
-                vm.onAnchorReached(anchor?.targetKey ?? null);
+                reveal();
                 return;
             }
             coldRafRef.current = requestAnimationFrame(tick);
         };
         coldRafRef.current = requestAnimationFrame(tick);
     }, [items.length, virtualizer, vm]);
+
+    // ─── First load before the first paint ─────────────────────────────────
+    // The rows that end up on screen are usually already mounted: the first render starts near the target (see
+    // initialOffset) with a screenful of rows either side. They mount in the commit after the virtualizer finds its
+    // viewport, still before the paint, so each commit while placing tries to measure them and scroll into place.
+    // A few tries are enough; after that the settle loop above carries on alone.
+    useLayoutEffect(() => {
+        const placement = placementRef.current;
+        if (!placement || phaseRef.current !== "placing") return;
+        if (
+            placeBeforePaint(
+                virtualizer,
+                scrollerRef.current,
+                placement.index,
+                placement.align,
+                measuredElementsRef.current,
+            )
+        ) {
+            placementRef.current = null;
+            if (coldRafRef.current !== undefined) cancelAnimationFrame(coldRafRef.current);
+            placement.reveal();
+            return;
+        }
+        if (++placement.attempts >= 5) placementRef.current = null;
+    });
 
     // ─── Later jumps: scroll to a message the view model has asked for ─────────
     // Once the first load is done, the view model can ask us to jump somewhere by setting
@@ -424,7 +636,6 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
     // it scrolls before the browser paints so the jump is never seen as a scrolling motion.
     // `lastPlacedAnchorKeyRef` records which message we last jumped to, so that later
     // renders do not repeat the same jump and fight the user's own scrolling.
-    const lastPlacedAnchorKeyRef = useRef<string | null>(null);
     useLayoutEffect(() => {
         if (phaseRef.current !== "live") return;
         const anchor = snapshotRef.current.pendingAnchor;
@@ -433,6 +644,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
             return;
         }
         if (lastPlacedAnchorKeyRef.current !== anchor.targetKey) {
+            releaseBottom();
             const target = offsetForKey(anchor.targetKey, anchor.align);
             if (target !== null) {
                 virtualizer.scrollToOffset(target);
@@ -448,9 +660,11 @@ export function TimelineView({ vm, renderItem, onItemsPainted }: TimelineViewPro
     const scrollNow = useCallback<ImmediateScroll>(
         (anchor) => {
             const target = offsetForKey(anchor.targetKey, anchor.align);
-            if (target !== null) virtualizer.scrollToOffset(target);
+            if (target === null) return;
+            releaseBottom();
+            virtualizer.scrollToOffset(target);
         },
-        [offsetForKey, virtualizer],
+        [offsetForKey, releaseBottom, virtualizer],
     );
 
     const virtualItems = virtualizer.getVirtualItems();

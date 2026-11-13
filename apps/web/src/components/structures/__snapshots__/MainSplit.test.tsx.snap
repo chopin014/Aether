@@ -3,7 +3,7 @@
 exports[`<MainSplit/> > renders 1`] = `
 <DocumentFragment>
   <div
-    class="mx_MainSplit"
+    class="mx_MainSplit mx_MainSplit_withPanel"
   >
     <div>
       Child
@@ -33,7 +33,7 @@ exports[`<MainSplit/> > renders 1`] = `
 exports[`<MainSplit/> > respects defaultSize prop 1`] = `
 <DocumentFragment>
   <div
-    class="mx_MainSplit"
+    class="mx_MainSplit mx_MainSplit_withPanel"
   >
     <div>
       Child
