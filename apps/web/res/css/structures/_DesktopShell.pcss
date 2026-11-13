@@ -1348,12 +1348,30 @@ body.mx_DesktopShell [class*="_tooltip_"] > [class*="_arrow_"]:has(~ [class*="_c
         margin: 0 16px 8px;
         padding-block-end: 0;
 
+        /*
+         * A raised bar rather than a flat box: a faint light along its top edge and a soft shadow lift it off the
+         * timeline, and its edge picks up the focus colour while you type.
+         */
         .mx_MessageComposer_wrapper {
             border: 1px solid var(--cpd-color-border-interactive-secondary);
             border-radius: 8px;
             background: var(--cpd-color-bg-subtle-primary);
+            box-shadow:
+                inset 0 1px 0 color-mix(in srgb, var(--cpd-color-text-primary) 6%, transparent),
+                0 8px 20px -14px rgb(0 0 0 / 60%);
             padding-inline: 12px;
             margin: 0;
+            transition:
+                border-color 160ms ease-out,
+                box-shadow 160ms ease-out;
+
+            &:focus-within {
+                border-color: color-mix(
+                    in srgb,
+                    var(--cpd-color-border-focused) 45%,
+                    var(--cpd-color-border-interactive-secondary)
+                );
+            }
         }
 
         .mx_MessageComposer_row {
@@ -1376,18 +1394,64 @@ body.mx_DesktopShell [class*="_tooltip_"] > [class*="_arrow_"]:has(~ [class*="_c
         }
 
         .mx_MessageComposer_actions {
-            gap: 16px;
+            gap: 4px;
             align-self: center;
+        }
+
+        /*
+         * Discord-sized icon buttons: a 24px icon in a 32px target that brightens on hover, and whose icon acts out
+         * what the button does (see the live icons in shared-components).
+         */
+        :is(.mx_MessageComposer_actions .mx_MessageComposer_button, .mx_DesktopShell_attachment) {
+            --live-device-icon-size: 24px;
+
+            display: grid;
+            place-items: center;
+            box-sizing: border-box;
+            width: 32px;
+            height: 32px;
+            padding: 4px;
+            border-radius: 6px;
+            color: var(--cpd-color-icon-secondary);
+            cursor: pointer;
+            transition: color 120ms ease-out;
+
+            svg {
+                width: 24px;
+                height: 24px;
+                color: inherit;
+            }
+
+            &:hover,
+            &:focus-visible,
+            &[aria-expanded="true"],
+            &.mx_MessageComposer_button_highlight,
+            &.mx_EmojiButton_highlight {
+                background: transparent;
+                color: var(--cpd-color-text-primary);
+
+                svg {
+                    color: inherit;
+                }
+            }
         }
 
         .mx_DesktopShell_attachment {
             /* First in the row, ahead of the encryption icon that precedes it in the markup. */
             order: -1;
-            width: 32px;
-            height: 32px;
-            padding: 4px;
             flex: none;
-            margin-inline-end: 12px;
+            align-self: center;
+            margin-inline-end: 8px;
+        }
+
+        /* The plane flies out of the round send button and back in, clipped to it. */
+        .mx_MessageComposer_sendMessage {
+            overflow: hidden;
+            transition: background-color 120ms ease-out;
+
+            &:hover {
+                background-color: var(--cpd-color-bg-accent-hovered);
+            }
         }
 
         /*
@@ -1794,4 +1858,36 @@ body.mx_DesktopShell .mx_RoomView_conversationCallStage .mx_CallView {
 body.mx_DesktopShell.cpd-theme-dark,
 body.mx_DesktopShell.cpd-theme-dark-hc {
     --aether-call-background: #000000;
+}
+
+/*
+ * The composer's plus menu, like Discord's: a compact raised list with room around each entry and larger icons, its
+ * entries highlighted in place for the pointer and the keyboard alike.
+ */
+body.mx_DesktopShell .mx_DesktopComposerMenu .mx_IconizedContextMenu {
+    min-width: 200px;
+    padding: 6px;
+
+    .mx_IconizedContextMenu_optionList > * {
+        padding: 8px 10px;
+    }
+
+    .mx_IconizedContextMenu_optionList .mx_IconizedContextMenu_item {
+        border-radius: 4px;
+        font: var(--cpd-font-body-md-medium);
+        outline: none;
+
+        &:is(:hover, :focus-visible) {
+            background-color: var(--cpd-color-bg-action-tertiary-hovered);
+        }
+
+        svg {
+            width: 20px;
+            height: 20px;
+
+            & + .mx_IconizedContextMenu_label {
+                padding-left: 12px;
+            }
+        }
+    }
 }

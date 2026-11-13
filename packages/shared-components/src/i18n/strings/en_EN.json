@@ -55,7 +55,8 @@
                 "one": "%(count)s file to send",
                 "other": "%(count)s files to send"
             },
-            "remove": "Remove %(name)s"
+            "remove": "Remove %(name)s",
+            "view": "View %(name)s"
         },
         "url_preview": {
             "clear_all": "Clear all",

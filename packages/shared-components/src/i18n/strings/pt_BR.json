@@ -1301,7 +1301,8 @@
                 "one": "%(count)s arquivo para enviar",
                 "other": "%(count)s arquivos para enviar"
             },
-            "remove": "Remover %(name)s"
+            "remove": "Remover %(name)s",
+            "view": "Ver %(name)s"
         }
     },
     "devtools": {

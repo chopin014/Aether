@@ -52,6 +52,8 @@ import { useDispatcher } from "../../hooks/useDispatcher";
 import type { ActionPayload } from "../../dispatcher/payloads";
 import { type AttachmentOpen } from "@matrix-org/analytics-events/types/typescript/AttachmentOpen";
 import { PosthogAnalytics } from "../../PosthogAnalytics";
+import Modal from "../../Modal";
+import ImageView from "../../components/views/elements/ImageView";
 import type { AttachmentCancel } from "@matrix-org/analytics-events/types/typescript/AttachmentCancel";
 
 const logger = rootLogger.getChild("RoomUploadViewModel");
@@ -218,6 +220,19 @@ export class RoomUploadViewModel
         this.pendingFiles.delete(id);
         this.revokePreviews([attachment]);
         this.snapshot.merge({ attachments: this.snapshot.current.attachments.filter((item) => item.id !== id) });
+    };
+
+    /** Shows a waiting image at full size in the lightbox, so it can be checked before it is sent. */
+    public openAttachment = (id: string): void => {
+        const attachment = this.snapshot.current.attachments.find((item) => item.id === id);
+        if (attachment?.kind !== "image" || !attachment.previewUrl) return;
+        Modal.createDialog(
+            ImageView,
+            { src: attachment.previewUrl, name: attachment.name, fileSize: attachment.size },
+            "mx_Dialog_lightbox",
+            undefined,
+            true,
+        );
     };
 
     /**

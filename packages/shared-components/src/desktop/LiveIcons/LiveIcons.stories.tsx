@@ -8,7 +8,17 @@ Please see LICENSE in the repository root for full details.
 import React, { type JSX, type ReactNode, useState } from "react";
 import { type Meta, type StoryObj } from "@storybook/react-vite";
 
-import { AnimatedDeviceIcon, HangUpIcon, NoiseSuppressionIcon, ReactionIcon, ScreenShareIcon, SignalIcon } from ".";
+import {
+    AddIcon,
+    AnimatedDeviceIcon,
+    HangUpIcon,
+    NoiseSuppressionIcon,
+    ReactionIcon,
+    ScreenShareIcon,
+    SendIcon,
+    SignalIcon,
+    StickerIcon,
+} from ".";
 import { SoundboardIcon } from "../SoundboardView";
 
 /** A plain button around each icon, so hovering, focusing and pressing it plays the icon's motion. */
@@ -16,10 +26,12 @@ function StoryButton({
     label,
     children,
     onClick,
+    expanded,
 }: {
     label: string;
     children: ReactNode;
     onClick?: () => void;
+    expanded?: boolean;
 }): JSX.Element {
     return (
         <button
@@ -27,6 +39,7 @@ function StoryButton({
             aria-label={label}
             title={label}
             onClick={onClick}
+            aria-expanded={expanded}
             style={{
                 display: "grid",
                 placeItems: "center",
@@ -49,6 +62,7 @@ function LiveIconsStory(): JSX.Element {
     const [muted, setMuted] = useState(false);
     const [deafened, setDeafened] = useState(false);
     const [cameraOff, setCameraOff] = useState(true);
+    const [menuOpen, setMenuOpen] = useState(false);
     return (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <StoryButton label="Mute" onClick={() => setMuted(!muted)}>
@@ -80,6 +94,15 @@ function LiveIconsStory(): JSX.Element {
             </StoryButton>
             <StoryButton label="Disconnect">
                 <HangUpIcon />
+            </StoryButton>
+            <StoryButton label="Add" onClick={() => setMenuOpen(!menuOpen)} expanded={menuOpen}>
+                <AddIcon />
+            </StoryButton>
+            <StoryButton label="Sticker">
+                <StickerIcon />
+            </StoryButton>
+            <StoryButton label="Send">
+                <SendIcon />
             </StoryButton>
         </div>
     );

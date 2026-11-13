@@ -23,7 +23,7 @@ import {
     StickerIcon,
     TextFormattingIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
-import { UploadButton, useViewModel } from "@element-hq/web-shared-components";
+import { LiveIcons, UploadButton, useViewModel } from "@element-hq/web-shared-components";
 
 import { _t } from "../../../languageHandler";
 import { CollapsibleButton, OverflowMenuContext } from "./CollapsibleButton";
@@ -77,7 +77,31 @@ const MessageComposerButtons: React.FC<IProps> = (props: IProps) => {
 
     let mainButtons: ReactNode[];
     let moreButtons: ReactNode[];
-    if (narrow) {
+    if (desktopShell) {
+        // Like Discord's: what goes into a message (files, polls, a location) sits in the composer's plus menu, and
+        // the rest stays one click away here, so there is no overflow menu to dig through.
+        mainButtons = [
+            props.showStickersButton && desktopStickerButton(props),
+            isWysiwygLabEnabled ? (
+                <ComposerModeButton
+                    key="composerModeButton"
+                    isRichTextEnabled={props.isRichTextEnabled}
+                    onClick={props.onComposerModeClick}
+                />
+            ) : (
+                emojiButton(props, <LiveIcons.ReactionIcon />)
+            ),
+            <CollapsibleButton
+                key="voice_message_send"
+                className="mx_MessageComposer_button"
+                onClick={props.onRecordStartEndClick}
+                title={_t("composer|voice_message_button")}
+            >
+                <LiveIcons.AnimatedDeviceIcon device="microphone" off={false} />
+            </CollapsibleButton>,
+        ];
+        moreButtons = [];
+    } else if (narrow) {
         mainButtons = [
             isWysiwygLabEnabled ? (
                 <ComposerModeButton
@@ -88,8 +112,6 @@ const MessageComposerButtons: React.FC<IProps> = (props: IProps) => {
             ) : (
                 emojiButton(props)
             ),
-            // The desktop shell's recording bar fits a narrow composer, so voice messages stay a click away there too.
-            desktopShell && voiceRecordingButton(props, false),
         ];
         moreButtons = [
             // This a textual list of buttons, so we can't use the UploadButton here.
@@ -102,7 +124,7 @@ const MessageComposerButtons: React.FC<IProps> = (props: IProps) => {
                 />
             )),
             showStickersButton(props),
-            !desktopShell && voiceRecordingButton(props, narrow),
+            voiceRecordingButton(props, narrow),
             props.showPollsButton ? pollButton(room, props.relation) : null,
             showLocationButton(props, room, matrixClient),
         ];
@@ -117,13 +139,11 @@ const MessageComposerButtons: React.FC<IProps> = (props: IProps) => {
             ) : (
                 emojiButton(props)
             ),
-            !desktopShell && <UploadButton key="upload" vm={roomUploadVM} />,
-            // Voice messages sit beside the emoji button, a click away like an attachment.
-            desktopShell && voiceRecordingButton(props, narrow),
+            <UploadButton key="upload" vm={roomUploadVM} />,
         ];
         moreButtons = [
             showStickersButton(props),
-            !desktopShell && voiceRecordingButton(props, narrow),
+            voiceRecordingButton(props, narrow),
             props.showPollsButton ? pollButton(room, props.relation) : null,
             showLocationButton(props, room, matrixClient),
         ];
@@ -166,14 +186,32 @@ const MessageComposerButtons: React.FC<IProps> = (props: IProps) => {
     );
 };
 
-function emojiButton(props: IProps): ReactElement {
+function emojiButton(props: IProps, icon?: ReactNode): ReactElement {
     return (
         <EmojiButton
             key="emoji_button"
             addEmoji={props.addEmoji}
             menuPosition={props.menuPosition}
             className="mx_MessageComposer_button"
+            icon={icon}
         />
+    );
+}
+
+/** The desktop shell's sticker button, out in the composer like Discord's rather than tucked in a menu. */
+function desktopStickerButton(props: IProps): ReactElement {
+    return (
+        <CollapsibleButton
+            id="stickersButton"
+            key="controls_stickers"
+            className={classNames("mx_MessageComposer_button", {
+                mx_MessageComposer_button_highlight: props.isStickerPickerOpen,
+            })}
+            onClick={() => props.setStickerPickerOpen(!props.isStickerPickerOpen)}
+            title={props.isStickerPickerOpen ? _t("composer|close_sticker_picker") : _t("common|sticker")}
+        >
+            <LiveIcons.StickerIcon />
+        </CollapsibleButton>
     );
 }
 
@@ -214,7 +252,7 @@ interface IPollButtonProps {
     relation?: IEventRelation;
 }
 
-class PollButton extends React.PureComponent<IPollButtonProps> {
+export class PollButton extends React.PureComponent<IPollButtonProps> {
     public static contextType = OverflowMenuContext;
     declare public context: React.ContextType<typeof OverflowMenuContext>;
 
