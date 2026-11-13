@@ -548,7 +548,11 @@ test.describe("watching for readable text", () => {
         await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
     });
 
-    for (const how of ["in its callback", "in a microtask its callback queues"]) {
+    for (const how of [
+        "in its callback",
+        "in a microtask its callback queues",
+        "in a microtask queued by one its callback queues",
+    ]) {
         test(`does not report a message a later round of the page's resize observers hides ${how} before each paint`, async ({
             page,
         }) => {
@@ -577,7 +581,8 @@ test.describe("watching for readable text", () => {
                 };
                 new ResizeObserver(() => {
                     if (how === "in its callback") hide();
-                    else void Promise.resolve().then(hide);
+                    else if (how === "in a microtask its callback queues") queueMicrotask(hide);
+                    else queueMicrotask(() => queueMicrotask(hide));
                 }).observe(document.querySelector("#inner")!);
                 const onFrame = (): void => {
                     if (win.settled) return;
@@ -594,6 +599,44 @@ test.describe("watching for readable text", () => {
             await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
         });
     }
+
+    test("does not report a message a handler of a resize loop error hides before each paint", async ({ page }) => {
+        await show(
+            page,
+            `<style id="rules">.mx_EventTile_body {} :root { height: 600px }</style>` +
+                timeline(row("$target", "the wanted message")),
+        );
+        await page.evaluate(() => {
+            const win = window as unknown as WatchWindow & {
+                scheduler: { postTask: (task: () => void, options: { priority: string }) => Promise<unknown> };
+            };
+            const sheet = document.querySelector<HTMLStyleElement>("#rules")!.sheet!;
+            const [text, root] = [0, 1].map((index) => (sheet.cssRules[index] as CSSStyleRule).style);
+            let step = 0;
+            // An observer of the root, older than the watching's own, resizes the root each frame. As nothing is
+            // shallower than the root, the browser cannot deliver that before the paint, and reports a resize loop
+            // error instead, whose handler hides the text. No resize observer callback of the page's runs after the
+            // watching's check. A task posted earlier in the frame shows the text again after the paint.
+            new ResizeObserver(() => {
+                if (!win.settled) root.height = `${600 + (++step % 2)}px`;
+            }).observe(document.documentElement);
+            window.addEventListener("error", (event) => {
+                if (!win.settled && /ResizeObserver loop/.test(event.message)) text.visibility = "hidden";
+            });
+            const onFrame = (): void => {
+                if (win.settled) return;
+                void win.scheduler.postTask(() => (text.visibility = ""), { priority: "user-blocking" });
+                requestAnimationFrame(onFrame);
+            };
+            requestAnimationFrame(onFrame);
+        });
+        await watch(page);
+        await frames(page, 12);
+        expect(await readableAt(page)).toBeUndefined();
+
+        await page.evaluate(() => ((window as unknown as WatchWindow).settled = true));
+        await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+    });
 
     test("calls the page's resize observer callbacks as the browser would", async ({ page }) => {
         await show(page, timeline(row("$target", "the wanted message")));
