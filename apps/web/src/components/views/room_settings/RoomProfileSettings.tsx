@@ -7,7 +7,7 @@ Please see LICENSE files in the repository root for full details.
 
 import React, { createRef } from "react";
 import classNames from "classnames";
-import { ContentHelpers, EventType, type Room } from "matrix-js-sdk/src/matrix";
+import { ContentHelpers, EventType, type MatrixEvent, type Room, RoomStateEvent } from "matrix-js-sdk/src/matrix";
 
 import { _t } from "../../../languageHandler";
 import { MatrixClientPeg } from "../../../MatrixClientPeg";
@@ -50,6 +50,38 @@ function idNameForRoom(room: Room): string {
     return room.roomId;
 }
 
+/** The parts of a room's state its profile settings show. */
+interface RoomProfile {
+    name: string;
+    topic: string;
+    avatarUrl: string | null;
+    canSetName: boolean;
+    canSetTopic: boolean;
+    canSetAvatar: boolean;
+}
+
+/** State events that change what {@link readRoomProfile} reads. */
+const PROFILE_EVENT_TYPES = new Set<string>([
+    EventType.RoomName,
+    EventType.RoomTopic,
+    EventType.RoomAvatar,
+    EventType.RoomPowerLevels,
+]);
+
+function readRoomProfile(room: Room, userId: string): RoomProfile {
+    const avatarEvent = room.currentState.getStateEvents(EventType.RoomAvatar, "");
+    const topicEvent = room.currentState.getStateEvents(EventType.RoomTopic, "");
+    const nameEvent = room.currentState.getStateEvents(EventType.RoomName, "");
+    return {
+        name: nameEvent && nameEvent.getContent() ? nameEvent.getContent()["name"] : "",
+        topic: (topicEvent && ContentHelpers.parseTopicContent(topicEvent.getContent()).text) || "",
+        avatarUrl: avatarEvent?.getContent()["url"] ?? null,
+        canSetName: room.currentState.maySendStateEvent(EventType.RoomName, userId),
+        canSetTopic: room.currentState.maySendStateEvent(EventType.RoomTopic, userId),
+        canSetAvatar: room.currentState.maySendStateEvent(EventType.RoomAvatar, userId),
+    };
+}
+
 // TODO: Merge with ProfileSettings?
 export default class RoomProfileSettings extends React.Component<IProps, IState> {
     private avatarUpload = createRef<HTMLInputElement>();
@@ -61,16 +93,10 @@ export default class RoomProfileSettings extends React.Component<IProps, IState>
         const room = client.getRoom(props.roomId);
         if (!room) throw new Error(`Expected a room for ID: ${props.roomId}`);
 
-        const avatarEvent = room.currentState.getStateEvents(EventType.RoomAvatar, "");
-        const avatarUrl = avatarEvent?.getContent()["url"] ?? null;
-
-        const topicEvent = room.currentState.getStateEvents(EventType.RoomTopic, "");
-        const topic = (topicEvent && ContentHelpers.parseTopicContent(topicEvent.getContent()).text) || "";
-
-        const nameEvent = room.currentState.getStateEvents(EventType.RoomName, "");
-        const name = nameEvent && nameEvent.getContent() ? nameEvent.getContent()["name"] : "";
-
-        const userId = client.getSafeUserId();
+        const { name, topic, avatarUrl, canSetName, canSetTopic, canSetAvatar } = readRoomProfile(
+            room,
+            client.getSafeUserId(),
+        );
         this.state = {
             originalDisplayName: name,
             displayName: name,
@@ -80,11 +106,45 @@ export default class RoomProfileSettings extends React.Component<IProps, IState>
             originalTopic: topic,
             topic: topic,
             profileFieldsTouched: {},
-            canSetName: room.currentState.maySendStateEvent(EventType.RoomName, userId),
-            canSetTopic: room.currentState.maySendStateEvent(EventType.RoomTopic, userId),
-            canSetAvatar: room.currentState.maySendStateEvent(EventType.RoomAvatar, userId),
+            canSetName,
+            canSetTopic,
+            canSetAvatar,
         };
     }
+
+    public componentDidMount(): void {
+        MatrixClientPeg.safeGet().on(RoomStateEvent.Events, this.onRoomStateEvent);
+    }
+
+    public componentWillUnmount(): void {
+        MatrixClientPeg.get()?.removeListener(RoomStateEvent.Events, this.onRoomStateEvent);
+    }
+
+    /**
+     * Show changes to the room's name, topic and avatar as they arrive, unless they are being edited. Under sliding
+     * sync, a room someone has not opened gets its name and topic after its settings open.
+     */
+    private onRoomStateEvent = (event: MatrixEvent): void => {
+        if (event.getRoomId() !== this.props.roomId || event.getStateKey() !== "") return;
+        if (!PROFILE_EVENT_TYPES.has(event.getType())) return;
+        const client = MatrixClientPeg.safeGet();
+        const room = client.getRoom(this.props.roomId);
+        if (!room) return;
+        const { name, topic, avatarUrl, canSetName, canSetTopic, canSetAvatar } = readRoomProfile(
+            room,
+            client.getSafeUserId(),
+        );
+        this.setState((state) => ({
+            originalDisplayName: name,
+            displayName: state.displayName === state.originalDisplayName ? name : state.displayName,
+            originalTopic: topic,
+            topic: state.topic === state.originalTopic ? topic : state.topic,
+            originalAvatarUrl: avatarUrl,
+            canSetName,
+            canSetTopic,
+            canSetAvatar,
+        }));
+    };
 
     private onAvatarChanged = (file: File): void => {
         this.setState({

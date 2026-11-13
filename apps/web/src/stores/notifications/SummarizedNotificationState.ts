@@ -8,6 +8,7 @@ Please see LICENSE files in the repository root for full details.
 
 import { NotificationLevel } from "./NotificationLevel";
 import { NotificationState } from "./NotificationState";
+import { CountCertaintySum } from "./CountCertaintySum";
 
 /**
  * Summarizes a number of states into a unique snapshot. To populate, call
@@ -17,6 +18,7 @@ import { NotificationState } from "./NotificationState";
  */
 export class SummarizedNotificationState extends NotificationState {
     private totalStatesWithUnread = 0;
+    private readonly certainty = new CountCertaintySum();
 
     public constructor() {
         super();
@@ -51,6 +53,9 @@ export class SummarizedNotificationState extends NotificationState {
         }
         if (other.count) {
             this._count += other.count;
+            this.certainty.add(other);
+            this._countIsLowerBound = this.certainty.countIsLowerBound;
+            this._countIsApproximate = this.certainty.countIsApproximate;
         }
         if (other.level > this.level) {
             this._level = other.level;

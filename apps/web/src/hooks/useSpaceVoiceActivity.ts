@@ -45,6 +45,27 @@ export function getSpaceVoiceActivity(
         .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Whether two lists of voice activity show the same channels with the same people. */
+function sameVoiceActivity(a: ServerVoiceActivityChannel[], b: ServerVoiceActivityChannel[]): boolean {
+    return (
+        a.length === b.length &&
+        a.every((channel, i) => {
+            const other = b[i];
+            return (
+                channel.roomId === other.roomId &&
+                channel.name === other.name &&
+                channel.people.length === other.people.length &&
+                channel.people.every(
+                    (person, j) =>
+                        person.userId === other.people[j].userId &&
+                        person.name === other.people[j].name &&
+                        person.avatarUrl === other.people[j].avatarUrl,
+                )
+            );
+        })
+    );
+}
+
 /**
  * Who is in a Space's voice channels, kept current as calls start and end, people join or leave them, and channels
  * are added to the Space or removed from it. Pass no Space to skip the work, such as for a rail item that is not a
@@ -60,8 +81,14 @@ export function useSpaceVoiceActivity(sdkContext: SDKContextClass, space?: Room)
         }
         const spaceStore = sdkContext.spaceStore;
         const observed = new Set<Call>();
+        // The voice channels listed now, whose call ending changes the list.
+        let listed = new Set<string>();
         const refresh = (): void => {
-            setChannels(getSpaceVoiceActivity(client, spaceStore, space));
+            // The store tells of every room that arrives or changes, such as while a new connection applies the
+            // whole account, and the rail's tooltip is costly to draw again, so the same activity changes nothing.
+            const next = getSpaceVoiceActivity(client, spaceStore, space);
+            listed = new Set(next.map((channel) => channel.roomId));
+            setChannels((current) => (sameVoiceActivity(current, next) ? current : next));
             // Follow the participants of every call, so joins and leaves update the tooltip while it is open.
             for (const roomId of spaceStore.getSpaceFilteredRoomIds(space.roomId)) {
                 const call = CallStore.instance.getCall(roomId);
@@ -71,12 +98,18 @@ export function useSpaceVoiceActivity(sdkContext: SDKContextClass, space?: Room)
                 }
             }
         };
+        // The call store tells of every room it looks at, such as each room arriving as sync applies the whole account,
+        // most of them without a call. Such a room changes nothing, unless it is listed now and its call has ended;
+        // reading the Space's rooms for each would work them out again for every room of a batch.
+        const onCall = (call: Call | null, roomId: string): void => {
+            if (call || listed.has(roomId)) refresh();
+        };
         refresh();
-        CallStore.instance.on(CallStoreEvent.Call, refresh);
+        CallStore.instance.on(CallStoreEvent.Call, onCall);
         // The store names the Space in its event when the rooms in it change, such as once they first load.
         spaceStore.on(space.roomId, refresh);
         return () => {
-            CallStore.instance.off(CallStoreEvent.Call, refresh);
+            CallStore.instance.off(CallStoreEvent.Call, onCall);
             spaceStore.off(space.roomId, refresh);
             for (const call of observed) call.off(CallEvent.Participants, refresh);
         };

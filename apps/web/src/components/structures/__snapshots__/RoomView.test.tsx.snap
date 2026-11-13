@@ -1315,20 +1315,45 @@ exports[`RoomView > should hide the composer when hideComposer=true 1`] = `
         </div>
         <main
           class="mx_RoomView_timeline mx_RoomView_timeline_rr_enabled"
+          data-room-id="!roomviewshouldhidethecomposerwhenhidecomposertrue:example.org"
           data-testid="timeline"
         >
           <div
-            class="_scrollbar mx_AutoHideScrollbar mx_ScrollPanel mx_RoomView_messagePanel"
-            tabindex="-1"
+            class="mx_NewTimelinePanel mx_RoomView_messagePanel mx_RoomView_messageListWrapper"
           >
             <div
-              class="mx_RoomView_messageListWrapper"
+              class="_root"
             >
-              <ol
-                aria-live="polite"
-                class="mx_RoomView_MessageList"
-                style="height: 400px;"
-              />
+              <div
+                class="_scroller _hidden"
+                data-testid="timeline-scroller"
+                tabindex="0"
+              >
+                <ol
+                  class="mx_TimelineView_list _list"
+                  role="list"
+                  style="height: 36px;"
+                />
+              </div>
+              <div
+                class="_cover"
+              >
+                <svg
+                  class="_icon"
+                  fill="currentColor"
+                  height="1em"
+                  style="width: 32px; height: 32px;"
+                  viewBox="0 0 24 24"
+                  width="1em"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    clip-rule="evenodd"
+                    d="M12 4.031a8 8 0 1 0 8 8 1 1 0 0 1 2 0c0 5.523-4.477 10-10 10s-10-4.477-10-10 4.477-10 10-10a1 1 0 1 1 0 2"
+                    fill-rule="evenodd"
+                  />
+                </svg>
+              </div>
             </div>
           </div>
         </main>
@@ -1385,20 +1410,45 @@ exports[`RoomView > should hide the header when hideHeader=true 1`] = `
         </div>
         <main
           class="mx_RoomView_timeline mx_RoomView_timeline_rr_enabled"
+          data-room-id="!roomviewshouldhidetheheaderwhenhideheadertrue:example.org"
           data-testid="timeline"
         >
           <div
-            class="_scrollbar mx_AutoHideScrollbar mx_ScrollPanel mx_RoomView_messagePanel"
-            tabindex="-1"
+            class="mx_NewTimelinePanel mx_RoomView_messagePanel mx_RoomView_messageListWrapper"
           >
             <div
-              class="mx_RoomView_messageListWrapper"
+              class="_root"
             >
-              <ol
-                aria-live="polite"
-                class="mx_RoomView_MessageList"
-                style="height: 400px;"
-              />
+              <div
+                class="_scroller _hidden"
+                data-testid="timeline-scroller"
+                tabindex="0"
+              >
+                <ol
+                  class="mx_TimelineView_list _list"
+                  role="list"
+                  style="height: 36px;"
+                />
+              </div>
+              <div
+                class="_cover"
+              >
+                <svg
+                  class="_icon"
+                  fill="currentColor"
+                  height="1em"
+                  style="width: 32px; height: 32px;"
+                  viewBox="0 0 24 24"
+                  width="1em"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    clip-rule="evenodd"
+                    d="M12 4.031a8 8 0 1 0 8 8 1 1 0 0 1 2 0c0 5.523-4.477 10-10 10s-10-4.477-10-10 4.477-10 10-10a1 1 0 1 1 0 2"
+                    fill-rule="evenodd"
+                  />
+                </svg>
+              </div>
             </div>
           </div>
         </main>
@@ -1870,20 +1920,45 @@ exports[`RoomView > should hide the pinned message banner when hidePinnedMessage
         </div>
         <main
           class="mx_RoomView_timeline mx_RoomView_timeline_rr_enabled"
+          data-room-id="!roomviewshouldhidethepinnedmessagebannerwhenhidepinnedmessagebannertrue:example.org"
           data-testid="timeline"
         >
           <div
-            class="_scrollbar mx_AutoHideScrollbar mx_ScrollPanel mx_RoomView_messagePanel"
-            tabindex="-1"
+            class="mx_NewTimelinePanel mx_RoomView_messagePanel mx_RoomView_messageListWrapper"
           >
             <div
-              class="mx_RoomView_messageListWrapper"
+              class="_root"
             >
-              <ol
-                aria-live="polite"
-                class="mx_RoomView_MessageList"
-                style="height: 400px;"
-              />
+              <div
+                class="_scroller _hidden"
+                data-testid="timeline-scroller"
+                tabindex="0"
+              >
+                <ol
+                  class="mx_TimelineView_list _list"
+                  role="list"
+                  style="height: 36px;"
+                />
+              </div>
+              <div
+                class="_cover"
+              >
+                <svg
+                  class="_icon"
+                  fill="currentColor"
+                  height="1em"
+                  style="width: 32px; height: 32px;"
+                  viewBox="0 0 24 24"
+                  width="1em"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    clip-rule="evenodd"
+                    d="M12 4.031a8 8 0 1 0 8 8 1 1 0 0 1 2 0c0 5.523-4.477 10-10 10s-10-4.477-10-10 4.477-10 10-10a1 1 0 1 1 0 2"
+                    fill-rule="evenodd"
+                  />
+                </svg>
+              </div>
             </div>
           </div>
         </main>
@@ -2355,20 +2430,45 @@ exports[`RoomView > should hide the right panel when hideRightPanel=true 1`] = `
         </div>
         <main
           class="mx_RoomView_timeline mx_RoomView_timeline_rr_enabled"
+          data-room-id="!roomviewshouldhidetherightpanelwhenhiderightpaneltrue:example.org"
           data-testid="timeline"
         >
           <div
-            class="_scrollbar mx_AutoHideScrollbar mx_ScrollPanel mx_RoomView_messagePanel"
-            tabindex="-1"
+            class="mx_NewTimelinePanel mx_RoomView_messagePanel mx_RoomView_messageListWrapper"
           >
             <div
-              class="mx_RoomView_messageListWrapper"
+              class="_root"
             >
-              <ol
-                aria-live="polite"
-                class="mx_RoomView_MessageList"
-                style="height: 400px;"
-              />
+              <div
+                class="_scroller _hidden"
+                data-testid="timeline-scroller"
+                tabindex="0"
+              >
+                <ol
+                  class="mx_TimelineView_list _list"
+                  role="list"
+                  style="height: 36px;"
+                />
+              </div>
+              <div
+                class="_cover"
+              >
+                <svg
+                  class="_icon"
+                  fill="currentColor"
+                  height="1em"
+                  style="width: 32px; height: 32px;"
+                  viewBox="0 0 24 24"
+                  width="1em"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    clip-rule="evenodd"
+                    d="M12 4.031a8 8 0 1 0 8 8 1 1 0 0 1 2 0c0 5.523-4.477 10-10 10s-10-4.477-10-10 4.477-10 10-10a1 1 0 1 1 0 2"
+                    fill-rule="evenodd"
+                  />
+                </svg>
+              </div>
             </div>
           </div>
         </main>
@@ -2840,6 +2940,7 @@ exports[`RoomView > should not display the timeline when the room encryption is 
         </div>
         <main
           class="mx_RoomView_timeline mx_RoomView_timeline_rr_enabled"
+          data-room-id="!roomviewshouldnotdisplaythetimelinewhentheroomencryptionisloading:example.org"
           data-testid="timeline"
         />
         <div
@@ -3079,20 +3180,45 @@ exports[`RoomView > should not display the timeline when the room encryption is 
         </div>
         <main
           class="mx_RoomView_timeline mx_RoomView_timeline_rr_enabled"
+          data-room-id="!roomviewshouldnotdisplaythetimelinewhentheroomencryptionisloading:example.org"
           data-testid="timeline"
         >
           <div
-            class="_scrollbar mx_AutoHideScrollbar mx_ScrollPanel mx_RoomView_messagePanel"
-            tabindex="-1"
+            class="mx_NewTimelinePanel mx_RoomView_messagePanel mx_RoomView_messageListWrapper"
           >
             <div
-              class="mx_RoomView_messageListWrapper"
+              class="_root"
             >
-              <ol
-                aria-live="polite"
-                class="mx_RoomView_MessageList"
-                style="height: 400px;"
-              />
+              <div
+                class="_scroller _hidden"
+                data-testid="timeline-scroller"
+                tabindex="0"
+              >
+                <ol
+                  class="mx_TimelineView_list _list"
+                  role="list"
+                  style="height: 36px;"
+                />
+              </div>
+              <div
+                class="_cover"
+              >
+                <svg
+                  class="_icon"
+                  fill="currentColor"
+                  height="1em"
+                  style="width: 32px; height: 32px;"
+                  viewBox="0 0 24 24"
+                  width="1em"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    clip-rule="evenodd"
+                    d="M12 4.031a8 8 0 1 0 8 8 1 1 0 0 1 2 0c0 5.523-4.477 10-10 10s-10-4.477-10-10 4.477-10 10-10a1 1 0 1 1 0 2"
+                    fill-rule="evenodd"
+                  />
+                </svg>
+              </div>
             </div>
           </div>
         </main>
@@ -3423,7 +3549,7 @@ exports[`RoomView > video rooms > should render joined video room view 1`] = `
       width="0"
     />
     <div
-      class="mx_MainSplit"
+      class="mx_MainSplit mx_MainSplit_withPanel"
     >
       <div
         class="mx_RoomView_body mx_MainSplit_call"

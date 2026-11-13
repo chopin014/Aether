@@ -14,6 +14,7 @@ import { act, fireEvent, render, waitFor } from "test-utils-rtl";
 import * as maplibregl from "maplibre-gl";
 import {
     BeaconEvent,
+    ClientEvent,
     getBeaconInfoIdentifier,
     RelationType,
     MatrixEvent,
@@ -184,6 +185,67 @@ describe("<MBeaconBody />", () => {
     };
 
     testBeaconStatuses();
+
+    describe("when the share reaches the room's state after the event is shown", () => {
+        // As with sliding sync, which sends a listed room's latest events before the state of the room once opened.
+        it("shows a share that arrives later as live", () => {
+            const aliceBeaconInfo = makeBeaconInfoEvent(aliceId, roomId, { isLive: true }, "$alice-room1-1");
+            const room = makeRoomWithStateEvents([], { roomId, mockClient });
+            const component = getComponent({ mxEvent: aliceBeaconInfo });
+            expect(component.container).toHaveTextContent("Live location ended");
+
+            act(() => {
+                room.currentState.setStateEvents([aliceBeaconInfo]);
+            });
+
+            expect(component.container).toHaveTextContent("Loading live location…");
+        });
+
+        it("shows a share that replaces an older one later as live", () => {
+            const olderInfo = makeBeaconInfoEvent(aliceId, roomId, { isLive: true, timestamp: now - 500 }, "$older");
+            olderInfo.event.origin_server_ts = now - 500;
+            const aliceBeaconInfo = makeBeaconInfoEvent(aliceId, roomId, { isLive: true }, "$alice-room1-1");
+            const room = makeRoomWithStateEvents([olderInfo], { roomId, mockClient });
+            const component = getComponent({ mxEvent: aliceBeaconInfo });
+            expect(component.container).toHaveTextContent("Live location ended");
+
+            act(() => {
+                room.currentState.setStateEvents([aliceBeaconInfo]);
+            });
+
+            expect(component.container).toHaveTextContent("Loading live location…");
+        });
+
+        it("shows a share in a room that becomes known after the event is shown", () => {
+            const aliceBeaconInfo = makeBeaconInfoEvent(aliceId, roomId, { isLive: true }, "$alice-room1-1");
+            mockClient.getRoom.mockReturnValue(null);
+            const component = getComponent({ mxEvent: aliceBeaconInfo });
+            expect(component.container).toHaveTextContent("Live location ended");
+
+            const room = makeRoomWithStateEvents([aliceBeaconInfo], { roomId, mockClient });
+            act(() => {
+                mockClient.emit(ClientEvent.Room, room);
+            });
+
+            expect(component.container).toHaveTextContent("Loading live location…");
+        });
+
+        it("does not look again for another person's share", () => {
+            const aliceBeaconInfo = makeBeaconInfoEvent(aliceId, roomId, { isLive: true }, "$alice-room1-1");
+            const room = makeRoomWithStateEvents([], { roomId, mockClient });
+            const component = getComponent({ mxEvent: aliceBeaconInfo });
+            const lookups = vi.spyOn(room.currentState.beacons, "get");
+
+            act(() => {
+                room.currentState.setStateEvents([
+                    makeBeaconInfoEvent("@bob:server", roomId, { isLive: true }, "$bob-room1-1"),
+                ]);
+            });
+
+            expect(lookups).not.toHaveBeenCalledWith(getBeaconInfoIdentifier(aliceBeaconInfo));
+            expect(component.container).toHaveTextContent("Live location ended");
+        });
+    });
 
     describe("on liveness change", () => {
         it("renders stopped UI when a beacon stops being live", () => {

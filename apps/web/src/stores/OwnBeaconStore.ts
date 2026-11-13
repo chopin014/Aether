@@ -38,6 +38,7 @@ import {
 } from "../utils/beacon";
 import { doMaybeLocalRoomAction } from "../utils/local-room";
 import SettingsStore from "../settings/SettingsStore";
+import { SlidingSyncManager } from "../SlidingSyncManager";
 
 const isOwnBeacon = (beacon: Beacon, userId: string): boolean => beacon.beaconInfoOwner === userId;
 
@@ -117,6 +118,12 @@ export class OwnBeaconStore extends AsyncStoreWithClient<OwnBeaconStoreState> {
      * Ref returned from watchSetting for the MSC3946 labs flag
      */
     private dynamicWatcherRef: string | undefined;
+    // Under sliding sync, the rooms this device shares its location in are kept subscribed, by the release of each,
+    // so that a share stopped elsewhere is heard of promptly.
+    private readonly roomHolds = new Map<Room["roomId"], () => void>();
+    // Live shares of this device whose room has not been sent again since it was restored or the connection restarted.
+    private awaitingState = new Set<BeaconIdentifier>();
+    private stopWatchingArrivals?: () => void;
 
     public constructor() {
         super(defaultDispatcher);
@@ -143,6 +150,8 @@ export class OwnBeaconStore extends AsyncStoreWithClient<OwnBeaconStoreState> {
             this.matrixClient.removeListener(RoomStateEvent.Members, this.onRoomStateMembers);
         }
         SettingsStore.unwatchSetting(this.dynamicWatcherRef);
+        this.stopWatchingArrivals?.();
+        this.stopWatchingArrivals = undefined;
 
         this.clearBeacons();
     }
@@ -156,6 +165,8 @@ export class OwnBeaconStore extends AsyncStoreWithClient<OwnBeaconStoreState> {
         this.liveBeaconIds = [];
         this.beaconLocationPublishErrorCounts.clear();
         this.beaconUpdateErrors.clear();
+        this.awaitingState = new Set();
+        this.holdRooms([]);
     }
 
     protected async onReady(): Promise<void> {
@@ -171,6 +182,8 @@ export class OwnBeaconStore extends AsyncStoreWithClient<OwnBeaconStoreState> {
             null,
             this.reinitialiseBeaconState,
         );
+        // A room the server sends again may make a share current enough to share to.
+        this.stopWatchingArrivals = SlidingSyncManager.instance.onArrivalChange(this.checkLiveness);
 
         this.initialiseBeaconState();
     }
@@ -321,7 +334,10 @@ export class OwnBeaconStore extends AsyncStoreWithClient<OwnBeaconStoreState> {
      */
     private get healthyLiveBeaconIds(): string[] {
         return this.liveBeaconIds.filter(
-            (beaconId) => !this.beaconHasLocationPublishError(beaconId) && !this.beaconUpdateErrors.has(beaconId),
+            (beaconId) =>
+                !this.beaconHasLocationPublishError(beaconId) &&
+                !this.beaconUpdateErrors.has(beaconId) &&
+                !this.awaitingState.has(beaconId),
         );
     }
 
@@ -380,15 +396,23 @@ export class OwnBeaconStore extends AsyncStoreWithClient<OwnBeaconStoreState> {
     private checkLiveness = (): void => {
         const locallyCreatedBeaconEventIds = getLocallyCreatedBeaconEventIds();
         const prevLiveBeaconIds = this.getLiveBeaconIds();
-        this.liveBeaconIds = [...this.beacons.values()]
-            .filter(
-                (beacon) =>
-                    beacon.isLive &&
-                    // only beacons created on this device should be shared to
-                    locallyCreatedBeaconEventIds.includes(beacon.beaconInfoId),
-            )
-            .sort(sortBeaconsByLatestCreation)
-            .map((beacon) => beacon.identifier);
+        const ownShares = [...this.beacons.values()].filter(
+            (beacon) =>
+                beacon.isLive &&
+                // only beacons created on this device should be shared to
+                locallyCreatedBeaconEventIds.includes(beacon.beaconInfoId),
+        );
+        this.holdRooms(ownShares.map((beacon) => beacon.roomId));
+        this.liveBeaconIds = ownShares.sort(sortBeaconsByLatestCreation).map((beacon) => beacon.identifier);
+        // A share whose room has not been sent again is shown, and can be stopped, but no location is shared to it
+        // until the room is sent. Once it is, the current location is shared straight away.
+        const wasAwaitingState = this.awaitingState;
+        this.awaitingState = new Set(
+            ownShares.filter((beacon) => !this.hasCurrentState(beacon.roomId)).map((beacon) => beacon.identifier),
+        );
+        const nowCurrent = [...wasAwaitingState].some(
+            (beaconId) => !this.awaitingState.has(beaconId) && this.liveBeaconIds.includes(beaconId),
+        );
 
         const diff = arrayDiff(prevLiveBeaconIds, this.liveBeaconIds);
 
@@ -405,7 +429,7 @@ export class OwnBeaconStore extends AsyncStoreWithClient<OwnBeaconStoreState> {
         // when there is no existing live monitor
         // it will be created below by togglePollingLocation
         // and publish first position quickly
-        if (diff.added.length && this.isMonitoringLiveLocation) {
+        if ((diff.added.length || nowCurrent) && this.isMonitoringLiveLocation) {
             void this.publishCurrentLocationToBeacons();
         }
 
@@ -414,6 +438,29 @@ export class OwnBeaconStore extends AsyncStoreWithClient<OwnBeaconStoreState> {
             this.togglePollingLocation();
         }
     };
+
+    /**
+     * Whether a room's state is current enough to share to. Under sliding sync, a room restored from what this device
+     * saved may be out of date until the server sends it again, such as when a share was stopped on another device
+     * meanwhile.
+     */
+    private hasCurrentState(roomId: Room["roomId"]): boolean {
+        const slidingSync = SlidingSyncManager.instance;
+        return !slidingSync.isActiveFor(this.matrixClient) || slidingSync.hasLiveData(roomId);
+    }
+
+    /** Keep exactly these rooms subscribed under sliding sync, letting go of any others held before. */
+    private holdRooms(roomIds: Room["roomId"][]): void {
+        const wanted = new Set(roomIds);
+        for (const [roomId, release] of this.roomHolds) {
+            if (wanted.has(roomId)) continue;
+            release();
+            this.roomHolds.delete(roomId);
+        }
+        for (const roomId of wanted) {
+            if (!this.roomHolds.has(roomId)) this.roomHolds.set(roomId, SlidingSyncManager.instance.holdRoom(roomId));
+        }
+    }
 
     public createLiveBeacon = async (
         roomId: Room["roomId"],

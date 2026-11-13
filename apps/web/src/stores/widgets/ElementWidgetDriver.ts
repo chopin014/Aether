@@ -38,7 +38,7 @@ import {
     EventType,
     type IContent,
     MatrixError,
-    Direction,
+    type Direction,
     THREAD_RELATION_TYPE,
     type SendDelayedEventResponse,
     type StateEvents,
@@ -67,6 +67,7 @@ import { toWidgetDescriptor } from "../../modules/WidgetLifecycleApi";
 import SettingsStore from "../../settings/SettingsStore";
 import { mediaFromMxc } from "../../customisations/Media";
 import SdkConfig from "../../SdkConfig.ts";
+import { SlidingSyncManager } from "../../SlidingSyncManager";
 
 function getRememberedCapabilitiesForWidget(widget: Widget): Capability[] {
     return JSON.parse(localStorage.getItem(`widget_${widget.id}_approved_caps`) || "[]");
@@ -92,6 +93,8 @@ const normalizeTurnServer = ({ urls, username, credential }: IClientTurnServer):
 // Replace with matrix-rust-sdk?
 export class ElementWidgetDriver extends WidgetDriver {
     private allowedCapabilities: Set<Capability>;
+    // Every capability the widget has been approved, as the widget API keeps them: renegotiation adds to them.
+    private readonly approvedCapabilities = new Set<Capability>();
 
     // TODO: Refactor widgetKind into the Widget class
     public constructor(
@@ -297,7 +300,13 @@ export class ElementWidgetDriver extends WidgetDriver {
             setRememberedCapabilitiesForWidget(this.forWidget, Array.from(allAllowed));
         }
 
+        for (const capability of allAllowed) this.approvedCapabilities.add(capability);
         return allAllowed;
+    }
+
+    /** The capabilities the widget has been approved so far, such as the state it may receive. */
+    public getApprovedCapabilities(): ReadonlySet<Capability> {
+        return this.approvedCapabilities;
     }
 
     private getSendEventTarget(roomId: string | null = null): { client: MatrixClient; roomId: string } {
@@ -648,15 +657,13 @@ export class ElementWidgetDriver extends WidgetDriver {
      * current values of the room state entries.
      */
     public async readRoomState(roomId: string, eventType: string, stateKey: string | undefined): Promise<IRoomEvent[]> {
-        const room = MatrixClientPeg.safeGet().getRoom(roomId);
-        if (room === null) return [];
-        const state = room.getLiveTimeline().getState(Direction.Forward);
-        if (state === undefined) return [];
-
-        if (stateKey === undefined)
-            return state.getStateEvents(eventType).map((e) => e.getEffectiveEvent() as IRoomEvent);
-        const event = state.getStateEvents(eventType, stateKey);
-        return event === null ? [] : [event.getEffectiveEvent() as IRoomEvent];
+        // Under sliding sync a room has only the state its subscriptions name, such as none of a widget's own, so the
+        // server is asked for it first. Under regular sync this reads the room's current state as it is.
+        const events = await SlidingSyncManager.instance.readRoomState(MatrixClientPeg.safeGet(), roomId, {
+            type: eventType,
+            stateKey,
+        });
+        return events.map((event) => event.getEffectiveEvent() as IRoomEvent);
     }
 
     public async askOpenID(observer: SimpleObservable<IOpenIDUpdate>): Promise<void> {

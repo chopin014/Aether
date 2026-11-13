@@ -10,9 +10,17 @@ Please see LICENSE files in the repository root for full details.
 
 import React from "react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "test-utils-rtl";
+import { act, fireEvent, render, screen, waitFor, within } from "test-utils-rtl";
 import { clearAllModals, flushPromises, stubClient } from "test-utils";
-import { EventType, GuestAccess, HistoryVisibility, JoinRule, MatrixEvent, Room } from "matrix-js-sdk/src/matrix";
+import {
+    EventType,
+    GuestAccess,
+    HistoryVisibility,
+    JoinRule,
+    MatrixEvent,
+    Room,
+    RoomStateEvent,
+} from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
 import { type RoomPowerLevelsEventContent } from "matrix-js-sdk/src/types";
 
@@ -637,6 +645,44 @@ describe("<SecurityRoomSettingsTab />", () => {
             await renderPublicRoom();
 
             expect(screen.queryByText(warning)).not.toBeInTheDocument();
+        });
+    });
+
+    describe("state that arrives after the settings open", () => {
+        // Under sliding sync, a room nobody has opened gets these once its settings hold it.
+        function arrive(room: Room, type: EventType, content: object): void {
+            const event = new MatrixEvent({ type, content, sender: userId, state_key: "", room_id: room.roomId });
+            act(() => {
+                room.currentState.setStateEvents([event]);
+                client.emit(RoomStateEvent.Events, event, room.currentState, null);
+            });
+        }
+
+        it("shows the room's history visibility and guest access", () => {
+            const room = new Room(roomId, client, userId);
+            setRoomStateEvents(room, JoinRule.Public);
+            getComponent(room);
+            fireEvent.click(screen.getByText("Show advanced"));
+            expect(screen.getByDisplayValue(HistoryVisibility.Shared)).toBeChecked();
+            expect(screen.getByLabelText("Enable guest access")).not.toBeChecked();
+
+            arrive(room, EventType.RoomHistoryVisibility, { history_visibility: HistoryVisibility.WorldReadable });
+            arrive(room, EventType.RoomGuestAccess, { guest_access: GuestAccess.CanJoin });
+
+            expect(screen.getByDisplayValue(HistoryVisibility.WorldReadable)).toBeChecked();
+            expect(screen.getByLabelText("Enable guest access")).toBeChecked();
+            expect(client.sendStateEvent).not.toHaveBeenCalled();
+        });
+
+        it("ignores another room's state", () => {
+            const room = new Room(roomId, client, userId);
+            setRoomStateEvents(room, JoinRule.Public);
+            getComponent(room);
+            const other = new Room("!other:server.org", client, userId);
+
+            arrive(other, EventType.RoomHistoryVisibility, { history_visibility: HistoryVisibility.WorldReadable });
+
+            expect(screen.getByDisplayValue(HistoryVisibility.Shared)).toBeChecked();
         });
     });
 });

@@ -25,6 +25,11 @@ import SdkConfig from "../../SdkConfig";
 import defaultDispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 
+/** Wait for queued refreshes, which run once the current batch of changes is done. */
+function nextTask(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe("DesktopContactsViewModel", () => {
     let client: MatrixClient;
     let vm: DesktopContactsViewModel;
@@ -60,7 +65,7 @@ describe("DesktopContactsViewModel", () => {
     it("updates presence live, filters by name or Matrix ID and preserves offline contacts in All", async () => {
         user.presence = "offline";
         client.emit(UserEvent.Presence, undefined, user);
-        await Promise.resolve();
+        await nextTask();
         expect(vm.getSnapshot().contacts).toEqual([]);
         vm.setTab("all");
         expect(vm.getSnapshot().contacts).toHaveLength(1);
@@ -73,21 +78,21 @@ describe("DesktopContactsViewModel", () => {
         delete user.events.presence;
         user.presence = "offline";
         client.emit(UserEvent.LastPresenceTs, undefined, user);
-        await Promise.resolve();
+        await nextTask();
         expect(vm.getSnapshot().onlineContacts).toEqual([]);
         expect(vm.getSnapshot().contacts).toEqual([]);
         vm.setTab("all");
         expect(vm.getSnapshot().contacts[0].presence).toBe("offline");
         user.setPresenceEvent(new MatrixEvent({ type: "m.presence", content: { presence: "offline" } }));
         client.emit(UserEvent.LastPresenceTs, user.events.presence!, user);
-        await Promise.resolve();
+        await nextTask();
         expect(vm.getSnapshot().contacts[0].presence).toBe("offline");
     });
 
     it("should show offline when presence is explicitly disabled", async () => {
         SdkConfig.put({ enable_presence_by_hs_url: { [client.baseUrl]: false } });
         client.emit(UserEvent.LastPresenceTs, user.events.presence!, user);
-        await Promise.resolve();
+        await nextTask();
         expect(vm.getSnapshot().onlineContacts).toEqual([]);
         vm.setTab("all");
         expect(vm.getSnapshot().contacts[0].presence).toBe("offline");
@@ -105,7 +110,7 @@ describe("DesktopContactsViewModel", () => {
     it("uses the existing invitation APIs and navigates after successful join", async () => {
         vi.mocked(room.getMyMembership).mockReturnValue("invite");
         client.emit(UserEvent.Presence, undefined, user);
-        await Promise.resolve();
+        await nextTask();
         vm.setTab("pending");
         expect(vm.getSnapshot().pendingCount).toBe(1);
         vi.mocked(client.joinRoom).mockResolvedValue(room);
@@ -124,7 +129,7 @@ describe("DesktopContactsViewModel", () => {
     it("preserves failed invitations and allows retry after network errors", async () => {
         vi.mocked(room.getMyMembership).mockReturnValue("invite");
         client.emit(UserEvent.Presence, undefined, user);
-        await Promise.resolve();
+        await nextTask();
         vm.setTab("pending");
         vi.mocked(client.joinRoom).mockRejectedValue(new Error("Offline"));
         await vm.acceptInvitation(room.roomId);
@@ -143,7 +148,7 @@ describe("DesktopContactsViewModel", () => {
             return {};
         });
         client.emit(UserEvent.Presence, undefined, user);
-        await Promise.resolve();
+        await nextTask();
         expect(vm.getSnapshot().contacts).toEqual([]);
         vm.setTab("blocked");
         expect(vm.getSnapshot().contacts).toHaveLength(2);
@@ -160,9 +165,22 @@ describe("DesktopContactsViewModel", () => {
         user.displayName = "Updated Bob";
         client.emit(UserEvent.DisplayName, new MatrixEvent({ type: "m.presence" }), user);
         expect(getRooms).not.toHaveBeenCalled();
-        await Promise.resolve();
+        await nextTask();
         expect(getRooms).toHaveBeenCalledTimes(1);
         expect(vm.getSnapshot().contacts[0].name).toBe("Updated Bob");
+    });
+
+    it("coalesces changes spread over the rooms sync applies into one refresh", async () => {
+        const getRooms = vi.mocked(client.getRooms);
+        getRooms.mockClear();
+        // Sync lets promises settle between the rooms it applies.
+        for (let i = 0; i < 5; i++) {
+            client.emit(UserEvent.Presence, undefined, user);
+            await Promise.resolve();
+        }
+        expect(getRooms).not.toHaveBeenCalled();
+        await nextTask();
+        expect(getRooms).toHaveBeenCalledTimes(1);
     });
 
     it("discards a queued refresh when disposed", async () => {
@@ -170,7 +188,7 @@ describe("DesktopContactsViewModel", () => {
         getRooms.mockClear();
         client.emit(UserEvent.Presence, undefined, user);
         vm.dispose();
-        await Promise.resolve();
+        await nextTask();
         expect(getRooms).not.toHaveBeenCalled();
     });
 

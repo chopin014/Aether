@@ -9,11 +9,12 @@ Please see LICENSE in the repository root for full details.
 
 import "fake-indexeddb/auto";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { EventType, MatrixEvent } from "matrix-js-sdk/src/matrix";
 import { type MSC3575RoomData } from "matrix-js-sdk/src/sliding-sync";
 
 import { SlidingSyncCache } from "./SlidingSyncCache";
+import { type SavedEvent, type SavedLedger } from "./notification-counts/RoomCountLedger";
 
 const userId = "@alice:example.org";
 const deviceId = "DEVICE";
@@ -193,6 +194,111 @@ describe("SlidingSyncCache", () => {
         expect(snapshot.rooms["!r0:example.org"].prev_batch).toBeUndefined();
     });
 
+    it("saves each room's notification count ledger with it, and not the room while its counts are pending", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        const ledger: SavedLedger = {
+            version: 1,
+            segments: [[["$a", 8 | 16 | 64]]],
+            receipts: { main: { public: { best: "$z" } } },
+            receiptsComplete: true,
+        };
+        let saved: SavedLedger | "pending" = ledger;
+        cache.setCountsSource((id) => (id === roomId ? saved : undefined));
+        cache.observeRoomData(roomId, data({ initial: true, timeline: [message("$a")] }));
+        cache.observeCounts(roomId);
+        await cache.flush();
+
+        // New events arrive while their counts are worked out: the room's record stays as it was.
+        saved = "pending";
+        cache.observeRoomData(roomId, data({ timeline: [message("$b")] }));
+        await cache.flush();
+        let next = await reopen(cache);
+        let snapshot = (await next.load())!;
+        expect(snapshot.rooms[roomId].timeline.map((event) => event.event_id)).toEqual(["$a"]);
+        expect(next.restoredCounts).toEqual(new Map([[roomId, ledger]]));
+
+        // Once they are worked out, both are written.
+        const later: SavedLedger = {
+            ...ledger,
+            segments: [
+                [
+                    ["$a", 8],
+                    ["$b", 8 | 16 | 64],
+                ],
+            ],
+        };
+        saved = later;
+        next.setCountsSource(() => later);
+        next.observeRoomData(roomId, data({ timeline: [message("$b")] }));
+        next = await reopen(next);
+        snapshot = (await next.load())!;
+        expect(snapshot.rooms[roomId].timeline.map((event) => event.event_id)).toEqual(["$a", "$b"]);
+        expect(next.restoredCounts).toEqual(new Map([[roomId, later]]));
+        // A room the cache does not keep has no ledger saved either.
+        next.observeCounts("!unknown:example.org");
+        await next.dispose();
+    });
+
+    it("keeps a room's last record when its counts will never be finished, without trying again", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        let saved: SavedLedger | "unfinished" | undefined = undefined;
+        const source = vi.fn((): SavedLedger | "unfinished" | undefined => saved);
+        cache.setCountsSource(source);
+        cache.observeRoomData(roomId, data({ initial: true, timeline: [message("$a")] }));
+        await cache.flush();
+
+        // Sync stopped half way through a response that changed the room.
+        saved = "unfinished";
+        cache.observeRoomData(roomId, data({ timeline: [message("$b")] }));
+        await cache.flush();
+        const asked = source.mock.calls.length;
+        await cache.flush();
+        expect(source.mock.calls.length).toBe(asked);
+
+        const next = await reopen(cache);
+        expect((await next.load())!.rooms[roomId].timeline.map((event) => event.event_id)).toEqual(["$a"]);
+        await next.dispose();
+    });
+
+    it("writes a room a sync response changed only once the whole response is applied", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        cache.observeRoomData(roomId, data({ initial: true, timeline: [message("$a")] }));
+        await cache.flush();
+
+        cache.beginResponse();
+        cache.observeRoomData(roomId, data({ timeline: [message("$b")] }));
+        // Not even when the page closes half way: the room keeps its last whole record.
+        cache.flushNow();
+        await cache.flush();
+        const reader = new SlidingSyncCache(userId, deviceId);
+        expect((await reader.load())!.rooms[roomId].timeline.map((event) => event.event_id)).toEqual(["$a"]);
+        await reader.dispose();
+
+        cache.endResponse();
+        const next = await reopen(cache);
+        expect((await next.load())!.rooms[roomId].timeline.map((event) => event.event_id)).toEqual(["$a", "$b"]);
+        await next.dispose();
+    });
+
+    it("keeps only the newest events of a quiet room's notification count ledger", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        const events = Array.from({ length: 50 }, (_, i): SavedEvent => [`$e${i}`, 0]);
+        cache.setCountsSource(() => ({ version: 1, segments: [events], receipts: {}, receiptsComplete: true }));
+        for (let i = 0; i < 302; i++) {
+            const id = `!r${i}:example.org`;
+            cache.observeRoomData(id, data({ bump_stamp: i, timeline: [message(`$${i}a`)] }));
+            cache.observeCounts(id);
+        }
+        const next = await reopen(cache);
+        await next.load();
+
+        expect(next.restoredCounts.get("!r301:example.org")?.segments[0]).toHaveLength(50);
+        expect(next.restoredCounts.get("!r0:example.org")?.segments[0].map(([id]) => id)).toEqual(
+            events.slice(-30).map(([id]) => id),
+        );
+        await next.dispose();
+    });
+
     it("forgets rooms on request, and keeps sessions apart", async () => {
         const cache = new SlidingSyncCache(userId, deviceId);
         cache.observeRoomData(roomId, data({ timeline: [message("$a")] }));
@@ -204,6 +310,52 @@ describe("SlidingSyncCache", () => {
         const otherSession = new SlidingSyncCache(userId, "OTHER");
         await expect(otherSession.load()).resolves.toBeNull();
         await otherSession.dispose();
+    });
+
+    it("drops a forgotten room from the snapshot it handed out, so a room restored later is not shown", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        cache.observeRoomData(roomId, data({ timeline: [message("$a")] }));
+        cache.observeRoomData("!other:example.org", data({ timeline: [message("$b")] }));
+        const reopened = await reopen(cache);
+        const snapshot = (await reopened.load())!;
+        reopened.forgetRooms([roomId]);
+        expect(Object.keys(snapshot.rooms)).toEqual(["!other:example.org"]);
+        await reopened.dispose();
+    });
+
+    it("starts writing in the calling task when the page closes, so the write is not lost", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        // The database is open once anything has been read or written.
+        await cache.load();
+        cache.observeRoomData(roomId, data({ timeline: [message("$a")] }));
+        const transaction = vi.spyOn(IDBDatabase.prototype, "transaction");
+        cache.flushNow();
+        // Created before any other task or microtask could run.
+        expect(transaction).toHaveBeenCalledWith(["rooms", "meta"], "readwrite");
+        transaction.mockRestore();
+        const snapshot = (await (await reopen(cache)).load())!;
+        expect(snapshot.rooms[roomId].timeline.map((event) => event.event_id)).toEqual(["$a"]);
+    });
+
+    it("still writes when the page closes before the database has opened", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        cache.observeRoomData(roomId, data({ timeline: [message("$a")] }));
+        cache.flushNow();
+        const snapshot = (await (await reopen(cache)).load())!;
+        expect(Object.keys(snapshot.rooms)).toEqual([roomId]);
+    });
+
+    it("keeps the newest data when a closing write follows one already under way", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        await cache.load();
+        cache.observeRoomData(roomId, data({ name: "First", timeline: [message("$a")] }));
+        const earlier = cache.flush();
+        cache.observeRoomData(roomId, data({ name: "Second", timeline: [message("$b")] }));
+        cache.flushNow();
+        await earlier;
+        const snapshot = (await (await reopen(cache)).load())!;
+        expect(snapshot.rooms[roomId].name).toBe("Second");
+        expect(snapshot.rooms[roomId].timeline.map((event) => event.event_id)).toEqual(["$a", "$b"]);
     });
 
     it("writes nothing more once its saved data has been deleted, such as at logout", async () => {
@@ -235,6 +387,41 @@ describe("SlidingSyncCache", () => {
         const next = new SlidingSyncCache(userId, deviceId);
         await expect(next.load()).resolves.toBeNull();
         await next.dispose();
+    });
+
+    it("shows nothing a deletion under way removes to a cache opened meanwhile, which then keeps working", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        cache.observeRoomData(roomId, data({ timeline: [message("$a")] }));
+        await cache.flush();
+        // A write is under way when the deletion starts, and the next session's cache reads during it.
+        cache.observeRoomData(roomId, data({ timeline: [message("$b")] }));
+        const writing = cache.flush();
+        const deletion = SlidingSyncCache.deleteAll();
+        const next = new SlidingSyncCache(userId, deviceId);
+        const loaded = next.load();
+        await Promise.all([writing, deletion]);
+        await expect(loaded).resolves.toBeNull();
+        expect(next.isClosed).toBe(false);
+        next.observeRoomData("!next:example.org", data({ timeline: [message("$c")] }));
+        await next.flush();
+        await next.dispose();
+        const after = new SlidingSyncCache(userId, deviceId);
+        expect(Object.keys((await after.load())?.rooms ?? {})).toEqual(["!next:example.org"]);
+        await after.dispose();
+    });
+
+    it("finishes deletions that overlap, while a cache waits for them to open", async () => {
+        const cache = new SlidingSyncCache(userId, deviceId);
+        cache.observeRoomData(roomId, data({ timeline: [message("$a")] }));
+        await cache.flush();
+        const first = SlidingSyncCache.deleteAll();
+        const waiting = new SlidingSyncCache(userId, deviceId);
+        const loaded = waiting.load();
+        // The second deletion stops the waiting cache, which must not wait for the deletion in turn.
+        const second = SlidingSyncCache.deleteAll();
+        await Promise.all([first, second]);
+        await expect(loaded).resolves.toBeNull();
+        expect(waiting.isClosed).toBe(true);
     });
 
     it("deletes every session's saved data", async () => {
