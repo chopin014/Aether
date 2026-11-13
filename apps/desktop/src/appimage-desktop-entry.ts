@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import { access, constants, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { access, constants, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 /** Key marking desktop entries that Aether wrote for itself and may rewrite. */
@@ -49,9 +49,17 @@ async function readIfExists(file: string): Promise<Buffer | undefined> {
     }
 }
 
+function isManagedEntry(entry: string): boolean {
+    return entry.split("\n").some((line) => line.startsWith(`${MANAGED_KEY}=`));
+}
+
+function getIconPath(dataHome: string, appId: string): string {
+    return path.join(dataHome, "icons/hicolor/512x512/apps", `${appId}.png`);
+}
+
 /** A launcher from the install script or the user, whose program still exists, is left alone. */
 async function isWorkingForeignEntry(entry: string): Promise<boolean> {
-    if (entry.split("\n").some((line) => line.startsWith(`${MANAGED_KEY}=`))) return false;
+    if (isManagedEntry(entry)) return false;
     const tryExec = /^TryExec=(.+)$/m.exec(entry)?.[1];
     if (!tryExec || !path.isAbsolute(tryExec)) return false;
     try {
@@ -85,7 +93,7 @@ export async function registerAppImageDesktopEntry(options: AppImageDesktopEntry
 
     const appId = options.desktopName.replace(/\.desktop$/, "");
     // The mounted AppImage disappears when the app quits, so the icon must be copied out of it.
-    const iconPath = path.join(options.dataHome, "icons/hicolor/512x512/apps", `${appId}.png`);
+    const iconPath = getIconPath(options.dataHome, appId);
     await writeIfChanged(iconPath, await readFile(options.iconSource));
 
     const entry = [
@@ -106,5 +114,22 @@ export async function registerAppImageDesktopEntry(options: AppImageDesktopEntry
         "",
     ].join("\n");
     await writeIfChanged(entryPath, Buffer.from(entry));
+    return true;
+}
+
+/**
+ * Removes the launcher and icon an AppImage wrote for itself. An installed package such as the .deb has its own
+ * system launcher, and the user's copy would take its place and open the AppImage instead.
+ * @param dataHome The user's data directory, `$XDG_DATA_HOME` or `~/.local/share`.
+ * @param desktopName Desktop entry file name, such as `aether.desktop`.
+ * @returns whether an AppImage launcher was removed.
+ */
+export async function removeAppImageDesktopEntry(dataHome: string, desktopName: string): Promise<boolean> {
+    const entryPath = path.join(dataHome, "applications", desktopName);
+    const existing = await readIfExists(entryPath);
+    if (!existing || !isManagedEntry(existing.toString("utf8"))) return false;
+
+    await rm(entryPath, { force: true });
+    await rm(getIconPath(dataHome, desktopName.replace(/\.desktop$/, "")), { force: true });
     return true;
 }

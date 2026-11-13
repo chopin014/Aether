@@ -10,7 +10,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/pr
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { getXdgDataHome, registerAppImageDesktopEntry } from "./appimage-desktop-entry.js";
+import { getXdgDataHome, registerAppImageDesktopEntry, removeAppImageDesktopEntry } from "./appimage-desktop-entry.js";
 
 describe("registerAppImageDesktopEntry", () => {
     let root: string;
@@ -107,6 +107,47 @@ describe("registerAppImageDesktopEntry", () => {
         expect(await readFile(entryPath(), "utf8")).toContain(
             'Exec="/home/user/My \\\\"Apps\\\\"/100%% Aether.AppImage" %U\n',
         );
+    });
+});
+
+describe("removeAppImageDesktopEntry", () => {
+    let dataHome: string;
+    const entryPath = (): string => path.join(dataHome, "applications/aether.desktop");
+    const iconPath = (): string => path.join(dataHome, "icons/hicolor/512x512/apps/aether.png");
+
+    beforeEach(async () => {
+        dataHome = await mkdtemp(path.join(tmpdir(), "aether-appimage-remove-"));
+    });
+
+    afterEach(async () => {
+        await rm(dataHome, { recursive: true, force: true });
+    });
+
+    it("removes the launcher and icon an AppImage wrote", async () => {
+        const iconSource = path.join(dataHome, "source.png");
+        await writeFile(iconSource, "png bytes");
+        await registerAppImageDesktopEntry({
+            appImagePath: "/home/user/Aether.AppImage",
+            iconSource,
+            dataHome,
+            desktopName: "aether.desktop",
+            protocol: "aether",
+        });
+
+        await expect(removeAppImageDesktopEntry(dataHome, "aether.desktop")).resolves.toBe(true);
+
+        await expect(stat(entryPath())).rejects.toThrow();
+        await expect(stat(iconPath())).rejects.toThrow();
+    });
+
+    it("leaves launchers it did not write", async () => {
+        await mkdir(path.dirname(entryPath()), { recursive: true });
+        await writeFile(entryPath(), '[Desktop Entry]\nExec="/home/user/.local/bin/aether" %U\n');
+
+        await expect(removeAppImageDesktopEntry(dataHome, "aether.desktop")).resolves.toBe(false);
+        await expect(removeAppImageDesktopEntry(path.join(dataHome, "empty"), "aether.desktop")).resolves.toBe(false);
+
+        await expect(stat(entryPath())).resolves.toBeDefined();
     });
 });
 

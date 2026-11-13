@@ -45,7 +45,8 @@ const config = {
     linux: {
         ...base.linux,
         extraResources: [{ from: "native-dist", to: "native/nvenc" }],
-        target: ["AppImage"],
+        // Both formats update in the app: the AppImage replaces itself, the .deb installs through the package manager.
+        target: ["AppImage", "deb"],
         executableName: "aether",
         icon: "aether/icon.png",
         maintainer: "Aether contributors <156453220+chopin014@users.noreply.github.com>",
