@@ -1,5 +1,5 @@
 /*
-Copyright 2026
+Copyright 2026 chopin014
 
 SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
