@@ -1,7 +1,9 @@
 # Installing Aether
 
 Download Aether builds from [GitHub Releases](https://github.com/chopin014/Aether/releases).
-The release targets are Linux x64 AppImage and Windows x64 installer.
+The release targets are a Linux x64 AppImage and `.deb`, and a Windows x64 installer. On Debian and Ubuntu, the
+`.deb` installs Aether system-wide with a menu entry. Install it with `sudo apt install ./Aether-<version>-linux-amd64.deb`.
+The AppImage runs from any folder you can write to; it adds itself to the application menu the first time it starts.
 See the [release guide](aether-releases.md#update-behavior-and-platform-support) for platform limitations,
 first installation, and automatic updates.
 

@@ -100,6 +100,16 @@ describe("DesktopUpdatesView", () => {
         expect(screen.queryByRole("button", { name: "Check for updates" })).not.toBeInTheDocument();
     });
 
+    it("explains that an AppImage in a read-only folder must be moved to update", () => {
+        render(
+            <DesktopUpdatesView
+                vm={makeViewModel({ status: "unsupported", currentVersion: "1.4.2", reason: "location" })}
+            />,
+        );
+
+        expect(screen.getByText(/can't write to the folder it's in/)).toBeInTheDocument();
+    });
+
     it("offers a direct restart when the update is ready", () => {
         const restartToUpdate = vi.fn();
         render(

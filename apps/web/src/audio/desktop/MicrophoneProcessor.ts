@@ -15,6 +15,7 @@ import { DENOISER_SAMPLE_RATE } from "./denoiser/Denoiser";
 import { type DenoiserStatus } from "./denoiser/DenoiserStatus";
 import { PreparedMicrophoneGraph } from "./PreparedMicrophoneGraph";
 import { loadDenoiserModule } from "./denoiser/loadDenoiserModule";
+import { keepRealtimeClock } from "./keepRealtimeClock";
 
 /** What LiveKit gives a track processor when it starts or restarts. */
 interface ProcessorOptions {
@@ -249,6 +250,8 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
             };
             this.source.connect(this.processor);
             this.processor.connect(this.destination);
+            // Nothing in this graph reaches the speakers, which would otherwise let Chromium slow its clock.
+            keepRealtimeClock(context);
             // Electron lets audio start without a gesture, but a context can still begin suspended.
             if (context.state === "suspended") {
                 context.resume().catch((error) => logger.warn("Could not start microphone processing", error));
