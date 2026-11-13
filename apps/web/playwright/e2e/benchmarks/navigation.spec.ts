@@ -26,7 +26,15 @@ import { rejectToastIfExists } from "@element-hq/element-web-playwright-common";
 
 import { expect, test } from "../../element-web-test";
 import type { Credentials } from "../../plugins/homeserver";
-import { add, blockingWithin, type LongTask, longestOverlapping, type Samples, summarise } from "./metrics";
+import {
+    add,
+    blockingWithin,
+    type LongTask,
+    longestOverlapping,
+    type Samples,
+    summarise,
+    withoutProbes,
+} from "./metrics";
 import { installReadableCheck, type ReadableTarget, type ReadableWindow } from "./readableTimeline";
 
 const enabled = Boolean(process.env.AETHER_BENCHMARK);
@@ -235,10 +243,16 @@ async function blockingAfterStart(page: Page): Promise<{ longest: number; blocki
     await page.waitForTimeout(AFTER_START_MS);
     const busy = Math.round(((await taskTime()) - busyBefore) * 1000);
     await cdp.detach();
-    const { shownAt, tasks } = await page.evaluate(() => {
-        const win = window as unknown as LongTaskWindow & { aetherBenchTextAt?: number };
-        return { shownAt: win.aetherBenchTextAt!, tasks: win.aetherBenchLongTasksNow?.() ?? [] };
+    const { shownAt, pageTasks, probes } = await page.evaluate(() => {
+        const win = window as unknown as LongTaskWindow & ReadableWindow & { aetherBenchTextAt?: number };
+        return {
+            shownAt: win.aetherBenchTextAt!,
+            pageTasks: win.aetherBenchLongTasksNow?.() ?? [],
+            probes: win.aetherBenchProbes ?? [],
+        };
     });
+    // The readable check's own work does not count against the page.
+    const tasks = withoutProbes(pageTasks, probes);
     const end = shownAt + AFTER_START_MS;
     return { longest: longestOverlapping(tasks, shownAt, end), blocking: blockingWithin(tasks, shownAt, end), busy };
 }
@@ -313,15 +327,18 @@ async function timeClickToText(page: Page, click: () => Promise<void>, target: R
         );
         // Long tasks are reported once they end, so wait for those still running, or put off, after the message shows.
         await page.waitForTimeout(AFTER_SWITCH_MS);
-        const { clickAt, shownAt, inputDelay, tasks } = await page.evaluate(() => {
+        const { clickAt, shownAt, inputDelay, pageTasks, probes } = await page.evaluate(() => {
             const win = window as unknown as ClickWindow;
             return {
                 clickAt: win.aetherBenchClickAt!,
                 shownAt: win.aetherBenchShownAt!,
                 inputDelay: win.aetherBenchInputDelay ?? 0,
-                tasks: win.aetherBenchLongTasksNow?.() ?? [],
+                pageTasks: win.aetherBenchLongTasksNow?.() ?? [],
+                probes: win.aetherBenchProbes ?? [],
             };
         });
+        // The readable check's own work does not count against the page.
+        const tasks = withoutProbes(pageTasks, probes);
         return {
             ms: Math.round(shownAt - clickAt),
             // A task that began before the click but ran into it held the click up too.

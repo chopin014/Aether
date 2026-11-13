@@ -35,6 +35,19 @@ export interface ReadableWindow {
      * Returns a function that stops watching.
      */
     aetherBenchWatchReadable?: (target: ReadableTarget, onReadable: (at: number) => void) => () => void;
+    /**
+     * When the watching above did its work, and for how long, in milliseconds, so the benchmark can take that time out
+     * of the page's long tasks.
+     */
+    aetherBenchProbes?: ProbeSpan[];
+}
+
+/** A stretch of time the readable check spent working on the page. */
+export interface ProbeSpan {
+    /** When it began, in milliseconds since the page's time origin. */
+    start: number;
+    /** How long it took, in milliseconds. */
+    duration: number;
 }
 
 /**
@@ -313,6 +326,16 @@ export function installReadableCheck(): void {
         else setTimeout(task);
     };
     const watchReadable = (target: ReadableTarget, onReadable: (at: number) => void): (() => void) => {
+        const probes = ((window as unknown as ReadableWindow).aetherBenchProbes ??= []);
+        // Run `work`, noting the time it took as the check's own.
+        const probe = <T>(work: () => T): T => {
+            const start = performance.now();
+            try {
+                return work();
+            } finally {
+                probes.push({ start, duration: performance.now() - start });
+            }
+        };
         let active = true;
         let frame = 0;
         let late: ResizeObserver | undefined;
@@ -340,8 +363,10 @@ export function installReadableCheck(): void {
         // frame painted it. A failed one starts the count of frames again, so it runs at most every other frame.
         const confirm = (): void => {
             if (!active) return;
-            if (changes.takeRecords().length > 0 || scrolledTo(target) !== scrolled) changed = true;
-            const confirmed = !changed && readableNow(target, true);
+            const confirmed = probe(() => {
+                if (changes.takeRecords().length > 0 || scrolledTo(target) !== scrolled) changed = true;
+                return !changed && readableNow(target, true);
+            });
             if (confirmed) {
                 stop();
                 onReadable(frameAt);
@@ -355,16 +380,18 @@ export function installReadableCheck(): void {
             late = new ResizeObserver((_, observer) => {
                 observer.disconnect();
                 if (!active) return;
-                const readable = readableNow(target);
+                const readable = probe(() => readableNow(target));
                 if (!readable || !readableBefore) {
                     nextFrame(readable);
                     return;
                 }
                 // This frame's start is the time to report, so the thorough check, which restyles the whole page,
                 // waits until it is painted and can delay nothing it measures.
-                changes.takeRecords();
-                changed = false;
-                scrolled = scrolledTo(target);
+                probe(() => {
+                    changes.takeRecords();
+                    changed = false;
+                    scrolled = scrolledTo(target);
+                });
                 afterPaint(confirm);
             });
             late.observe(document.documentElement);

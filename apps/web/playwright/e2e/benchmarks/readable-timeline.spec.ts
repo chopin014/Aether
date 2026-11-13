@@ -562,7 +562,7 @@ test.describe("watching for readable text", () => {
         expect(at).toBeLessThan(firstRestyleAt);
     });
 
-    test("restyles for its thorough check only outside the app's frames", async ({
+    test("restyles for its thorough check only outside the app's frames, and notes the time its work takes", async ({
         page,
     }) => {
         await show(page, timeline(row("$before", "an earlier message")));
@@ -602,11 +602,14 @@ test.describe("watching for readable text", () => {
         await addTarget(page);
         await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
 
-        const { restyles, restylesInFrames } = await page.evaluate(() => {
+        const { restyles, restylesInFrames, probes } = await page.evaluate(() => {
             const win = window as unknown as WatchWindow;
-            return { restyles: win.restyles!, restylesInFrames: win.restylesInFrames! };
+            return { restyles: win.restyles!, restylesInFrames: win.restylesInFrames!, probes: win.aetherBenchProbes! };
         });
         expect(restyles).toBeGreaterThan(0);
         expect(restylesInFrames).toBe(0);
+        // A note for every frame checked, and for each thorough check.
+        expect(probes.length).toBeGreaterThan(restyles);
+        for (const probe of probes) expect(probe.duration).toBeGreaterThanOrEqual(0);
     });
 });

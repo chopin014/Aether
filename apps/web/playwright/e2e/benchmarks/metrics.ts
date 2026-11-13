@@ -72,3 +72,21 @@ export function blockingWithin(tasks: readonly LongTask[], from: number, to: num
         0,
     );
 }
+
+/**
+ * `tasks` as they would have run without the benchmark's own work in them: the time each of `probes` spent inside a
+ * task is taken out of it. A task left at 50 ms or less would not have been a long task, so it is left out.
+ */
+export function withoutProbes(tasks: readonly LongTask[], probes: readonly LongTask[]): LongTask[] {
+    return tasks
+        .map((task) => {
+            const end = task.start + task.duration;
+            const probed = probes.reduce(
+                (sum, probe) =>
+                    sum + Math.max(0, Math.min(end, probe.start + probe.duration) - Math.max(task.start, probe.start)),
+                0,
+            );
+            return { start: task.start, duration: task.duration - probed };
+        })
+        .filter((task) => task.duration > 50);
+}

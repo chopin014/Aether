@@ -8,7 +8,16 @@ Please see LICENSE in the repository root for full details.
 // The benchmark's arithmetic, checked on its own: no page or homeserver is needed.
 import { expect, test } from "@playwright/test";
 
-import { add, blockingWithin, longestOverlapping, overlapping, percentile, type Samples, summarise } from "./metrics";
+import {
+    add,
+    blockingWithin,
+    longestOverlapping,
+    overlapping,
+    percentile,
+    type Samples,
+    summarise,
+    withoutProbes,
+} from "./metrics";
 
 test.describe("benchmark metrics", () => {
     test("takes percentiles by nearest rank", () => {
@@ -53,5 +62,28 @@ test.describe("benchmark metrics", () => {
         expect(blockingWithin([{ start: 0, duration: 120 }], 80, 200)).toBe(40);
         // Shorter than 50 ms: no blocking.
         expect(blockingWithin([{ start: 0, duration: 40 }], 0, 100)).toBe(0);
+    });
+
+    test("takes the benchmark's own work out of the tasks it ran in", () => {
+        const tasks = [
+            { start: 0, duration: 100 },
+            { start: 200, duration: 60 },
+            { start: 400, duration: 80 },
+        ];
+        const probes = [
+            // Inside the first task.
+            { start: 10, duration: 5 },
+            // Running past the end of the first task: only its part inside counts.
+            { start: 95, duration: 20 },
+            // Enough of the second that it would not have been a long task.
+            { start: 210, duration: 15 },
+            // Between tasks.
+            { start: 300, duration: 30 },
+        ];
+        expect(withoutProbes(tasks, probes)).toEqual([
+            { start: 0, duration: 90 },
+            { start: 400, duration: 80 },
+        ]);
+        expect(withoutProbes(tasks, [])).toEqual(tasks);
     });
 });
