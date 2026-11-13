@@ -7,6 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import type { DesktopAudioApi, DesktopAudioPacket } from "shared-types";
 
+import { keepRealtimeClock } from "./keepRealtimeClock";
 import SettingsStore from "../../settings/SettingsStore";
 
 /** Decode native interleaved PCM without applying microphone processing to shared audio. */
@@ -88,6 +89,8 @@ export function installDesktopAudioCapture(api: DesktopAudioApi): void {
         try {
             context = new AudioContext({ sampleRate: 48000, latencyHint: "interactive" });
             const destination = context.createMediaStreamDestination();
+            // Playback is scheduled against this context's clock, which must keep real time.
+            keepRealtimeClock(context);
             let nextTime = 0;
             unsubscribe = api.onData((packet) => {
                 if (closed || packet.sessionId !== sessionId) return;
