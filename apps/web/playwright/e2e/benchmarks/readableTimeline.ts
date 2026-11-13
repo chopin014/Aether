@@ -24,10 +24,15 @@ export interface ReadableWindow {
     aetherBenchReadable?: (target: ReadableTarget, thorough?: boolean) => boolean;
     /**
      * Watch for `target` to be painted readable, and call `onReadable` once with when it was: the start of the frame
-     * after the first one painted with it readable, once that frame has been painted with it readable too, both checked
-     * thoroughly. Every check runs in a task of its own just after a frame is painted, so it never lengthens the app's
-     * frames, and counts only if nothing on the page has changed or scrolled since that frame was laid out, so it is
-     * of the page as painted. Returns a function that stops watching.
+     * after the first one painted with it readable, once that frame has been painted with it readable too.
+     *
+     * Each frame is checked as it is about to be painted: after its other callbacks and its layout, in a resize
+     * observer's callback, where the check reads what layout has already worked out. Once two frames in a row are
+     * found readable, the second is checked thoroughly in a task of its own just after its paint. Its start has been
+     * taken as the time to report by then, so that check, whose restyling of the whole page takes tens of
+     * milliseconds, can neither delay it nor lengthen the app's frames. The thorough check counts only if nothing on
+     * the page has changed or scrolled since that frame was laid out; the frame before it is checked only quickly.
+     * Returns a function that stops watching.
      */
     aetherBenchWatchReadable?: (target: ReadableTarget, onReadable: (at: number) => void) => () => void;
 }
@@ -327,18 +332,22 @@ export function installReadableCheck(): void {
             late?.disconnect();
             changes.disconnect();
         };
-        const check = (): void => {
+        const nextFrame = (readable: boolean): void => {
+            readableBefore = readable;
+            frame = requestAnimationFrame(onFrame);
+        };
+        // Just after the paint of the second frame found readable in a row: the thorough check, of the page as that
+        // frame painted it. A failed one starts the count of frames again, so it runs at most every other frame.
+        const confirm = (): void => {
             if (!active) return;
             if (changes.takeRecords().length > 0 || scrolledTo(target) !== scrolled) changed = true;
-            // A check of a page changed since its frame was laid out is not of what that frame painted.
-            const readable = !changed && readableNow(target) && readableNow(target, true);
-            if (readable && readableBefore) {
+            const confirmed = !changed && readableNow(target, true);
+            if (confirmed) {
                 stop();
                 onReadable(frameAt);
                 return;
             }
-            readableBefore = readable;
-            frame = requestAnimationFrame(onFrame);
+            nextFrame(false);
         };
         const onFrame = (): void => {
             frameAt = performance.now();
@@ -346,10 +355,17 @@ export function installReadableCheck(): void {
             late = new ResizeObserver((_, observer) => {
                 observer.disconnect();
                 if (!active) return;
+                const readable = readableNow(target);
+                if (!readable || !readableBefore) {
+                    nextFrame(readable);
+                    return;
+                }
+                // This frame's start is the time to report, so the thorough check, which restyles the whole page,
+                // waits until it is painted and can delay nothing it measures.
                 changes.takeRecords();
                 changed = false;
                 scrolled = scrolledTo(target);
-                afterPaint(check);
+                afterPaint(confirm);
             });
             late.observe(document.documentElement);
         };

@@ -344,8 +344,10 @@ interface WatchWindow extends ReadableWindow {
     nextFrameAt?: number;
     stopWatching?: () => void;
     inFrame?: boolean;
-    checks?: number;
-    checksInFrames?: number;
+    restyles?: number;
+    restylesInFrames?: number;
+    /** When the thorough check first restyled the page. */
+    firstRestyleAt?: number;
     /** Set to stop what a test does on every frame. */
     settled?: boolean;
 }
@@ -390,9 +392,13 @@ async function addTarget(page: Page): Promise<void> {
 /**
  * Take the target out of sight in a callback of every frame, so every frame is painted without it, and put it back
  * just after each frame is painted, until the window is marked settled.
- * @param how - Whether it is hidden, or its timeline scrolled away from it.
+ * @param how - Whether it is hidden by its own style or by a rule of the style sheet `#rules`, its timeline scrolled
+ * away from it, or the element `.cover`, which lets the pointer through, shown over it.
  */
-async function outOfSightWhenPainted(page: Page, how: "hidden" | "scrolled away"): Promise<void> {
+async function outOfSightWhenPainted(
+    page: Page,
+    how: "hidden" | "hidden by a style rule" | "scrolled away" | "covered",
+): Promise<void> {
     await page.evaluate((how) => {
         const win = window as unknown as WatchWindow & {
             scheduler: { postTask: (task: () => void, options: { priority: string }) => Promise<unknown> };
@@ -401,6 +407,10 @@ async function outOfSightWhenPainted(page: Page, how: "hidden" | "scrolled away"
         const scroller = document.querySelector<HTMLElement>(".scroller")!;
         const inSight = (shown: boolean): void => {
             if (how === "hidden") body.style.visibility = shown ? "" : "hidden";
+            else if (how === "hidden by a style rule") {
+                const rule = document.querySelector<HTMLStyleElement>("#rules")!.sheet!.cssRules[0] as CSSStyleRule;
+                rule.style.visibility = shown ? "" : "hidden";
+            } else if (how === "covered") document.querySelector<HTMLElement>(".cover")!.hidden = shown;
             else scroller.scrollTop = shown ? 1000 : 0;
         };
         const onFrame = (): void => {
@@ -434,6 +444,36 @@ test.describe("watching for readable text", () => {
     test("does not report a message hidden whenever a frame is painted, and shown between frames", async ({ page }) => {
         await show(page, timeline(row("$target", "the wanted message")));
         await outOfSightWhenPainted(page, "hidden");
+        await watch(page);
+        await frames(page, 10);
+        expect(await readableAt(page)).toBeUndefined();
+
+        await page.evaluate(() => ((window as unknown as WatchWindow).settled = true));
+        await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+    });
+
+    test("does not report a message hidden by a style rule whenever a frame is painted, and shown between frames", async ({
+        page,
+    }) => {
+        await show(
+            page,
+            `<style id="rules">.mx_EventTile_body {}</style>` + timeline(row("$target", "the wanted message")),
+        );
+        await outOfSightWhenPainted(page, "hidden by a style rule");
+        await watch(page);
+        await frames(page, 10);
+        expect(await readableAt(page)).toBeUndefined();
+
+        await page.evaluate(() => ((window as unknown as WatchWindow).settled = true));
+        await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+    });
+
+    test("does not report a message covered whenever a frame is painted, by a cover the pointer passes through", async ({
+        page,
+    }) => {
+        const cover = `<div class="cover" hidden style="position: absolute; inset: 0; background: white; pointer-events: none"></div>`;
+        await show(page, timeline(row("$target", "the wanted message") + cover));
+        await outOfSightWhenPainted(page, "covered");
         await watch(page);
         await frames(page, 10);
         expect(await readableAt(page)).toBeUndefined();
@@ -494,14 +534,44 @@ test.describe("watching for readable text", () => {
         expect(await readableAt(page)).toBeUndefined();
     });
 
-    test("checks outside the app's frames, so it never lengthens them", async ({ page }) => {
+    test("takes the time to report before its thorough check, so that check's restyling cannot delay it", async ({
+        page,
+    }) => {
         await show(page, timeline(row("$before", "an earlier message")));
-        // Note every check made while a frame's callbacks run: those for animation frames, and for resize observers,
-        // which run after layout.
+        // Make every restyle for the thorough check take 60 ms, noting when the first began.
         await page.evaluate(() => {
             const win = window as unknown as WatchWindow;
-            win.checks = 0;
-            win.checksInFrames = 0;
+            const append = Element.prototype.append;
+            Element.prototype.append = function (this: Element, ...nodes: (Node | string)[]): void {
+                if (nodes.some((node) => node instanceof HTMLStyleElement)) {
+                    win.firstRestyleAt ??= performance.now();
+                    for (const end = performance.now() + 60; performance.now() < end;);
+                }
+                append.apply(this, nodes);
+            };
+        });
+        await watch(page);
+        await frames(page, 3);
+        await addTarget(page);
+        await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+
+        const { at, firstRestyleAt } = await page.evaluate(() => {
+            const win = window as unknown as WatchWindow;
+            return { at: win.readableAt!, firstRestyleAt: win.firstRestyleAt! };
+        });
+        expect(at).toBeLessThan(firstRestyleAt);
+    });
+
+    test("restyles for its thorough check only outside the app's frames", async ({
+        page,
+    }) => {
+        await show(page, timeline(row("$before", "an earlier message")));
+        // Note every stylesheet the check adds while a frame's callbacks run: those for animation frames, and for
+        // resize observers, which run after layout.
+        await page.evaluate(() => {
+            const win = window as unknown as WatchWindow;
+            win.restyles = 0;
+            win.restylesInFrames = 0;
             const inFrame = <T extends unknown[]>(callback: (...args: T) => void, ...args: T): void => {
                 win.inFrame = true;
                 try {
@@ -518,11 +588,13 @@ test.describe("watching for readable text", () => {
                     super((entries, observer) => inFrame(callback, entries, observer));
                 }
             };
-            const rects = Range.prototype.getClientRects;
-            Range.prototype.getClientRects = function (this: Range): DOMRectList {
-                win.checks = (win.checks ?? 0) + 1;
-                if (win.inFrame) win.checksInFrames = (win.checksInFrames ?? 0) + 1;
-                return rects.call(this);
+            const append = Element.prototype.append;
+            Element.prototype.append = function (this: Element, ...nodes: (Node | string)[]): void {
+                if (nodes.some((node) => node instanceof HTMLStyleElement)) {
+                    win.restyles = (win.restyles ?? 0) + 1;
+                    if (win.inFrame) win.restylesInFrames = (win.restylesInFrames ?? 0) + 1;
+                }
+                append.apply(this, nodes);
             };
         });
         await watch(page);
@@ -530,11 +602,11 @@ test.describe("watching for readable text", () => {
         await addTarget(page);
         await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
 
-        const { checks, checksInFrames } = await page.evaluate(() => {
+        const { restyles, restylesInFrames } = await page.evaluate(() => {
             const win = window as unknown as WatchWindow;
-            return { checks: win.checks!, checksInFrames: win.checksInFrames! };
+            return { restyles: win.restyles!, restylesInFrames: win.restylesInFrames! };
         });
-        expect(checks).toBeGreaterThan(0);
-        expect(checksInFrames).toBe(0);
+        expect(restyles).toBeGreaterThan(0);
+        expect(restylesInFrames).toBe(0);
     });
 });
