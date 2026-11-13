@@ -88,6 +88,12 @@ export function EventTileView({
         [styles.lineImage]: lineState?.image,
     });
 
+    // A room message in the desktop channel style, drawn by the desktop branch below. The root says so in a class,
+    // so the stylesheet need not ask with `:has()`: a `:has()` rule makes the browser restyle the whole page whenever
+    // any part of the timeline is added or removed.
+    const desktopMessage =
+        messageStyle === "desktop" && layout === "group" && root.shape === "Room" && !root.state.info;
+
     // The chosen gap between message groups, read by the desktop message geometry in the stylesheet.
     const rootStyle =
         messageStyle === "desktop" && groupSpacing !== undefined
@@ -126,6 +132,7 @@ export function EventTileView({
                 [styles.layoutGroup]: layout === "group",
                 [styles.layoutBubble]: layout === "bubble",
                 [styles.layoutIrc]: layout === "irc",
+                [styles.desktopMessageRoot]: desktopMessage,
                 [styles.shapeThread]: root.shape === "Thread",
                 [styles.shapeThreadsList]: root.shape === "ThreadsList",
                 [styles.shapeCard]: root.shape === "Card",
@@ -243,7 +250,7 @@ export function EventTileView({
         );
     }
 
-    if (messageStyle === "desktop" && layout === "group" && root.shape === "Room" && !root.state.info) {
+    if (desktopMessage) {
         return renderRoot(
             <div className={styles.desktopMessage}>
                 {renderSlot("avatar")}

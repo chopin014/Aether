@@ -6,31 +6,59 @@ Please see LICENSE in the repository root for full details.
 */
 
 import React, { type JSX, type SVGProps } from "react";
+import classNames from "classnames";
 
-/** A solid party popper drawn like Compound's solid icons, so it sits evenly beside the call controls. */
-export function SoundboardIcon(props: SVGProps<SVGSVGElement>): JSX.Element {
+import liveStyles from "../LiveIcons/LiveIcons.module.css";
+
+/**
+ * A solid party popper drawn like Compound's solid icons, so it sits evenly beside the call controls. Hovering its
+ * button makes the popper kick, its spark spin and its streamers and confetti burst out again.
+ */
+export function SoundboardIcon({ className, ...props }: SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" {...props}>
-            {/* The stroke rounds the cone's corners to match Compound's soft joins. */}
+        <svg
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            className={classNames(liveStyles.live, className)}
+            {...props}
+        >
+            <g className={liveStyles.popperCone}>
+                {/* The stroke rounds the cone's corners to match Compound's soft joins. */}
+                <path
+                    d="M4.4 9.4 14.6 19.6 11.3 20.1 3.9 12.7ZM3.5 15.1 8.9 20.5 2.4 21.6Z"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinejoin="round"
+                />
+            </g>
             <path
-                d="M4.4 9.4 14.6 19.6 11.3 20.1 3.9 12.7ZM3.5 15.1 8.9 20.5 2.4 21.6Z"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinejoin="round"
-            />
-            <path
+                className={liveStyles.popperStar}
                 d="M19.2 2.4c.3 1.4.9 2.1 2.4 2.4-1.5.3-2.1 1-2.4 2.4-.3-1.4-.9-2.1-2.4-2.4 1.5-.3 2.1-1 2.4-2.4Z"
                 stroke="currentColor"
                 strokeWidth="1.2"
                 strokeLinejoin="round"
             />
-            <path
-                d="M10.2 7.8c-.8-1.4.1-2.3 1-2.8.9-.5 1.3-1.5.7-2.5M16.2 13.8c1.4.8 2.3-.1 2.8-1 .5-.9 1.5-1.3 2.5-.7M13.3 10.7l2.5-2.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-            />
+            <g fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                <path
+                    className={liveStyles.popperStreamer}
+                    pathLength={1}
+                    d="M10.2 7.8c-.8-1.4.1-2.3 1-2.8.9-.5 1.3-1.5.7-2.5"
+                />
+                <path
+                    className={liveStyles.popperStreamer}
+                    pathLength={1}
+                    d="M16.2 13.8c1.4.8 2.3-.1 2.8-1 .5-.9 1.5-1.3 2.5-.7"
+                />
+                <path className={liveStyles.popperStreamer} pathLength={1} d="M13.3 10.7l2.5-2.5" />
+            </g>
+            {/* Hidden until the popper is hovered, when they fly out of its mouth. */}
+            <g>
+                <circle className={liveStyles.popperConfetti} cx="10" cy="14" r="1" />
+                <circle className={liveStyles.popperConfetti} cx="10.5" cy="13.5" r="1" />
+                <circle className={liveStyles.popperConfetti} cx="11" cy="13" r="1" />
+            </g>
         </svg>
     );
 }

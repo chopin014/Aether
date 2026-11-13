@@ -110,7 +110,7 @@ Please see LICENSE files in the repository root for full details.
 /* Restore the gap between the timeline and the right panel only when the panel is open.
    Without this, the scrollbar on mx_RoomView_messagePanel would sit 4 px away from the
    viewport edge in Firefox (which does not support overflow:overlay). */
-.mx_MainSplit:has(.mx_RightPanel_ResizeWrapper) .mx_RoomView_timeline {
+.mx_MainSplit_withPanel .mx_RoomView_timeline {
     margin-right: calc(var(--container-gap-width) / 2);
 }
 

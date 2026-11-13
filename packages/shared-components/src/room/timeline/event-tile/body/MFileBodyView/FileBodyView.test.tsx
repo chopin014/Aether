@@ -15,6 +15,7 @@ import { MockViewModel } from "../../../../../core/viewmodel/MockViewModel";
 import { I18nApi } from "../../../../../index";
 import { I18nContext } from "../../../../../core/i18n/i18nContext";
 import * as stories from "./FileBodyView.stories";
+import styles from "./FileBodyView.module.css";
 
 const renderWithI18n = (ui: React.ReactElement): ReturnType<typeof render> =>
     render(ui, {
@@ -320,6 +321,17 @@ describe("FileBodyView", () => {
             expect(infoRow).toContainElement(screen.getByRole("button", { name: "Open PDF" }));
             expect(infoRow).toContainElement(screen.getByRole("button", { name: "Download" }));
             expect(infoRow).toContainElement(screen.getByRole("button", { name: "spec.pdf" }));
+        });
+
+        it("lets the file name share its pill with the actions, only when they are there", () => {
+            const vm = new TestViewModel(openableSnapshot);
+            const { rerender } = renderWithI18n(<FileBodyView vm={vm} />);
+            const name = screen.getByRole("button", { name: "spec.pdf" });
+            expect(name).toHaveClass(styles.nameBesideActions);
+            expect(getComputedStyle(name).flexGrow).toBe("1");
+
+            rerender(<FileBodyView vm={new TestViewModel({ ...defaultSnapshot, infoLabel: "spec.pdf" })} />);
+            expect(screen.getByRole("button", { name: "spec.pdf" })).not.toHaveClass(styles.nameBesideActions);
         });
 
         it("invokes onOpenClick from the open icon", () => {

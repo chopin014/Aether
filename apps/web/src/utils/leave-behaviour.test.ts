@@ -81,6 +81,30 @@ describe("leaveRoomBehaviour", () => {
         defaultDispatcher.unregister(dispatcherRef);
     };
 
+    it("tells the Space store before leaving, so a channel it follows does not decide where the user lands", async () => {
+        const noted = vi.spyOn(SDKContextClass.instance.spaceStore, "noteLeavingRoom");
+        const leave = vi.spyOn(client, "leaveRoomChain");
+        viewRoom(room);
+        await leaveRoomBehaviour(client, room.roomId);
+        expect(noted).toHaveBeenCalledWith(room.roomId);
+        expect(leave).toHaveBeenCalled();
+        expect(noted.mock.invocationCallOrder[0]).toBeLessThan(leave.mock.invocationCallOrder[0]);
+    });
+
+    it("tells the Space store of every version of the room it leaves, but only the one when leaving an older one", async () => {
+        const noted = vi.spyOn(SDKContextClass.instance.spaceStore, "noteLeavingRoom");
+        const predecessor = mkRoom(client, "!predecessor:example.org");
+        vi.mocked(client.getRoomUpgradeHistory).mockReturnValue([predecessor, room]);
+        viewRoom(room);
+        await leaveRoomBehaviour(client, room.roomId);
+        expect(noted.mock.calls.map(([roomId]) => roomId)).toEqual([predecessor.roomId, room.roomId]);
+
+        noted.mockClear();
+        vi.mocked(client.getRoom).mockImplementation((roomId) => (roomId === predecessor.roomId ? predecessor : room));
+        await leaveRoomBehaviour(client, predecessor.roomId);
+        expect(noted.mock.calls.map(([roomId]) => roomId)).toEqual([predecessor.roomId]);
+    });
+
     it("hangs up legacy calls when leaving a room", async () => {
         const hangupSpy = vi
             .spyOn(SDKContextClass.instance.legacyCallHandler, "hangupOrReject")

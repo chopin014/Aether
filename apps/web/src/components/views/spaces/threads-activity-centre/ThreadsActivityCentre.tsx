@@ -171,11 +171,13 @@ interface ThreadsActivityThreadRow {
  * @param level - the thread's notification level
  * @param count - the server-reported notification count, 0 for a local-only unread
  * @param muted - whether the thread's room is muted
+ * @param countIsLowerBound - whether the count is only a lower bound, shown as "N+"
  */
 export function threadDecorationProps(
     level: NotificationLevel,
     count: number,
     muted: boolean,
+    countIsLowerBound = false,
 ): NotificationDecorationData {
     return {
         // Rows only exist for threads we have already decided are unread.
@@ -185,6 +187,7 @@ export function threadDecorationProps(
         isActivityNotification: level === NotificationLevel.Activity,
         hasUnreadCount: count > 0,
         count,
+        countIsLowerBound,
         muted,
         // evaluateThreadUnread never yields NotificationLevel.Unsent, and threads can't be invites.
         isUnsentMessage: false,
@@ -214,16 +217,33 @@ function getThreadA11yLabel(
     preview: string,
     level: NotificationLevel,
     count: number,
+    countIsLowerBound: boolean,
 ): string {
     const isMention = level === NotificationLevel.Highlight && count > 0;
     // Without a root event there is no sender nor preview to announce, only the room.
     if (!sender) {
-        if (isMention) return _t("threads_activity_centre|a11y|mention_no_sender", { roomName, count });
-        if (count > 0) return _t("threads_activity_centre|a11y|unread_no_sender", { roomName, count });
+        if (isMention) {
+            return countIsLowerBound
+                ? _t("threads_activity_centre|a11y|mention_no_sender_at_least", { roomName, count })
+                : _t("threads_activity_centre|a11y|mention_no_sender", { roomName, count });
+        }
+        if (count > 0) {
+            return countIsLowerBound
+                ? _t("threads_activity_centre|a11y|unread_no_sender_at_least", { roomName, count })
+                : _t("threads_activity_centre|a11y|unread_no_sender", { roomName, count });
+        }
         return _t("threads_activity_centre|a11y|default_no_sender", { roomName });
     }
-    if (isMention) return _t("threads_activity_centre|a11y|mention", { roomName, sender, preview, count });
-    if (count > 0) return _t("threads_activity_centre|a11y|unread", { roomName, sender, preview, count });
+    if (isMention) {
+        return countIsLowerBound
+            ? _t("threads_activity_centre|a11y|mention_at_least", { roomName, sender, preview, count })
+            : _t("threads_activity_centre|a11y|mention", { roomName, sender, preview, count });
+    }
+    if (count > 0) {
+        return countIsLowerBound
+            ? _t("threads_activity_centre|a11y|unread_at_least", { roomName, sender, preview, count })
+            : _t("threads_activity_centre|a11y|unread", { roomName, sender, preview, count });
+    }
     return _t("threads_activity_centre|a11y|default", { roomName, sender, preview });
 }
 
@@ -231,7 +251,7 @@ function getThreadA11yLabel(
  * Display an unread thread the user has participated in.
  */
 function ThreadsActivityCentreThreadRow({ threadData, onClick }: ThreadsActivityThreadRow): JSX.Element {
-    const { thread, room, notificationLevel, notificationCount, muted } = threadData;
+    const { thread, room, notificationLevel, notificationCount, countIsLowerBound, muted } = threadData;
 
     const rootEvent = thread.rootEvent;
     // getSenderName resolves the disambiguated member name, falling back to the raw user ID.
@@ -247,7 +267,14 @@ function ThreadsActivityCentreThreadRow({ threadData, onClick }: ThreadsActivity
             label={null}
             // The design uses the notification decoration as the only trailing affordance.
             hideChevron
-            aria-label={getThreadA11yLabel(room.name, senderName, previewText, notificationLevel, notificationCount)}
+            aria-label={getThreadA11yLabel(
+                room.name,
+                senderName,
+                previewText,
+                notificationLevel,
+                notificationCount,
+                countIsLowerBound,
+            )}
             Icon={<DecoratedRoomAvatar room={room} size="40px" />}
             onSelect={(event: Event) => {
                 onClick();
@@ -309,7 +336,9 @@ function ThreadsActivityCentreThreadRow({ threadData, onClick }: ThreadsActivity
                 className="mx_ThreadsActivityCentreThreadRow_decoration"
                 data-notification-level={notificationLevelMarker(notificationLevel)}
             >
-                <NotificationDecoration {...threadDecorationProps(notificationLevel, notificationCount, muted)} />
+                <NotificationDecoration
+                    {...threadDecorationProps(notificationLevel, notificationCount, muted, countIsLowerBound)}
+                />
             </span>
         </MenuItem>
     );

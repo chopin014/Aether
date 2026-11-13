@@ -38,6 +38,15 @@ test.use({
 });
 test.skip(({ homeserverType }) => homeserverType !== "synapse", "Needs a real MatrixRTC transport");
 
+/**
+ * Select a Space, then take the pointer off the server rail. Left on the Space's button, its hover card, which lists
+ * who is in voice, covers the first channels of the list, and which channel comes first depends on recent activity.
+ */
+async function viewSpace(clientApp: ElementAppPage, clientPage: Page, name: string): Promise<void> {
+    await clientApp.viewSpaceByName(name);
+    await clientPage.mouse.move(900, 400);
+}
+
 async function settle(page: Page): Promise<void> {
     await rejectToastIfExists(page, "Verify this device");
     await rejectToastIfExists(page, "Notifications");
@@ -221,8 +230,12 @@ test(
         test.setTimeout(300_000);
         const jitsiRequests: string[] = [];
         const soundResponses = new Map<string, number>();
+        // The noise suppression is fetched once per page, possibly before this test turns it on: the microphone is
+        // prepared with the default Voice Isolation before the test switches to sending it unprocessed.
+        const denoiserStatuses: number[] = [];
         const onSound = (response: Response): void => {
             if (response.url().endsWith(".wav")) soundResponses.set(response.url(), response.status());
+            if (/aether-denoiser\.[^/]+\.wasm$/.test(response.url())) denoiserStatuses.push(response.status());
         };
         page.on("response", onSound);
         const checkRequest = (url: string): void => {
@@ -292,7 +305,7 @@ test(
                 },
                 { spaceId, textId },
             );
-            await app.viewSpaceByName("Voice studio");
+            await viewSpace(app, page, "Voice studio");
             await page.getByRole("button", { name: "Open server menu", exact: true }).click();
             await page.getByRole("menuitem", { name: "New voice room" }).click();
             await page.getByRole("textbox", { name: "Channel name", exact: true }).fill("Lounge");
@@ -495,12 +508,13 @@ test(
             await remoteScreen.hover({ force: true });
             const streamMute = bobPage.getByRole("button", { name: "Mute Alice's stream audio", exact: true });
             await streamMute.hover();
-            const verticalVolume = bobPage.getByRole("slider", { name: "Stream volume for Alice", exact: true });
-            await expect(verticalVolume).toHaveAttribute("aria-orientation", "vertical");
-            await verticalVolume.press("Home");
-            for (let i = 0; i < 45; ++i) await verticalVolume.press("ArrowUp");
+            // A horizontal capsule beside the mute button, set from the keyboard.
+            const spotlightVolume = bobPage.getByRole("slider", { name: "Stream volume for Alice", exact: true });
+            await expect(spotlightVolume).not.toHaveAttribute("aria-orientation", "vertical");
+            await spotlightVolume.press("Home");
+            for (let i = 0; i < 45; ++i) await spotlightVolume.press("ArrowUp");
             await expect.poll(() => playbackGains(bobPage)).toMatchObject({ microphone: [0.08], stream: [0.45] });
-            await verticalVolume.blur();
+            await spotlightVolume.blur();
             await streamMute.hover();
             await bobPage.screenshot({ path: testInfo.outputPath("aether-focused-stream.png") });
             const framesBeforeNavigation = await decodedVideoFrames(bobPage);
@@ -597,9 +611,8 @@ test(
             const noisePanel = page.getByRole("dialog", { name: "ANS (Aether Noise Suppression)", exact: true });
             const suppression = noisePanel.getByRole("switch", { name: "Noise suppression", exact: true });
             await expect(suppression).not.toBeChecked();
-            const denoiser = page.waitForResponse((response) => /aether-denoiser\.[^/]+\.wasm$/.test(response.url()));
             await suppression.check();
-            expect((await denoiser).status()).toBe(200);
+            await expect.poll(() => denoiserStatuses).toContain(200);
             // ANS always runs at full strength, so there is nothing to tune.
             await expect(noisePanel.getByRole("slider")).toHaveCount(0);
             await expect
@@ -884,7 +897,7 @@ test("stage join and red hangup play one lifecycle cue per transition", async ({
         name: "Cue space",
         initial_state: [{ type: "m.space.child", state_key: voiceId, content: { via: [user.homeServer] } }],
     });
-    await app.viewSpaceByName("Cue space");
+    await viewSpace(app, page, "Cue space");
     await page.getByRole("button", { name: "Open room Cue lounge", exact: true }).click();
     const stage = page.getByTestId("aether-call-stage").filter({ visible: true });
     // Webpack hashes asset names. Match the bytes of actual playing audio to the intended recordings.
@@ -938,7 +951,7 @@ test("startup restores the last text channel while clicking voice still joins", 
             content: { via: [user.homeServer] },
         })),
     });
-    await app.viewSpaceByName("Startup space");
+    await viewSpace(app, page, "Startup space");
     await page.getByRole("button", { name: "Open room off-topic", exact: true }).click();
     await expect(page.getByRole("heading", { name: "off-topic", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Open room Lounge", exact: true }).click({ timeout: 15_000 });
@@ -1004,7 +1017,7 @@ test("switches calls only after confirmation and remembers Don't ask again", asy
             content: { via: [user.homeServer] },
         })),
     });
-    await app.viewSpaceByName("Switch space");
+    await viewSpace(app, page, "Switch space");
     await page.getByRole("button", { name: "Open room Lounge", exact: true }).click();
     const stage = page.getByTestId("aether-call-stage").filter({ visible: true });
     await expect(stage).toHaveCount(1, { timeout: 15_000 });
@@ -1113,8 +1126,8 @@ test("joining on another device moves voice there and can move back", async ({
         await secondPage.waitForSelector(".mx_MatrixChat");
         await settle(secondPage);
         const secondApp = new ElementAppPage(secondPage);
-        await app.viewSpaceByName("Device space");
-        await secondApp.viewSpaceByName("Device space");
+        await viewSpace(app, page, "Device space");
+        await viewSpace(secondApp, secondPage, "Device space");
         await page.getByRole("button", { name: "Open room Device lounge", exact: true }).click();
         await expect.poll(() => joinedRooms(app), { timeout: 60_000 }).toEqual([lounge]);
         await expect.poll(ownMemberships, { timeout: 15_000 }).toBe(1);
@@ -1180,7 +1193,7 @@ test("shows profile customisation in call tiles and keeps it when focusing a par
             content: { via: [user.homeServer] },
         })),
     });
-    await app.viewSpaceByName("Profile calls");
+    await viewSpace(app, page, "Profile calls");
     await page.getByRole("button", { name: "Open room Profile voice", exact: true }).click();
     const stage = page.getByTestId("aether-call-stage").filter({ visible: true });
     await expect(stage).toHaveAttribute("data-phase", "in_call", { timeout: 60_000 });

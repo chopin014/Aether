@@ -42,6 +42,7 @@ import Modal from "../../Modal";
 import SettingsStore from "../../settings/SettingsStore";
 import { WidgetType } from "../../widgets/WidgetType";
 import SdkConfig from "../../SdkConfig";
+import { SlidingSyncManager } from "../../SlidingSyncManager";
 
 describe("ElementWidgetDriver", () => {
     let client: MockedObject<MatrixClient>;
@@ -165,6 +166,19 @@ describe("ElementWidgetDriver", () => {
 
         const approvedCapabilities = await driver.validateCapabilities(requestedCapabilities);
         expect(approvedCapabilities).toEqual(requestedCapabilities);
+    });
+
+    it("remembers every capability approved, as renegotiation adds to them", async () => {
+        const driver = mkDefaultDriver();
+        const preapprove = vi.spyOn(ModuleApi.instance.widgetLifecycle, "preapproveCapabilities");
+        preapprove.mockResolvedValueOnce(new Set(["org.matrix.msc2931.navigate"]));
+        await driver.validateCapabilities(new Set(["org.matrix.msc2931.navigate"]));
+        const state = "org.matrix.msc2762.receive.state_event:org.example.layout";
+        preapprove.mockResolvedValueOnce(new Set([state]));
+        await driver.validateCapabilities(new Set([state]));
+        expect((driver as ElementWidgetDriver).getApprovedCapabilities()).toEqual(
+            new Set(["org.matrix.msc2931.navigate", state]),
+        );
     });
 
     it("approves identity via new widget lifecycle API", async () => {
@@ -1033,9 +1047,7 @@ describe("ElementWidgetDriver", () => {
         beforeEach(() => {
             driver = mkDefaultDriver();
             getStateEvents = vi.fn();
-            client.getRoom.mockReturnValue({
-                getLiveTimeline: () => ({ getState: () => ({ getStateEvents }) }),
-            } as unknown as Room);
+            client.getRoom.mockReturnValue({ currentState: { getStateEvents } } as unknown as Room);
         });
 
         it("reads a specific state key", async () => {
@@ -1056,6 +1068,15 @@ describe("ElementWidgetDriver", () => {
             expect(await driver.readRoomState("!1:example.org", "org.example.foo", undefined)).toEqual(
                 [event1, event2].map((e) => e.getEffectiveEvent()),
             );
+        });
+
+        it("asks sliding sync for state the room's subscriptions do not name", async () => {
+            const read = vi.spyOn(SlidingSyncManager.instance, "readRoomState").mockResolvedValue([event1]);
+            expect(await driver.readRoomState("!1:example.org", "org.example.foo", "1")).toEqual([
+                event1.getEffectiveEvent(),
+            ]);
+            expect(read).toHaveBeenCalledWith(client, "!1:example.org", { type: "org.example.foo", stateKey: "1" });
+            read.mockRestore();
         });
     });
 });

@@ -140,18 +140,28 @@ export interface IEditorProps extends Pick<IDevtoolsProps, "onBack"> {
 }
 
 interface IViewerProps extends Required<IEditorProps> {
-    Editor: React.FC<IEditorProps>;
+    /** How to edit the event, if it can be edited. */
+    Editor?: React.FC<IEditorProps>;
     extraButton?: ReactNode;
 }
 
 export const EventViewer: React.FC<IViewerProps> = ({ mxEvent, onBack, Editor, extraButton }) => {
     const [editing, setEditing] = useState(false);
 
-    if (editing) {
+    if (editing && Editor) {
         const onBack = (): void => {
             setEditing(false);
         };
         return <Editor mxEvent={mxEvent} onBack={onBack} />;
+    }
+
+    const source = <SyntaxHighlight language="json">{stringify(mxEvent.event)}</SyntaxHighlight>;
+    if (!Editor) {
+        return (
+            <BaseTool onBack={onBack} extraButton={extraButton}>
+                {source}
+            </BaseTool>
+        );
     }
 
     const onAction = async (): Promise<void> => {
@@ -160,7 +170,7 @@ export const EventViewer: React.FC<IViewerProps> = ({ mxEvent, onBack, Editor, e
 
     return (
         <BaseTool onBack={onBack} actionLabel={_td("action|edit")} onAction={onAction} extraButton={extraButton}>
-            <SyntaxHighlight language="json">{stringify(mxEvent.event)}</SyntaxHighlight>
+            {source}
         </BaseTool>
     );
 };

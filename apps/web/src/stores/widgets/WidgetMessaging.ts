@@ -12,6 +12,7 @@ import {
     MatrixEventEvent,
     type MatrixClient,
     ClientEvent,
+    EventType,
     RoomStateEvent,
     type ReceivedToDeviceMessage,
     TypedEventEmitter,
@@ -27,10 +28,16 @@ import {
     type IWidget,
     type IWidgetApiRequest,
     type IWidgetData,
+    EventDirection,
+    EventKind,
+    getTimelineRoomIDFromCapability,
+    isTimelineCapability,
     MatrixCapabilities,
     runTemplate,
+    Symbols,
     Widget,
     WidgetApiFromWidgetAction,
+    WidgetEventCapability,
     WidgetKind,
 } from "matrix-widget-api";
 import { logger } from "matrix-js-sdk/src/logger";
@@ -60,6 +67,8 @@ import Modal from "../../Modal";
 import ErrorDialog from "../../components/views/dialogs/ErrorDialog";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
 import { UPDATE_EVENT } from "../AsyncStore";
+import { SlidingSyncManager } from "../../SlidingSyncManager";
+import { MAX_SELECTORS_PER_DEMAND, type RoomStateDemand } from "../../sliding-sync/RoomStateDemands";
 
 // TODO: Purge this code of its overgrown hacks and compatibility shims.
 
@@ -194,6 +203,9 @@ export class WidgetMessaging extends TypedEventEmitter<WidgetMessagingEvent, Wid
     private stickyPromise?: () => Promise<void>;
     // Holds events that should be fed to the widget once they finish decrypting
     private readonly eventsToFeed = new WeakSet<MatrixEvent>();
+    private driver?: ElementWidgetDriver;
+    // The state the widget may receive, asked of sliding sync in the rooms it receives state from.
+    private stateDemands: RoomStateDemand[] = [];
 
     public constructor(
         private readonly widget: ElementWidget,
@@ -293,7 +305,50 @@ export class WidgetMessaging extends TypedEventEmitter<WidgetMessagingEvent, Wid
         if (roomId !== this.viewedRoomId) {
             this.widgetApi!.setViewedRoomId(roomId);
             this.viewedRoomId = roomId;
+            this.updateStateDemands();
         }
+    };
+
+    /**
+     * Under sliding sync a room has only the state its subscriptions name, and changes to other state never arrive.
+     * The state the widget may receive is asked for, while it runs, in the rooms it receives state from: its own or
+     * the viewed room, and those whose timeline it may read. A widget allowed every room's timeline cannot keep them
+     * all subscribed: it gets the viewed room's.
+     */
+    private updateStateDemands = (): void => {
+        const previous = this.stateDemands;
+        this.stateDemands = [];
+        const capabilities = this.widgetApi ? [...(this.driver?.getApprovedCapabilities() ?? [])] : [];
+        const selectors = WidgetEventCapability.findEventCapabilities(capabilities)
+            .filter((capability) => capability.kind === EventKind.State)
+            .filter((capability) => capability.direction === EventDirection.Receive)
+            // Members are loaded lazily, as under regular sync: every member of a large room would be too many.
+            .filter((capability) => !(capability.eventType === EventType.RoomMember && capability.keyStr === null))
+            .map((capability) => ({ type: capability.eventType, stateKey: capability.keyStr ?? undefined }));
+        if (selectors.length > MAX_SELECTORS_PER_DEMAND) {
+            // Every request carries every subscription, so a widget's state is asked for only up to a bound.
+            logger.warn(`Widget ${this.widget.id} may receive more state than is kept up to date for it`);
+            selectors.length = MAX_SELECTORS_PER_DEMAND;
+        }
+        const roomIds = new Set<string>();
+        const ownRoomId = this.roomId ?? this.viewedRoomId;
+        if (ownRoomId) roomIds.add(ownRoomId);
+        for (const capability of capabilities) {
+            if (!isTimelineCapability(capability)) continue;
+            const roomId = getTimelineRoomIDFromCapability(capability);
+            if (roomId !== Symbols.AnyRoom) roomIds.add(roomId);
+        }
+        if (selectors.length > 0) {
+            for (const roomId of roomIds) {
+                try {
+                    this.stateDemands.push(SlidingSyncManager.instance.demandRoomState(roomId, selectors));
+                } catch (e) {
+                    logger.warn(`Widget ${this.widget.id} may receive state that cannot be asked for`, e);
+                }
+            }
+        }
+        // The new demands are held first, so state both ask for stays asked for.
+        for (const demand of previous) demand.release();
     };
 
     /**
@@ -305,6 +360,7 @@ export class WidgetMessaging extends TypedEventEmitter<WidgetMessagingEvent, Wid
 
         this.iframe = iframe;
         const driver = new ElementWidgetDriver(this.widget, this.kind, this.virtual, this.roomId);
+        this.driver = driver;
 
         this.widgetApi = new ClientWidgetApi(this.widget, iframe, driver);
         this.widgetApi.once("ready", () => {
@@ -314,12 +370,14 @@ export class WidgetMessaging extends TypedEventEmitter<WidgetMessagingEvent, Wid
             this.onThemeChange(this.themeWatcher.getEffectiveTheme());
         });
         this.widgetApi.on(`action:${WidgetApiFromWidgetAction.OpenModalWidget}`, this.onOpenModal);
+        this.widgetApi.on("capabilitiesNotified", this.updateStateDemands);
 
         // When widgets are listening to events, we need to make sure they're only
         // receiving events for the right room
         if (this.roomId === undefined) {
             // Account widgets listen to the currently active room
-            this.widgetApi.setViewedRoomId(SDKContextClass.instance.roomViewStore.getRoomId() ?? null);
+            this.viewedRoomId = SDKContextClass.instance.roomViewStore.getRoomId() ?? null;
+            this.widgetApi.setViewedRoomId(this.viewedRoomId);
             SDKContextClass.instance.roomViewStore.on(UPDATE_EVENT, this.onRoomViewStoreUpdate);
         } else {
             // Room widgets get locked to the room they were added in
@@ -516,6 +574,9 @@ export class WidgetMessaging extends TypedEventEmitter<WidgetMessagingEvent, Wid
         this.client.off(MatrixEventEvent.Decrypted, this.onEventDecrypted);
         this.client.off(RoomStateEvent.Events, this.onStateUpdate);
         this.client.off(ClientEvent.ReceivedToDeviceMessage, this.onToDeviceMessage);
+        for (const demand of this.stateDemands) demand.release();
+        this.stateDemands = [];
+        this.driver = undefined;
     }
 
     private onEvent = (ev: MatrixEvent): void => {

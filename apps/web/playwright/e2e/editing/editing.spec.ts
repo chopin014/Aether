@@ -13,6 +13,7 @@ import { expect, test } from "../../element-web-test";
 import { type ElementAppPage } from "../../pages/ElementAppPage";
 import { SettingLevel } from "../../../src/settings/SettingLevel";
 import { isDendrite } from "../../plugins/homeserver/dendrite";
+import { messageList } from "../../pages/timeline";
 
 async function sendEvent(app: ElementAppPage, roomId: string): Promise<ISendEventResponse> {
     return app.client.sendEvent(roomId, null, "m.room.message" as EventType, {
@@ -36,7 +37,7 @@ test.describe("Editing", () => {
 
     // Edit "Message"
     const editLastMessage = async (page: Page, edit: string) => {
-        const eventTile = page.locator(".mx_RoomView_MessageList .mx_EventTile").last();
+        const eventTile = messageList(page).locator(".mx_EventTile").last();
         await eventTile.hover();
         await eventTile.getByRole("button", { name: "Edit", exact: true }).click();
 
@@ -193,8 +194,7 @@ test.describe("Editing", () => {
 
             // Assert that the redaction placeholder is rendered
             await expect(
-                page
-                    .locator(".mx_RoomView_MessageList")
+                messageList(page)
                     .locator(".mx_EventTile", { has: page.locator(".mx_RedactedBody") })
                     .last()
                     .locator(".mx_RedactedBody", { hasText: "Message deleted" }),
