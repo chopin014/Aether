@@ -7,7 +7,6 @@ Please see LICENSE in the repository root for full details.
 
 import type { DesktopAudioApi, DesktopAudioPacket } from "shared-types";
 
-import { DesktopVoicePipeline } from "./DesktopVoicePipeline";
 import SettingsStore from "../../settings/SettingsStore";
 
 /** Decode native interleaved PCM without applying microphone processing to shared audio. */
@@ -43,6 +42,17 @@ export function decodeDesktopAudio(packet: DesktopAudioPacket, context: AudioCon
     return buffer;
 }
 
+// Whether the display capture request that is waiting for a source asked for audio.
+let pendingAudioRequest: boolean | null = null;
+
+/**
+ * Whether the display capture request currently waiting for a source asked for system audio, or null when none is.
+ * The source picker uses it so a share restarted to add audio opens with audio already selected.
+ */
+export function getPendingDisplayMediaAudio(): boolean | null {
+    return pendingAudioRequest;
+}
+
 /** Attach native source audio to display capture, including preferences changed while the picker was open. */
 export function installDesktopAudioCapture(api: DesktopAudioApi): void {
     const devices = navigator.mediaDevices;
@@ -50,9 +60,17 @@ export function installDesktopAudioCapture(api: DesktopAudioApi): void {
     const getDisplayMedia = devices.getDisplayMedia.bind(devices);
     devices.getDisplayMedia = async (options): Promise<MediaStream> => {
         if (!SettingsStore.getValue("feature_desktop_shell")) return getDisplayMedia(options);
-        // Native capture owns audio selection; Chromium must only capture the selected video source.
-        await api.prepare(DesktopVoicePipeline.instance.getScreenShareQuality().includeSystemAudio);
-        const stream = await getDisplayMedia({ ...options, audio: false });
+        // Follow this request rather than the saved preference: a share restarted to add audio asks for it
+        // before the preference is updated. Native capture owns audio; Chromium only captures the video source.
+        const audio = !!options?.audio;
+        await api.prepare(audio);
+        let stream: MediaStream;
+        pendingAudioRequest = audio;
+        try {
+            stream = await getDisplayMedia({ ...options, audio: false });
+        } finally {
+            pendingAudioRequest = null;
+        }
         const sessionId = crypto.randomUUID();
         let context: AudioContext | undefined;
         let unsubscribe = (): void => {};
