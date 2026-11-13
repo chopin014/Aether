@@ -56,7 +56,7 @@ exports[`<LayoutSwitcher /> > should render 1`] = `
               class="mxLayoutSwitcher_LayoutSelector_LayoutRadio_separator"
             />
             <div
-              class="mxLayoutSwitcher_LayoutSelector_LayoutRadio_EventTilePreview"
+              class="mxLayoutSwitcher_LayoutSelector_LayoutRadio_EventTilePreview mxLayoutSwitcher_LayoutSelector_LayoutRadio_EventTilePreview--group"
               role="presentation"
             >
               <div
@@ -164,7 +164,7 @@ exports[`<LayoutSwitcher /> > should render 1`] = `
               class="mxLayoutSwitcher_LayoutSelector_LayoutRadio_separator"
             />
             <div
-              class="mxLayoutSwitcher_LayoutSelector_LayoutRadio_EventTilePreview"
+              class="mxLayoutSwitcher_LayoutSelector_LayoutRadio_EventTilePreview mxLayoutSwitcher_LayoutSelector_LayoutRadio_EventTilePreview--bubble"
               role="presentation"
             >
               <div
@@ -272,7 +272,7 @@ exports[`<LayoutSwitcher /> > should render 1`] = `
               class="mxLayoutSwitcher_LayoutSelector_LayoutRadio_separator"
             />
             <div
-              class="mxLayoutSwitcher_LayoutSelector_LayoutRadio_EventTilePreview mx_IRCLayout"
+              class="mxLayoutSwitcher_LayoutSelector_LayoutRadio_EventTilePreview mxLayoutSwitcher_LayoutSelector_LayoutRadio_EventTilePreview--irc mx_IRCLayout"
               role="presentation"
             >
               <div

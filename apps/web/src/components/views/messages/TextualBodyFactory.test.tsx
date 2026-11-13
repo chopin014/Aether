@@ -60,6 +60,20 @@ vi.mock("../../../viewmodels/message-body/UrlPreviewGroupViewModel", async (impo
     };
 });
 
+// Counts how often a message's body is derived (sanitised, linkified and highlighted), passing each call through.
+const { bodyToNodeCalls } = vi.hoisted(() => ({ bodyToNodeCalls: { count: 0 } }));
+
+vi.mock("../../../HtmlUtils", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("../../../HtmlUtils")>();
+    return {
+        ...actual,
+        bodyToNode: (...args: Parameters<typeof actual.bodyToNode>) => {
+            bodyToNodeCalls.count++;
+            return actual.bodyToNode(...args);
+        },
+    };
+});
+
 const room1Id = "!room1:example.com";
 const room2Id = "!room2:example.com";
 const room2Name = "Room 2";
@@ -263,6 +277,16 @@ describe("<TextualBody />", () => {
         expect(container).toHaveTextContent(ev.getContent().body);
         const content = container.querySelector(".mx_EventTile_body");
         expect(content).toMatchSnapshot();
+    });
+
+    it("derives a message's body once as it mounts", () => {
+        DMRoomMap.makeShared(defaultMatrixClient);
+        bodyToNodeCalls.count = 0;
+
+        const { container } = getComponent({ mxEvent: mkRoomTextMessage("derived once") });
+
+        expect(container).toHaveTextContent("derived once");
+        expect(bodyToNodeCalls.count).toBe(1);
     });
 
     describe("renders plain-text m.text correctly", () => {

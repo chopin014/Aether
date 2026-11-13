@@ -9,7 +9,7 @@ Please see LICENSE files in the repository root for full details.
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import React from "react";
 
-import { formatList, formatCount, formatCountLong } from "./FormattingUtils";
+import { formatList, formatCount, formatCountLong, formatUnreadCount } from "./FormattingUtils";
 import SettingsStore from "../settings/SettingsStore";
 
 vi.mock("../dispatcher/dispatcher");
@@ -27,6 +27,14 @@ describe("FormattingUtils", () => {
             { count: 9999999999, expectedCount: "10B" },
         ])("formats $count as $expectedCount", ({ count, expectedCount }) => {
             expect(formatCount(count)).toBe(expectedCount);
+        });
+    });
+
+    describe("formatUnreadCount", () => {
+        it("formats a count as formatCount does, with a plus when it is only a lower bound", () => {
+            expect(formatUnreadCount(5)).toBe("5");
+            expect(formatUnreadCount(5, true)).toBe("5+");
+            expect(formatUnreadCount(1500, true)).toBe(`${formatCount(1500)}+`);
         });
     });
 

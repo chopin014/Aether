@@ -50,6 +50,7 @@ export function NotificationDecoration({
         isActivityNotification,
         isNotification,
         count,
+        countIsLowerBound,
         muted,
     } = useTypedEventEmitterState(notificationState, NotificationStateEvents.Update, () => ({
         hasAnyNotificationOrActivity: notificationState.hasAnyNotificationOrActivity,
@@ -59,6 +60,7 @@ export function NotificationDecoration({
         isActivityNotification: notificationState.isActivityNotification,
         isNotification: notificationState.isNotification,
         count: notificationState.count,
+        countIsLowerBound: notificationState.countIsLowerBound,
         muted: notificationState.muted,
     }));
 
@@ -81,7 +83,9 @@ export function NotificationDecoration({
             )}
             {invited && <EmailSolidIcon width="20px" height="20px" fill="var(--cpd-color-icon-accent-primary)" />}
             {isMention && <MentionIcon width="20px" height="20px" fill="var(--cpd-color-icon-accent-primary)" />}
-            {(isMention || isNotification) && <UnreadCounter count={count || null} />}
+            {(isMention || isNotification) && (
+                <UnreadCounter count={count ? (countIsLowerBound ? `${count}+` : count) : null} />
+            )}
             {isActivityNotification && <Unread />}
             {muted && <NotificationsOffSolidIcon width="20px" height="20px" fill="var(--cpd-color-icon-tertiary)" />}
         </Flex>

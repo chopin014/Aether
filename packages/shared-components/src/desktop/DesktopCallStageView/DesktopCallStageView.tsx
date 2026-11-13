@@ -20,22 +20,17 @@ import { Text, useIdColorHash } from "@vector-im/compound-web";
 import {
     ChevronDownIcon,
     CollapseIcon,
-    EndCallIcon,
     ErrorIcon,
     ExpandIcon,
     GridIcon,
     SpotlightViewIcon,
     HeadphonesOffSolidIcon,
     MicOffIcon,
-    MicOnIcon,
     OverflowHorizontalIcon,
     PopOutIcon,
     RaisedHandSolidIcon,
-    ReactionSolidIcon,
     ShareScreenSolidIcon,
     UserAddSolidIcon,
-    VideoCallOffSolidIcon,
-    VideoCallSolidIcon,
     VolumeOffIcon,
     VolumeOnIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
@@ -43,6 +38,7 @@ import {
 import { useViewModel, type ViewModel } from "../../core/viewmodel";
 import { useI18n } from "../../core/i18n/i18nContext";
 import { SoundboardIcon, SoundboardView, type SoundboardViewModel } from "../SoundboardView";
+import { AnimatedDeviceIcon, HangUpIcon, ReactionIcon, ScreenShareIcon } from "../LiveIcons";
 import { VoicePopover } from "../DesktopVoiceControlsView/VoicePopover";
 import {
     type DesktopProfileAppearance,
@@ -1224,7 +1220,7 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                                 data-testid="call-control-mic"
                                 onClick={vm.toggleLocalAudio}
                             >
-                                {snapshot.localAudioEnabled ? <MicOnIcon /> : <MicOffIcon />}
+                                <AnimatedDeviceIcon device="microphone" off={!snapshot.localAudioEnabled} />
                             </button>
                             <button
                                 ref={micMenuTriggerRef}
@@ -1311,7 +1307,7 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                                 data-testid="call-control-camera"
                                 onClick={vm.toggleLocalVideo}
                             >
-                                {snapshot.localVideoEnabled ? <VideoCallSolidIcon /> : <VideoCallOffSolidIcon />}
+                                <AnimatedDeviceIcon device="camera" off={!snapshot.localVideoEnabled} />
                             </button>
                             <button
                                 ref={cameraMenuTriggerRef}
@@ -1378,7 +1374,7 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                                     data-testid="call-control-screenshare"
                                     onClick={vm.toggleScreenShare}
                                 >
-                                    <ShareScreenSolidIcon />
+                                    <ScreenShareIcon />
                                 </button>
                                 <button
                                     ref={screenShareMenuTriggerRef}
@@ -1539,7 +1535,7 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                                         vm.setActiveMenu(snapshot.activeMenu === "reactions" ? null : "reactions")
                                     }
                                 >
-                                    <ReactionSolidIcon />
+                                    <ReactionIcon />
                                 </button>
                                 {snapshot.soundboard && snapshot.connected && (
                                     <>
@@ -1620,7 +1616,7 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                             data-testid="incall_leave"
                             onClick={vm.leaveCall}
                         >
-                            <EndCallIcon />
+                            <HangUpIcon />
                         </button>
                     </div>
 

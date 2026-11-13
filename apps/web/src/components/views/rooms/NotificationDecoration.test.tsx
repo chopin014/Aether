@@ -68,6 +68,15 @@ describe("<NotificationDecoration />", () => {
         expect(asFragment()).toMatchSnapshot();
     });
 
+    it("should show a count that is only a lower bound as at least it", () => {
+        vi.spyOn(roomNotificationState, "hasAnyNotificationOrActivity", "get").mockReturnValue(true);
+        vi.spyOn(roomNotificationState, "isNotification", "get").mockReturnValue(true);
+        vi.spyOn(roomNotificationState, "count", "get").mockReturnValue(6);
+        vi.spyOn(roomNotificationState, "countIsLowerBound", "get").mockReturnValue(true);
+        render(<NotificationDecoration notificationState={roomNotificationState} callType={undefined} />);
+        expect(screen.getByText("6+")).toBeInTheDocument();
+    });
+
     it("should render the notification decoration without count", () => {
         vi.spyOn(roomNotificationState, "hasAnyNotificationOrActivity", "get").mockReturnValue(true);
         vi.spyOn(roomNotificationState, "isNotification", "get").mockReturnValue(true);

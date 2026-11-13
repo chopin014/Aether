@@ -174,6 +174,10 @@ const createReplacer = (props: EventContentBodyViewModelProps): Replacer => {
     });
 };
 
+/** Whether two lists of search terms to highlight hold the same terms in the same order. */
+const sameHighlights = (a?: string[], b?: string[]): boolean =>
+    a === b || (!!a && !!b && a.length === b.length && a.every((term, i) => term === b[i]));
+
 /**
  * ViewModel for EventContentBody component.
  * Handles all Matrix SDK interactions and content processing.
@@ -283,6 +287,8 @@ export class EventContentBodyViewModel
     };
 
     public setEventContent = (mxEvent: MatrixEvent | undefined, content: IContent): void => {
+        // The view hands back what the body was derived from as it mounts; deriving it again would sanitise it again.
+        if (mxEvent === this.props.mxEvent && content === this.props.content) return;
         this.watchEvent(mxEvent);
         this.props.mxEvent = mxEvent;
         this.props.content = content;
@@ -293,6 +299,7 @@ export class EventContentBodyViewModel
     };
 
     public setStripReply = (stripReply?: boolean): void => {
+        if (stripReply === this.props.stripReply) return;
         this.props.stripReply = stripReply;
         const { body, formattedBody, className } = EventContentBodyViewModel.computeBodySnapshot(this.props);
 
@@ -300,6 +307,7 @@ export class EventContentBodyViewModel
     };
 
     public setHighlights = (highlights?: string[]): void => {
+        if (sameHighlights(highlights, this.props.highlights)) return;
         this.props.highlights = highlights;
         const { body, formattedBody, className } = EventContentBodyViewModel.computeBodySnapshot(this.props);
 
@@ -314,6 +322,7 @@ export class EventContentBodyViewModel
     };
 
     public setEnableBigEmoji = (enableBigEmoji?: boolean): void => {
+        if (enableBigEmoji === this.props.enableBigEmoji) return;
         this.props.enableBigEmoji = enableBigEmoji;
         const { body, formattedBody, className } = EventContentBodyViewModel.computeBodySnapshot(this.props);
 
@@ -321,6 +330,7 @@ export class EventContentBodyViewModel
     };
 
     public setShouldShowPillAvatar = (shouldShowPillAvatar?: boolean): void => {
+        if (shouldShowPillAvatar === this.props.shouldShowPillAvatar) return;
         this.props.shouldShowPillAvatar = shouldShowPillAvatar;
         const replacer = createReplacer(this.props);
 

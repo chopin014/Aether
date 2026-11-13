@@ -1,5 +1,5 @@
 diff --git a/dist/esm/index.d.ts b/dist/esm/index.d.ts
-index c9065e7..8c8f81c 100644
+index c9065e73a2565430fc05ec61783490abc0a6d3c0..293ae7124a221f04f50d31e7ccfeb207f0bfa09f 100644
 --- a/dist/esm/index.d.ts
 +++ b/dist/esm/index.d.ts
 @@ -83,6 +83,12 @@ export interface VirtualizerOptions<TScrollElement extends Element | Window, TIt
@@ -15,16 +15,47 @@ index c9065e7..8c8f81c 100644
      followOnAppend?: FollowOnAppend;
      scrollEndThreshold?: number;
      isScrollingResetDelay?: number;
+@@ -168,6 +174,15 @@ export declare class Virtualizer<TScrollElement extends Element | Window, TItemE
+     private shouldMeasureDuringScroll;
+     measureElement: (node: TItemElement | null) => void;
+     resizeItem: (index: number, size: number) => void;
++    /**
++     * Resize several items as one batch, notifying once afterwards. Element-web patch, pending upstream.
++     */
++    resizeItems: (sizes: ReadonlyArray<readonly [index: number, size: number]>) => void;
++    /**
++     * Scroll to an offset at once, noting it as the offset meant, without steering towards it over the next frames.
++     * Element-web patch, pending upstream.
++     */
++    scrollToOffsetNow: (offset: number) => void;
+     getVirtualItems: {
+         (): VirtualItem[];
+         updateDeps(newDeps: [number[], VirtualItem[]]): void;
 diff --git a/dist/esm/index.js b/dist/esm/index.js
-index dcba044..d04e2c3 100644
+index dcba044582148f2b8923163b1a431571230bdfef..14cae4a3a5e2b9af18453c7423c01db7c3eb600c 100644
 --- a/dist/esm/index.js
 +++ b/dist/esm/index.js
-@@ -331,7 +331,24 @@ class Virtualizer {
+@@ -317,6 +317,8 @@ class Virtualizer {
+       }
+       const prevOptions = this.options;
+       let anchor = null;
++      let anchorToEnd = false;
++      let pendingOffset = null;
+       let followOnAppend = null;
+       let edgeKeysChanged = false;
+       if (prevOptions !== void 0 && prevOptions.enabled && merged.enabled && merged.anchorTo === "end" && this.scrollElement !== null) {
+@@ -331,10 +333,39 @@ class Virtualizer {
          const didEdgeKeysChange = didCountChange || prevCount > 0 && nextCount > 0 && (merged.getItemKey(0) !== prevFirstKey || merged.getItemKey(nextCount - 1) !== prevLastKey);
          if (didEdgeKeysChange) {
            edgeKeysChanged = true;
 -          const item = prevCount > 0 ? this.getVirtualItemForOffset(this.getScrollOffset()) ?? measurements[0] : null;
-+          let item = prevCount > 0 ? this.getVirtualItemForOffset(this.getScrollOffset()) ?? measurements[0] : null;
++          // A scroll written at once in this task, such as scrollToOffsetNow placing the list, is not yet read back
++          // into scrollOffset: anchor to what that write shows. A smooth scroll's written offset is where it is
++          // heading rather than what is shown, so the view is anchored as shown and the animation runs on.
++          // Element-web patch, pending upstream.
++          pendingOffset = this.scrollState?.behavior === "smooth" ? null : this._intendedScrollOffset;
++          const anchorFromOffset = pendingOffset ?? this.getScrollOffset();
++          let item = prevCount > 0 ? this.getVirtualItemForOffset(anchorFromOffset) ?? measurements[0] : null;
 +          // With anchorTo: "end" the scroll is re-pinned by the key of the item
 +          // under the current offset. If the consumer rejects that item as an
 +          // anchor via isValidAnchorItem — e.g. a transient placeholder/sentinel
@@ -43,9 +74,49 @@ index dcba044..d04e2c3 100644
 +            item = measurements[i] ?? item;
 +          }
            if (item) {
-             anchor = [item.key, this.getScrollOffset() - item.start];
+-            anchor = [item.key, this.getScrollOffset() - item.start];
++            anchor = [item.key, anchorFromOffset - item.start];
            }
-@@ -453,7 +470,23 @@ class Virtualizer {
++          // A view at the end stays at the end while rows change above it, as when older history arrives or rows
++          // are regrouped: rows between the one under the offset and the end can change too, such as a group laid
++          // out at an estimated height, and keeping that one row in place would leave the end below the view. A
++          // new last row is an append instead, which followOnAppend follows, or a reader of older history reads on
++          // into. Element-web patch, pending upstream.
++          anchorToEnd = item !== null && merged.getItemKey(nextCount - 1) === prevLastKey && this.getSize() > 0 && this.getTotalSize() - this.getSize() - anchorFromOffset <= prevOptions.scrollEndThreshold;
+           const behavior = merged.followOnAppend === true ? "auto" : merged.followOnAppend || null;
+           if (behavior && nextCount > 0 && this.isAtEnd(prevOptions.scrollEndThreshold) && (prevCount === 0 || merged.getItemKey(nextCount - 1) !== prevLastKey)) {
+             if (nextCount > prevCount || isAppendWithTrim(
+@@ -363,15 +394,20 @@ class Virtualizer {
+         while (idx < count && getItemKey(idx) !== anchorKey) {
+           idx++;
+         }
+-        if (idx < count) {
+-          const anchorItem = newMeasurements[idx];
+-          if (anchorItem) {
+-            const newOffset = Math.max(0, anchorItem.start + anchorOffset);
+-            if (!followOnAppend && newOffset !== this.scrollOffset) {
+-              anchorDelta = newOffset - this.scrollOffset;
+-              this.scrollOffset = newOffset;
+-              anchorResolved = true;
+-            }
++        // A view that was at the end goes to the end of the rows as now laid out (see anchorToEnd above); otherwise
++        // the anchor row keeps its place on screen. Element-web patch, pending upstream.
++        const anchorItem = idx < count ? newMeasurements[idx] : void 0;
++        const newOffset = anchorToEnd ? Math.max(0, this.getTotalSize() - this.getSize()) : anchorItem ? Math.max(0, anchorItem.start + anchorOffset) : null;
++        if (newOffset !== null) {
++          // Moved from the offset the anchor was taken at. A scroll written at once in this task leaves that ahead
++          // of scrollOffset, and its offset moves with the rows too: corrections made before it is read back, such
++          // as for a row measured smaller than estimated, build on it. Element-web patch, pending upstream.
++          const fromOffset = pendingOffset ?? this.scrollOffset;
++          if (!followOnAppend && newOffset !== fromOffset) {
++            anchorDelta = newOffset - fromOffset;
++            this.scrollOffset = newOffset;
++            if (pendingOffset !== null) this._intendedScrollOffset = newOffset;
++            anchorResolved = true;
+           }
+         }
+       }
+@@ -453,7 +489,23 @@ class Virtualizer {
          });
          this.unsubs.push(
            this.options.observeElementRect(this, (rect) => {
@@ -69,7 +140,7 @@ index dcba044..d04e2c3 100644
              this.maybeNotify();
            })
          );
-@@ -943,9 +976,19 @@ class Virtualizer {
+@@ -943,9 +995,19 @@ class Virtualizer {
        const itemSize = this.itemSizeCache.get(key) ?? cachedSize;
        const delta = size - itemSize;
        if (delta !== 0) {
@@ -91,7 +162,7 @@ index dcba044..d04e2c3 100644
          const isFirstMeasure = !this.itemSizeCache.has(key);
          const defaultShouldAdjust = isFirstMeasure ? (
            // First measurement: compensate any item whose top sits above the
-@@ -958,9 +1001,12 @@ class Virtualizer {
+@@ -958,9 +1020,12 @@ class Virtualizer {
            // below — e.g. a streaming chat message growing at its bottom)
            // changes size *below* the anchor point, so shifting scrollTop by the
            // delta would drag the viewport downward on every growth (#1218).
@@ -107,7 +178,41 @@ index dcba044..d04e2c3 100644
          );
          const shouldAdjustScroll = ((_d = this.scrollState) == null ? void 0 : _d.behavior) !== "smooth" && (this.shouldAdjustScrollPositionOnItemSizeChange !== void 0 ? this.shouldAdjustScrollPositionOnItemSizeChange(
            // The callback expects a VirtualItem; build one lazily only
-@@ -1274,16 +1320,19 @@ class Virtualizer {
+@@ -1249,6 +1314,33 @@ class Virtualizer {
+       }
+       this.options.scrollToFn(offset, { behavior, adjustments }, this);
+     };
++    // Measure several items at once, as a ResizeObserver callback does: the DOM updates, and the notification, are
++    // made once after every size is recorded, so measuring rows does not force a layout per row.
++    // Element-web patch, pending upstream.
++    this.resizeItems = (sizes) => {
++      const outer = this._resizeBatch;
++      const batch = outer ?? { sync: false };
++      this._resizeBatch = batch;
++      try {
++        for (const [index, size] of sizes) this.resizeItem(index, size);
++      } finally {
++        this._resizeBatch = outer;
++        if (!outer && batch.notify) {
++          this.notify(batch.sync);
++          this._retryClampedAdjustment();
++        }
++      }
++    };
++    // Scroll to an offset at once, and note it as the offset meant, without the frames scrollToOffset then spends
++    // steering towards it. A row resizing before the scroll is read back is compensated from this offset; after
++    // scrollToOffset it would wait for the read-back, and the steering would hold the old pixel offset.
++    // Element-web patch, pending upstream.
++    this.scrollToOffsetNow = (offset) => {
++      // As scrollToOffset does: an iOS correction held for the end of a touch scroll is already in this offset.
++      this._iosDeferredAdjustment = 0;
++      this.scrollState = null;
++      this._scrollToOffset(offset, { adjustments: void 0, behavior: "auto" });
++    };
+     this.measure = () => {
+       this.pendingMin = null;
+       this.itemSizeCache.clear();
+@@ -1274,16 +1366,19 @@ class Virtualizer {
        }
        return false;
      } else {

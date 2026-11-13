@@ -58,6 +58,10 @@
     width: 100%;
     overflow-anchor: none;
     list-style: none;
+    /* Lay out what a row holds as a column of flex items, as the old timeline's list lays out its items: each holds
+       its own floats and margins, and the margins between them add up rather than collapsing into one. */
+    display: flex;
+    flex-direction: column;
 }
 
 /* Holds the spinner shown in the middle of the panel while the timeline is still hidden. Placing loaded messages

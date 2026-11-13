@@ -34,16 +34,15 @@ import defaultDispatcher from "../../../dispatcher/dispatcher";
 import type { RoomContextType } from "../../../contexts/RoomContext.ts";
 import { SDKContextClass } from "../../../contexts/SDKContextClass.ts";
 
-const renderNewRoomIntro = (client: MatrixClient, room: Room | LocalRoom) => {
+const renderNewRoomIntro = (client: MatrixClient, room: Room | LocalRoom, as?: "li" | "div") =>
     render(
         <ScopedRoomContextProvider {...({ room, roomId: room.roomId } as unknown as RoomContextType)}>
             <LinkedTextContext.Provider value={{}}>
-                <NewRoomIntro />
+                <NewRoomIntro as={as} />
             </LinkedTextContext.Provider>
         </ScopedRoomContextProvider>,
         clientAndSDKContextRenderOptions(client, SDKContextClass.instance),
     );
-};
 
 describe("NewRoomIntro", () => {
     let client: MatrixClient;
@@ -59,6 +58,12 @@ describe("NewRoomIntro", () => {
 
     afterEach(() => {
         vi.resetAllMocks();
+    });
+
+    it("is a list item for the old timeline, and a plain block where it shares a row of a list", () => {
+        const room = new Room(roomId, client, client.getSafeUserId());
+        expect(renderNewRoomIntro(client, room).container.firstElementChild?.tagName).toBe("LI");
+        expect(renderNewRoomIntro(client, room, "div").container.firstElementChild?.tagName).toBe("DIV");
     });
 
     it("welcomes desktop channel members using the actual Matrix room name", () => {

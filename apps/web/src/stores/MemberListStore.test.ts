@@ -10,12 +10,13 @@ Please see LICENSE files in the repository root for full details.
 
 import { EventType, type IContent, type MatrixClient, MatrixEvent, Room, User } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
-import { vi, describe, it, expect, beforeEach } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { stubClient, TestSDKContext } from "test-utils";
 
 import SdkConfig from "../SdkConfig";
 import SettingsStore from "../settings/SettingsStore";
 import { MemberListStore } from "./MemberListStore";
+import { SlidingSyncManager } from "../SlidingSyncManager";
 
 describe("MemberListStore", () => {
     const alice = "@alice:bar";
@@ -202,7 +203,22 @@ describe("MemberListStore", () => {
             vi.spyOn(SettingsStore, "getValue").mockImplementation((settingName, roomId, value) => {
                 return settingName === "feature_simplified_sliding_sync"; // this is enabled, everything else is disabled.
             });
+            // The client syncs with sliding sync.
+            vi.spyOn(SlidingSyncManager.instance, "isActiveFor").mockImplementation((active) => active === client);
             client.members = vi.fn();
+        });
+
+        afterEach(() => {
+            vi.mocked(SlidingSyncManager.instance.isActiveFor).mockRestore();
+        });
+
+        it("loads members as regular sync does for a client that fell back to it", async () => {
+            vi.mocked(SlidingSyncManager.instance.isActiveFor).mockReturnValue(false);
+            vi.mocked(client.hasLazyLoadMembersEnabled).mockReturnValue(false);
+            const sdkLoad = vi.spyOn(room, "loadMembersIfNeeded");
+            await store.loadMemberList(roomId);
+            expect(client.members).not.toHaveBeenCalled();
+            expect(sdkLoad).not.toHaveBeenCalled();
         });
 
         it("shares an in-flight roster request across refreshes and applies each search separately", async () => {

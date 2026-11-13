@@ -84,7 +84,9 @@ function LayoutRadio({ layout, label }: LayoutRadioProps): JSX.Element {
                 <EventTilePreview
                     message={_t("common|preview_message")}
                     layout={layout}
-                    className="mxLayoutSwitcher_LayoutSelector_LayoutRadio_EventTilePreview"
+                    // Marked with its layout, so the tile can be styled for it without a `:has()` finding the
+                    // layout within the tile.
+                    className={`mxLayoutSwitcher_LayoutSelector_LayoutRadio_EventTilePreview mxLayoutSwitcher_LayoutSelector_LayoutRadio_EventTilePreview--${layout}`}
                     {...eventTileInfo}
                 />
             </Label>

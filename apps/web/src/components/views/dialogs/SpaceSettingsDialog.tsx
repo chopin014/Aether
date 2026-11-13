@@ -6,7 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { type Room, type MatrixClient } from "matrix-js-sdk/src/matrix";
 import {
     AdminIcon,
@@ -28,6 +28,7 @@ import AdvancedRoomSettingsTab from "../settings/tabs/room/AdvancedRoomSettingsT
 import RolesRoomSettingsTab from "../settings/tabs/room/RolesRoomSettingsTab";
 import { Action } from "../../../dispatcher/actions";
 import { type NonEmptyArray } from "../../../@types/common";
+import { SlidingSyncManager } from "../../../SlidingSyncManager";
 
 export enum SpaceSettingsTab {
     General = "SPACE_GENERAL_TAB",
@@ -43,6 +44,11 @@ interface IProps {
 }
 
 const SpaceSettingsDialog: React.FC<IProps> = ({ matrixClient: cli, space, onFinished }) => {
+    // Under sliding sync, a Space someone has not looked at has only the state the server rail needs. It stays
+    // subscribed while its settings are mounted, so their tabs fill in. Unmounting releases it, however the dialog
+    // closes.
+    useEffect(() => SlidingSyncManager.instance.holdRoom(space.roomId), [space.roomId]);
+
     useDispatcher(defaultDispatcher, (payload) => {
         if (payload.action === Action.AfterLeaveRoom && payload.room_id === space.roomId) {
             onFinished();

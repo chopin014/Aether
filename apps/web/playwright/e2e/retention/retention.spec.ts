@@ -10,6 +10,7 @@ import { rejectToastIfExists } from "@element-hq/element-web-playwright-common";
 import { isDendrite } from "../../plugins/homeserver/dendrite";
 import { test, expect } from "../../element-web-test";
 import { checkRetentionInRoom, ONE_MINUTE } from "./utils";
+import { messageList } from "../../pages/timeline";
 
 const ONE_MINUTE_STR = "60s";
 
@@ -72,9 +73,7 @@ test.describe("Retention", () => {
         await app.viewRoomByName("Test");
         const tiles = (
             await Promise.all(Array.from({ length: 5 }).map((_o, index) => bot.sendMessage(roomId, `Message ${index}`)))
-        ).map(({ event_id: evtId }) =>
-            page.locator(`.mx_RoomView_MessageList .mx_EventTile[data-event-id='${evtId}']`),
-        );
+        ).map(({ event_id: evtId }) => messageList(page).locator(`.mx_EventTile[data-event-id='${evtId}']`));
         for (const tile of tiles) {
             await expect(tile).toBeVisible();
         }
@@ -119,6 +118,6 @@ test.describe("Retention", () => {
         const { event_id: eventId } = await bot.sendMessage(roomId, `Message afterwards`);
         await app.client.sendStateEvent(roomId, "org.matrix.msc1763.retention", {});
         await page.clock.fastForward(ONE_MINUTE + 1);
-        await expect(page.locator(`.mx_RoomView_MessageList .mx_EventTile[data-event-id='${eventId}']`)).toBeVisible();
+        await expect(messageList(page).locator(`.mx_EventTile[data-event-id='${eventId}']`)).toBeVisible();
     });
 });

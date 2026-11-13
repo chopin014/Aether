@@ -5,11 +5,13 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
+// @vitest-environment happy-dom
+
 import { describe, expect, it } from "vitest";
 import { MsgType } from "matrix-js-sdk/src/matrix";
 import { mkEvent } from "test-utils";
 
-import { galleryColumns, isGalleryMedia } from "./GalleryGrouper";
+import { galleryColumns, isGalleryMedia } from "./gallery";
 
 function message(content: Record<string, unknown>): ReturnType<typeof mkEvent> {
     return mkEvent({ event: true, type: "m.room.message", room: "!room", user: "@alice:example.org", content });

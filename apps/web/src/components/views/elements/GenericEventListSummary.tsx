@@ -34,6 +34,8 @@ interface IProps {
     "children": ReactNode[] | null;
     // Called when the event list expansion is toggled
     "onToggle"?(this: void): void;
+    /** Called with whether the list is open, when it first shows and each time it opens or closes. */
+    "onExpandedChange"?(this: void, expanded: boolean): void;
     // The layout currently used
     "layout"?: Layout;
     "data-testid"?: string;
@@ -45,6 +47,7 @@ const GenericEventListSummary: React.FC<IProps> = ({
     children,
     threshold = 3,
     onToggle,
+    onExpandedChange,
     startExpanded = false,
     summaryMembers,
     getSummaryText,
@@ -59,6 +62,16 @@ const GenericEventListSummary: React.FC<IProps> = ({
             onToggle();
         }
     }, [expanded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Say whether the list is open when it first shows. Each change after that is told as it is made, in `toggle`, so
+    // the summary can give the list its latest tiles in the same render as it opens.
+    useEffect(() => {
+        onExpandedChange?.(expanded);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    const toggle = (): void => {
+        onExpandedChange?.(!expanded);
+        toggleExpanded();
+    };
 
     const eventIds = events.map((e) => e.getId()).join(",");
 
@@ -105,7 +118,7 @@ const GenericEventListSummary: React.FC<IProps> = ({
                     {/* We break the rule here as this is a mouse-only interaction */}
                     {/* mx_GenericEventListSummary_toggle is the keyboard friendly outer one */}
                     {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events */}
-                    <span className="mx_GenericEventListSummary_avatars" onClick={toggleExpanded}>
+                    <span className="mx_GenericEventListSummary_avatars" onClick={toggle}>
                         {avatars}
                     </span>
                     <span className="mx_TextualEvent mx_GenericEventListSummary_summary">{getSummaryText()}</span>
@@ -125,7 +138,7 @@ const GenericEventListSummary: React.FC<IProps> = ({
             <AccessibleButton
                 kind="link_inline"
                 className="mx_GenericEventListSummary_toggle"
-                onClick={toggleExpanded}
+                onClick={toggle}
                 aria-expanded={expanded}
             >
                 {expanded ? _t("action|collapse") : _t("action|expand")}

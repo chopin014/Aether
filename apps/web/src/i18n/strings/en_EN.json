@@ -6,9 +6,17 @@
             "one": "1 unread message.",
             "other": "%(count)s unread messages."
         },
+        "n_unread_messages_at_least": {
+            "one": "At least 1 unread message.",
+            "other": "At least %(count)s unread messages."
+        },
         "n_unread_messages_mentions": {
             "one": "1 unread mention.",
             "other": "%(count)s unread messages including mentions."
+        },
+        "n_unread_messages_mentions_at_least": {
+            "one": "At least 1 unread mention.",
+            "other": "At least %(count)s unread messages including mentions."
         },
         "room_status_bar": "Room status bar",
         "seek_bar_label": "Audio seek bar",
@@ -1041,6 +1049,7 @@
         "room_notifications_thread_id": "Thread Id: ",
         "room_notifications_total": "Total: ",
         "room_notifications_type": "Type: ",
+        "room_state_loaded_only": "Could not load all of this room's state from the server, so only the state this device has is shown.",
         "room_status": "Room status",
         "room_unread_status_count": {
             "one": "Room unread status: <strong>%(status)s</strong>, count: <strong>%(count)s</strong>",
@@ -1740,8 +1749,7 @@
         "render_reaction_images": "Render custom images in reactions",
         "render_reaction_images_description": "Sometimes referred to as \"custom emojis\".",
         "sliding_sync": "Sliding Sync mode",
-        "sliding_sync_description": "Under active development, cannot be disabled. Currently, not compatible with Element Call.",
-        "sliding_sync_disabled_notice": "Sign in again to disable",
+        "sliding_sync_description": "Used where your server offers it. Turning it off reloads the app, which catches up with regular sync.",
         "sliding_sync_server_no_support": "Your server lacks support",
         "unrealiable_e2e": "Unreliable in encrypted rooms",
         "url_preview_bundle": "URL Preview Bundle (MSC4095)",
@@ -3532,17 +3540,33 @@
                 "one": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with 1 unread mention.",
                 "other": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with %(count)s unread messages including mentions."
             },
+            "mention_at_least": {
+                "one": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with at least 1 unread mention.",
+                "other": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with at least %(count)s unread messages including mentions."
+            },
             "mention_no_sender": {
                 "one": "Open thread in %(roomName)s with 1 unread mention.",
                 "other": "Open thread in %(roomName)s with %(count)s unread messages including mentions."
+            },
+            "mention_no_sender_at_least": {
+                "one": "Open thread in %(roomName)s with at least 1 unread mention.",
+                "other": "Open thread in %(roomName)s with at least %(count)s unread messages including mentions."
             },
             "unread": {
                 "one": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with 1 unread message.",
                 "other": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with %(count)s unread messages."
             },
+            "unread_at_least": {
+                "one": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with at least 1 unread message.",
+                "other": "Open thread in %(roomName)s from %(sender)s: %(preview)s, with at least %(count)s unread messages."
+            },
             "unread_no_sender": {
                 "one": "Open thread in %(roomName)s with 1 unread message.",
                 "other": "Open thread in %(roomName)s with %(count)s unread messages."
+            },
+            "unread_no_sender_at_least": {
+                "one": "Open thread in %(roomName)s with at least 1 unread message.",
+                "other": "Open thread in %(roomName)s with at least %(count)s unread messages."
             }
         },
         "header": "Threads activity",
@@ -4141,6 +4165,7 @@
         "already_in_call_person": "You're already in a call with this person.",
         "answered_elsewhere": "Answered Elsewhere",
         "answered_elsewhere_description": "The call was answered on another device.",
+        "call_area": "Call",
         "call_failed": "Call Failed",
         "call_failed_description": "The call could not be established",
         "call_failed_media": "Call failed because webcam or microphone could not be accessed. Check that:",

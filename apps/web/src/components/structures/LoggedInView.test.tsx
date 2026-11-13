@@ -20,6 +20,8 @@ import {
     ClientEvent,
     PushRuleKind,
     ProfileKeyTimezone,
+    Room,
+    RoomStateEvent,
     ProfileKeyMSC4175Timezone,
     SyncState,
     MatrixError,
@@ -53,6 +55,8 @@ import Modal from "../../Modal";
 import { SETTINGS } from "../../settings/Settings";
 import ToastStore from "../../stores/ToastStore";
 import { ModuleApi } from "../../modules/Api";
+import RoomListStoreV3 from "../../stores/room-list-v3/RoomListStoreV3";
+import { DefaultTagID } from "../../stores/room-list-v3/skip-list/tag";
 
 vi.mock("../views/voip/prepareElementCall", () => ({ prepareElementCall: vi.fn(() => vi.fn()) }));
 
@@ -709,6 +713,28 @@ describe("<LoggedInView />", () => {
             );
             mockClient.emit(ClientEvent.Sync, SyncState.Prepared, null, undefined);
             expect(dismissToast).toHaveBeenCalledWith("serverlimit");
+        });
+    });
+
+    describe("server notices", () => {
+        it("looks for server notice rooms only for state in a room that is one", () => {
+            const getServerNoticeRooms = vi.spyOn(RoomListStoreV3.instance, "getServerNoticeRooms").mockReturnValue([]);
+            const plain = new Room("!plain:domain.org", mockClient, userId);
+            const notices = new Room("!notices:domain.org", mockClient, userId);
+            notices.tags = { [DefaultTagID.ServerNotice]: {} };
+            mockClient.getRoom.mockImplementation(
+                (roomId) => [plain, notices].find((r) => r.roomId === roomId) ?? null,
+            );
+            const topic = (room: Room): MatrixEvent =>
+                new MatrixEvent({ type: EventType.RoomTopic, state_key: "", room_id: room.roomId, content: {} });
+            getComponent();
+            getServerNoticeRooms.mockClear();
+
+            mockClient.emit(RoomStateEvent.Events, topic(plain), plain.currentState, null);
+            expect(getServerNoticeRooms).not.toHaveBeenCalled();
+
+            mockClient.emit(RoomStateEvent.Events, topic(notices), notices.currentState, null);
+            expect(getServerNoticeRooms).toHaveBeenCalled();
         });
     });
 
