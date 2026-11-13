@@ -163,4 +163,63 @@ describe("<SpaceMenuView />", () => {
         const separators = screen.getByRole("menu").querySelectorAll("[data-orientation=horizontal]");
         expect(separators).toHaveLength(permissions.canCreateRoom || permissions.canCreateVideoRoom ? 2 : 1);
     });
+
+    describe("server entries", () => {
+        function makeVm(serverMenu = { canCreateCategory: true, hideMutedChannels: false }) {
+            return Object.assign(new MockedViewModel({ ...defaultSnapshot, canCreateRoom: true, serverMenu }), {
+                createCategory: vi.fn(),
+                toggleHideMutedChannels: vi.fn(),
+            });
+        }
+
+        it("creates a category and hides muted channels from the keyboard", async () => {
+            const user = userEvent.setup();
+            const vm = makeVm();
+            render(<SpaceMenuView vm={vm} fullWidth />);
+            screen.getByRole("button", { name: "Open server menu" }).focus();
+            await user.keyboard("{Enter}");
+            screen.getByRole("menuitem", { name: "Create category" }).focus();
+            await user.keyboard("{Enter}");
+            expect(vm.createCategory).toHaveBeenCalled();
+
+            screen.getByRole("button", { name: "Open server menu" }).focus();
+            await user.keyboard("{Enter}");
+            const hide = screen.getByRole("menuitemcheckbox", { name: "Hide muted channels" });
+            expect(hide).not.toBeChecked();
+            hide.focus();
+            await user.keyboard("{Enter}");
+            expect(vm.toggleHideMutedChannels).toHaveBeenCalled();
+        });
+
+        it("offers creating categories to people who may edit the layout but not create rooms", async () => {
+            const user = userEvent.setup();
+            const vm = Object.assign(
+                new MockedViewModel({
+                    ...defaultSnapshot,
+                    canCreateRoom: false,
+                    canCreateVideoRoom: false,
+                    serverMenu: { canCreateCategory: true, hideMutedChannels: false },
+                }),
+                { createCategory: vi.fn(), toggleHideMutedChannels: vi.fn() },
+            );
+            render(<SpaceMenuView vm={vm} fullWidth />);
+            await user.click(screen.getByRole("button", { name: "Open server menu" }));
+            expect(screen.getByRole("menuitem", { name: "Create category" })).toBeInTheDocument();
+        });
+
+        it("leaves out creating categories for people who can't", async () => {
+            const user = userEvent.setup();
+            render(<SpaceMenuView vm={makeVm({ canCreateCategory: false, hideMutedChannels: true })} fullWidth />);
+            await user.click(screen.getByRole("button", { name: "Open server menu" }));
+            expect(screen.queryByRole("menuitem", { name: "Create category" })).toBeNull();
+            expect(screen.getByRole("menuitemcheckbox", { name: "Hide muted channels" })).toBeChecked();
+        });
+
+        it("has no server entries outside a server", async () => {
+            const user = userEvent.setup();
+            render(<SpaceMenuView vm={new MockedViewModel(defaultSnapshot)} fullWidth />);
+            await user.click(screen.getByRole("button", { name: "Open server menu" }));
+            expect(screen.queryByRole("menuitemcheckbox", { name: "Hide muted channels" })).toBeNull();
+        });
+    });
 });

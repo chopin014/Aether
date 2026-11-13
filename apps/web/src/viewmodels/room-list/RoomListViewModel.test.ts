@@ -8,7 +8,14 @@
 // @vitest-environment happy-dom
 
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
-import { KnownMembership, type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
+import {
+    KnownMembership,
+    type MatrixClient,
+    MatrixEvent,
+    type Room,
+    Room as RealRoom,
+    RoomStateEvent,
+} from "matrix-js-sdk/src/matrix";
 import { waitFor } from "test-utils-rtl";
 import {
     createTestClient,
@@ -25,7 +32,18 @@ import dispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
 import DMRoomMap from "../../utils/DMRoomMap";
-import { DESKTOP_TEXT_CHANNELS, DESKTOP_VOICE_CHANNELS } from "./DesktopChannelSections";
+import {
+    categoryTag,
+    DESKTOP_TEXT_CHANNELS,
+    DESKTOP_UNCATEGORIZED,
+    DESKTOP_VOICE_CHANNELS,
+} from "./DesktopChannelSections";
+import * as serverCategories from "./serverCategories";
+import * as spaceUtils from "../../utils/space";
+import * as spaceLayoutActions from "../../stores/space-layout/spaceLayoutActions";
+import { SpaceLayoutStore } from "../../stores/space-layout/SpaceLayoutStore";
+import { SPACE_CATEGORY_EVENT_TYPE, SPACE_CHANNEL_EVENT_TYPE } from "../../stores/space-layout/SpaceLayout";
+import { MatrixClientPeg } from "../../MatrixClientPeg";
 
 import { RoomListViewModel } from "./RoomListViewModel";
 import { PreviewRoomListItemViewModel } from "./PreviewRoomListItemViewModel";
@@ -206,6 +224,219 @@ describe("RoomListViewModel", () => {
             });
 
             expect(viewModel.getSnapshot().canCreateRoom).toBe(true);
+        });
+    });
+
+    describe("Server categories", () => {
+        const SPACE_ID = "!server:example.org";
+        const CATEGORY = "c_7e50cc0b-4fb5-4ed0-89db-769fb11c837e";
+        let space: RealRoom;
+
+        function setState(type: string, stateKey: string, content: Record<string, unknown>): void {
+            const event = new MatrixEvent({
+                type,
+                state_key: stateKey,
+                room_id: SPACE_ID,
+                sender: "@admin:example.org",
+                content,
+            });
+            space.currentState.setStateEvents([event]);
+            matrixClient.emit(RoomStateEvent.Events, event, space.currentState, null);
+        }
+
+        function createViewModel(): RoomListViewModel {
+            return new RoomListViewModel({
+                client: matrixClient,
+                spaceStore: SDKContextClass.instance.spaceStore,
+                roomViewStore: SDKContextClass.instance.roomViewStore,
+            });
+        }
+
+        beforeEach(() => {
+            const getValue = vi.mocked(SettingsStore.getValue).getMockImplementation()!;
+            vi.mocked(SettingsStore.getValue).mockImplementation((setting, ...args) =>
+                setting === "feature_desktop_shell" ? true : getValue(setting, ...args),
+            );
+            space = new RealRoom(SPACE_ID, matrixClient, "@userId:matrix.org");
+            vi.spyOn(space, "getMyMembership").mockReturnValue(KnownMembership.Join);
+            vi.spyOn(space.currentState, "maySendStateEvent").mockReturnValue(true);
+            vi.mocked(matrixClient.getRoom).mockImplementation((roomId) =>
+                roomId === SPACE_ID ? space : ([room1, room2, room3].find((room) => room.roomId === roomId) ?? null),
+            );
+            vi.spyOn(MatrixClientPeg, "get").mockReturnValue(matrixClient);
+            vi.mocked(room2.isCallRoom).mockReturnValue(true);
+            vi.mocked(RoomListStoreV3.instance.getSortedRoomsInActiveSpace).mockReturnValue({
+                spaceId: SPACE_ID,
+                sections: [{ tag: CHATS_TAG, rooms: [room1, room2, room3] }],
+            });
+        });
+
+        it("offers the channel list's menu with what the person may do", () => {
+            vi.mocked(hasCreateRoomRights).mockReturnValue(true);
+            vi.spyOn(spaceUtils, "shouldShowSpaceInvite").mockReturnValue(false);
+            viewModel = createViewModel();
+            RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
+            expect(viewModel.getSnapshot().channelListMenu).toEqual({
+                hideMutedChannels: false,
+                canCreateChannel: true,
+                canCreateCategory: true,
+                canInvite: false,
+            });
+        });
+
+        it("has no channel list menu outside a server", () => {
+            vi.mocked(RoomListStoreV3.instance.getSortedRoomsInActiveSpace).mockReturnValue({
+                spaceId: MetaSpace.Home,
+                sections: [{ tag: CHATS_TAG, rooms: [room1] }],
+            });
+            viewModel = createViewModel();
+            RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
+            expect(viewModel.getSnapshot().channelListMenu).toBeUndefined();
+        });
+
+        it("runs the channel list menu's actions on the open server", () => {
+            const toggle = vi.spyOn(SpaceLayoutStore.instance, "setHidingMutedChannels").mockResolvedValue();
+            const create = vi.spyOn(spaceUtils, "showCreateNewRoom").mockResolvedValue(true);
+            const invite = vi.spyOn(spaceUtils, "showSpaceInvite").mockImplementation(() => {});
+            const category = vi.spyOn(serverCategories, "showCreateCategory").mockImplementation(() => {});
+            viewModel = createViewModel();
+            viewModel.toggleHideMutedChannels();
+            viewModel.createChannel();
+            viewModel.createCategory();
+            viewModel.inviteToServer();
+            expect(toggle).toHaveBeenCalledWith(space, true);
+            expect(create).toHaveBeenCalledWith(space);
+            expect(category).toHaveBeenCalledWith(space);
+            expect(invite).toHaveBeenCalledWith(space);
+        });
+
+        it("follows edits to the server's layout from any member", async () => {
+            viewModel = createViewModel();
+            RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
+            await flushPromises();
+            setState(SPACE_CATEGORY_EVENT_TYPE, CATEGORY, { v: 1, name: "Governo", order: "A" });
+            setState(SPACE_CHANNEL_EVENT_TYPE, room3.roomId, { v: 1, category: CATEGORY, order: "B" });
+            await flushPromises();
+            expect(viewModel.getSnapshot().sections).toEqual([
+                { id: categoryTag(CATEGORY), roomIds: [room3.roomId] },
+                { id: DESKTOP_TEXT_CHANNELS, roomIds: [room1.roomId] },
+                { id: DESKTOP_VOICE_CHANNELS, roomIds: [room2.roomId] },
+            ]);
+            const header = viewModel.getSectionHeaderViewModel(categoryTag(CATEGORY));
+            expect(header.getSnapshot()).toMatchObject({
+                title: "Governo",
+                categoryMenu: { canEdit: true },
+                canBeReordered: true,
+                acceptedRoomKind: "nonDm",
+            });
+        });
+
+        it("shows empty categories only to the people who can fill them", async () => {
+            setState(SPACE_CATEGORY_EVENT_TYPE, CATEGORY, { v: 1, name: "Empty", order: "A" });
+            viewModel = createViewModel();
+            RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
+            await flushPromises();
+            expect(viewModel.getSnapshot().sections[0]).toEqual({ id: categoryTag(CATEGORY), roomIds: [] });
+
+            vi.mocked(space.currentState.maySendStateEvent).mockReturnValue(false);
+            RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
+            await flushPromises();
+            expect(viewModel.getSnapshot().sections.map((section) => section.id)).not.toContain(categoryTag(CATEGORY));
+            expect(viewModel.getSectionHeaderViewModel(DESKTOP_TEXT_CHANNELS).getSnapshot()).toMatchObject({
+                categoryMenu: { canEdit: false },
+                acceptedRoomKind: "none",
+            });
+        });
+
+        it("keeps the open channel and unread channels in view when their category is collapsed", async () => {
+            const state = (unread: boolean): RoomNotificationState =>
+                ({
+                    hasAnyNotificationOrActivity: unread,
+                    isMention: false,
+                    on: vi.fn(),
+                    off: vi.fn(),
+                }) as unknown as RoomNotificationState;
+            const unread = state(true);
+            const read = state(false);
+            vi.spyOn(RoomNotificationStateStore.instance, "getRoomState").mockImplementation((room) =>
+                room === room3 ? unread : read,
+            );
+            vi.mocked(room2.isCallRoom).mockReturnValue(false);
+            const extra = mkStubRoom("!room4:server", "Room 4", matrixClient);
+            vi.mocked(RoomListStoreV3.instance.getSortedRoomsInActiveSpace).mockReturnValue({
+                spaceId: SPACE_ID,
+                sections: [{ tag: CHATS_TAG, rooms: [room1, room2, room3, extra] }],
+            });
+            vi.mocked(SDKContextClass.instance.roomViewStore.getRoomId).mockReturnValue(room1.roomId);
+            viewModel = createViewModel();
+            RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
+            await flushPromises();
+            await viewModel.getSectionHeaderViewModel(DESKTOP_TEXT_CHANNELS).onClick();
+            expect(viewModel.getSnapshot().sections[0]).toEqual({
+                id: DESKTOP_TEXT_CHANNELS,
+                roomIds: [room1.roomId, room3.roomId],
+            });
+        });
+
+        it("never collapses the channels outside any category", async () => {
+            setState(SPACE_CHANNEL_EVENT_TYPE, room1.roomId, { v: 1, category: null, order: "B" });
+            viewModel = createViewModel();
+            RoomListStoreV3.instance.emit(RoomListStoreV3Event.ListsUpdate);
+            await flushPromises();
+            dispatcher.dispatch({ action: Action.RoomListCollapseAllSections }, true);
+            await flushPromises();
+            viewModel.onSectionOrRoomDragStart();
+            expect(viewModel.getSectionHeaderViewModel(DESKTOP_UNCATEGORIZED).isExpanded).toBe(true);
+            expect(viewModel.getSnapshot().sections[0]).toMatchObject({
+                id: DESKTOP_UNCATEGORIZED,
+                roomIds: [room1.roomId],
+            });
+            viewModel.onSectionOrRoomDragEnd();
+        });
+
+        it("shows a server's categories instead of its empty state when it has no channels yet", async () => {
+            vi.mocked(RoomListStoreV3.instance.getSortedRoomsInActiveSpace).mockReturnValue({
+                spaceId: SPACE_ID,
+                sections: [{ tag: CHATS_TAG, rooms: [] }],
+            });
+            viewModel = createViewModel();
+            // The untouched built-in categories make way for the empty state.
+            expect(viewModel.getSnapshot().isRoomListEmpty).toBe(true);
+
+            setState(SPACE_CATEGORY_EVENT_TYPE, CATEGORY, { v: 1, name: "Governo", order: "A" });
+            await flushPromises();
+            expect(viewModel.getSnapshot().isRoomListEmpty).toBe(false);
+            expect(viewModel.getSnapshot().sections.map((section) => section.id)).toEqual([categoryTag(CATEGORY)]);
+        });
+
+        it("moves a channel dropped on a category into it, without tagging the room", () => {
+            const move = vi.spyOn(spaceLayoutActions, "moveChannel").mockResolvedValue();
+            viewModel = createViewModel();
+            viewModel.changeRoomSection(room1.roomId, categoryTag(CATEGORY));
+            expect(move).toHaveBeenCalledWith(space, room1.roomId, CATEGORY);
+            expect(tagRoom).not.toHaveBeenCalled();
+        });
+
+        it("reorders categories the way sections are reordered", async () => {
+            const move = vi.spyOn(spaceLayoutActions, "moveCategory").mockResolvedValue();
+            viewModel = createViewModel();
+            await viewModel.changeSectionOrder(DESKTOP_VOICE_CHANNELS, DESKTOP_TEXT_CHANNELS);
+            expect(move).toHaveBeenLastCalledWith(space, "builtin.voice", { anchor: "builtin.text", side: "before" });
+            await viewModel.changeSectionOrder(DESKTOP_TEXT_CHANNELS, DESKTOP_VOICE_CHANNELS);
+            expect(move).toHaveBeenLastCalledWith(space, "builtin.text", { anchor: "builtin.voice", side: "after" });
+            // A category can't trade places with one of the person's own sections.
+            move.mockClear();
+            await viewModel.changeSectionOrder(DESKTOP_TEXT_CHANNELS, DefaultTagID.Favourite);
+            expect(move).not.toHaveBeenCalled();
+        });
+
+        it("tells the person when the server refuses a change", async () => {
+            vi.spyOn(spaceLayoutActions, "moveChannel").mockRejectedValue(new Error("M_FORBIDDEN"));
+            const report = vi.spyOn(serverCategories, "reportLayoutError").mockImplementation(() => {});
+            viewModel = createViewModel();
+            viewModel.changeRoomSection(room1.roomId, categoryTag(CATEGORY));
+            await flushPromises();
+            expect(report).toHaveBeenCalled();
         });
     });
 

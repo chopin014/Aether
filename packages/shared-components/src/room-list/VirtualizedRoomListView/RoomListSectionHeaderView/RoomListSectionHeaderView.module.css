@@ -105,6 +105,11 @@
     text-overflow: ellipsis;
 }
 
+/* The gap left where a section without a header starts. */
+.hiddenHeader {
+    height: var(--cpd-space-2x);
+}
+
 .firstHeader {
     padding-top: 0;
 }

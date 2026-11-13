@@ -7,7 +7,7 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import React from "react";
-import { type Room, type ICreateRoomStateEvent, type RoomType, EventType, JoinRule } from "matrix-js-sdk/src/matrix";
+import { type Room, type ICreateRoomStateEvent, RoomType, EventType, JoinRule } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { logger } from "matrix-js-sdk/src/logger";
 
@@ -29,6 +29,8 @@ import { UIComponent } from "../settings/UIFeature";
 import { type OpenSpaceSettingsPayload } from "../dispatcher/payloads/OpenSpaceSettingsPayload";
 import { type OpenAddExistingToSpaceDialogPayload } from "../dispatcher/payloads/OpenAddExistingToSpaceDialogPayload";
 import { SDKContextClass } from "../contexts/SDKContextClass";
+import { BUILTIN_TEXT_CATEGORY, BUILTIN_VOICE_CATEGORY } from "../stores/space-layout/SpaceLayout";
+import { moveChannel } from "../stores/space-layout/spaceLayoutActions";
 
 export const shouldShowSpaceSettings = (space: Room): boolean => {
     const userId = space.client.getUserId()!;
@@ -72,12 +74,14 @@ export interface CreateNewRoomSection {
     sectionTag?: string;
     /** The section's name, shown in the dialog. */
     sectionName?: string;
+    /** The server category to place the new channel in, for everyone in the server. */
+    categoryId?: string;
 }
 
 export const showCreateNewRoom = async (
     space: Room,
     type?: RoomType,
-    { sectionTag, sectionName }: CreateNewRoomSection = {},
+    { sectionTag, sectionName, categoryId }: CreateNewRoomSection = {},
 ): Promise<boolean> => {
     const modal = Modal.createDialog(CreateRoomDialog, {
         type,
@@ -88,6 +92,14 @@ export const showCreateNewRoom = async (
     const [shouldCreate, opts] = await modal.finished;
     if (shouldCreate) {
         const roomId = await createRoom(space.client, opts!);
+        // A channel goes to the built-in category of its kind by itself; any other category needs it placed.
+        const isVoice = opts?.roomType === RoomType.UnstableCall || opts?.roomType === RoomType.ElementVideo;
+        const builtin = isVoice ? BUILTIN_VOICE_CATEGORY : BUILTIN_TEXT_CATEGORY;
+        if (roomId && categoryId && categoryId !== builtin) {
+            await moveChannel(space, roomId, categoryId).catch((error) =>
+                logger.warn(`Failed to place ${roomId} in category ${categoryId}`, error),
+            );
+        }
         if (roomId && sectionTag) {
             // The room exists by now, so failing to file it only leaves it in its default section.
             await space.client

@@ -775,6 +775,16 @@
             "fallback_microphone": "Microphone %(index)s",
             "fallback_speaker": "Speaker %(index)s"
         },
+        "categories": {
+            "create": "Create category",
+            "delete": "Delete category",
+            "delete_description": "Are you sure you want to delete %(category)s? Its channels move to the top of the list. This cannot be undone.",
+            "delete_title": "Delete category",
+            "edit": "Edit category",
+            "error_description": "The server didn't accept the change to its channel list. Check that you are still allowed to manage it, then try again.",
+            "error_title": "Couldn't change the channel list",
+            "save_failed": "Couldn't save the category. Try again."
+        },
         "channel_settings": {
             "aria_label": "Channel settings for %(roomName)s",
             "group_access": "Access",

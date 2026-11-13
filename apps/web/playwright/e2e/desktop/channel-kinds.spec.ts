@@ -10,15 +10,14 @@ import { type Page } from "@playwright/test";
 
 import { test as base, expect } from "../../element-web-test";
 import { readSampleFileSync } from "../../sample-files";
-import { SettingLevel } from "../../../src/settings/SettingLevel";
 
 const CAPTURES = "/tmp/aether-channel-kinds-captures";
 const SPACE = "Terra do boi gordo";
-const SECTION = "element.io.section.voz";
+const CATEGORY = "c_00000000-0000-4000-8000-00000000a0a0";
 
 /**
- * A Space whose text and voice channels share one custom icon, with a custom "Voz" section holding two voice
- * channels, as people set them up.
+ * A Space whose text and voice channels share one custom icon, with a "Voz" category holding two voice channels, as
+ * people set them up.
  */
 const test = base.extend<{ spaceId: string }>({
     spaceId: async ({ page, app, user }, use) => {
@@ -44,18 +43,26 @@ const test = base.extend<{ spaceId: string }>({
                 content: { via: [user.homeServer] },
             })),
         });
-        await page.evaluate(
-            async ({ tag, spaceId, level }) => {
-                await window.mxSettingsStore.setValue("RoomList.CustomSectionData", null, level, {
-                    [tag]: { tag, name: "Voz", spaceId },
-                });
-                await window.mxSettingsStore.setValue("RoomList.OrderedCustomSections", null, level, [tag, "chats"]);
-            },
-            { tag: SECTION, spaceId, level: SettingLevel.ACCOUNT },
-        );
+        // "Voz" is a server category holding the two Geral voice channels.
         await app.client.evaluate(
-            (client, { rooms, tag }) => Promise.all(rooms.map((id) => client.setRoomTag(id, tag, {}))),
-            { rooms: rooms.slice(3), tag: SECTION },
+            (client, { spaceId, category, rooms }) =>
+                Promise.all([
+                    client.sendStateEvent(
+                        spaceId,
+                        "io.aether.space.category" as never,
+                        { v: 1, name: "Voz", order: "z" } as never,
+                        category,
+                    ),
+                    ...rooms.map((roomId, i) =>
+                        client.sendStateEvent(
+                            spaceId,
+                            "io.aether.space.channel" as never,
+                            { v: 1, category, order: `B${i + 1}` } as never,
+                            roomId,
+                        ),
+                    ),
+                ]),
+            { spaceId, category: CATEGORY, rooms: rooms.slice(3) },
         );
         await app.viewSpaceByName(SPACE);
         await expect(roomList(page).getByRole("button", { name: /Open room Geral#2/ })).toBeVisible();
@@ -106,7 +113,7 @@ test("marks every channel with its kind, beside its custom icon", { tag: "@scree
 });
 
 test("creates a channel of either kind from any section", async ({ page, app, spaceId }) => {
-    // A custom section of voice channels offers another voice channel, and keeps the one created in it.
+    // A category of voice channels offers another voice channel, and keeps the one created in it.
     await roomList(page).getByRole("button", { name: "Create channel in Voz" }).click();
     await expect(dialog(page)).toBeVisible();
     await expect(dialog(page).getByText("in Voz")).toBeVisible();
@@ -119,12 +126,15 @@ test("creates a channel of either kind from any section", async ({ page, app, sp
     await expect(channel(page, "Geral#3").getByTestId("channel-kind-voice")).toBeVisible({ timeout: 15_000 });
     await expect
         .poll(() =>
-            app.client.evaluate((client) => {
+            app.client.evaluate((client, spaceId) => {
                 const room = client.getRooms().find((room) => room.name === "Geral#3");
-                return room && [room.getType(), Object.keys(room.tags)];
-            }),
+                const placement = room
+                    ? client.getRoom(spaceId)?.currentState.getStateEvents("io.aether.space.channel", room.roomId)
+                    : undefined;
+                return room && [room.getType(), placement?.getContent().category];
+            }, spaceId),
         )
-        .toEqual(["org.matrix.msc3417.call", [SECTION]]);
+        .toEqual(["org.matrix.msc3417.call", CATEGORY]);
     // Creating a voice channel does not join its call.
     await expect(page.getByTestId("aether-call-stage")).toHaveCount(0);
 

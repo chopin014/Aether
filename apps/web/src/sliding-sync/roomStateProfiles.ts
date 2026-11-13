@@ -27,6 +27,7 @@ import {
 import { JitsiCallMemberEventType } from "../call-types";
 import { SOUNDBOARD_EVENT } from "../audio/soundboard/Soundboard";
 import { SPACE_TAG_EVENT_TYPE } from "../profile/spaceTag";
+import { SPACE_LAYOUT_EVENT_TYPES } from "../stores/space-layout/SpaceLayout";
 import { VOICE_STATE_EVENT_TYPE } from "../utils/call/publishedVoiceState";
 import { WIDGET_LAYOUT_EVENT_TYPE } from "../stores/widgets/types";
 
@@ -60,6 +61,8 @@ export const CATALOG_STATE: string[][] = [
     [EventType.SpaceChild, MSC3575_WILDCARD], // all space children
     [EventType.SpaceParent, MSC3575_WILDCARD], // all space parents
     [SPACE_TAG_EVENT_TYPE, ""], // a server's tag, shown on its members' profiles
+    // A server's categories and where its channels sit in them, so the channel list is laid out before it opens.
+    ...SPACE_LAYOUT_EVENT_TYPES.map((type) => [type, MSC3575_WILDCARD]),
     [EventType.RoomMember, MSC3575_STATE_KEY_ME], // lets the client calculate that we are in fact in the room
     [EventType.RoomMember, MSC3575_STATE_KEY_LAZY], // names and avatars for cached timeline senders
     // Who may notify everyone: without it, an @room mention neither highlights nor notifies in a listed room.

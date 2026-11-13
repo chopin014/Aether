@@ -186,12 +186,36 @@
             "your_stream_suffix": "%(name)s (Your Stream)",
             "your_stream_watching": "You are sharing your screen"
         },
+        "category_dialog": {
+            "create": "Create category",
+            "create_title": "Create category",
+            "name_label": "Category name",
+            "name_placeholder": "New category",
+            "rename_title": "Edit category",
+            "save": "Save"
+        },
+        "category_menu": {
+            "collapse": "Collapse category",
+            "collapse_all": "Collapse all categories",
+            "create_channel": "Create channel",
+            "delete": "Delete category",
+            "edit": "Edit category",
+            "mark_read": "Mark as read",
+            "title": "%(category)s options"
+        },
         "channel_kind": {
             "text": "Text",
             "text_description": "Send messages, images, files and threads",
             "title": "Channel type",
             "voice": "Voice",
             "voice_description": "Talk together with voice, video and screen sharing"
+        },
+        "channel_list_menu": {
+            "create_category": "Create category",
+            "create_channel": "Create channel",
+            "hide_muted": "Hide muted channels",
+            "invite": "Invite to server",
+            "title": "Channel list options"
         },
         "channel_menu": {
             "copy_link": "Copy link",

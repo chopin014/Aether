@@ -80,6 +80,16 @@ export interface RoomListHeaderViewSnapshot {
      *  Whether to display the section release announcement
      */
     displaySectionReleaseAnnouncement: boolean;
+    /** The server entries of a desktop server's menu; absent outside a server. */
+    serverMenu?: ServerMenuSnapshot;
+}
+
+/** What a desktop server's menu offers beyond Element's space menu. */
+export interface ServerMenuSnapshot {
+    /** Whether the person may create categories in the server. */
+    canCreateCategory: boolean;
+    /** Whether the person hides the server's muted channels. */
+    hideMutedChannels: boolean;
 }
 
 export interface RoomListHeaderViewActions {
@@ -127,6 +137,10 @@ export interface RoomListHeaderViewActions {
      * Close the section release announcement
      */
     closeSectionReleaseAnnouncement: () => void;
+    /** Create a category in the server. */
+    createCategory?: () => void;
+    /** Hide or show the server's muted channels. */
+    toggleHideMutedChannels?: () => void;
 }
 
 /**
