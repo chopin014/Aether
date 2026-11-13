@@ -72,6 +72,7 @@ exports[`<RoomListSectionHeaderView /> stories > renders Default story 1`] = `
                 style="--cpd-icon-button-size: 100%;"
               >
                 <svg
+                  class="RoomListSectionHeaderView-module_icon"
                   fill="var(--cpd-color-icon-primary)"
                   height="1em"
                   viewBox="0 0 24 24"

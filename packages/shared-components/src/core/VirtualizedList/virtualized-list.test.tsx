@@ -840,3 +840,74 @@ describe.each<ListTestVariant>([flatVariant, groupedVariant])("$name", (variant)
         });
     });
 });
+
+describe("GroupedVirtualizedList pinned section header", () => {
+    const groups = [0, 1].map((group) => ({
+        header: { id: `header-${group}`, name: `Group ${group}` },
+        items: Array.from({ length: 5 }, (_, i) => ({ id: `item-${group}-${i}`, name: `Item ${group}-${i}` })),
+    }));
+
+    const renderGrouped = (data: typeof groups, extraProps: Record<string, unknown> = {}): React.JSX.Element => (
+        <GroupedVirtualizedList<TestGroupHeader, TestItem, undefined>
+            {...extraProps}
+            groups={data}
+            getItemComponent={(_index, item) => <div className="mx_item">{item.name}</div>}
+            getGroupHeaderComponent={(_index, header) => <div className="mx_group_header">{header.name}</div>}
+            renderStickyHeader={(_index, header) => <span data-testid="pinned">{header.name}</span>}
+            isGroupHeaderFocusable={() => true}
+            isItemFocusable={() => true}
+            getItemKey={(item) => item.id}
+            getHeaderKey={(header) => header.id}
+            role="grid"
+            aria-rowcount={12}
+            aria-colcount={1}
+        />
+    );
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it("pins the section at the top as the list scrolls, and keeps it through a re-render without reading layout", () => {
+        const { rerender } = render(renderGrouped(groups), { wrapper: virtuosoWrapper });
+        expect(screen.getByTestId("pinned")).toHaveTextContent("Group 0");
+
+        // Each row is 56px: the second section's header starts at 6 * 56 = 336px.
+        const scroller = screen.getByRole("grid");
+        fireEvent.scroll(scroller, { target: { scrollTop: 340 } });
+        expect(screen.getByTestId("pinned")).toHaveTextContent("Group 1");
+
+        // A re-render, as when a room is opened, keeps the section from the last scroll and reads no layout for it.
+        const reads = vi.spyOn(scroller, "scrollTop", "get");
+        rerender(renderGrouped(groups.map((group) => ({ ...group }))));
+        expect(screen.getByTestId("pinned")).toHaveTextContent("Group 1");
+        expect(reads).not.toHaveBeenCalled();
+    });
+
+    it("keeps the scroll position when the scroller's ref is replaced on the same element", () => {
+        // Rows rendered above the viewport, so a position forgotten back to the top would pin the first section.
+        const shortViewport = ({ children }: PropsWithChildren): React.JSX.Element => (
+            <VirtuosoMockContext.Provider value={{ viewportHeight: 200, itemHeight: 56 }}>
+                {children}
+            </VirtuosoMockContext.Provider>
+        );
+        const overscan = { increaseViewportBy: { top: 400, bottom: 0 } };
+        const { rerender } = render(renderGrouped(groups, { ...overscan, scrollerRef: () => {} }), {
+            wrapper: shortViewport,
+        });
+        const scroller = screen.getByRole("grid");
+        fireEvent.scroll(scroller, { target: { scrollTop: 340 } });
+        expect(screen.getByTestId("pinned")).toHaveTextContent("Group 1");
+
+        // A new ref callback makes Virtuoso detach and reattach the same element, which keeps its position.
+        rerender(renderGrouped(groups, { ...overscan, scrollerRef: () => {} }));
+        rerender(
+            renderGrouped(
+                groups.map((group) => ({ ...group })),
+                { ...overscan, scrollerRef: () => {} },
+            ),
+        );
+        expect(screen.getByRole("grid")).toBe(scroller);
+        expect(screen.getByTestId("pinned")).toHaveTextContent("Group 1");
+    });
+});

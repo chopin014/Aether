@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { editImage, ImageCropDialog } from "./ImageCropDialog";
 import Modal from "../../../Modal";
+import BaseDialog from "./BaseDialog";
 
 describe("ImageCropDialog", () => {
     it("hosts the editor and gives up when cancelled", async () => {
@@ -35,6 +36,27 @@ describe("ImageCropDialog", () => {
         expect(screen.getByRole("heading", { name: "Edit image" })).toBeVisible();
         await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
         expect(onFinished).toHaveBeenCalledWith();
+    });
+
+    it("is named by its own title when opened over another dialog", () => {
+        render(
+            <>
+                <BaseDialog title="Settings" onFinished={vi.fn()} />
+                <ImageCropDialog
+                    file={new File(["x"], "a.png", { type: "image/png" })}
+                    image={{} as CanvasImageSource}
+                    imageUrl="blob:picture"
+                    imageWidth={100}
+                    imageHeight={100}
+                    shape="circle"
+                    aspectRatio={1}
+                    maxOutputWidth={512}
+                    animated={false}
+                    onFinished={vi.fn()}
+                />
+            </>,
+        );
+        expect(screen.getByRole("dialog", { name: "Edit image" })).toBeVisible();
     });
 });
 

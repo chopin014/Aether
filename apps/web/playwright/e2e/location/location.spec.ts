@@ -85,4 +85,40 @@ test.describe("Location sharing", { tag: "@no-firefox" }, () => {
             await expect(menu).toMatchScreenshot("location-live-share-dialog.png");
         },
     );
+
+    test("shows another person's live location as live", async ({ page, app, bot }) => {
+        // Everyone may share their location, as in a room Aether creates.
+        const roomId = await app.client.createRoom({
+            name: "Walk",
+            invite: [bot.credentials!.userId],
+            power_level_content_override: { events: { "m.beacon_info": 0 } },
+        });
+        await bot.joinRoom(roomId);
+        // A live location share as another client sends it, then the first location sent to it.
+        const now = Date.now();
+        const { event_id: shareId } = await bot.sendStateEvent(
+            roomId,
+            "m.beacon_info",
+            {
+                "description": "Morning walk",
+                "live": true,
+                "timeout": 60 * 60 * 1000,
+                "m.ts": now,
+                "m.asset": { type: "m.self" },
+            },
+            bot.credentials!.userId,
+        );
+        await bot.sendEvent(roomId, null, "m.beacon", {
+            "m.relates_to": { rel_type: "m.reference", event_id: shareId },
+            "m.location": { uri: "geo:51.5,-0.1" },
+            "m.ts": now,
+        });
+
+        await app.viewRoomByName("Walk");
+
+        // The timeline shows the share as live from the room's state.
+        const timeline = page.getByTestId("timeline");
+        await expect(timeline.getByText(/^Live until/)).toBeVisible();
+        await expect(timeline.getByText("Live location ended")).not.toBeVisible();
+    });
 });

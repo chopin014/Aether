@@ -696,6 +696,16 @@ class TimelinePanel extends React.Component<IProps, IState> {
             }
         }
 
+        // History added before the window can now be paged back to, such as the older events a sliding sync
+        // response brings for a timeline restored from this device without a pagination token.
+        if (
+            toStartOfTimeline &&
+            !this.state.canBackPaginate &&
+            this.timelineWindow?.canPaginate(EventTimeline.BACKWARDS)
+        ) {
+            this.setState({ canBackPaginate: true });
+        }
+
         // The SDK marks a late thread reply as non-live when inserting it by timestamp.
         // At the loaded live timeline's tail it still needs to reach the desktop conversation.
         const desktopThreadInsertion =
@@ -705,7 +715,13 @@ class TimelinePanel extends React.Component<IProps, IState> {
             data.timeline === this.props.timelineSet.getLiveTimeline();
         if (toStartOfTimeline || !data || (!data.liveEvent && !desktopThreadInsertion)) return;
 
-        if (!this.messagePanel.current?.getScrollState()) return;
+        if (!this.messagePanel.current?.getScrollState()) {
+            // Still loading, so there is no message panel to show this event in yet. The window being loaded may have
+            // been set up before it arrived, and would then never reach it: let the panel page forward to it once
+            // drawn, as for a reader scrolled up, below. A sync response often brings many events at this moment.
+            this.setState({ canForwardPaginate: true });
+            return;
+        }
 
         if (!this.messagePanel.current.getScrollState()?.stuckAtBottom) {
             // we won't load this event now, because we don't want to push any

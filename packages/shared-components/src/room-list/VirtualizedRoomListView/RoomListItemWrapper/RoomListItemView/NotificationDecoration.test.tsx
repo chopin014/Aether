@@ -6,7 +6,7 @@
  */
 
 import React from "react";
-import { render } from "@test-utils";
+import { render, screen } from "@test-utils";
 import { composeStories } from "@storybook/react-vite";
 import { describe, it, expect } from "vitest";
 
@@ -26,6 +26,14 @@ const {
 } = composeStories(stories);
 
 describe("<NotificationDecoration />", () => {
+    it("shows a count that is only a lower bound as at least it", () => {
+        const { rerender } = render(<NotificationWithCount count={7} countIsLowerBound />);
+        expect(screen.getByText("7+")).toBeInTheDocument();
+
+        rerender(<NotificationWithCount count={7} countIsLowerBound={false} />);
+        expect(screen.getByText("7")).toBeInTheDocument();
+    });
+
     describe("snapshots", () => {
         it("renders NoNotification story", () => {
             const { container } = render(<NoNotification />);

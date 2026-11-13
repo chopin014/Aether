@@ -347,6 +347,64 @@ describe("EventContentBodyViewModel", () => {
         expect(vm.getSnapshot()).toEqual(previousSnapshot);
     });
 
+    it("derives the body once when the view repeats the values it was built with", () => {
+        mockedCombineRenderers.mockReturnValue(() => vi.fn());
+        mockedBodyToNode.mockReturnValue({
+            strippedBody: "Initial",
+            formattedBody: undefined,
+            emojiBodyElements: undefined,
+            className: "mx_EventTile_body",
+        });
+        const mxEvent = mkEvent({
+            type: "m.room.message",
+            room: "!room:example.org",
+            user: "@user:example.org",
+            content: defaultContent,
+            event: true,
+        });
+
+        const vm = new EventContentBodyViewModel(
+            defaultProps({
+                mxEvent,
+                stripReply: true,
+                highlights: ["hello"],
+                enableBigEmoji: true,
+                shouldShowPillAvatar: true,
+            }),
+        );
+        // As TextualBodyFactory's effects do on mount, and the setting watchers do for a setting saved unchanged.
+        vm.setEventContent(mxEvent, defaultContent);
+        vm.setStripReply(true);
+        vm.setHighlights(["hello"]);
+        vm.setEnableBigEmoji(true);
+        vm.setShouldShowPillAvatar(true);
+
+        expect(mockedBodyToNode).toHaveBeenCalledTimes(1);
+        expect(mockedCombineRenderers).toHaveBeenCalledTimes(1);
+    });
+
+    it("derives the body again for each value that changes", () => {
+        mockedCombineRenderers.mockReturnValue(() => vi.fn());
+        mockedBodyToNode.mockReturnValue({
+            strippedBody: "Initial",
+            formattedBody: undefined,
+            emojiBodyElements: undefined,
+            className: "mx_EventTile_body",
+        });
+
+        const vm = new EventContentBodyViewModel(defaultProps({ stripReply: false, highlights: ["hello"] }));
+        vm.setStripReply(true);
+        vm.setHighlights(["hello", "world"]);
+        vm.setEventContent(undefined, { body: "Updated", msgtype: MsgType.Text });
+
+        expect(mockedBodyToNode).toHaveBeenCalledTimes(4);
+        expect(mockedBodyToNode).toHaveBeenLastCalledWith(
+            { body: "Updated", msgtype: MsgType.Text },
+            ["hello", "world"],
+            expect.objectContaining({ stripReplyFallback: true }),
+        );
+    });
+
     it("includes renderers based on options and platform capabilities", () => {
         const replacer = vi.fn();
         mockedCombineRenderers.mockReturnValue(() => replacer);

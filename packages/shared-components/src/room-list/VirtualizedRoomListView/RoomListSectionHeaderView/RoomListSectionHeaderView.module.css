@@ -26,7 +26,10 @@
     &:has(button[data-state="open"]) {
         color: var(--cpd-color-text-primary);
 
-        svg {
+        /* The icons are named: `svg` after a `:has()` would make the browser restyle every svg in any part of the
+           page that also has a `:has()` rule, whenever anything there is added or removed. */
+        .chevron,
+        .icon {
             fill: var(--cpd-color-icon-primary);
         }
 

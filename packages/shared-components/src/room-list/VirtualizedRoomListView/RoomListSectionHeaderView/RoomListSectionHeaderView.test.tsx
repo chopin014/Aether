@@ -138,6 +138,23 @@ describe("<RoomListSectionHeaderView /> stories", () => {
         await waitFor(() => expect(button.className).not.toMatch(/keyboardActive/));
     });
 
+    it("brightens its icons while its menu is open", () => {
+        const { container } = render(
+            <div style={{ "--cpd-color-icon-primary": "rgb(1, 2, 3)" } as React.CSSProperties}>
+                <Default />
+            </div>,
+        );
+        const chevron = container.querySelector("svg")!;
+        // Inside the header's own button, the menu's trigger has no role of its own to be found by.
+        const menuButton = container.querySelector<HTMLElement>('[aria-haspopup="menu"]')!;
+        expect(getComputedStyle(chevron).fill).not.toBe("rgb(1, 2, 3)");
+
+        // Compound marks the trigger of an open menu.
+        menuButton.setAttribute("data-state", "open");
+        expect(getComputedStyle(chevron).fill).toBe("rgb(1, 2, 3)");
+        expect(getComputedStyle(menuButton.querySelector("svg")!).fill).toBe("rgb(1, 2, 3)");
+    });
+
     it("expands a collapsed section on ArrowRight", async () => {
         const user = userEvent.setup();
         render(<Collapsed isFocused={true} />);

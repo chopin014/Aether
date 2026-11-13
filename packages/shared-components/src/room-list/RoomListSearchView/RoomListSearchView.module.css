@@ -21,7 +21,10 @@
     min-width: 0;
     block-size: var(--mx-desktop-search-button-size, auto);
     min-block-size: var(--mx-desktop-search-button-size, var(--cpd-space-9x));
-    padding: var(--mx-desktop-search-button-padding, 0);
+    /* Outside the desktop app, the spacing Compound gives a medium button with an icon, which starts on the icon's
+       side whichever way the text runs. */
+    padding-block: var(--mx-desktop-search-button-padding-block, var(--cpd-space-1x));
+    padding-inline: var(--mx-desktop-search-button-padding-inline, var(--cpd-space-4x) var(--cpd-space-5x));
     background: var(--mx-desktop-search-background, transparent);
     border-radius: var(--cpd-space-1-5x);
 
@@ -30,10 +33,12 @@
     }
 }
 
-/* The buttons beside the search share its square shape and fill, so the row reads as one bar. */
+/*
+ * The buttons beside the search share its height, fill and corners, as squares, so the row reads as one bar. They take
+ * the search's height rather than the row's, which is taller outside the desktop app.
+ */
 .action {
     flex: none;
-    align-self: stretch;
     aspect-ratio: 1;
     block-size: var(--mx-desktop-search-button-size, auto);
     min-block-size: var(--mx-desktop-search-button-size, var(--cpd-space-9x));

@@ -581,7 +581,8 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
         displayName: _td("labs|sliding_sync"),
         description: _td("labs|sliding_sync_description"),
         shouldWarn: true,
-        default: false,
+        // Used where the server offers it: see MatrixClientPeg.assign, which falls back to regular sync elsewhere.
+        default: true,
         controller: new SlidingSyncController(),
     },
     "feature_element_call_video_rooms": {
@@ -642,12 +643,16 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
         default: false,
     },
     "feature_new_timeline": {
-        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS_WITH_CONFIG_PRIORITISED,
+        // Only config.json decides, so that a deployment can turn the new timeline off while the old one remains. A
+        // choice saved on a device by the old Labs toggle no longer counts: it would win over config.json, or keep
+        // someone on the old timeline with no setting left to change it.
+        supportedLevels: [SettingLevel.CONFIG],
         labsGroup: LabGroup.Ui,
         displayName: _td("labs|new_timeline"),
         description: _td("labs|currently_experimental"),
         isFeature: true,
-        default: false,
+        // On by default, as in the desktop app.
+        default: true,
         controller: new ReloadOnChangeController(),
     },
     // Covers every document viewer, not only PDFs. The key predates the Markdown viewer and is kept so

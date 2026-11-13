@@ -53,10 +53,10 @@ import {
     type MSC3575Filter,
     type MSC3575List,
     type MSC3575RoomData,
+    type MSC3575RoomSubscription,
     type MSC3575SlidingSyncResponse,
     MSC3575_STATE_KEY_LAZY,
     MSC3575_STATE_KEY_ME,
-    MSC3575_WILDCARD,
     SlidingSync,
     SlidingSyncEvent,
     SlidingSyncState,
@@ -71,11 +71,25 @@ import { getChildOrder } from "./stores/spaces/childOrder";
 import {
     CATALOG_STATE,
     ENCRYPTED_SUBSCRIPTION,
-    NAMED_SUBSCRIPTIONS,
+    NO_LABS,
     RoomSubscriptionName,
+    roomStateProfiles,
+    type RoomStateProfiles,
+    SPACE_LIST_STATE,
 } from "./sliding-sync/roomStateProfiles";
 import { RoomSubscriptionLeases, type RoomSubscriptionLease } from "./sliding-sync/RoomSubscriptionLeases";
+import {
+    RoomStateDemands,
+    type RoomStateDemand,
+    type RoomStateDemandKind,
+    type RoomStateSelector,
+    RoomStateUnavailableError,
+    requiredStateCovers,
+    requiredStateFor,
+    requiredStateIncludes,
+} from "./sliding-sync/RoomStateDemands";
 import { SlidingSyncCache } from "./sliding-sync/SlidingSyncCache";
+import { NotificationCountEngine } from "./sliding-sync/notification-counts/NotificationCountEngine";
 
 // how long to long poll for
 const SLIDING_SYNC_TIMEOUT_MS = 20 * 1000;
@@ -105,6 +119,16 @@ const ROOM_DISCOVERY_TIMEOUT_MS = 10_000;
 const MAX_SPACE_CHANNELS = 200;
 // How many of a Space tree's children are looked at, so a huge Space costs little each time it changes.
 const MAX_SPACE_TREE_VISITS = 1000;
+// Of those channels, at most this many hold a subscription of their own at once, in the Space's order. Every request
+// carries every subscription in full, as the server keeps none from one request to the next, so each one costs
+// bytes on every request: the others wait for the lists to reach them.
+const MAX_CHANNEL_INTERESTS = 32;
+// Channels nobody has seen are asked about this many at a time, counting those still waiting for an answer.
+const MAX_DISCOVERIES = 8;
+// The bytes a request's room subscriptions and lists are kept under, by holding back the open Space's channels.
+const REQUEST_BUDGET_BYTES = 64 * 1024;
+// The most room subscriptions a request carries, as MSC4186 allows.
+const MAX_ROOM_SUBSCRIPTIONS = 100;
 // Changes to the Space tree outside a sync response, such as rooms restored from this device, are read after this
 // pause, so a burst of them costs one walk.
 const SPACE_TREE_SETTLE_MS = 50;
@@ -124,15 +148,13 @@ export type RoomVisibility =
 
 // the complete set of lists made in SSS. The manager will spider all of these lists depending
 // on the count for each one, except for the recent list which stays at its first page.
+// None asks for include_old_rooms: simplified sliding sync (MSC4186) has no such option and Synapse ignores it. An
+// older version of an upgraded room the user is still in comes through the lists like any other room.
 const sssLists: Record<string, MSC3575List> = {
     recent: {
         ranges: [[0, RECENT_ROOMS - 1]],
         timeline_limit: RECENT_TIMELINE_LIMIT,
         required_state: CATALOG_STATE,
-        include_old_rooms: {
-            timeline_limit: 0,
-            required_state: CATALOG_STATE,
-        },
         filters: {
             is_invite: false,
             not_room_types: ["m.space"],
@@ -141,11 +163,7 @@ const sssLists: Record<string, MSC3575List> = {
     spaces: {
         ranges: [[0, 10]],
         timeline_limit: 0, // we don't care about the most recent message for spaces
-        required_state: CATALOG_STATE,
-        include_old_rooms: {
-            timeline_limit: 0,
-            required_state: CATALOG_STATE,
-        },
+        required_state: SPACE_LIST_STATE,
         filters: {
             room_types: ["m.space"],
         },
@@ -154,10 +172,6 @@ const sssLists: Record<string, MSC3575List> = {
         ranges: [[0, 10]],
         timeline_limit: 1, // most recent message display
         required_state: CATALOG_STATE,
-        include_old_rooms: {
-            timeline_limit: 0,
-            required_state: CATALOG_STATE,
-        },
         filters: {
             is_invite: true,
         },
@@ -166,10 +180,6 @@ const sssLists: Record<string, MSC3575List> = {
         ranges: [[0, 10]],
         timeline_limit: LIST_TIMELINE_LIMIT,
         required_state: CATALOG_STATE,
-        include_old_rooms: {
-            timeline_limit: 0,
-            required_state: CATALOG_STATE,
-        },
         filters: {
             tags: ["m.favourite"],
         },
@@ -178,10 +188,6 @@ const sssLists: Record<string, MSC3575List> = {
         ranges: [[0, 10]],
         timeline_limit: LIST_TIMELINE_LIMIT,
         required_state: CATALOG_STATE,
-        include_old_rooms: {
-            timeline_limit: 0,
-            required_state: CATALOG_STATE,
-        },
         filters: {
             is_dm: true,
             is_invite: false,
@@ -194,10 +200,6 @@ const sssLists: Record<string, MSC3575List> = {
         ranges: [[0, 10]],
         timeline_limit: LIST_TIMELINE_LIMIT,
         required_state: CATALOG_STATE,
-        include_old_rooms: {
-            timeline_limit: 0,
-            required_state: CATALOG_STATE,
-        },
     },
 };
 
@@ -220,6 +222,73 @@ export type PartialSlidingSyncRequest = {
  * looking at and the rooms they are about to open. Released rooms stay subscribed for a grace period and are then
  * dropped, so the subscriptions of a long session stay bounded.
  */
+/** The bytes each subscription definition takes, measured once: a definition is never changed, only replaced. */
+const subscriptionSizes = new WeakMap<MSC3575RoomSubscription, number>();
+
+/** The bytes a room's subscription takes in a request, as `"roomId":{...},`. */
+function subscriptionBytes(roomId: string, subscription: MSC3575RoomSubscription | undefined): number {
+    let size = subscription ? subscriptionSizes.get(subscription) : undefined;
+    if (size === undefined) {
+        size = JSON.stringify(subscription ?? {}).length;
+        if (subscription) subscriptionSizes.set(subscription, size);
+    }
+    return roomId.length + size + 4;
+}
+
+/** How long a read of room state waits for the server, such as one an integration manager or widget asked for. */
+export const ROOM_STATE_READ_TIMEOUT_MS = 15_000;
+
+/**
+ * The most rooms whose state is being asked for by reads at once. A reader of every room, such as a widget allowed
+ * every room, reads them a few at a time instead of making one request carry them all.
+ */
+export const MAX_STATE_READ_ROOMS = 8;
+
+/**
+ * The most selectors added to one room's subscription for the state demanded of it, whatever the number of demands.
+ * Every request carries every subscription.
+ */
+export const MAX_DEMANDED_SELECTORS_PER_ROOM = 32;
+
+/**
+ * The state two `required_state` lists both bring, each entry once: a wildcard on one side brings every entry the other
+ * names, and either side may be the wider.
+ */
+function requiredStateOfBoth(
+    a: readonly (readonly string[])[],
+    b: readonly (readonly string[])[],
+): (readonly string[])[] {
+    const both = new Map<string, readonly string[]>();
+    for (const entry of a) if (requiredStateIncludes(b, entry)) both.set(JSON.stringify(entry), entry);
+    for (const entry of b) if (requiredStateIncludes(a, entry)) both.set(JSON.stringify(entry), entry);
+    return [...both.values()];
+}
+
+/** The bytes the account lists take in a request. */
+function listBytes(slidingSync: SlidingSync): number {
+    let size = 0;
+    for (const listName in sssLists) {
+        const params = slidingSync.getListParams(listName);
+        if (params) size += listName.length + JSON.stringify(params).length + 4;
+    }
+    return size;
+}
+
+function supportKey(client: MatrixClient): string {
+    return `mx_sliding_sync_offered:${client.baseUrl}`;
+}
+
+/** Where this device notes, per homeserver, until when sliding sync is left alone because, though offered, it failed. */
+function unusableKey(client: MatrixClient): string {
+    return `mx_sliding_sync_unusable:${client.baseUrl}`;
+}
+
+/** How long sliding sync that was offered but failed is left alone before it is tried again. */
+export const UNUSABLE_RETRY_MS = 24 * 60 * 60 * 1000;
+
+/** How many requests in a row may fail as sliding sync that does not work, such as rejected ones, before it is let go. */
+const FAILURES_BEFORE_UNUSABLE = 3;
+
 export class SlidingSyncManager {
     public static serverSupportsSlidingSync: boolean;
 
@@ -248,12 +317,33 @@ export class SlidingSyncManager {
     private viewLease?: RoomSubscriptionLease;
     private spaceLease?: RoomSubscriptionLease;
     private readonly callLeases = new Map<string, RoomSubscriptionLease>();
+    // Rooms someone looks at outside the room view, such as in their settings, with how many holds each has. They
+    // outlive a connection: a new one subscribes them again.
+    private readonly roomHolds = new Map<string, { count: number; lease?: RoomSubscriptionLease }>();
     // Rooms the crypto layer says are encrypted, even before their encryption state has arrived.
     private readonly encryptedRooms = new Set<string>();
     // Rooms we were told are Spaces before we have seen them.
     private readonly expectedSpaces = new Set<string>();
-    // The subscription each subscribed room was last given.
-    private readonly appliedNames = new Map<string, RoomSubscriptionName>();
+    // The subscription each subscribed room was last given: a named one, or one derived for demanded state.
+    private readonly appliedNames = new Map<string, string>();
+    // State that readers outside the room view ask for, such as integration managers and widgets. Demands outlive a
+    // connection: a new one asks for their state again.
+    private readonly stateDemands = new RoomStateDemands(() => this.scheduleFlush(true));
+    // The state each list and named subscription asks for on the current connection, with that of labs features on.
+    private profiles: RoomStateProfiles = roomStateProfiles(NO_LABS);
+    // Subscriptions derived from a room's profile by adding its demanded state, one per room, by name, with its
+    // content as JSON so a change is noticed. They go when no subscribed room uses them, so they never outgrow the
+    // demanded rooms. The connection holds the definition each name was last given.
+    private readonly derivedSubscriptions = new Map<string, { subscription: MSC3575RoomSubscription; json: string }>();
+    private readonly registeredDerived = new Map<string, MSC3575RoomSubscription>();
+    // Rooms whose demanded state the current subscriptions add, as given room by the last apply.
+    private admittedDemands = new Set<string>();
+    // The state each subscribed room's last applied answer brought, from the request it answered.
+    private readonly appliedCoverage = new Map<string, readonly (readonly string[])[]>();
+    // Rooms with reads waiting for their state, with how many each, and reads waiting for a room to be free. A new
+    // connection starts afresh, and wakes reads waiting for the old one so they give up.
+    private readingRooms = new Map<string, number>();
+    private readQueue: Array<() => void> = [];
     private flushQueued = false;
     private flushTimer?: ReturnType<typeof setTimeout>;
     // The Space whose channels are subscribed, the rooms met walking its tree, and the Space asked for before the
@@ -264,6 +354,33 @@ export class SlidingSyncManager {
     private spaceTreeChanged = false;
     // Whether every list has grown to cover the whole account, so known rooms are kept up to date by the lists.
     private listsCoverAccount = false;
+    // Rooms the server answered a subscription without, until they arrive after all.
+    private readonly absentRooms = new Set<string>();
+    // Channels nobody has seen, asked about until a response to a request that carried them is applied.
+    private readonly discoveries = new Set<string>();
+    // Channels the server did not send when asked about, such as rooms the user has never been in, which sliding
+    // sync does not serve. They are not asked about again until there is news of them, such as someone opening one.
+    private readonly unsuppliedRooms = new Set<string>();
+    // Saved channels already asked to be applied in the background, so each is asked for once.
+    private readonly savedChannelsAsked = new Set<string>();
+    // Rooms the server has sent data for on this connection, and saved rooms it turned out the user had left while
+    // this device was away.
+    private readonly liveRooms = new Set<string>();
+    // Rooms the response being applied has data for, published once it has been applied.
+    private readonly arrivingLiveRooms = new Set<string>();
+    private readonly leftWhileAway = new Set<string>();
+    // Told when it changes whether a room may still arrive or has, such as for a channel opened before it arrived.
+    private readonly arrivalListeners = new Set<() => void>();
+    // What is held while sync applies a batch of rooms, such as the Space store working out every Space's rooms once
+    // for all the rooms a response brings, and what releases the holds of the response being applied.
+    private readonly roomBatchHolds = new Set<() => () => void>();
+    private releaseResponseHolds?: () => void;
+    // Whether the server has answered a request on the current connection; how many requests in a row failed as
+    // sliding sync that does not work, since it last answered; and how many in a row it said it did not know.
+    private answeredConnection = false;
+    private failures = 0;
+    private forgotten = 0;
+    private readonly unusableListeners = new Set<() => void>();
     // When the sync response being applied arrived, and the pending read of changes made outside one.
     private applyingSince?: number;
     private spaceTreeTimer?: ReturnType<typeof setTimeout>;
@@ -277,7 +394,14 @@ export class SlidingSyncManager {
 
     // What this device keeps of the session's rooms, shown at the next start before the server answers.
     private cache?: SlidingSyncCache;
+    // A cache whose saved rooms are already being read, before the client is set up, and that read.
+    private prefetched?: {
+        client: MatrixClient;
+        cache: SlidingSyncCache;
+        snapshot: Promise<SlidingSyncSnapshot | null>;
+    };
     private detachCache?: () => void;
+    private countEngine?: NotificationCountEngine;
 
     public static get instance(): SlidingSyncManager {
         return SlidingSyncManager.internalInstance;
@@ -304,6 +428,14 @@ export class SlidingSyncManager {
         this.encryptedRooms.clear();
         this.expectedSpaces.clear();
         this.appliedNames.clear();
+        this.registeredDerived.clear();
+        this.derivedSubscriptions.clear();
+        this.admittedDemands = new Set();
+        this.appliedCoverage.clear();
+        this.stateDemands.cancelReads();
+        this.stateDemands.reset();
+        this.readingRooms = new Map();
+        for (const wake of this.readQueue.splice(0)) wake();
         this.leases.dispose();
         this.leases = new RoomSubscriptionLeases(this.scheduleFlush);
         this.viewLease = undefined;
@@ -311,19 +443,31 @@ export class SlidingSyncManager {
         this.callLeases.clear();
         this.activeSpaceId = undefined;
         this.listsCoverAccount = false;
+        this.absentRooms.clear();
+        this.discoveries.clear();
+        this.unsuppliedRooms.clear();
+        this.savedChannelsAsked.clear();
+        this.liveRooms.clear();
+        this.arrivingLiveRooms.clear();
+        this.answeredConnection = false;
+        this.failures = 0;
+        this.forgotten = 0;
+        this.leftWhileAway.clear();
         this.spaceTree = new Set();
         this.spaceChannels = new Set();
         this.stopFollowingSpaceTree();
         if (this.flushTimer !== undefined) clearTimeout(this.flushTimer);
         this.flushTimer = undefined;
         this.flushQueued = false;
+        // The client applies retention only if the setting was on when it was created, as it is now.
+        this.profiles = roomStateProfiles({ retention: SettingsStore.getValue("feature_retention") });
         // create the set of lists we will use.
         const lists = new Map();
         for (const listName in sssLists) {
             // A resolved destination takes priority over background room discovery on the first response.
             if (initialRoomId?.startsWith("!")) break;
             lists.set(listName, {
-                ...sssLists[listName],
+                ...this.listDefinition(listName),
                 ranges: [[0, 0]],
                 timeline_limit: listName === "spaces" ? 0 : 1,
             });
@@ -331,12 +475,21 @@ export class SlidingSyncManager {
         // by default use the encrypted subscription as that gets everything, which is a safer
         // default than potentially missing member events.
         this.slidingSync = new SlidingSync(proxyUrl, lists, ENCRYPTED_SUBSCRIPTION, client, SLIDING_SYNC_TIMEOUT_MS);
-        for (const [name, subscription] of NAMED_SUBSCRIPTIONS) {
+        for (const [name, subscription] of this.profiles.named) {
             this.slidingSync.addCustomSubscription(name, subscription);
         }
         this.trackInitialTimelines(this.slidingSync);
         // Responses are followed from the start, so a change is never read while one is half applied.
         this.slidingSync.on(SlidingSyncEvent.Lifecycle, this.onResponseApplied);
+        this.slidingSync.on(SlidingSyncEvent.RoomData, this.onLiveRoomData);
+        this.slidingSync.on(SlidingSyncEvent.Applied, this.onStateApplied);
+        // After what follows each response here, so what was held sees all of it.
+        this.slidingSync.on(SlidingSyncEvent.Applied, this.endResponseHolds);
+        // The server's counts are not real (Synapse sends zero), so they are worked out here.
+        this.countEngine?.stop();
+        const countEngine = new NotificationCountEngine(client, this.slidingSync);
+        this.countEngine = countEngine;
+        countEngine.start();
         const ownedSync = this.slidingSync;
         // SlidingSync has no stopped event. Settle waits before our owned instance stops.
         const stop = ownedSync.stop.bind(ownedSync);
@@ -347,6 +500,12 @@ export class SlidingSyncManager {
                 this.stopFollowingSpaceTree();
             }
             ownedSync.off(SlidingSyncEvent.Lifecycle, this.onResponseApplied);
+            ownedSync.off(SlidingSyncEvent.RoomData, this.onLiveRoomData);
+            ownedSync.off(SlidingSyncEvent.Applied, this.onStateApplied);
+            ownedSync.off(SlidingSyncEvent.Applied, this.endResponseHolds);
+            // A response cut short by stopping is never applied in full.
+            this.endResponseHolds();
+            countEngine.stop();
             stop();
         };
         this.configureDefer.resolve();
@@ -499,33 +658,89 @@ export class SlidingSyncManager {
         }, SUBSCRIPTION_BATCH_MS);
     };
 
-    /** The subscription a room should have, from what it is and why it is subscribed. */
-    private subscriptionNameFor(roomId: string): RoomSubscriptionName {
+    /**
+     * The subscription a room should have: its profile, from what it is and why it is subscribed, with any demanded
+     * state the profile does not bring added.
+     */
+    private subscriptionNameFor(roomId: string): string {
+        const base = this.profileNameFor(roomId);
+        if (!this.admittedDemands.has(roomId)) return base;
+        const missing = this.demandedAdditions(roomId, base);
+        if (missing.size === 0) return base;
+        const profile = this.profiles.named.get(base)!;
+        const keys = [...missing.keys()].sort();
+        const subscription = {
+            ...profile,
+            required_state: [...(profile.required_state ?? []), ...keys.map((key) => missing.get(key)!)],
+        };
+        // One name per room, kept while the room's profile stays the same; its definition follows the demanded state.
+        const name = `${base}+${roomId}`;
+        const json = JSON.stringify(subscription);
+        if (this.derivedSubscriptions.get(name)?.json !== json)
+            this.derivedSubscriptions.set(name, { subscription, json });
+        return name;
+    }
+
+    /** The `required_state` entries the state demanded of a room adds to a profile, by their JSON. */
+    private demandedAdditions(roomId: string, base: RoomSubscriptionName): Map<string, [string, string]> {
+        const profile = this.profiles.named.get(base)!;
+        const missing = new Map<string, [string, string]>();
+        for (const selector of this.stateDemands.selectorsFor(roomId)) {
+            if (requiredStateCovers(profile.required_state ?? [], selector)) continue;
+            const entry = requiredStateFor(selector);
+            missing.set(JSON.stringify(entry), entry);
+        }
+        return missing;
+    }
+
+    /** The state a room's subscription asks for now, or none for a room not subscribed. */
+    private currentRequiredState(roomId: string): readonly (readonly string[])[] {
+        const name = this.appliedNames.get(roomId);
+        return (name && this.subscriptionNamed(name)?.required_state) || [];
+    }
+
+    /** A list as first asked for, with the state the current connection's profiles ask for. */
+    private listDefinition(listName: string): MSC3575List {
+        const requiredState = listName === "spaces" ? this.profiles.spaceList : this.profiles.catalog;
+        return { ...sssLists[listName], required_state: requiredState };
+    }
+
+    /** A subscription by name: a named profile, or one derived for demanded state. */
+    private subscriptionNamed(name: string): MSC3575RoomSubscription | undefined {
+        return (
+            this.profiles.named.get(name as RoomSubscriptionName) ?? this.derivedSubscriptions.get(name)?.subscription
+        );
+    }
+
+    /** The profile a room should be subscribed with, from what it is and why it is subscribed. */
+    private profileNameFor(roomId: string): RoomSubscriptionName {
         if (this.initialTimelines.get(roomId)?.phase === "expanding") return RoomSubscriptionName.ExpandedBootstrap;
         const room = this.client?.getRoom(roomId);
         if (this.expectedSpaces.has(roomId) || room?.isSpaceRoom()) return RoomSubscriptionName.Space;
         if (this.spaceChannels.has(roomId) && !this.bootstrapRooms.has(roomId) && !this.leases.has(roomId)) {
-            // Only listed because its Space is open. A room given more history keeps it: a smaller subscription
-            // would be sent again for nothing.
-            const applied = this.appliedNames.get(roomId);
-            return applied === RoomSubscriptionName.Room ||
-                applied === RoomSubscriptionName.Encrypted ||
-                applied === RoomSubscriptionName.Prefetch
-                ? applied
-                : RoomSubscriptionName.Channel;
+            // Only subscribed because its Space is open: what a list entry gets, whatever it was given before. Every
+            // request carries it again, so a larger one would cost bytes on every request.
+            return RoomSubscriptionName.Channel;
         }
         if (!room || this.bootstrapRooms.has(roomId)) return RoomSubscriptionName.Bootstrap;
+        if (!this.leases.has(roomId) && this.stateDemands.has(roomId)) {
+            // Only its state is read: what a list entry gets, with that state. An encrypted room needs every member
+            // only to send to it.
+            return RoomSubscriptionName.State;
+        }
         if (room.hasEncryptionStateEvent() || this.encryptedRooms.has(roomId)) return RoomSubscriptionName.Encrypted;
         const purposes = this.leases.purposes(roomId);
         if (purposes.has("view") || purposes.has("call") || purposes.has("space")) return RoomSubscriptionName.Room;
         // A room that is only likely to be opened, or kept for its grace period, never loses history it was given:
         // a smaller subscription would be sent again for nothing.
-        const applied = this.appliedNames.get(roomId);
+        // A subscription derived for demanded state is named after its profile.
+        const applied = this.appliedNames.get(roomId)?.split("+")[0];
         if (
             applied &&
             applied !== RoomSubscriptionName.Prefetch &&
             applied !== RoomSubscriptionName.Space &&
-            applied !== RoomSubscriptionName.Channel
+            applied !== RoomSubscriptionName.Channel &&
+            applied !== RoomSubscriptionName.State
         ) {
             return RoomSubscriptionName.Room;
         }
@@ -536,23 +751,93 @@ export class SlidingSyncManager {
     private applySubscriptions(slidingSync: SlidingSync): void {
         if (this.slidingSync !== slidingSync) return;
         const desired = new Set(this.leases.roomIds());
-        for (const roomId of this.spaceChannels) desired.add(roomId);
         for (const roomId of this.bootstrapRooms) desired.add(roomId);
         for (const roomId of this.initialTimelines.keys()) desired.add(roomId);
+        if (desired.size > MAX_ROOM_SUBSCRIPTIONS) {
+            logger.warn(`SlidingSync: ${desired.size} rooms need a subscription, more than the protocol allows`);
+        }
+        // Rooms subscribed anyway are measured with their profile alone: what demands add is given room below.
+        this.admittedDemands = new Set();
+        // Every request carries every subscription, so the request is measured as it will be sent.
+        let bytes = listBytes(slidingSync);
+        const bytesFor = (roomId: string): number => {
+            const name = this.subscriptionNameFor(roomId);
+            return subscriptionBytes(roomId, this.subscriptionNamed(name));
+        };
+        for (const roomId of desired) bytes += bytesFor(roomId);
+        // The state demanded of rooms comes next, live demands such as ban lists first, while the request stays within
+        // its limits: what it adds to a room that is subscribed anyway counts as much as a room subscribed for it.
+        // Rooms subscribed anyway were measured above with their profile alone. A read that has no room fails rather
+        // than waiting; a live demand waits for room.
+        for (const roomId of this.stateDemands.roomIdsByPriority()) {
+            const subscribed = desired.has(roomId);
+            const before = subscribed ? bytesFor(roomId) : 0;
+            const additions = this.demandedAdditions(roomId, this.profileNameFor(roomId)).size;
+            this.admittedDemands.add(roomId);
+            const after = bytesFor(roomId);
+            const fits =
+                additions <= MAX_DEMANDED_SELECTORS_PER_ROOM &&
+                (subscribed || desired.size < MAX_ROOM_SUBSCRIPTIONS) &&
+                bytes - before + after <= REQUEST_BUDGET_BYTES;
+            if (!fits) {
+                this.admittedDemands.delete(roomId);
+                // What the room's demanded state brought stops being kept current; what its profile asks for is
+                // kept, as the subscriptions are compared with what answers brought below.
+                this.stateDemands.overCapacity(roomId);
+                continue;
+            }
+            desired.add(roomId);
+            bytes += after - before;
+        }
+        // The open Space's channels are sent as long as the request stays small, in the Space's order.
+        for (const roomId of this.spaceChannels) {
+            if (desired.has(roomId)) continue;
+            const size = bytesFor(roomId);
+            if (desired.size >= MAX_ROOM_SUBSCRIPTIONS || bytes + size > REQUEST_BUDGET_BYTES) break;
+            desired.add(roomId);
+            bytes += size;
+        }
         let changed = false;
         for (const roomId of desired) {
             const name = this.subscriptionNameFor(roomId);
+            const derived = this.derivedSubscriptions.get(name)?.subscription;
+            if (derived && this.registeredDerived.get(name) !== derived) {
+                // A replaced definition is sent again for every room using it.
+                slidingSync.addCustomSubscription(name, derived);
+                this.registeredDerived.set(name, derived);
+                changed = true;
+            }
             if (this.appliedNames.get(roomId) === name) continue;
             this.appliedNames.set(roomId, name);
             slidingSync.useCustomSubscription(roomId, name);
             changed = true;
         }
         for (const roomId of this.appliedNames.keys()) {
-            if (!desired.has(roomId)) this.appliedNames.delete(roomId);
+            if (desired.has(roomId)) continue;
+            this.appliedNames.delete(roomId);
+            // An unsubscribed room's state is no longer kept current.
+            this.appliedCoverage.delete(roomId);
+        }
+        // Nor is state a room's subscription no longer asks for, such as demanded state let go once it stopped
+        // lingering, or a derived definition that narrowed under the same name.
+        for (const [roomId, coverage] of this.appliedCoverage) {
+            this.appliedCoverage.set(roomId, requiredStateOfBoth(coverage, this.currentRequiredState(roomId)));
         }
         const current = slidingSync.getRoomSubscriptions();
-        if (!changed && current.size === desired.size && [...desired].every((roomId) => current.has(roomId))) return;
-        slidingSync.modifyRoomSubscriptions(desired);
+        const sameRooms = current.size === desired.size && [...desired].every((roomId) => current.has(roomId));
+        if (changed || !sameRooms) slidingSync.modifyRoomSubscriptions(desired);
+        this.dropUnusedDerivedSubscriptions(slidingSync);
+    }
+
+    /** Forget subscriptions derived for rooms that no longer use them, here and on the connection. */
+    private dropUnusedDerivedSubscriptions(slidingSync: SlidingSync): void {
+        const used = new Set(this.appliedNames.values());
+        for (const name of this.derivedSubscriptions.keys()) {
+            if (used.has(name)) continue;
+            if (this.registeredDerived.has(name) && !slidingSync.removeCustomSubscription(name)) continue;
+            this.derivedSubscriptions.delete(name);
+            this.registeredDerived.delete(name);
+        }
     }
 
     /**
@@ -579,16 +864,6 @@ export class SlidingSyncManager {
                     [EventType.RoomMember, MSC3575_STATE_KEY_ME], // lets the client calculate that we are in fact in the room
                     [EventType.RoomMember, MSC3575_STATE_KEY_LAZY], // senders in the cached timeline
                 ],
-                include_old_rooms: {
-                    timeline_limit: 0,
-                    required_state: [
-                        [EventType.RoomCreate, ""],
-                        [EventType.RoomTombstone, ""], // lets JS SDK hide rooms which are dead
-                        [EventType.SpaceChild, MSC3575_WILDCARD], // all space children
-                        [EventType.SpaceParent, MSC3575_WILDCARD], // all space parents
-                        [EventType.RoomMember, MSC3575_STATE_KEY_ME], // lets the client calculate that we are in fact in the room
-                    ],
-                },
                 ...updateArgs,
             };
         } else {
@@ -624,6 +899,9 @@ export class SlidingSyncManager {
      */
     public async setRoomVisible(roomId: string): Promise<RoomVisibility> {
         await this.configureDefer.promise;
+        // Opening a channel the server did not send before is news of it: as one of its Space's, it is asked about
+        // again.
+        if (this.unsuppliedRooms.delete(roomId)) this.markSpaceTreeChanged(roomId);
         const client = this.client!;
         const slidingSync = this.slidingSync!;
         if (this.viewLease?.roomId !== roomId) {
@@ -632,7 +910,14 @@ export class SlidingSyncManager {
             previous?.release();
         }
 
-        const room = client.getRoom(roomId);
+        let room = client.getRoom(roomId);
+        if (!room && slidingSync.hasSavedRoom(roomId)) {
+            // This device's saved data for the room still waits its turn, such as a Space's channel restored in
+            // the background. Applying it now shows the room without waiting for the server.
+            await slidingSync.restoreSavedRooms([roomId]);
+            if (this.client !== client || this.slidingSync !== slidingSync) return "replaced";
+            room = client.getRoom(roomId);
+        }
         if (room) {
             // The crypto layer remembers encryption even if the room's state is incomplete or was removed.
             if (!room.hasEncryptionStateEvent() && (await client.getCrypto()?.isEncryptionEnabledInRoom(roomId))) {
@@ -684,9 +969,13 @@ export class SlidingSyncManager {
                     settle("known");
                     return;
                 }
-                if (!slidingSync.isRoomSubscriptionConfirmed(roomId) || response.rooms?.[roomId]) return;
+                // Only an answer to a request that asked about the room says anything about it.
+                if (!slidingSync.getRequestForResponse(response)?.roomSubscriptions.has(roomId)) return;
+                if (response.rooms?.[roomId]) return;
                 // The server has answered this subscription without the room. Stop asking for its history.
                 logger.log("SlidingSync setRoomVisible: the server did not send", roomId);
+                this.absentRooms.add(roomId);
+                this.notifyArrivals();
                 this.bootstrapRooms.delete(roomId);
                 this.settleInitialTimeline(roomId, false);
                 settle("absent");
@@ -711,6 +1000,247 @@ export class SlidingSyncManager {
         if (this.viewLease?.roomId === roomId) return;
         this.leases.prefetch(roomId);
     }
+
+    /**
+     * Keep a room subscribed with the state of an open room while someone looks at it outside the room view, such
+     * as in its settings. A room that is only listed has a small part of its state, without its topic or history
+     * visibility. Holding it asks for the rest straight away and keeps it current until the hold is released.
+     * Works without sliding sync too, where it has no effect until a connection starts.
+     * @param roomId - The room.
+     * @returns A function that releases the hold. Releasing twice has no further effect.
+     */
+    public holdRoom(roomId: string): () => void {
+        if (!roomId.startsWith("!")) return () => {};
+        let hold = this.roomHolds.get(roomId);
+        if (!hold) {
+            hold = { count: 0 };
+            this.roomHolds.set(roomId, hold);
+        }
+        hold.count++;
+        if (this.slidingSync && !hold.lease) hold.lease = this.leases.acquire(roomId, "view");
+        let released = false;
+        return () => {
+            if (released) return;
+            released = true;
+            const current = this.roomHolds.get(roomId);
+            if (!current || --current.count > 0) return;
+            this.roomHolds.delete(roomId);
+            current.lease?.release();
+        };
+    }
+
+    /**
+     * Ask the server for some of a room's state until the demand is released, such as a widget's state while it
+     * runs. Sliding sync sends a room only the state its subscriptions name, so the room is subscribed with it. Under
+     * regular sync, or for state already here, the demand is ready at once. A demand made before sliding sync starts
+     * is asked for once it does.
+     * @param roomId - The room.
+     * @param selectors - The state, by concrete event type.
+     * @param kind - Whether the state is kept up to date while the demand is held, or only read once. Live demands
+     *     are given room in a request first.
+     * @returns The demand, to wait on and release.
+     * @throws when a selector asks for every event type, which would bring every member of large rooms, or there are
+     *     more than one demand may name.
+     */
+    public demandRoomState(
+        roomId: string,
+        selectors: readonly RoomStateSelector[],
+        kind: RoomStateDemandKind = "live",
+    ): RoomStateDemand {
+        for (const selector of selectors) requiredStateFor(selector);
+        // Every list entry brings the catalog, so it needs no asking once the room's entry has arrived.
+        const needed = selectors.filter((selector) => !requiredStateCovers(this.profiles.catalog, selector));
+        if (needed.length === 0 && this.liveRooms.has(roomId)) {
+            return { roomId, isReady: () => true, whenReady: () => Promise.resolve(), release: () => {} };
+        }
+        // Held whether or not sliding sync runs yet, so a connection started later asks for it too.
+        const demand = this.stateDemands.acquire(roomId, selectors, kind);
+        const isReady = (): boolean =>
+            !this.slidingSync || demand.isReady() || selectors.every((selector) => this.isStateHere(roomId, selector));
+        return {
+            roomId,
+            isReady,
+            whenReady: (timeoutMs) => (isReady() ? Promise.resolve() : demand.whenReady(timeoutMs)),
+            release: () => demand.release(),
+        };
+    }
+
+    /**
+     * Read some of a room's current state, asking the server for it first when sliding sync has not sent it. An
+     * empty answer means the room has no such state.
+     * @param client - The client to read from. Without sliding sync for it, its state is read as it is.
+     * @param roomId - The room.
+     * @param selector - The state, by concrete event type, with one state key or every key.
+     * @param timeoutMs - How long to wait for the server.
+     * @returns The matching state events.
+     * @throws {RoomStateUnavailableError} when the server did not answer in time, or the connection was replaced.
+     */
+    public async readRoomState(
+        client: MatrixClient,
+        roomId: string,
+        selector: RoomStateSelector,
+        timeoutMs = ROOM_STATE_READ_TIMEOUT_MS,
+    ): Promise<MatrixEvent[]> {
+        const read = (): MatrixEvent[] => {
+            const state = client.getRoom(roomId)?.currentState;
+            if (!state) return [];
+            if (selector.stateKey === undefined) return state.getStateEvents(selector.type);
+            const event = state.getStateEvents(selector.type, selector.stateKey);
+            return event ? [event] : [];
+        };
+        requiredStateFor(selector);
+        if (!this.isActiveFor(client)) return read();
+        // Every member of a room is loaded lazily, as under regular sync: asking for them all would bring every
+        // member of large rooms. One member is asked for like any other state.
+        if (selector.type === EventType.RoomMember && selector.stateKey === undefined) return read();
+        // A room the server does not serve has no state to read, as under regular sync.
+        if (!client.getRoom(roomId) && !this.mayStillArrive(roomId)) return [];
+        if (this.isStateHere(roomId, selector)) return read();
+        // The read belongs to this connection: one that replaces it while the read waits ends the read.
+        const slidingSync = this.slidingSync;
+        const stillCurrent = (): boolean => this.isActiveFor(client) && this.slidingSync === slidingSync;
+        const leave = await this.enterRead(roomId);
+        if (!stillCurrent()) {
+            leave();
+            throw new RoomStateUnavailableError("released", roomId);
+        }
+        const demand = this.demandRoomState(roomId, [selector], "read");
+        let absent = false;
+        try {
+            await demand.whenReady(timeoutMs);
+        } catch (error) {
+            if (!(error instanceof RoomStateUnavailableError && error.reason === "absent")) throw error;
+            absent = true;
+        } finally {
+            demand.release();
+            leave();
+        }
+        if (!stillCurrent()) throw new RoomStateUnavailableError("released", roomId);
+        return absent ? [] : read();
+    }
+
+    /** Wait for a room to be read from: one already being read, or a free place among {@link MAX_STATE_READ_ROOMS}. */
+    private async enterRead(roomId: string): Promise<() => void> {
+        // A new connection replaces these and wakes every waiting read.
+        const rooms = this.readingRooms;
+        const queue = this.readQueue;
+        while (rooms === this.readingRooms && !rooms.has(roomId) && rooms.size >= MAX_STATE_READ_ROOMS) {
+            await new Promise<void>((resolve) => queue.push(resolve));
+        }
+        rooms.set(roomId, (rooms.get(roomId) ?? 0) + 1);
+        let left = false;
+        return () => {
+            if (left) return;
+            left = true;
+            const reads = rooms.get(roomId)! - 1;
+            if (reads > 0) {
+                rooms.set(roomId, reads);
+                return;
+            }
+            rooms.delete(roomId);
+            queue.shift()?.();
+        };
+    }
+
+    /**
+     * Whether a room's state for a selector is here: brought by every list entry, or by the subscription a request
+     * carried whose answer has been applied. A confirmed subscription is not enough: its answer is applied after.
+     */
+    private isStateHere(roomId: string, selector: RoomStateSelector): boolean {
+        if (!this.liveRooms.has(roomId)) return false;
+        if (requiredStateCovers(this.profiles.catalog, selector)) return true;
+        const coverage = this.appliedCoverage.get(roomId);
+        return !!coverage && requiredStateCovers(coverage, selector);
+    }
+
+    /**
+     * Whether sliding sync may still bring a room this client does not know yet, such as a channel its lists have
+     * not reached, or one this device saved that is not applied yet.
+     * @param roomId - The room.
+     * @returns False without sliding sync, for a room the client knows, and for one the server answered without.
+     */
+    public mayStillArrive(roomId: string): boolean {
+        const client = this.client;
+        const slidingSync = this.slidingSync;
+        if (!client || !slidingSync || client.getRoom(roomId)) return false;
+        if (slidingSync.hasSavedRoom(roomId)) return true;
+        return !this.listsCoverAccount && !this.absentRooms.has(roomId);
+    }
+
+    /**
+     * Whether the server has sent data for a room on this connection, rather than the room only being restored from
+     * what this device saved.
+     * @param roomId - The room.
+     */
+    public hasLiveData(roomId: string): boolean {
+        return this.liveRooms.has(roomId);
+    }
+
+    /**
+     * Whether a room this device saved turned out to be one the user left, or was removed from, while it was away.
+     * @param roomId - The room.
+     */
+    public wasLeftWhileAway(roomId: string): boolean {
+        return this.leftWhileAway.has(roomId);
+    }
+
+    /**
+     * Be told when what {@link mayStillArrive}, {@link hasLiveData} or {@link wasLeftWhileAway} say may have
+     * changed.
+     * @param listener - Called after each change.
+     * @returns A function that stops telling it.
+     */
+    public onArrivalChange(listener: () => void): () => void {
+        this.arrivalListeners.add(listener);
+        return () => this.arrivalListeners.delete(listener);
+    }
+
+    /**
+     * Hold something while sliding sync applies a batch of rooms: each response, and each batch of the rooms this
+     * device saved. `hold` is called as a batch starts, and what it returns once the batch is applied, or was cut short
+     * or never finishes.
+     * @param hold - Starts a hold and returns what ends it.
+     * @returns A function to stop holding for later batches.
+     */
+    public holdWhileApplyingRooms(hold: () => () => void): () => void {
+        this.roomBatchHolds.add(hold);
+        return () => this.roomBatchHolds.delete(hold);
+    }
+
+    /**
+     * Start every hold for a batch of saved rooms the SDK applies. Passed to the SDK as `slidingSyncSavedRoomsBatch`.
+     * @returns What ends the holds.
+     */
+    public readonly holdForSavedRooms = (): (() => void) => this.startRoomBatchHolds();
+
+    /**
+     * Start every hold, ended by the returned function, or after a while: a batch that never finishes, such as a
+     * response whose processing failed, holds nothing for long.
+     */
+    private startRoomBatchHolds(): () => void {
+        if (this.roomBatchHolds.size === 0) return () => {};
+        const releases = [...this.roomBatchHolds].map((hold) => hold());
+        let ended = false;
+        const end = (): void => {
+            if (ended) return;
+            ended = true;
+            clearTimeout(timer);
+            for (const release of releases) release();
+        };
+        const timer = setTimeout(end, RESPONSE_STALL_MS);
+        return end;
+    }
+
+    private beginResponseHolds(): void {
+        this.endResponseHolds();
+        this.releaseResponseHolds = this.startRoomBatchHolds();
+    }
+
+    private readonly endResponseHolds = (): void => {
+        const release = this.releaseResponseHolds;
+        this.releaseResponseHolds = undefined;
+        release?.();
+    };
 
     /**
      * Keep the rooms of ongoing calls subscribed, so their state and chat stay current while someone reads other
@@ -811,9 +1341,66 @@ export class SlidingSyncManager {
         }
     };
 
-    private readonly onRoomStored = (room: Room): void => this.markSpaceTreeChanged(room.roomId);
+    private readonly onRoomStored = (room: Room): void => {
+        this.absentRooms.delete(room.roomId);
+        this.unsuppliedRooms.delete(room.roomId);
+        this.markSpaceTreeChanged(room.roomId);
+    };
 
-    private readonly onMyMembership = (room: Room): void => this.markSpaceTreeChanged(room.roomId);
+    private readonly onMyMembership = (room: Room): void => {
+        // A room rejoined since is the user's again.
+        if (room.getMyMembership() === KnownMembership.Join) this.leftWhileAway.delete(room.roomId);
+        this.markSpaceTreeChanged(room.roomId);
+    };
+
+    /**
+     * Demanded state is here once an answer to a request naming it has been applied. An answer to an older request,
+     * sent before the state was demanded, does not name it, so cannot make the demand ready.
+     */
+    private readonly onStateApplied = (response: MSC3575SlidingSyncResponse): void => {
+        const slidingSync = this.slidingSync;
+        const sent = slidingSync?.getRequestForResponse(response);
+        if (!slidingSync || !sent) return;
+        // What an answer brought counts only as far as the room is still subscribed with it: the subscription may
+        // have narrowed, such as when its demanded state lost its room, while the answer was being applied.
+        // Both ways round: a wildcard answer brings every entry the current subscription names, and the current one
+        // may itself be the wider.
+        const keptCurrent = (roomId: string, answered: readonly (readonly string[])[]): (readonly string[])[] =>
+            requiredStateOfBoth(answered, this.currentRequiredState(roomId));
+        for (const [roomId, subscription] of sent.roomSubscriptions) {
+            if (this.client?.getRoom(roomId) && slidingSync.getRoomSubscriptions().has(roomId)) {
+                this.appliedCoverage.set(roomId, keptCurrent(roomId, subscription.required_state ?? []));
+            }
+        }
+        for (const roomId of this.stateDemands.roomIds()) {
+            const subscription = sent.roomSubscriptions.get(roomId);
+            if (!subscription) continue;
+            if (this.client?.getRoom(roomId)) {
+                this.stateDemands.answered(roomId, keptCurrent(roomId, subscription.required_state ?? []));
+            } else if (!response.rooms?.[roomId]) {
+                // Sliding sync serves only rooms the user is in.
+                this.stateDemands.absent(roomId);
+            }
+        }
+    };
+
+    // A room's data arrives before the SDK applies it, such as a change of membership: it counts as live once the
+    // response has been applied, on Complete.
+    private readonly onLiveRoomData = (roomId: string): void => {
+        if (!this.liveRooms.has(roomId)) this.arrivingLiveRooms.add(roomId);
+    };
+
+    /** Publish the rooms the response just applied had data for. */
+    private publishLiveRooms(): void {
+        if (this.arrivingLiveRooms.size === 0) return;
+        for (const roomId of this.arrivingLiveRooms) this.liveRooms.add(roomId);
+        this.arrivingLiveRooms.clear();
+        this.notifyArrivals();
+    }
+
+    private notifyArrivals(): void {
+        for (const listener of this.arrivalListeners) listener();
+    }
 
     /** Redacting a child event, even locally, or cancelling a local redaction, changes it in place. */
     private readonly onSpaceRedaction = (_redaction: MatrixEvent, room: Room): void => {
@@ -821,13 +1408,33 @@ export class SlidingSyncManager {
         this.markSpaceTreeChanged(room.roomId);
     };
 
-    private readonly onResponseApplied = (state: SlidingSyncState, _response: unknown, error?: Error): void => {
+    private readonly onResponseApplied = (state: SlidingSyncState, response: unknown, error?: Error): void => {
         if (state === SlidingSyncState.RequestFinished) {
             // A response is applied between its arrival and Complete. A failed request applies nothing.
             this.applyingSince = error ? undefined : Date.now();
-            if (error) this.scheduleSpaceTreeRead();
+            if (error) this.endResponseHolds();
+            else this.beginResponseHolds();
+            if (!error) {
+                this.answeredConnection = true;
+                this.failures = 0;
+                this.forgotten = 0;
+            } else {
+                this.noteFailure(error);
+            }
+            if (error) {
+                this.arrivingLiveRooms.clear();
+                // The server forgot or rejected the connection, which is then started afresh: no room counts as sent
+                // on it until the new connection sends it again.
+                if ((error as { httpStatus?: number }).httpStatus === 400 && this.liveRooms.size > 0) {
+                    this.liveRooms.clear();
+                    this.notifyArrivals();
+                }
+                this.scheduleSpaceTreeRead();
+            }
         } else if (state === SlidingSyncState.Complete) {
             this.applyingSince = undefined;
+            this.publishLiveRooms();
+            if (response) this.settleDiscoveries(response as MSC3575SlidingSyncResponse);
             if (this.spaceTreeTimer !== undefined) clearTimeout(this.spaceTreeTimer);
             this.spaceTreeTimer = undefined;
             if (this.listsCoverAccount && this.slidingSync && this.listsOutgrown(this.slidingSync)) {
@@ -840,6 +1447,60 @@ export class SlidingSyncManager {
             if (this.spaceTreeChanged) this.refreshSpaceChannels();
         }
     };
+
+    /**
+     * Settle the channels this response was asked about: a channel it brought is known now, and one it did not is
+     * one the server will not send, such as a room the user has never been in.
+     */
+    private settleDiscoveries(response: MSC3575SlidingSyncResponse): void {
+        if (this.discoveries.size === 0) return;
+        const asked = this.slidingSync?.getRequestForResponse(response)?.roomSubscriptions;
+        if (!asked) return;
+        for (const roomId of this.discoveries) {
+            if (!asked.has(roomId)) continue;
+            this.discoveries.delete(roomId);
+            if (!this.client?.getRoom(roomId)) this.unsuppliedRooms.add(roomId);
+            this.spaceTreeChanged = true;
+        }
+    }
+
+    /**
+     * The channels to subscribe, of a Space's: those the lists do not keep up to date. A known channel holds a
+     * subscription until the lists cover the account, other than one the user is invited to or knocked on, which
+     * the invites list has. A channel nobody has seen is asked about once, a few at a time, as sliding sync serves
+     * no room the user has never been in. At most {@link MAX_CHANNEL_INTERESTS}, in the Space's order.
+     * @param candidates - The Space's channels, in its order.
+     */
+    private channelInterests(candidates: Iterable<string>): Set<string> {
+        const interests = new Set<string>();
+        let discovering = 0;
+        for (const roomId of candidates) {
+            if (interests.size >= MAX_CHANNEL_INTERESTS) break;
+            const room = this.client?.getRoom(roomId);
+            if (room) {
+                // The user's own member event decides, as the SDK reports "leave" for a room it has no membership
+                // for yet. Rooms the user has left are not candidates at all.
+                const userId = this.client?.getUserId();
+                const membership = userId
+                    ? room.currentState.getStateEvents(EventType.RoomMember, userId)?.getContent().membership
+                    : undefined;
+                const invited = membership === KnownMembership.Invite || membership === KnownMembership.Knock;
+                if (!invited && !this.listsCoverAccount) interests.add(roomId);
+                continue;
+            }
+            if (this.unsuppliedRooms.has(roomId)) continue;
+            // Those already asked about count too, so walking the tree again before an answer asks about no more.
+            if (discovering >= MAX_DISCOVERIES) continue;
+            discovering++;
+            this.discoveries.add(roomId);
+            interests.add(roomId);
+        }
+        // Those no longer wanted are not asked about.
+        for (const roomId of this.discoveries) {
+            if (!interests.has(roomId)) this.discoveries.delete(roomId);
+        }
+        return interests;
+    }
 
     /** Whether a list that grows to the whole account now has more rooms than its range covers. */
     private listsOutgrown(slidingSync: SlidingSync): boolean {
@@ -934,14 +1595,24 @@ export class SlidingSyncManager {
             }
         }
         this.spaceTree = tree;
+        // Channels this device saved, but has not applied yet, are applied while the page is idle, so the Space's
+        // channel list fills without waiting for the server.
+        const slidingSync = this.slidingSync;
+        const saved = [...channels].filter(
+            (roomId) =>
+                !this.savedChannelsAsked.has(roomId) && !client?.getRoom(roomId) && slidingSync?.hasSavedRoom(roomId),
+        );
+        for (const roomId of saved) this.savedChannelsAsked.add(roomId);
+        if (saved.length > 0) void slidingSync!.restoreSavedRooms(saved, true);
         // Only the Spaces in the tree keep their order, so visiting many Spaces does not grow it.
         for (const spaceId of this.sortedChildren.keys()) {
             if (!walked.has(spaceId)) this.sortedChildren.delete(spaceId);
         }
-        if (channels.size === this.spaceChannels.size && [...channels].every((id) => this.spaceChannels.has(id))) {
+        const interests = this.channelInterests(channels);
+        if (interests.size === this.spaceChannels.size && [...interests].every((id) => this.spaceChannels.has(id))) {
             return;
         }
-        this.spaceChannels = channels;
+        this.spaceChannels = interests;
         // Sent with the next batch: the channel someone opens next is urgent, and carries these along with it.
         this.scheduleFlush(false);
     }
@@ -1015,7 +1686,7 @@ export class SlidingSyncManager {
             if (bootstrap) {
                 bootstrap = false;
                 for (const [name, normal] of Object.entries(sssLists)) {
-                    const current = slidingSync.getListParams(name) ?? normal;
+                    const current = slidingSync.getListParams(name) ?? this.listDefinition(name);
                     const upperBound = FIXED_LISTS.has(name)
                         ? normal.ranges[0][1]
                         : Math.max(current.ranges[0][1], normal.ranges[0][1]);
@@ -1049,6 +1720,9 @@ export class SlidingSyncManager {
                 slidingSync.off(SlidingSyncEvent.Lifecycle, lifecycle);
                 // The open Space's channels the lists now cover need no subscription of their own.
                 this.listsCoverAccount = true;
+                // Every room is known: history may now be fetched to make their counts exact.
+                this.countEngine?.allowRecovery();
+                this.notifyArrivals();
                 if (this.activeSpaceId) this.refreshSpaceChannels();
             }
         };
@@ -1119,6 +1793,11 @@ export class SlidingSyncManager {
             this.pendingActiveSpace = undefined;
             this.setActiveSpace(spaceId);
         }
+        for (const [roomId, hold] of this.roomHolds) {
+            // A lease from the previous connection is already void; one taken since this one began is replaced.
+            hold.lease?.release();
+            hold.lease = this.leases.acquire(roomId, "view");
+        }
         // The first request must carry the destination, so apply its subscription now rather than in a batch.
         this.applySubscriptions(slidingSync);
         this.attachCache(client, slidingSync);
@@ -1135,12 +1814,56 @@ export class SlidingSyncManager {
     public snapshotLoader(client: MatrixClient): (() => Promise<SlidingSyncSnapshot | null>) | undefined {
         const cache = this.cache;
         if (!cache || this.client !== client) return undefined;
+        // A read started early is used once; a later start reads afresh. One made for another client is let go.
+        const prefetched = this.prefetched?.cache === cache ? this.prefetched.snapshot : undefined;
+        if (this.prefetched && this.prefetched.cache !== cache) void this.prefetched.cache.dispose();
+        this.prefetched = undefined;
         return async () => {
-            const snapshot = await cache.load();
+            const read = await (prefetched ?? cache.load());
+            // Deleted meanwhile, such as by a logout in another window: nothing saved is shown.
+            const snapshot = cache.isClosed ? null : read;
+            // Restored rooms show the counts they had, worked out from what was saved with them.
+            if (snapshot && this.client === client) this.countEngine?.useSaved(cache.restoredCounts);
             // The room and Space the app opens at start are shown before the rest.
             if (snapshot) snapshot.priorityRoomIds = [...this.roomsShownFirst];
             return snapshot;
         };
+    }
+
+    /**
+     * Start reading the rooms this device saved, while the client's stores and crypto are still being opened, so
+     * they are ready to show as soon as sync starts. {@link setup} then uses the same cache.
+     * @param client - The client about to be set up.
+     */
+    public prefetchSnapshot(client: MatrixClient): void {
+        const userId = client.getUserId();
+        const deviceId = client.getDeviceId();
+        if (!userId || !deviceId) return;
+        // An earlier read nobody used is dropped; the cache in use stays.
+        if (this.prefetched && this.prefetched.cache !== this.cache) void this.prefetched.cache.dispose();
+        const cache = new SlidingSyncCache(userId, deviceId);
+        this.prefetched = { client, cache, snapshot: cache.load() };
+    }
+
+    /**
+     * Whether this device has rooms saved from sliding sync for a client, as read early by {@link prefetchSnapshot}.
+     * @param client - The client.
+     * @returns False when nothing was read early for it, or nothing was saved.
+     */
+    public async hasPrefetchedSnapshot(client: MatrixClient): Promise<boolean> {
+        const prefetched = this.prefetched;
+        if (!prefetched || prefetched.client !== client) return false;
+        try {
+            return (await prefetched.snapshot) !== null;
+        } catch {
+            return false;
+        }
+    }
+
+    /** Let go of the saved rooms read before set-up, such as when the client syncs without sliding sync after all. */
+    public discardPrefetchedSnapshot(): void {
+        if (this.prefetched && this.prefetched.cache !== this.cache) void this.prefetched.cache.dispose();
+        this.prefetched = undefined;
     }
 
     /** Keep what this connection learns on this device, for the next start. */
@@ -1148,8 +1871,17 @@ export class SlidingSyncManager {
         const userId = client.getUserId();
         const deviceId = client.getDeviceId();
         const previous = this.cache;
-        void previous?.dispose();
-        this.cache = userId && deviceId ? new SlidingSyncCache(userId, deviceId) : undefined;
+        // An early read for this client is adopted, unless its saved data was deleted meanwhile. One for another
+        // client, or a deleted one, is let go.
+        let prefetched: SlidingSyncCache | undefined;
+        if (this.prefetched?.client === client && !this.prefetched.cache.isClosed) {
+            prefetched = this.prefetched.cache;
+        } else if (this.prefetched) {
+            void this.prefetched.cache.dispose();
+            this.prefetched = undefined;
+        }
+        if (previous !== prefetched) void previous?.dispose();
+        this.cache = prefetched ?? (userId && deviceId ? new SlidingSyncCache(userId, deviceId) : undefined);
         const cache = this.cache;
         if (!cache) return;
 
@@ -1160,11 +1892,17 @@ export class SlidingSyncManager {
         const onRoomAccountData = (event: MatrixEvent, room: Room): void =>
             cache.observeRoomAccountData(room.roomId, event);
         const onReceipt = (event: MatrixEvent, room: Room): void => cache.observeReceipt(room.roomId, event);
-        // Hidden or closing pages may not run another task, so the write starts in this one.
-        const onPageHidden = (): void => {
-            if (document.visibilityState === "hidden") cache.flushNow();
+        const countEngine = this.countEngine;
+        // Hidden or closing pages may not run another task, so the write starts in this one, with the counts that
+        // are ready published first so they are saved with their rooms.
+        const flushNow = (): void => {
+            countEngine?.finishPending();
+            cache.flushNow();
         };
-        const onPageHide = (): void => cache.flushNow();
+        const onPageHidden = (): void => {
+            if (document.visibilityState === "hidden") flushNow();
+        };
+        const onPageHide = (): void => flushNow();
         // Account data and receipts are watched from the first Prepared state onwards. Restoring the saved
         // session announces the same events, which need not be saved again.
         let watchingClient = false;
@@ -1196,7 +1934,22 @@ export class SlidingSyncManager {
         client.on(ClientEvent.Sync, onSync);
         document.addEventListener("visibilitychange", onPageHidden);
         window.addEventListener("pagehide", onPageHide);
+        // Each room's notification count ledger is saved with it, as its counts were last published.
+        cache.setCountsSource((roomId) => countEngine?.save(roomId));
+        countEngine?.setChangeListener((roomId) => cache.observeCounts(roomId));
+        // A room changed by a response is written once the whole response is applied, receipts included.
+        const onResponse = (state: SlidingSyncState, response: unknown, error?: Error): void => {
+            if (state === SlidingSyncState.RequestFinished && response && !error) cache.beginResponse();
+        };
+        const onApplied = (): void => cache.endResponse();
+        slidingSync.on(SlidingSyncEvent.Lifecycle, onResponse);
+        slidingSync.on(SlidingSyncEvent.Applied, onApplied);
         this.detachCache = (): void => {
+            // The last write still checks each room's counts are ready: those that are, are published first.
+            countEngine?.finishPending();
+            countEngine?.setChangeListener(undefined);
+            slidingSync.off(SlidingSyncEvent.Lifecycle, onResponse);
+            slidingSync.off(SlidingSyncEvent.Applied, onApplied);
             slidingSync.off(SlidingSyncEvent.RoomData, onRoomData);
             slidingSync.off(SlidingSyncEvent.Lifecycle, onComplete);
             client.off(ClientEvent.Sync, onSync);
@@ -1205,7 +1958,7 @@ export class SlidingSyncManager {
             client.off(RoomEvent.Receipt, onReceipt);
             document.removeEventListener("visibilitychange", onPageHidden);
             window.removeEventListener("pagehide", onPageHide);
-            void cache.dispose();
+            void cache.dispose().finally(() => cache.setCountsSource(undefined));
         };
     }
 
@@ -1252,11 +2005,13 @@ export class SlidingSyncManager {
         if (gone.length > 0) {
             logger.info(`SlidingSync: ${gone.length} saved rooms are no longer joined`);
             for (const roomId of gone) {
+                this.leftWhileAway.add(roomId);
                 const room = client.getRoom(roomId);
                 if (room && room.getMyMembership() !== KnownMembership.Leave)
                     room.updateMyMembership(KnownMembership.Leave);
             }
             cache.forgetRooms(gone);
+            this.notifyArrivals();
         }
         return recheck;
     }
@@ -1269,11 +2024,117 @@ export class SlidingSyncManager {
     public async nativeSlidingSyncSupport(client: MatrixClient): Promise<boolean> {
         // Per https://github.com/matrix-org/matrix-spec-proposals/pull/3575/files#r1589542561
         // `client` can be undefined/null in tests for some reason.
-        const support = await client?.doesServerSupportUnstableFeature("org.matrix.simplified_msc3575");
+        // A response that lists no unstable features at all gives undefined, which means no.
+        const support = (await client?.doesServerSupportUnstableFeature("org.matrix.simplified_msc3575")) === true;
         if (support) {
             logger.log("nativeSlidingSyncSupport: org.matrix.simplified_msc3575 sliding sync advertised as unstable");
         }
         return support;
+    }
+
+    /**
+     * Whether a client syncs with sliding sync: it was set up for it, rather than falling back to regular sync, such
+     * as because its server offers no sliding sync.
+     * @param client - The client.
+     */
+    public isActiveFor(client: MatrixClient | null | undefined): boolean {
+        return !!client && this.client === client && this.slidingSync !== undefined;
+    }
+
+    /**
+     * Ask whether a client's server offers sliding sync. The answer is kept for the settings, and on this device for
+     * the next start ({@link knownServerSupport}).
+     * @param client - The client.
+     * @returns Whether it does, or undefined when it could not be asked, such as while offline.
+     */
+    public async serverOffersSlidingSync(client: MatrixClient): Promise<boolean | undefined> {
+        let supported: boolean;
+        try {
+            supported = await this.nativeSlidingSyncSupport(client);
+        } catch (error) {
+            logger.warn("SlidingSync: could not ask whether the server offers sliding sync", error);
+            return undefined;
+        }
+        SlidingSyncManager.serverSupportsSlidingSync = supported;
+        try {
+            localStorage.setItem(supportKey(client), String(supported));
+        } catch (error) {
+            // Storage is full, say. An answer that cannot be updated is dropped rather than left stale, so the next
+            // start asks the server again.
+            logger.warn("SlidingSync: could not keep whether the server offers sliding sync", error);
+            try {
+                localStorage.removeItem(supportKey(client));
+            } catch {
+                // Nothing more can be done.
+            }
+        }
+        return supported;
+    }
+
+    /**
+     * Note a request that failed. Failures showing that sliding sync does not work there, though the server offers
+     * it, let sliding sync go on this device for a while ({@link isUnusable}) and tell the listeners: an endpoint that
+     * is not there before the server has answered at all, or such failures and rejections several times in a row.
+     */
+    private noteFailure(error: Error): void {
+        const client = this.client;
+        const { httpStatus, errcode } = error as { httpStatus?: number; errcode?: string };
+        // No answer at all, such as while offline, says nothing about sliding sync.
+        if (!client || httpStatus === undefined) return;
+        const absent = httpStatus === 404 || httpStatus === 405 || httpStatus === 501 || errcode === "M_UNRECOGNIZED";
+        // A server may forget a connection, which then starts afresh; one that forgets the fresh one as well rejects it.
+        const unknown = httpStatus === 400 && errcode === "M_UNKNOWN_POS";
+        if (unknown) this.forgotten += 1;
+        const rejected = httpStatus === 400 && (!unknown || this.forgotten > 1);
+        if (!absent && !rejected) return;
+        this.failures += 1;
+        if (!(absent && !this.answeredConnection) && this.failures < FAILURES_BEFORE_UNUSABLE) return;
+        logger.warn(`SlidingSync: the server offers sliding sync, but it failed: ${httpStatus} ${errcode ?? ""}`);
+        try {
+            localStorage.setItem(unusableKey(client), String(Date.now() + UNUSABLE_RETRY_MS));
+        } catch (storageError) {
+            logger.warn("SlidingSync: could not keep that sliding sync failed", storageError);
+        }
+        for (const listener of this.unusableListeners) listener();
+    }
+
+    /**
+     * Whether sliding sync failed on a client's server lately, though offered, so regular sync is used for a while.
+     * @param client - The client.
+     */
+    public isUnusable(client: MatrixClient): boolean {
+        try {
+            const until = Number(localStorage.getItem(unusableKey(client)));
+            if (until > Date.now()) return true;
+            localStorage.removeItem(unusableKey(client));
+        } catch {
+            // Nothing kept, so nothing failed.
+        }
+        return false;
+    }
+
+    /**
+     * Be told when sliding sync turns out to fail on the server, though offered.
+     * @param listener - Called each time.
+     * @returns A function that stops telling it.
+     */
+    public onUnusable(listener: () => void): () => void {
+        this.unusableListeners.add(listener);
+        return () => this.unusableListeners.delete(listener);
+    }
+
+    /**
+     * What a client's server last said, on this device, about offering sliding sync.
+     * @param client - The client.
+     * @returns Whether it did, or undefined when it has not been asked from here yet.
+     */
+    public knownServerSupport(client: MatrixClient): boolean | undefined {
+        try {
+            const known = localStorage.getItem(supportKey(client));
+            return known === null ? undefined : known === "true";
+        } catch {
+            return undefined;
+        }
     }
 
     /**

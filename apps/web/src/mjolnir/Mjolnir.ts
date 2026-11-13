@@ -6,7 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import { type MatrixEvent, RoomStateEvent, Preset } from "matrix-js-sdk/src/matrix";
+import { ClientEvent, type MatrixEvent, type Room, RoomStateEvent, Preset } from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
 
 import { MatrixClientPeg } from "../MatrixClientPeg";
@@ -18,14 +18,22 @@ import { SettingLevel } from "../settings/SettingLevel";
 import { type ActionPayload } from "../dispatcher/payloads";
 import { type DoAfterSyncPreparedPayload } from "../dispatcher/payloads/DoAfterSyncPreparedPayload";
 import { Action } from "../dispatcher/actions";
+import { SlidingSyncManager } from "../SlidingSyncManager";
+import { type RoomStateDemand } from "../sliding-sync/RoomStateDemands";
 
 // TODO: Move this and related files to the js-sdk or something once finalized.
+
+/** How long a ban list room's rules are waited for, to read the lists again once they arrive. */
+const LIST_RULES_TIMEOUT_MS = 5 * 60_000;
 
 export class Mjolnir {
     private static instance?: Mjolnir;
 
     private _lists: BanList[] = [];
     private _roomIds: string[] = [];
+    // Under sliding sync a room has only the state its subscriptions name, so each list room is kept subscribed with
+    // its rules, whether or not anyone opens it.
+    private readonly listDemands = new Map<string, RoomStateDemand>();
     private mjolnirWatchRef?: string;
     private dispatcherRef?: string;
 
@@ -58,6 +66,7 @@ export class Mjolnir {
         if (!MatrixClientPeg.get()) return;
         this.updateLists(SettingsStore.getValue("mjolnirRooms"));
         MatrixClientPeg.get()!.on(RoomStateEvent.Events, this.onEvent);
+        MatrixClientPeg.get()!.on(ClientEvent.Room, this.onRoom);
     }
 
     public stop(): void {
@@ -68,6 +77,31 @@ export class Mjolnir {
         this.dispatcherRef = undefined;
 
         MatrixClientPeg.get()?.removeListener(RoomStateEvent.Events, this.onEvent);
+        MatrixClientPeg.get()?.removeListener(ClientEvent.Room, this.onRoom);
+        this.holdListRooms([]);
+    }
+
+    /** Keep the given list rooms' rules asked of sliding sync, and let go of the others. */
+    private holdListRooms(roomIds: string[]): void {
+        for (const [roomId, demand] of this.listDemands) {
+            if (roomIds.includes(roomId)) continue;
+            demand.release();
+            this.listDemands.delete(roomId);
+        }
+        for (const roomId of roomIds) {
+            if (this.listDemands.has(roomId)) continue;
+            const rules = ALL_RULE_TYPES.map((type) => ({ type }));
+            const demand = SlidingSyncManager.instance.demandRoomState(roomId, rules);
+            this.listDemands.set(roomId, demand);
+            // The rules can arrive without a state event for an existing room, such as with the room itself: the
+            // lists are read again once they have.
+            demand.whenReady(LIST_RULES_TIMEOUT_MS).then(
+                () => {
+                    if (this.listDemands.get(roomId) === demand) this.updateLists(this._roomIds);
+                },
+                () => {},
+            );
+        }
     }
 
     public async getOrCreatePersonalList(): Promise<BanList> {
@@ -122,6 +156,11 @@ export class Mjolnir {
         this._lists = this._lists.filter((b) => b.roomId !== roomId);
     }
 
+    // A list room's state is told before the room is stored, when the client cannot give the room to read it from.
+    private onRoom = (room: Room): void => {
+        if (this._roomIds.includes(room.roomId)) this.updateLists(this._roomIds);
+    };
+
     private onEvent = (event: MatrixEvent): void => {
         if (!MatrixClientPeg.get()) return;
         if (!this._roomIds.includes(event.getRoomId()!)) return;
@@ -141,6 +180,7 @@ export class Mjolnir {
         logger.log("Updating Mjolnir ban lists to: " + listRoomIds);
         this._lists = [];
         this._roomIds = listRoomIds || [];
+        this.holdListRooms(this._roomIds);
         if (!listRoomIds) return;
 
         for (const roomId of listRoomIds) {

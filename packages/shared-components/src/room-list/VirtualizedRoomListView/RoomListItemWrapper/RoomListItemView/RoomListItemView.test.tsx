@@ -467,6 +467,19 @@ describe("<RoomListItemView />", () => {
         expect(screen.getByTestId("notification-decoration")).toBeInTheDocument();
     });
 
+    it.each([
+        [false, "Open room General with at least 4 unread messages."],
+        [true, "Open room General with at least 4 unread mentions."],
+    ])("should say a count is only a lower bound (mention: %s)", (isMention, label) => {
+        render(
+            <WithNotification
+                notification={{ ...WithNotification.args.notification!, isMention, count: 4, countIsLowerBound: true }}
+            />,
+        );
+        expect(screen.getByRole("option", { name: label })).toBeInTheDocument();
+        expect(screen.getByText("4+")).toBeInTheDocument();
+    });
+
     it("should hide notification decoration when not present", () => {
         render(<Default />);
         expect(screen.queryByTestId("notification-decoration")).toBeNull();

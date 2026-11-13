@@ -311,6 +311,8 @@ describe("<Notifications />", () => {
         }),
         setAccountData: vi.fn(),
         sendReadReceipt: vi.fn(),
+        // Regular sync: the server's counts are cleared with the receipt.
+        hasLocalNotificationCounts: vi.fn().mockReturnValue(false),
         supportsThreads: vi.fn().mockReturnValue(true),
         isInitialSyncComplete: vi.fn().mockReturnValue(false),
         addPushRule: vi.fn().mockResolvedValue({}),

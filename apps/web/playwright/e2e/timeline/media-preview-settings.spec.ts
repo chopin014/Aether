@@ -39,7 +39,7 @@ test.describe("Media preview settings", () => {
     test("should be able to hide avatars of inviters", { tag: "@screenshot" }, async ({ page, app, room, user }) => {
         await rejectToast(page, "Verify this device");
 
-        let settings = await app.settings.openUserSettings("Preferences");
+        let settings = await app.settings.openUserSettings("Security & Privacy");
         await settings.getByLabel("Hide avatars of room and inviter").click();
         await app.closeDialog();
         await app.viewRoomById(room.roomId);
@@ -61,7 +61,7 @@ test.describe("Media preview settings", () => {
         await expect(testRoomTile).toMatchScreenshot("invite-room-tree-no-avatar.png");
 
         // And then go back to being visible
-        settings = await app.settings.openUserSettings("Preferences");
+        settings = await app.settings.openUserSettings("Security & Privacy");
         await settings.getByLabel("Hide avatars of room and inviter").click();
         await app.closeDialog();
         await page.goto("#/home");
@@ -80,7 +80,7 @@ test.describe("Media preview settings", () => {
     });
 
     test("should be able to hide media in rooms globally", async ({ page, app, room, user }) => {
-        const settings = await app.settings.openUserSettings("Preferences");
+        const settings = await app.settings.openUserSettings("Security & Privacy");
         await settings.getByLabel("Show media in timeline").getByRole("radio", { name: "Always hide" }).click();
         await app.closeDialog();
         await app.viewRoomById(room.roomId);
@@ -91,7 +91,7 @@ test.describe("Media preview settings", () => {
         await bot.sendStateEvent(room.roomId, "m.room.join_rules", {
             join_rule: "public",
         });
-        const settings = await app.settings.openUserSettings("Preferences");
+        const settings = await app.settings.openUserSettings("Security & Privacy");
         await settings.getByLabel("Show media in timeline").getByLabel("In private rooms").click();
         await app.closeDialog();
         await app.viewRoomById(room.roomId);
@@ -105,7 +105,7 @@ test.describe("Media preview settings", () => {
         }
     });
     test("should be able to show media in rooms globally", async ({ page, app, room, user }) => {
-        const settings = await app.settings.openUserSettings("Preferences");
+        const settings = await app.settings.openUserSettings("Security & Privacy");
         await settings.getByLabel("Show media in timeline").getByRole("radio", { name: "Always show" }).click();
         await app.closeDialog();
         await app.viewRoomById(room.roomId);
@@ -113,7 +113,7 @@ test.describe("Media preview settings", () => {
         await expect(page.getByText("Show image")).not.toBeVisible();
     });
     test("should be able to hide media in an individual room", async ({ page, app, room, user }) => {
-        const settings = await app.settings.openUserSettings("Preferences");
+        const settings = await app.settings.openUserSettings("Security & Privacy");
         await settings.getByLabel("Show media in timeline").getByRole("radio", { name: "Always show" }).click();
         await app.closeDialog();
 
@@ -127,7 +127,7 @@ test.describe("Media preview settings", () => {
         await expect(page.getByText("Show image")).toBeVisible();
     });
     test("should be able to show media in an individual room", async ({ page, app, room, user }) => {
-        const settings = await app.settings.openUserSettings("Preferences");
+        const settings = await app.settings.openUserSettings("Security & Privacy");
         await settings.getByLabel("Show media in timeline").getByRole("radio", { name: "Always hide" }).click();
         await app.closeDialog();
 
