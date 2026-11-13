@@ -11,7 +11,8 @@
         "feature_desktop_shell": true,
         "feature_video_rooms": true,
         "feature_element_call_video_rooms": true,
-        "feature_element_call_react": true
+        "feature_element_call_react": true,
+        "feature_new_timeline": true
     },
     "element_call": {
         "brand": "Element Call",

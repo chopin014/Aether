@@ -87,6 +87,9 @@ export class Settings {
      * @param tab the name of the tab to switch to after opening, optional.
      */
     public async openRoomSettings(tab?: string): Promise<Locator> {
+        // The room's timeline and right panel appear together, once its encryption is known; the header comes first.
+        // Wait for them, or a right panel restored open would be toggled closed by the click below.
+        await this.page.locator(".mx_RoomView_MessageList, .mx_NewTimelinePanel").first().waitFor();
         // Open right panel if not open
         const rightPanel = this.page.locator(".mx_RightPanel");
         if ((await rightPanel.count()) === 0) {

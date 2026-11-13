@@ -64,36 +64,40 @@ Please see LICENSE files in the repository root for full details.
                     margin-inline-end: 0;
                 }
 
-                &:has([data-event-layout="group"]) {
-                    margin-top: calc(var(--cpd-space-3x) * -1);
-                }
-
-                /**
-                 * Add margin to center the bubble
-                 */
-                &:has([data-event-layout="bubble"]) {
-                    /**
-                     * Add the layout margin and the margin to vertically center the bubble
-                     */
-                    margin-top: var(--cpd-space-6x);
-                    margin-right: 34px;
-                    flex-shrink: 1;
-                }
-
-                &:has([data-event-layout="irc"]) {
-                    /*
-                     * The migrated tile keeps an empty timestamp slot for
-                     * IRC alignment. The preview must hide that slot as the
-                     * legacy preview hid its timestamp element.
-                     */
-                    .mx_MessageTimestamp,
-                    [data-testid="event-tile-slot-timestamp"] {
-                        display: none;
-                    }
-                }
-
                 .mx_EventTile_line {
                     max-width: 100%;
+                }
+            }
+
+            /*
+             * Each preview is marked with its layout. A `:has()` on the tile, finding the layout within it, would
+             * also make the browser restyle the parts of every tile in the timeline whenever anything in it changes.
+             */
+            &.mxLayoutSwitcher_LayoutSelector_LayoutRadio_EventTilePreview--group .mx_EventTile {
+                margin-top: calc(var(--cpd-space-3x) * -1);
+            }
+
+            /**
+             * Add margin to center the bubble
+             */
+            &.mxLayoutSwitcher_LayoutSelector_LayoutRadio_EventTilePreview--bubble .mx_EventTile {
+                /**
+                 * Add the layout margin and the margin to vertically center the bubble
+                 */
+                margin-top: var(--cpd-space-6x);
+                margin-right: 34px;
+                flex-shrink: 1;
+            }
+
+            /*
+             * The migrated tile keeps an empty timestamp slot for
+             * IRC alignment. The preview must hide that slot as the
+             * legacy preview hid its timestamp element.
+             */
+            &.mxLayoutSwitcher_LayoutSelector_LayoutRadio_EventTilePreview--irc .mx_EventTile {
+                .mx_MessageTimestamp,
+                [data-testid="event-tile-slot-timestamp"] {
+                    display: none;
                 }
             }
         }

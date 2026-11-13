@@ -58,6 +58,7 @@ import { isVideoRoom } from "../utils/video-rooms";
 import { ModuleApi } from "../modules/Api";
 import ActiveWidgetStore from "./ActiveWidgetStore";
 import { confirmVoiceChannelSwitch } from "../components/views/voip/confirmVoiceChannelSwitch";
+import { markRoomSwitch } from "../performance/RoomSwitchPerformance";
 
 const NUM_JOIN_RETRY = 5;
 
@@ -82,6 +83,11 @@ interface State {
      * The ID of the room being subscribed to (in Sliding Sync)
      */
     subscribingRoomId: string | null;
+    /**
+     * Whether this view is the one sliding sync loaded the room for, rather than a later request: it goes on from the
+     * view made while the room loaded, such as the position restored then.
+     */
+    loadedForView: boolean;
     /**
      * The event to scroll to when the room is first viewed
      */
@@ -129,6 +135,7 @@ const INITIAL_STATE: State = {
     roomId: null,
     threadId: null,
     subscribingRoomId: null,
+    loadedForView: false,
     initialEventId: null,
     initialEventPixelOffset: null,
     isInitialEventHighlighted: false,
@@ -199,6 +206,7 @@ export class RoomViewStore extends EventEmitter {
         // A summary only describes the room it was fetched for.
         if (lastRoomId !== this.state.roomId) this.state.roomSummary = undefined;
         if (!this.lockedToRoomId && lastRoomId !== this.state.roomId) {
+            markRoomSwitch("navigation", this.state.roomId);
             if (lastRoomId) this.emitForRoom(lastRoomId, false);
             if (this.state.roomId) this.emitForRoom(this.state.roomId, true);
 
@@ -470,9 +478,20 @@ export class RoomViewStore extends EventEmitter {
             if (prevRoomCall !== null && (!viewingCall || payload.room_id !== this.state.roomId))
                 prevRoomCall.presented = false;
 
-            if (SettingsStore.getValue("feature_simplified_sliding_sync") && this.state.roomId !== payload.room_id) {
+            const slidingSync =
+                this.stores.slidingSyncManager.isActiveFor(MatrixClientPeg.get()) &&
+                this.state.roomId !== payload.room_id;
+            // A room the client has is shown at once, as under regular sync: what its subscription brings, such as
+            // more of its history, arrives in place. Its subscription is updated alongside.
+            const shownAtOnce = slidingSync && !!MatrixClientPeg.get()?.getRoom(payload.room_id);
+            if (shownAtOnce) {
+                this.stores.slidingSyncManager
+                    .setRoomVisible(payload.room_id)
+                    .catch((error) => logger.warn(`Could not update the subscription of ${payload.room_id}`, error));
+            } else if (slidingSync) {
                 this.setState({
                     subscribingRoomId: payload.room_id,
+                    loadedForView: false,
                     roomId: payload.room_id,
                     initialEventId: null,
                     initialEventPixelOffset: null,
@@ -486,11 +505,20 @@ export class RoomViewStore extends EventEmitter {
                 });
                 // set this room as the room subscription. We need to await for it as this will fetch
                 // all room state for this room, which is required before we get the state below.
-                await this.stores.slidingSyncManager.setRoomVisible(payload.room_id);
+                const visibility = await this.stores.slidingSyncManager.setRoomVisible(payload.room_id);
+                // Someone opened another room while this one was loading, or the client was replaced: going on
+                // would take them back here.
+                if (viewRequest !== this.viewRequest || visibility === "replaced") return;
+                if (visibility !== "known") {
+                    // The server did not send the room, or not yet. The room view shows what it can, such as a
+                    // join preview, and switches to the room if it arrives later.
+                    logger.info(`Opening ${payload.room_id} without its sliding sync data: ${visibility}`);
+                }
 
                 // Re-fire the payload: we won't re-process it because the prev room ID == payload room ID now
-                this.dis.dispatch({
+                this.dis.dispatch<ViewRoomPayload>({
                     ...payload,
+                    sliding_sync_loaded: true,
                 });
                 return;
             }
@@ -512,6 +540,7 @@ export class RoomViewStore extends EventEmitter {
                 viaServers: payload.via_servers ?? [],
                 wasContextSwitch: payload.context_switch ?? false,
                 viewingCall,
+                loadedForView: payload.sliding_sync_loaded === true || shownAtOnce,
             };
 
             // Allow being given an event to be replied to when switching rooms but sanity check its for this room
@@ -831,6 +860,13 @@ export class RoomViewStore extends EventEmitter {
     // Whether the current room is loading (true whilst resolving an alias)
     public isRoomLoading(): boolean {
         return this.state.roomLoading;
+    }
+
+    /**
+     * Whether the current view is the one sliding sync loaded the room for, rather than a later request to view it.
+     */
+    public isLoadedForView(): boolean {
+        return this.state.loadedForView;
     }
 
     // Any error that has occurred during loading

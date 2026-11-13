@@ -25,7 +25,8 @@ import { useSettingValue } from "../../../../hooks/useSettings";
 import { useMatrixClientContext } from "../../../../contexts/MatrixClientContext";
 import { useEventEmitter } from "../../../../hooks/useEventEmitter";
 import { isRoomVisible } from "../../../../stores/room-list-v3/isRoomVisible";
-import { getRoomNotifsState, RoomNotifState } from "../../../../RoomNotifs";
+import { getInexactUnreadNotificationCount, getRoomNotifsState, RoomNotifState } from "../../../../RoomNotifs";
+import { InexactCount, onCountsChanged } from "../../../../sliding-sync/notification-counts/publishedCounts";
 
 const MIN_UPDATE_INTERVAL_MS = 500;
 
@@ -41,6 +42,8 @@ export type ThreadData = {
     notificationLevel: NotificationLevel;
     /** The server-reported total notification count, or 0 for locally-detected unreads. */
     notificationCount: number;
+    /** Whether the count is only a lower bound: more could be unread than it says. */
+    countIsLowerBound: boolean;
     /** Whether the thread's room is muted. */
     muted: boolean;
 };
@@ -102,6 +105,9 @@ export function useUnreadThreadRooms(forceComputation: boolean): UnreadThreadRoo
     // counts. Recompute on that instead of waiting for the next sync, so a thread the user just
     // read leaves the list at once, as it does in the room list.
     useEventEmitter(mxClient, RoomEvent.Receipt, scheduleUpdate);
+    // Counts made on this device change between syncs, such as when history fills a gap, and rooms do not pass
+    // their count changes on to the client.
+    useEffect(() => onCountsChanged(scheduleUpdate), [scheduleUpdate]);
 
     // Force the list computation
     useEffect(() => {
@@ -200,6 +206,7 @@ function collectRoomThreads(
             room,
             notificationLevel: unread.notificationLevel,
             notificationCount: unread.notificationCount,
+            countIsLowerBound: unread.countIsLowerBound,
             muted: isRoomMuted,
         };
 
@@ -224,6 +231,8 @@ type ThreadUnread = {
     notificationLevel: NotificationLevel;
     /** The homeserver's total notification count for the thread; 0 for a local-only unread. */
     notificationCount: number;
+    /** Whether the count is only a lower bound: more could be unread than it says. */
+    countIsLowerBound: boolean;
     /** Whether the homeserver reported a notification count for the thread (as opposed to a local-only unread). */
     hasServerNotifs: boolean;
     /** Whether the thread belongs in "My threads": the user participated, or was mentioned/keyword-matched. */
@@ -260,6 +269,7 @@ function evaluateThreadUnread(client: MatrixClient, room: Room, thread: Thread):
     return {
         notificationLevel,
         notificationCount: total,
+        countIsLowerBound: getInexactUnreadNotificationCount(room, false, thread.id) === InexactCount.LowerBound,
         hasServerNotifs,
         isRelevantToMe: thread.hasCurrentUserParticipated || highlight > 0,
     };

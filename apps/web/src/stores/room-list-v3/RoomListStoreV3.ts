@@ -113,12 +113,18 @@ export class RoomListStoreV3Class extends AsyncStoreWithClient<EmptyObject> {
      */
     private pendingEmit = false;
 
+    /** The selected Space, whose changes of rooms are followed while the store is ready. */
+    private watchedSpace?: SpaceKey;
+    /** Whether the selected Space's rooms changed since its rooms were last worked out. */
+    private activeSpaceRoomsChanged = false;
+
     public constructor(dispatcher: MatrixDispatcher) {
         super(dispatcher);
         this.buildFilters();
 
         this.msc3946ProcessDynamicPredecessor = SettingsStore.getValue("feature_dynamic_room_predecessors");
         SDKContextClass.instance.spaceStore.on(UPDATE_SELECTED_SPACE, () => {
+            this.watchActiveSpace();
             this.onActiveSpaceChanged();
         });
         SDKContextClass.instance.spaceStore.on(UPDATE_HOME_BEHAVIOUR, () => this.onActiveSpaceChanged());
@@ -249,6 +255,8 @@ export class RoomListStoreV3Class extends AsyncStoreWithClient<EmptyObject> {
         this.roomSkipList = new RoomSkipList(sorter, this.getSkipListFilters());
 
         await SDKContextClass.instance.spaceStore.storeReadyPromise;
+        // The Space store may have changed Space without announcing it, such as when it was reset at logout.
+        this.watchActiveSpace();
         const rooms = this.getRooms();
         this.roomSkipList.seed(rooms);
         this.emit(LISTS_LOADED_EVENT);
@@ -257,6 +265,7 @@ export class RoomListStoreV3Class extends AsyncStoreWithClient<EmptyObject> {
 
     protected async onNotReady(): Promise<void> {
         this.roomSkipList = undefined;
+        this.unwatchActiveSpace();
     }
 
     protected async onAction(payload: ActionPayload): Promise<void> {
@@ -459,6 +468,10 @@ export class RoomListStoreV3Class extends AsyncStoreWithClient<EmptyObject> {
         if (!this.pendingEmit) {
             this.pendingEmit = true;
             requestAnimationFrame(() => {
+                if (this.activeSpaceRoomsChanged) {
+                    this.activeSpaceRoomsChanged = false;
+                    this.roomSkipList?.calculateActiveSpaceForNodes();
+                }
                 this.pendingEmit = false;
                 this.emit(LISTS_UPDATE_EVENT);
             });
@@ -486,8 +499,38 @@ export class RoomListStoreV3Class extends AsyncStoreWithClient<EmptyObject> {
         this.scheduleEmit();
     }
 
+    /**
+     * Follow the rooms of the selected Space, which change when channels are added to it or removed from it. The
+     * Space store announces those changes under the Space's own key.
+     */
+    private watchActiveSpace(): void {
+        const space = SDKContextClass.instance.spaceStore.activeSpace;
+        if (space === this.watchedSpace) return;
+        this.unwatchActiveSpace();
+        this.watchedSpace = space;
+        SDKContextClass.instance.spaceStore.on(space, this.onActiveSpaceRoomsChanged);
+    }
+
+    private unwatchActiveSpace(): void {
+        if (this.watchedSpace !== undefined) {
+            SDKContextClass.instance.spaceStore.off(this.watchedSpace, this.onActiveSpaceRoomsChanged);
+        }
+        this.watchedSpace = undefined;
+        this.activeSpaceRoomsChanged = false;
+    }
+
+    /**
+     * The selected Space's rooms changed. Sync can change them once per room it loads, so working them out again,
+     * which looks at every room, waits for the next update of the lists.
+     */
+    private readonly onActiveSpaceRoomsChanged = (): void => {
+        this.activeSpaceRoomsChanged = true;
+        this.scheduleEmit();
+    };
+
     private onActiveSpaceChanged(): void {
         if (!this.roomSkipList) return;
+        this.activeSpaceRoomsChanged = false;
         this.roomSkipList.calculateActiveSpaceForNodes();
         this.scheduleEmit();
     }

@@ -15,7 +15,8 @@ import { act, fireEvent, render, type RenderResult } from "test-utils-rtl";
 import {
     EventType,
     type MatrixClient,
-    type Room,
+    MatrixEvent,
+    Room,
     GuestAccess,
     HistoryVisibility,
     JoinRule,
@@ -260,6 +261,35 @@ describe("<SpaceSettingsVisibilityTab />", () => {
                 getByLabelText("Publish this room to the public in matrix.org's room directory?"),
             ).toBeInTheDocument();
             expect(asFragment()).toMatchSnapshot();
+        });
+
+        it("shows guest access and history visibility that arrive after the settings open", async () => {
+            // Under sliding sync, a Space that has not been looked at gets these once its settings hold it.
+            const state = (type: EventType, content: object): MatrixEvent =>
+                new MatrixEvent({
+                    type,
+                    state_key: "",
+                    content,
+                    room_id: "!late:example.org",
+                    sender: "@other:example.org",
+                    event_id: "$" + type,
+                });
+            const space = new Room("!late:example.org", mockMatrixClient, "@me:example.org");
+            space.currentState.setStateEvents([state(EventType.RoomJoinRules, { join_rule: JoinRule.Public })]);
+            const component = getComponent({ space });
+            await toggleGuestAccessSection(component);
+            expect(getGuestAccessToggle(component)).not.toBeChecked();
+            expect(getHistoryVisibilityToggle(component)).not.toBeChecked();
+
+            act(() => {
+                space.currentState.setStateEvents([
+                    state(EventType.RoomGuestAccess, { guest_access: GuestAccess.CanJoin }),
+                    state(EventType.RoomHistoryVisibility, { history_visibility: HistoryVisibility.WorldReadable }),
+                ]);
+            });
+            expect(getGuestAccessToggle(component)).toBeChecked();
+            expect(getHistoryVisibilityToggle(component)).toBeChecked();
+            expect(mockMatrixClient.sendStateEvent).not.toHaveBeenCalled();
         });
     });
 });

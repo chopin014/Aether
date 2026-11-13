@@ -89,7 +89,9 @@ Please see LICENSE files in the repository root for full details.
         padding-block: var(--cpd-space-4x);
     }
 
-    > * + * {
+    /* Every row after the first, as `* + *` would say. That form makes the browser restyle the whole page when any
+       element anywhere is added or removed, as a room is opened; this one only concerns the card's own rows. */
+    > :not(:first-child) {
         border-block-start: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
     }
 

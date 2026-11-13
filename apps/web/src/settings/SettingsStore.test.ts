@@ -81,6 +81,37 @@ describe("SettingsStore", () => {
             expect(SettingsStore.getValue(SETTING_NAME_WITH_CONFIG_OVERRIDE)).toBe(false);
         });
 
+        describe("the new timeline", () => {
+            /** A choice saved on this device by the Labs toggle, from before only config.json decided. */
+            const savedOnDevice = (enabled: boolean): void =>
+                localStorage.setItem("mx_labs_feature_feature_new_timeline", JSON.stringify(enabled));
+
+            afterEach(() => {
+                localStorage.removeItem("mx_labs_feature_feature_new_timeline");
+            });
+
+            it("is on unless config.json says otherwise", () => {
+                expect(SettingsStore.getValue("feature_new_timeline")).toBe(true);
+                SdkConfig.put({ features: { feature_new_timeline: false } });
+                expect(SettingsStore.getValue("feature_new_timeline")).toBe(false);
+            });
+
+            it("is on for someone who turned it off in Labs", () => {
+                savedOnDevice(false);
+                expect(SettingsStore.getValue("feature_new_timeline")).toBe(true);
+            });
+
+            it("is off when config.json says so, even for someone who turned it on in Labs", () => {
+                savedOnDevice(true);
+                SdkConfig.put({ features: { feature_new_timeline: false } });
+                expect(SettingsStore.getValue("feature_new_timeline")).toBe(false);
+            });
+
+            it("cannot be changed on a device", () => {
+                expect(SettingsStore.canSetValue("feature_new_timeline", null, SettingLevel.DEVICE)).toBe(false);
+            });
+        });
+
         it(`supportedLevelsAreOrdered doesn't incorrectly override setting`, async () => {
             await SettingsStore.setValue(SETTING_NAME_WITH_CONFIG_OVERRIDE, null, SettingLevel.DEVICE, true);
             expect(SettingsStore.getValueAt(SettingLevel.DEVICE, SETTING_NAME_WITH_CONFIG_OVERRIDE)).toBe(true);

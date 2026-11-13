@@ -9,12 +9,21 @@ import { closeReleaseAnnouncementIfExists, rejectToast } from "@element-hq/eleme
 
 import { test, expect } from "../../element-web-test";
 
-for (const desktopShell of [true, false]) {
-    test.describe(`Timeline anchoring with desktop shell ${desktopShell ? "enabled" : "disabled"}`, () => {
+const variants = [
+    { desktopShell: true, newTimeline: false },
+    { desktopShell: false, newTimeline: false },
+    { desktopShell: true, newTimeline: true },
+    { desktopShell: false, newTimeline: true },
+];
+
+for (const { desktopShell, newTimeline } of variants) {
+    // The element that scrolls the messages, in each timeline.
+    const scrollerSelector = newTimeline ? "[data-testid='timeline-scroller']" : ".mx_ScrollPanel";
+    test.describe(`Timeline anchoring in the ${newTimeline ? "MVVM" : "old"} timeline with desktop shell ${desktopShell ? "enabled" : "disabled"}`, () => {
         test.use({
             displayName: "Reader",
             botCreateOpts: { displayName: "Writer", bootstrapCrossSigning: false },
-            config: { features: { feature_desktop_shell: desktopShell, feature_new_timeline: false } },
+            config: { features: { feature_desktop_shell: desktopShell, feature_new_timeline: newTimeline } },
         });
 
         test("keeps the reading position through pagination and remote updates, then follows latest", async ({
@@ -57,8 +66,8 @@ for (const desktopShell of [true, false]) {
             await page.mouse.wheel(0, -1400);
             await expect(page.getByText("Scroll message 15", { exact: false })).toBeAttached();
             await page.waitForTimeout(300);
-            const readingIndex = await list.getByTestId("event-tile-slot-body").evaluateAll((nodes) => {
-                const scroller = nodes[0].closest(".mx_ScrollPanel")!;
+            const readingIndex = await list.getByTestId("event-tile-slot-body").evaluateAll((nodes, selector) => {
+                const scroller = nodes[0].closest(selector)!;
                 const viewport = scroller.getBoundingClientRect();
                 const visible = nodes.find((node) => {
                     const rect = node.getBoundingClientRect();
@@ -69,7 +78,7 @@ for (const desktopShell of [true, false]) {
                     );
                 });
                 return Number(visible!.textContent!.match(/Scroll message (\d+)/)![1]);
-            });
+            }, scrollerSelector);
             anchor = page
                 .getByTestId("event-tile-slot-body")
                 .filter({ hasText: new RegExp(`^Scroll message ${readingIndex}\\n`) });
@@ -95,10 +104,10 @@ for (const desktopShell of [true, false]) {
             await expect(page.getByText("A new remote message at the live end", { exact: true })).toBeVisible();
             await page.waitForTimeout(200);
             expect(
-                await list.evaluate((node) => {
-                    const scroller = node.closest(".mx_ScrollPanel")!;
+                await list.evaluate((node, selector) => {
+                    const scroller = node.closest(selector)!;
                     return scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
-                }),
+                }, scrollerSelector),
             ).toBeLessThanOrEqual(1);
         });
     });

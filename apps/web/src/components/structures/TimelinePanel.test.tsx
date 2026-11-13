@@ -493,6 +493,31 @@ describe("TimelinePanel", () => {
         });
     });
 
+    it("pages back to history added before the window after it loaded without a token", async () => {
+        const [client, room, events] = setupTestData();
+        // Restored from this device: the newest event only, and no token for history before it.
+        const [timeline, timelineSet] = mkTimeline(room, events.slice(1, 2));
+
+        await withScrollPanelMountSpy(async (mountSpy) => {
+            const { container } = render(
+                <TimelinePanel {...getProps(room, events)} timelineSet={timelineSet} />,
+                clientAndSDKContextRenderOptions(client, sdkContext),
+            );
+            await waitFor(() => expectEvents(container, [events[1]]));
+            const scrollPanel = mountSpy.mock.contexts[0] as ScrollPanel;
+            await expect(scrollPanel.props.onFillRequest!(true)).resolves.toBe(false);
+
+            // A sync response brings the older event, at the start of the timeline.
+            timeline.addEvent(events[0], { toStartOfTimeline: true, addToState: false });
+            await act(async () => {
+                client.emit(RoomEvent.Timeline, events[0], room, true, false, { timeline, liveEvent: false });
+            });
+            await expect(scrollPanel.props.onFillRequest!(true)).resolves.toBe(true);
+
+            await waitFor(() => expectEvents(container, [events[0], events[1]]));
+        });
+    });
+
     it("unpaginates", async () => {
         const [, room, events] = setupTestData();
 
@@ -628,6 +653,36 @@ describe("TimelinePanel", () => {
             await waitFor(() => expectEvents(dom.container, [...events, ...replies]));
         });
 
+        it("shows an event that arrived while the timeline was loading, once it is drawn", async () => {
+            const [client, room, events] = setupTestData();
+            const props = getProps(room, events);
+            const timeline = props.timelineSet.getLiveTimeline();
+            // As for a room opened at its newest messages, the window loads in a later tick.
+            props.timelineSet.getTimelineForEvent = () => null;
+            const late = mockEvents(room, 3)[2];
+
+            await withScrollPanelMountSpy(async (mountSpy) => {
+                const { container } = render(
+                    <TimelinePanel {...props} />,
+                    clientAndSDKContextRenderOptions(client, sdkContext),
+                );
+                await act(async () => {
+                    // The load finishes, but React draws it only once this callback is done. An event arrives meanwhile,
+                    // as when a sync response is handled first.
+                    await Promise.resolve();
+                    timeline.addEvent(late, { toStartOfTimeline: false, addToState: true });
+                    client.emit(RoomEvent.Timeline, late, room, false, false, { timeline, liveEvent: true });
+                });
+                expectEvents(container, events);
+
+                // ScrollPanel cannot fill in jsdom: ask for what it asks for when the newest messages are on screen.
+                const scrollPanel = mountSpy.mock.contexts[0] as ScrollPanel;
+                await expect(scrollPanel.props.onFillRequest!(false)).resolves.toBe(true);
+
+                await waitFor(() => expectEvents(container, [...events, late]));
+            });
+        });
+
         it("advances the timeline window", () => {
             const [client, room, events] = setupTestData();
 
@@ -642,6 +697,69 @@ describe("TimelinePanel", () => {
             client.emit(RoomEvent.Timeline, event, room, false, false, data);
 
             expect(paginateSpy).toHaveBeenCalledWith(EventTimeline.FORWARDS, 1, false);
+        });
+    });
+
+    describe("when sync replaces every timeline", () => {
+        /** The mounted panel's scroll panel, whose position the tests set. */
+        const scrollPanelOf = (panel: TimelinePanel): ScrollPanel =>
+            (panel as unknown as { messagePanel: React.RefObject<{ scrollPanel: React.RefObject<ScrollPanel> }> })
+                .messagePanel.current!.scrollPanel.current!;
+
+        it("follows on at the newest messages, and reloads a scrolled-up reader's window when they jump back", async () => {
+            const [client, room, events] = setupTestData();
+            const props = getProps(room, events);
+            const ref = React.createRef<TimelinePanel>();
+            const load = vi.spyOn(TimelineWindow.prototype, "load");
+            const dom = render(
+                <TimelinePanel {...props} ref={ref} />,
+                clientAndSDKContextRenderOptions(client, sdkContext),
+            );
+            await waitFor(() => expectEvents(dom.container, events));
+            const atBottom = vi.spyOn(scrollPanelOf(ref.current!), "isAtBottom").mockReturnValue(true);
+            expect(load).toHaveBeenCalledTimes(1);
+
+            // A reader at the bottom follows on to the new live timeline.
+            await act(async () => {
+                client.emit(RoomEvent.TimelineReset, room, props.timelineSet, true);
+            });
+            expect(load).toHaveBeenCalledTimes(2);
+            await waitFor(() => expect(ref.current!.isAtEndOfLiveTimeline()).toBe(true));
+
+            // A reader looking at older messages keeps their place, but is no longer at the live end.
+            vi.spyOn(scrollPanelOf(ref.current!), "isAtBottom").mockReturnValue(false);
+            await act(async () => {
+                client.emit(RoomEvent.TimelineReset, room, props.timelineSet, true);
+            });
+            expect(load).toHaveBeenCalledTimes(2);
+            vi.spyOn(scrollPanelOf(ref.current!), "isAtBottom").mockReturnValue(true);
+            expect(ref.current!.isAtEndOfLiveTimeline()).toBe(false);
+
+            // Jumping to the latest messages reloads rather than scrolling the cut-off window.
+            await act(async () => {
+                ref.current!.jumpToLiveTimeline();
+            });
+            expect(load).toHaveBeenCalledTimes(3);
+            await waitFor(() => expect(ref.current!.isAtEndOfLiveTimeline()).toBe(true));
+            load.mockRestore();
+            atBottom.mockRestore();
+        });
+
+        it("keeps a scrolled-up reader's window when the old timeline can still lead to new messages", async () => {
+            const [client, room, events] = setupTestData();
+            const props = getProps(room, events);
+            const ref = React.createRef<TimelinePanel>();
+            const dom = render(
+                <TimelinePanel {...props} ref={ref} />,
+                clientAndSDKContextRenderOptions(client, sdkContext),
+            );
+            await waitFor(() => expectEvents(dom.container, events));
+            vi.spyOn(scrollPanelOf(ref.current!), "isAtBottom").mockReturnValue(false);
+            await act(async () => {
+                client.emit(RoomEvent.TimelineReset, room, props.timelineSet, false);
+            });
+            vi.spyOn(scrollPanelOf(ref.current!), "isAtBottom").mockReturnValue(true);
+            expect(ref.current!.isAtEndOfLiveTimeline()).toBe(true);
         });
     });
 

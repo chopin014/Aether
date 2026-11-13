@@ -190,6 +190,8 @@ describe("EventTileViewModel", () => {
         expect(renderState.classNames).toMatchObject({
             root: "mx_EventTile",
             line: "mx_EventTile_line",
+            // Named for the application's stylesheet, which would otherwise pick the slot out with `:has()` alone.
+            slotActionBar: "mx_EventTile_actionBarSlot",
         });
         expect(renderState.line).toEqual({
             media: false,

@@ -246,6 +246,11 @@ class TimelinePanel extends React.Component<IProps, IState> {
     private readonly messagePanel = createRef<MessagePanel>();
     private dispatcherRef?: string;
     private timelineWindow?: TimelineWindow;
+    /**
+     * Set when the SDK replaced every timeline (after a gap in sync) while the reader was scrolled up. The window
+     * then cannot reach new messages, so jumping to the latest reloads it; see {@link onRoomTimelineReset}.
+     */
+    private detachedFromLive = false;
     private unmounted = false;
     private initialReadyFrame?: number;
     private entryPainted = false;
@@ -691,6 +696,16 @@ class TimelinePanel extends React.Component<IProps, IState> {
             }
         }
 
+        // History added before the window can now be paged back to, such as the older events a sliding sync
+        // response brings for a timeline restored from this device without a pagination token.
+        if (
+            toStartOfTimeline &&
+            !this.state.canBackPaginate &&
+            this.timelineWindow?.canPaginate(EventTimeline.BACKWARDS)
+        ) {
+            this.setState({ canBackPaginate: true });
+        }
+
         // The SDK marks a late thread reply as non-live when inserting it by timestamp.
         // At the loaded live timeline's tail it still needs to reach the desktop conversation.
         const desktopThreadInsertion =
@@ -700,7 +715,13 @@ class TimelinePanel extends React.Component<IProps, IState> {
             data.timeline === this.props.timelineSet.getLiveTimeline();
         if (toStartOfTimeline || !data || (!data.liveEvent && !desktopThreadInsertion)) return;
 
-        if (!this.messagePanel.current?.getScrollState()) return;
+        if (!this.messagePanel.current?.getScrollState()) {
+            // Still loading, so there is no message panel to show this event in yet. The window being loaded may have
+            // been set up before it arrived, and would then never reach it: let the panel page forward to it once
+            // drawn, as for a reader scrolled up, below. A sync response often brings many events at this moment.
+            this.setState({ canForwardPaginate: true });
+            return;
+        }
 
         if (!this.messagePanel.current.getScrollState()?.stuckAtBottom) {
             // we won't load this event now, because we don't want to push any
@@ -781,11 +802,19 @@ class TimelinePanel extends React.Component<IProps, IState> {
         return roomId !== undefined && roomId === this.props.timelineSet.room?.roomId;
     }
 
-    private onRoomTimelineReset = (room: Room | undefined, timelineSet: EventTimelineSet): void => {
+    private onRoomTimelineReset = (
+        room: Room | undefined,
+        timelineSet: EventTimelineSet,
+        resetAllTimelines?: boolean,
+    ): void => {
         if (timelineSet !== this.props.timelineSet) return;
 
         if (this.canResetTimeline()) {
             this.loadTimeline();
+        } else if (resetAllTimelines) {
+            // The reader is looking at older messages, so keep their place. Their window holds a timeline that no
+            // longer leads to new messages: the newest ones have to be loaded afresh when they jump to them.
+            this.detachedFromLive = true;
         }
     };
 
@@ -1261,8 +1290,8 @@ class TimelinePanel extends React.Component<IProps, IState> {
         // is no point reloading it - just jump straight to the bottom.
         //
         // Otherwise, reload the timeline rather than trying to paginate
-        // through all of space-time.
-        if (this.timelineWindow?.canPaginate(EventTimeline.FORWARDS)) {
+        // through all of space-time. A window cut off from the live timeline must be reloaded too.
+        if (this.detachedFromLive || this.timelineWindow?.canPaginate(EventTimeline.FORWARDS)) {
             this.loadTimeline();
         } else {
             this.messagePanel.current?.scrollToBottom();
@@ -1334,6 +1363,7 @@ class TimelinePanel extends React.Component<IProps, IState> {
      */
     public isAtEndOfLiveTimeline = (): boolean | undefined => {
         return (
+            !this.detachedFromLive &&
             this.messagePanel.current?.isAtBottom() &&
             this.timelineWindow &&
             !this.timelineWindow.canPaginate(EventTimeline.FORWARDS)
@@ -1481,6 +1511,8 @@ class TimelinePanel extends React.Component<IProps, IState> {
     private loadTimeline(eventId?: string, pixelOffset?: number, offsetBase?: number, scrollIntoView = true): void {
         const cli = MatrixClientPeg.safeGet();
         this.timelineWindow = new TimelineWindow(cli, this.props.timelineSet, { windowLimit: this.props.timelineCap });
+        // A new window is built from the timelines the room has now, which lead to the live end.
+        this.detachedFromLive = false;
 
         const onLoaded = (): void => {
             if (this.unmounted) return;

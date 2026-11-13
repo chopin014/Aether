@@ -21,6 +21,11 @@ export type TimelineEvent = unknown;
 export interface EventTimelineItem {
     key: string;
     kind: "event";
+    /**
+     * What identifies the row's tile, when it must outlast a change of `key`: a message of ours keeps its tile as its
+     * id changes from the one it was sent with to the server's. Defaults to `key`.
+     */
+    tileKey?: string;
     /** The opaque event object from the client (e.g., matrix-js-sdk MatrixEvent) */
     event: TimelineEvent;
     /** Whether this event continues unbroken from the previous sender (suppresses avatar/name). */
@@ -38,12 +43,28 @@ export interface EventTimelineItem {
     sendState?: EventSendState;
 }
 
-/** Consecutive membership events represented by an expandable summary row. */
+/** Consecutive events represented by an expandable summary row. */
 export interface EventGroupTimelineItem {
     key: string;
     kind: "event-group";
     /** Included events in timeline order; the application supplies their summary renderer. */
     events: TimelineEvent[];
+    /**
+     * What the events have in common: a run of changes summed up together, such as memberships or removed messages,
+     * the default; the room being created and set up by the person who created it; or pictures one person sent
+     * together, after the first of them.
+     */
+    variant?: "summary" | "creation" | "gallery";
+    /**
+     * The events' own rows, in the same order as `events`, as they would be drawn without the summary: whether each
+     * continues the one before it, and how far sending has got. The application draws each event from its row.
+     */
+    rows?: EventTimelineItem[];
+    /**
+     * Set on a summary that opens what the reader can see of the room, so the application can say why there is
+     * nothing earlier, such as history hidden from before they joined.
+     */
+    startsHistory?: boolean;
 }
 
 /** The send states a tile draws differently. */
@@ -87,10 +108,22 @@ export type TimelineItem =
 export const BACKWARD_LOADING_KEY = "backward-loading";
 export const FORWARD_LOADING_KEY = "forward-loading";
 
+/**
+ * What identifies the row drawn for `item` and its tile: an event's {@link EventTimelineItem.tileKey}, otherwise its
+ * key.
+ * @param item - The row.
+ */
+export function tileKeyOf(item: TimelineItem): string {
+    return (item.kind === "event" && item.tileKey) || item.key;
+}
+
 // ─── Navigation anchor ─────────────────────────────────────────────
 
-/** Where in the viewport to place the target when scrolling to an anchor. */
-export type AnchorAlign = "start" | "center" | "end";
+/**
+ * Where in the viewport to place the target when scrolling to an anchor. `third` puts the target's end a third of the
+ * way down, as the old timeline places the unread line, leaving the rest of the screen for what follows it.
+ */
+export type AnchorAlign = "start" | "center" | "end" | "third";
 
 export interface NavigationAnchor {
     /** The `TimelineItem.key` to scroll to. */
@@ -110,7 +143,34 @@ export type ImmediateScroll = (anchor: NavigationAnchor) => void;
 
 // ─── Timeline view model contract ──────────────────────────────────
 
+/**
+ * Where a view model is in a reading visit, for a view that is kept from one visit to the next. A visit ends when the
+ * room stops being read, and a later one begins afresh; see {@link TimelineViewSnapshot.visit}.
+ */
+export interface TimelineVisitState {
+    /**
+     * Counts the visits. When it changes, what the view last reported belongs to an earlier visit, so it reports the
+     * range, the bottom and the ends it shows again, even where they are unchanged.
+     */
+    generation: number;
+    /**
+     * Whether the rows shown are this visit's. Until they are, the rows on screen, if any, are an earlier visit's, and
+     * the view reports nothing about them.
+     */
+    rowsReady: boolean;
+    /**
+     * Counts the placements the view model asks for, including a load that places nothing, so that the view reports
+     * what it shows once each is placed, even at the same positions as before.
+     */
+    placementRevision: number;
+}
+
 export interface TimelineViewSnapshot {
+    /**
+     * Where the view model is in a reading visit. A view model whose view lives for a single visit can leave it out.
+     */
+    visit?: TimelineVisitState;
+
     /** The ordered list of items to render. */
     items: TimelineItem[];
 
@@ -171,6 +231,9 @@ export interface TimelineViewActions {
     /** Called when the view reaches the start; VM decides whether to paginate. */
     onStartReached(): void;
 
+    /** Called when the view no longer shows the start, after {@link onStartReached}. */
+    onStartLeft(): void;
+
     /** Called when the view reaches the end; VM decides whether to paginate. */
     onEndReached(): void;
 
@@ -178,8 +241,12 @@ export interface TimelineViewActions {
      * Report that the anchor placement has settled (the target has stabilised in
      * the visible range). The VM clears `pendingAnchor`, re-enabling
      * follow-on-append and normal scroll-position tracking.
+     *
+     * @param targetKey - The anchor that was placed, or null when the list was placed at its end without one. A
+     * `pendingAnchor` set to another target meanwhile must stay, so it is placed next. Omitted, any anchor is
+     * cleared.
      */
-    onAnchorReached(): void;
+    onAnchorReached(targetKey?: string | null): void;
 
     /**
      * Called on every visible-range change; the VM tracks the bottommost visible event
@@ -227,4 +294,9 @@ export interface TimelineViewProps {
     renderItem: (item: TimelineItem) => ReactNode;
     /** Called after positioned rows intersecting the timeline viewport have had a chance to paint. */
     onItemsPainted?: (items: TimelineItem[]) => void;
+    /**
+     * Space before the first row and after the last, in pixels. Scrolling to either end, or to the first or last row,
+     * shows it. Defaults to none.
+     */
+    paddingBlock?: number;
 }

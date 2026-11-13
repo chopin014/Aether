@@ -192,6 +192,13 @@ export class ElementAppPage {
     }
 
     /**
+     * Accepts the picture as it is in the dialog that frames an avatar once one is picked, so it is set.
+     */
+    public async applyImageCrop(): Promise<void> {
+        await this.page.getByRole("dialog", { name: "Edit image" }).getByRole("button", { name: "Apply" }).click();
+    }
+
+    /**
      * Sets the files on the composers file input, causing it to open the file
      * upload dialog.
      * @param location Should the main room input or the thread view input be used.

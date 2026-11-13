@@ -58,6 +58,7 @@ export class VoiceUserPreferences extends TypedEventEmitter<VoiceUserPreferences
 
     private constructor() {
         super();
+        this.setMaxListeners(100); // One for each room in the room list
         SettingsStore.watchSetting("desktopVoiceUserPreferences", null, () =>
             this.emit(VoiceUserPreferencesEvent.Changed),
         );

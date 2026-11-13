@@ -51,6 +51,7 @@ import { Action } from "../../dispatcher/actions";
 import LeftPanel from "./LeftPanel";
 import { type ViewRoomDeltaPayload } from "../../dispatcher/payloads/ViewRoomDeltaPayload";
 import RoomListStoreV3 from "../../stores/room-list-v3/RoomListStoreV3";
+import { DefaultTagID } from "../../stores/room-list-v3/skip-list/tag";
 import NonUrgentToastContainer from "./NonUrgentToastContainer";
 import { type IOOBData, type IThreepidInvite } from "../../stores/ThreepidInviteStore";
 import Modal from "../../Modal";
@@ -373,6 +374,9 @@ class LoggedInView extends React.Component<IProps, IState> {
     };
 
     private onRoomStateEvents = (ev: MatrixEvent): void => {
+        // This runs for every state event, such as each room's state when a new sliding sync connection brings the
+        // whole account, and the list of server notice rooms sorts every room. Only a room tagged as one can be.
+        if (!this._matrixClient.getRoom(ev.getRoomId())?.tags[DefaultTagID.ServerNotice]) return;
         const serverNoticeList = RoomListStoreV3.instance.getServerNoticeRooms();
         if (serverNoticeList.some((r) => r.roomId === ev.getRoomId())) {
             void this.updateServerNoticeEvents();

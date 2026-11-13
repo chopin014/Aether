@@ -60,9 +60,11 @@
 
 /*
  * Actions sitting after the file name, inside the same pill. Only rendered for files we can open, so
- * everything here is scoped to a row that actually has them and the plain row is untouched.
+ * everything here is scoped to a row that actually has them and the plain row is untouched. The name is
+ * marked when they are there: found with a `:has()` instead, it would make the browser restyle every button
+ * in any part of the page that also has a `:has()` rule, whenever anything there is added or removed.
  */
-.content [data-type="info"]:has([data-type="actions"]) > button {
+.content [data-type="info"] > .nameBesideActions {
     /* The name no longer owns the whole pill: let it share, and ellipsize, rather than push the icons out. */
     width: auto;
     flex: 1;
