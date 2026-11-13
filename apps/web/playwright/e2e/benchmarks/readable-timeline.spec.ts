@@ -316,11 +316,14 @@ test.describe("readable timeline check", () => {
 /** What the watching tests keep on the page's window. */
 interface WatchWindow extends ReadableWindow {
     readableAt?: number;
-    addedAt?: number;
+    /** When the frame after the one that first painted the added target started. */
+    nextFrameAt?: number;
     stopWatching?: () => void;
     inFrame?: boolean;
     checks?: number;
     checksInFrames?: number;
+    /** Set to stop what a test does on every frame. */
+    settled?: boolean;
 }
 
 /** Start watching for `target`, keeping when it was found readable on the window. */
@@ -344,19 +347,51 @@ async function readableAt(page: Page): Promise<number | undefined> {
     return page.evaluate(() => (window as unknown as WatchWindow).readableAt);
 }
 
-/** Add the target's row to the timeline, keeping when it was added on the window. */
+/** Add the target's row to the timeline, keeping when the frame after the one that paints it starts on the window. */
 async function addTarget(page: Page): Promise<void> {
     await page.evaluate(
         (html) => {
             document.querySelector(".scroller")!.insertAdjacentHTML("beforeend", html);
-            (window as unknown as WatchWindow).addedAt = performance.now();
+            // A frame's callbacks are all given the time it started.
+            requestAnimationFrame(() =>
+                requestAnimationFrame((time) => {
+                    (window as unknown as WatchWindow).nextFrameAt = time;
+                }),
+            );
         },
         row("$target", "the wanted message"),
     );
 }
 
+/**
+ * Take the target out of sight in a callback of every frame, so every frame is painted without it, and put it back
+ * just after each frame is painted, until the window is marked settled.
+ * @param how - Whether it is hidden, or its timeline scrolled away from it.
+ */
+async function outOfSightWhenPainted(page: Page, how: "hidden" | "scrolled away"): Promise<void> {
+    await page.evaluate((how) => {
+        const win = window as unknown as WatchWindow & {
+            scheduler: { postTask: (task: () => void, options: { priority: string }) => Promise<unknown> };
+        };
+        const body = document.querySelector<HTMLElement>(".mx_EventTile_body")!;
+        const scroller = document.querySelector<HTMLElement>(".scroller")!;
+        const inSight = (shown: boolean): void => {
+            if (how === "hidden") body.style.visibility = shown ? "" : "hidden";
+            else scroller.scrollTop = shown ? 1000 : 0;
+        };
+        const onFrame = (): void => {
+            if (win.settled) return;
+            inSight(false);
+            // Posted ahead of the watcher's check, so it runs first, before anything else after the paint.
+            void win.scheduler.postTask(() => inSight(true), { priority: "user-blocking" });
+            requestAnimationFrame(onFrame);
+        };
+        requestAnimationFrame(onFrame);
+    }, how);
+}
+
 test.describe("watching for readable text", () => {
-    test("reports the frame after the one that painted the message readable", async ({ page }) => {
+    test("reports the start of the frame after the one that first painted the message readable", async ({ page }) => {
         await show(page, timeline(row("$before", "an earlier message")));
         await watch(page);
         await frames(page, 3);
@@ -364,11 +399,55 @@ test.describe("watching for readable text", () => {
 
         await addTarget(page);
         await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
-        const { at, addedAt } = await page.evaluate(() => {
+        const { at, nextFrameAt } = await page.evaluate(() => {
             const win = window as unknown as WatchWindow;
-            return { at: win.readableAt!, addedAt: win.addedAt! };
+            return { at: win.readableAt!, nextFrameAt: win.nextFrameAt! };
         });
-        expect(at).toBeGreaterThan(addedAt);
+        // Taken within that next frame, so no earlier than its start, allowing for the browser coarsening its clock.
+        expect(at).toBeGreaterThan(nextFrameAt - 1);
+    });
+
+    test("does not report a message hidden whenever a frame is painted, and shown between frames", async ({ page }) => {
+        await show(page, timeline(row("$target", "the wanted message")));
+        await outOfSightWhenPainted(page, "hidden");
+        await watch(page);
+        await frames(page, 10);
+        expect(await readableAt(page)).toBeUndefined();
+
+        await page.evaluate(() => ((window as unknown as WatchWindow).settled = true));
+        await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+    });
+
+    test("does not report a message scrolled away whenever a frame is painted, and back between frames", async ({
+        page,
+    }) => {
+        await show(page, timeline(`<div style="height: 500px"></div>` + row("$target", "the wanted message")));
+        await page.evaluate(() => document.querySelector(".scroller")!.scrollTo(0, 1000));
+        await outOfSightWhenPainted(page, "scrolled away");
+        await watch(page);
+        await frames(page, 10);
+        expect(await readableAt(page)).toBeUndefined();
+
+        await page.evaluate(() => ((window as unknown as WatchWindow).settled = true));
+        await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+    });
+
+    test("does not report a message painted readable in only one frame", async ({ page }) => {
+        await show(page, timeline(rowWithBody("the wanted message", "visibility: hidden")));
+        await watch(page);
+        await frames(page, 3);
+        // Shown for one frame, and hidden again in the next.
+        await page.evaluate(() => {
+            const body = document.querySelector<HTMLElement>(".mx_EventTile_body")!;
+            requestAnimationFrame(() => {
+                body.style.visibility = "visible";
+                requestAnimationFrame(() => {
+                    body.style.visibility = "hidden";
+                });
+            });
+        });
+        await frames(page, 10);
+        expect(await readableAt(page)).toBeUndefined();
     });
 
     test("does not report a message under a cover the pointer passes through until it is gone", async ({ page }) => {
@@ -393,21 +472,28 @@ test.describe("watching for readable text", () => {
 
     test("checks outside the app's frames, so it never lengthens them", async ({ page }) => {
         await show(page, timeline(row("$before", "an earlier message")));
-        // Note every check made while a frame's callbacks run.
+        // Note every check made while a frame's callbacks run: those for animation frames, and for resize observers,
+        // which run after layout.
         await page.evaluate(() => {
             const win = window as unknown as WatchWindow;
             win.checks = 0;
             win.checksInFrames = 0;
+            const inFrame = <T extends unknown[]>(callback: (...args: T) => void, ...args: T): void => {
+                win.inFrame = true;
+                try {
+                    callback(...args);
+                } finally {
+                    win.inFrame = false;
+                }
+            };
             const request = window.requestAnimationFrame.bind(window);
-            window.requestAnimationFrame = (callback) =>
-                request((time) => {
-                    win.inFrame = true;
-                    try {
-                        callback(time);
-                    } finally {
-                        win.inFrame = false;
-                    }
-                });
+            window.requestAnimationFrame = (callback) => request((time) => inFrame(callback, time));
+            const Observer = window.ResizeObserver;
+            window.ResizeObserver = class extends Observer {
+                public constructor(callback: ResizeObserverCallback) {
+                    super((entries, observer) => inFrame(callback, entries, observer));
+                }
+            };
             const rects = Range.prototype.getClientRects;
             Range.prototype.getClientRects = function (this: Range): DOMRectList {
                 win.checks = (win.checks ?? 0) + 1;

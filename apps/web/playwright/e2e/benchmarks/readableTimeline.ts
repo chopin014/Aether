@@ -24,9 +24,10 @@ export interface ReadableWindow {
     aetherBenchReadable?: (target: ReadableTarget, thorough?: boolean) => boolean;
     /**
      * Watch for `target` to be painted readable, and call `onReadable` once with when it was: the start of the frame
-     * after the first one painted with it readable, if it is still readable, checked thoroughly, after that frame too.
-     * Every check runs in a task of its own once a frame has been painted, so it never lengthens the app's frames and
-     * sees what was painted. Returns a function that stops watching.
+     * after the first one painted with it readable, once that frame has been painted with it readable too, both checked
+     * thoroughly. Every check runs in a task of its own just after a frame is painted, so it never lengthens the app's
+     * frames, and counts only if nothing on the page has changed or scrolled since that frame was laid out, so it is
+     * of the page as painted. Returns a function that stops watching.
      */
     aetherBenchWatchReadable?: (target: ReadableTarget, onReadable: (at: number) => void) => () => void;
 }
@@ -265,33 +266,70 @@ export function installReadableCheck(): void {
             }
         }
     };
+    // Where the target's rows and every element around them are scrolled to, as a key to compare.
+    const scrolledTo = (target: ReadableTarget): string => {
+        const offsets: number[] = [];
+        for (const surface of document.querySelectorAll<HTMLElement>("main[data-room-id]")) {
+            if (surface.dataset.roomId !== target.roomId) continue;
+            for (const row of surface.querySelectorAll<HTMLElement>("[data-event-id]")) {
+                if (row.dataset.eventId !== target.eventId) continue;
+                for (let at: Element | null = row; at; at = at.parentElement) offsets.push(at.scrollLeft, at.scrollTop);
+            }
+        }
+        return offsets.join();
+    };
+    type PostTask = (task: () => void, options: { priority: "user-blocking" }) => Promise<unknown>;
+    const scheduler = (window as unknown as { scheduler?: { postTask: PostTask } }).scheduler;
+    // Run `task` just after the frame being drawn is painted: before the app's own tasks, where the browser can.
+    const afterPaint = (task: () => void): void => {
+        if (scheduler) void scheduler.postTask(task, { priority: "user-blocking" });
+        else setTimeout(task);
+    };
     const watchReadable = (target: ReadableTarget, onReadable: (at: number) => void): (() => void) => {
         let active = true;
         let frame = 0;
-        // When the frame last painted started, and whether the target was readable after the one before it.
+        let late: ResizeObserver | undefined;
+        // When the frame being checked started, and whether the one before it was painted with the target readable.
         let frameAt = 0;
-        let seen = false;
-        const afterPaint = new MessageChannel();
+        let readableBefore = false;
+        // Whether the page has changed since the frame being checked was laid out, and where it was scrolled to then.
+        let changed = true;
+        let scrolled = "";
+        const changes = new MutationObserver(() => {
+            changed = true;
+        });
+        changes.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
         const stop = (): void => {
             active = false;
             cancelAnimationFrame(frame);
-            afterPaint.port1.close();
+            late?.disconnect();
+            changes.disconnect();
         };
-        // A message posted from a frame's callback is handled in a task of its own once that frame has been painted.
-        afterPaint.port1.onmessage = (): void => {
+        const check = (): void => {
             if (!active) return;
-            if (seen && readableNow(target, true)) {
+            if (changes.takeRecords().length > 0 || scrolledTo(target) !== scrolled) changed = true;
+            // A check of a page changed since its frame was laid out is not of what that frame painted.
+            const readable = !changed && readableNow(target) && readableNow(target, true);
+            if (readable && readableBefore) {
                 stop();
                 onReadable(frameAt);
                 return;
             }
-            // When the thorough check fails, start again from the next frame.
-            seen = !seen && readableNow(target);
+            readableBefore = readable;
             frame = requestAnimationFrame(onFrame);
         };
         const onFrame = (): void => {
             frameAt = performance.now();
-            afterPaint.port2.postMessage(null);
+            // A resize observer made now reports after the frame's other callbacks and its layout, just before paint.
+            late = new ResizeObserver((_, observer) => {
+                observer.disconnect();
+                if (!active) return;
+                changes.takeRecords();
+                changed = false;
+                scrolled = scrolledTo(target);
+                afterPaint(check);
+            });
+            late.observe(document.documentElement);
         };
         frame = requestAnimationFrame(onFrame);
         return stop;
