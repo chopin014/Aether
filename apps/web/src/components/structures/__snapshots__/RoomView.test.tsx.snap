@@ -1315,6 +1315,7 @@ exports[`RoomView > should hide the composer when hideComposer=true 1`] = `
         </div>
         <main
           class="mx_RoomView_timeline mx_RoomView_timeline_rr_enabled"
+          data-room-id="!roomviewshouldhidethecomposerwhenhidecomposertrue:example.org"
           data-testid="timeline"
         >
           <div
@@ -1409,6 +1410,7 @@ exports[`RoomView > should hide the header when hideHeader=true 1`] = `
         </div>
         <main
           class="mx_RoomView_timeline mx_RoomView_timeline_rr_enabled"
+          data-room-id="!roomviewshouldhidetheheaderwhenhideheadertrue:example.org"
           data-testid="timeline"
         >
           <div
@@ -1918,6 +1920,7 @@ exports[`RoomView > should hide the pinned message banner when hidePinnedMessage
         </div>
         <main
           class="mx_RoomView_timeline mx_RoomView_timeline_rr_enabled"
+          data-room-id="!roomviewshouldhidethepinnedmessagebannerwhenhidepinnedmessagebannertrue:example.org"
           data-testid="timeline"
         >
           <div
@@ -2427,6 +2430,7 @@ exports[`RoomView > should hide the right panel when hideRightPanel=true 1`] = `
         </div>
         <main
           class="mx_RoomView_timeline mx_RoomView_timeline_rr_enabled"
+          data-room-id="!roomviewshouldhidetherightpanelwhenhiderightpaneltrue:example.org"
           data-testid="timeline"
         >
           <div
@@ -2936,6 +2940,7 @@ exports[`RoomView > should not display the timeline when the room encryption is 
         </div>
         <main
           class="mx_RoomView_timeline mx_RoomView_timeline_rr_enabled"
+          data-room-id="!roomviewshouldnotdisplaythetimelinewhentheroomencryptionisloading:example.org"
           data-testid="timeline"
         />
         <div
@@ -3175,6 +3180,7 @@ exports[`RoomView > should not display the timeline when the room encryption is 
         </div>
         <main
           class="mx_RoomView_timeline mx_RoomView_timeline_rr_enabled"
+          data-room-id="!roomviewshouldnotdisplaythetimelinewhentheroomencryptionisloading:example.org"
           data-testid="timeline"
         >
           <div

@@ -2984,7 +2984,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 <Measured sensor={this.roomViewBody} onMeasurement={this.onMeasurement} />
                 {auxPanel}
                 {pinnedMessageBanner}
-                <main className={timelineClasses} data-testid="timeline">
+                {/* The room's id says which room this main timeline belongs to, such as to tell it from a timeline in
+                    the right panel, and is kept in production builds, unlike the test id. */}
+                <main className={timelineClasses} data-testid="timeline" data-room-id={this.state.room.roomId}>
                     <FileDropTarget parent={this.roomView.current} />
                     {topUnreadMessagesBar}
                     {jumpToBottom}
