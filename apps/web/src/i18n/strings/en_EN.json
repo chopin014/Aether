@@ -4124,7 +4124,7 @@
         "kick_button_space_everything": "Remove them from everything I'm able to",
         "kick_space_specific": "Remove them from specific things I'm able to",
         "kick_space_warning": "They'll still be able to access whatever you're not an admin of.",
-        "promote_warning": "user_info|promote_warning",
+        "promote_warning": "You will not be able to undo this change as you are promoting the user to have the same power level as yourself.",
         "redact": {
             "confirm_button": {
                 "one": "Remove 1 message",
