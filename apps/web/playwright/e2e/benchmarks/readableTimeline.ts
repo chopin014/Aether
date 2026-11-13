@@ -27,12 +27,13 @@ export interface ReadableWindow {
      * after the first one painted with it readable, once that frame has been painted with it readable too.
      *
      * Each frame is checked as it is about to be painted: after its other callbacks and its layout, in a resize
-     * observer's callback, where the check reads what layout has already worked out. Once two frames in a row are
-     * found readable, the second is checked thoroughly in a task of its own just after its paint. Its start has been
-     * taken as the time to report by then, so that check, whose restyling of the whole page takes tens of
-     * milliseconds, can neither delay it nor lengthen the app's frames. The thorough check counts only if nothing on
-     * the page has changed or scrolled since that frame was laid out; the frame before it is checked only quickly.
-     * Returns a function that stops watching.
+     * observer's callback, where the check reads what layout has already worked out, and again after each of the
+     * page's resize observer callbacks that run later in that frame. Once two frames in a row are found readable, the
+     * second is checked thoroughly in a task of its own just after its paint. Its start has been taken as the time to
+     * report by then, so that check, whose restyling of the whole page takes tens of milliseconds, can neither delay
+     * it nor lengthen the app's frames. The thorough check counts only if nothing on the page has changed or scrolled
+     * since that frame's last check; the frame before it is checked only quickly. Returns a function that stops
+     * watching.
      */
     aetherBenchWatchReadable?: (target: ReadableTarget, onReadable: (at: number) => void) => () => void;
     /**
@@ -71,9 +72,33 @@ export interface ProbeSpan {
  *
  * Not caught: text drawn over it by an element without a background, what a canvas holds, and clipping by `clip-path`.
  *
+ * So that watching can tell when the page's own resize observers run, it replaces `ResizeObserver` with one that calls
+ * the page's callbacks unchanged and then lets the watching check again. It must therefore be installed before the
+ * page makes any resize observer.
+ *
  * It is handed to `page.addInitScript`, so it runs in the page and must use nothing from outside itself.
  */
 export function installReadableCheck(): void {
+    // The resize observer the watching uses itself, and what it does after each of the page's resize observer
+    // callbacks.
+    const NativeResizeObserver = window.ResizeObserver;
+    const afterObservers = new Set<() => void>();
+    window.ResizeObserver = class extends NativeResizeObserver {
+        public constructor(callback: ResizeObserverCallback) {
+            super((entries, observer) => {
+                try {
+                    callback.call(observer, entries, observer);
+                } finally {
+                    // Queued behind any microtask the callback queued, so what those change is seen too.
+                    if (afterObservers.size > 0) {
+                        queueMicrotask(() => {
+                            for (const after of afterObservers) after();
+                        });
+                    }
+                }
+            });
+        }
+    };
     type Box = { left: number; top: number; right: number; bottom: number };
     /** A piece of an occurrence of the wanted text: the part of it in one text node. */
     type Piece = { range: Range; holder: Element; text: string };
@@ -342,60 +367,79 @@ export function installReadableCheck(): void {
         let active = true;
         let frame = 0;
         let late: ResizeObserver | undefined;
-        // When the frame being checked started, and whether the one before it was painted with the target readable.
+        // When the frame being drawn started, whether it has been checked yet and found readable, and whether the
+        // frame before it was painted with the target readable.
         let frameAt = 0;
+        let checked = false;
+        let readable = false;
         let readableBefore = false;
-        // Whether the page has changed since the frame being checked was laid out, and where it was scrolled to then.
+        // Whether the page has changed since the frame being drawn was last checked, and where it was scrolled to then.
         let changed = true;
         let scrolled = "";
         const changes = new MutationObserver(() => {
             changed = true;
         });
         changes.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+        // Check the frame being drawn as it now stands. A second readable frame in a row notes how the page stands, so
+        // the thorough check after its paint can tell whether the page is still as painted.
+        const check = (): void => {
+            checked = true;
+            readable = probe(() => {
+                if (!readableNow(target)) return false;
+                if (readableBefore) {
+                    changes.takeRecords();
+                    changed = false;
+                    scrolled = scrolledTo(target);
+                }
+                return true;
+            });
+        };
+        // A resize observer callback of the page's that runs after this frame's check may change what it paints.
+        const recheck = (): void => {
+            if (active && checked) check();
+        };
+        afterObservers.add(recheck);
         const stop = (): void => {
             active = false;
             cancelAnimationFrame(frame);
             late?.disconnect();
             changes.disconnect();
-        };
-        const nextFrame = (readable: boolean): void => {
-            readableBefore = readable;
-            frame = requestAnimationFrame(onFrame);
+            afterObservers.delete(recheck);
         };
         // Just after the paint of the second frame found readable in a row: the thorough check, of the page as that
         // frame painted it. A failed one starts the count of frames again, so it runs at most every other frame.
         const confirm = (): void => {
             if (!active) return;
-            const confirmed = probe(() => {
-                if (changes.takeRecords().length > 0 || scrolledTo(target) !== scrolled) changed = true;
-                return !changed && readableNow(target, true);
-            });
+            const confirmed =
+                readable &&
+                probe(() => {
+                    if (changes.takeRecords().length > 0 || scrolledTo(target) !== scrolled) changed = true;
+                    return !changed && readableNow(target, true);
+                });
             if (confirmed) {
                 stop();
                 onReadable(frameAt);
                 return;
             }
-            nextFrame(false);
+            readable = false;
+            frame = requestAnimationFrame(onFrame);
         };
         const onFrame = (): void => {
+            // The frame before stands as its last check found it.
+            readableBefore = checked && readable;
+            checked = false;
+            readable = false;
             frameAt = performance.now();
-            // A resize observer made now reports after the frame's other callbacks and its layout, just before paint.
-            late = new ResizeObserver((_, observer) => {
+            // A resize observer made now reports after the frame's other callbacks and its layout, just before paint,
+            // but before callbacks of the page's that a later round of the frame's layout brings.
+            late = new NativeResizeObserver((_, observer) => {
                 observer.disconnect();
                 if (!active) return;
-                const readable = probe(() => readableNow(target));
-                if (!readable || !readableBefore) {
-                    nextFrame(readable);
-                    return;
-                }
+                check();
                 // This frame's start is the time to report, so the thorough check, which restyles the whole page,
                 // waits until it is painted and can delay nothing it measures.
-                probe(() => {
-                    changes.takeRecords();
-                    changed = false;
-                    scrolled = scrolledTo(target);
-                });
-                afterPaint(confirm);
+                if (readableBefore) afterPaint(confirm);
+                else frame = requestAnimationFrame(onFrame);
             });
             late.observe(document.documentElement);
         };

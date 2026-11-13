@@ -533,6 +533,79 @@ test.describe("watching for readable text", () => {
         await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
     });
 
+    for (const how of ["in its callback", "in a microtask its callback queues"]) {
+        test(`does not report a message a later round of the page's resize observers hides ${how} before each paint`, async ({
+            page,
+        }) => {
+            await show(
+                page,
+                `<style id="rules">.mx_EventTile_body {} #outer { width: 10px } #inner { width: 10px; height: 1px }</style>` +
+                    timeline(row("$target", "the wanted message")) +
+                    `<div id="outer"><div id="inner"></div></div>`,
+            );
+            await page.evaluate((how) => {
+                const win = window as unknown as WatchWindow & {
+                    scheduler: { postTask: (task: () => void, options: { priority: string }) => Promise<unknown> };
+                };
+                const sheet = document.querySelector<HTMLStyleElement>("#rules")!.sheet!;
+                const [text, outer, inner] = [0, 1, 2].map((index) => (sheet.cssRules[index] as CSSStyleRule).style);
+                let step = 0;
+                // Each frame resizes the outer element. Its observer resizes the inner one, whose observer then runs in a
+                // later round of the frame's layout and hides the text, which a task just after the paint shows again.
+                new ResizeObserver(() => {
+                    if (win.settled) return;
+                    inner.width = `${20 + step}px`;
+                    void win.scheduler.postTask(() => (text.visibility = ""), { priority: "user-blocking" });
+                }).observe(document.querySelector("#outer")!);
+                const hide = (): void => {
+                    if (!win.settled) text.visibility = "hidden";
+                };
+                new ResizeObserver(() => {
+                    if (how === "in its callback") hide();
+                    else void Promise.resolve().then(hide);
+                }).observe(document.querySelector("#inner")!);
+                const onFrame = (): void => {
+                    if (win.settled) return;
+                    outer.width = `${30 + ++step}px`;
+                    requestAnimationFrame(onFrame);
+                };
+                requestAnimationFrame(onFrame);
+            }, how);
+            await watch(page);
+            await frames(page, 12);
+            expect(await readableAt(page)).toBeUndefined();
+
+            await page.evaluate(() => ((window as unknown as WatchWindow).settled = true));
+            await page.waitForFunction(() => (window as unknown as WatchWindow).readableAt !== undefined);
+        });
+    }
+
+    test("calls the page's resize observer callbacks as the browser would", async ({ page }) => {
+        await show(page, timeline(row("$target", "the wanted message")));
+        const calls = await page.evaluate(
+            () =>
+                new Promise<{ self: boolean; entries: number; target: boolean }[]>((resolve) => {
+                    const observed = document.querySelector(".scroller")!;
+                    const calls: { self: boolean; entries: number; target: boolean }[] = [];
+                    const observer = new ResizeObserver(function (
+                        this: ResizeObserver,
+                        entries: ResizeObserverEntry[],
+                        given: ResizeObserver,
+                    ) {
+                        calls.push({
+                            self: this === observer && given === observer,
+                            entries: entries.length,
+                            target: entries[0].target === observed,
+                        });
+                        observer.disconnect();
+                        resolve(calls);
+                    });
+                    observer.observe(observed);
+                }),
+        );
+        expect(calls).toEqual([{ self: true, entries: 1, target: true }]);
+    });
+
     test("reports nothing once stopped", async ({ page }) => {
         await show(page, timeline(row("$before", "an earlier message")));
         await watch(page);
@@ -605,6 +678,8 @@ test.describe("watching for readable text", () => {
                 append.apply(this, nodes);
             };
         });
+        // Installed again, so the watching's own resize observer is one of those noted.
+        await page.evaluate(installReadableCheck);
         await watch(page);
         await frames(page, 3);
         await addTarget(page);
