@@ -10,6 +10,7 @@ Please see LICENSE in the repository root for full details.
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DesktopScreenSharePickerViewModel } from "./DesktopScreenSharePickerViewModel";
+import * as DesktopAudioCapture from "../../audio/desktop/DesktopAudioCapture";
 import { DesktopVoicePipeline } from "../../audio/desktop/DesktopVoicePipeline";
 
 const source = { id: "window:1:0", name: "Editor", thumbnailURL: "data:image/png;base64," };
@@ -39,6 +40,27 @@ describe("DesktopScreenSharePickerViewModel", () => {
         await vm.refresh();
         expect(save).toHaveBeenCalledWith(expect.objectContaining({ includeSystemAudio: true }));
         expect(onFinished).toHaveBeenCalledWith(selected);
+        vm.dispose();
+    });
+
+    it.each([
+        [true, false],
+        [false, true],
+        [null, true],
+    ])("selects audio from the pending capture request (%s) over the saved preference", (pending, saved) => {
+        vi.stubGlobal("electron", { desktopAudio: {} });
+        vi.spyOn(DesktopAudioCapture, "getPendingDisplayMediaAudio").mockReturnValue(pending);
+        vi.spyOn(DesktopVoicePipeline.instance, "getScreenShareQuality").mockReturnValue({
+            resolutionHeight: 1080,
+            frameRate: 30,
+            maxBitrate: null,
+            includeSystemAudio: saved,
+        });
+        const vm = new DesktopScreenSharePickerViewModel({
+            getSources: vi.fn().mockResolvedValue([]),
+            onFinished: vi.fn(),
+        });
+        expect(vm.getSnapshot().quality.includeSystemAudio).toBe(pending ?? saved);
         vm.dispose();
     });
 

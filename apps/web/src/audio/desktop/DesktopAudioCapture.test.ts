@@ -10,7 +10,8 @@ Please see LICENSE in the repository root for full details.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopAudioPacket } from "shared-types";
 
-import { decodeDesktopAudio, installDesktopAudioCapture } from "./DesktopAudioCapture";
+import { decodeDesktopAudio, getPendingDisplayMediaAudio, installDesktopAudioCapture } from "./DesktopAudioCapture";
+import { DesktopVoicePipeline } from "./DesktopVoicePipeline";
 import SettingsStore from "../../settings/SettingsStore";
 
 function audioContext() {
@@ -121,5 +122,64 @@ describe("DesktopAudioCapture", () => {
         expect(unsubscribe).toHaveBeenCalledOnce();
         expect(api.stop).toHaveBeenCalledWith(api.start.mock.calls[0][0]);
         expect(context.close).toHaveBeenCalledOnce();
+    });
+    it.each([
+        [{ video: true, audio: { autoGainControl: false } }, true],
+        [{ video: true, audio: false }, false],
+    ])("authorizes audio from the capture request, not the saved preference (%o)", async (request, expected) => {
+        vi.spyOn(SettingsStore, "getValue").mockReturnValue(true);
+        // A share restarted to add audio asks for it before the saved preference changes.
+        vi.spyOn(DesktopVoicePipeline.instance, "getScreenShareQuality").mockReturnValue({
+            resolutionHeight: 1080,
+            frameRate: 30,
+            maxBitrate: null,
+            includeSystemAudio: !expected,
+        });
+        const { context } = audioContext();
+        vi.stubGlobal(
+            "AudioContext",
+            vi.fn(function () {
+                return context;
+            }),
+        );
+        const stream = { getTracks: () => [], addTrack: vi.fn() };
+        let pendingDuringPicker: boolean | null = null;
+        const getDisplayMedia = vi.fn(async () => {
+            pendingDuringPicker = getPendingDisplayMediaAudio();
+            return stream;
+        });
+        Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getDisplayMedia } });
+        const api = {
+            prepare: vi.fn().mockResolvedValue(undefined),
+            start: vi.fn().mockResolvedValue(false),
+            stop: vi.fn().mockResolvedValue(undefined),
+            onData: vi.fn(() => vi.fn()),
+        };
+        installDesktopAudioCapture(api);
+
+        await navigator.mediaDevices.getDisplayMedia(request);
+
+        expect(api.prepare).toHaveBeenCalledWith(expected);
+        expect(getDisplayMedia).toHaveBeenCalledWith({ ...request, audio: false });
+        expect(pendingDuringPicker).toBe(expected);
+        expect(getPendingDisplayMediaAudio()).toBeNull();
+    });
+
+    it("clears the pending audio request when capture is denied", async () => {
+        vi.spyOn(SettingsStore, "getValue").mockReturnValue(true);
+        const getDisplayMedia = vi.fn().mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
+        Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getDisplayMedia } });
+        const api = {
+            prepare: vi.fn().mockResolvedValue(undefined),
+            start: vi.fn(),
+            stop: vi.fn(),
+            onData: vi.fn(),
+        };
+        installDesktopAudioCapture(api);
+
+        await expect(navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })).rejects.toThrow("Denied");
+
+        expect(getPendingDisplayMediaAudio()).toBeNull();
+        expect(api.start).not.toHaveBeenCalled();
     });
 });

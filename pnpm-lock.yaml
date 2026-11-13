@@ -280,7 +280,7 @@ patchedDependencies:
   '@types/auto-launch': b60dc9846a11a1684ce52c55493f29ea398d3dc44b88f66ab44e9843d6c01538
   '@vector-im/compound-web@10.3.1': 85f613d5b1d072b25f3a61adfb7c94399edc7e56c07ac93fe3bc290fd436d5e6
   '@vector-im/matrix-wysiwyg': 7bdf6150f2905bc2f055a6bcaa7b9d78fa7ffde82e800bcc454ac7b0096bd65e
-  electron-native-screenshare@1.2.0: 1e79f1eb245b5bbb0f10832ac2cd970af545c3672b928b772b3b1d65ab6b9cb1
+  electron-native-screenshare@1.2.0: 0b9dcf8817274addfcccffe846dcc11b3797145724c7b59d525aa1c9500b1568
   knip: 9ee905cce2466e391db69dfcea905b0fe2502afd935d1dc6a6ac94ffe2855c28
   linkify-html: 1761c1eabe25d9fae83f74f27a20b3d24515840a4a8747bb04828df46bcfdea2
   matrix-js-sdk@44.0.0: d9d44287408f151fc13730f67f2e617a60cf93ff320eedbf343f335f529ba1eb
@@ -399,7 +399,7 @@ importers:
         version: 0.18.6
       electron-native-screenshare:
         specifier: 1.2.0
-        version: 1.2.0(patch_hash=1e79f1eb245b5bbb0f10832ac2cd970af545c3672b928b772b3b1d65ab6b9cb1)
+        version: 1.2.0(patch_hash=0b9dcf8817274addfcccffe846dcc11b3797145724c7b59d525aa1c9500b1568)
       electron-store:
         specifier: ^11.0.0
         version: 11.0.2
@@ -20631,7 +20631,7 @@ snapshots:
     dependencies:
       unzip-crx-3: 0.2.0
 
-  electron-native-screenshare@1.2.0(patch_hash=1e79f1eb245b5bbb0f10832ac2cd970af545c3672b928b772b3b1d65ab6b9cb1):
+  electron-native-screenshare@1.2.0(patch_hash=0b9dcf8817274addfcccffe846dcc11b3797145724c7b59d525aa1c9500b1568):
     dependencies:
       node-addon-api: 7.1.1
 
