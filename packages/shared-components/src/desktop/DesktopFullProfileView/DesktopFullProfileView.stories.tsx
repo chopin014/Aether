@@ -114,3 +114,28 @@ export const LightTheme: Story = {
         },
     },
 };
+/** Someone in a voice channel, with a nebula drifting round their card. */
+export const InVoice: Story = {
+    args: {
+        displayName: "LiTz",
+        bio: "Building Aether.",
+        activity: {
+            kind: "voice",
+            roomId: "!voice:example.org",
+            channelName: "Geral#1",
+            spaceName: "Terra do borgerds",
+            count: 3,
+            people: [
+                { id: "@litz:example.org", name: "LiTz" },
+                { id: "@chopin:example.org", name: "chopin" },
+                { id: "@pon:example.org", name: "Pon" },
+            ],
+        },
+        appearance: {
+            theme: { primary: "#0b1030", accent: "#3a1f7a" },
+            decoration: "event-horizon",
+            effect: "nebula",
+            nameStyle: { font: "default", effect: "glow", colour: "#eceaf6", colourEnd: "#8ed8ea" },
+        },
+    },
+};

@@ -152,7 +152,9 @@ test("sends through Matrix, receives another member's message and preserves room
     const first = await app.client.createRoom({ name: "General", invite: [bot.credentials!.userId] });
     const second = await app.client.createRoom({ name: "Design" });
     await app.viewRoomById(first);
-    const composer = page.getByRole("textbox", { name: "Send an unencrypted message…" });
+    // The placeholder names the channel, so find the composer by its place instead as the drafts move between rooms.
+    const composer = app.getComposerField();
+    await expect(page.getByRole("textbox", { name: "Message #General" })).toBeVisible();
     await composer.fill("Hello from the desktop shell");
     await composer.press("Enter");
     await expect(page.getByRole("status", { name: "Your message was sent" })).toBeVisible();
@@ -214,7 +216,7 @@ test("keeps end-to-end encryption in the real Matrix client", async ({ page, app
     });
     await app.viewRoomById(roomId);
     await expect.poll(() => bot.evaluate((client, id) => client.getRoom(id)?.getMyMembership(), roomId)).toBe("join");
-    const composer = page.getByRole("textbox", { name: "Send a message…" });
+    const composer = page.getByRole("textbox", { name: "Message #Encrypted room" });
     await composer.fill("Encrypted desktop message");
     await composer.press("Enter");
     await expect(page.getByRole("status", { name: "Your message was sent" })).toBeVisible();

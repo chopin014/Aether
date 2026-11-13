@@ -5,253 +5,120 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import React, { type JSX, type ReactNode } from "react";
+import React, { type CSSProperties, type JSX, type RefObject, useEffect, useRef, useState } from "react";
 
-import { type ProfileNameplateId, type ProfileNameplateValue } from "./profileCatalogue";
+import { ArtCanvas } from "./art/ArtCanvas";
+import { NAMEPLATE_SCENES } from "./art/nameplateScenes";
+import { PROFILE_NAMEPLATE_PALETTES, type ProfileNameplateValue } from "./profileCatalogue";
+import { useImageColour } from "./profilePalette";
+import { useProfileLive } from "./useProfileMotion";
 import styles from "./ProfileArt.module.css";
 
-function Twinkles({ points }: { points: [number, number, number][] }): JSX.Element {
+/** Space kept clear after the text before the artwork reaches full strength, as Discord measures it. */
+const TEXT_GAP = 10;
+
+/**
+ * Where the row's text ends, in pixels from the row's start, so the artwork can stay faint behind it. Follows the
+ * text as names, statuses and the row's width change.
+ */
+function useTextEnd(plate: RefObject<HTMLElement | null>, text?: RefObject<HTMLElement | null>): number | undefined {
+    const [end, setEnd] = useState<number>();
+    // A passive effect, not a layout one: the nameplate is drawn before the row's text, so the text's ref is only
+    // attached once every layout effect has run.
+    useEffect(() => {
+        const plateElement = plate.current;
+        const textElement = text?.current;
+        if (!plateElement || !textElement) return;
+        const measure = (): void => {
+            const plateBox = plateElement.getBoundingClientRect();
+            const textBox = textElement.getBoundingClientRect();
+            const rtl = getComputedStyle(plateElement).direction === "rtl";
+            const value = rtl ? plateBox.right - textBox.left : textBox.right - plateBox.left;
+            setEnd(Math.max(0, Math.round(value + TEXT_GAP)));
+        };
+        measure();
+        if (typeof ResizeObserver === "undefined") return;
+        const observer = new ResizeObserver(measure);
+        observer.observe(plateElement);
+        observer.observe(textElement);
+        return () => observer.disconnect();
+    }, [plate, text]);
+    return end;
+}
+
+/** A person's own nameplate image: the still version at rest, with the original laid over it once it has loaded. */
+function NameplateImage({
+    imageUrl,
+    animatedUrl,
+    live,
+}: {
+    imageUrl: string;
+    animatedUrl?: string;
+    live: boolean;
+}): JSX.Element {
+    const [ready, setReady] = useState(false);
+    const playing = live && animatedUrl;
     return (
         <>
-            {points.map(([x, y, radius], index) => (
-                <circle
-                    key={`${x}-${y}`}
-                    className={styles.twinkle}
-                    style={{ animationDelay: `${index * 0.4}s` }}
-                    cx={x}
-                    cy={y}
-                    r={radius}
-                    fill="#ffffff"
+            <img className={styles.nameplateArt} src={imageUrl} alt="" loading="lazy" />
+            {playing && (
+                <img
+                    className={styles.nameplateArt}
+                    data-ready={ready}
+                    src={animatedUrl}
+                    alt=""
+                    onLoad={() => setReady(true)}
                 />
-            ))}
+            )}
         </>
     );
 }
 
-function Petal({ x, y, delay, colour }: { x: number; y: number; delay: number; colour: string }): JSX.Element {
-    return (
-        <ellipse
-            className={styles.plateFall}
-            style={{ animationDelay: `${delay}s` }}
-            cx={x}
-            cy={y}
-            rx="3"
-            ry="1.8"
-            fill={colour}
-        />
-    );
+/** Properties for {@link ProfileNameplate}. */
+export interface ProfileNameplateProps {
+    nameplate: ProfileNameplateValue;
+    /** The row is hovered, focused or selected, so the artwork moves. Follows the surrounding surface when omitted. */
+    live?: boolean;
+    /** The row is selected, which deepens its tint. */
+    selected?: boolean;
+    /** The row's text. The artwork stays faint behind it and reaches full strength just after it. */
+    textRef?: RefObject<HTMLElement | null>;
 }
 
-function Bloom({ x, y, size, colour }: { x: number; y: number; size: number; colour: string }): JSX.Element {
+/**
+ * The artwork behind a name, drawn the way Discord draws nameplates: the row is tinted with the nameplate's colour,
+ * the scene sits against the row's far edge, and it stays faint behind the text so the name always reads.
+ */
+export function ProfileNameplate({
+    nameplate,
+    live: liveProp,
+    selected = false,
+    textRef,
+}: ProfileNameplateProps): JSX.Element {
+    const surfaceLive = useProfileLive();
+    const live = liveProp ?? surfaceLive;
+    const plate = useRef<HTMLDivElement>(null);
+    const textEnd = useTextEnd(plate, textRef);
+    const imageColour = useImageColour("imageUrl" in nameplate ? nameplate.imageUrl : undefined);
+    const palette = "preset" in nameplate ? PROFILE_NAMEPLATE_PALETTES[nameplate.preset] : imageColour;
+    const style = {
+        ...(palette ? { "--plate": palette } : {}),
+        ...(textEnd !== undefined ? { "--plate-text-end": `${textEnd}px` } : {}),
+    } as CSSProperties;
     return (
-        <g transform={`translate(${x} ${y})`}>
-            {[0, 72, 144, 216, 288].map((angle) => (
-                <ellipse
-                    key={angle}
-                    cy={-size}
-                    rx={size * 0.65}
-                    ry={size}
-                    fill={colour}
-                    transform={`rotate(${angle})`}
-                />
-            ))}
-            <circle r={size * 0.4} fill="#fff2b0" />
-        </g>
-    );
-}
-
-const SCENES: Record<ProfileNameplateId, ReactNode> = {
-    moonlit: (
-        <>
-            <rect width="240" height="48" fill="#141a3f" />
-            <circle cx="196" cy="24" r="16" fill="#e7ecff" />
-            <circle cx="191" cy="19" r="3.2" fill="#c3cbef" />
-            <circle cx="202" cy="29" r="4.2" fill="#c3cbef" />
-            <circle cx="199" cy="15" r="1.8" fill="#c3cbef" />
-            <path
-                className={styles.plateDrift}
-                d="M136 48c6-10 16-12 24-7 7-9 24-7 28 3 9-3 22-1 28 4Z"
-                fill="#2d3773"
-                opacity="0.9"
-            />
-            <Twinkles
-                points={[
-                    [150, 12, 1.2],
-                    [168, 30, 0.9],
-                    [226, 10, 1.3],
-                    [232, 34, 0.8],
-                    [128, 24, 0.9],
-                ]}
-            />
-        </>
-    ),
-    blossom: (
-        <>
-            <rect width="240" height="48" fill="#3a1830" />
-            <path
-                d="M240 8C210 10 190 20 150 30M196 19c6-8 14-12 20-13"
-                stroke="#6e3b2b"
-                strokeWidth="2.5"
-                fill="none"
-            />
-            <Bloom x={214} y={9} size={4.5} colour="#ff9cc2" />
-            <Bloom x={186} y={22} size={5} colour="#ffc0d8" />
-            <Bloom x={160} y={28} size={3.6} colour="#ff9cc2" />
-            <Bloom x={230} y={24} size={3.6} colour="#ffc0d8" />
-            <Petal x={140} y={4} delay={0} colour="#ffb3cf" />
-            <Petal x={176} y={2} delay={1.1} colour="#ff9cc2" />
-            <Petal x={208} y={4} delay={2.2} colour="#ffc0d8" />
-        </>
-    ),
-    roses: (
-        <>
-            <rect width="240" height="48" fill="#1c1030" />
-            <path
-                d="M130 44c20-12 40-10 58-20s34-12 52-18M170 36c4-7 11-9 17-8M212 18c6 2 10 6 12 12"
-                stroke="#3d6b47"
-                strokeWidth="2"
-                fill="none"
-            />
-            {[
-                [186, 26, 7],
-                [224, 32, 8],
-                [156, 38, 5],
-                [212, 10, 5],
-            ].map(([x, y, size]) => (
-                <g key={x} className={styles.sway} transform={`translate(${x} ${y})`}>
-                    <circle r={size} fill="#7a1548" />
-                    <circle r={size * 0.65} fill="#b5246c" />
-                    <circle r={size * 0.32} fill="#e0559a" />
-                </g>
-            ))}
-        </>
-    ),
-    nebula: (
-        <>
-            <rect width="240" height="48" fill="#0f0c2e" />
-            <ellipse className={styles.plateDrift} cx="190" cy="26" rx="52" ry="20" fill="#7b2fd0" opacity="0.65" />
-            <ellipse className={styles.plateDrift} cx="218" cy="16" rx="30" ry="14" fill="#2f8bff" opacity="0.55" />
-            <ellipse cx="166" cy="34" rx="28" ry="10" fill="#e23fa8" opacity="0.4" />
-            <Twinkles
-                points={[
-                    [146, 10, 1],
-                    [176, 8, 1.3],
-                    [204, 36, 1],
-                    [230, 30, 1.4],
-                    [132, 32, 0.8],
-                ]}
-            />
-        </>
-    ),
-    aurora: (
-        <>
-            <rect width="240" height="48" fill="#071a26" />
-            <path
-                className={styles.plateDrift}
-                d="M110 40C140 6 170 44 196 16S232 8 240 18V0H110Z"
-                fill="#2be8a6"
-                opacity="0.45"
-            />
-            <path
-                className={styles.plateDriftReverse}
-                d="M140 30C160 8 190 34 212 12S236 6 240 10V0H140Z"
-                fill="#8a5cff"
-                opacity="0.5"
-            />
-            <Twinkles
-                points={[
-                    [220, 38, 1],
-                    [180, 40, 0.9],
-                    [150, 42, 0.8],
-                ]}
-            />
-        </>
-    ),
-    embers: (
-        <>
-            <rect width="240" height="48" fill="#230a08" />
-            <path d="M120 48c26-10 50-6 70-10s36-12 50-10v20Z" fill="#7a1c0b" />
-            <path d="M160 48c16-6 34-5 50-8s22-6 30-5v13Z" fill="#d6470f" />
-            {[
-                [150, 0],
-                [176, 0.7],
-                [198, 1.4],
-                [216, 0.3],
-                [232, 1.1],
-            ].map(([x, delay]) => (
-                <circle
-                    key={x}
-                    className={styles.plateRise}
-                    style={{ animationDelay: `${delay}s` }}
-                    cx={x}
-                    cy="44"
-                    r="1.3"
-                    fill="#ffb347"
-                />
-            ))}
-        </>
-    ),
-    tides: (
-        <>
-            <rect width="240" height="48" fill="#072440" />
-            <path
-                className={styles.plateDrift}
-                d="M100 30c14-8 26-8 40 0s26 8 40 0 26-8 40 0 20 6 40 0v18H100Z"
-                fill="#135a8f"
-            />
-            <path
-                className={styles.plateDriftReverse}
-                d="M100 38c14-7 26-7 40 0s26 7 40 0 26-7 40 0 20 5 40 0v10H100Z"
-                fill="#27a0c7"
-            />
-        </>
-    ),
-    circuit: (
-        <>
-            <rect width="240" height="48" fill="#06151c" />
-            <path
-                d="M130 12h34l8 8h30l6-6h32M144 36h22l10-10h26l10 10h28M172 20v-20M206 26v22"
-                stroke="#114f5c"
-                strokeWidth="1.5"
-                fill="none"
-            />
-            <path
-                className={styles.platePulse}
-                d="M130 12h34l8 8h30l6-6h32"
-                stroke="#28f0d8"
-                strokeWidth="1.5"
-                fill="none"
-                pathLength="100"
-            />
-            <path
-                className={styles.platePulse}
-                style={{ animationDelay: "1.2s" }}
-                d="M144 36h22l10-10h26l10 10h28"
-                stroke="#b45cff"
-                strokeWidth="1.5"
-                fill="none"
-                pathLength="100"
-            />
-        </>
-    ),
-};
-
-/** The artwork behind a name. It fades out towards the name, keeping the text on the row's own background. */
-export function ProfileNameplate({ nameplate }: { nameplate: ProfileNameplateValue }): JSX.Element {
-    return (
-        <div className={styles.nameplate} aria-hidden="true">
-            {"imageUrl" in nameplate ? (
-                <img className={styles.nameplateImage} src={nameplate.imageUrl} alt="" loading="lazy" />
+        <div
+            ref={plate}
+            className={styles.nameplate}
+            data-nameplate={"preset" in nameplate ? nameplate.preset : "image"}
+            data-live={live}
+            data-selected={selected}
+            style={style}
+            aria-hidden="true"
+        >
+            {"preset" in nameplate ? (
+                <ArtCanvas className={styles.nameplateArt} scene={NAMEPLATE_SCENES[nameplate.preset]} live={live} />
             ) : (
-                <svg
-                    className={styles.nameplateImage}
-                    data-nameplate={nameplate.preset}
-                    viewBox="0 0 240 48"
-                    preserveAspectRatio="xMaxYMid slice"
-                    focusable="false"
-                >
-                    {SCENES[nameplate.preset]}
-                </svg>
+                <NameplateImage imageUrl={nameplate.imageUrl} animatedUrl={nameplate.animatedUrl} live={live} />
             )}
         </div>
     );

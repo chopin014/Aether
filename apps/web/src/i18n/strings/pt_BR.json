@@ -594,6 +594,7 @@
         "voice_room": "Sala de voz"
     },
     "composer": {
+        "add_to_message": "Adicionar à mensagem",
         "autocomplete": {
             "@room_description": "Notifica a sala inteira",
             "command_a11y": "Preenchimento automático do comando",
@@ -632,6 +633,8 @@
         "mode_rich_text": "Mostrar formatação",
         "no_perms_notice": "Você não tem permissão para digitar nesta sala",
         "placeholder": "Enviar uma message não criptografada…",
+        "placeholder_channel": "Conversar em #%(name)s",
+        "placeholder_dm": "Conversar com @%(name)s",
         "placeholder_encrypted": "Enviar mensagem...",
         "placeholder_reply": "Envie uma resposta não criptografada…",
         "placeholder_reply_encrypted": "Enviar uma resposta…",
@@ -1667,7 +1670,8 @@
         "invite_button_no_perms_tooltip": "Você não tem permissão para convidar usuários",
         "invited_label": "Convidado",
         "list_title": "Lista de membros",
-        "no_matches": "Sem correspondências"
+        "no_matches": "Sem correspondências",
+        "in_voice_channel": "Em %(channel)s"
     },
     "member_list_back_action_label": "Membros da sala",
     "message_edit_dialog_title": "Edições na mensagem",

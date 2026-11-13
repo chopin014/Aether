@@ -32,7 +32,7 @@ import styles from "./EmojiPicker.module.css";
 
 const ZERO_WIDTH_JOINER = "\u200D";
 
-export const EMOJI_HEIGHT = 35;
+export const EMOJI_HEIGHT = 44;
 export const EMOJIS_PER_ROW = 8;
 
 const CATEGORY_CONFIG: Category[] = [
@@ -365,7 +365,11 @@ export function EmojiPicker({
         setPreviewEmoji(emoji);
     }, []);
 
-    const onHoverEmojiEnd = useCallback((): void => {
+    // Like Discord's, the footer keeps showing the last emoji pointed at until the pointer leaves the grid. Clearing it
+    // as the pointer leaves each emoji made the footer flicker back to the quick reactions between neighbours.
+    const onHoverEmojiEnd = useCallback((): void => {}, []);
+
+    const onLeaveGrid = useCallback((): void => {
         setPreviewEmoji(undefined);
     }, []);
 
@@ -396,6 +400,9 @@ export function EmojiPicker({
                 return (
                     <div className={styles.category} data-category-id={category.id} role="gridcell">
                         <Heading as="h2" className={styles.categoryLabel}>
+                            <span className={styles.categoryIcon} aria-hidden="true">
+                                {category.emoji}
+                            </span>
                             {_t(category.untranslatedName)}
                         </Heading>
                     </div>
@@ -461,6 +468,7 @@ export function EmojiPicker({
                             [styles.bodyShowHighlight]: showHighlight,
                         })}
                         wrappedRef={collectScrollElement}
+                        onMouseLeave={onLeaveGrid}
                     >
                         {scrollElement && (
                             <Virtuoso

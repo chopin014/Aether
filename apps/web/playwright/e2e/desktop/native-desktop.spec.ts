@@ -130,7 +130,7 @@ test("the real Electron host runs the Matrix shell through its native preload", 
         await page.evaluate((id) => {
             window.location.hash = `/room/${id}`;
         }, roomId);
-        const composer = page.getByRole("textbox", { name: "Send an unencrypted message…" });
+        const composer = page.getByRole("textbox", { name: "Message #general" });
         await composer.fill("Sent from Element Desktop");
         await composer.press("Enter");
         await expect(page.getByRole("status", { name: "Your message was sent" })).toBeVisible();

@@ -18,8 +18,8 @@ import {
 } from "matrix-js-sdk/src/matrix";
 import { Tooltip } from "@vector-im/compound-web";
 import { logger } from "matrix-js-sdk/src/logger";
-import { LockOffIcon, SendSolidIcon, PlusIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
-import { AttachmentTrayView, useCreateAutoDisposedViewModel, UploadButton } from "@element-hq/web-shared-components";
+import { LockOffIcon, SendSolidIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
+import { AttachmentTrayView, LiveIcons, useCreateAutoDisposedViewModel } from "@element-hq/web-shared-components";
 
 import { _t } from "../../../languageHandler";
 import { MatrixClientPeg } from "../../../MatrixClientPeg";
@@ -48,6 +48,8 @@ import UIStore, { UI_EVENTS } from "../../../stores/UIStore";
 import RoomContext from "../../../contexts/RoomContext";
 import { type SettingUpdatedPayload } from "../../../dispatcher/payloads/SettingUpdatedPayload";
 import MessageComposerButtons from "./MessageComposerButtons";
+import { DesktopComposerMenu } from "./DesktopComposerMenu";
+import DMRoomMap from "../../../utils/DMRoomMap";
 import AccessibleButton, { type ButtonEvent } from "../elements/AccessibleButton";
 import { type ViewRoomPayload } from "../../../dispatcher/payloads/ViewRoomPayload";
 import { isLocalRoom } from "../../../utils/localRoom/isLocalRoom";
@@ -69,12 +71,6 @@ import { ModuleApi } from "../../../modules/Api";
 import { SDKContext } from "../../../contexts/SDKContext";
 import { type MemberListStore } from "../../../stores/MemberListStore";
 
-/** Keep file selection and upload permissions in the existing room upload model. */
-function DesktopAttachmentButton(): JSX.Element {
-    const vm = useRoomUploadViewModel();
-    return <UploadButton vm={vm} className="mx_DesktopShell_attachment" icon={<PlusIcon />} />;
-}
-
 /** The files waiting to go with the next message, kept by the same room upload model. */
 function DesktopAttachmentTray(): JSX.Element {
     const vm = useRoomUploadViewModel();
@@ -89,6 +85,8 @@ let instanceCount = 0;
 interface ISendButtonProps {
     onClick: (ev: ButtonEvent) => void;
     title?: string; // defaults to something generic
+    /** Use the paper plane that flies off on hover, as the desktop shell's other composer buttons come alive. */
+    live?: boolean;
 }
 
 function SendButton(props: ISendButtonProps): JSX.Element {
@@ -99,7 +97,7 @@ function SendButton(props: ISendButtonProps): JSX.Element {
             title={props.title ?? _t("composer|send_button_title")}
             data-testid="sendmessagebtn"
         >
-            <SendSolidIcon />
+            {props.live ? <LiveIcons.SendIcon /> : <SendSolidIcon />}
         </AccessibleButton>
     );
 }
@@ -389,6 +387,17 @@ export class MessageComposer extends React.Component<IProps, IState> {
     };
 
     private renderPlaceholderText = (): string => {
+        // Like Discord's, the desktop composer names where the message goes. Threads keep their own wording, so the
+        // thread panel's composer reads differently from the channel's beside it.
+        if (
+            SettingsStore.getValue("feature_desktop_shell") &&
+            this.props.relation?.rel_type !== THREAD_RELATION_TYPE.name
+        ) {
+            const name = this.props.room.name;
+            return DMRoomMap.shared()?.getUserIdForRoomId(this.props.room.roomId)
+                ? _t("composer|placeholder_dm", { name })
+                : _t("composer|placeholder_channel", { name });
+        }
         if (this.props.replyToEvent) {
             const replyingToThread = this.props.relation?.rel_type === THREAD_RELATION_TYPE.name;
             if (replyingToThread && this.props.e2eStatus) {
@@ -725,7 +734,15 @@ export class MessageComposer extends React.Component<IProps, IState> {
                     <div className="mx_MessageComposer_row">
                         {leftIcon}
                         {canSendMessages && SettingsStore.getValue("feature_desktop_shell") && (
-                            <DesktopAttachmentButton />
+                            <DesktopComposerMenu
+                                room={this.props.room}
+                                relation={this.props.relation}
+                                showPollsButton={this.state.showPollsButton}
+                                showLocationButton={
+                                    !window.electron && SettingsStore.getValue(UIFeature.LocationSharing)
+                                }
+                                menuPosition={menuPosition}
+                            />
                         )}
                         {composer}
                         <div className="mx_MessageComposer_actions">
@@ -753,6 +770,7 @@ export class MessageComposer extends React.Component<IProps, IState> {
                             {showSendButton && (
                                 <SendButton
                                     key="controls_send"
+                                    live={SettingsStore.getValue("feature_desktop_shell")}
                                     onClick={this.sendMessage}
                                     title={
                                         this.state.haveRecording ? _t("composer|send_button_voice_message") : undefined

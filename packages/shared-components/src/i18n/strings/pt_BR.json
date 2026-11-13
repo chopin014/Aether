@@ -379,7 +379,18 @@
             "note_placeholder": "Clique para adicionar uma nota",
             "board": "Mural",
             "tag_from": "Tag de %(space)s",
-            "view_full_bio": "Ver biografia completa"
+            "view_full_bio": "Ver biografia completa",
+            "activity": "Atividade",
+            "in_voice": "Em voz",
+            "in_space": "em %(space)s",
+            "join_voice": "Entrar no canal de voz",
+            "no_activity_title": "%(name)s não está fazendo nada agora",
+            "no_activity": "Quando entrar num canal de voz, aparece aqui.",
+            "people_in_voice": {
+                "one": "%(count)s pessoa em voz",
+                "other": "%(count)s pessoas em voz"
+            },
+            "presence_busy": "Não perturbe"
         },
         "category_dialog": {
             "create": "Criar categoria",
@@ -838,7 +849,9 @@
                 "neon_ring": "Anel neon",
                 "orbit": "Órbita",
                 "sakura_wreath": "Coroa de sakura",
-                "thorn_rose": "Rosa de espinhos"
+                "thorn_rose": "Rosa de espinhos",
+                "ringed": "Anéis",
+                "event_horizon": "Horizonte de eventos"
             },
             "effects": {
                 "aurora": "Aurora",
@@ -848,7 +861,9 @@
                 "rain": "Chuva",
                 "sakura": "Sakura",
                 "snow": "Neve",
-                "stars": "Estrelas"
+                "stars": "Estrelas",
+                "comets": "Cometas",
+                "nebula": "Nebulosa"
             },
             "fonts": {
                 "default": "Padrão",
@@ -857,14 +872,25 @@
                 "pixel": "Pixel",
                 "rounded": "Arredondada",
                 "scifi": "Ficção científica",
-                "script": "Cursiva"
+                "script": "Cursiva",
+                "bubbly": "Bolhas",
+                "slab": "Serifada",
+                "handwritten": "Diário",
+                "rock": "Rock",
+                "modern": "Moderna",
+                "jelly": "Geleia"
             },
             "name_effects": {
                 "gradient": "Gradiente",
                 "neon": "Neon",
                 "none": "Simples",
                 "outline": "Contorno",
-                "shimmer": "Brilho"
+                "shimmer": "Brilho",
+                "glow": "Aura",
+                "toon": "Desenho",
+                "pop": "Pop",
+                "prism": "Prisma",
+                "gummy": "Gelatina"
             },
             "nameplates": {
                 "aurora": "Aurora",
@@ -874,7 +900,11 @@
                 "moonlit": "Luar",
                 "nebula": "Nebulosa",
                 "roses": "Rosas",
-                "tides": "Marés"
+                "tides": "Marés",
+                "synthwave": "Synthwave",
+                "orbit": "Órbita Aether",
+                "singularity": "Singularidade",
+                "grove": "Bosque dos vaga-lumes"
             }
         },
         "channel_kind": {
@@ -1119,7 +1149,8 @@
             "position_hint": "Arraste ou use as setas para mover a imagem. Pressione + ou - para ampliar.",
             "reset": "Redefinir",
             "rotate": "Girar",
-            "zoom": "Zoom"
+            "zoom": "Zoom",
+            "animation_kept": "A animação é mantida: o enquadramento é aplicado onde ela aparecer."
         },
         "promote_peer": {
             "can_change_roles": "Poderá mudar o cargo de qualquer pessoa, inclusive o seu.",
@@ -1291,7 +1322,8 @@
                 "one": "%(count)s arquivo para enviar",
                 "other": "%(count)s arquivos para enviar"
             },
-            "remove": "Remover %(name)s"
+            "remove": "Remover %(name)s",
+            "view": "Ver %(name)s"
         }
     },
     "devtools": {

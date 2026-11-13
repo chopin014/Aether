@@ -15,8 +15,10 @@ import CheckCircleIcon from "@vector-im/compound-design-tokens/assets/web/icons/
 import { type ViewModel, useViewModel } from "../../core/viewmodel";
 import { useI18n } from "../../core/i18n/i18nContext";
 import {
+    DesktopProfileActivityCard,
     DesktopProfileBanner,
     DesktopProfileBio,
+    DesktopProfileMutualLine,
     DesktopProfileNames,
     DesktopProfileRoles,
     DesktopProfileSurface,
@@ -57,6 +59,8 @@ export interface DesktopProfilePopoutViewActions {
     toggleIgnore(this: void): void;
     moderate(this: void): void;
     openFullProfile(this: void): void;
+    /** Open a room, such as the voice channel the person is in. */
+    openRoom(this: void, id: string): void;
     /** Open the profile editor. Only offered on the person's own profile. */
     editProfile(this: void): void;
     close(this: void): void;
@@ -166,7 +170,14 @@ export function DesktopProfilePopoutView({ vm }: DesktopProfilePopoutViewProps):
                             </button>
                         )}
                     />
+                    {snapshot.mutual && <DesktopProfileMutualLine mutual={snapshot.mutual} />}
                     {snapshot.bio && <DesktopProfileBio bio={snapshot.bio} onViewFull={vm.openFullProfile} />}
+                    {snapshot.activity && (
+                        <DesktopProfileActivityCard
+                            activity={snapshot.activity}
+                            onJoin={snapshot.isMe ? undefined : () => vm.openRoom(snapshot.activity!.roomId)}
+                        />
+                    )}
                     <DesktopProfileRoles roles={snapshot.roles} />
                     {snapshot.isMe && (
                         <Button

@@ -8,6 +8,8 @@ Please see LICENSE in the repository root for full details.
 import {
     BaseViewModel,
     clampCropCentre,
+    cropRect,
+    type ImageCropRect,
     type ImageCropRotation,
     type ImageCropShape,
     type ImageCropViewActions,
@@ -40,8 +42,13 @@ export interface ImageCropViewModelProps {
     maxOutputWidth: number;
     /** The picked file moves, and editing it keeps a still frame. */
     animated: boolean;
-    /** Called with the file to use, or nothing when the person gives up. */
-    onFinished: (file?: File) => void;
+    /**
+     * Keep an animated file as it is and hand back the chosen framing, to be applied wherever it is shown, rather
+     * than redraw it as a still frame. Turning is then not offered.
+     */
+    keepsAnimation?: boolean;
+    /** Called with the file to use and, when framing is kept separately, the part to show; nothing when cancelled. */
+    onFinished: (file?: File, frame?: ImageCropRect) => void;
 }
 
 /** Backs the image editor shown before an avatar, icon or banner is set. */
@@ -62,6 +69,7 @@ export class ImageCropViewModel
             centreX: 0.5,
             centreY: 0.5,
             animated: props.animated,
+            keepsAnimation: props.animated && !!props.keepsAnimation,
             busy: false,
         });
     }
@@ -85,8 +93,8 @@ export class ImageCropViewModel
     };
 
     public rotate = (): void => {
-        const { busy, rotation, centreX, centreY } = this.snapshot.current;
-        if (busy) return;
+        const { busy, rotation, centreX, centreY, keepsAnimation } = this.snapshot.current;
+        if (busy || keepsAnimation) return;
         // Follow the same spot of the picture as it turns clockwise.
         this.place({ rotation: ((rotation + 1) % 4) as ImageCropRotation, centreX: 1 - centreY, centreY: centreX });
     };
@@ -99,6 +107,11 @@ export class ImageCropViewModel
     public apply = async (): Promise<void> => {
         const current = this.snapshot.current;
         if (current.busy) return;
+        if (current.keepsAnimation) {
+            // Redrawing would leave a single still frame, so the original goes ahead with where to frame it.
+            this.props.onFinished(this.props.file, cropRect(current, current.centreX, current.centreY));
+            return;
+        }
         this.snapshot.merge({ busy: true, error: undefined });
         try {
             const blob = await renderImageCrop(

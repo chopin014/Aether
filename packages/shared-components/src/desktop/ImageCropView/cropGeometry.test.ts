@@ -7,7 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import { describe, expect, it } from "vitest";
 
-import { clampCropCentre, cropSize, turnedImageSize, type ImageCropFrame } from "./cropGeometry";
+import { clampCropCentre, cropRect, cropSize, turnedImageSize, type ImageCropFrame } from "./cropGeometry";
 
 const landscape: ImageCropFrame = { imageWidth: 1200, imageHeight: 800, rotation: 0, aspectRatio: 1, zoom: 1 };
 
@@ -32,5 +32,11 @@ describe("cropGeometry", () => {
         expect(clampCropCentre(landscape, 0, 0.9)).toEqual({ x: 1 / 3, y: 0.5 });
         expect(clampCropCentre({ ...landscape, zoom: 2 }, 0.9, 0.9)).toEqual({ x: 1 - 1 / 6, y: 0.75 });
         expect(clampCropCentre({ ...landscape, zoom: 2 }, 0.4, 0.6)).toEqual({ x: 0.4, y: 0.6 });
+    });
+
+    it("describes the kept area as a rectangle of the image, for framing applied when it is shown", () => {
+        const banner = { ...landscape, aspectRatio: 3 };
+        expect(cropRect(banner, 0.5, 0.5)).toEqual({ x: 0, y: 0.25, width: 1, height: 0.5 });
+        expect(cropRect({ ...banner, zoom: 2 }, 0.25, 0.25)).toEqual({ x: 0, y: 0.125, width: 0.5, height: 0.25 });
     });
 });

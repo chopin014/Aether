@@ -17,6 +17,7 @@ import CheckCircleIcon from "@vector-im/compound-design-tokens/assets/web/icons/
 import { type ViewModel, useViewModel } from "../../core/viewmodel";
 import { useI18n } from "../../core/i18n/i18nContext";
 import {
+    DesktopProfileActivityCard,
     DesktopProfileBanner,
     DesktopProfileBio,
     DesktopProfileNames,
@@ -70,7 +71,6 @@ export interface DesktopFullProfileViewSnapshot extends DesktopProfileIdentitySn
 
 /** Actions the full profile can invoke; each maps to an existing Element action. */
 export interface DesktopFullProfileViewActions extends Omit<DesktopProfilePopoutViewActions, "openFullProfile"> {
-    openRoom(this: void, id: string): void;
     retryMutualRooms(this: void): void;
     /** Save the viewer's private note. */
     setNote(this: void, note: string): void;
@@ -84,7 +84,7 @@ interface DesktopFullProfileViewProps {
     vm: DesktopFullProfileViewModel;
 }
 
-type TabId = "board" | "rooms" | "spaces";
+type TabId = "board" | "activity" | "rooms" | "spaces";
 
 const NOTE_MAX_LENGTH = 256;
 
@@ -127,6 +127,8 @@ export function DesktopFullProfileView({ vm }: DesktopFullProfileViewProps): JSX
 
     const tabs: { id: TabId; label: string }[] = [];
     if (board?.items.length) tabs.push({ id: "board", label: board.title || _t("desktop|profile|board") });
+    // Like Discord's, the Activity tab is always there for someone else; on your own profile only while you are busy.
+    if (!snapshot.isMe || snapshot.activity) tabs.push({ id: "activity", label: _t("desktop|profile|activity") });
     if (!snapshot.isMe) {
         if (mutualRooms.state !== "unsupported") {
             tabs.push({
@@ -139,7 +141,13 @@ export function DesktopFullProfileView({ vm }: DesktopFullProfileViewProps): JSX
         }
         tabs.push({ id: "spaces", label: _t("desktop|profile|mutual_spaces_count", { count: mutualSpaces.length }) });
     }
-    const active = tabs.find((tab) => tab.id === selected) ?? tabs[0];
+    // Opens on what is most worth seeing: the board, what they are doing now, then what you share.
+    const preferred =
+        tabs.find((tab) => tab.id === "board") ??
+        (snapshot.activity ? tabs.find((tab) => tab.id === "activity") : undefined) ??
+        tabs.find((tab) => tab.id !== "activity") ??
+        tabs[0];
+    const active = tabs.find((tab) => tab.id === selected) ?? preferred;
 
     const onTabKeyDown = (event: KeyboardEvent): void => {
         const index = tabs.findIndex((tab) => tab.id === active?.id);
@@ -330,7 +338,25 @@ export function DesktopFullProfileView({ vm }: DesktopFullProfileViewProps): JSX
                             aria-labelledby={`${base}-${active.id}-tab`}
                             className={styles.panel}
                         >
-                            {active.id === "board" ? (
+                            {active.id === "activity" ? (
+                                snapshot.activity ? (
+                                    <DesktopProfileActivityCard
+                                        activity={snapshot.activity}
+                                        onJoin={
+                                            snapshot.isMe ? undefined : () => vm.openRoom(snapshot.activity!.roomId)
+                                        }
+                                    />
+                                ) : (
+                                    <div className={styles.empty}>
+                                        <Text as="p" weight="semibold" className={styles.emptyTitle}>
+                                            {_t("desktop|profile|no_activity_title", { name: displayName })}
+                                        </Text>
+                                        <Text as="p" size="sm">
+                                            {_t("desktop|profile|no_activity")}
+                                        </Text>
+                                    </div>
+                                )
+                            ) : active.id === "board" ? (
                                 <ul className={styles.board}>
                                     {board?.items.map((item) => (
                                         <li key={item.id} className={styles.boardItem}>

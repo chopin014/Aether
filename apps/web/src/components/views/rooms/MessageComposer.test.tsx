@@ -42,6 +42,7 @@ import { TimelineRenderingType, type RoomContextType } from "../../../contexts/R
 import { RoomUploadContextProvider } from "../../../viewmodels/room/RoomUploadViewModel.tsx";
 import { SDKContext } from "../../../contexts/SDKContext.ts";
 import { SDKContextClass } from "../../../contexts/SDKContextClass.ts";
+import DMRoomMap from "../../../utils/DMRoomMap";
 
 const openStickerPicker = async (): Promise<void> => {
     await userEvent.click(screen.getByLabelText("More options"));
@@ -411,6 +412,54 @@ describe("MessageComposer", () => {
                     setEncrypted();
                     checkPlaceholder("Reply to thread…");
                 });
+            });
+        });
+
+        describe("in the desktop shell", () => {
+            let dmPartner: string | undefined;
+
+            beforeEach(() => {
+                dmPartner = undefined;
+                const getValue = SettingsStore.getValue.bind(SettingsStore);
+                vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+                    name === "feature_desktop_shell" ? (true as never) : getValue(name, ...args),
+                );
+                vi.spyOn(DMRoomMap, "shared").mockReturnValue({
+                    getUserIdForRoomId: () => dmPartner,
+                } as unknown as DMRoomMap);
+            });
+
+            afterEach(() => {
+                vi.mocked(SettingsStore.getValue).mockRestore();
+                vi.mocked(DMRoomMap.shared).mockRestore();
+            });
+
+            it("names the channel the message goes to", () => {
+                wrapAndRender({ room, e2eStatus: E2EStatus.Normal });
+                expect(screen.getByLabelText("Message #Room 1")).toBeInTheDocument();
+            });
+
+            it("names the person a direct message goes to", () => {
+                dmPartner = "@alice:server";
+                wrapAndRender({ room });
+                expect(screen.getByLabelText("Message @Room 1")).toBeInTheDocument();
+            });
+
+            it("keeps the thread wording in a thread's composer", () => {
+                const replyToEvent = mkEvent({
+                    event: true,
+                    type: EventType.RoomMessage,
+                    user: cli.getUserId()!,
+                    content: {},
+                });
+                wrapAndRender({ room, replyToEvent, relation: { rel_type: THREAD_RELATION_TYPE.name } });
+                expect(screen.getByLabelText("Reply to unencrypted thread…")).toBeInTheDocument();
+            });
+
+            it("puts the plus menu at the start of the composer", () => {
+                wrapAndRender({ room });
+                expect(screen.getByRole("button", { name: "Add to message" })).toBeInTheDocument();
+                expect(screen.queryByRole("button", { name: "More options" })).not.toBeInTheDocument();
             });
         });
 

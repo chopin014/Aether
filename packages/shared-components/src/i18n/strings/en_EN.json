@@ -55,7 +55,8 @@
                 "one": "%(count)s file to send",
                 "other": "%(count)s files to send"
             },
-            "remove": "Remove %(name)s"
+            "remove": "Remove %(name)s",
+            "view": "View %(name)s"
         },
         "url_preview": {
             "clear_all": "Clear all",
@@ -370,6 +371,7 @@
         },
         "image_crop": {
             "animated": "Editing keeps only a still frame of an animated image.",
+            "animation_kept": "Its animation is kept: the framing is applied wherever it is shown.",
             "apply": "Apply",
             "keep_original": "Use original",
             "position": "Image position",
@@ -455,10 +457,14 @@
             "until": "Until %(time)s"
         },
         "profile": {
+            "activity": "Activity",
             "board": "Board",
             "copy_link": "Copy link",
             "edit_profile": "Edit profile",
             "ignore": "Ignore",
+            "in_space": "in %(space)s",
+            "in_voice": "In voice",
+            "join_voice": "Join voice channel",
             "links": "Links",
             "local_time": "Local time",
             "member_since": "Member since",
@@ -483,9 +489,16 @@
             },
             "mutual_spaces_empty": "No mutual servers are known to this client.",
             "mutual_spaces_note": "Based on the server members this client has loaded.",
+            "no_activity": "When they join a voice channel, it shows up here.",
+            "no_activity_title": "%(name)s isn't doing anything right now",
             "not_verified": "Not verified",
             "note_label": "Note (only you and your homeserver can read it)",
             "note_placeholder": "Click to add a note",
+            "people_in_voice": {
+                "one": "%(count)s person in voice",
+                "other": "%(count)s people in voice"
+            },
+            "presence_busy": "Do not disturb",
             "presence_offline": "Offline",
             "presence_online": "Online",
             "presence_unavailable": "Away",
@@ -525,6 +538,7 @@
             "decoration": "Avatar decoration",
             "decorations": {
                 "cat_ears": "Cat ears",
+                "event_horizon": "Event horizon",
                 "flame_crown": "Flame crown",
                 "frost_crown": "Frost crown",
                 "galaxy": "Galaxy",
@@ -532,6 +546,7 @@
                 "halo": "Halo",
                 "neon_ring": "Neon ring",
                 "orbit": "Orbit",
+                "ringed": "Rings",
                 "sakura_wreath": "Sakura wreath",
                 "thorn_rose": "Thorn rose"
             },
@@ -539,22 +554,30 @@
             "effect": "Profile effect",
             "effects": {
                 "aurora": "Aurora",
+                "comets": "Comets",
                 "confetti": "Confetti",
                 "embers": "Embers",
                 "fireflies": "Fireflies",
+                "nebula": "Nebula",
                 "rain": "Rain",
                 "sakura": "Sakura",
                 "snow": "Snow",
                 "stars": "Stars"
             },
             "fonts": {
+                "bubbly": "Bubbly",
                 "default": "Default",
+                "handwritten": "Journal",
                 "horror": "Horror",
+                "jelly": "Jelly",
                 "medieval": "Medieval",
+                "modern": "Modern",
                 "pixel": "Pixel",
+                "rock": "Headbang",
                 "rounded": "Rounded",
                 "scifi": "Sci-fi",
-                "script": "Script"
+                "script": "Script",
+                "slab": "Slab"
             },
             "link_label": "Name",
             "link_url": "Address",
@@ -566,11 +589,16 @@
             "name_colour_end": "Second colour",
             "name_effect": "Effect",
             "name_effects": {
+                "glow": "Glow",
                 "gradient": "Gradient",
+                "gummy": "Gummy",
                 "neon": "Neon",
                 "none": "Plain",
                 "outline": "Outline",
-                "shimmer": "Shimmer"
+                "pop": "Pop",
+                "prism": "Prism",
+                "shimmer": "Shimmer",
+                "toon": "Toon"
             },
             "name_font": "Font",
             "name_style": "Display name style",
@@ -582,9 +610,13 @@
                 "blossom": "Blossom",
                 "circuit": "Circuit",
                 "embers": "Embers",
+                "grove": "Firefly grove",
                 "moonlit": "Moonlit",
                 "nebula": "Nebula",
+                "orbit": "Aether orbit",
                 "roses": "Roses",
+                "singularity": "Singularity",
+                "synthwave": "Synthwave",
                 "tides": "Tides"
             },
             "none": "None",

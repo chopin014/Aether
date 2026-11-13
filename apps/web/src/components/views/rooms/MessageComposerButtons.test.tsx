@@ -147,21 +147,29 @@ describe("MessageComposerButtons", () => {
             vi.spyOn(MatrixClientPeg, "get").mockReturnValue(mockClient);
         });
 
-        it.each([false, true])("puts voice messages beside the emoji button (narrow: %s)", async (narrow) => {
-            wrapAndRender(
-                <MessageComposerButtons
-                    {...mockProps}
-                    isMenuOpen={true}
-                    showLocationButton={false}
-                    showPollsButton={true}
-                    showStickersButton={false}
-                />,
-                narrow,
-            );
+        it.each([false, true])(
+            "keeps stickers, emoji and voice messages out in the composer with no overflow menu (narrow: %s)",
+            async (narrow) => {
+                wrapAndRender(
+                    <MessageComposerButtons
+                        {...mockProps}
+                        isMenuOpen={true}
+                        showLocationButton={true}
+                        showPollsButton={true}
+                        showStickersButton={true}
+                    />,
+                    narrow,
+                );
 
-            const labels = getButtonLabels();
-            expect(labels.slice(0, 2)).toEqual(["Emoji", "Voice Message"]);
-            expect(labels.at(-1)).not.toContain("Voice Message");
+                // Polls, locations and files are in the composer's plus menu instead.
+                expect(getButtonLabels()).toEqual(["Sticker", "Emoji", "Voice Message"]);
+            },
+        );
+
+        it("leaves out the sticker button when stickers are turned off", () => {
+            wrapAndRender(<MessageComposerButtons {...mockProps} showStickersButton={false} />, false);
+
+            expect(getButtonLabels()).toEqual(["Emoji", "Voice Message"]);
         });
     });
 

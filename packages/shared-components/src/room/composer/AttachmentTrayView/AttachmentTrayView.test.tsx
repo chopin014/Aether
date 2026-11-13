@@ -19,6 +19,7 @@ import {
 
 class TestAttachmentTrayViewModel extends MockViewModel<AttachmentTrayViewSnapshot> {
     public removeAttachment = vi.fn<AttachmentTrayViewActions["removeAttachment"]>();
+    public openAttachment = vi.fn<AttachmentTrayViewActions["openAttachment"]>();
 }
 
 const photo: PendingAttachment = { id: "a", name: "photo.png", size: 2048, kind: "image", previewUrl: "blob:photo" };
@@ -30,7 +31,7 @@ describe("AttachmentTrayView", () => {
         expect(container).toBeEmptyDOMElement();
     });
 
-    it("lists each waiting file with a preview, its name and size", () => {
+    it("lists each waiting file with a preview and its name, but not its size", () => {
         render(<AttachmentTrayView vm={new TestAttachmentTrayViewModel({ attachments: [photo, notes] })} />);
 
         const tray = screen.getByRole("list", { name: "2 files to send" });
@@ -38,7 +39,7 @@ describe("AttachmentTrayView", () => {
         expect(tray.querySelector("img")).toHaveAttribute("src", "blob:photo");
         expect(screen.getByText("photo.png")).toBeInTheDocument();
         expect(screen.getByText("notes.txt")).toBeInTheDocument();
-        expect(screen.getByText("2 KB")).toBeInTheDocument();
+        expect(screen.queryByText("2 KB")).not.toBeInTheDocument();
     });
 
     it("takes a file out when its remove button is pressed", () => {
@@ -48,5 +49,16 @@ describe("AttachmentTrayView", () => {
         fireEvent.click(screen.getByRole("button", { name: "Remove notes.txt" }));
 
         expect(vm.removeAttachment).toHaveBeenCalledWith("b");
+    });
+
+    it("opens a waiting image when its picture is clicked", () => {
+        const vm = new TestAttachmentTrayViewModel({ attachments: [photo, notes] });
+        render(<AttachmentTrayView vm={vm} />);
+
+        fireEvent.click(screen.getByRole("button", { name: "View photo.png" }));
+
+        expect(vm.openAttachment).toHaveBeenCalledWith("a");
+        // Other files have nothing to open.
+        expect(screen.queryByRole("button", { name: "View notes.txt" })).not.toBeInTheDocument();
     });
 });

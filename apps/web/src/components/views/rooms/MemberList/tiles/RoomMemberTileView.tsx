@@ -6,8 +6,10 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import React, { type JSX, useEffect } from "react";
+import VolumeOnIcon from "@vector-im/compound-design-tokens/assets/web/icons/volume-on";
 import {
     useCreateAutoDisposedViewModel,
+    useProfileMotion,
     DisambiguatedProfileView,
     ProfileDecoration,
     ProfileNameplate,
@@ -27,6 +29,8 @@ import { type MemberWithSeparator } from "../../../../viewmodels/memberlist/Memb
 import { DisambiguatedProfileViewModel } from "../../../../../viewmodels/room/timeline/event-tile/DisambiguatedProfileViewModel";
 import { useUserStatus } from "../../../../../hooks/useUserStatus";
 import { useRichRowProfile } from "../../../../../profile/useRichProfile";
+import { useVoiceRoom } from "../../../../../profile/voiceActivity";
+import { useMatrixClientContext } from "../../../../../contexts/MatrixClientContext";
 
 interface IProps {
     /**
@@ -41,13 +45,17 @@ interface IProps {
     showRole?: boolean;
     focused?: boolean;
     tabIndex?: number;
+    /** The member is listed under Offline, so the row is dimmed until it is hovered. */
+    offline?: boolean;
     onFocus: (item: MemberWithSeparator, e: React.FocusEvent) => void;
 }
 
 export function RoomMemberTileView(props: IProps): JSX.Element {
     const vm = useMemberTileViewModel(props);
     const member = vm.member;
-    const rich = useRichRowProfile(member.isInvite ? undefined : member.userId);
+    const rich = useRichRowProfile(member.isInvite ? undefined : member.userId, member.avatarMxc);
+    // A list of decorated people stays still until the pointer or keyboard reaches one of them, like Discord's.
+    const motion = useProfileMotion(false);
     const av = (
         <>
             <BaseAvatar
@@ -55,7 +63,7 @@ export function RoomMemberTileView(props: IProps): JSX.Element {
                 name={member.name}
                 idName={member.userId}
                 title={member.displayUserId}
-                url={member.avatarThumbnailUrl}
+                url={(motion.live && rich?.appearance?.avatarAnimatedUrl) || member.avatarThumbnailUrl}
                 altText={_t("common|user_avatar")}
             />
             {rich?.appearance?.decoration && <ProfileDecoration id={rich.appearance.decoration} />}
@@ -90,6 +98,10 @@ export function RoomMemberTileView(props: IProps): JSX.Element {
     );
 
     const desktopShell = useFeatureEnabled("feature_desktop_shell");
+    const client = useMatrixClientContext();
+    // Like Discord's "In voice", from the MatrixRTC calls this client follows.
+    const voiceRoomId = useVoiceRoom(desktopShell && !member.isInvite ? member.userId : undefined);
+    const voiceChannel = voiceRoomId ? client.getRoom(voiceRoomId)?.name : undefined;
     const merged = useMergedPresence(member.isInvite ? undefined : member.userId);
     // Match the desktop Offline group when no presence was reported; activity alone is not an online status.
     const reported = merged && merged.source !== "activity" ? merged : null;
@@ -119,13 +131,37 @@ export function RoomMemberTileView(props: IProps): JSX.Element {
             avatarJsx={av}
             presenceJsx={presenceJSX}
             nameJsx={nameJSX}
-            backgroundJsx={
-                rich?.appearance?.nameplate ? <ProfileNameplate nameplate={rich.appearance.nameplate} /> : undefined
+            offline={props.offline}
+            motion={motion.bind}
+            renderBackground={
+                rich?.appearance?.nameplate
+                    ? (textRef) => (
+                          <ProfileNameplate
+                              nameplate={rich.appearance!.nameplate!}
+                              live={motion.live}
+                              textRef={textRef}
+                          />
+                      )
+                    : undefined
             }
             subtitleJsx={
-                rich?.status ? (
-                    <div className="mx_MemberTileView_status" title={rich.status.text}>
-                        <span aria-hidden="true">{rich.status.emoji}</span> {rich.status.text}
+                rich?.status || voiceChannel ? (
+                    <div className="mx_MemberTileView_status" title={rich?.status?.text ?? voiceChannel}>
+                        {voiceChannel && (
+                            <VolumeOnIcon
+                                className="mx_MemberTileView_voice"
+                                width="14px"
+                                height="14px"
+                                aria-hidden="true"
+                            />
+                        )}
+                        {rich?.status ? (
+                            <>
+                                <span aria-hidden="true">{rich.status.emoji}</span> {rich.status.text}
+                            </>
+                        ) : (
+                            _t("member_list|in_voice_channel", { channel: voiceChannel })
+                        )}
                     </div>
                 ) : undefined
             }

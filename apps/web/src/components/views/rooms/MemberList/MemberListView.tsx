@@ -42,12 +42,19 @@ const MemberListView: React.FC<IProps> = (props: IProps) => {
     const { isPresenceEnabled, memberCount } = vm;
     const desktopShell = useFeatureEnabled("feature_desktop_shell");
     const items = useDesktopMemberListViewModel(props.roomId, vm, desktopShell);
-    const memberPositions = useMemo(() => {
+    const { memberPositions, offlineItems } = useMemo(() => {
         const positions = new Map<MemberListItem, number>();
+        // Rows under the Offline heading are dimmed, so the dimming always matches the group a person is listed in.
+        const offline = new Set<MemberListItem>();
+        let heading: string | undefined;
         for (const item of items) {
-            if (item !== SEPARATOR && !isMemberHeading(item)) positions.set(item, positions.size);
+            if (isMemberHeading(item)) heading = item.key;
+            else if (item !== SEPARATOR) {
+                positions.set(item, positions.size);
+                if (heading === "offline") offline.add(item);
+            }
         }
-        return positions;
+        return { memberPositions: positions, offlineItems: offline };
     }, [items]);
 
     const getItemKey = useCallback((item: MemberListItem): string => {
@@ -92,6 +99,7 @@ const MemberListView: React.FC<IProps> = (props: IProps) => {
                         showRole={!desktopShell}
                         focused={focused}
                         tabIndex={isRovingItem ? 0 : -1}
+                        offline={offlineItems.has(item)}
                         index={desktopShell ? memberPositions.get(item)! + (item.member.isInvite ? 1 : 0) : index}
                         memberCount={desktopShell ? memberPositions.size : memberCount}
                         onFocus={onFocus}
@@ -111,7 +119,7 @@ const MemberListView: React.FC<IProps> = (props: IProps) => {
                 );
             }
         },
-        [isPresenceEnabled, getItemKey, memberCount, desktopShell, memberPositions],
+        [isPresenceEnabled, getItemKey, memberCount, desktopShell, memberPositions, offlineItems],
     );
 
     const isItemFocusable = useCallback((item: MemberListItem): boolean => {

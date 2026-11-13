@@ -52,6 +52,10 @@ Please see LICENSE in the repository root for full details.
     transform-origin: 50% 50%;
     animation: profile-sway 3.6s ease-in-out infinite var(--profile-motion, paused);
 }
+.ringGlint {
+    stroke-dasharray: 6 94;
+    animation: profile-glint 5s linear infinite var(--profile-motion, paused);
+}
 .bob {
     animation: profile-bob 3s ease-in-out infinite var(--profile-motion, paused);
 }
@@ -61,6 +65,11 @@ Please see LICENSE in the repository root for full details.
     animation: profile-twitch 4s ease-in-out infinite var(--profile-motion, paused);
 }
 
+@keyframes profile-glint {
+    to {
+        stroke-dashoffset: -100;
+    }
+}
 @keyframes profile-spin {
     to {
         transform: rotate(360deg);
@@ -120,6 +129,10 @@ Please see LICENSE in the repository root for full details.
 }
 
 /* Full-card effects */
+/*
+ * Like Discord's, an effect steps back to 35% while the pointer is on the card, so it never fights what the person is
+ * reading, and returns when the pointer leaves.
+ */
 .effect {
     position: absolute;
     inset: 0;
@@ -127,204 +140,74 @@ Please see LICENSE in the repository root for full details.
     overflow: hidden;
     border-radius: inherit;
     pointer-events: none;
+    transition: opacity 600ms ease-in-out;
 }
-.particle {
-    position: absolute;
-    inset-inline-start: var(--x);
-    inset-block-start: -8%;
-    width: calc(2px + var(--size) * 4px);
-    height: calc(2px + var(--size) * 4px);
-    border-radius: 50%;
-    background: #ffffff;
-    opacity: 0;
-    animation: profile-fall var(--duration) linear var(--delay) infinite var(--profile-motion, paused);
+.effect[data-dimmed="true"] {
+    opacity: 0.35;
 }
-.effect[data-effect="sakura"] .particle {
-    width: calc(6px + var(--size) * 6px);
-    height: calc(4px + var(--size) * 4px);
-    border-radius: 80% 10% 80% 10%;
-    background: #ffb3cf;
-}
-.effect[data-effect="rain"] .particle {
-    width: 1.5px;
-    height: calc(12px + var(--size) * 16px);
-    border-radius: 1px;
-    background: #bfe3ff;
-    animation-duration: calc(var(--duration) / 5);
-}
-.effect[data-effect="confetti"] .particle {
-    width: calc(4px + var(--size) * 3px);
-    height: calc(7px + var(--size) * 4px);
-    border-radius: 1px;
-    background: oklch(0.8 0.17 var(--hue));
-}
-.effect[data-effect="stars"] .particle,
-.effect[data-effect="fireflies"] .particle {
-    inset-block-start: var(--y);
-    animation-name: profile-glimmer;
-}
-.effect[data-effect="stars"] .particle {
-    width: calc(1.5px + var(--size) * 3px);
-    height: calc(1.5px + var(--size) * 3px);
-    box-shadow: 0 0 6px #ffffff;
-}
-.effect[data-effect="fireflies"] .particle {
-    background: #eaff7a;
-    box-shadow: 0 0 10px 2px #d9ff4a;
-    animation-name: profile-firefly;
-}
-.effect[data-effect="embers"] .particle {
-    inset-block-start: auto;
-    inset-block-end: -8%;
-    background: #ff9a3c;
-    box-shadow: 0 0 8px #ff5a1f;
-    animation-name: profile-rise;
-}
-.auroraBand {
-    position: absolute;
-    inset-inline: -20%;
-    inset-block-start: -10%;
-    height: 45%;
-    background: linear-gradient(90deg, transparent, #2be8a6 30%, #6f6cff 65%, transparent);
-    opacity: 0.32;
-    filter: blur(24px);
-    animation: profile-aurora 9s ease-in-out infinite alternate var(--profile-motion, paused);
-}
-.auroraBand:nth-child(2) {
-    inset-block-start: 8%;
-    background: linear-gradient(90deg, transparent, #ff5ad1 35%, #2bc8ff 70%, transparent);
-    animation-duration: 12s;
-    animation-direction: alternate-reverse;
-}
-.auroraBand:nth-child(3) {
-    inset-block-start: 26%;
-    opacity: 0.2;
-    animation-duration: 16s;
-}
-
-@keyframes profile-fall {
-    0% {
-        opacity: 0;
-        transform: translate(0, 0) rotate(0);
-    }
-    8%,
-    88% {
-        opacity: 0.9;
-    }
-    100% {
-        opacity: 0;
-        transform: translate(var(--drift), 760px) rotate(320deg);
-    }
-}
-@keyframes profile-rise {
-    0% {
-        opacity: 0;
-        transform: translate(0, 0) scale(1);
-    }
-    12% {
-        opacity: 1;
-    }
-    100% {
-        opacity: 0;
-        transform: translate(var(--drift), -520px) scale(0.3);
-    }
-}
-@keyframes profile-glimmer {
-    0%,
-    100% {
-        opacity: 0.1;
-        transform: scale(0.7);
-    }
-    50% {
-        opacity: 1;
-        transform: scale(1.15);
-    }
-}
-@keyframes profile-firefly {
-    0%,
-    100% {
-        opacity: 0;
-        transform: translate(0, 0);
-    }
-    50% {
-        opacity: 1;
-        transform: translate(var(--drift), calc(var(--drift) * -0.6));
-    }
-}
-@keyframes profile-aurora {
-    from {
-        transform: translateX(-12%) skewY(-4deg);
-    }
-    to {
-        transform: translateX(12%) skewY(4deg);
-    }
+.effectCanvas {
+    display: block;
+    width: 100%;
+    height: 100%;
 }
 
 /* Nameplates */
+/*
+ * Discord's nameplate recipe, measured from its client: the row takes a tint of the nameplate's colour that deepens
+ * towards the far edge (8% → 20%, 30% while active, 50% when selected), and the artwork sits on top at 60% opacity,
+ * masked to 30% behind the text so the name always reads.
+ */
 .nameplate {
+    --plate-end: 20%;
     position: absolute;
     inset: 0;
     overflow: hidden;
     border-radius: inherit;
     pointer-events: none;
-    mask-image: linear-gradient(to left, #000000 20%, transparent 68%);
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        color-mix(in srgb, var(--plate, #ffffff) 8%, transparent) 20%,
+        color-mix(in srgb, var(--plate, #ffffff) 8%, transparent) 50%,
+        color-mix(in srgb, var(--plate, #ffffff) var(--plate-end), transparent) 100%
+    );
+    animation: profile-plate-in 120ms ease-in;
 }
-.nameplateImage {
+.nameplate[data-live="true"] {
+    --plate-end: 30%;
+}
+.nameplate[data-selected="true"] {
+    --plate-end: 50%;
+}
+.nameplate:dir(rtl) {
+    transform: scaleX(-1);
+}
+.nameplateArt {
+    position: absolute;
+    inset: 0;
     display: block;
     width: 100%;
     height: 100%;
     object-fit: cover;
     object-position: right center;
+    opacity: 0.6;
+    transition: opacity 300ms ease;
+    mask-image: linear-gradient(
+        to right,
+        rgb(0 0 0 / 30%) var(--plate-text-end, 40%),
+        #000000 calc(var(--plate-text-end, 40%) + 50px)
+    );
 }
-.plateDrift,
-.plateDriftReverse {
-    animation: profile-plate-drift 7s ease-in-out infinite alternate var(--profile-motion, paused);
+.nameplate[data-selected="true"] .nameplateArt {
+    opacity: 0.9;
 }
-.plateDriftReverse {
-    animation-direction: alternate-reverse;
-}
-.plateFall {
-    animation: profile-plate-fall 3.4s linear infinite var(--profile-motion, paused);
-}
-.plateRise {
-    animation: profile-plate-rise 2.6s ease-out infinite var(--profile-motion, paused);
-}
-.platePulse {
-    stroke-dasharray: 14 86;
-    animation: profile-plate-pulse 2.8s linear infinite var(--profile-motion, paused);
+.nameplateArt[data-ready="false"] {
+    opacity: 0;
 }
 
-@keyframes profile-plate-drift {
+@keyframes profile-plate-in {
     from {
-        transform: translateX(-10px);
-    }
-    to {
-        transform: translateX(10px);
-    }
-}
-@keyframes profile-plate-fall {
-    from {
-        opacity: 1;
-        transform: translate(0, 0) rotate(0);
-    }
-    to {
         opacity: 0;
-        transform: translate(-22px, 48px) rotate(180deg);
-    }
-}
-@keyframes profile-plate-rise {
-    from {
-        opacity: 1;
-        transform: translateY(0);
-    }
-    to {
-        opacity: 0;
-        transform: translateY(-40px);
-    }
-}
-@keyframes profile-plate-pulse {
-    to {
-        stroke-dashoffset: -100;
     }
 }
 
@@ -337,32 +220,65 @@ Please see LICENSE in the repository root for full details.
     overflow-wrap: anywhere;
     box-decoration-break: clone;
     -webkit-box-decoration-break: clone;
+    font-synthesis: none;
 }
 .name[data-font="pixel"] {
-    font-family: "Press Start 2P", var(--cpd-font-family-sans);
-    font-size: 0.8em;
+    font-family: "Aether Name Pixel", var(--cpd-font-family-sans);
+    font-weight: 600;
+    letter-spacing: 0.02em;
 }
 .name[data-font="medieval"] {
-    font-family: "Pirata One", var(--cpd-font-family-sans);
-    font-size: 1.14em;
+    font-family: "Aether Name Medieval", var(--cpd-font-family-sans);
+    font-size: 1.12em;
     font-weight: 400;
 }
 .name[data-font="script"] {
-    font-family: Pacifico, var(--cpd-font-family-sans);
+    font-family: "Aether Name Script", var(--cpd-font-family-sans);
     font-weight: 400;
 }
 .name[data-font="scifi"] {
-    font-family: Orbitron, var(--cpd-font-family-sans);
-    font-size: 0.94em;
+    font-family: "Aether Name Scifi", var(--cpd-font-family-sans);
+    font-size: 0.92em;
+    font-weight: 700;
+    letter-spacing: 0.03em;
 }
 .name[data-font="rounded"] {
-    font-family: Fredoka, var(--cpd-font-family-sans);
+    font-family: "Aether Name Rounded", var(--cpd-font-family-sans);
+    font-weight: 600;
 }
 .name[data-font="horror"] {
-    font-family: Creepster, var(--cpd-font-family-sans);
-    font-size: 1.12em;
+    font-family: "Aether Name Horror", var(--cpd-font-family-sans);
+    font-size: 1.1em;
     font-weight: 400;
     letter-spacing: 0.03em;
+}
+.name[data-font="bubbly"] {
+    font-family: "Aether Name Bubbly", var(--cpd-font-family-sans);
+    font-weight: 400;
+    letter-spacing: 0.04em;
+}
+.name[data-font="slab"] {
+    font-family: "Aether Name Slab", var(--cpd-font-family-sans);
+    font-weight: 600;
+    letter-spacing: 0.03em;
+}
+.name[data-font="handwritten"] {
+    font-family: "Aether Name Handwritten", var(--cpd-font-family-sans);
+    font-weight: 700;
+}
+.name[data-font="rock"] {
+    font-family: "Aether Name Rock", var(--cpd-font-family-sans);
+    font-weight: 400;
+}
+.name[data-font="modern"] {
+    font-family: "Aether Name Modern", var(--cpd-font-family-sans);
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+.name[data-font="jelly"] {
+    font-family: "Aether Name Jelly", var(--cpd-font-family-sans);
+    font-size: 1.06em;
+    font-weight: 400;
 }
 .name[data-coloured="true"] {
     color: var(--name-start);
@@ -370,7 +286,9 @@ Please see LICENSE in the repository root for full details.
     filter: drop-shadow(0 0 1px rgb(0 0 0 / 60%));
 }
 .name[data-name-effect="gradient"],
-.name[data-name-effect="shimmer"] {
+.name[data-name-effect="shimmer"],
+.name[data-name-effect="glow"],
+.name[data-name-effect="prism"] {
     color: transparent;
     background-image: linear-gradient(90deg, var(--name-start), var(--name-end), var(--name-start));
     background-size: 200% 100%;
@@ -384,10 +302,67 @@ Please see LICENSE in the repository root for full details.
     text-shadow:
         0 0 6px var(--name-end),
         0 0 14px var(--name-end);
+    animation: profile-neon 3.2s steps(1, end) infinite var(--profile-motion, paused);
 }
 .name[data-name-effect="outline"] {
     color: var(--name-start);
     -webkit-text-stroke: 0.5px var(--name-end);
+}
+/* A gradient that lights the air around it. */
+.name[data-name-effect="glow"] {
+    filter: drop-shadow(0 0 4px color-mix(in srgb, var(--name-end) 70%, transparent))
+        drop-shadow(0 0 1px rgb(0 0 0 / 50%));
+    animation: profile-glow 2.8s ease-in-out infinite var(--profile-motion, paused);
+}
+/* A cartoon: a thick dark outline drawn behind the fill, and a solid drop. */
+.name[data-name-effect="toon"] {
+    color: var(--name-start);
+    -webkit-text-stroke: 0.14em color-mix(in srgb, var(--name-end) 35%, #000000);
+    paint-order: stroke fill;
+    text-shadow: 0 0.09em 0 color-mix(in srgb, var(--name-end) 35%, #000000);
+    filter: none;
+}
+/* A hard offset shadow in the second colour that springs out while the name is active. */
+.name[data-name-effect="pop"] {
+    color: var(--name-start);
+    text-shadow: 0.07em 0.07em 0 var(--name-end);
+    filter: none;
+    animation: profile-pop 1.6s cubic-bezier(0.3, 1.6, 0.5, 1) infinite var(--profile-motion, paused);
+}
+/* Every colour of the spectrum between the two chosen ones, scrolling through the letters. */
+.name[data-name-effect="prism"] {
+    background-image: linear-gradient(
+        90deg,
+        var(--name-start),
+        color-mix(in oklch longer hue, var(--name-start), var(--name-end) 33%),
+        color-mix(in oklch longer hue, var(--name-start), var(--name-end) 66%),
+        var(--name-end),
+        var(--name-start)
+    );
+    background-size: max(8ch, 60px) 100%;
+    animation: profile-prism 3s linear infinite var(--profile-motion, paused);
+}
+/* Each letter a gummy sweet: alternating colours, squishing one after another. */
+.name[data-name-effect="gummy"] {
+    filter: drop-shadow(0 0.06em 0 rgb(0 0 0 / 35%));
+}
+.gummyLetter {
+    display: inline-block;
+    color: var(--name-start);
+    animation: profile-gummy 1.4s cubic-bezier(0.3, 1.5, 0.5, 1) infinite var(--profile-motion, paused);
+    animation-delay: calc(var(--letter) * 70ms);
+    transform-origin: 50% 90%;
+}
+.gummyLetter:nth-child(even) {
+    color: var(--name-end);
+}
+.visuallyHidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
 }
 
 @keyframes profile-shimmer {
@@ -395,15 +370,67 @@ Please see LICENSE in the repository root for full details.
         background-position: -200% 0;
     }
 }
+@keyframes profile-prism {
+    to {
+        background-position: max(8ch, 60px) 0;
+    }
+}
+@keyframes profile-neon {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    /* Two brief stutters, like a tube warming up. */
+    71% {
+        opacity: 0.55;
+    }
+    73% {
+        opacity: 1;
+    }
+    76% {
+        opacity: 0.7;
+    }
+    77% {
+        opacity: 1;
+    }
+}
+@keyframes profile-glow {
+    50% {
+        filter: drop-shadow(0 0 9px color-mix(in srgb, var(--name-end) 85%, transparent))
+            drop-shadow(0 0 1px rgb(0 0 0 / 50%));
+    }
+}
+@keyframes profile-pop {
+    0%,
+    100% {
+        text-shadow: 0.07em 0.07em 0 var(--name-end);
+    }
+    40% {
+        text-shadow: 0.13em 0.13em 0 var(--name-end);
+    }
+}
+@keyframes profile-gummy {
+    0%,
+    60%,
+    100% {
+        transform: scale(1, 1);
+    }
+    15% {
+        transform: scale(1.18, 0.82);
+    }
+    30% {
+        transform: scale(0.9, 1.12) translateY(-0.08em);
+    }
+    45% {
+        transform: scale(1.04, 0.97);
+    }
+}
 
 @media (prefers-reduced-motion: reduce) {
     .decoration *,
-    .effect *,
-    .nameplate *,
-    .name {
+    .nameplate,
+    .name,
+    .gummyLetter {
         animation: none !important;
-    }
-    .effect {
-        display: none;
     }
 }

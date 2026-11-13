@@ -16,6 +16,8 @@ export type RoomMember = {
     rawDisplayName?: string;
     disambiguate: boolean;
     avatarThumbnailUrl?: string;
+    /** The avatar's MXC URI, which tells whether the person's animated avatar is still the current one. */
+    avatarMxc?: string;
     powerLevel: number;
     lastModifiedTime: number;
     presenceState?: PresenceState;

@@ -602,6 +602,7 @@
         "warning": "Warning"
     },
     "composer": {
+        "add_to_message": "Add to message",
         "autocomplete": {
             "@room_description": "Notify the whole room",
             "command_a11y": "Command Autocomplete",
@@ -640,6 +641,8 @@
         "mode_rich_text": "Show formatting",
         "no_perms_notice": "You do not have permission to post to this room",
         "placeholder": "Send an unencrypted message…",
+        "placeholder_channel": "Message #%(name)s",
+        "placeholder_dm": "Message @%(name)s",
         "placeholder_encrypted": "Send a message…",
         "placeholder_reply": "Send an unencrypted reply…",
         "placeholder_reply_encrypted": "Send a reply…",
@@ -1872,6 +1875,7 @@
             "other": "%(count)s Members"
         },
         "filter_placeholder": "Search room members",
+        "in_voice_channel": "In %(channel)s",
         "invite_button_no_perms_tooltip": "You do not have permission to invite users",
         "invited_label": "Invited",
         "list_title": "Member list",
@@ -2659,8 +2663,8 @@
     "settings": {
         "account": {
             "dialog_title": "<strong>Settings:</strong> Account",
-            "title": "Account",
-            "nav_title": "My account"
+            "nav_title": "My account",
+            "title": "Account"
         },
         "activityIsUnread": "Consider all new activity as an unread message",
         "all_rooms_home": "Show all rooms in Home",
@@ -2997,6 +3001,36 @@
             "show_message_desktop_notification": "Show message in desktop notification",
             "voip": "Audio and Video calls"
         },
+        "pages": {
+            "account_description": "Your name, your sign-in and how you get into your account.",
+            "account_keywords": "name username email password deactivate account sign out",
+            "appearance_description": "Theme, colours, font size and message layout.",
+            "appearance_keywords": "theme dark light colour font size compact",
+            "chat_description": "How messages look and how you write them.",
+            "chat_keywords": "timeline messages composer markdown emoji gif video links previews code room list servers",
+            "encryption_description": "Recovery and keys for your encrypted messages.",
+            "encryption_keywords": "recovery key backup reset identity",
+            "help_description": "Version, help and troubleshooting.",
+            "help_keywords": "help faq version bug report cache homeserver credits legal",
+            "keyboard_description": "Shortcuts and call keybinds.",
+            "keyboard_keywords": "shortcuts keybinds push to talk mute deafen ctrl f",
+            "language_description": "The app's language, your time zone and how times are shown.",
+            "language_keywords": "language spell check timezone 12 hour timestamps",
+            "notifications_description": "When and how you get notified.",
+            "notifications_keywords": "sounds alerts mentions keywords desktop email",
+            "profile_description": "How others see you: picture, banner, bio and name style.",
+            "profile_keywords": "avatar picture photo banner bio pronouns status nameplate",
+            "security_description": "Who can reach you and what others can see.",
+            "security_keywords": "privacy invites read receipts typing blocked ignored users media nsfw analytics integrations",
+            "sessions_description": "Everywhere your account is signed in.",
+            "sessions_keywords": "devices sessions sign out qr",
+            "system_description": "Startup, tray and performance.",
+            "system_keywords": "startup tray menu bar hardware acceleration screenshot autocomplete delay",
+            "updates_description": "The installed version and new releases.",
+            "updates_keywords": "update version download restart",
+            "voice_description": "Microphone, speakers, camera and noise suppression.",
+            "voice_keywords": "microphone speaker camera noise suppression push to talk echo sounds"
+        },
         "preferences": {
             "Electron.enableContentProtection": "Prevent the window contents from being captured by other apps",
             "Electron.enableHardwareAcceleration": "Enable hardware acceleration (restart %(appName)s to take effect)",
@@ -3031,6 +3065,7 @@
         },
         "prompt_invite": "Prompt before sending invites to potentially invalid matrix IDs",
         "replace_plain_emoji": "Automatically replace plain text Emoji",
+        "search_empty": "No settings match your search",
         "security": {
             "analytics_description": "Share anonymous data to help us identify issues. Nothing personal. No third parties.",
             "bulk_options_reject_all_invites": "Reject all %(invitedRooms)s invites",
@@ -3063,6 +3098,7 @@
             "message_search_space_used": "Space used:",
             "message_search_unsupported": "%(brand)s is missing some components required for securely caching encrypted messages locally. If you'd like to experiment with this feature, build a custom %(brand)s Desktop with <nativeLink>search components added</nativeLink>.",
             "message_search_unsupported_web": "%(brand)s can't securely cache encrypted messages locally while running in a web browser. Use <desktopLink>%(brand)s Desktop</desktopLink> for encrypted messages to appear in search results.",
+            "nav_title": "Privacy & security",
             "record_session_details": "Record the client name, version, and url to recognise devices more easily in devices manager",
             "send_analytics": "Send analytics data",
             "strict_encryption": "Only send messages to verified users",
@@ -3071,8 +3107,7 @@
             "tokenizer_mode_language": "Language-based",
             "tokenizer_mode_language_description": "Single language support based on your UI language. Only works with some languages (English, German, etc.).",
             "tokenizer_mode_ngram": "N-gram",
-            "tokenizer_mode_ngram_description": "Supports all languages including those without word boundaries. Works with mixed languages.",
-            "nav_title": "Privacy & security"
+            "tokenizer_mode_ngram_description": "Supports all languages including those without word boundaries. Works with mixed languages."
         },
         "send_read_receipts": "Send read receipts",
         "send_read_receipts_unsupported": "Your server doesn't support disabling sending read receipts.",
@@ -3202,6 +3237,7 @@
             "metaspaces_video_rooms_description_invite_extension": "In conferences you can invite people outside of matrix.",
             "spaces_explainer": "Servers are ways to group rooms and people. Alongside the servers you're in, you can use some pre-built ones too."
         },
+        "sign_out": "Sign out",
         "start_automatically": {
             "disabled": "No",
             "enabled": "Yes",
@@ -3210,10 +3246,10 @@
         },
         "system": {
             "advanced_description": "Delays in milliseconds. Most people never need to change these.",
+            "desktop_title": "Desktop app",
             "dialog_title": "<strong>Settings:</strong> System",
             "performance_heading": "Performance and privacy",
-            "title": "System",
-            "desktop_title": "Desktop app"
+            "title": "System"
         },
         "tac_only_notifications": "In the Other threads tab, only show notifications",
         "use_12_hour_format": "Show timestamps in 12 hour format (e.g. 2:30pm)",
@@ -3251,39 +3287,7 @@
             "voice_section": "Voice settings"
         },
         "warn_quit": "Warn before quitting",
-        "warning": "<w>WARNING:</w> <description/>",
-        "sign_out": "Sign out",
-        "search_empty": "No settings match your search",
-        "pages": {
-            "account_description": "Your name, your sign-in and how you get into your account.",
-            "account_keywords": "name username email password deactivate account sign out",
-            "profile_description": "How others see you: picture, banner, bio and name style.",
-            "profile_keywords": "avatar picture photo banner bio pronouns status nameplate",
-            "security_description": "Who can reach you and what others can see.",
-            "security_keywords": "privacy invites read receipts typing blocked ignored users media nsfw analytics integrations",
-            "encryption_description": "Recovery and keys for your encrypted messages.",
-            "encryption_keywords": "recovery key backup reset identity",
-            "sessions_description": "Everywhere your account is signed in.",
-            "sessions_keywords": "devices sessions sign out qr",
-            "appearance_description": "Theme, colours, font size and message layout.",
-            "appearance_keywords": "theme dark light colour font size compact",
-            "chat_description": "How messages look and how you write them.",
-            "chat_keywords": "timeline messages composer markdown emoji gif video links previews code room list servers",
-            "voice_description": "Microphone, speakers, camera and noise suppression.",
-            "voice_keywords": "microphone speaker camera noise suppression push to talk echo sounds",
-            "notifications_description": "When and how you get notified.",
-            "notifications_keywords": "sounds alerts mentions keywords desktop email",
-            "keyboard_description": "Shortcuts and call keybinds.",
-            "keyboard_keywords": "shortcuts keybinds push to talk mute deafen ctrl f",
-            "language_description": "The app's language, your time zone and how times are shown.",
-            "language_keywords": "language spell check timezone 12 hour timestamps",
-            "system_description": "Startup, tray and performance.",
-            "system_keywords": "startup tray menu bar hardware acceleration screenshot autocomplete delay",
-            "updates_description": "The installed version and new releases.",
-            "updates_keywords": "update version download restart",
-            "help_description": "Version, help and troubleshooting.",
-            "help_keywords": "help faq version bug report cache homeserver credits legal"
-        }
+        "warning": "<w>WARNING:</w> <description/>"
     },
     "share": {
         "link_copied": "Link copied",
@@ -4131,6 +4135,7 @@
         "kick_button_space_everything": "Remove them from everything I'm able to",
         "kick_space_specific": "Remove them from specific things I'm able to",
         "kick_space_warning": "They'll still be able to access whatever you're not an admin of.",
+        "promote_warning": "You will not be able to undo this change as you are promoting the user to have the same power level as yourself.",
         "redact": {
             "confirm_button": {
                 "one": "Remove 1 message",
