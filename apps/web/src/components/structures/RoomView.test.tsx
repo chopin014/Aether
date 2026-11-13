@@ -86,6 +86,7 @@ import MediaDeviceHandler, { MediaDeviceKindEnum } from "../../MediaDeviceHandle
 import Modal, { type ComponentProps } from "../../Modal.tsx";
 import ErrorDialog from "../views/dialogs/ErrorDialog.tsx";
 import * as pinnedEventHooks from "../../hooks/usePinnedEvents";
+import * as roomSwitch from "../../performance/RoomSwitchPerformance";
 import { TimelineRenderingType } from "../../contexts/RoomContext";
 import { ModuleApi } from "../../modules/Api";
 import MatrixClientBackedController from "../../settings/controllers/MatrixClientBackedController.ts";
@@ -311,6 +312,13 @@ describe("RoomView", () => {
             }),
         );
         expect(view.state.initialEventId).toBeUndefined();
+    });
+
+    it("marks the shell phase of opening its room once it is mounted", async () => {
+        const mark = vi.spyOn(roomSwitch, "markRoomSwitch");
+        await mountRoomView();
+        expect(mark).toHaveBeenCalledWith("shell", room.roomId);
+        mark.mockRestore();
     });
 
     it("gets a room view store from MultiRoomViewStore when given a room ID", async () => {

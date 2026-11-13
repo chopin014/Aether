@@ -30,6 +30,7 @@ import EditorStateTransfer from "../../utils/EditorStateTransfer";
 import MatrixClientContext from "../../contexts/MatrixClientContext";
 import { SDKContext } from "../../contexts/SDKContext";
 import * as roomEntry from "../../performance/RoomEntryReady";
+import * as roomSwitch from "../../performance/RoomSwitchPerformance";
 import DMRoomMap from "../../utils/DMRoomMap";
 
 // The room's introduction has its own tests and needs the whole room view around it.
@@ -258,23 +259,28 @@ describe("<NewTimelinePanel />", () => {
         expect(vmSpies.dispose).not.toHaveBeenCalled();
     });
 
-    it("releases decorative loading only after conversation rows have painted", () => {
+    it("releases decorative loading, and marks the room painted, only after conversation rows have painted", () => {
         const ready = vi.spyOn(roomEntry, "notifyRoomEntryReady");
+        const mark = vi.spyOn(roomSwitch, "markRoomSwitch");
         withItems([eventRow(event)]);
         renderPanel();
         expect(ready).not.toHaveBeenCalled();
         paintedItems.current?.([{ kind: "event-group", key: "notices", events: [] }]);
         expect(ready).not.toHaveBeenCalled();
+        expect(mark).not.toHaveBeenCalledWith("painted", expect.anything());
         act(() => paintedItems.current?.([eventRow(event)]));
         expect(ready).toHaveBeenCalledWith(client, ROOM_ID);
+        expect(mark).toHaveBeenCalledWith("painted", ROOM_ID);
     });
 
-    it("does not release decorative work from a hidden timeline", () => {
+    it("does not release decorative work, or mark the room painted, from a hidden timeline", () => {
         const ready = vi.spyOn(roomEntry, "notifyRoomEntryReady");
+        const mark = vi.spyOn(roomSwitch, "markRoomSwitch");
         withItems([eventRow(event)]);
         renderPanel({ hidden: true });
         paintedItems.current?.([eventRow(event)]);
         expect(ready).not.toHaveBeenCalled();
+        expect(mark).not.toHaveBeenCalledWith("painted", expect.anything());
     });
 
     it("draws the event the row carries", () => {

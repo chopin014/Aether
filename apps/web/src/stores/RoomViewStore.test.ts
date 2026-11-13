@@ -48,6 +48,7 @@ import { MatrixClientPeg } from "../MatrixClientPeg";
 import MediaDeviceHandler, { MediaDeviceKindEnum } from "../MediaDeviceHandler";
 import { storeRoomAliasInCache } from "../RoomAliasCache.ts";
 import { prefetchAliasPreview } from "../performance/AliasRoomSummary";
+import * as roomSwitch from "../performance/RoomSwitchPerformance";
 import { type Call, ConnectionState } from "../models/Call.ts";
 import ActiveWidgetStore from "./ActiveWidgetStore";
 import { ModuleApi } from "../modules/Api";
@@ -295,6 +296,20 @@ describe("RoomViewStore", function () {
         payload = (await untilDispatch(Action.ActiveRoomChanged, dis)) as ActiveRoomChangedPayload;
         expect(payload.newRoomId).toEqual(roomId2);
         expect(payload.oldRoomId).toEqual(roomId);
+    });
+
+    it("marks the navigation phase of opening a room for each room the view changes to", async () => {
+        const mark = vi.spyOn(roomSwitch, "markRoomSwitch");
+        dis.dispatch({ action: Action.ViewRoom, room_id: roomId });
+        await untilDispatch(Action.ActiveRoomChanged, dis);
+        dis.dispatch({ action: Action.ViewRoom, room_id: roomId2 });
+        await untilDispatch(Action.ActiveRoomChanged, dis);
+
+        expect(mark.mock.calls).toEqual([
+            ["navigation", roomId],
+            ["navigation", roomId2],
+        ]);
+        mark.mockRestore();
     });
 
     it("invokes room activity listeners when the viewed room changes", async () => {
