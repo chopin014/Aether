@@ -202,7 +202,9 @@
             "delete": "Delete category",
             "edit": "Edit category",
             "mark_read": "Mark as read",
-            "title": "%(category)s options"
+            "mute": "Mute category",
+            "title": "%(category)s options",
+            "unmute": "Unmute category"
         },
         "channel_kind": {
             "text": "Text",
@@ -444,6 +446,15 @@
             "group_spacing": "Space between message groups",
             "group_spacing_value": "%(size)spx",
             "title": "Message display"
+        },
+        "mute": {
+            "forever": "Until I turn it back on",
+            "hour_1": "For 1 hour",
+            "hours_24": "For 24 hours",
+            "hours_3": "For 3 hours",
+            "hours_8": "For 8 hours",
+            "minutes_15": "For 15 minutes",
+            "until": "Until %(time)s"
         },
         "profile": {
             "activity": "Activity",
@@ -758,6 +769,14 @@
                 "today": "Today",
                 "yesterday": "Yesterday"
             }
+        },
+        "server_menu": {
+            "mark_read": "Mark as read",
+            "mute": "Mute server",
+            "notification_settings": "Notification settings",
+            "notify_all": "All messages",
+            "notify_mentions": "Only @mentions",
+            "unmute": "Unmute server"
         },
         "server_voice_activity": {
             "people": "In voice: %(names)s"

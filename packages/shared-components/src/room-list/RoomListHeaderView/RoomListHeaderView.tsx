@@ -84,10 +84,16 @@ export interface RoomListHeaderViewSnapshot {
     serverMenu?: ServerMenuSnapshot;
 }
 
-/** What a desktop server's menu offers beyond Element's space menu. */
+/** What a desktop server's menu offers beyond Element's space menu, and how the server notifies the person. */
 export interface ServerMenuSnapshot {
     /** Whether the person may create categories in the server. */
     canCreateCategory: boolean;
+    /** Whether the person muted the server. */
+    isMuted: boolean;
+    /** When the server's mute ends, if it is muted for a while. */
+    mutedUntil?: number;
+    /** Whether the server's channels notify about every message or only mentions. */
+    notificationLevel: "all" | "mentions";
     /** Whether the person hides the server's muted channels. */
     hideMutedChannels: boolean;
 }
@@ -139,6 +145,14 @@ export interface RoomListHeaderViewActions {
     closeSectionReleaseAnnouncement: () => void;
     /** Create a category in the server. */
     createCategory?: () => void;
+    /** Mark every channel of the server as read. */
+    markServerAsRead?: () => void;
+    /** Mute every channel of the server for this many milliseconds, or until turned back on for null. */
+    muteServer?: (duration: number | null) => void;
+    /** Turn back on the channels the server's mute silenced. */
+    unmuteServer?: () => void;
+    /** Choose how the server's channels notify. */
+    setServerNotificationLevel?: (level: ServerMenuSnapshot["notificationLevel"]) => void;
     /** Hide or show the server's muted channels. */
     toggleHideMutedChannels?: () => void;
 }

@@ -78,6 +78,12 @@
         font: var(--cpd-font-body-sm-semibold);
         color: var(--cpd-color-text-primary);
     }
+
+    /* A muted category is dimmed, as in Discord, until it is pointed at. */
+    &.muted:not(:hover, .keyboardActive) .title,
+    &.muted:not(:hover, .keyboardActive) .chevron {
+        opacity: 0.5;
+    }
 }
 
 .container {

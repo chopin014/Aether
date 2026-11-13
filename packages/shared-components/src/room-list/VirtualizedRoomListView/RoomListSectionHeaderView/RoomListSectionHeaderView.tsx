@@ -65,7 +65,13 @@ export interface RoomListSectionHeaderViewSnapshot {
     categoryMenu?: {
         /** Whether the person may rename or delete the category. */
         canEdit: boolean;
+        /** Whether the person muted the category itself, rather than its channels one by one. */
+        isMuted?: boolean;
+        /** When the category's mute ends, if it is muted for a while. */
+        mutedUntil?: number;
     };
+    /** Whether every room of the section is muted, which dims its header as in Discord. */
+    isMuted?: boolean;
 }
 
 /**
@@ -88,6 +94,10 @@ export interface RoomListSectionHeaderActions {
     editCategory?: () => void;
     /** Delete the category, after asking. */
     deleteCategory?: () => void;
+    /** Mute every channel of the category for this many milliseconds, or until turned back on for null. */
+    muteCategory?: (duration: number | null) => void;
+    /** Turn back on the channels the category's mute silenced. */
+    unmuteCategory?: () => void;
 }
 
 /**
@@ -144,7 +154,7 @@ export const RoomListSectionHeaderView = memo(function RoomListSectionHeaderView
     roomCountInSection,
 }: Readonly<RoomListSectionHeaderViewProps>): JSX.Element {
     const { translate: _t } = useI18n();
-    const { id, title, isExpanded, isUnread, canBeReordered, acceptedRoomKind, isHidden } = useViewModel(vm);
+    const { id, title, isExpanded, isUnread, canBeReordered, acceptedRoomKind, isHidden, isMuted } = useViewModel(vm);
     const isLastSection = sectionIndex === sectionCount - 1;
 
     const {
@@ -247,6 +257,7 @@ export const RoomListSectionHeaderView = memo(function RoomListSectionHeaderView
                             // If the section is collapsed and it's the last one
                             [styles.lastHeader]: !isExpanded && isLastSection,
                             [styles.unread]: isUnread,
+                            [styles.muted]: isMuted,
                             [styles.dragSource]: isDragSource,
                             [styles.dropTarget]: isDraggingRoom,
                             [styles.dropTargetBottom]: hasBottomBorder,

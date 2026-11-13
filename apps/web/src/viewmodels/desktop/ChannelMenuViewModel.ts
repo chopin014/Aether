@@ -41,6 +41,8 @@ import { projectLayout } from "../../stores/space-layout/SpaceLayout";
 import { SpaceLayoutStore, SpaceLayoutStoreEvent } from "../../stores/space-layout/SpaceLayoutStore";
 import { moveChannel } from "../../stores/space-layout/spaceLayoutActions";
 import { keepIfSame } from "../../utils/keepIfSame";
+import { TimedMutes, TimedMutesEvent } from "../../stores/notifications/TimedMutes";
+import { type RoomNotifState as ElementRoomNotifState } from "../../RoomNotifs";
 
 /** The part of a room list item's view model that the channel menu reuses for its Matrix actions. */
 export type ChannelMenuItemSource = ViewModel<
@@ -91,6 +93,11 @@ export class ChannelMenuViewModel
             SpaceLayoutStoreEvent.Changed,
             this.onLayoutChanged as (...args: unknown[]) => void,
         );
+        this.disposables.trackListener(
+            TimedMutes.instance,
+            TimedMutesEvent.Changed,
+            this.onMuteChanged as (...args: unknown[]) => void,
+        );
         if (!props.room.membersLoaded()) {
             // Native encrypted subscriptions do not mark the SDK's full-membership readiness.
             // Share its hydration with crypto so deletion never relies on an incomplete bootstrap roster.
@@ -140,6 +147,7 @@ export class ChannelMenuViewModel
             // A server's channels are left by leaving the server; one-off leaving stays in the channel's settings.
             canLeave: !inActiveSpace && room.currentState.getStateEvents(EventType.SpaceParent).length === 0,
             categories: inActiveSpace ? ChannelMenuViewModel.categoriesFor(room, activeSpace) : undefined,
+            mutedUntil: TimedMutes.instance.mutedUntil(room),
         };
     }
 
@@ -159,6 +167,11 @@ export class ChannelMenuViewModel
         ];
     }
 
+    /** Only this channel's own mute changes when its mute ends. */
+    private readonly onMuteChanged = (roomId: string): void => {
+        if (roomId === this.props.room.roomId) this.refresh();
+    };
+
     /** Only the layout of the server the channel is in changes its categories. */
     private readonly onLayoutChanged = (spaceId: string): void => {
         if (spaceId === (this.props.spaceStore ?? SDKContextClass.instance.spaceStore).activeSpaceRoom?.roomId) {
@@ -175,9 +188,25 @@ export class ChannelMenuViewModel
     public onToggleFavourite = (): void => this.props.item.onToggleFavorite();
     public onInvite = (): void => this.props.item.onInvite();
     public onCopyLink = (): void => this.props.item.onCopyRoomLink();
-    public onSetNotifState: ChannelMenuViewActions["onSetNotifState"] = (state) =>
-        this.props.item.onSetRoomNotifState(state);
+    /** Levels go through the timed mutes, so that choosing one never races a mute ending, and ends a timed mute. */
+    public onSetNotifState: ChannelMenuViewActions["onSetNotifState"] = (state) => {
+        TimedMutes.instance
+            .setLevel(this.props.room, state as unknown as ElementRoomNotifState)
+            .catch((error) => logger.warn("Failed to change the channel's notifications", error));
+    };
     public onEditChannel = (): void => this.props.item.onEditChannel?.();
+
+    public onMute = (duration: number | null): void => {
+        TimedMutes.instance
+            .mute([this.props.room], duration)
+            .catch((error) => logger.warn("Failed to mute the channel", error));
+    };
+
+    public onUnmute = (): void => {
+        TimedMutes.instance
+            .unmute([this.props.room])
+            .catch((error) => logger.warn("Failed to unmute the channel", error));
+    };
     public onLeave = (): void => this.props.item.onLeaveRoom();
 
     public onDelete = (): void => {

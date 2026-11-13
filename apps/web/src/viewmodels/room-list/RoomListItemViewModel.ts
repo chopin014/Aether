@@ -39,6 +39,7 @@ import SettingsStore from "../../settings/SettingsStore";
 import { NotificationLevel } from "../../stores/notifications/NotificationLevel";
 import { hasAccessToNotificationMenu, hasAccessToOptionsMenu } from "./utils";
 import { EchoChamber } from "../../stores/local-echo/EchoChamber";
+import { PROPERTY_UPDATED } from "../../stores/local-echo/GenericEchoChamber";
 import { getUnreadNotificationCount, RoomNotifState as ElementRoomNotifState } from "../../RoomNotifs";
 import { shouldShowComponent } from "../../customisations/helpers/UIComponents";
 import { UIComponent } from "../../settings/UIFeature";
@@ -172,6 +173,8 @@ export class RoomListItemViewModel
 
         // Subscribe to room-specific events
         this.disposables.trackListener(props.room, RoomEvent.Name, this.onRoomChanged);
+        // The room's notification level, including one changed on another device or by a timed mute ending.
+        this.disposables.trackListener(EchoChamber.forRoom(props.room), PROPERTY_UPDATED, this.onRoomChanged);
         // A channel's badge counts mentions, which can change while its overall notification state does not.
         this.disposables.trackListener(props.room, RoomEvent.UnreadNotifications, this.onUnreadNotifications);
         this.disposables.trackListener(props.room, RoomEvent.Tags, this.onRoomChanged);

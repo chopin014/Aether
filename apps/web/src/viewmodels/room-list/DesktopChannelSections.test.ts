@@ -19,6 +19,7 @@ import {
     DESKTOP_UNCATEGORIZED,
     DESKTOP_VOICE_CHANNELS,
     getDesktopCategories,
+    getDesktopCategoryMembers,
     getDesktopChannelSections,
     isDesktopChannelSection,
 } from "./DesktopChannelSections";
@@ -151,6 +152,27 @@ describe("desktop channel sections", () => {
             { selectedRoomId: rules.roomId },
         );
         expect(result.flatMap((section) => section.rooms)).toEqual([rules, text]);
+    });
+
+    it("counts every channel of a category, including pinned favourites and hidden muted ones", async () => {
+        enableDesktop();
+        vi.spyOn(RoomNotifs, "getRoomNotifsState").mockImplementation((_client, roomId) =>
+            roomId === rules.roomId ? RoomNotifs.RoomNotifState.Mute : null,
+        );
+        vi.mocked(client.setRoomAccountData).mockReturnValue(new Promise(() => {}));
+        void SpaceLayoutStore.instance.setHidingMutedChannels(space, true);
+        const result = {
+            spaceId: SPACE_ID,
+            sections: [
+                { tag: DefaultTagID.Favourite, rooms: [text] },
+                { tag: CHATS_TAG, rooms: [rules, voice] },
+            ],
+        };
+        expect(getDesktopChannelSections(result).flatMap((section) => section.rooms)).not.toContain(rules);
+        const members = getDesktopCategoryMembers(result);
+        expect(members.get(DESKTOP_TEXT_CHANNELS)).toEqual([rules, text]);
+        expect(members.get(DESKTOP_VOICE_CHANNELS)).toEqual([voice]);
+        expect(getDesktopCategoryMembers({ spaceId: "home", sections: [] }).size).toBe(0);
     });
 
     it("retains the original list when viewing Home", () => {

@@ -8,7 +8,7 @@
 // @vitest-environment happy-dom
 
 import { vi, describe, it, expect, beforeEach, afterEach, type Mock } from "vitest";
-import { type MatrixClient, type Room, RoomType } from "matrix-js-sdk/src/matrix";
+import { type MatrixClient, MatrixEvent, type Room, RoomEvent, RoomType } from "matrix-js-sdk/src/matrix";
 import { CallType } from "matrix-js-sdk/src/webrtc/call";
 import { createTestClient, mkRoom } from "test-utils";
 
@@ -30,12 +30,21 @@ import {
     DESKTOP_VOICE_CHANNELS,
 } from "./DesktopChannelSections";
 import * as serverCategories from "./serverCategories";
+import * as ServerNotifications from "../../stores/notifications/ServerNotifications";
+import { TimedMutes, TimedMutesEvent } from "../../stores/notifications/TimedMutes";
 import * as notifications from "../../utils/notifications";
 import dispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import * as roomListUtils from "./utils";
 import * as spaceUtils from "../../utils/space";
+
+/** Server category headers listen to shared stores, so each test disposes the ones it made. */
+const created: RoomListSectionHeaderViewModel[] = [];
+function track(vm: RoomListSectionHeaderViewModel): RoomListSectionHeaderViewModel {
+    created.push(vm);
+    return vm;
+}
 
 describe("RoomListSectionHeaderViewModel", () => {
     let onToggleExpanded: Mock;
@@ -63,6 +72,7 @@ describe("RoomListSectionHeaderViewModel", () => {
     });
 
     afterEach(() => {
+        for (const vm of created.splice(0)) vm.dispose();
         vi.restoreAllMocks();
     });
 
@@ -270,7 +280,7 @@ describe("RoomListSectionHeaderViewModel", () => {
         let space: Room;
 
         function makeViewModel(tag: string, spaceId = "!space:server"): RoomListSectionHeaderViewModel {
-            return new RoomListSectionHeaderViewModel({ tag, title: "Channels", spaceId, onToggleExpanded });
+            return track(new RoomListSectionHeaderViewModel({ tag, title: "Channels", spaceId, onToggleExpanded }));
         }
 
         beforeEach(() => {
@@ -929,7 +939,9 @@ describe("RoomListSectionHeaderViewModel", () => {
         let space: Room;
 
         function makeViewModel(tag = categoryTag(CATEGORY)): RoomListSectionHeaderViewModel {
-            return new RoomListSectionHeaderViewModel({ tag, title: tag, spaceId: space.roomId, onToggleExpanded });
+            return track(
+                new RoomListSectionHeaderViewModel({ tag, title: tag, spaceId: space.roomId, onToggleExpanded }),
+            );
         }
 
         beforeEach(() => {
@@ -947,7 +959,7 @@ describe("RoomListSectionHeaderViewModel", () => {
             const vm = makeViewModel();
             expect(vm.getSnapshot().categoryMenu).toBeUndefined();
             expect(vm.getSnapshot().acceptedRoomKind).toBe("none");
-            vm.setCategory({ title: "Governo", canEdit: true });
+            vm.setCategory({ title: "Governo", canEdit: true, members: [] });
             expect(vm.getSnapshot()).toMatchObject({
                 title: "Governo",
                 categoryMenu: { canEdit: true },
@@ -955,9 +967,9 @@ describe("RoomListSectionHeaderViewModel", () => {
                 acceptedRoomKind: "nonDm",
             });
             const menu = vm.getSnapshot().categoryMenu;
-            vm.setCategory({ title: "Governo", canEdit: true });
+            vm.setCategory({ title: "Governo", canEdit: true, members: [] });
             expect(vm.getSnapshot().categoryMenu).toBe(menu);
-            vm.setCategory({ title: "Governo", canEdit: false });
+            vm.setCategory({ title: "Governo", canEdit: false, members: [] });
             expect(vm.getSnapshot()).toMatchObject({ canBeReordered: false, acceptedRoomKind: "none" });
         });
 
@@ -978,7 +990,7 @@ describe("RoomListSectionHeaderViewModel", () => {
             const rename = vi.spyOn(serverCategories, "showRenameCategory").mockImplementation(() => {});
             const remove = vi.spyOn(serverCategories, "confirmDeleteCategory").mockResolvedValue();
             const vm = makeViewModel();
-            vm.setCategory({ title: "Governo", canEdit: true });
+            vm.setCategory({ title: "Governo", canEdit: true, members: [] });
             vm.editCategory();
             vm.deleteCategory();
             expect(rename).toHaveBeenCalledWith(space, CATEGORY, "Governo");
@@ -993,6 +1005,58 @@ describe("RoomListSectionHeaderViewModel", () => {
             vm.markCategoryAsRead();
             expect(clear).toHaveBeenCalledTimes(2);
             expect(clear).toHaveBeenCalledWith(rooms[0], matrixClient);
+        });
+
+        it("mutes and unmutes every channel of its category, even the ones the list hides", () => {
+            const mute = vi.spyOn(ServerNotifications, "muteCategory").mockResolvedValue();
+            const unmute = vi.spyOn(ServerNotifications, "unmuteCategory").mockResolvedValue();
+            const shown = mkRoom(matrixClient, "!shown:server");
+            const hidden = mkRoom(matrixClient, "!hidden:server");
+            const vm = makeViewModel();
+            vm.setRooms([shown]);
+            vm.setCategory({ title: "Governo", canEdit: false, members: [shown, hidden] });
+            vm.muteCategory(60 * 60_000);
+            expect(mute).toHaveBeenCalledWith(space, CATEGORY, [shown, hidden], 60 * 60_000);
+            vm.unmuteCategory();
+            expect(unmute).toHaveBeenCalledWith(space, CATEGORY, [shown, hidden]);
+        });
+
+        it("is dimmed while all its channels are muted, and offers to unmute only its own mute", () => {
+            const rooms = [mkRoom(matrixClient, "!a:server"), mkRoom(matrixClient, "!b:server")];
+            const muted = new Set<string>(["!a:server"]);
+            vi.spyOn(TimedMutes.instance, "isMuted").mockImplementation((room) => muted.has(room.roomId));
+            const own = vi.spyOn(ServerNotifications, "getCategoryMute").mockReturnValue(undefined);
+            const vm = makeViewModel();
+            vm.setCategory({ title: "Governo", canEdit: false, members: rooms });
+            expect(vm.getSnapshot()).toMatchObject({ isMuted: false, categoryMenu: { isMuted: false } });
+
+            // Channels muted one by one dim the category but leave nothing for its menu to unmute.
+            muted.add("!b:server");
+            TimedMutes.instance.emit(TimedMutesEvent.Changed, "!b:server");
+            expect(vm.getSnapshot()).toMatchObject({ isMuted: true, categoryMenu: { isMuted: false } });
+
+            own.mockReturnValue({ until: 9_000 });
+            matrixClient.emit(
+                RoomEvent.AccountData,
+                new MatrixEvent({ type: ServerNotifications.SERVER_NOTIFICATIONS_ACCOUNT_DATA_TYPE }),
+                space,
+            );
+            expect(vm.getSnapshot()).toMatchObject({
+                isMuted: true,
+                categoryMenu: { canEdit: false, isMuted: true, mutedUntil: 9_000 },
+            });
+            vm.dispose();
+        });
+
+        it("isn't dimmed by muted voice channels", () => {
+            const voice = mkRoom(matrixClient, "!voice:server");
+            vi.mocked(voice.isCallRoom).mockReturnValue(true);
+            vi.spyOn(TimedMutes.instance, "isMuted").mockReturnValue(true);
+            vi.spyOn(ServerNotifications, "getCategoryMute").mockReturnValue(undefined);
+            const vm = makeViewModel();
+            vm.setCategory({ title: "Voz", canEdit: false, members: [voice] });
+            expect(vm.getSnapshot().isMuted).toBe(false);
+            vm.dispose();
         });
 
         it("collapses every category", () => {

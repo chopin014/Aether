@@ -22,6 +22,7 @@ import {
     categoryTitle,
     DESKTOP_UNCATEGORIZED,
     getDesktopCategories,
+    getDesktopCategoryMembers,
     getDesktopChannelSections,
     isConnectedTo,
     isDesktopChannelList,
@@ -30,6 +31,8 @@ import {
 } from "./DesktopChannelSections";
 import { reportLayoutError, showCreateCategory } from "./serverCategories";
 import { SpaceLayoutStore, SpaceLayoutStoreEvent } from "../../stores/space-layout/SpaceLayoutStore";
+import { TimedMutes } from "../../stores/notifications/TimedMutes";
+import { ServerNotificationDefaults } from "../../stores/notifications/ServerNotifications";
 import { getCategories } from "../../stores/space-layout/SpaceLayout";
 import { moveCategory, moveChannel } from "../../stores/space-layout/spaceLayoutActions";
 import { showCreateNewRoom, showSpaceInvite, shouldShowSpaceInvite } from "../../utils/space";
@@ -236,6 +239,8 @@ export class RoomListViewModel
 
         // No section header view models exist yet, so read the persisted expansion state directly
         SpaceLayoutStore.instance.watch(props.client);
+        TimedMutes.instance.watch(props.client);
+        ServerNotificationDefaults.instance.watch(props.client);
         const selectedRoomId = props.roomViewStore.getRoomId();
         const { sections, isFlatList } = computeSections(
             roomsResult,
@@ -1037,11 +1042,18 @@ export class RoomListViewModel
         const space = this.channelListSpace;
         const canEdit = !!space && SpaceLayoutStore.instance.canEditLayout(space);
         const categories = getDesktopCategories(this.roomsResult);
+        const members = getDesktopCategoryMembers(this.roomsResult);
         for (const section of this.channelSections(this.roomsResult)) {
             const header = this.getSectionHeaderViewModel(section.tag);
             header.setRooms(section.rooms);
             const category = categories.get(section.tag);
-            if (category) header.setCategory({ title: categoryTitle(category), canEdit });
+            if (category) {
+                header.setCategory({
+                    title: categoryTitle(category),
+                    canEdit,
+                    members: members.get(section.tag) ?? [],
+                });
+            }
         }
 
         // Build the complete state atomically to ensure consistency

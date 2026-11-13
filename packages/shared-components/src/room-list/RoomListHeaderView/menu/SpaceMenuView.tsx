@@ -6,7 +6,15 @@
  */
 
 import React, { type JSX, useState, useId } from "react";
-import { CheckboxMenuItem, IconButton, Menu, MenuItem, Separator } from "@vector-im/compound-web";
+import {
+    CheckboxMenuItem,
+    IconButton,
+    Menu,
+    MenuItem,
+    RadioMenuItem,
+    Separator,
+    SubMenu,
+} from "@vector-im/compound-web";
 import ChevronDownIcon from "@vector-im/compound-design-tokens/assets/web/icons/chevron-down";
 import HomeIcon from "@vector-im/compound-design-tokens/assets/web/icons/home";
 import SettingsIcon from "@vector-im/compound-design-tokens/assets/web/icons/settings";
@@ -14,11 +22,13 @@ import ChatNewIcon from "@vector-im/compound-design-tokens/assets/web/icons/chat
 import AudioIcon from "@vector-im/compound-design-tokens/assets/web/icons/audio";
 import UserAddIcon from "@vector-im/compound-design-tokens/assets/web/icons/user-add";
 import FolderIcon from "@vector-im/compound-design-tokens/assets/web/icons/folder";
+import { MarkAsReadIcon, NotificationsIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import styles from "./SpaceMenuView.module.css";
 import { useViewModel } from "../../../core/viewmodel";
 import { useI18n } from "../../../core/i18n/i18nContext";
 import { type RoomListHeaderViewModel } from "../RoomListHeaderView";
+import { MuteMenu } from "../../../desktop/MuteMenu";
 
 interface SpaceMenuViewProps {
     /**
@@ -90,9 +100,54 @@ export function SpaceMenuView({ vm, fullWidth = false }: SpaceMenuViewProps): JS
                     hideChevron
                 />
             )}
+            {fullWidth && serverMenu && vm.markServerAsRead && (
+                <MenuItem
+                    Icon={MarkAsReadIcon}
+                    label={_t("desktop|server_menu|mark_read")}
+                    onSelect={vm.markServerAsRead}
+                    hideChevron
+                />
+            )}
             <MenuItem Icon={HomeIcon} label={_t("room_list|space_menu|home")} onSelect={vm.openSpaceHome} hideChevron />
             {!fullWidth && canInviteInSpace && (
                 <MenuItem Icon={UserAddIcon} label={_t("action|invite")} onSelect={vm.inviteInSpace} hideChevron />
+            )}
+            {fullWidth && serverMenu && vm.muteServer && vm.unmuteServer && (
+                <>
+                    <Separator kind="secondary" />
+                    <MuteMenu
+                        muteLabel={_t("desktop|server_menu|mute")}
+                        unmuteLabel={_t("desktop|server_menu|unmute")}
+                        isMuted={serverMenu.isMuted}
+                        mutedUntil={serverMenu.mutedUntil}
+                        onMute={vm.muteServer}
+                        onUnmute={vm.unmuteServer}
+                    />
+                    {vm.setServerNotificationLevel && (
+                        <SubMenu
+                            trigger={
+                                <MenuItem
+                                    Icon={NotificationsIcon}
+                                    label={_t("desktop|server_menu|notification_settings")}
+                                    onSelect={null}
+                                />
+                            }
+                        >
+                            {(["all", "mentions"] as const).map((level) => (
+                                <RadioMenuItem
+                                    key={level}
+                                    label={
+                                        level === "all"
+                                            ? _t("desktop|server_menu|notify_all")
+                                            : _t("desktop|server_menu|notify_mentions")
+                                    }
+                                    checked={serverMenu.notificationLevel === level}
+                                    onSelect={() => vm.setServerNotificationLevel?.(level)}
+                                />
+                            ))}
+                        </SubMenu>
+                    )}
+                </>
             )}
             {fullWidth && <Separator kind="secondary" />}
             {fullWidth && (canCreateRoom || canCreateVideoRoom) && (

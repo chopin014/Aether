@@ -407,7 +407,9 @@
             "delete": "Excluir categoria",
             "edit": "Editar categoria",
             "mark_read": "Marcar como lida",
-            "title": "Opções de %(category)s"
+            "mute": "Silenciar categoria",
+            "title": "Opções de %(category)s",
+            "unmute": "Reativar categoria"
         },
         "channel_list_menu": {
             "create_category": "Criar categoria",
@@ -1279,6 +1281,23 @@
             "invite_to": "Convidar pessoas para %(channel)s",
             "edit_named": "Editar %(channel)s",
             "private": "Canal privado"
+        },
+        "mute": {
+            "forever": "Até que eu ative novamente",
+            "hour_1": "Por 1 hora",
+            "hours_24": "Por 24 horas",
+            "hours_3": "Por 3 horas",
+            "hours_8": "Por 8 horas",
+            "minutes_15": "Por 15 minutos",
+            "until": "Até %(time)s"
+        },
+        "server_menu": {
+            "mark_read": "Marcar como lida",
+            "mute": "Silenciar servidor",
+            "notification_settings": "Configurações de notificação",
+            "notify_all": "Todas as mensagens",
+            "notify_mentions": "Somente @menções",
+            "unmute": "Reativar servidor"
         }
     },
     "threads": {

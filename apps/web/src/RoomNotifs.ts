@@ -17,7 +17,7 @@ import {
 } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 
-import type { IPushRule, Room, MatrixClient, MatrixEvent } from "matrix-js-sdk/src/matrix";
+import type { IPushRule, IPushRules, Room, MatrixClient, MatrixEvent } from "matrix-js-sdk/src/matrix";
 import { NotificationLevel } from "./stores/notifications/NotificationLevel";
 import { doesRoomHaveUnreadMessages, doesRoomOrThreadHaveUnreadMessages } from "./Unread";
 import { EffectiveMembership, getEffectiveMembership, isKnockDenied } from "./utils/membership";
@@ -58,12 +58,17 @@ export enum RoomNotifState {
     Mute = "mute",
 }
 
-export function getRoomNotifsState(client: MatrixClient, roomId: string): RoomNotifState | null {
+/**
+ * A room's notification state.
+ * @param rules - the push rules to read, such as a copy just fetched from the server; the client's synced ones by
+ *   default.
+ */
+export function getRoomNotifsState(client: MatrixClient, roomId: string, rules?: IPushRules): RoomNotifState | null {
     if (client.isGuest()) return RoomNotifState.AllMessages;
 
     // look through the override rules for a rule affecting this room:
     // if one exists, it will take precedence.
-    const muteRule = findOverrideMuteRule(client, roomId);
+    const muteRule = findOverrideMuteRule(rules ?? client.pushRules, roomId);
     if (muteRule) {
         return RoomNotifState.Mute;
     }
@@ -71,7 +76,7 @@ export function getRoomNotifsState(client: MatrixClient, roomId: string): RoomNo
     // for everything else, look at the room rule.
     let roomRule: IPushRule | undefined;
     try {
-        roomRule = client.getRoomPushRule("global", roomId);
+        roomRule = rules ? findRoomRule(rules, roomId) : client.getRoomPushRule("global", roomId);
     } catch {
         // Possible that the client doesn't have pushRules yet. If so, it
         // hasn't started either, so indicate that this room is not notifying.
@@ -93,11 +98,21 @@ export function getRoomNotifsState(client: MatrixClient, roomId: string): RoomNo
     return null;
 }
 
-export function setRoomNotifsState(client: MatrixClient, roomId: string, newState: RoomNotifState): Promise<void> {
+/**
+ * Set a room's notification state.
+ * @param rules - the push rules to change, such as a copy just fetched from the server; the client's synced ones by
+ *   default. Only the rules found there are removed.
+ */
+export function setRoomNotifsState(
+    client: MatrixClient,
+    roomId: string,
+    newState: RoomNotifState,
+    rules?: IPushRules,
+): Promise<void> {
     if (newState === RoomNotifState.Mute) {
-        return setRoomNotifsStateMuted(client, roomId);
+        return setRoomNotifsStateMuted(client, roomId, rules);
     } else {
-        return setRoomNotifsStateUnmuted(client, roomId, newState);
+        return setRoomNotifsStateUnmuted(client, roomId, newState, rules);
     }
 }
 
@@ -160,13 +175,13 @@ export function getInexactUnreadNotificationCount(
     ]);
 }
 
-function setRoomNotifsStateMuted(cli: MatrixClient, roomId: string): Promise<any> {
+function setRoomNotifsStateMuted(cli: MatrixClient, roomId: string, rules?: IPushRules): Promise<void> {
     const promises: Promise<unknown>[] = [];
 
     // delete the room rule
-    const roomRule = cli.getRoomPushRule("global", roomId);
+    const roomRule = rules ? findRoomRule(rules, roomId) : cli.getRoomPushRule("global", roomId);
     if (roomRule) {
-        promises.push(cli.deletePushRule("global", PushRuleKind.RoomSpecific, roomRule.rule_id));
+        promises.push(deleteRule(cli, PushRuleKind.RoomSpecific, roomRule.rule_id));
     }
 
     // add/replace an override rule to squelch everything in this room
@@ -187,21 +202,26 @@ function setRoomNotifsStateMuted(cli: MatrixClient, roomId: string): Promise<any
         }),
     );
 
-    return Promise.all(promises);
+    return allSettled(promises);
 }
 
-function setRoomNotifsStateUnmuted(cli: MatrixClient, roomId: string, newState: RoomNotifState): Promise<any> {
+function setRoomNotifsStateUnmuted(
+    cli: MatrixClient,
+    roomId: string,
+    newState: RoomNotifState,
+    rules?: IPushRules,
+): Promise<void> {
     const promises: Promise<unknown>[] = [];
 
-    const overrideMuteRule = findOverrideMuteRule(cli, roomId);
-    if (overrideMuteRule) {
-        promises.push(cli.deletePushRule("global", PushRuleKind.Override, overrideMuteRule.rule_id));
+    // Every rule muting the room goes, including ones another client added under its own id.
+    for (const overrideMuteRule of findOverrideMuteRules(rules ?? cli.pushRules, roomId)) {
+        promises.push(deleteRule(cli, PushRuleKind.Override, overrideMuteRule.rule_id));
     }
 
     if (newState === RoomNotifState.AllMessages) {
-        const roomRule = cli.getRoomPushRule("global", roomId);
+        const roomRule = rules ? findRoomRule(rules, roomId) : cli.getRoomPushRule("global", roomId);
         if (roomRule) {
-            promises.push(cli.deletePushRule("global", PushRuleKind.RoomSpecific, roomRule.rule_id));
+            promises.push(deleteRule(cli, PushRuleKind.RoomSpecific, roomRule.rule_id));
         }
     } else if (newState === RoomNotifState.MentionsOnly) {
         promises.push(
@@ -223,14 +243,43 @@ function setRoomNotifsStateUnmuted(cli: MatrixClient, roomId: string, newState: 
         );
     }
 
-    return Promise.all(promises);
+    return allSettled(promises);
 }
 
-function findOverrideMuteRule(cli: MatrixClient | undefined, roomId: string): IPushRule | null {
-    if (!cli?.pushRules?.global?.override) {
+/** Delete a global push rule; one that is already gone is as good as deleted. */
+async function deleteRule(cli: MatrixClient, kind: PushRuleKind, ruleId: string): Promise<void> {
+    try {
+        await cli.deletePushRule("global", kind, ruleId);
+    } catch (error) {
+        if ((error as { errcode?: string })?.errcode !== "M_NOT_FOUND") throw error;
+    }
+}
+
+/**
+ * Wait for every request of a change to finish before failing with the first error, so that nothing of the change is
+ * still on its way when the caller goes on.
+ */
+async function allSettled(promises: Promise<unknown>[]): Promise<void> {
+    const results = await Promise.allSettled(promises);
+    const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (failure) throw failure.reason;
+}
+
+/** A room's own rule among the global room rules; its id is the room id. */
+function findRoomRule(rules: IPushRules, roomId: string): IPushRule | undefined {
+    return rules.global?.room?.find((rule) => rule.rule_id === roomId);
+}
+
+/** The enabled override rules that mute a room. */
+function findOverrideMuteRules(rules: IPushRules | undefined, roomId: string): IPushRule[] {
+    return (rules?.global?.override ?? []).filter((rule) => rule.enabled && isRuleRoomMuteRuleForRoomId(roomId, rule));
+}
+
+function findOverrideMuteRule(rules: IPushRules | undefined, roomId: string): IPushRule | null {
+    if (!rules?.global?.override) {
         return null;
     }
-    for (const rule of cli.pushRules.global.override) {
+    for (const rule of rules.global.override) {
         if (rule.enabled && isRuleRoomMuteRuleForRoomId(roomId, rule)) {
             return rule;
         }
