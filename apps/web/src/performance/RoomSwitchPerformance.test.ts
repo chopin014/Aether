@@ -7,25 +7,19 @@ Please see LICENSE in the repository root for full details.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-    clearRoomSwitchMarks,
-    markRoomSwitch,
-    ROOM_SWITCH_MARK_PREFIX,
-    ROOM_SWITCH_PHASES,
-    type RoomSwitchMarksWindow,
-} from "./RoomSwitchPerformance";
+import { markRoomSwitch, ROOM_SWITCH_MARK_PREFIX, type RoomSwitchMarksWindow } from "./RoomSwitchPerformance";
 
 const marks = (phase: string): PerformanceEntry[] =>
     performance.getEntriesByName(ROOM_SWITCH_MARK_PREFIX + phase, "mark");
 
 describe("RoomSwitchPerformance", () => {
     beforeEach(() => {
-        clearRoomSwitchMarks();
+        performance.clearMarks();
     });
 
     afterEach(() => {
         delete (window as RoomSwitchMarksWindow).aetherRoomSwitchMarks;
-        clearRoomSwitchMarks();
+        performance.clearMarks();
     });
 
     it("marks nothing unless the page asked for room switches to be marked", () => {
@@ -57,14 +51,5 @@ describe("RoomSwitchPerformance", () => {
         expect(marks("shell").length).toBeLessThanOrEqual(50);
         // The newest is always kept.
         expect((marks("shell").at(-1) as PerformanceMark).detail).toEqual({ roomId: "!room119:example.org" });
-    });
-
-    it("clears every phase's marks", () => {
-        (window as RoomSwitchMarksWindow).aetherRoomSwitchMarks = true;
-        for (const phase of ROOM_SWITCH_PHASES) markRoomSwitch(phase, "!room:example.org");
-
-        clearRoomSwitchMarks();
-
-        for (const phase of ROOM_SWITCH_PHASES) expect(marks(phase)).toHaveLength(0);
     });
 });

@@ -41,11 +41,7 @@ import SettingsStore from "../../../settings/SettingsStore";
 import { SettingLevel } from "../../../settings/SettingLevel";
 import UserActivity from "../../../UserActivity";
 import { SlidingSyncManager } from "../../../SlidingSyncManager";
-import {
-    clearRoomSwitchMarks,
-    ROOM_SWITCH_MARK_PREFIX,
-    type RoomSwitchMarksWindow,
-} from "../../../performance/RoomSwitchPerformance";
+import { ROOM_SWITCH_MARK_PREFIX, type RoomSwitchMarksWindow } from "../../../performance/RoomSwitchPerformance";
 import { ModuleApi } from "../../../modules/Api";
 import { RoomTimelineViewModel } from "./RoomTimelineViewModel";
 
@@ -204,7 +200,7 @@ describe("RoomTimelineViewModel", () => {
 
         it("marks when a page that asked for room switch marks gets its rows and its reader placed", async () => {
             (window as RoomSwitchMarksWindow).aetherRoomSwitchMarks = true;
-            clearRoomSwitchMarks();
+            performance.clearMarks();
             try {
                 seedTimeline([makeMessage("$a")]);
                 const vm = await createStartedViewModel();
@@ -218,7 +214,7 @@ describe("RoomTimelineViewModel", () => {
                 expect(detail("placed")).toEqual([{ roomId: ROOM_ID }]);
             } finally {
                 delete (window as RoomSwitchMarksWindow).aetherRoomSwitchMarks;
-                clearRoomSwitchMarks();
+                performance.clearMarks();
             }
         });
 

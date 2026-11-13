@@ -14,17 +14,10 @@ Please see LICENSE in the repository root for full details.
  * - `painted`: the timeline has painted a message.
  * - `composer`: the message composer is mounted and focused.
  */
-export type RoomSwitchPhase = "navigation" | "shell" | "rows" | "placed" | "painted" | "composer";
+export const ROOM_SWITCH_PHASES = ["navigation", "shell", "rows", "placed", "painted", "composer"] as const;
 
-/** Every phase, in order. */
-export const ROOM_SWITCH_PHASES: readonly RoomSwitchPhase[] = [
-    "navigation",
-    "shell",
-    "rows",
-    "placed",
-    "painted",
-    "composer",
-];
+/** One of {@link ROOM_SWITCH_PHASES}. */
+export type RoomSwitchPhase = (typeof ROOM_SWITCH_PHASES)[number];
 
 /** The start of each phase's mark name; the phase follows it. */
 export const ROOM_SWITCH_MARK_PREFIX = "aether:switch:";
@@ -48,7 +41,7 @@ const MAX_MARKS_PER_PHASE = 50;
 /**
  * Note that a room has reached `phase` of being opened, as a `performance.mark` named after the phase with the room in
  * its detail, when the page asked for room switches to be marked; see {@link RoomSwitchMarksWindow}. Otherwise this
- * does nothing. Whoever reads the marks clears them; see {@link clearRoomSwitchMarks}.
+ * does nothing. Whoever reads the marks clears them, as the navigation benchmark does.
  * @param phase - The step reached.
  * @param roomId - The room being opened. Nothing is marked without one.
  */
@@ -58,15 +51,6 @@ export function markRoomSwitch(phase: RoomSwitchPhase, roomId: string | null | u
         const name = ROOM_SWITCH_MARK_PREFIX + phase;
         if (performance.getEntriesByName(name, "mark").length >= MAX_MARKS_PER_PHASE) performance.clearMarks(name);
         performance.mark(name, { detail: { roomId } satisfies RoomSwitchMarkDetail });
-    } catch {
-        // Marks are only diagnostics.
-    }
-}
-
-/** Clear every room switch mark. */
-export function clearRoomSwitchMarks(): void {
-    try {
-        for (const phase of ROOM_SWITCH_PHASES) performance.clearMarks(ROOM_SWITCH_MARK_PREFIX + phase);
     } catch {
         // Marks are only diagnostics.
     }
