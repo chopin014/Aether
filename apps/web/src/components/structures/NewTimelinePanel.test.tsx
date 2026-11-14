@@ -291,8 +291,40 @@ describe("<NewTimelinePanel />", () => {
         expect(ready).not.toHaveBeenCalled();
         expect(mark).not.toHaveBeenCalledWith("painted", expect.anything());
         act(() => paintedItems.current?.([eventRow(event)]));
-        expect(ready).toHaveBeenCalledWith(client, ROOM_ID);
+        expect(ready).toHaveBeenCalledWith(client, ROOM_ID, roomEntry.currentRoomEntryVisit(client, ROOM_ID));
         expect(mark).toHaveBeenCalledWith("painted", ROOM_ID);
+    });
+
+    it("notifies its first paint again for a new visit to the room while it is still shown", () => {
+        const ready = vi.spyOn(roomEntry, "notifyRoomEntryReady");
+        withItems([eventRow(event)]);
+        renderPanel();
+        act(() => paintedItems.current?.([eventRow(event)]));
+        const first = roomEntry.currentRoomEntryVisit(client, ROOM_ID);
+        expect(ready).toHaveBeenLastCalledWith(client, ROOM_ID, first);
+        // Painted once: the view is not asked to report again.
+        expect(paintedItems.current).toBeUndefined();
+
+        act(() => roomEntry.beginRoomEntryVisit(client, ROOM_ID));
+
+        act(() => paintedItems.current?.([eventRow(event)]));
+        const second = roomEntry.currentRoomEntryVisit(client, ROOM_ID);
+        expect(second).not.toBe(first);
+        expect(ready).toHaveBeenLastCalledWith(client, ROOM_ID, second);
+    });
+
+    it("notifies a paint reported for an earlier visit under that visit, so it releases nothing for the new one", () => {
+        const ready = vi.spyOn(roomEntry, "notifyRoomEntryReady");
+        withItems([eventRow(event)]);
+        renderPanel();
+        const earlier = roomEntry.currentRoomEntryVisit(client, ROOM_ID);
+        const reportedBefore = paintedItems.current!;
+
+        act(() => roomEntry.beginRoomEntryVisit(client, ROOM_ID));
+        act(() => reportedBefore([eventRow(event)]));
+
+        expect(ready).toHaveBeenCalledWith(client, ROOM_ID, earlier);
+        expect(earlier).not.toBe(roomEntry.currentRoomEntryVisit(client, ROOM_ID));
     });
 
     it("does not release decorative work, or mark the room painted, from a hidden timeline", () => {

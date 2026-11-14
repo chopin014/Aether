@@ -37,7 +37,7 @@ import {
     type Relations,
     type Room,
 } from "matrix-js-sdk/src/matrix";
-import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
+import { currentRoomEntryVisit, notifyRoomEntryReady, onRoomEntryVisit } from "../../performance/RoomEntryReady";
 import { markRoomSwitch } from "../../performance/RoomSwitchPerformance";
 import type { RoomTimelineViewModel } from "../../viewmodels/room/timeline/RoomTimelineViewModel";
 import { sendStateOf } from "../../viewmodels/room/timeline/sendState";
@@ -384,6 +384,17 @@ export function NewTimelineRenderer({
     const client: MatrixClient = useMatrixClientContext();
     const containerRef = useRef<HTMLDivElement>(null);
     const [entryPainted, setEntryPainted] = useState(false);
+    // The visit to the room this timeline notifies its first paint for; see `RoomEntryReady`. Still shown as the room
+    // is opened again, its next paint is the new visit's.
+    const [entryVisit, setEntryVisit] = useState(() => currentRoomEntryVisit(client, room.roomId));
+    useEffect(
+        () =>
+            onRoomEntryVisit(client, room.roomId, () => {
+                setEntryVisit(currentRoomEntryVisit(client, room.roomId));
+                setEntryPainted(false);
+            }),
+        [client, room],
+    );
     const onItemsPainted = useCallback(
         (items: TimelineItem[]): void => {
             if (hidden) return;
@@ -395,11 +406,11 @@ export function NewTimelineRenderer({
                 })
             ) {
                 markRoomSwitch("painted", room.roomId);
-                notifyRoomEntryReady(client, room.roomId);
+                notifyRoomEntryReady(client, room.roomId, entryVisit);
                 setEntryPainted(true);
             }
         },
-        [client, room, hidden],
+        [client, room, hidden, entryVisit],
     );
 
     // Read here rather than passed in, so changing either setting redraws the tiles.

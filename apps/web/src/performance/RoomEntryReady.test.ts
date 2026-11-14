@@ -8,7 +8,14 @@ Please see LICENSE in the repository root for full details.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ClientEvent, type MatrixClient, type Room, SyncState, TypedEventEmitter } from "matrix-js-sdk/src/matrix";
 
-import { beginRoomEntryVisit, deferRoomEntryWork, deferUntilAccountSync, notifyRoomEntryReady } from "./RoomEntryReady";
+import {
+    beginRoomEntryVisit,
+    currentRoomEntryVisit,
+    deferRoomEntryWork,
+    deferUntilAccountSync,
+    notifyRoomEntryReady,
+    onRoomEntryVisit,
+} from "./RoomEntryReady";
 
 const roomId = "!room:example.org";
 
@@ -33,7 +40,7 @@ describe("RoomEntryReady", () => {
         deferRoomEntryWork(client, roomId, work);
         vi.advanceTimersByTime(500);
         expect(work).not.toHaveBeenCalled();
-        notifyRoomEntryReady(client, roomId);
+        notifyRoomEntryReady(client, roomId, currentRoomEntryVisit(client, roomId));
         expect(work).not.toHaveBeenCalled();
         vi.advanceTimersByTime(0);
         expect(work).toHaveBeenCalledOnce();
@@ -57,7 +64,7 @@ describe("RoomEntryReady", () => {
         deferRoomEntryWork(client, roomId, channel);
         deferRoomEntryWork(client, roomId, space);
         expect(vi.getTimerCount()).toBe(1);
-        notifyRoomEntryReady(client, roomId);
+        notifyRoomEntryReady(client, roomId, currentRoomEntryVisit(client, roomId));
         vi.runAllTimers();
         expect(channel).toHaveBeenCalledOnce();
         expect(space).toHaveBeenCalledOnce();
@@ -70,7 +77,7 @@ describe("RoomEntryReady", () => {
         const cancel = deferRoomEntryWork(client, roomId, stale);
         deferRoomEntryWork(client, roomId, current);
         cancel();
-        notifyRoomEntryReady(client, roomId);
+        notifyRoomEntryReady(client, roomId, currentRoomEntryVisit(client, roomId));
         vi.runAllTimers();
         expect(stale).not.toHaveBeenCalled();
         expect(current).toHaveBeenCalledOnce();
@@ -80,7 +87,7 @@ describe("RoomEntryReady", () => {
         const { client } = fixture();
         const work = vi.fn();
         const cancel = deferRoomEntryWork(client, roomId, work);
-        notifyRoomEntryReady(client, roomId);
+        notifyRoomEntryReady(client, roomId, currentRoomEntryVisit(client, roomId));
         cancel();
         vi.runAllTimers();
         expect(work).not.toHaveBeenCalled();
@@ -94,7 +101,7 @@ describe("RoomEntryReady", () => {
 
     it("does not hold later consumers of an already painted Room", () => {
         const { client } = fixture();
-        notifyRoomEntryReady(client, roomId);
+        notifyRoomEntryReady(client, roomId, currentRoomEntryVisit(client, roomId));
         const work = vi.fn();
         deferRoomEntryWork(client, roomId, work);
         vi.advanceTimersByTime(0);
@@ -103,7 +110,7 @@ describe("RoomEntryReady", () => {
 
     it("waits for the paint of a new visit to a room, not an earlier visit's", () => {
         const { client } = fixture();
-        notifyRoomEntryReady(client, roomId);
+        notifyRoomEntryReady(client, roomId, currentRoomEntryVisit(client, roomId));
 
         beginRoomEntryVisit(client, roomId);
         const work = vi.fn();
@@ -111,22 +118,76 @@ describe("RoomEntryReady", () => {
         vi.advanceTimersByTime(500);
         expect(work).not.toHaveBeenCalled();
 
-        notifyRoomEntryReady(client, roomId);
+        notifyRoomEntryReady(client, roomId, currentRoomEntryVisit(client, roomId));
         vi.advanceTimersByTime(0);
         expect(work).toHaveBeenCalledOnce();
     });
 
-    it("keeps work already waiting for a room waiting, under its deadline, as a new visit begins", () => {
+    it("moves work still waiting for a room onto its new visit, under a deadline of the new visit's own", () => {
         const { client } = fixture();
         const work = vi.fn();
         deferRoomEntryWork(client, roomId, work);
-        vi.advanceTimersByTime(1000);
+        vi.advanceTimersByTime(2999);
 
+        // The earlier visit's deadline would have released it 1 ms from now.
         beginRoomEntryVisit(client, roomId);
-        vi.advanceTimersByTime(1999);
+        const later = vi.fn();
+        deferRoomEntryWork(client, roomId, later);
+        vi.advanceTimersByTime(2999);
         expect(work).not.toHaveBeenCalled();
+        expect(later).not.toHaveBeenCalled();
+
         vi.advanceTimersByTime(2);
         expect(work).toHaveBeenCalledOnce();
+        expect(later).toHaveBeenCalledOnce();
+    });
+
+    it("holds work released under an earlier visit whose task runs after a new visit began, until that one paints", () => {
+        const { client } = fixture();
+        notifyRoomEntryReady(client, roomId, currentRoomEntryVisit(client, roomId));
+        const work = vi.fn();
+        // Released at once, as the room has painted, into a task that runs after the room is opened again.
+        deferRoomEntryWork(client, roomId, work);
+        beginRoomEntryVisit(client, roomId);
+        vi.advanceTimersByTime(0);
+        expect(work).not.toHaveBeenCalled();
+
+        notifyRoomEntryReady(client, roomId, currentRoomEntryVisit(client, roomId));
+        vi.advanceTimersByTime(0);
+        expect(work).toHaveBeenCalledOnce();
+    });
+
+    it("releases nothing for a paint notified under an earlier visit", () => {
+        const { client } = fixture();
+        const earlier = currentRoomEntryVisit(client, roomId);
+        beginRoomEntryVisit(client, roomId);
+        const work = vi.fn();
+        deferRoomEntryWork(client, roomId, work);
+
+        notifyRoomEntryReady(client, roomId, earlier);
+        // Work deferred after it waits too: the room is not ready for this visit.
+        const after = vi.fn();
+        deferRoomEntryWork(client, roomId, after);
+        vi.advanceTimersByTime(0);
+        expect(work).not.toHaveBeenCalled();
+        expect(after).not.toHaveBeenCalled();
+
+        notifyRoomEntryReady(client, roomId, currentRoomEntryVisit(client, roomId));
+        vi.advanceTimersByTime(0);
+        expect(work).toHaveBeenCalledOnce();
+        expect(after).toHaveBeenCalledOnce();
+    });
+
+    it("tells those watching a room each time a new visit to it begins, until they stop", () => {
+        const { client } = fixture();
+        const listener = vi.fn();
+        const stop = onRoomEntryVisit(client, roomId, listener);
+
+        beginRoomEntryVisit(client, roomId);
+        expect(listener).toHaveBeenCalledOnce();
+        stop();
+        beginRoomEntryVisit(client, roomId);
+        expect(listener).toHaveBeenCalledOnce();
     });
 
     it("begins a visit to a room it knows nothing of without holding anything", () => {
@@ -140,10 +201,10 @@ describe("RoomEntryReady", () => {
         const b = fixture();
         const work = vi.fn();
         deferRoomEntryWork(b.client, roomId, work);
-        notifyRoomEntryReady(a.client, roomId);
+        notifyRoomEntryReady(a.client, roomId, currentRoomEntryVisit(a.client, roomId));
         vi.advanceTimersByTime(0);
         expect(work).not.toHaveBeenCalled();
-        notifyRoomEntryReady(b.client, roomId);
+        notifyRoomEntryReady(b.client, roomId, currentRoomEntryVisit(b.client, roomId));
         vi.runAllTimers();
         expect(work).toHaveBeenCalledOnce();
     });
@@ -155,7 +216,7 @@ describe("RoomEntryReady", () => {
         replace();
         const current = vi.fn();
         deferRoomEntryWork(client, roomId, current);
-        notifyRoomEntryReady(client, roomId);
+        notifyRoomEntryReady(client, roomId, currentRoomEntryVisit(client, roomId));
         vi.runAllTimers();
         expect(stale).not.toHaveBeenCalled();
         expect(current).toHaveBeenCalledOnce();
@@ -180,7 +241,7 @@ describe("RoomEntryReady", () => {
         const work = vi.fn();
         deferRoomEntryWork(client, roomId, work);
         room = {} as Room;
-        notifyRoomEntryReady(client, roomId);
+        notifyRoomEntryReady(client, roomId, currentRoomEntryVisit(client, roomId));
         vi.runAllTimers();
         expect(work).toHaveBeenCalledOnce();
     });
@@ -200,7 +261,7 @@ describe("RoomEntryReady", () => {
         const { client, replace } = fixture();
         const work = vi.fn();
         deferRoomEntryWork(client, roomId, work);
-        notifyRoomEntryReady(client, roomId);
+        notifyRoomEntryReady(client, roomId, currentRoomEntryVisit(client, roomId));
         replace();
         vi.runAllTimers();
         expect(work).not.toHaveBeenCalled();
