@@ -23,7 +23,11 @@ import type { RoomTimelineLease } from "../../viewmodels/room/timeline/RoomTimel
 import { markRoomSwitch } from "../../performance/RoomSwitchPerformance";
 import { NewTimelinePanel } from "./NewTimelinePanel";
 import type { RoomMessagePanel } from "./RoomMessagePanel";
-import { RoomTimelineHostContext, type RoomTimelineSlotPacket } from "./RoomTimelineHostContext";
+import {
+    RoomTimelineHostContext,
+    type RoomTimelineHostController,
+    type RoomTimelineSlotPacket,
+} from "./RoomTimelineHostContext";
 
 interface Props extends Omit<ComponentProps<typeof NewTimelinePanel>, "panelRef"> {
     /** Receives the timeline's controls. */
@@ -52,7 +56,10 @@ export function RoomTimelineSlot({
     const upload = useContext(RoomUploadContext);
     const slotRef = useRef<HTMLDivElement>(null);
     const leaseRef = useRef<RoomTimelineLease | null>(null);
-    const [declined, setDeclined] = useState(!host);
+    // The host that declined to draw the timeline, or gave it up after an error. A new host, such as the one React
+    // makes again as it replays effects in StrictMode, is asked afresh.
+    const [declinedBy, setDeclinedBy] = useState<RoomTimelineHostController | null>(null);
+    const declined = !host || declinedBy === host;
 
     const packet: RoomTimelineSlotPacket = {
         request: {
@@ -82,7 +89,7 @@ export function RoomTimelineSlot({
         if (!host || !slot) return;
         const lease = host.bind(slot, packetRef.current);
         if (!lease) {
-            setDeclined(true);
+            setDeclinedBy(host);
             return;
         }
         markRoomSwitch("slot", room.roomId);
@@ -91,7 +98,7 @@ export function RoomTimelineSlot({
             leaseRef.current = null;
             host.release(lease);
         };
-    }, [host, room, client, enableReadReceiptsAndMarkersOnActivity]);
+    }, [host, room, client, enableReadReceiptsAndMarkersOnActivity, declined]);
 
     // What the room view gives its timeline as it renders, which the host draws it with before the paint.
     useLayoutEffect(() => {
