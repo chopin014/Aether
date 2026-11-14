@@ -11,7 +11,7 @@ import { measureElement, useVirtualizer, type VirtualItem, type Virtualizer } fr
 import { InlineSpinner } from "@vector-im/compound-web";
 
 import { useViewModel } from "../../../core/viewmodel/useViewModel";
-import type { AnchorAlign, ImmediateScroll, TimelineItem, TimelineViewProps } from "./types";
+import type { AnchorAlign, ImmediateScroll, TimelineItem, TimelineViewExecution, TimelineViewProps } from "./types";
 import { BACKWARD_LOADING_KEY, FORWARD_LOADING_KEY, tileKeyOf } from "./types";
 import { TimelineOverlayButtons } from "./TimelineOverlayButtons";
 import styles from "./TimelineView.module.css";
@@ -165,8 +165,24 @@ function placeBeforePaint(
     );
 }
 
-export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 }: TimelineViewProps): JSX.Element {
+export function TimelineView({
+    vm,
+    renderItem,
+    onItemsPainted,
+    paddingBlock = 0,
+    execution,
+}: TimelineViewProps): JSX.Element {
     const snapshot = useViewModel(vm);
+
+    // Whether a host that lends this view to one room at a time lets it act; see `TimelineViewExecution`. Work that
+    // runs later, from a frame or an event, notes the revision it was scheduled under and checks `mayAct` with it then.
+    const executionRef = useRef<TimelineViewExecution | undefined>(execution);
+    executionRef.current = execution;
+    const mayAct = useCallback((revision: number | undefined = executionRef.current?.revision): boolean => {
+        const current = executionRef.current;
+        if (!current) return revision === undefined;
+        return current.revision === revision && current.isCurrent();
+    }, []);
 
     // The effects and callbacks below run outside React's render — from scroll events and
     // animation frames — so they cannot use the `snapshot` variable captured when this
@@ -202,17 +218,22 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
     // The message the view last scrolled to for a pending anchor; see the later-jump effect.
     const lastPlacedAnchorKeyRef = useRef<string | null>(null);
     // The first load's target while it is placed before the first paint; see the effect that uses it.
-    const placementRef = useRef<{ index: number; align: AnchorAlign; reveal: () => void; attempts: number } | null>(
-        null,
-    );
+    const placementRef = useRef<{
+        index: number;
+        align: AnchorAlign;
+        reveal: () => void;
+        attempts: number;
+        revision: number | undefined;
+    } | null>(null);
     const receivedResizeEntryRef = useRef(false);
 
     useEffect(() => {
         if (!revealed || !onItemsPainted) return;
+        const revision = executionRef.current?.revision;
         let frame = requestAnimationFrame(() => {
             frame = requestAnimationFrame(() => {
                 const scroller = scrollerRef.current;
-                if (!scroller) return;
+                if (!scroller || !mayAct(revision)) return;
                 const top = scroller.scrollTop;
                 const bottom = top + scroller.clientHeight;
                 const painted = virtualizer.getVirtualItems().flatMap((row) => {
@@ -315,6 +336,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
     const reportVisibleState = useCallback(
         (v: Virtualizer<HTMLDivElement, Element>): void => {
             if (phaseRef.current !== "live" || snapshotRef.current.pendingAnchor !== null) return;
+            if (!mayAct()) return;
             const visit = snapshotRef.current.visit;
             if (visit && !visit.rowsReady) return;
             // A new visit starts its reports over: the view model has forgotten what this view told it in the last one.
@@ -408,7 +430,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
                 endEdgeTokenRef.current = "";
             }
         },
-        [vm, releaseBottom],
+        [vm, releaseBottom, mayAct],
     );
 
     const virtualizer = useVirtualizer({
@@ -487,7 +509,15 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
             placementCountRef.current++;
         }
         reportVisibleState(virtualizer);
-    }, [revealed, snapshot.pendingAnchor, placementRevision, visitRowsReady, reportVisibleState, virtualizer]);
+    }, [
+        revealed,
+        snapshot.pendingAnchor,
+        placementRevision,
+        visitRowsReady,
+        reportVisibleState,
+        virtualizer,
+        execution,
+    ]);
 
     // Works out how far down the list we would have to scroll, in pixels, to bring the row
     // with `targetKey` into view — `align` saying whether it should end up at the top,
@@ -519,11 +549,41 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
             if (repinFrameRef.current !== undefined) cancelAnimationFrame(repinFrameRef.current);
         };
     }, []);
+    // A new execution revision drops what was scheduled for the last one and places the current target afresh:
+    // a placement under way starts over, a placed list goes to its pending anchor again, and what was last reported
+    // is reported again. The rows, their measurements and the scroll position stay.
+    const executionRevision = execution?.revision;
+    const placedRevisionRef = useRef(executionRevision);
+    useLayoutEffect(() => {
+        if (placedRevisionRef.current === executionRevision) return;
+        placedRevisionRef.current = executionRevision;
+        if (coldRafRef.current !== undefined) cancelAnimationFrame(coldRafRef.current);
+        coldRafRef.current = undefined;
+        placementRef.current = null;
+        if (phaseRef.current === "placing") phaseRef.current = "init";
+        lastPlacedAnchorKeyRef.current = null;
+        lastVisibleRangeRef.current = null;
+        lastAtBottomRef.current = null;
+        startEdgeTokenRef.current = "";
+        endEdgeTokenRef.current = "";
+        placementCountRef.current++;
+        releaseBottom();
+    }, [executionRevision, releaseBottom]);
     useLayoutEffect(() => {
         if (phaseRef.current !== "init" || items.length === 0) return;
+        // A lent view places only rows its view model has accepted for the visit it is on. Whether it may act is
+        // checked as the placement goes, before each step, so it starts over once it may.
+        if (executionRef.current && snapshotRef.current.visit?.rowsReady === false) return;
+        const revision = executionRef.current?.revision;
         // Move out of "init" immediately, so that if more messages arrive while we are
         // still placing this effect runs again but returns here rather than starting over.
         phaseRef.current = "placing";
+        // Drop this placement, as the view may no longer act on it, to start again once it may.
+        const abandon = (): void => {
+            if (phaseRef.current !== "placing") return;
+            phaseRef.current = "init";
+            placementRef.current = null;
+        };
         // Start at the message the view model asked for. If it did not ask for one, or that
         // message is not in the batch we were given, start at the newest message instead.
         const anchor = snapshotRef.current.pendingAnchor;
@@ -538,6 +598,10 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
         // for, and reveal the timeline once it has. requestAnimationFrame passes the frame's
         // timestamp, so we can measure how long we have been waiting in real time and give up
         const reveal = (): void => {
+            if (executionRef.current?.onPlaced() === false) {
+                abandon();
+                return;
+            }
             phaseRef.current = "live";
             // The later-jump effect can run in the same commit, with this render's anchor: it is already placed.
             lastPlacedAnchorKeyRef.current = anchor?.targetKey ?? null;
@@ -551,11 +615,15 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
         };
         // Usually the list can be placed before the browser first paints it; see the effect below. The frames
         // that follow settle it otherwise, such as while rows are still changing height.
-        placementRef.current = { index: idx, align, reveal, attempts: 0 };
+        placementRef.current = { index: idx, align, reveal, attempts: 0, revision };
         let startedAt: number | undefined;
         let startedPlacement = false;
         const tick = (now: number): void => {
             if (phaseRef.current === "live") return;
+            if (!mayAct(revision)) {
+                abandon();
+                return;
+            }
             startedAt ??= now;
             // An estimated scroll offset can land before ResizeObserver runs. Keep the
             // cover until the mounted range has real measurements, including any rows
@@ -599,7 +667,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
             coldRafRef.current = requestAnimationFrame(tick);
         };
         coldRafRef.current = requestAnimationFrame(tick);
-    }, [items.length, virtualizer, vm]);
+    }, [items.length, virtualizer, vm, mayAct, execution, snapshot.visit?.rowsReady]);
 
     // ─── First load before the first paint ─────────────────────────────────
     // The rows that end up on screen are usually already mounted: the first render starts near the target (see
@@ -608,7 +676,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
     // A few tries are enough; after that the settle loop above carries on alone.
     useLayoutEffect(() => {
         const placement = placementRef.current;
-        if (!placement || phaseRef.current !== "placing") return;
+        if (!placement || phaseRef.current !== "placing" || !mayAct(placement.revision)) return;
         if (
             placeBeforePaint(
                 virtualizer,
@@ -637,7 +705,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
     // `lastPlacedAnchorKeyRef` records which message we last jumped to, so that later
     // renders do not repeat the same jump and fight the user's own scrolling.
     useLayoutEffect(() => {
-        if (phaseRef.current !== "live") return;
+        if (phaseRef.current !== "live" || !mayAct()) return;
         const anchor = snapshotRef.current.pendingAnchor;
         if (!anchor) {
             lastPlacedAnchorKeyRef.current = null;
@@ -648,6 +716,7 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
             const target = offsetForKey(anchor.targetKey, anchor.align);
             if (target !== null) {
                 virtualizer.scrollToOffset(target);
+                if (executionRef.current?.onPlaced() === false) return;
                 lastPlacedAnchorKeyRef.current = anchor.targetKey;
                 vm.onAnchorReached(anchor.targetKey);
             }
@@ -659,12 +728,13 @@ export function TimelineView({ vm, renderItem, onItemsPainted, paddingBlock = 0 
     // no round trip through `pendingAnchor` above.
     const scrollNow = useCallback<ImmediateScroll>(
         (anchor) => {
+            if (!mayAct()) return;
             const target = offsetForKey(anchor.targetKey, anchor.align);
             if (target === null) return;
             releaseBottom();
             virtualizer.scrollToOffset(target);
         },
-        [offsetForKey, releaseBottom, virtualizer],
+        [offsetForKey, releaseBottom, virtualizer, mayAct],
     );
 
     const virtualItems = virtualizer.getVirtualItems();
