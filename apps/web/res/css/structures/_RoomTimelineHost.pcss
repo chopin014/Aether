@@ -1,0 +1,15 @@
+/*
+Copyright 2026 chopin014
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+/* The slot a room view lends its timeline's place through, the element the timeline host draws into inside it, and
+   the one that passes keys and focus on to the room view: none makes a box of its own, so the timeline lays out in the
+   room view's timeline area as if the room view had drawn it there itself. */
+.mx_RoomTimelineSlot,
+.mx_RoomTimelineHost_entry,
+.mx_RoomTimelineHost_events {
+    display: contents;
+}

@@ -9,12 +9,13 @@ Please see LICENSE in the repository root for full details.
  * The steps of opening a room, in the order they normally happen:
  * - `navigation`: the app takes the room as the one to show.
  * - `shell`: the room's view is mounted.
+ * - `slot`: the room view has lent its timeline's place to the timeline host, with the room timeline host lab on.
  * - `rows`: its timeline has rows to show.
  * - `placed`: the timeline has placed the reader in them.
  * - `painted`: the timeline has painted a message.
  * - `composer`: the message composer is mounted and focused.
  */
-export const ROOM_SWITCH_PHASES = ["navigation", "shell", "rows", "placed", "painted", "composer"] as const;
+export const ROOM_SWITCH_PHASES = ["navigation", "shell", "slot", "rows", "placed", "painted", "composer"] as const;
 
 /** One of {@link ROOM_SWITCH_PHASES}. */
 export type RoomSwitchPhase = (typeof ROOM_SWITCH_PHASES)[number];

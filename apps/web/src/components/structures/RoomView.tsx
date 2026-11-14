@@ -84,6 +84,7 @@ import ScrollPanel from "./ScrollPanel";
 import TimelinePanel from "./TimelinePanel";
 import type { RoomMessagePanel } from "./RoomMessagePanel";
 import { NewTimelinePanel } from "./NewTimelinePanel";
+import { RoomTimelineSlot } from "./RoomTimelineSlot";
 import ErrorBoundary from "../views/elements/ErrorBoundary";
 import RoomPreviewBar from "../views/rooms/RoomPreviewBar";
 import RoomPreviewCard from "../views/rooms/RoomPreviewCard";
@@ -215,6 +216,12 @@ interface IRoomProps extends RoomViewProps {
      * @default true
      */
     enableReadReceiptsAndMarkersOnActivity?: boolean;
+
+    /**
+     * Whether this is the app's main room view, whose timeline the room timeline host draws when that lab is on; see
+     * `RoomTimelineHost`. Room views a module embeds leave it unset and draw their own.
+     */
+    primaryTimelineHost?: boolean;
 }
 
 export interface IRoomState {
@@ -2861,27 +2868,38 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             // The MVVM timeline manages its own scrolling, read receipts and read marker, so none of
             // TimelinePanel's plumbing is mounted. It still answers the room view's requests through
             // `messagePanel`, so shortcuts, sending and editing behave as with the old timeline.
+            const timeline: ComponentProps<typeof NewTimelinePanel> = {
+                panelRef: this.gatherTimelinePanelRef,
+                room: this.state.room,
+                hidden: hideMessagePanel,
+                highlightedEventId,
+                eventScrollIntoView: this.state.initialEventScrollIntoView,
+                onEventScrolledIntoView: this.resetJumpToEvent,
+                layout: this.state.layout,
+                permalinkCreator: this.permalinkCreator,
+                showUrlPreview: this.state.showUrlPreview,
+                showReactions: true,
+                editState: this.state.editState,
+                showReadReceipts: this.state.showReadReceipts,
+                sendReadReceiptOnLoad:
+                    !this.state.wasContextSwitch && this.props.enableReadReceiptsAndMarkersOnActivity,
+                enableReadReceiptsAndMarkersOnActivity: this.props.enableReadReceiptsAndMarkersOnActivity,
+            };
+            // The main room view lends its timeline's place to the room timeline host, with that lab on.
+            const hosted = this.props.primaryTimelineHost && SettingsStore.getValue("feature_retained_room_timeline");
             messagePanel = (
                 <EventPresentationContextProvider layout={this.state.layout}>
-                    <NewTimelinePanel
-                        key={this.state.room.roomId}
-                        panelRef={this.gatherTimelinePanelRef}
-                        room={this.state.room}
-                        hidden={hideMessagePanel}
-                        highlightedEventId={highlightedEventId}
-                        eventScrollIntoView={this.state.initialEventScrollIntoView}
-                        onEventScrolledIntoView={this.resetJumpToEvent}
-                        layout={this.state.layout}
-                        permalinkCreator={this.permalinkCreator}
-                        showUrlPreview={this.state.showUrlPreview}
-                        showReactions={true}
-                        editState={this.state.editState}
-                        showReadReceipts={this.state.showReadReceipts}
-                        sendReadReceiptOnLoad={
-                            !this.state.wasContextSwitch && this.props.enableReadReceiptsAndMarkersOnActivity
-                        }
-                        enableReadReceiptsAndMarkersOnActivity={this.props.enableReadReceiptsAndMarkersOnActivity}
-                    />
+                    {hosted ? (
+                        <RoomTimelineSlot
+                            key={this.state.room.roomId}
+                            {...timeline}
+                            panelRef={this.gatherTimelinePanelRef}
+                            onKeyDown={this.onReactKeyDown}
+                            onFocus={this.onFocus}
+                        />
+                    ) : (
+                        <NewTimelinePanel key={this.state.room.roomId} {...timeline} />
+                    )}
                 </EventPresentationContextProvider>
             );
         } else if (!isRoomEncryptionLoading) {

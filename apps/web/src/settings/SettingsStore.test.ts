@@ -112,6 +112,43 @@ describe("SettingsStore", () => {
             });
         });
 
+        describe("the room timeline host", () => {
+            /** A choice saved on this device by its Labs toggle. */
+            const savedOnDevice = (enabled: boolean): void =>
+                localStorage.setItem("mx_labs_feature_feature_retained_room_timeline", JSON.stringify(enabled));
+
+            afterEach(() => {
+                localStorage.removeItem("mx_labs_feature_feature_retained_room_timeline");
+            });
+
+            it("is off unless turned on", () => {
+                expect(SettingsStore.getValue("feature_retained_room_timeline")).toBe(false);
+            });
+
+            it("is on for someone who turned it on in Labs", () => {
+                savedOnDevice(true);
+                expect(SettingsStore.getValue("feature_retained_room_timeline")).toBe(true);
+            });
+
+            it("is off when config.json says so, even for someone who turned it on in Labs", () => {
+                savedOnDevice(true);
+                SdkConfig.put({ features: { feature_retained_room_timeline: false } });
+                expect(SettingsStore.getValue("feature_retained_room_timeline")).toBe(false);
+            });
+
+            it("is off without the new timeline, even for someone who turned it on in Labs", () => {
+                savedOnDevice(true);
+                SdkConfig.put({ features: { feature_new_timeline: false } });
+                expect(SettingsStore.getValue("feature_retained_room_timeline")).toBe(false);
+            });
+
+            it("can be changed on a device", () => {
+                expect(SettingsStore.canSetValue("feature_retained_room_timeline", null, SettingLevel.DEVICE)).toBe(
+                    true,
+                );
+            });
+        });
+
         it(`supportedLevelsAreOrdered doesn't incorrectly override setting`, async () => {
             await SettingsStore.setValue(SETTING_NAME_WITH_CONFIG_OVERRIDE, null, SettingLevel.DEVICE, true);
             expect(SettingsStore.getValueAt(SettingLevel.DEVICE, SETTING_NAME_WITH_CONFIG_OVERRIDE)).toBe(true);

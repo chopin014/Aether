@@ -59,6 +59,12 @@ import RoomListStoreV3 from "../../stores/room-list-v3/RoomListStoreV3";
 import { DefaultTagID } from "../../stores/room-list-v3/skip-list/tag";
 
 vi.mock("../views/voip/prepareElementCall", () => ({ prepareElementCall: vi.fn(() => vi.fn()) }));
+// Shows where the room timeline host would sit, around what it is given.
+vi.mock("./RoomTimelineHost", () => ({
+    RoomTimelineHost: ({ children }: { children: React.ReactNode }) => (
+        <div data-testid="room-timeline-host">{children}</div>
+    ),
+}));
 
 describe("<LoggedInView />", () => {
     const userId = "@alice:domain.org";
@@ -605,6 +611,40 @@ describe("<LoggedInView />", () => {
                 // not called
                 expect(mockClient.setPushRuleActions).not.toHaveBeenCalled();
             });
+        });
+    });
+
+    describe("with the room timeline host lab", () => {
+        let restore: (() => void) | undefined;
+        const withLab = (on: boolean): void => {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            const spy = vi
+                .spyOn(SettingsStore, "getValue")
+                .mockImplementation((name, ...args) =>
+                    name === "feature_retained_room_timeline" ? on : getValue(name, ...args),
+                );
+            restore = () => spy.mockRestore();
+        };
+        afterEach(() => {
+            restore?.();
+            restore = undefined;
+        });
+
+        it("puts the page inside the room timeline host, with the room list beside the room view", () => {
+            withLab(true);
+            const { getByTestId } = getComponent();
+
+            const host = getByTestId("room-timeline-host");
+            expect(host.querySelector(".mx_RoomView_wrapper")).not.toBeNull();
+            expect(host.querySelector(".mx_LeftPanel_panel")).not.toBeNull();
+        });
+
+        it("leaves the page as it was with the lab off", () => {
+            withLab(false);
+            const { queryByTestId, container } = getComponent();
+
+            expect(queryByTestId("room-timeline-host")).toBeNull();
+            expect(container.querySelector(".mx_RoomView_wrapper")).not.toBeNull();
         });
     });
 
