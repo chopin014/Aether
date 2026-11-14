@@ -11,10 +11,11 @@ import { type Config } from "../index.js";
 import { buildConfigJson } from "./config_json.js";
 
 describe("buildConfigJson", () => {
-    /** Set both switches, so the environment the tests run in does not leak in. */
-    const switches = (slidingSync: string, newTimeline: string): void => {
+    /** Set every switch, so the environment the tests run in does not leak in. */
+    const switches = (slidingSync: string, newTimeline: string, retainedTimeline = ""): void => {
         vi.stubEnv("AETHER_E2E_SLIDING_SYNC", slidingSync);
         vi.stubEnv("AETHER_E2E_NEW_TIMELINE", newTimeline);
+        vi.stubEnv("AETHER_E2E_RETAINED_TIMELINE", retainedTimeline);
     };
     const features = (additional: Partial<Config> = {}, labsFlags: string[] = []) =>
         buildConfigJson("https://hs.example", additional, labsFlags).features;
@@ -24,6 +25,7 @@ describe("buildConfigJson", () => {
     it.each([
         ["sliding sync", "feature_simplified_sliding_sync", (mode: string) => switches(mode, "")],
         ["the new timeline", "feature_new_timeline", (mode: string) => switches("", mode)],
+        ["the room timeline host", "feature_retained_room_timeline", (mode: string) => switches("", "", mode)],
     ])("turns %s on or off for every client when asked to", (_name, feature, set) => {
         set("1");
         expect(features({}, ["feature_something_else"])).toMatchObject({
@@ -39,6 +41,7 @@ describe("buildConfigJson", () => {
     it.each([
         ["sliding sync", "feature_simplified_sliding_sync", (mode: string) => switches(mode, "")],
         ["the new timeline", "feature_new_timeline", (mode: string) => switches("", mode)],
+        ["the room timeline host", "feature_retained_room_timeline", (mode: string) => switches("", "", mode)],
     ])("leaves %s as a test sets it itself, through its lab flags or its own config", (_name, feature, set) => {
         set("0");
         expect(features({}, [feature])?.[feature]).toBe(true);
@@ -49,9 +52,17 @@ describe("buildConfigJson", () => {
     });
 
     it("keeps the switches apart", () => {
-        switches("1", "0");
-        expect(features()).toMatchObject({ feature_simplified_sliding_sync: true, feature_new_timeline: false });
-        switches("0", "1");
-        expect(features()).toMatchObject({ feature_simplified_sliding_sync: false, feature_new_timeline: true });
+        switches("1", "0", "1");
+        expect(features()).toMatchObject({
+            feature_simplified_sliding_sync: true,
+            feature_new_timeline: false,
+            feature_retained_room_timeline: true,
+        });
+        switches("0", "1", "0");
+        expect(features()).toMatchObject({
+            feature_simplified_sliding_sync: false,
+            feature_new_timeline: true,
+            feature_retained_room_timeline: false,
+        });
     });
 });

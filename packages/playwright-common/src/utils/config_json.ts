@@ -59,15 +59,16 @@ export function buildConfigJson(
             return obj;
         }, {}),
     };
-    // Simplified Sliding Sync is on by default where the server offers it, and so is the new timeline.
-    // AETHER_E2E_SLIDING_SYNC=1 or AETHER_E2E_NEW_TIMELINE=1 runs every client with it, and =0 without it, other than in
-    // a test that sets it itself, so each way can be checked to match the other. Here, rather than in a fixture, so
-    // second clients get it too.
+    // Simplified Sliding Sync is on by default where the server offers it, and so is the new timeline; the room
+    // timeline host is off. AETHER_E2E_SLIDING_SYNC=1, AETHER_E2E_NEW_TIMELINE=1 or AETHER_E2E_RETAINED_TIMELINE=1 runs
+    // every client with it, and =0 without it, other than in a test that sets it itself, so each way can be checked to
+    // match the other. Here, rather than in a fixture, so second clients get it too.
     const setByTest = (feature: string): boolean =>
         labsFlags.includes(feature) || additionalConfig.features?.[feature] !== undefined;
     for (const [feature, mode] of [
         ["feature_simplified_sliding_sync", process.env["AETHER_E2E_SLIDING_SYNC"]],
         ["feature_new_timeline", process.env["AETHER_E2E_NEW_TIMELINE"]],
+        ["feature_retained_room_timeline", process.env["AETHER_E2E_RETAINED_TIMELINE"]],
     ] as const) {
         forceFeature(json["features"], feature, mode, setByTest(feature));
     }
