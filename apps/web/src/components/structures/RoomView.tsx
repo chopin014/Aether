@@ -2884,6 +2884,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 sendReadReceiptOnLoad:
                     !this.state.wasContextSwitch && this.props.enableReadReceiptsAndMarkersOnActivity,
                 enableReadReceiptsAndMarkersOnActivity: this.props.enableReadReceiptsAndMarkersOnActivity,
+                primaryRoomEntry: this.props.primaryTimelineHost,
             };
             // The main room view lends its timeline's place to the room timeline host, with that lab on.
             const hosted = this.props.primaryTimelineHost && SettingsStore.getValue("feature_retained_room_timeline");
@@ -2930,6 +2931,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                         layout={this.state.layout}
                         editState={this.state.editState}
                         enableReadReceiptsAndMarkersOnActivity={this.props.enableReadReceiptsAndMarkersOnActivity}
+                        primaryRoomEntry={this.props.primaryTimelineHost}
                     />
                 </EventPresentationContextProvider>
             );

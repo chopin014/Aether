@@ -56,6 +56,7 @@ import { SettingLevel } from "../../settings/SettingLevel";
 import MatrixClientBackedController from "../../settings/controllers/MatrixClientBackedController";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
 import type Timer from "../../utils/Timer";
+import { deferRoomEntryWork } from "../../performance/RoomEntryReady";
 
 // ScrollPanel calls this, but jsdom doesn't mock it for us
 HTMLDivElement.prototype.scrollBy = () => {};
@@ -1008,5 +1009,97 @@ describe("TimelinePanel", () => {
         await waitFor(() =>
             expect(spy).toHaveBeenCalledWith(expect.stringContaining("TimelinePanel(Room): Debugging info for roomId")),
         );
+    });
+
+    describe("the first paint of a visit to its room", () => {
+        /**
+         * A panel, not mounted, whose main-timeline check for a painted message sees one in view, with the frames it
+         * asks for held so the test runs them.
+         */
+        const paintedPanel = (primaryRoomEntry: boolean) => {
+            const client = stubClient();
+            const room = new Room("!painted:server", client, "@me:server", {
+                pendingEventOrdering: PendingEventOrdering.Detached,
+            });
+            vi.mocked(client.getRoom).mockReturnValue(room);
+            const events = mockEvents(room);
+            const panel = new TimelinePanel(
+                { ...getProps(room, events), timelineSet: room.getUnfilteredTimelineSet(), primaryRoomEntry },
+                {} as never,
+            );
+            const internals = panel as unknown as {
+                getEvents: () => unknown;
+                reloadEvents: () => void;
+                watchEntryVisit: () => void;
+                stopWatchingEntryVisit?: () => void;
+                entryVisit?: unknown;
+                messagePanel: { current: unknown };
+            };
+            internals.getEvents = () => ({ events, liveEvents: events });
+            panel.setState = (state) => Object.assign(panel.state, state);
+            Object.assign(panel.state, { timelineLoading: false });
+            Object.defineProperty(panel, "messagePanelDiv", {
+                value: { getBoundingClientRect: () => ({ top: 0, bottom: 100 }) },
+            });
+            internals.messagePanel.current = {
+                getNodeForEventId: () => ({ getBoundingClientRect: () => ({ top: 1, bottom: 50 }) }),
+            };
+            const frames: FrameRequestCallback[] = [];
+            vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => frames.push(callback));
+            vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(() => {});
+            return { client, room, panel, internals, frames };
+        };
+
+        beforeEach(() => vi.useFakeTimers());
+        afterEach(() => {
+            vi.useRealTimers();
+            vi.restoreAllMocks();
+        });
+
+        it("releases the room's deferred work once a message has painted in the main room view's timeline", () => {
+            const { client, room, internals, frames } = paintedPanel(true);
+            internals.watchEntryVisit();
+            const work = vi.fn();
+            deferRoomEntryWork(client, room.roomId, work);
+
+            internals.reloadEvents();
+            frames.shift()!(0);
+            frames.shift()!(0);
+            vi.advanceTimersByTime(0);
+
+            expect(work).toHaveBeenCalledOnce();
+        });
+
+        it("releases nothing from a timeline other than the main room view's", () => {
+            const { client, room, internals, frames } = paintedPanel(false);
+            internals.watchEntryVisit();
+            const work = vi.fn();
+            deferRoomEntryWork(client, room.roomId, work);
+
+            internals.reloadEvents();
+            while (frames.length) frames.shift()!(0);
+            vi.advanceTimersByTime(0);
+
+            expect(work).not.toHaveBeenCalled();
+        });
+
+        it("releases nothing from a check scheduled before it moved to another timeline set", () => {
+            const { client, room, panel, internals, frames } = paintedPanel(true);
+            internals.watchEntryVisit();
+            internals.reloadEvents();
+            frames.shift()!(0);
+            // Moved to a filtered timeline of the room while the check waits for its second frame.
+            Object.assign(panel.props, { timelineSet: new EventTimelineSet(room) });
+            internals.stopWatchingEntryVisit?.();
+            internals.entryVisit = undefined;
+            internals.watchEntryVisit();
+            const work = vi.fn();
+            deferRoomEntryWork(client, room.roomId, work);
+
+            frames.shift()!(0);
+            vi.advanceTimersByTime(0);
+
+            expect(work).not.toHaveBeenCalled();
+        });
     });
 });

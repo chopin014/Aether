@@ -95,6 +95,11 @@ interface NewTimelineRendererProps {
     onEventScrolledIntoView?: (eventId?: string) => void;
     /** When the timeline may act, for one a host lends to the room view; see `TimelineViewExecution`. */
     execution?: TimelineViewExecution;
+    /**
+     * Whether this is the main room view's timeline, whose first paint in each visit releases the room's deferred work;
+     * see `RoomEntryReady`. Other timelines of the room, such as one a module embeds, release nothing.
+     */
+    primaryRoomEntry?: boolean;
 }
 
 /** How far Page Up and Page Down move, as a share of the visible height, keeping some context on screen. */
@@ -380,6 +385,7 @@ export function NewTimelineRenderer({
     eventScrollIntoView,
     onEventScrolledIntoView,
     execution,
+    primaryRoomEntry = false,
 }: Readonly<NewTimelineRendererProps & { vm: RoomTimelineViewModel }>): JSX.Element {
     const client: MatrixClient = useMatrixClientContext();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -387,17 +393,19 @@ export function NewTimelineRenderer({
     // The visit to the room this timeline notifies its first paint for; see `RoomEntryReady`. Still shown as the room
     // is opened again, its next paint is the new visit's.
     const [entryVisit, setEntryVisit] = useState(() => currentRoomEntryVisit(client, room.roomId));
-    useEffect(
-        () =>
-            onRoomEntryVisit(client, room.roomId, () => {
-                setEntryVisit(currentRoomEntryVisit(client, room.roomId));
-                setEntryPainted(false);
-            }),
-        [client, room],
-    );
+    useEffect(() => {
+        if (!primaryRoomEntry) return;
+        return onRoomEntryVisit(client, room.roomId, () => {
+            setEntryVisit(currentRoomEntryVisit(client, room.roomId));
+            setEntryPainted(false);
+        });
+    }, [client, room, primaryRoomEntry]);
     const onItemsPainted = useCallback(
         (items: TimelineItem[]): void => {
             if (hidden) return;
+            // Reported for an earlier visit to the room, by a frame scheduled before the room was opened again: the
+            // current visit's own paint is still to come.
+            if (entryVisit !== currentRoomEntryVisit(client, room.roomId)) return;
             if (
                 items.some((item) => {
                     if (item.kind !== "event") return false;
@@ -406,11 +414,11 @@ export function NewTimelineRenderer({
                 })
             ) {
                 markRoomSwitch("painted", room.roomId);
-                notifyRoomEntryReady(client, room.roomId, entryVisit);
+                if (primaryRoomEntry) notifyRoomEntryReady(client, room.roomId, entryVisit);
                 setEntryPainted(true);
             }
         },
-        [client, room, hidden, entryVisit],
+        [client, room, hidden, entryVisit, primaryRoomEntry],
     );
 
     // Read here rather than passed in, so changing either setting redraws the tiles.

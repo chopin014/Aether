@@ -285,7 +285,7 @@ describe("<NewTimelinePanel />", () => {
         const ready = vi.spyOn(roomEntry, "notifyRoomEntryReady");
         const mark = vi.spyOn(roomSwitch, "markRoomSwitch");
         withItems([eventRow(event)]);
-        renderPanel();
+        renderPanel({ primaryRoomEntry: true });
         expect(ready).not.toHaveBeenCalled();
         paintedItems.current?.([{ kind: "event-group", key: "notices", events: [] }]);
         expect(ready).not.toHaveBeenCalled();
@@ -298,7 +298,7 @@ describe("<NewTimelinePanel />", () => {
     it("notifies its first paint again for a new visit to the room while it is still shown", () => {
         const ready = vi.spyOn(roomEntry, "notifyRoomEntryReady");
         withItems([eventRow(event)]);
-        renderPanel();
+        renderPanel({ primaryRoomEntry: true });
         act(() => paintedItems.current?.([eventRow(event)]));
         const first = roomEntry.currentRoomEntryVisit(client, ROOM_ID);
         expect(ready).toHaveBeenLastCalledWith(client, ROOM_ID, first);
@@ -313,25 +313,39 @@ describe("<NewTimelinePanel />", () => {
         expect(ready).toHaveBeenLastCalledWith(client, ROOM_ID, second);
     });
 
-    it("notifies a paint reported for an earlier visit under that visit, so it releases nothing for the new one", () => {
+    it("ignores a paint reported for an earlier visit, and still reports the new visit's own", () => {
         const ready = vi.spyOn(roomEntry, "notifyRoomEntryReady");
         withItems([eventRow(event)]);
-        renderPanel();
-        const earlier = roomEntry.currentRoomEntryVisit(client, ROOM_ID);
+        renderPanel({ primaryRoomEntry: true });
         const reportedBefore = paintedItems.current!;
 
         act(() => roomEntry.beginRoomEntryVisit(client, ROOM_ID));
         act(() => reportedBefore([eventRow(event)]));
 
-        expect(ready).toHaveBeenCalledWith(client, ROOM_ID, earlier);
-        expect(earlier).not.toBe(roomEntry.currentRoomEntryVisit(client, ROOM_ID));
+        expect(ready).not.toHaveBeenCalled();
+        // The view is still asked for the new visit's first paint, which is notified for it.
+        expect(paintedItems.current).toBeDefined();
+        act(() => paintedItems.current!([eventRow(event)]));
+        expect(ready).toHaveBeenCalledWith(client, ROOM_ID, roomEntry.currentRoomEntryVisit(client, ROOM_ID));
+    });
+
+    it("releases nothing from a timeline other than the main room view's, such as one a module embeds", () => {
+        const ready = vi.spyOn(roomEntry, "notifyRoomEntryReady");
+        // The room is opened, and another timeline of it is drawn in its current visit.
+        roomEntry.beginRoomEntryVisit(client, ROOM_ID);
+        withItems([eventRow(event)]);
+        renderPanel();
+
+        act(() => paintedItems.current?.([eventRow(event)]));
+
+        expect(ready).not.toHaveBeenCalled();
     });
 
     it("does not release decorative work, or mark the room painted, from a hidden timeline", () => {
         const ready = vi.spyOn(roomEntry, "notifyRoomEntryReady");
         const mark = vi.spyOn(roomSwitch, "markRoomSwitch");
         withItems([eventRow(event)]);
-        renderPanel({ hidden: true });
+        renderPanel({ hidden: true, primaryRoomEntry: true });
         paintedItems.current?.([eventRow(event)]);
         expect(ready).not.toHaveBeenCalled();
         expect(mark).not.toHaveBeenCalledWith("painted", expect.anything());

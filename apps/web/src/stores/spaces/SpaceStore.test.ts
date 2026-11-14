@@ -960,6 +960,34 @@ describe("SpaceStore", () => {
         });
     });
 
+    it("waits for the paint of the visit a Space opens, not of an earlier visit to the same room", async () => {
+        store.setActiveSpace(MetaSpace.Home);
+        window.localStorage.setItem("mx_active_space", MetaSpace.Home);
+        mkRoom(room1);
+        const space = mkSpace(space1, [room1]);
+        window.localStorage.setItem(`mx_space_context_${space1}`, room1);
+        await run();
+        // The room painted when it was open before, and another page is shown now.
+        notifyRoomEntryReady(client, room1, currentRoomEntryVisit(client, room1));
+        defaultDispatcher.dispatch({ action: Action.ViewHomePage }, true);
+        vi.mocked(client.hasLazyLoadMembersEnabled).mockReturnValue(true);
+        const selected = vi.spyOn(sdkContext.roomViewStore, "getRoomId").mockReturnValue(room1);
+        try {
+            store.setActiveSpace(space1, true);
+            // The Space opens its room again, and the roster waits for this visit's paint.
+            await vi.runOnlyPendingTimersAsync();
+            expect(space.loadMembersIfNeeded).not.toHaveBeenCalled();
+
+            notifyRoomEntryReady(client, room1, currentRoomEntryVisit(client, room1));
+            await vi.runOnlyPendingTimersAsync();
+            expect(space.loadMembersIfNeeded).toHaveBeenCalledOnce();
+        } finally {
+            selected.mockRestore();
+            // The stores are shared across these tests: leave the room the Space opened.
+            defaultDispatcher.dispatch({ action: Action.ViewHomePage }, true);
+        }
+    });
+
     it("defers decorative Space hydration until the selected conversation paints", async () => {
         store.setActiveSpace(MetaSpace.Home);
         window.localStorage.setItem("mx_active_space", MetaSpace.Home);
@@ -1985,30 +2013,5 @@ describe("SpaceStore", () => {
             expect(stopHolding).toHaveBeenCalled();
             holdWhileApplying.mockRestore();
         });
-    });
-
-    // Last, as it leaves the app on the Space's room, which earlier tests here do not expect.
-    it("waits for the paint of the visit a Space opens, not of an earlier visit to the same room", async () => {
-        store.setActiveSpace(MetaSpace.Home);
-        window.localStorage.setItem("mx_active_space", MetaSpace.Home);
-        mkRoom(room1);
-        const space = mkSpace(space1, [room1]);
-        window.localStorage.setItem(`mx_space_context_${space1}`, room1);
-        await run();
-        // The room painted when it was open before, and another page is shown now.
-        notifyRoomEntryReady(client, room1, currentRoomEntryVisit(client, room1));
-        defaultDispatcher.dispatch({ action: Action.ViewHomePage }, true);
-        vi.mocked(client.hasLazyLoadMembersEnabled).mockReturnValue(true);
-        const selected = vi.spyOn(sdkContext.roomViewStore, "getRoomId").mockReturnValue(room1);
-
-        store.setActiveSpace(space1, true);
-        // The Space opens its room again, and the roster waits for this visit's paint.
-        await vi.runOnlyPendingTimersAsync();
-        expect(space.loadMembersIfNeeded).not.toHaveBeenCalled();
-
-        notifyRoomEntryReady(client, room1, currentRoomEntryVisit(client, room1));
-        await vi.runOnlyPendingTimersAsync();
-        expect(space.loadMembersIfNeeded).toHaveBeenCalledOnce();
-        selected.mockRestore();
     });
 });
