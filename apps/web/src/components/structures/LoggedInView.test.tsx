@@ -42,7 +42,7 @@ import {
 import LoggedInView from "./LoggedInView";
 import PageType from "../../PageTypes";
 import { prepareElementCall } from "../views/voip/prepareElementCall";
-import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
+import { currentRoomEntryVisit, notifyRoomEntryReady } from "../../performance/RoomEntryReady";
 
 import { SDKContext } from "../../contexts/SDKContext";
 import { StandardActions } from "../../notifications/StandardActions";
@@ -174,10 +174,22 @@ describe("<LoggedInView />", () => {
                 const { rerender, unmount } = getComponent({ currentRoomId: "!first:server" });
                 expect(startIdle).not.toHaveBeenCalled();
                 rerender(<LoggedInView {...defaultProps} currentRoomId="!second:server" />);
-                act(() => notifyRoomEntryReady(mockClient, "!first:server"));
+                act(() =>
+                    notifyRoomEntryReady(
+                        mockClient,
+                        "!first:server",
+                        currentRoomEntryVisit(mockClient, "!first:server"),
+                    ),
+                );
                 await new Promise((resolve) => setTimeout(resolve, 0));
                 expect(startIdle).not.toHaveBeenCalled();
-                act(() => notifyRoomEntryReady(mockClient, "!second:server"));
+                act(() =>
+                    notifyRoomEntryReady(
+                        mockClient,
+                        "!second:server",
+                        currentRoomEntryVisit(mockClient, "!second:server"),
+                    ),
+                );
                 await waitFor(() => expect(startIdle).toHaveBeenCalledOnce());
                 unmount();
                 expect(cancelPreparation).toHaveBeenCalledOnce();
@@ -199,7 +211,13 @@ describe("<LoggedInView />", () => {
             mockClient.isInitialSyncComplete.mockReturnValue(false);
             try {
                 getComponent({ currentRoomId: "!preview:server" });
-                act(() => notifyRoomEntryReady(mockClient, "!preview:server"));
+                act(() =>
+                    notifyRoomEntryReady(
+                        mockClient,
+                        "!preview:server",
+                        currentRoomEntryVisit(mockClient, "!preview:server"),
+                    ),
+                );
                 await new Promise((resolve) => setTimeout(resolve, 0));
                 expect(startIdle).not.toHaveBeenCalled();
                 act(() => {
@@ -255,7 +273,13 @@ describe("<LoggedInView />", () => {
             try {
                 const { unmount } = getComponent({ currentRoomId: "!unmounted:server" });
                 unmount();
-                act(() => notifyRoomEntryReady(mockClient, "!unmounted:server"));
+                act(() =>
+                    notifyRoomEntryReady(
+                        mockClient,
+                        "!unmounted:server",
+                        currentRoomEntryVisit(mockClient, "!unmounted:server"),
+                    ),
+                );
                 await new Promise((resolve) => setTimeout(resolve, 0));
                 expect(startIdle).not.toHaveBeenCalled();
             } finally {

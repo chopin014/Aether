@@ -47,7 +47,7 @@ import { RoomNotificationStateStore } from "../notifications/RoomNotificationSta
 import { type SummarizedNotificationState } from "../notifications/SummarizedNotificationState";
 import { NotificationLevel } from "../notifications/NotificationLevel";
 import { storeRoomAliasInCache } from "../../RoomAliasCache.ts";
-import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
+import { currentRoomEntryVisit, notifyRoomEntryReady } from "../../performance/RoomEntryReady";
 import { UPDATE_EVENT } from "../AsyncStore";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
 import LeaveSpaceDialog from "../../components/views/dialogs/LeaveSpaceDialog";
@@ -960,6 +960,34 @@ describe("SpaceStore", () => {
         });
     });
 
+    it("waits for the paint of the visit a Space opens, not of an earlier visit to the same room", async () => {
+        store.setActiveSpace(MetaSpace.Home);
+        window.localStorage.setItem("mx_active_space", MetaSpace.Home);
+        mkRoom(room1);
+        const space = mkSpace(space1, [room1]);
+        window.localStorage.setItem(`mx_space_context_${space1}`, room1);
+        await run();
+        // The room painted when it was open before, and another page is shown now.
+        notifyRoomEntryReady(client, room1, currentRoomEntryVisit(client, room1));
+        defaultDispatcher.dispatch({ action: Action.ViewHomePage }, true);
+        vi.mocked(client.hasLazyLoadMembersEnabled).mockReturnValue(true);
+        const selected = vi.spyOn(sdkContext.roomViewStore, "getRoomId").mockReturnValue(room1);
+        try {
+            store.setActiveSpace(space1, true);
+            // The Space opens its room again, and the roster waits for this visit's paint.
+            await vi.runOnlyPendingTimersAsync();
+            expect(space.loadMembersIfNeeded).not.toHaveBeenCalled();
+
+            notifyRoomEntryReady(client, room1, currentRoomEntryVisit(client, room1));
+            await vi.runOnlyPendingTimersAsync();
+            expect(space.loadMembersIfNeeded).toHaveBeenCalledOnce();
+        } finally {
+            selected.mockRestore();
+            // The stores are shared across these tests: leave the room the Space opened.
+            defaultDispatcher.dispatch({ action: Action.ViewHomePage }, true);
+        }
+    });
+
     it("defers decorative Space hydration until the selected conversation paints", async () => {
         store.setActiveSpace(MetaSpace.Home);
         window.localStorage.setItem("mx_active_space", MetaSpace.Home);
@@ -971,7 +999,7 @@ describe("SpaceStore", () => {
         const load = space.loadMembersIfNeeded;
         store.setActiveSpace(space1, false);
         expect(load).not.toHaveBeenCalled();
-        notifyRoomEntryReady(client, room1);
+        notifyRoomEntryReady(client, room1, currentRoomEntryVisit(client, room1));
         await vi.runOnlyPendingTimersAsync();
         expect(load).toHaveBeenCalledOnce();
         selected.mockRestore();
@@ -988,7 +1016,7 @@ describe("SpaceStore", () => {
         const load = space.loadMembersIfNeeded;
         store.setActiveSpace(space1, false);
         selected.mockReturnValue(room2);
-        notifyRoomEntryReady(client, room1);
+        notifyRoomEntryReady(client, room1, currentRoomEntryVisit(client, room1));
         await vi.runOnlyPendingTimersAsync();
         expect(load).not.toHaveBeenCalled();
         selected.mockRestore();
@@ -1044,7 +1072,9 @@ describe("SpaceStore", () => {
         const selected = vi.spyOn(sdkContext.roomViewStore, "getRoomId").mockReturnValue(room1);
         store.setActiveSpace(space1, true);
         expect(store.activeSpace).toBe(space1);
-        notifyRoomEntryReady(client, room1);
+        // The room the Space opens is opened, and only then paints.
+        await vi.runOnlyPendingTimersAsync();
+        notifyRoomEntryReady(client, room1, currentRoomEntryVisit(client, room1));
         await vi.runOnlyPendingTimersAsync();
         expect(space.loadMembersIfNeeded).toHaveBeenCalled();
         vi.runAllTimers();

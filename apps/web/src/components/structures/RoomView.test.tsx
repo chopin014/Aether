@@ -92,7 +92,7 @@ import { TimelineRenderingType } from "../../contexts/RoomContext";
 import { ModuleApi } from "../../modules/Api";
 import MatrixClientBackedController from "../../settings/controllers/MatrixClientBackedController.ts";
 import { type ComposerInsertPayload, ComposerType } from "../../dispatcher/payloads/ComposerInsertPayload.ts";
-import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
+import { currentRoomEntryVisit, notifyRoomEntryReady } from "../../performance/RoomEntryReady";
 import { ElementCall } from "../../models/Call";
 import { ScopedRoomContextProvider } from "../../contexts/ScopedRoomContext";
 import { RoomTimelineViewModel } from "../../viewmodels/room/timeline/RoomTimelineViewModel";
@@ -270,7 +270,7 @@ describe("RoomView", () => {
         const load = vi.spyOn(stores.memberListStore, "ensureMembersLoaded").mockResolvedValue(undefined);
         await mountRoomView(undefined, { hideHeader: true, hideComposer: true });
         expect(load).not.toHaveBeenCalled();
-        act(() => notifyRoomEntryReady(cli, room.roomId));
+        act(() => notifyRoomEntryReady(cli, room.roomId, currentRoomEntryVisit(cli, room.roomId)));
         await waitFor(() => expect(load).toHaveBeenCalledWith(room.roomId));
     });
 
@@ -280,7 +280,7 @@ describe("RoomView", () => {
         const load = vi.spyOn(stores.memberListStore, "ensureMembersLoaded").mockResolvedValue(undefined);
         const { unmount } = await mountRoomView(undefined, { hideHeader: true, hideComposer: true });
         unmount();
-        act(() => notifyRoomEntryReady(cli, room.roomId));
+        act(() => notifyRoomEntryReady(cli, room.roomId, currentRoomEntryVisit(cli, room.roomId)));
         await new Promise((resolve) => setTimeout(resolve, 0));
         expect(load).not.toHaveBeenCalled();
     });

@@ -59,7 +59,12 @@ import { type ViewRoomPayload } from "../../dispatcher/payloads/ViewRoomPayload"
 import { getKeyBindingsManager } from "../../KeyBindingsManager";
 import { KeyBindingAction } from "../../accessibility/KeyboardShortcuts";
 import { haveRendererForEvent } from "../../events/EventTileFactory";
-import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
+import {
+    currentRoomEntryVisit,
+    notifyRoomEntryReady,
+    onRoomEntryVisit,
+    type RoomEntryVisit,
+} from "../../performance/RoomEntryReady";
 
 // These pagination sizes are higher than they may possibly need be
 // once https://github.com/matrix-org/matrix-spec-proposals/pull/3874 lands
@@ -151,6 +156,12 @@ interface IProps {
      * @default true
      */
     enableReadReceiptsAndMarkersOnActivity?: boolean;
+
+    /**
+     * Whether this is the main room view's timeline, whose first paint in each visit releases the room's deferred work;
+     * see `RoomEntryReady`. Other timelines, such as a thread's or one a module embeds, release nothing.
+     */
+    primaryRoomEntry?: boolean;
 }
 
 interface IState {
@@ -254,6 +265,12 @@ class TimelinePanel extends React.Component<IProps, IState> {
     private unmounted = false;
     private initialReadyFrame?: number;
     private entryPainted = false;
+    /**
+     * The visit to the room this timeline notifies its first paint for, when it is the room's main timeline; see
+     * `RoomEntryReady`. Other timelines of the room, such as a thread's, notify nothing.
+     */
+    private entryVisit?: RoomEntryVisit;
+    private stopWatchingEntryVisit?: () => void;
     private readReceiptActivityTimer: Timer | null = null;
     private readMarkerActivityTimer: Timer | null = null;
 
@@ -322,6 +339,7 @@ class TimelinePanel extends React.Component<IProps, IState> {
         cli.on(ClientEvent.Sync, this.onSync);
 
         this.props.timelineSet.room?.on(ThreadEvent.Update, this.onThreadUpdate);
+        this.watchEntryVisit();
 
         if (this.props.manageReadReceipts && this.props.enableReadReceiptsAndMarkersOnActivity) {
             void this.updateReadReceiptOnUserActivity();
@@ -350,6 +368,16 @@ class TimelinePanel extends React.Component<IProps, IState> {
 
         this.props.timelineSet.room?.off(ThreadEvent.Update, this.onThreadUpdate);
         this.props.timelineSet.room?.on(ThreadEvent.Update, this.onThreadUpdate);
+        if (prevProps.timelineSet !== this.props.timelineSet) {
+            // A check scheduled for the last timeline set is of what that one painted.
+            if (this.initialReadyFrame !== undefined) cancelAnimationFrame(this.initialReadyFrame);
+            this.initialReadyFrame = undefined;
+            this.stopWatchingEntryVisit?.();
+            this.stopWatchingEntryVisit = undefined;
+            this.entryVisit = undefined;
+            this.entryPainted = false;
+            this.watchEntryVisit();
+        }
 
         const differentEventId = prevProps.eventId != this.props.eventId;
         const differentHighlightedEventId = prevProps.highlightedEventId != this.props.highlightedEventId;
@@ -369,6 +397,7 @@ class TimelinePanel extends React.Component<IProps, IState> {
 
     public componentWillUnmount(): void {
         if (this.initialReadyFrame !== undefined) cancelAnimationFrame(this.initialReadyFrame);
+        this.stopWatchingEntryVisit?.();
         // set a boolean to say we've been unmounted, which any pending
         // promises can use to throw away their results.
         //
@@ -1639,13 +1668,38 @@ class TimelinePanel extends React.Component<IProps, IState> {
         const state = this.getEvents();
         this.buildLegacyCallEventGroupers(state.events);
         this.setState(state);
-        if (this.entryPainted) return;
+        this.notifyEntryOnPaint();
+    }
+
+    /**
+     * Follow the visits to the room, when this is its main timeline, so that its first paint in each is notified;
+     * see `RoomEntryReady`.
+     */
+    private watchEntryVisit(): void {
+        const room = this.props.timelineSet.room;
+        if (!this.props.primaryRoomEntry || !room || this.props.timelineSet !== room.getUnfilteredTimelineSet()) return;
+        const client = MatrixClientPeg.safeGet();
+        this.entryVisit = currentRoomEntryVisit(client, room.roomId);
+        this.stopWatchingEntryVisit = onRoomEntryVisit(client, room.roomId, () => {
+            // Still shown as the room is opened again: its next paint is the new visit's.
+            this.entryVisit = currentRoomEntryVisit(client, room.roomId);
+            this.entryPainted = false;
+            this.notifyEntryOnPaint();
+        });
+    }
+
+    /** Notify the room's visit once a message has painted in view, if it has not been notified yet. */
+    private notifyEntryOnPaint(): void {
+        const visit = this.entryVisit;
+        if (this.entryPainted || !visit) return;
         if (this.initialReadyFrame !== undefined) cancelAnimationFrame(this.initialReadyFrame);
         this.initialReadyFrame = requestAnimationFrame(() => {
             this.initialReadyFrame = requestAnimationFrame(() => {
                 this.initialReadyFrame = undefined;
                 const room = this.props.timelineSet.room;
                 if (!room || this.unmounted || this.props.hidden || this.state.timelineLoading) return;
+                // Scheduled for another visit, or another timeline set, than the one this panel now shows.
+                if (visit !== this.entryVisit) return;
                 const viewport = this.messagePanelDiv?.getBoundingClientRect();
                 if (!viewport || !this.messagePanel.current) return;
                 if (
@@ -1659,7 +1713,7 @@ class TimelinePanel extends React.Component<IProps, IState> {
                     })
                 ) {
                     this.entryPainted = true;
-                    notifyRoomEntryReady(MatrixClientPeg.safeGet(), room.roomId);
+                    notifyRoomEntryReady(MatrixClientPeg.safeGet(), room.roomId, visit);
                 }
             });
         });

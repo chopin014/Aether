@@ -49,6 +49,7 @@ import MediaDeviceHandler, { MediaDeviceKindEnum } from "../MediaDeviceHandler";
 import { storeRoomAliasInCache } from "../RoomAliasCache.ts";
 import { prefetchAliasPreview } from "../performance/AliasRoomSummary";
 import * as roomSwitch from "../performance/RoomSwitchPerformance";
+import * as roomEntry from "../performance/RoomEntryReady";
 import { type Call, ConnectionState } from "../models/Call.ts";
 import ActiveWidgetStore from "./ActiveWidgetStore";
 import { ModuleApi } from "../modules/Api";
@@ -310,6 +311,34 @@ describe("RoomViewStore", function () {
             ["navigation", roomId2],
         ]);
         mark.mockRestore();
+    });
+
+    it("begins a new visit for work put off until the room paints, each time the view changes to a room", async () => {
+        const begin = vi.spyOn(roomEntry, "beginRoomEntryVisit");
+        dis.dispatch({ action: Action.ViewRoom, room_id: roomId });
+        await untilDispatch(Action.ActiveRoomChanged, dis);
+        dis.dispatch({ action: Action.ViewRoom, room_id: roomId2 });
+        await untilDispatch(Action.ActiveRoomChanged, dis);
+        dis.dispatch({ action: Action.ViewRoom, room_id: roomId });
+        await untilDispatch(Action.ActiveRoomChanged, dis);
+
+        expect(begin.mock.calls.map(([, id]) => id)).toEqual([roomId, roomId2, roomId]);
+        expect(begin.mock.calls[0][0]).toBe(MatrixClientPeg.safeGet());
+        begin.mockRestore();
+    });
+
+    it("does not begin a visit for the room already open, or for leaving rooms", async () => {
+        dis.dispatch({ action: Action.ViewRoom, room_id: roomId });
+        await untilDispatch(Action.ActiveRoomChanged, dis);
+        const begin = vi.spyOn(roomEntry, "beginRoomEntryVisit");
+
+        dis.dispatch({ action: Action.ViewRoom, room_id: roomId, highlighted: true, event_id: "$event" });
+        await sleep(0);
+        dis.dispatch({ action: Action.ViewHomePage });
+        await untilDispatch(Action.ActiveRoomChanged, dis);
+
+        expect(begin).not.toHaveBeenCalled();
+        begin.mockRestore();
     });
 
     it("invokes room activity listeners when the viewed room changes", async () => {

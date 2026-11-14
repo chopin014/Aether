@@ -33,7 +33,7 @@ import { UPDATE_SELECTED_SPACE } from "../../stores/spaces";
 import { SEPARATOR, useMemberListViewModel } from "../../components/viewmodels/memberlist/MemberListViewModel";
 import { isMemberHeading, type DesktopMemberListItem } from "./desktopMemberGroups";
 import { useDesktopMemberListViewModel } from "./useDesktopMemberListViewModel";
-import { notifyRoomEntryReady } from "../../performance/RoomEntryReady";
+import { currentRoomEntryVisit, notifyRoomEntryReady } from "../../performance/RoomEntryReady";
 
 function headings(items: DesktopMemberListItem[]) {
     return items.filter(isMemberHeading).map(({ heading, count }) => [heading, count]);
@@ -76,7 +76,7 @@ function setup(inSpace = false, enabled = true, loadSpace: () => Promise<boolean
     const cy = addMember(room, "Cy", 0, "offline");
     const serverAda = addMember(space, "Ada", 0);
     const serverBob = addMember(space, "Bob", 100);
-    if (painted) notifyRoomEntryReady(client, room.roomId);
+    if (painted) notifyRoomEntryReady(client, room.roomId, currentRoomEntryVisit(client, room.roomId));
 
     const hook = renderHook(
         () => {
@@ -119,14 +119,14 @@ describe("useDesktopMemberListViewModel", () => {
         await waitFor(() => expect(result.current.vm.isLoading).toBe(false));
         expect(memberRows(result.current.items)[0].name).toBe("Bob");
         expect(space.loadMembersIfNeeded).not.toHaveBeenCalled();
-        act(() => notifyRoomEntryReady(client, room.roomId));
+        act(() => notifyRoomEntryReady(client, room.roomId, currentRoomEntryVisit(client, room.roomId)));
         await waitFor(() => expect(space.loadMembersIfNeeded).toHaveBeenCalledOnce());
     });
 
     it("cancels deferred Space hydration after the member list unmounts", async () => {
         const { client, space, room, unmount } = setup(true, true, async () => false, false);
         unmount();
-        act(() => notifyRoomEntryReady(client, room.roomId));
+        act(() => notifyRoomEntryReady(client, room.roomId, currentRoomEntryVisit(client, room.roomId)));
         await new Promise((resolve) => setTimeout(resolve, 0));
         expect(space.loadMembersIfNeeded).not.toHaveBeenCalled();
     });
