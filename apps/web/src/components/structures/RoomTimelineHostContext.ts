@@ -34,6 +34,8 @@ export interface RoomTimelineSlotPacket {
     /** The room view's own handlers, which keys and focus in its timeline reach as they bubble. */
     readonly onKeyDown: (event: KeyboardEvent) => void;
     readonly onFocus: (event: FocusEvent) => void;
+    /** Called once the host has given the timeline up after an error in drawing it, so the room view draws its own. */
+    readonly onFailed: () => void;
 }
 
 /** How a room view's timeline slot lends its place to the host. */

@@ -98,7 +98,7 @@ export function RoomTimelineHost({ client, children }: Readonly<Props>): JSX.Ele
             {current &&
                 entry &&
                 createPortal(
-                    <HostedTimeline host={vm} timeline={entry.vm} docked={current} />,
+                    <HostedTimeline host={vm} timeline={entry.vm} docked={current} onError={controller.release} />,
                     current.container,
                     String(current.lease.entryId),
                 )}
@@ -110,10 +110,12 @@ interface HostedTimelineProps {
     host: RoomTimelineHostViewModel;
     timeline: RoomTimelineViewModel;
     docked: Docked;
+    /** Gives the timeline up, as an error in drawing it leaves nothing to show. */
+    onError: (lease: RoomTimelineLease) => void;
 }
 
 /** One timeline the host draws, around it what the room view would have had around it, as `NewTimelinePanel` does. */
-function HostedTimeline({ host, timeline, docked }: Readonly<HostedTimelineProps>): JSX.Element {
+function HostedTimeline({ host, timeline, docked, onError }: Readonly<HostedTimelineProps>): JSX.Element {
     const { lease, packet } = docked;
 
     // The timeline may act only while its lease is current: once released, what it still has scheduled is dropped.
@@ -132,7 +134,13 @@ function HostedTimeline({ host, timeline, docked }: Readonly<HostedTimelineProps
     }, [timeline]);
 
     return (
-        <ErrorBoundary>
+        <ErrorBoundary
+            onError={() => {
+                // Disposed of at once, rather than left running behind the error, and the room view draws its own.
+                onError(lease);
+                packet.onFailed();
+            }}
+        >
             <ScopedRoomContextProvider {...packet.roomContext}>
                 <RoomUploadContext.Provider value={packet.upload}>
                     <EventPresentationContextProvider layout={packet.renderer.layout ?? Layout.Group}>

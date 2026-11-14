@@ -77,6 +77,7 @@ export function RoomTimelineSlot({
         upload,
         onKeyDown,
         onFocus,
+        onFailed: () => setDeclinedBy(host),
     };
     const packetRef = useRef(packet);
     packetRef.current = packet;

@@ -8,7 +8,7 @@ Please see LICENSE in the repository root for full details.
 // @vitest-environment happy-dom
 
 import React, { type ComponentProps, type JSX, useContext, useImperativeHandle } from "react";
-import { act, fireEvent, render, screen } from "test-utils-rtl";
+import { act, fireEvent, render, screen, waitFor } from "test-utils-rtl";
 import { type MatrixClient, PendingEventOrdering, Room } from "matrix-js-sdk/src/matrix";
 import { useEventPresentation, type TimelineViewExecution } from "@element-hq/web-shared-components";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,7 +27,12 @@ import * as roomSwitch from "../../performance/RoomSwitchPerformance";
 
 /** What the stand-in renderer was last drawn with. */
 const { drawn } = vi.hoisted(() => ({
-    drawn: {} as { props?: ComponentProps<typeof NewTimelineRenderer>; panel?: RoomMessagePanel },
+    drawn: {} as {
+        props?: ComponentProps<typeof NewTimelineRenderer>;
+        panel?: RoomMessagePanel;
+        /** Set to make the renderer throw as it renders. */
+        fail?: boolean;
+    },
 }));
 
 // The renderer draws the timeline; here it shows what reached it.
@@ -37,6 +42,7 @@ vi.mock("./NewTimelineRenderer", () => {
     return {
         NewTimelineRenderer: (props: ComponentProps<typeof NewTimelineRenderer>): JSX.Element => {
             drawn.props = props;
+            if (drawn.fail) throw new Error("The renderer broke");
             const { numUnreadMessages } = useScopedRoomContext("numUnreadMessages");
             const upload = useContext(RoomUploadContext);
             const { layout } = useEventPresentation();
@@ -70,6 +76,7 @@ describe("RoomTimelineHost", () => {
         start = vi.spyOn(RoomTimelineViewModel.prototype, "start").mockImplementation(() => {});
         for (const handler of Object.values(handlers)) handler.mockReset();
         delete drawn.props;
+        drawn.fail = false;
     });
 
     afterEach(() => {
@@ -186,6 +193,28 @@ describe("RoomTimelineHost", () => {
 
         expect(execution.isCurrent()).toBe(false);
         expect(execution.onPlaced()).toBe(false);
+    });
+
+    it("draws the timeline in its slot when React replays effects in StrictMode", async () => {
+        render(app(roomView(roomA)), { reactStrictMode: true });
+
+        await waitFor(() => expect(screen.getByTestId("timeline")).toBeInTheDocument());
+        expect(screen.getByTestId("timeline-area").contains(screen.getByTestId("timeline"))).toBe(true);
+        expect(screen.queryByTestId("ordinary-timeline")).toBeNull();
+        expect(drawn.props!.vm.isDisposed).toBe(false);
+    });
+
+    it("gives the timeline up at once after an error in drawing it, and lets the room view draw its own", () => {
+        const { rerender } = render(app(roomView(roomA, 3)));
+        const timeline = drawn.props!.vm;
+
+        drawn.fail = true;
+        rerender(app(roomView(roomA, 4)));
+
+        expect(timeline.isDisposed).toBe(true);
+        expect(screen.queryByTestId("timeline")).toBeNull();
+        expect(screen.getByTestId("ordinary-timeline")).toBeInTheDocument();
+        expect(screen.getByTestId("timeline-area").querySelector(".mx_RoomTimelineHost_entry")).toBeNull();
     });
 
     it("lets the room view draw its timeline itself without a host", () => {
