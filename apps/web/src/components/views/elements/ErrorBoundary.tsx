@@ -18,6 +18,8 @@ import { BugReportDialogButton } from "./BugReportDialogButton";
 
 interface Props {
     children: ReactNode;
+    /** Called once an error from a child has been caught, after it is logged. */
+    onError?: (error: Error) => void;
 }
 
 interface IState {
@@ -46,6 +48,7 @@ export default class ErrorBoundary extends React.PureComponent<Props, IState> {
         // in their own `console.error` invocation.
         logger.error(error);
         logger.error("The above error occurred while React was rendering the following components:", componentStack);
+        this.props.onError?.(error);
     }
 
     private onClearCacheAndReload = (): void => {

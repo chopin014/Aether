@@ -17,6 +17,7 @@ export type {
     TimelineViewActions,
     TimelineViewModel,
     TimelineViewProps,
+    TimelineViewExecution,
     NavigationAnchor,
     AnchorAlign,
     ImmediateScroll,

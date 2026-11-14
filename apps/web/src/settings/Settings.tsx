@@ -219,6 +219,7 @@ export interface Settings {
     "feature_pdf_viewer": IFeature;
     "feature_retention": IFeature;
     "feature_new_timeline": IFeature;
+    "feature_retained_room_timeline": IFeature;
     "feature_ask_to_join": IFeature;
     "feature_notifications": IFeature;
     "feature_msc4362_encrypted_state_events": IFeature;
@@ -654,6 +655,19 @@ export const SETTINGS: Settings & { test_setting: IBaseSetting<string> } = {
         // On by default, as in the desktop app.
         default: true,
         controller: new ReloadOnChangeController(),
+    },
+    "feature_retained_room_timeline": {
+        // A deployment's config.json wins over the choice saved on the device, so it can turn the experiment off.
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS_WITH_CONFIG_PRIORITISED,
+        supportedLevelsAreOrdered: true,
+        labsGroup: LabGroup.Ui,
+        displayName: _td("labs|retained_room_timeline"),
+        description: _td("labs|retained_room_timeline_description"),
+        isFeature: true,
+        default: false,
+        // The room view chooses how to draw its timeline as it mounts, so a change takes effect on reload. It works only
+        // with the new timeline.
+        controller: [new ReloadOnChangeController(), new RequiresSettingsController(["feature_new_timeline"])],
     },
     // Covers every document viewer, not only PDFs. The key predates the Markdown viewer and is kept so
     // that people who already turned the lab on keep it, and only for as long as the lab exists.

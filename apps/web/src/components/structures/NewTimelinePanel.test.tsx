@@ -49,9 +49,10 @@ const USER_ID = "@alice:example.org";
 // The virtualised TimelineView needs real layout, which this environment has none
 // of, and it has its own tests in shared-components. Stand in a stub that simply
 // draws every row, so these tests cover how this panel renders each kind of row.
-const { rowsRendered, paintedItems } = vi.hoisted(() => ({
+const { rowsRendered, paintedItems, viewExecution } = vi.hoisted(() => ({
     rowsRendered: { current: [] as unknown[] },
     paintedItems: { current: undefined as ((items: TimelineItem[]) => void) | undefined },
+    viewExecution: { current: undefined as unknown },
 }));
 
 vi.mock("@element-hq/web-shared-components", async () => {
@@ -64,14 +65,17 @@ vi.mock("@element-hq/web-shared-components", async () => {
             vm,
             renderItem,
             onItemsPainted,
+            execution,
         }: {
             vm: { getSnapshot: () => { items: TimelineItem[] } };
             renderItem: (item: TimelineItem) => React.ReactNode;
             onItemsPainted?: (items: TimelineItem[]) => void;
+            execution?: unknown;
         }) => {
             const items = vm.getSnapshot().items;
             rowsRendered.current = items;
             paintedItems.current = onItemsPainted;
+            viewExecution.current = execution;
             return (
                 <div data-testid="timeline-scroller">
                     <div data-testid="timeline-stub">{items.map((item) => renderItem(item))}</div>
@@ -257,6 +261,24 @@ describe("<NewTimelinePanel />", () => {
 
         expect(vmSpies.start).not.toHaveBeenCalled();
         expect(vmSpies.dispose).not.toHaveBeenCalled();
+    });
+
+    it("hands the timeline view the execution it is lent with, and none when it owns its view model", () => {
+        const vm = new RoomTimelineViewModel({ client, room });
+        const execution = { revision: 1, isCurrent: () => true, onPlaced: () => true };
+        withItems([eventRow(event)]);
+        const { unmount } = render(
+            <MatrixClientContext.Provider value={client}>
+                <SDKContext.Provider value={new TestSDKContext()}>
+                    <NewTimelineRenderer vm={vm} room={room} execution={execution} />
+                </SDKContext.Provider>
+            </MatrixClientContext.Provider>,
+        );
+        expect(viewExecution.current).toBe(execution);
+        unmount();
+
+        renderPanel();
+        expect(viewExecution.current).toBeUndefined();
     });
 
     it("releases decorative loading, and marks the room painted, only after conversation rows have painted", () => {

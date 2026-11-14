@@ -12,7 +12,14 @@ import { describe, it, expect, vi } from "vitest";
 import { page } from "vitest/browser";
 
 import { TimelineView } from "./TimelineView";
-import { BACKWARD_LOADING_KEY, type TimelineItem, type TimelineViewModel, type TimelineViewSnapshot } from "./types";
+import {
+    BACKWARD_LOADING_KEY,
+    type ImmediateScroll,
+    type TimelineItem,
+    type TimelineViewExecution,
+    type TimelineViewModel,
+    type TimelineViewSnapshot,
+} from "./types";
 
 const baseSnapshot: TimelineViewSnapshot = {
     items: [],
@@ -799,6 +806,251 @@ describe("<TimelineView />", () => {
             update({ items: eventItems(30, 100), visit: visit(1, true, 2) });
 
             await waitFor(() => expect(actions.onVisibleRangeChanged).toHaveBeenCalledWith(start, end));
+        });
+    });
+
+    describe("when a host lends it to one room at a time", () => {
+        /** An execution whose answers the test sets; `next` gives a new one, as the host does when they change. */
+        const gate = (
+            revision = 1,
+        ): { open: boolean; placed: boolean; revision: number; next: () => TimelineViewExecution } => {
+            const state = {
+                open: false,
+                placed: true,
+                revision,
+                next: (): TimelineViewExecution => ({
+                    revision: state.revision,
+                    isCurrent: () => state.open,
+                    onPlaced: () => state.placed,
+                }),
+            };
+            return state;
+        };
+        const renderLent = (
+            vm: TimelineViewModel,
+            execution: TimelineViewExecution,
+            onItemsPainted?: (items: TimelineItem[]) => void,
+        ): ((next: TimelineViewExecution) => void) => {
+            const tree = (current: TimelineViewExecution): React.ReactElement => (
+                <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                    <TimelineView vm={vm} renderItem={renderItem} execution={current} onItemsPainted={onItemsPainted} />
+                </div>
+            );
+            const { rerender } = render(tree(execution));
+            return (next) => rerender(tree(next));
+        };
+        const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 150));
+
+        it("does not place or report before execution is current", async () => {
+            const { vm, actions } = makeFakeVm({ items: eventItems(30) });
+            const execution = gate();
+            const rerender = renderLent(vm, execution.next());
+            await settle();
+
+            expect(actions.onAnchorReached).not.toHaveBeenCalled();
+            expect(actions.onVisibleRangeChanged).not.toHaveBeenCalled();
+            expect(screen.getByTestId("timeline-scroller")).toHaveStyle({ visibility: "hidden" });
+
+            execution.open = true;
+            rerender(execution.next());
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+            await waitFor(() => expect(actions.onVisibleRangeChanged).toHaveBeenCalled());
+            expect(screen.getByTestId("timeline-scroller")).toHaveStyle({ visibility: "visible" });
+        });
+
+        it("waits for the rows its view model accepted for the visit it is on", async () => {
+            const { vm, actions, update } = makeFakeVm({
+                items: eventItems(30),
+                visit: { generation: 2, rowsReady: false, placementRevision: 1 },
+            });
+            const execution = gate();
+            execution.open = true;
+            renderLent(vm, execution.next());
+            await settle();
+            expect(actions.onAnchorReached).not.toHaveBeenCalled();
+
+            update({ visit: { generation: 2, rowsReady: true, placementRevision: 2 } });
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+        });
+
+        it("abandons a placement its host no longer allows, and places once allowed again", async () => {
+            const { vm, actions } = makeFakeVm({ items: eventItems(30) });
+            const execution = gate();
+            execution.open = true;
+            execution.placed = false;
+            const rerender = renderLent(vm, execution.next());
+            await settle();
+
+            expect(actions.onAnchorReached).not.toHaveBeenCalled();
+            expect(screen.getByTestId("timeline-scroller")).toHaveStyle({ visibility: "hidden" });
+
+            execution.placed = true;
+            rerender(execution.next());
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+        });
+
+        it("stops placing when its host stops allowing it part-way, and places once allowed again", async () => {
+            // Without ResizeObserver rows are measured as they mount, so placement goes on over frames.
+            vi.stubGlobal("ResizeObserver", undefined);
+            try {
+                const { vm, actions, update } = makeFakeVm({ items: eventItems(30) });
+                const execution = gate();
+                execution.open = true;
+                const rerender = renderLent(vm, execution.next());
+                const scroller = screen.getByTestId("timeline-scroller");
+                expect(actions.onAnchorReached).not.toHaveBeenCalled();
+
+                execution.open = false;
+                const offset = scroller.scrollTop;
+                // A commit while it is closed tries to place before the paint, as every commit while placing does.
+                update({ numUnreadMessages: 1 });
+                await settle();
+
+                expect(actions.onAnchorReached).not.toHaveBeenCalled();
+                expect(scroller).toHaveStyle({ visibility: "hidden" });
+                expect(scroller.scrollTop).toBe(offset);
+
+                execution.open = true;
+                rerender(execution.next());
+                await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+            } finally {
+                vi.unstubAllGlobals();
+            }
+        });
+
+        it("does not tell its view model of a later jump its host refuses", async () => {
+            const { vm, actions, update } = makeFakeVm({ items: eventItems(60) });
+            const execution = gate();
+            execution.open = true;
+            renderLent(vm, execution.next());
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+            actions.onAnchorReached.mockClear();
+
+            execution.placed = false;
+            update({ pendingAnchor: { targetKey: "evt-5", align: "start" } });
+            await settle();
+
+            expect(actions.onAnchorReached).not.toHaveBeenCalled();
+        });
+
+        it("drops painted callbacks its host no longer allows", async () => {
+            const { vm, actions, update } = makeFakeVm({ items: eventItems(30) });
+            const painted = vi.fn();
+            const execution = gate();
+            execution.open = true;
+            renderLent(vm, execution.next(), painted);
+            await waitFor(() => expect(painted).toHaveBeenCalled(), { timeout: 5000 });
+            expect(actions.onAnchorReached).toHaveBeenCalled();
+
+            // The host closes, and a frame is scheduled and drawn while it is closed.
+            execution.open = false;
+            painted.mockClear();
+            update({ numUnreadMessages: 1 });
+            await settle();
+            expect(painted).not.toHaveBeenCalled();
+        });
+
+        it("places its anchor again and reports what it shows for a new execution revision", async () => {
+            const { vm, actions } = makeFakeVm({
+                items: eventItems(60),
+                pendingAnchor: { targetKey: "evt-10", align: "start" },
+            });
+            const execution = gate();
+            execution.open = true;
+            const rerender = renderLent(vm, execution.next());
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalledWith("evt-10"), { timeout: 5000 });
+            const scroller = screen.getByTestId("timeline-scroller");
+            const placedAt = scroller.scrollTop;
+
+            // The reader scrolls away; the view is then moved, and has to place its anchor again.
+            act(() => {
+                scroller.scrollTop = placedAt + 400;
+            });
+            await settle();
+            actions.onAnchorReached.mockClear();
+            execution.revision = 2;
+            rerender(execution.next());
+
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalledWith("evt-10"));
+            expect(Math.abs(scroller.scrollTop - placedAt)).toBeLessThan(ROW_HEIGHT);
+        });
+
+        it("reports an unchanged range again after a new execution revision", async () => {
+            const { vm, actions } = makeFakeVm({ items: eventItems(30) });
+            const execution = gate();
+            execution.open = true;
+            const rerender = renderLent(vm, execution.next());
+            await waitFor(() => expect(actions.onVisibleRangeChanged).toHaveBeenCalled(), { timeout: 5000 });
+            await settle();
+            const [start, end] = actions.onVisibleRangeChanged.mock.calls.at(-1)!;
+            actions.onVisibleRangeChanged.mockClear();
+            actions.onAtBottomStateChange.mockClear();
+
+            execution.revision = 2;
+            rerender(execution.next());
+
+            await waitFor(() => expect(actions.onVisibleRangeChanged).toHaveBeenCalledWith(start, end));
+            expect(actions.onAtBottomStateChange).toHaveBeenCalledWith(true);
+        });
+
+        it("does not report what the reader scrolls to while its host does not allow it", async () => {
+            const { vm, actions } = makeFakeVm({ items: eventItems(60) });
+            const execution = gate();
+            execution.open = true;
+            renderLent(vm, execution.next());
+            await waitFor(() => expect(actions.onVisibleRangeChanged).toHaveBeenCalled(), { timeout: 5000 });
+            await settle();
+            actions.onVisibleRangeChanged.mockClear();
+            actions.onAtBottomStateChange.mockClear();
+
+            execution.open = false;
+            act(() => {
+                screen.getByTestId("timeline-scroller").scrollTop = 0;
+            });
+            await settle();
+
+            expect(actions.onVisibleRangeChanged).not.toHaveBeenCalled();
+            expect(actions.onAtBottomStateChange).not.toHaveBeenCalled();
+        });
+
+        it("does not jump to a message while its host does not allow it", async () => {
+            const { vm, actions, update } = makeFakeVm({ items: eventItems(60) });
+            const execution = gate();
+            execution.open = true;
+            renderLent(vm, execution.next());
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+            const scroller = screen.getByTestId("timeline-scroller");
+            const placedAt = scroller.scrollTop;
+            actions.onAnchorReached.mockClear();
+
+            execution.open = false;
+            update({ pendingAnchor: { targetKey: "evt-5", align: "start" } });
+            await settle();
+
+            expect(actions.onAnchorReached).not.toHaveBeenCalled();
+            expect(scroller.scrollTop).toBe(placedAt);
+        });
+
+        it("does not scroll for an overlay button while its host does not allow it", async () => {
+            const { vm, actions } = makeFakeVm({ items: eventItems(60), isAtBottom: false, atLiveEnd: true });
+            const execution = gate();
+            execution.open = true;
+            renderLent(vm, execution.next());
+            await waitFor(() => expect(actions.onAnchorReached).toHaveBeenCalled(), { timeout: 5000 });
+            const scroller = screen.getByTestId("timeline-scroller");
+            act(() => {
+                scroller.scrollTop = 0;
+            });
+            await settle();
+
+            execution.open = false;
+            // The jump to the newest message asks for an immediate scroll, which a closed view ignores.
+            actions.onJumpToLive.mockImplementation((scrollNow: ImmediateScroll) =>
+                scrollNow({ targetKey: "evt-59", align: "end" }),
+            );
+            await userEvent.click(await screen.findByRole("button", { name: "Scroll to most recent messages" }));
+            await settle();
+            expect(scroller.scrollTop).toBe(0);
         });
     });
 

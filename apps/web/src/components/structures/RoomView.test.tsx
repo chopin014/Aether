@@ -80,6 +80,7 @@ import { type ViewRoomErrorPayload } from "../../dispatcher/payloads/ViewRoomErr
 import { SearchScope } from "../../Searching";
 import { MEGOLM_ENCRYPTION_ALGORITHM } from "../../utils/crypto";
 import MatrixClientContext from "../../contexts/MatrixClientContext";
+import { RoomTimelineHost } from "./RoomTimelineHost";
 import { type ViewUserPayload } from "../../dispatcher/payloads/ViewUserPayload.ts";
 import { CallStore } from "../../stores/CallStore.ts";
 import MediaDeviceHandler, { MediaDeviceKindEnum } from "../../MediaDeviceHandler.ts";
@@ -158,6 +159,7 @@ describe("RoomView", () => {
     const mountRoomView = async (
         ref?: RefObject<RoomView | null>,
         props?: Partial<ComponentProps<typeof RoomView>>,
+        around: (view: React.ReactNode) => React.ReactNode = (view) => view,
     ): Promise<RenderResult> => {
         if (stores.roomViewStore.getRoomId() !== room.roomId) {
             const switchedRoom = new Promise<void>((resolve) => {
@@ -193,7 +195,7 @@ describe("RoomView", () => {
             {
                 wrapper: ({ children }) => (
                     <MatrixClientContext.Provider value={cli}>
-                        <SDKContext.Provider value={stores}>{children}</SDKContext.Provider>
+                        <SDKContext.Provider value={stores}>{around(children)}</SDKContext.Provider>
                     </MatrixClientContext.Provider>
                 ),
             },
@@ -627,6 +629,56 @@ describe("RoomView", () => {
         await waitFor(() => expect(container.querySelector(".mx_NewTimelinePanel")).not.toBeNull());
         expect(container.querySelector(".mx_JumpToBottomButton")).toBeNull();
         expect(container.querySelector(".mx_TopUnreadMessagesBar")).toBeNull();
+    });
+
+    describe("with the room timeline host lab", () => {
+        const withSettings = (retained: boolean): void => {
+            const getValue = SettingsStore.getValue.bind(SettingsStore);
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...args) =>
+                name === "feature_new_timeline"
+                    ? true
+                    : name === "feature_retained_room_timeline"
+                      ? retained
+                      : getValue(name, ...args),
+            );
+        };
+        const inHost = (view: React.ReactNode): React.ReactNode => (
+            <RoomTimelineHost client={cli}>{view}</RoomTimelineHost>
+        );
+
+        beforeEach(() => {
+            vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+        });
+
+        it("lends the main room view's timeline to the host, which draws it in the room's timeline area", async () => {
+            withSettings(true);
+            const { container } = await mountRoomView(undefined, { primaryTimelineHost: true }, inHost);
+
+            await waitFor(() =>
+                expect(
+                    container.querySelector(
+                        "main[data-testid='timeline'] .mx_RoomTimelineSlot .mx_RoomTimelineHost_entry .mx_NewTimelinePanel",
+                    ),
+                ).not.toBeNull(),
+            );
+            expect(container.querySelectorAll(".mx_NewTimelinePanel")).toHaveLength(1);
+        });
+
+        it("draws its own timeline when it is not the main room view", async () => {
+            withSettings(true);
+            const { container } = await mountRoomView(undefined, {}, inHost);
+
+            await waitFor(() => expect(container.querySelector(".mx_NewTimelinePanel")).not.toBeNull());
+            expect(container.querySelector(".mx_RoomTimelineSlot")).toBeNull();
+        });
+
+        it("draws its own timeline with the lab off", async () => {
+            withSettings(false);
+            const { container } = await mountRoomView(undefined, { primaryTimelineHost: true }, inHost);
+
+            await waitFor(() => expect(container.querySelector(".mx_NewTimelinePanel")).not.toBeNull());
+            expect(container.querySelector(".mx_RoomTimelineSlot")).toBeNull();
+        });
     });
 
     describe("desktop pinned messages", () => {

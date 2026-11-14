@@ -299,4 +299,29 @@ export interface TimelineViewProps {
      * shows it. Defaults to none.
      */
     paddingBlock?: number;
+    /**
+     * When the view may act, for a view that a host lends to one room's timeline at a time. Without it the view acts
+     * whenever it is mounted. Give a new object whenever `isCurrent` may have changed its answer, so the view looks
+     * again.
+     */
+    execution?: TimelineViewExecution;
+}
+
+/**
+ * When a {@link TimelineView} may act on what it shows. The view checks it synchronously before it measures, scrolls,
+ * places its rows or reports to its view model, and drops work it scheduled earlier that it no longer allows.
+ */
+export interface TimelineViewExecution {
+    /**
+     * Grows each time the view has to place its rows afresh, such as once it is moved somewhere else on the page.
+     * Work scheduled under an earlier revision is dropped, and the current target is placed again.
+     */
+    readonly revision: number;
+    /** Whether the view may measure, scroll, place its rows and report now. */
+    readonly isCurrent: () => boolean;
+    /**
+     * Called as a placement completes, before the view is shown or its view model told. False abandons the placement,
+     * which starts again once the view is given a new execution.
+     */
+    readonly onPlaced: () => boolean;
 }

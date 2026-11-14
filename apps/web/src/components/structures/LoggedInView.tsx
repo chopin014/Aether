@@ -63,6 +63,7 @@ import AudioFeedArrayForLegacyCall from "../views/voip/AudioFeedArrayForLegacyCa
 import { OwnProfileStore } from "../../stores/OwnProfileStore";
 import { UPDATE_EVENT } from "../../stores/AsyncStore";
 import { RoomView } from "./RoomView";
+import { RoomTimelineHost } from "./RoomTimelineHost";
 import ToastContainer from "./ToastContainer";
 import { ToastPortal } from "./ToastPortal";
 import UserView from "./UserView";
@@ -719,6 +720,7 @@ class LoggedInView extends React.Component<IProps, IState> {
                         key={this.props.currentRoomId || "roomview"}
                         justCreatedOpts={this.props.roomJustCreatedOpts}
                         forceTimeline={this.props.forceTimeline}
+                        primaryTimelineHost
                     />
                 );
                 break;
@@ -832,7 +834,14 @@ class LoggedInView extends React.Component<IProps, IState> {
                     aria-hidden={this.props.hideToSRUsers}
                 >
                     <div className={bodyClasses}>
-                        <PageTypeContext.Provider value={this.props.page_type}>{content}</PageTypeContext.Provider>
+                        <PageTypeContext.Provider value={this.props.page_type}>
+                            {SettingsStore.getValue("feature_retained_room_timeline") ? (
+                                // Outside the room view, so that it can outlast one room view's timeline.
+                                <RoomTimelineHost client={this._matrixClient}>{content}</RoomTimelineHost>
+                            ) : (
+                                content
+                            )}
+                        </PageTypeContext.Provider>
                     </div>
                 </div>
                 {this.desktopShellEnabled && <DesktopProfileHost />}

@@ -1761,6 +1761,8 @@
         "notifications": "Enable the notifications panel in the room header",
         "render_reaction_images": "Render custom images in reactions",
         "render_reaction_images_description": "Sometimes referred to as \"custom emojis\".",
+        "retained_room_timeline": "Room timeline host experiment",
+        "retained_room_timeline_description": "Draw the room's timeline through a host that later versions can keep across room switches. In this first version the timeline is still recreated whenever you open another room.",
         "sliding_sync": "Sliding Sync mode",
         "sliding_sync_description": "Used where your server offers it. Turning it off reloads the app, which catches up with regular sync.",
         "sliding_sync_server_no_support": "Your server lacks support",

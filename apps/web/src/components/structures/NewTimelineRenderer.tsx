@@ -23,6 +23,7 @@ import {
     tileKeyOf,
     useViewModel,
     type TimelineItem,
+    type TimelineViewExecution,
     ReadMarker,
 } from "@element-hq/web-shared-components";
 import { InlineSpinner } from "@vector-im/compound-web";
@@ -63,7 +64,7 @@ import { KeyBindingAction } from "../../accessibility/KeyboardShortcuts";
 import type { RoomMessagePanel } from "./RoomMessagePanel";
 
 /** What {@link NewTimelineRenderer} draws, and how, besides the view model it is given. */
-export interface NewTimelineRendererProps {
+interface NewTimelineRendererProps {
     room: Room;
     highlightedEventId?: string;
     /**
@@ -92,6 +93,8 @@ export interface NewTimelineRendererProps {
     eventScrollIntoView?: boolean;
     /** Called once a navigation to `highlightedEventId` has been handled. */
     onEventScrolledIntoView?: (eventId?: string) => void;
+    /** When the timeline may act, for one a host lends to the room view; see `TimelineViewExecution`. */
+    execution?: TimelineViewExecution;
 }
 
 /** How far Page Up and Page Down move, as a share of the visible height, keeping some context on screen. */
@@ -376,6 +379,7 @@ export function NewTimelineRenderer({
     panelRef,
     eventScrollIntoView,
     onEventScrolledIntoView,
+    execution,
 }: Readonly<NewTimelineRendererProps & { vm: RoomTimelineViewModel }>): JSX.Element {
     const client: MatrixClient = useMatrixClientContext();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -515,6 +519,7 @@ export function NewTimelineRenderer({
                 renderItem={renderItem}
                 onItemsPainted={entryPainted ? undefined : onItemsPainted}
                 paddingBlock={LIST_PADDING_PX}
+                execution={execution}
             />
         </div>
     );
