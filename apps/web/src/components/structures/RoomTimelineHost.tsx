@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import React, { type JSX, type ReactNode, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import React, { type JSX, memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
     useCreateAutoDisposedViewModel,
@@ -114,8 +114,17 @@ interface HostedTimelineProps {
     onError: (lease: RoomTimelineLease) => void;
 }
 
-/** One timeline the host draws, around it what the room view would have had around it, as `NewTimelinePanel` does. */
-function HostedTimeline({ host, timeline, docked, onError }: Readonly<HostedTimelineProps>): JSX.Element {
+/**
+ * One timeline the host draws, around it what the room view would have had around it, as `NewTimelinePanel` does.
+ * Memoised: the host renders again whenever the page inside it does, such as as the room view goes, and the timeline
+ * needs drawing again only when what the room view gives it changes.
+ */
+const HostedTimeline = memo(function HostedTimeline({
+    host,
+    timeline,
+    docked,
+    onError,
+}: Readonly<HostedTimelineProps>): JSX.Element {
     const { lease, packet } = docked;
 
     // The timeline may act only while its lease is current: once released, what it still has scheduled is dropped.
@@ -161,4 +170,4 @@ function HostedTimeline({ host, timeline, docked, onError }: Readonly<HostedTime
             </ScopedRoomContextProvider>
         </ErrorBoundary>
     );
-}
+});
