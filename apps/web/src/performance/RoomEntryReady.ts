@@ -43,6 +43,15 @@ function release(entry: RoomEntry): void {
     entry.pending.clear();
 }
 
+/**
+ * Begin a new visit to a room, as the app opens it again: work deferred for it waits for this visit's conversation to
+ * paint, rather than starting at once because an earlier visit painted. Work still waiting keeps its deadline.
+ */
+export function beginRoomEntryVisit(client: MatrixClient, roomId: string): void {
+    const entry = entries.get(client)?.get(roomId);
+    if (entry) entry.ready = false;
+}
+
 /** Release automatic roster work after the destination's initial timeline has painted. */
 export function notifyRoomEntryReady(client: MatrixClient, roomId: string): void {
     release(entryFor(client, roomId));

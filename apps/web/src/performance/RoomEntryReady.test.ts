@@ -8,7 +8,7 @@ Please see LICENSE in the repository root for full details.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ClientEvent, type MatrixClient, type Room, SyncState, TypedEventEmitter } from "matrix-js-sdk/src/matrix";
 
-import { deferRoomEntryWork, deferUntilAccountSync, notifyRoomEntryReady } from "./RoomEntryReady";
+import { beginRoomEntryVisit, deferRoomEntryWork, deferUntilAccountSync, notifyRoomEntryReady } from "./RoomEntryReady";
 
 const roomId = "!room:example.org";
 
@@ -99,6 +99,40 @@ describe("RoomEntryReady", () => {
         deferRoomEntryWork(client, roomId, work);
         vi.advanceTimersByTime(0);
         expect(work).toHaveBeenCalledOnce();
+    });
+
+    it("waits for the paint of a new visit to a room, not an earlier visit's", () => {
+        const { client } = fixture();
+        notifyRoomEntryReady(client, roomId);
+
+        beginRoomEntryVisit(client, roomId);
+        const work = vi.fn();
+        deferRoomEntryWork(client, roomId, work);
+        vi.advanceTimersByTime(500);
+        expect(work).not.toHaveBeenCalled();
+
+        notifyRoomEntryReady(client, roomId);
+        vi.advanceTimersByTime(0);
+        expect(work).toHaveBeenCalledOnce();
+    });
+
+    it("keeps work already waiting for a room waiting, under its deadline, as a new visit begins", () => {
+        const { client } = fixture();
+        const work = vi.fn();
+        deferRoomEntryWork(client, roomId, work);
+        vi.advanceTimersByTime(1000);
+
+        beginRoomEntryVisit(client, roomId);
+        vi.advanceTimersByTime(1999);
+        expect(work).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(2);
+        expect(work).toHaveBeenCalledOnce();
+    });
+
+    it("begins a visit to a room it knows nothing of without holding anything", () => {
+        const { client } = fixture();
+        beginRoomEntryVisit(client, roomId);
+        expect(vi.getTimerCount()).toBe(0);
     });
 
     it("isolates clients even when room IDs match", () => {
