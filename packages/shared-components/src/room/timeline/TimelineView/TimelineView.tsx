@@ -385,8 +385,10 @@ export function TimelineView({
             // it grew as a message was sent: go back to it, as ScrollPanel does for a reader stuck at the bottom.
             // TanStack only follows rows added while the list is at its end, so without this it would stop for good.
             if (atBottom && !atEnd && following && repinFrameRef.current === undefined) {
+                const revision = executionRef.current?.revision;
                 repinFrameRef.current = requestAnimationFrame(() => {
                     repinFrameRef.current = undefined;
+                    if (!mayAct(revision)) return;
                     // Much can happen before the frame: a jump to a message, the newest messages being unloaded, or
                     // the reader scrolling up before TanStack has told us. Go back only if they are still held here.
                     const held = heldAtRef.current;
