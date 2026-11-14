@@ -32,6 +32,8 @@ const { drawn } = vi.hoisted(() => ({
         panel?: RoomMessagePanel;
         /** Set to make the renderer throw as it renders. */
         fail?: boolean;
+        /** How often the renderer has rendered. */
+        renders?: number;
     },
 }));
 
@@ -42,6 +44,7 @@ vi.mock("./NewTimelineRenderer", () => {
     return {
         NewTimelineRenderer: (props: ComponentProps<typeof NewTimelineRenderer>): JSX.Element => {
             drawn.props = props;
+            drawn.renders = (drawn.renders ?? 0) + 1;
             if (drawn.fail) throw new Error("The renderer broke");
             const { numUnreadMessages } = useScopedRoomContext("numUnreadMessages");
             const upload = useContext(RoomUploadContext);
@@ -117,6 +120,24 @@ describe("RoomTimelineHost", () => {
         expect(timeline).toHaveTextContent("3 upload bubble");
         expect(drawn.props!.room).toBe(roomA);
         expect(mark).toHaveBeenCalledWith("slot", roomA.roomId);
+    });
+
+    it("does not draw the timeline again when only the page around the room view renders again", () => {
+        const view = roomView(roomA);
+        const page = (other: number): JSX.Element =>
+            app(
+                <>
+                    <span data-testid="elsewhere">{other}</span>
+                    {view}
+                </>,
+            );
+        const { rerender } = render(page(1));
+        const renders = drawn.renders;
+
+        rerender(page(2));
+
+        expect(screen.getByTestId("elsewhere")).toHaveTextContent("2");
+        expect(drawn.renders).toBe(renders);
     });
 
     it("follows what the room view gives its timeline as it changes", () => {
