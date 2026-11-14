@@ -59,6 +59,7 @@ import { ModuleApi } from "../modules/Api";
 import ActiveWidgetStore from "./ActiveWidgetStore";
 import { confirmVoiceChannelSwitch } from "../components/views/voip/confirmVoiceChannelSwitch";
 import { markRoomSwitch } from "../performance/RoomSwitchPerformance";
+import { beginRoomEntryVisit } from "../performance/RoomEntryReady";
 
 const NUM_JOIN_RETRY = 5;
 
@@ -207,6 +208,9 @@ export class RoomViewStore extends EventEmitter {
         if (lastRoomId !== this.state.roomId) this.state.roomSummary = undefined;
         if (!this.lockedToRoomId && lastRoomId !== this.state.roomId) {
             markRoomSwitch("navigation", this.state.roomId);
+            // Work put off until the room's conversation paints waits for this visit's paint, not an earlier one's.
+            const client = MatrixClientPeg.get();
+            if (client && this.state.roomId) beginRoomEntryVisit(client, this.state.roomId);
             if (lastRoomId) this.emitForRoom(lastRoomId, false);
             if (this.state.roomId) this.emitForRoom(this.state.roomId, true);
 
