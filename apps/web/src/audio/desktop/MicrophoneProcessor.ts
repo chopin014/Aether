@@ -78,7 +78,9 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
     /** Prepare one disconnected graph; it expires instead of retaining an idle audio engine indefinitely. */
     public prepare(): void {
         this.preparationEnabled = true;
-        if (this.prepared || this.children.size) return;
+        // Right after a call, the graph is prepared once the leave cue has played (see prepareAfterLeave): pointing at
+        // a voice channel to rejoin must not open its low-latency context sooner, which broke up the leave cue.
+        if (this.prepared || this.children.size || this.reprepareTimer) return;
         const graph = new PreparedMicrophoneGraph();
         const prepared = { graph, ready: graph.initialize(this.state), denoiser: this.wantsDenoiser(this.config) };
         this.prepared = prepared;

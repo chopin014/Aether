@@ -370,6 +370,29 @@ describe("MicrophoneProcessor", () => {
         await vi.advanceTimersByTimeAsync(0);
         expect(contexts).toHaveLength(3);
     });
+    it("keeps someone pointing at a voice channel right after leaving from opening the next graph early", async () => {
+        vi.useFakeTimers();
+        const root = new MicrophoneProcessor(config);
+        // Preparation is on, as in the app, and the call took the prepared graph.
+        root.prepare();
+        await vi.advanceTimersByTimeAsync(0);
+        (nodes[0].port.onmessage as (event: unknown) => void)({ data: { ready: true } });
+        await vi.advanceTimersByTimeAsync(0);
+        const child = root.createProcessor();
+        await init(child);
+        await child.destroy();
+        await vi.advanceTimersByTimeAsync(0);
+        const contextsAfterLeave = contexts.length;
+        // Pointing at a channel to rejoin while the leave cue plays.
+        root.prepare();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(contexts).toHaveLength(contextsAfterLeave);
+        await vi.advanceTimersByTimeAsync(REPREPARE_AFTER_LEAVE_MS);
+        expect(contexts).toHaveLength(contextsAfterLeave + 1);
+        root.clearPrepared();
+        await root.destroy();
+    });
+
     it("does not prepare the next graph when the account leaves before the call's device is released", async () => {
         vi.useFakeTimers();
         const root = new MicrophoneProcessor(config);

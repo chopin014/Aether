@@ -334,7 +334,7 @@ index 0000000..201f68f
 +    };
 +}
 diff --git a/dist/element-call.js b/dist/element-call.js
-index e597a18..df1883d 100644
+index e597a18..07a479d 100644
 --- a/dist/element-call.js
 +++ b/dist/element-call.js
 @@ -1,3 +1,4 @@
@@ -1492,7 +1492,42 @@ index e597a18..df1883d 100644
  		autoLeave$: ie,
  		ringingVm$: de,
  		ringingStatusLocation: h === Ut.AppBar ? "app_bar" : "tile",
-@@ -45955,7 +46814,7 @@ var k5 = (e) => {
+@@ -45408,18 +46267,31 @@ function J8(e, t, n, r, i) {
+ 		s?.abort(), await a, await o;
+ 	};
+ }
++const aetherSoundContexts = /* @__PURE__ */ new Map();
++/** Aether: the context Element Call's sounds play in, one per latency hint, created on first use and kept open. */
++function aetherSoundContext(latencyHint) {
++	let context = aetherSoundContexts.get(latencyHint);
++	if (!context || context.state === "closed") {
++		context = new AudioContext({ latencyHint });
++		aetherSoundContexts.set(latencyHint, context);
++	}
++	return context;
++}
+ function Y8(e) {
+ 	let t = I(22), [n] = Ze(jt), [r, i] = B(), [a, o] = B(), s, c;
+ 	t[0] !== e.latencyHint || t[1] !== e.sounds ? (s = () => {
+ 		let t = e.sounds;
+ 		if (!t) return;
+-		let n = new AudioContext({ latencyHint: e.latencyHint });
++		// Aether: every sound player shares one context per latency, kept open. A context per player and render opened
++		// and closed an output stream several times a second while a call joined, and each of those makes the sound
++		// server reconfigure, which can break up whatever else is playing, such as the join cue.
++		let n = aetherSoundContext(e.latencyHint), cancelled = !1;
+ 		return (async () => {
+ 			let e = {};
+ 			for (let [r, i] of Object.entries(await t)) e[r] = await n.decodeAudioData(i.slice(0));
+-			o(e);
++			cancelled || o(e);
+ 		})().catch(e5), i(n), () => {
+-			n.close().catch($8), i(void 0);
++			cancelled = !0, i(void 0);
+ 		};
+ 	}, c = [e.sounds, e.latencyHint], t[0] = e.latencyHint, t[1] = e.sounds, t[2] = s, t[3] = c) : (s = t[2], c = t[3]), z(s, c);
+ 	let l = P(XL().audioOutput.selected$)?.id, { controlledAudioDevices: u } = k(), d, f;
+@@ -45955,7 +46827,7 @@ var k5 = (e) => {
  		n
  	], t[30] = u, t[31] = e.client, t[32] = e.e2eeSystem, t[33] = e.matrixRoom, t[34] = e.muteStates, t[35] = e.onLeft, t[36] = e.rtcSession, t[37] = d, t[38] = c, t[39] = n, t[40] = g) : g = t[40], z(h, g), n === null || i === null || o === null) return null;
  	let _;
@@ -1501,7 +1536,7 @@ index e597a18..df1883d 100644
  		...e,
  		vm: n,
  		footerVm: i,
-@@ -45967,6 +46826,315 @@ var k5 = (e) => {
+@@ -45967,6 +46839,315 @@ var k5 = (e) => {
  		rtcSession: e.rtcSession,
  		children: _
  	}), t[46] = e.rtcSession, t[47] = _, t[48] = n, t[49] = v) : v = t[49], v;
@@ -1817,7 +1852,7 @@ index e597a18..df1883d 100644
  }, A5 = ({ client: e, vm: t, footerVm: n, developerSettingsVm: r, matrixInfo: i, matrixRoom: a, muteStates: o, onShareClick: s }) => {
  	let c = V.getChild("[InCallView]"), { t: l } = Je(), u = pe(), { sendReaction: d, toggleRaisedHand: f } = rZ();
  	N2();
-@@ -47656,6 +48824,8 @@ var L5 = /* @__PURE__ */ c(((e, t) => {
+@@ -47656,6 +48837,8 @@ var L5 = /* @__PURE__ */ c(((e, t) => {
  	}) }), t[23] = n.localisedTitle, t[24] = a, t[25] = c, t[26] = u, t[27] = d, t[28] = f, t[29] = p) : p = t[29], p;
  }, v7 = (e) => {
  	let t = I(8), { recoveryActionHandler: n, onError: r, children: i } = e, a;
@@ -1826,7 +1861,7 @@ index e597a18..df1883d 100644
  	t[0] === n ? a = t[1] : (a = (e) => {
  		let { error: t, resetError: r } = e, i = t instanceof hX ? t : new xX(t instanceof Error ? t : /* @__PURE__ */ Error());
  		return /* @__PURE__ */ H(_7, {
-@@ -47874,8 +49044,8 @@ var T7 = (e) => {
+@@ -47874,8 +49057,8 @@ var T7 = (e) => {
  		s
  	]);
  	let [ee, te] = B(!1), ne = st(), M = nn((e) => {
@@ -1837,7 +1872,7 @@ index e597a18..df1883d 100644
  			case "allOthersLeft":
  				r = g.current?.playSound("left", 0);
  				break;
-@@ -47925,7 +49095,8 @@ var T7 = (e) => {
+@@ -47925,7 +49108,8 @@ var T7 = (e) => {
  		a
  	]);
  	let ie = F5(_), [ae, oe] = B(!1), se = nn(() => oe(!1), [oe]), ce = nn(() => oe(!0), [oe]), le = ie === Hn.Public ? ce : null;
@@ -1847,7 +1882,7 @@ index e597a18..df1883d 100644
  	let ue = /* @__PURE__ */ H(g7, {
  		room: _,
  		open: ae,
-@@ -47940,9 +49111,26 @@ var T7 = (e) => {
+@@ -47940,9 +49124,26 @@ var T7 = (e) => {
  		participantCount: D,
  		onShareClick: le
  	})] }), fe;
@@ -1875,7 +1910,7 @@ index e597a18..df1883d 100644
  		client: e,
  		matrixInfo: E,
  		rtcSession: a,
-@@ -47950,6 +49138,7 @@ var T7 = (e) => {
+@@ -47950,6 +49151,7 @@ var T7 = (e) => {
  		onLeft: M,
  		muteStates: c,
  		e2eeSystem: T,
@@ -1883,7 +1918,7 @@ index e597a18..df1883d 100644
  		onShareClick: le
  	})] }) : ee && !m ? t || tt.instance.isEnabled() ? /* @__PURE__ */ H(sQ, {
  		endedCallId: a.room.roomId,
-@@ -47964,7 +49153,10 @@ var T7 = (e) => {
+@@ -47964,7 +49166,10 @@ var T7 = (e) => {
  			}));
  		},
  		onError: (e) => {
@@ -1895,7 +1930,7 @@ index e597a18..df1883d 100644
  		},
  		children: fe
  	});
-@@ -48021,7 +49213,9 @@ function j7(e, t, n) {
+@@ -48021,7 +49226,9 @@ function j7(e, t, n) {
  		themeChange$: new FO(1),
  		join$: new He(),
  		hangUp$: new He(),
@@ -1906,7 +1941,7 @@ index e597a18..df1883d 100644
  	}));
  	z(() => {
  		n !== void 0 && i.themeChange$.next({
-@@ -48045,6 +49239,28 @@ function j7(e, t, n) {
+@@ -48045,6 +49252,28 @@ function j7(e, t, n) {
  		notifyDeviceMute: async (e) => {
  			await r.current.notifyDeviceMute?.(e);
  		},
@@ -1935,7 +1970,7 @@ index e597a18..df1883d 100644
  		get close() {
  			let e = r.current.close;
  			return e === void 0 ? void 0 : async () => await e();
-@@ -48061,7 +49277,20 @@ function j7(e, t, n) {
+@@ -48061,7 +49290,20 @@ function j7(e, t, n) {
  	return on(t, () => ({
  		join: async (e) => await A7(i.join$, "join a call", e),
  		hangUp: async () => await A7(i.hangUp$, "hang up", {}),
@@ -1957,7 +1992,7 @@ index e597a18..df1883d 100644
  	}), [i]), a;
  }
  //#endregion
-@@ -48173,7 +49402,7 @@ var I7 = (e) => {
+@@ -48173,7 +49415,7 @@ var I7 = (e) => {
  		children: /* @__PURE__ */ H(dt, {
  			value: m,
  			children: /* @__PURE__ */ H(oo, {
@@ -1966,7 +2001,7 @@ index e597a18..df1883d 100644
  				onError: () => void d.setAlwaysOnScreen(!1),
  				children: /* @__PURE__ */ H(I7, { children: /* @__PURE__ */ H(zn, { children: /* @__PURE__ */ H(Mt, {
  					client: n,
-@@ -48219,6 +49448,6 @@ function z7(e) {
+@@ -48219,6 +49461,6 @@ function z7(e) {
  	return /* @__PURE__ */ H(S, { error: e });
  }
  //#endregion
