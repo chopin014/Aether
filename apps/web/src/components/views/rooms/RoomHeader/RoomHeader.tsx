@@ -71,7 +71,6 @@ import { DesktopMessageSearchBox } from "../../desktop/DesktopMessageSearchBox";
 
 function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: JSX.Element }): JSX.Element {
     const sdkContext = useContext(SDKContext);
-    const members = useRoomMembers(room, 2500);
     const memberCount = useRoomMemberCount(room, { throttleWait: 2500, includeInvited: true });
 
     const {
@@ -410,26 +409,36 @@ function RoomHeaderButtons({ room, extraButtons }: { room: Room; extraButtons?: 
                 </Tooltip>
             )}
             {desktopShell && <DesktopMessageSearchBox key={`search-${room.roomId}`} room={room} />}
-            {!isDirectMessage && !desktopShell && (
-                <Text as="div" size="sm" weight="medium">
-                    <FacePile
-                        className="mx_RoomHeader_members"
-                        members={members.slice(0, 3)}
-                        size="20px"
-                        overflow={false}
-                        viewUserOnClick={false}
-                        tooltipLabel={_t("room|header_face_pile_tooltip")}
-                        onClick={(e: ButtonEvent) => {
-                            sdkContext.rightPanelStore.showOrHidePhase(RightPanelPhases.MemberList);
-                            e.stopPropagation();
-                        }}
-                        aria-label={_t("common|n_members", { count: memberCount })}
-                    >
-                        {formatCount(memberCount)}
-                    </FacePile>
-                </Text>
-            )}
+            {!isDirectMessage && !desktopShell && <RoomHeaderFacePile room={room} memberCount={memberCount} />}
         </>
+    );
+}
+
+/**
+ * The room's members as a face pile, opening the member list. Its own component, so that only a header showing it
+ * lists the room's members and follows their changes: the desktop shell's does not.
+ */
+function RoomHeaderFacePile({ room, memberCount }: { room: Room; memberCount: number }): JSX.Element {
+    const sdkContext = useContext(SDKContext);
+    const members = useRoomMembers(room, 2500);
+    return (
+        <Text as="div" size="sm" weight="medium">
+            <FacePile
+                className="mx_RoomHeader_members"
+                members={members.slice(0, 3)}
+                size="20px"
+                overflow={false}
+                viewUserOnClick={false}
+                tooltipLabel={_t("room|header_face_pile_tooltip")}
+                onClick={(e: ButtonEvent) => {
+                    sdkContext.rightPanelStore.showOrHidePhase(RightPanelPhases.MemberList);
+                    e.stopPropagation();
+                }}
+                aria-label={_t("common|n_members", { count: memberCount })}
+            >
+                {formatCount(memberCount)}
+            </FacePile>
+        </Text>
     );
 }
 

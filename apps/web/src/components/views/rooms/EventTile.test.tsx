@@ -56,6 +56,7 @@ import SettingsStore from "../../../settings/SettingsStore";
 import { RoomPermalinkCreator } from "../../../utils/permalinks/Permalinks";
 import PlatformPeg from "../../../PlatformPeg";
 import { EventPresentationContextProvider } from "../../../utils/EventPresentationContextProvider.tsx";
+import { EventTileViewModel } from "../../../viewmodels/room/timeline/event-tile/EventTileViewModel";
 
 function getTile(container: HTMLElement): HTMLElement {
     const tile = container.querySelector(".mx_EventTile");
@@ -1531,6 +1532,15 @@ describe("EventTile", () => {
 
             expect(container.querySelectorAll('[data-testid="e2e-padlock"]')).toHaveLength(0);
         });
+    });
+
+    it("derives the tile's state once as it is first drawn, and again as it is drawn anew", () => {
+        const derivations = vi.spyOn(EventTileViewModel, "createRenderState");
+        const { rerender } = render(<WrappedEventTile roomContext={getRoomContext(room, {})} />);
+        expect(derivations).toHaveBeenCalledTimes(1);
+
+        rerender(<WrappedEventTile roomContext={getRoomContext(room, { isRoomEncrypted: true })} />);
+        expect(derivations.mock.calls.length).toBeGreaterThan(1);
     });
 
     it("draws the tile again for a change to the room view only when it is to something the tile reads", async () => {
