@@ -483,7 +483,12 @@ body.mx_DesktopShell.cpd-theme-light {
     --cpd-color-bg-subtle-secondary: var(--ae-surface);
 }
 
-body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light) {
+/*
+ * Nested theme roots, such as the call stage's, declare Compound's own tokens again; map them to Aether's too, so
+ * the call uses the same accent as the rest of the app instead of Compound's green.
+ */
+body.mx_DesktopShell:is(.cpd-theme-dark, .cpd-theme-light),
+body.mx_DesktopShell :is(.cpd-theme-dark, .cpd-theme-light) {
     --cpd-color-bg-subtle-primary: var(--ae-surface-raised);
     /*
      * Compound's neutral action defaults use theme-bg, bypassing our canvas aliases. Let them sit on any
