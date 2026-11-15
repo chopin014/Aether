@@ -89,6 +89,7 @@ function PlayerStory(snapshot: WatchTogetherViewSnapshot & { compact?: boolean }
                 slotRef={slotRef}
                 containerRef={containerRef}
                 compact={!!snapshot.compact}
+                focused={!snapshot.compact}
                 onFocus={fn()}
                 onOpenQueue={fn()}
             />

@@ -92,6 +92,7 @@ async function renderPlayer(vm: ReturnType<typeof makeVm>, compact = false) {
                 slotRef={slotRef}
                 containerRef={containerRef}
                 compact={compact}
+                focused={!compact}
                 onFocus={onFocus}
                 onOpenQueue={onOpenQueue}
             />
@@ -121,6 +122,7 @@ describe("WatchTogetherPlayer", () => {
                 slotRef={createRef()}
                 containerRef={createRef()}
                 compact={false}
+                focused={true}
                 onFocus={vi.fn()}
                 onOpenQueue={vi.fn()}
             />,
@@ -235,6 +237,28 @@ describe("WatchTogetherPlayer", () => {
         const vm = makeVm({ hasVideo: false });
         await renderPlayer(vm);
         expect(document.querySelector("img")).toHaveAttribute("src", queue[0].thumbnailUrl);
+    });
+
+    it("offers to focus the player when it is a grid tile, where the video takes its clicks", async () => {
+        const vm = makeVm();
+        const onFocus = vi.fn();
+        const ref = createRef<HTMLDivElement>();
+        render(
+            <div ref={ref}>
+                <WatchTogetherPlayer
+                    vm={vm}
+                    slotRef={ref}
+                    containerRef={ref}
+                    compact={false}
+                    focused={false}
+                    onFocus={onFocus}
+                    onOpenQueue={vi.fn()}
+                />
+            </div>,
+        );
+        await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+        fireEvent.click(screen.getByRole("button", { name: "Show the shared player" }));
+        expect(onFocus).toHaveBeenCalled();
     });
 
     it("is a small labelled tile in the filmstrip that focuses when clicked", async () => {

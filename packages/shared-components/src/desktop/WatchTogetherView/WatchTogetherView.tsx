@@ -23,6 +23,7 @@ import {
     PauseSolidIcon,
     PlaySolidIcon,
     PopOutIcon,
+    SpotlightViewIcon,
     VolumeOffSolidIcon,
     VolumeOnSolidIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
@@ -216,6 +217,8 @@ export interface WatchTogetherPlayerProps {
     containerRef: RefObject<HTMLElement | null>;
     /** Shown small in the filmstrip: no controls, and a click focuses it. */
     compact: boolean;
+    /** It is the focused tile; otherwise its controls offer to focus it, since the video takes its clicks. */
+    focused: boolean;
     onFocus: () => void;
     onOpenQueue: () => void;
 }
@@ -229,6 +232,7 @@ export function WatchTogetherPlayer({
     slotRef,
     containerRef,
     compact,
+    focused,
     onFocus,
     onOpenQueue,
 }: WatchTogetherPlayerProps): JSX.Element {
@@ -468,6 +472,17 @@ export function WatchTogetherPlayer({
                             />
                         </div>
                         <SpeedMenu vm={vm} rate={snapshot.rate} rates={snapshot.rates} />
+                        {!focused && (
+                            <button
+                                type="button"
+                                className={styles.iconControl}
+                                aria-label={_t("desktop|watch_together|focus")}
+                                title={_t("desktop|watch_together|focus")}
+                                onClick={onFocus}
+                            >
+                                <SpotlightViewIcon />
+                            </button>
+                        )}
                         <button
                             type="button"
                             className={styles.iconControl}

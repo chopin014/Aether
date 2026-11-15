@@ -927,6 +927,18 @@ describe("Watch together", () => {
         expect(vm.setSpotlightTileId).toHaveBeenCalledWith(WATCH_TOGETHER_TILE_ID);
     });
 
+    it("focuses the player from its own controls when it is a grid tile", async () => {
+        const vm = new TestCallStageViewModel({
+            watchTogether: makeWatchTogether(),
+            watchTogetherActive: true,
+            layoutMode: "grid",
+            participants: [makeParticipant()],
+        });
+        render(<DesktopCallStageView vm={vm} />);
+        fireEvent.click(await screen.findByRole("button", { name: "Show the shared player" }));
+        expect(vm.setSpotlightTileId).toHaveBeenCalledWith(WATCH_TOGETHER_TILE_ID);
+    });
+
     it("has no tile or player until something is shared", () => {
         const vm = new TestCallStageViewModel({ watchTogether: makeWatchTogether({ active: false }) });
         render(<DesktopCallStageView vm={vm} />);

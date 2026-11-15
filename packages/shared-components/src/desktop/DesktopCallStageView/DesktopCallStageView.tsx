@@ -1251,6 +1251,7 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                     slotRef={watchTogetherSlotRef}
                     containerRef={stageRef}
                     compact={!playerInSpotlight && hasSpotlight}
+                    focused={playerInSpotlight}
                     onFocus={() => vm.setSpotlightTileId(WATCH_TOGETHER_TILE_ID)}
                     onOpenQueue={() => vm.setActiveMenu("watch_together")}
                 />
