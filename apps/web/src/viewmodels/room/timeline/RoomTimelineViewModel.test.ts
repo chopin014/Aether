@@ -4532,6 +4532,41 @@ describe("RoomTimelineViewModel", () => {
         });
     });
 
+    describe("publishing rows", () => {
+        it("publishes the same rows again while neither they nor the spinners change", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            const rows = vm.getSnapshot().items;
+
+            // Published for something other than the rows, as a receipt or the unread count can be.
+            (vm as any).republish("test");
+            expect(vm.getSnapshot().items).toBe(rows);
+
+            // A spinner above them gives a new list, with the same rows in it, and one back without it.
+            (vm as any).backwardSpinnerVisible = true;
+            (vm as any).republish("test");
+            const withSpinner = vm.getSnapshot().items;
+            expect(withSpinner).not.toBe(rows);
+            expect(kinds(withSpinner)[0]).toBe("loading");
+            expect(withSpinner.slice(1)).toEqual(rows);
+            (vm as any).republish("test");
+            expect(vm.getSnapshot().items).toBe(withSpinner);
+            (vm as any).backwardSpinnerVisible = false;
+            (vm as any).republish("test");
+            expect(vm.getSnapshot().items).toBe(rows);
+        });
+
+        it("publishes new rows as soon as they are rebuilt", async () => {
+            seedTimeline([makeMessage("$a")]);
+            const vm = await createStartedViewModel();
+            const rows = vm.getSnapshot().items;
+
+            room.getUnfilteredTimelineSet().addLiveEvent(makeMessage("$b"), { addToState: false });
+            room.emit(RoomEvent.LocalEchoUpdated, (vm as any).timelineWindow.getEvents()[0], room);
+            await vi.waitFor(() => expect(vm.getSnapshot().items).not.toBe(rows));
+        });
+    });
+
     describe("suspended rows", () => {
         /**
          * The room and client events the view model listens for, to follow the room. The SDK listens for the room's

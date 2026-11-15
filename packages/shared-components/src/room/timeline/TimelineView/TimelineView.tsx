@@ -278,26 +278,6 @@ export function TimelineView({
     } | null>(null);
     const receivedResizeEntryRef = useRef(false);
 
-    // Nothing is painted while suspended: the rows on screen were told of before it.
-    useEffect(() => {
-        if (!revealed || !onItemsPainted || frozen) return;
-        const revision = executionRef.current?.revision;
-        let frame = requestAnimationFrame(() => {
-            frame = requestAnimationFrame(() => {
-                const scroller = scrollerRef.current;
-                if (!scroller || !mayAct(revision)) return;
-                const top = scroller.scrollTop;
-                const bottom = top + scroller.clientHeight;
-                const painted = virtualizer.getVirtualItems().flatMap((row) => {
-                    const item = itemsRef.current[row.index];
-                    return row.end > top && row.start < bottom && item ? [item] : [];
-                });
-                onItemsPainted(painted);
-            });
-        });
-        return () => cancelAnimationFrame(frame);
-    });
-
     // Reading every new row's offsetHeight during its ref callback forces layout between
     // TanStack's positioning writes. Let ResizeObserver measure the rows together instead.
     const measureRow = useCallback(
@@ -548,6 +528,45 @@ export function TimelineView({
         // Called on every TanStack update; we use it to report what is on screen upwards.
         onChange: reportVisibleState,
     });
+
+    // Tells what was painted, two frames after the rows to tell of change: once the view is shown, its rows or the
+    // range of them shown change, or a new placement or visit begins. Nothing is painted while suspended: the rows
+    // on screen were told of before it. Any other render, such as for the unread count, leaves the frames be.
+    const paintedRange = virtualizer.range;
+    const paintedFrom = paintedRange?.startIndex;
+    const paintedTo = paintedRange?.endIndex;
+    const paintVisit = snapshot.visit?.generation;
+    const paintPlacement = snapshot.visit?.placementRevision;
+    useEffect(() => {
+        if (!revealed || !onItemsPainted || frozen) return;
+        const revision = executionRef.current?.revision;
+        let frame = requestAnimationFrame(() => {
+            frame = requestAnimationFrame(() => {
+                const scroller = scrollerRef.current;
+                if (!scroller || !mayAct(revision)) return;
+                const top = scroller.scrollTop;
+                const bottom = top + scroller.clientHeight;
+                const painted = virtualizer.getVirtualItems().flatMap((row) => {
+                    const item = itemsRef.current[row.index];
+                    return row.end > top && row.start < bottom && item ? [item] : [];
+                });
+                onItemsPainted(painted);
+            });
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [
+        revealed,
+        onItemsPainted,
+        frozen,
+        items,
+        paintedFrom,
+        paintedTo,
+        paintVisit,
+        paintPlacement,
+        execution?.revision,
+        mayAct,
+        virtualizer,
+    ]);
 
     // An accurate initial estimate may need no scroll event after placement. Report the
     // visible range and the ends shown once revealed and each time the view model has acknowledged an

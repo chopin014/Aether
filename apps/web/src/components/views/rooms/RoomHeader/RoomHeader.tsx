@@ -7,7 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import React, { type JSX, useCallback, useContext, useState } from "react";
+import React, { type JSX, useCallback, useContext, useState, memo } from "react";
 import { Text, Button, IconButton, Menu, MenuItem, Tooltip } from "@vector-im/compound-web";
 import VideoCallIcon from "@vector-im/compound-design-tokens/assets/web/icons/video-call-solid";
 import VoiceCallIcon from "@vector-im/compound-design-tokens/assets/web/icons/voice-call-solid";
@@ -467,7 +467,7 @@ function historyVisibilityIcon(historyVisibility: HistoryVisibility): JSX.Elemen
     }
 }
 
-export default function RoomHeader({
+function RoomHeader({
     room,
     extraButtons,
     oobData,
@@ -618,3 +618,9 @@ export default function RoomHeader({
         </CurrentRightPanelPhaseContextProvider>
     );
 }
+
+/**
+ * Memoised: the room view draws again for many changes to its own state, and the header needs drawing again only when
+ * its props change. What it shows of the room comes from its own hooks, which draw it again as that changes.
+ */
+export default memo(RoomHeader);

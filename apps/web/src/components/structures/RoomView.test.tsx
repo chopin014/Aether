@@ -104,6 +104,20 @@ vi.spyOn(MediaDeviceHandler, "getDevices").mockResolvedValue({
     [MediaDeviceKindEnum.AudioOutput]: [],
 });
 
+// Passed through, with what the room view gives it recorded.
+const { headerProps } = vi.hoisted(() => ({ headerProps: [] as { extraButtons?: unknown }[] }));
+vi.mock("../views/rooms/RoomHeader/RoomHeader", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("../views/rooms/RoomHeader/RoomHeader")>();
+    const Header = actual.default;
+    return {
+        ...actual,
+        default: (props: React.ComponentProps<typeof Header>) => {
+            headerProps.push(props);
+            return <Header {...props} />;
+        },
+    };
+});
+
 describe("RoomView", () => {
     let cli: MockedObject<MatrixClient>;
     let room: Room;
@@ -629,6 +643,30 @@ describe("RoomView", () => {
         await waitFor(() => expect(container.querySelector(".mx_NewTimelinePanel")).not.toBeNull());
         expect(container.querySelector(".mx_JumpToBottomButton")).toBeNull();
         expect(container.querySelector(".mx_TopUnreadMessagesBar")).toBeNull();
+    });
+
+    describe("room header", () => {
+        it("gets no extra buttons when no module adds any, so it is not drawn again for nothing", async () => {
+            room.getMyMembership = vi.fn().mockReturnValue(KnownMembership.Join);
+            headerProps.length = 0;
+            await mountRoomView();
+
+            await waitFor(() => expect(headerProps.length).toBeGreaterThan(0));
+            for (const props of headerProps) expect(props.extraButtons).toBeUndefined();
+        });
+
+        it("gets the buttons a module adds", async () => {
+            const callbacks = ModuleApi.instance.extras.roomHeaderButtonsCallbacks;
+            callbacks.push(() => <button>Module button</button>);
+            try {
+                room.getMyMembership = vi.fn().mockReturnValue(KnownMembership.Join);
+                headerProps.length = 0;
+                await mountRoomView();
+                await waitFor(() => expect(headerProps.at(-1)?.extraButtons).toBeDefined());
+            } finally {
+                callbacks.pop();
+            }
+        });
     });
 
     describe("with the room timeline host lab", () => {

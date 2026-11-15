@@ -152,6 +152,32 @@ describe("<TimelineView />", () => {
         }
     });
 
+    it("reports painted rows while it keeps drawing for something no row shows, and again for a changed row", async () => {
+        const { vm, update } = makeFakeVm({ items: eventItems(30) });
+        const painted = vi.fn();
+        render(
+            <div style={{ height: VIEWPORT_HEIGHT, width: 320 }}>
+                <TimelineView vm={vm} renderItem={renderItem} onItemsPainted={painted} />
+            </div>,
+        );
+        await waitFor(() => expect(painted).toHaveBeenCalled(), { timeout: 5000 });
+        painted.mockClear();
+
+        // Drawn again more often than every two frames, for an unread count no row shows.
+        let count = 0;
+        const timer = setInterval(() => update({ numUnreadMessages: ++count }), 8);
+        try {
+            await new Promise((resolve) => setTimeout(resolve, 150));
+            expect(painted).not.toHaveBeenCalled();
+            // A row in view is replaced by another, though the drawing goes on: it is told of.
+            update({ items: [...eventItems(29), ...eventItems(1, 99)] });
+            await waitFor(() => expect(painted).toHaveBeenCalled(), { timeout: 1000 });
+        } finally {
+            clearInterval(timer);
+        }
+        expect(painted.mock.calls.at(-1)![0].map((item: TimelineItem) => item.key)).toContain("evt-99");
+    });
+
     it("does not report painted rows after unmounting before placement", async () => {
         const { vm } = makeFakeVm();
         const painted = vi.fn();
