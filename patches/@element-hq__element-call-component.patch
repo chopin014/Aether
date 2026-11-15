@@ -334,7 +334,7 @@ index 0000000..201f68f
 +    };
 +}
 diff --git a/dist/element-call.js b/dist/element-call.js
-index e597a18..576a20d 100644
+index e597a18..df1883d 100644
 --- a/dist/element-call.js
 +++ b/dist/element-call.js
 @@ -1,3 +1,4 @@
@@ -530,7 +530,7 @@ index e597a18..576a20d 100644
  			throw this.logger.debug(`Failed to connect to LiveKit room: ${e}`), this._state$.next(e instanceof hX ? e : e instanceof Error ? new xX(e) : new xX(/* @__PURE__ */ Error(`${e}`))), e;
  		}
  	}
-@@ -42275,20 +42376,50 @@ var x4 = /* @__PURE__ */ function(e) {
+@@ -42275,28 +42376,67 @@ var x4 = /* @__PURE__ */ function(e) {
  	}
  }, C4 = /* @__PURE__ */ function(e) {
  	return e.Waiting = "transport_waiting", e;
@@ -562,6 +562,23 @@ index e597a18..576a20d 100644
 +	aetherDelegationChecks.set(url, known);
 +	return known;
 +}
++/** Aether: whether the server at `url` can take over our delayed leave, asked once per URL (see above). */
++function aetherProbeDelegation(url, label, logger) {
++	return aetherDelegationSupport(url, async () => {
++		logger.info(`Checking whether ${label} supports delegation…`);
++		try {
++			return (await fetch(url, { method: "POST" })).status === 404 ? (logger.warn(`${label} does not support delegation`), !1) : (logger.info(`${label} supports delegation`), !0);
++		} catch (e) {
++			return logger.warn(`Failed to determine whether ${label} supports delegation, assuming no support`, e), void 0;
++		}
++	});
++}
++/** Aether: whether the homeserver or the call service can take over our delayed leave, as the component decides it. */
++async function aetherDelegationSupported(baseUrl, transport, logger) {
++	const homeserver = aetherProbeDelegation(baseUrl + "/_matrix/client/unstable/io.element.msc4195/rtc/livekit/delegate_delayed_leave", "homeserver", logger);
++	const service = aetherProbeDelegation(transport.livekit_service_url + "/delegate_delayed_leave", `transport ${transport.livekit_service_url}`, logger);
++	return await homeserver || await service;
++}
 +var w4 = ({ scope: e, connectionManager: t, localTransport$: n, homeserverConnected: r, createPublisherFactory: i, joinMatrixRTC: a, logger: o, muteStates: s, client: c, matrixRTCSession: l, baseUrl: u, roomId: d, hideScreensharing: f, hostBridge: p, ownMembershipIdentity: m, delayId$: h, matrixRTCMode: g }) => {
  	let _ = o.getChild("[LocalMembership]");
  	_.debug("Creating local membership..");
@@ -578,18 +595,25 @@ index e597a18..576a20d 100644
 -		}
 +	// Aether: the answer is the same for every call, and the membership is sent only after it: ask once per URL.
 +	function b(e, t) {
-+		return aetherDelegationSupport(e, async () => {
-+			_.info(`Checking whether ${t} supports delegation…`);
-+			try {
-+				return (await fetch(e, { method: "POST" })).status === 404 ? (_.warn(`${t} does not support delegation`), !1) : (_.info(`${t} supports delegation`), !0);
-+			} catch (e) {
-+				return _.warn(`Failed to determine whether ${t} supports delegation, assuming no support`, e), void 0;
-+			}
-+		});
++		return aetherProbeDelegation(e, t, _);
  	}
- 	let x = b(u + "/_matrix/client/unstable/io.element.msc4195/rtc/livekit/delegate_delayed_leave", "homeserver"), S = e.behavior(y.pipe(wA(async ({ transport: e }) => {
- 		let t = b(e.livekit_service_url + "/delegate_delayed_leave", `transport ${e.livekit_service_url}`);
-@@ -42416,7 +42547,39 @@ var x4 = /* @__PURE__ */ function(e) {
+-	let x = b(u + "/_matrix/client/unstable/io.element.msc4195/rtc/livekit/delegate_delayed_leave", "homeserver"), S = e.behavior(y.pipe(wA(async ({ transport: e }) => {
+-		let t = b(e.livekit_service_url + "/delegate_delayed_leave", `transport ${e.livekit_service_url}`);
+-		return {
+-			transport: e,
+-			delegationSupported: await x || await t
+-		};
+-	})), null), C = e.behavior(Lk([t.connectionManagerData$, y]).pipe(F(([{ value: e }, { transport: t }]) => e.getConnectionForTransport(t)), kA((e) => {
++	// Ask the homeserver at once, alongside the call service's token.
++	aetherProbeDelegation(u + "/_matrix/client/unstable/io.element.msc4195/rtc/livekit/delegate_delayed_leave", "homeserver", _);
++	let S = e.behavior(y.pipe(wA(async ({ transport: e }) => ({
++		transport: e,
++		delegationSupported: await aetherDelegationSupported(u, e, _)
++	}))), null), C = e.behavior(Lk([t.connectionManagerData$, y]).pipe(F(([{ value: e }, { transport: t }]) => e.getConnectionForTransport(t)), kA((e) => {
+ 		_.info(`Local connection updated: ${e?.transport?.livekit_service_url}`);
+ 	})), null);
+ 	C.pipe(wA((e) => e ? Yk(e.livekitRoom, q.MediaDevicesError, (e) => Xm.getFailure(e) ?? null) : Ck(null))).pipe(e.bind()).subscribe((e) => {
+@@ -42416,7 +42556,39 @@ var x4 = /* @__PURE__ */ function(e) {
  		}
  	});
  	let de = e.behavior(ue.pipe(wA((e) => e === null ? Ck(!1) : E4(e)))), fe = new Rt(null), pe = null;
@@ -630,7 +654,7 @@ index e597a18..576a20d 100644
  		let e = {
  			audio: {
  				autoGainControl: !1,
-@@ -42452,6 +42615,16 @@ var x4 = /* @__PURE__ */ function(e) {
+@@ -42452,6 +42624,16 @@ var x4 = /* @__PURE__ */ function(e) {
  		_.info(`toggleScreenSharing called. Switching ${n ? "On" : "Off"}`);
  		let r = ue.value;
  		r && T4(r.setScreenShareEnabled(n, e, t), n, _, (e) => fe.next(e));
@@ -647,7 +671,7 @@ index e597a18..576a20d 100644
  	}), {
  		startTracks: D,
  		requestJoinAndPublish: k,
-@@ -42490,6 +42663,7 @@ function D4(e, t, n, { encryptMedia: r, matrixRTCMode: i, delayedLeaveTimings: a
+@@ -42490,6 +42672,7 @@ function D4(e, t, n, { encryptMedia: r, matrixRTCMode: i, delayedLeaveTimings: a
  		delayedLeaveEventRestartLocalTimeoutMs: a.restart_timeout_ms,
  		networkErrorRetryMs: l.network_error_retry_ms,
  		membershipEventExpiryMs: l.membership_event_expiry_ms,
@@ -655,7 +679,7 @@ index e597a18..576a20d 100644
  		keyRotationParticipantLimit: l.key_rotation_participant_limit,
  		unstableSendStickyEvents: i === x.Matrix_2_0,
  		maximumNetworkErrorRetryCount: f
-@@ -42497,6 +42671,11 @@ function D4(e, t, n, { encryptMedia: r, matrixRTCMode: i, delayedLeaveTimings: a
+@@ -42497,6 +42680,11 @@ function D4(e, t, n, { encryptMedia: r, matrixRTCMode: i, delayedLeaveTimings: a
  }
  //#endregion
  //#region src/state/CallViewModel/localMember/RtcTransportAutoDiscovery.ts
@@ -667,7 +691,7 @@ index e597a18..576a20d 100644
  var O4 = class {
  	constructor({ client: e, resolvedConfig: t, logger: n }) {
  		this.client = e, this.resolvedConfig = t, this.logger = n.getChild("[RtcTransportAutoDiscovery]");
-@@ -42504,6 +42683,12 @@ var O4 = class {
+@@ -42504,6 +42692,12 @@ var O4 = class {
  	async discoverPreferredTransport() {
  		let e = await this.tryBackendTransports();
  		if (e) return this.logger.info(`Found backend transport: ${e.livekit_service_url}`), e;
@@ -680,7 +704,7 @@ index e597a18..576a20d 100644
  		let t = this.tryConfigTransport();
  		return t ? (this.logger.info(`Found app config transport: ${t.livekit_service_url}`), t) : null;
  	}
-@@ -42511,7 +42696,8 @@ var O4 = class {
+@@ -42511,7 +42705,8 @@ var O4 = class {
  		let e = this.client;
  		this.logger.info("First try to use getRTCTransports end point ...");
  		try {
@@ -690,7 +714,7 @@ index e597a18..576a20d 100644
  			if (n) return n;
  			this.logger.info("No livekit transport found in getRTCTransports end point", t);
  		} catch (e) {
-@@ -42532,7 +42718,56 @@ var O4 = class {
+@@ -42532,7 +42727,89 @@ var O4 = class {
  function k4(e) {
  	return "transport" in e && "sfuConfig" in e;
  }
@@ -731,6 +755,39 @@ index e597a18..576a20d 100644
 +	});
 +	return entry.promise;
 +}
++/**
++ * Aether: joins a room's call session at once, before the component is mounted and before the call service's token is
++ * known, with the settings the component would join with. Others see the user that much sooner (the membership write
++ * takes most of a second on a distant homeserver), and the component's own join later finds the session joined and
++ * leaves it be. Only for calls that skip the lobby, in the Compatibility and legacy modes (a Matrix 2.0 member id is
++ * made by the component), and without a shared call password.
++ */
++async function aetherJoinCallEarly(client, roomId, intent, config, stillWanted = () => !0) {
++	const room = client.getRoom(roomId), userId = client.getUserId(), deviceId = client.getDeviceId();
++	if (!room || !userId || !deviceId) return !1;
++	const mode = ce.get().matrix_rtc_mode ?? x.Compatibility;
++	if (mode === x.Matrix_2_0) return !1;
++	const settings = { ...he, roomId, ...Ht(intent ?? Gt.JoinExistingCall), ...config };
++	if (!settings.skipLobby) return !1;
++	const session = client.matrixRTC.getRoomSession(room);
++	if (session.isJoined()) return !1;
++	const logger = V.getChild("[AetherEarlyJoin]"), override = ae.value$.value;
++	const transport = override ? { type: "livekit", livekit_service_url: override } : await new O4({ client, resolvedConfig: ce.get(), logger }).discoverPreferredTransport();
++	if (!transport) return !1;
++	const delegationSupported = await aetherDelegationSupported(client.baseUrl, transport, logger);
++	// The user may have left, or the component mounted and joined, meanwhile.
++	if (session.isJoined() || !stillWanted()) return !1;
++	const timings = ce.get().matrix_rtc_session;
++	logger.info(`Joining the call session early with ${transport.livekit_service_url}`);
++	D4(session, { userId, deviceId, memberId: `${userId}:${deviceId}` }, transport, {
++		encryptMedia: room.hasEncryptionStateEvent(),
++		matrixRTCMode: mode,
++		delayedLeaveTimings: delegationSupported ? timings.delegated_delayed_leave : timings.delayed_leave,
++		sendNotificationType: settings.sendNotificationType,
++		callIntent: settings.callIntent
++	});
++	return !0;
++}
 +/** Aether: fetches the local participant's call service token for a room ahead of joining it. */
 +function aetherPrefetchCallTransport(client, roomId) {
 +	const userId = client.getUserId(), deviceId = client.getDeviceId();
@@ -748,7 +805,7 @@ index e597a18..576a20d 100644
  	let i = V.getChild("[LocalTransport]"), a = new O4({
  		client: t,
  		resolvedConfig: ce.get(),
-@@ -42548,7 +42783,30 @@ async function A4({ ownMembershipIdentity: e, client: t, roomId: n, matrixRTCMod
+@@ -42548,7 +42825,30 @@ async function A4({ ownMembershipIdentity: e, client: t, roomId: n, matrixRTCMod
  		throw i.error(`Failed to authenticate to transport ${s.livekit_service_url}`, e), M4(e);
  	}
  }
@@ -779,7 +836,7 @@ index e597a18..576a20d 100644
  	return {
  		transport: e,
  		sfuConfig: await kX(i, n, e.livekit_service_url, r, { matrixRTCMode: t }, a)
-@@ -42634,6 +42892,33 @@ function H4() {
+@@ -42634,6 +42934,33 @@ function H4() {
  }
  //#endregion
  //#region src/state/CallViewModel/remoteMembers/ConnectionFactory.ts
@@ -813,7 +870,7 @@ index e597a18..576a20d 100644
  var U4 = class {
  	constructor(e, t, n, r, i, a, o) {
  		this.client = e, this.roomId = t, this.devices = n, this.processorState$ = r, this.controlledAudioDevices = a;
-@@ -42647,7 +42932,11 @@ var U4 = class {
+@@ -42647,7 +42974,11 @@ var U4 = class {
  				},
  				controlledAudioDevices: this.controlledAudioDevices
  			});
@@ -826,7 +883,7 @@ index e597a18..576a20d 100644
  		};
  		this.livekitRoomFactory = o ?? s;
  	}
-@@ -42699,7 +42988,7 @@ function W4({ devices: e, processorState: t, e2eeLivekitOptions: n, controlledAu
+@@ -42699,7 +43030,7 @@ function W4({ devices: e, processorState: t, e2eeLivekitOptions: n, controlledAu
  			autoGainControl: b.getValue()
  		},
  		audioOutput: { deviceId: r ? void 0 : e.audioOutput.selected$.value?.id },
@@ -835,7 +892,7 @@ index e597a18..576a20d 100644
  	};
  }
  //#endregion
-@@ -42895,7 +43184,8 @@ var c3 = class {
+@@ -42895,7 +43226,8 @@ var c3 = class {
  	constructor(e, t, n, r, i, a) {
  		this.connection = e, this.muteStates = n, this.logger = i, this.shouldPublish = !1, this.scope = new yL();
  		let o = e.livekitRoom;
@@ -845,7 +902,7 @@ index e597a18..576a20d 100644
  			this.logger.error("Failed to set E2EE enabled on room", e);
  		}), this.observeTrackProcessors(this.scope, o, r), this.observeMediaDevices(this.scope, t, a), this.workaroundRestartAudioInputTrackChrome(t, this.scope), this.connection.livekitRoom.localParticipant.on(J.LocalTrackPublished, this.onLocalTrackPublished.bind(this));
  	}
-@@ -42935,6 +43225,21 @@ var c3 = class {
+@@ -42935,6 +43267,21 @@ var c3 = class {
  		let e = this.connection.livekitRoom;
  		this.observeMuteStates();
  		let t = this.muteStates.audio.enabled$.value, n = this.muteStates.video.enabled$.value;
@@ -867,7 +924,7 @@ index e597a18..576a20d 100644
  		return t && n ? e.localParticipant.enableCameraAndMicrophone() : t ? e.localParticipant.setMicrophoneEnabled(!0) : n && e.localParticipant.setCameraEnabled(!0), Promise.resolve();
  	}
  	async pauseUpstreams(e, t) {
-@@ -43118,6 +43423,411 @@ function _3(e, t) {
+@@ -43118,6 +43465,411 @@ function _3(e, t) {
  }
  //#endregion
  //#region src/state/media/UserMediaViewModel.ts
@@ -1279,7 +1336,7 @@ index e597a18..576a20d 100644
  function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType: i, ...a }) {
  	let { participant$: o } = a, s = e.behavior(o.pipe(wA((e) => (e && aL(e)) ?? Ck(void 0)))), c = new He(), l = new Rt(NaN), u = (e, t) => e.behavior(Lk([o, Et.value$]).pipe(wA(([e, n]) => e && n ? p3(e, t, i) : Ck(void 0))));
  	return {
-@@ -43127,6 +43837,7 @@ function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType:
+@@ -43127,6 +43879,7 @@ function v3(e, { rtcBackendIdentity: t, handRaised$: n, reaction$: r, statsType:
  			videoSource: Z.Source.Camera
  		}),
  		type: "user",
@@ -1287,7 +1344,7 @@ index e597a18..576a20d 100644
  		speaking$: e.behavior(o.pipe(wA((e) => e ? iL(e, J.IsSpeakingChanged).pipe(F((e) => e.isSpeaking)) : Ck(!1)))),
  		audioEnabled$: e.behavior(s.pipe(F((e) => e?.microphoneTrack?.isMuted === !1))),
  		videoEnabled$: e.behavior(s.pipe(F((e) => e?.cameraTrack?.isMuted === !1))),
-@@ -43153,7 +43864,7 @@ function y3(e, { mediaDevices: t, ...n }) {
+@@ -43153,7 +43906,7 @@ function y3(e, { mediaDevices: t, ...n }) {
  	return {
  		...r,
  		local: !0,
@@ -1296,7 +1353,7 @@ index e597a18..576a20d 100644
  		alwaysShow$: se.value$,
  		setAlwaysShow: se.setValue,
  		switchCamera$: e.behavior(Wt === "desktop" ? Ck(null) : i.pipe(F((e) => {
-@@ -43209,7 +43920,7 @@ function x3(e, { pretendToBeDisconnected$: t, ...n }) {
+@@ -43209,7 +43962,7 @@ function x3(e, { pretendToBeDisconnected$: t, ...n }) {
  		...r,
  		...b3(e, {
  			pretendToBeDisconnected$: t,
@@ -1305,7 +1362,7 @@ index e597a18..576a20d 100644
  		}),
  		local: !1,
  		speaking$: e.behavior(t.pipe(wA((e) => e ? Ck(!1) : r.speaking$))),
-@@ -43234,6 +43945,7 @@ function S3(e, t) {
+@@ -43234,6 +43987,7 @@ function S3(e, t) {
  function C3(e, t) {
  	return {
  		...S3(e, t),
@@ -1313,7 +1370,7 @@ index e597a18..576a20d 100644
  		local: !0
  	};
  }
-@@ -43244,7 +43956,7 @@ function w3(e, { pretendToBeDisconnected$: t, ...n }) {
+@@ -43244,7 +43998,7 @@ function w3(e, { pretendToBeDisconnected$: t, ...n }) {
  		...S3(e, n),
  		...b3(e, {
  			pretendToBeDisconnected$: t,
@@ -1322,7 +1379,7 @@ index e597a18..576a20d 100644
  		}),
  		local: !1,
  		videoEnabled$: e.behavior(t.pipe(F((e) => !e))),
-@@ -43611,7 +44323,112 @@ function k3(e, t, n, r, i, a, o, s, c) {
+@@ -43611,7 +44365,112 @@ function k3(e, t, n, r, i, a, o, s, c) {
  		let t = {};
  		return e instanceof hX ? { transportError: e } : e === C4.Waiting ? null : (e.matrix instanceof hX && (t.matrixError = e.matrix), e.media instanceof hX ? t.publishError = e.media : typeof e.media == "object" && e.media.connection instanceof hX && (t.connectionError = e.media.connection), t);
  	})), null);
@@ -1435,7 +1492,7 @@ index e597a18..576a20d 100644
  		autoLeave$: ie,
  		ringingVm$: de,
  		ringingStatusLocation: h === Ut.AppBar ? "app_bar" : "tile",
-@@ -45955,7 +46772,7 @@ var k5 = (e) => {
+@@ -45955,7 +46814,7 @@ var k5 = (e) => {
  		n
  	], t[30] = u, t[31] = e.client, t[32] = e.e2eeSystem, t[33] = e.matrixRoom, t[34] = e.muteStates, t[35] = e.onLeft, t[36] = e.rtcSession, t[37] = d, t[38] = c, t[39] = n, t[40] = g) : g = t[40], z(h, g), n === null || i === null || o === null) return null;
  	let _;
@@ -1444,7 +1501,7 @@ index e597a18..576a20d 100644
  		...e,
  		vm: n,
  		footerVm: i,
-@@ -45967,6 +46784,315 @@ var k5 = (e) => {
+@@ -45967,6 +46826,315 @@ var k5 = (e) => {
  		rtcSession: e.rtcSession,
  		children: _
  	}), t[46] = e.rtcSession, t[47] = _, t[48] = n, t[49] = v) : v = t[49], v;
@@ -1760,7 +1817,7 @@ index e597a18..576a20d 100644
  }, A5 = ({ client: e, vm: t, footerVm: n, developerSettingsVm: r, matrixInfo: i, matrixRoom: a, muteStates: o, onShareClick: s }) => {
  	let c = V.getChild("[InCallView]"), { t: l } = Je(), u = pe(), { sendReaction: d, toggleRaisedHand: f } = rZ();
  	N2();
-@@ -47656,6 +48782,8 @@ var L5 = /* @__PURE__ */ c(((e, t) => {
+@@ -47656,6 +48824,8 @@ var L5 = /* @__PURE__ */ c(((e, t) => {
  	}) }), t[23] = n.localisedTitle, t[24] = a, t[25] = c, t[26] = u, t[27] = d, t[28] = f, t[29] = p) : p = t[29], p;
  }, v7 = (e) => {
  	let t = I(8), { recoveryActionHandler: n, onError: r, children: i } = e, a;
@@ -1769,7 +1826,7 @@ index e597a18..576a20d 100644
  	t[0] === n ? a = t[1] : (a = (e) => {
  		let { error: t, resetError: r } = e, i = t instanceof hX ? t : new xX(t instanceof Error ? t : /* @__PURE__ */ Error());
  		return /* @__PURE__ */ H(_7, {
-@@ -47874,8 +49002,8 @@ var T7 = (e) => {
+@@ -47874,8 +49044,8 @@ var T7 = (e) => {
  		s
  	]);
  	let [ee, te] = B(!1), ne = st(), M = nn((e) => {
@@ -1780,7 +1837,7 @@ index e597a18..576a20d 100644
  			case "allOthersLeft":
  				r = g.current?.playSound("left", 0);
  				break;
-@@ -47925,7 +49053,8 @@ var T7 = (e) => {
+@@ -47925,7 +49095,8 @@ var T7 = (e) => {
  		a
  	]);
  	let ie = F5(_), [ae, oe] = B(!1), se = nn(() => oe(!1), [oe]), ce = nn(() => oe(!0), [oe]), le = ie === Hn.Public ? ce : null;
@@ -1790,7 +1847,7 @@ index e597a18..576a20d 100644
  	let ue = /* @__PURE__ */ H(g7, {
  		room: _,
  		open: ae,
-@@ -47940,9 +49069,26 @@ var T7 = (e) => {
+@@ -47940,9 +49111,26 @@ var T7 = (e) => {
  		participantCount: D,
  		onShareClick: le
  	})] }), fe;
@@ -1818,7 +1875,7 @@ index e597a18..576a20d 100644
  		client: e,
  		matrixInfo: E,
  		rtcSession: a,
-@@ -47950,6 +49096,7 @@ var T7 = (e) => {
+@@ -47950,6 +49138,7 @@ var T7 = (e) => {
  		onLeft: M,
  		muteStates: c,
  		e2eeSystem: T,
@@ -1826,7 +1883,7 @@ index e597a18..576a20d 100644
  		onShareClick: le
  	})] }) : ee && !m ? t || tt.instance.isEnabled() ? /* @__PURE__ */ H(sQ, {
  		endedCallId: a.room.roomId,
-@@ -47964,7 +49111,10 @@ var T7 = (e) => {
+@@ -47964,7 +49153,10 @@ var T7 = (e) => {
  			}));
  		},
  		onError: (e) => {
@@ -1838,7 +1895,7 @@ index e597a18..576a20d 100644
  		},
  		children: fe
  	});
-@@ -48021,7 +49171,9 @@ function j7(e, t, n) {
+@@ -48021,7 +49213,9 @@ function j7(e, t, n) {
  		themeChange$: new FO(1),
  		join$: new He(),
  		hangUp$: new He(),
@@ -1849,7 +1906,7 @@ index e597a18..576a20d 100644
  	}));
  	z(() => {
  		n !== void 0 && i.themeChange$.next({
-@@ -48045,6 +49197,28 @@ function j7(e, t, n) {
+@@ -48045,6 +49239,28 @@ function j7(e, t, n) {
  		notifyDeviceMute: async (e) => {
  			await r.current.notifyDeviceMute?.(e);
  		},
@@ -1878,7 +1935,7 @@ index e597a18..576a20d 100644
  		get close() {
  			let e = r.current.close;
  			return e === void 0 ? void 0 : async () => await e();
-@@ -48061,7 +49235,20 @@ function j7(e, t, n) {
+@@ -48061,7 +49277,20 @@ function j7(e, t, n) {
  	return on(t, () => ({
  		join: async (e) => await A7(i.join$, "join a call", e),
  		hangUp: async () => await A7(i.hangUp$, "hang up", {}),
@@ -1900,7 +1957,7 @@ index e597a18..576a20d 100644
  	}), [i]), a;
  }
  //#endregion
-@@ -48173,7 +49360,7 @@ var I7 = (e) => {
+@@ -48173,7 +49402,7 @@ var I7 = (e) => {
  		children: /* @__PURE__ */ H(dt, {
  			value: m,
  			children: /* @__PURE__ */ H(oo, {
@@ -1909,12 +1966,12 @@ index e597a18..576a20d 100644
  				onError: () => void d.setAlwaysOnScreen(!1),
  				children: /* @__PURE__ */ H(I7, { children: /* @__PURE__ */ H(zn, { children: /* @__PURE__ */ H(Mt, {
  					client: n,
-@@ -48219,6 +49406,6 @@ function z7(e) {
+@@ -48219,6 +49448,6 @@ function z7(e) {
  	return /* @__PURE__ */ H(S, { error: e });
  }
  //#endregion
 -export { Kt as BackgroundStyle, L7 as ElementCall, Ut as HeaderStyle, Gt as UserIntent, Ht as configurationForIntent, F7 as initializeElementCall, N7 as supportedLanguages };
-+export { Kt as BackgroundStyle, L7 as ElementCall, Ut as HeaderStyle, Gt as UserIntent, Ht as configurationForIntent, F7 as initializeElementCall, aetherSetCallServiceUrl as setElementCallServiceUrl, aetherSetOpenIdTokens as setElementCallOpenIdTokens, aetherPrefetchCallTransport as prefetchElementCallTransport, N7 as supportedLanguages };
++export { Kt as BackgroundStyle, L7 as ElementCall, Ut as HeaderStyle, Gt as UserIntent, Ht as configurationForIntent, F7 as initializeElementCall, aetherSetCallServiceUrl as setElementCallServiceUrl, aetherSetOpenIdTokens as setElementCallOpenIdTokens, aetherPrefetchCallTransport as prefetchElementCallTransport, aetherJoinCallEarly as joinElementCallEarly, N7 as supportedLanguages };
  
  //# sourceMappingURL=element-call.js.map
 \ No newline at end of file
@@ -2048,18 +2105,22 @@ index 0d9ec1b..6b9675b 100644
  /**
   * The {@link HostBridge} the rest of Element Call sees, built from what a
 diff --git a/dist/types/component/index.d.ts b/dist/types/component/index.d.ts
-index 31d5f31..24c6ad9 100644
+index 31d5f31..59df74d 100644
 --- a/dist/types/component/index.d.ts
 +++ b/dist/types/component/index.d.ts
-@@ -11,6 +11,7 @@
+@@ -11,8 +11,10 @@
   */
  import "../src/base.css";
  import { type FC } from "react";
 +import type { IOpenIDToken, MatrixClient } from "matrix-js-sdk";
  import { type ConfigOptions } from "../src/config/ConfigOptions";
- import { type ElementCallProps } from "./api";
+-import { type ElementCallProps } from "./api";
++import { type ElementCallConfiguration, type ElementCallProps } from "./api";
++import { type UserIntent } from "../src/UrlConfiguration";
  export { supportedLanguages } from "./localization";
-@@ -23,3 +24,28 @@ export * from "./api";
+ export * from "./api";
+ /**
+@@ -23,3 +25,42 @@ export * from "./api";
   */
  export declare function initializeElementCall(config?: ConfigOptions): Promise<void>;
  export declare const ElementCall: FC<ElementCallProps>;
@@ -2088,6 +2149,20 @@ index 31d5f31..24c6ad9 100644
 + * one. Never rejects.
 + */
 +export declare function prefetchElementCallTransport(client: MatrixClient, roomId: string): Promise<void>;
++/**
++ * Joins a room's call session (sends the user's call membership) at once, with the settings the component would join
++ * with for this intent and configuration, so that others see the user before the component has mounted or the call
++ * service's token is known. The component's own join then finds the session joined. Does nothing, and resolves false,
++ * for calls that open in the lobby, in Matrix 2.0 mode, when the session is already joined, or when `stillWanted` says
++ * the user no longer wants the call by the time the session can be joined.
++ */
++export declare function joinElementCallEarly(
++    client: MatrixClient,
++    roomId: string,
++    intent: UserIntent | undefined,
++    config: ElementCallConfiguration,
++    stillWanted?: () => boolean,
++): Promise<boolean>;
 diff --git a/dist/types/src/HostBridge.d.ts b/dist/types/src/HostBridge.d.ts
 index b95e092..4c668bf 100644
 --- a/dist/types/src/HostBridge.d.ts

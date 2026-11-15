@@ -68,6 +68,8 @@ import {
 } from "@element-hq/element-call-component/api";
 
 import { playDesktopVoiceSound } from "../audio/DesktopVoiceSounds";
+import { joinElementCallEarly } from "../components/views/voip/ElementCallLoader";
+import { afterNextPaint } from "../utils/afterNextPaint";
 import { VoiceStatePublisher } from "./VoiceStatePublisher";
 import type { SoundboardTransport } from "../audio/soundboard/SoundboardTransport";
 
@@ -1228,6 +1230,33 @@ export class ElementCall extends Call {
         // Joining again is no longer leaving: the last leave would otherwise hide the call until it reports joined.
         if (requested) this.setLocalLeavePending(false);
         this.emit(CallEvent.JoinRequested, requested);
+        if (requested) this.joinSessionEarly();
+    }
+
+    /**
+     * A join that skips the lobby sends the user's call membership at once, rather than once Element Call has mounted
+     * and fetched the call service's token: others see the user that much sooner, and Element Call's own join then
+     * finds the session joined. It starts once the join is on screen: joining makes and encrypts our media key, work
+     * that would otherwise hold up that frame. The mock component has no call session to join.
+     */
+    private joinSessionEarly(): void {
+        if (!ElementCall.usesReactComponent || SettingsStore.getValue("Developer.elementCallMockComponent")) return;
+        const { intent, config } = this.componentOptions;
+        const stillWanted = (): boolean => this.joinRequested && !this.destroyed;
+        afterNextPaint(() => {
+            if (!stillWanted()) return;
+            joinElementCallEarly(this.client, this.roomId, { intent, config, stillWanted }).catch((error) =>
+                logger.warn("Could not join the call session early", error),
+            );
+        });
+    }
+
+    /** Leaves the call session if it is still joined, as one joined early is when Element Call never took it over. */
+    private leaveSession(): void {
+        const room = this.client.getRoom(this.roomId);
+        const session = room && this.client.matrixRTC?.getRoomSession(room);
+        if (!session?.isJoined()) return;
+        Promise.resolve(session.leave(1000)).catch((error) => logger.warn("Could not leave the call session", error));
     }
 
     /** Whether the desktop UI should already show this device as having left. */
@@ -1262,6 +1291,8 @@ export class ElementCall extends Call {
                 // Release the retained call even when its engine can no longer acknowledge leaving.
                 logger.warn("Closing an unresponsive desktop call", error);
             } finally {
+                // Element Call leaves the session it ran; one joined early without it is left here.
+                this.leaveSession();
                 this.setDisconnected();
                 this.close();
                 ActiveWidgetStore.instance.destroyPersistentWidget(this.widget.id, this.widget.roomId);

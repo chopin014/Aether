@@ -73,3 +73,29 @@ export async function prefetchElementCallTransport(client: MatrixClient, roomId:
     const module = await loadElementCallModule();
     await module.prefetchElementCallTransport(client, roomId);
 }
+
+/**
+ * Sends the user's call membership for a room at once, with the settings Element Call would join with, instead of
+ * after it has mounted and fetched the call service's token. See the component's `joinElementCallEarly`.
+ *
+ * @param client - The account joining.
+ * @param roomId - The room whose call it joins.
+ * @param options - What Element Call is started with, and whether the user still wants the call once the session
+ *     can be joined.
+ * @returns Whether the session was joined here.
+ */
+export async function joinElementCallEarly(
+    client: MatrixClient,
+    roomId: string,
+    {
+        intent,
+        config,
+        stillWanted,
+    }: Pick<ElementCallComponent.ElementCallProps, "intent" | "config"> & {
+        stillWanted: () => boolean;
+    },
+): Promise<boolean> {
+    const module = await loadElementCallModule();
+    if (!stillWanted()) return false;
+    return module.joinElementCallEarly(client, roomId, intent, config ?? {}, stillWanted);
+}
