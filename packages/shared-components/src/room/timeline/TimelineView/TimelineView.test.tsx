@@ -1486,6 +1486,76 @@ describe("<TimelineView />", () => {
             expect(host.listeners.size).toBe(1);
         });
 
+        it("keeps drawing the rows of the commit it was suspended in, such as by one of those rows", async () => {
+            const fake = makeFakeVm({ items: eventItems(30) });
+            const host = lender();
+            // A row that has its host give the view up as it mounts, before the view itself has seen that commit.
+            const GivesUp = (): React.ReactNode => {
+                React.useLayoutEffect(() => {
+                    host.open = false;
+                    for (const listener of host.listeners) listener();
+                }, []);
+                return <div style={{ height: ROW_HEIGHT }} />;
+            };
+            const draw = (item: TimelineItem): React.ReactNode =>
+                item.key === "gives-up" ? <GivesUp /> : renderItem(item);
+            await renderPlaced(fake, host, { draw });
+
+            const replacement = [...eventItems(4, 100), { ...eventItems(1)[0], key: "gives-up" }];
+            fake.update({ items: replacement });
+            await settle();
+
+            expect(rowsShown().map((row) => row.dataset.key)).toEqual(replacement.map((item) => item.key));
+        });
+
+        it("stops waiting for its viewport to have a size once its host stops allowing it", async () => {
+            const watched = new Set<object>();
+            const Native = window.ResizeObserver;
+            class Counting extends Native {
+                public override observe(target: Element, options?: ResizeObserverOptions): void {
+                    watched.add(this);
+                    super.observe(target, options);
+                }
+                public override disconnect(): void {
+                    watched.delete(this);
+                    super.disconnect();
+                }
+            }
+            const fake = makeFakeVm({ items: eventItems(30) });
+            const host = lender();
+            const { rerender, viewport } = await renderPlaced(fake, host);
+            vi.stubGlobal("ResizeObserver", Counting);
+            try {
+                for (const stop of ["told", "given a closed execution"]) {
+                    host.invalidate();
+                    viewport.style.height = "0px";
+                    host.open = true;
+                    rerender(host.next());
+                    await settle();
+                    expect(watched.size).toBe(1);
+                    // Lent again while it waits: it waits once, for the new lending.
+                    host.revision++;
+                    rerender(host.next());
+                    expect(watched.size).toBe(1);
+
+                    if (stop === "told") {
+                        host.invalidate();
+                    } else {
+                        host.open = false;
+                        rerender(host.next());
+                    }
+                    expect(watched.size).toBe(0);
+                    clearActions(fake);
+                    viewport.style.height = `${VIEWPORT_HEIGHT}px`;
+                    await settle(300);
+                    expect(fake.actions.onAnchorReached).not.toHaveBeenCalled();
+                    viewport.style.height = "0px";
+                }
+            } finally {
+                vi.unstubAllGlobals();
+            }
+        });
+
         it("stops listening to its host once given another execution or unmounted", async () => {
             const fake = makeFakeVm({ items: eventItems(30) });
             const host = lender();

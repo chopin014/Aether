@@ -611,13 +611,16 @@ export function TimelineView({
     // due, a placement under way asks for no more frames, and the virtualizer keeps the rows, their sizes and the
     // offset without observing or scrolling, while the rows last committed are drawn as they were.
     const pause = useCallback((): void => {
+        // Paused already, perhaps waiting to resume into a viewport with no size: that wait was for an execution
+        // that no longer allows the view to act.
+        stopWaitingForGeometry();
         if (pausedRef.current) return;
         pausedRef.current = true;
         if (coldRafRef.current !== undefined) cancelAnimationFrame(coldRafRef.current);
         coldRafRef.current = undefined;
         virtualizer.setPaused(true);
         setPaused(true);
-    }, [virtualizer]);
+    }, [virtualizer, stopWaitingForGeometry]);
     // Act again, in a viewport that has a size: the current target is placed afresh behind the cover, keeping the
     // rows and what is known of their sizes, and what it shows is reported anew once it is shown again, even where it
     // is as before; see the effect that reports after each placement.
@@ -646,6 +649,8 @@ export function TimelineView({
     // from the page: one observer of the viewport says when it has one.
     useLayoutEffect(() => {
         if (!pausedRef.current) return;
+        // A wait for an earlier execution is over, whatever this one allows.
+        stopWaitingForGeometry();
         if (!execution) {
             resume();
             return;
@@ -658,11 +663,14 @@ export function TimelineView({
         }
         const Observer = scroller?.ownerDocument.defaultView?.ResizeObserver;
         if (!scroller || !Observer) return;
-        stopWaitingForGeometry();
         const observer = new Observer(() => {
-            if (geometryWaitRef.current !== observer || !hasGeometry(scroller)) return;
-            if (executionRef.current === execution && execution.isCurrent()) resume();
-            else stopWaitingForGeometry();
+            if (geometryWaitRef.current !== observer) return;
+            // Nothing is read from the page for an execution that no longer allows the view to act.
+            if (executionRef.current !== execution || execution.suspended || !execution.isCurrent()) {
+                stopWaitingForGeometry();
+                return;
+            }
+            if (hasGeometry(scroller)) resume();
         });
         geometryWaitRef.current = observer;
         observer.observe(scroller);
@@ -859,10 +867,10 @@ export function TimelineView({
         drawn = { items, rows, alignToBottom: snapshot.alignToBottom };
     }
     const shown = drawn ?? drawnRef.current;
-    // Kept once committed, and only while the view acts, so that neither a render React discards nor one made as the
-    // view is being suspended becomes what a suspended view draws.
+    // Kept once committed, as a render React discards runs no effects. Kept too when the view was suspended during
+    // this very commit, such as by a row it drew, as those rows are what the page now holds.
     useLayoutEffect(() => {
-        if (drawn && !pausedRef.current) drawnRef.current = drawn;
+        if (drawn) drawnRef.current = drawn;
     });
 
     return (
