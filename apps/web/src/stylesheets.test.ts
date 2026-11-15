@@ -21,6 +21,14 @@ import postcssScss from "postcss-scss";
  * a `:has()` on a container of the whole page or room restyles much of it whenever a message is added.
  */
 
+/*
+ * Chrome also keeps, for each attribute a selector matches on, what to restyle when that attribute changes on an
+ * element. A `[class*="…"]`, or any other match on the class attribute, before the part of a selector naming the
+ * element styled makes that list hold what that part matches, within the element or beside it. Classes change all
+ * the time, so whenever any element's class changes, everything within it or beside it matching that part is
+ * restyled: every element with a class, for `[class*="…"]`, under the timeline as it is shown.
+ */
+
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const STYLESHEET_DIRS = ["apps/web/res/css", "packages/shared-components/src"];
 
@@ -211,21 +219,77 @@ function problemsInSelectors(selectorList: string, file: string): string[] {
     return problems;
 }
 
-/** Each selector in `source` that styles something after a `:has()` in a way that restyles much of the page. */
-function problemsIn(source: string, file = "test.pcss"): string[] {
-    const { root } = postcss([postcssNested()]).process(source, { from: file, syntax: postcssScss });
+/** Whether a compound, or a selector list of its `:is()`, `:where()` or `:not()`, matches on the class attribute. */
+function matchesOnClass(compound: string): boolean {
+    const { own, pseudos } = splitCompound(compound);
+    if (/\[\s*class\s*[\]~|^$*=]/i.test(own)) return true;
+    // What a :has() holds is looked for only when the element it is on may have changed, not on every class change.
+    return pseudos.some(
+        (pseudo) =>
+            pseudo.name !== "has" && pseudo.selectors.some((selector) => compounds(selector).some(matchesOnClass)),
+    );
+}
+
+/** The selectors in a selector list that match on the class attribute before the part naming the element styled. */
+function classMatchesInSelectors(selectorList: string, file: string): string[] {
     const problems: string[] = [];
-    root.walkRules((rule) => {
-        if (rule.selector.includes(":has(")) problems.push(...problemsInSelectors(rule.selector, file));
-    });
+    for (const raw of splitTopLevel(withoutStrings(selectorList), (char) => char === ",")) {
+        const selector = raw.replace(/\s+/g, " ").trim();
+        const parts = compounds(selector);
+        const subject = parts.at(-1) ?? "";
+        if (parts.slice(0, -1).some(matchesOnClass)) {
+            problems.push(`${file}: ${selector}: matches on the class attribute of an element around or beside it`);
+        }
+        for (const pseudo of splitCompound(subject).pseudos) {
+            if (pseudo.name !== "has") problems.push(...classMatchesInSelectors(pseudo.selectors.join(", "), file));
+        }
+    }
     return problems;
+}
+
+/** The selector of each rule in `source`, with nesting resolved. */
+function selectorsIn(source: string, file: string): string[] {
+    const { root } = postcss([postcssNested()]).process(source, { from: file, syntax: postcssScss });
+    const selectors: string[] = [];
+    root.walkRules((rule) => {
+        selectors.push(rule.selector);
+    });
+    return selectors;
+}
+
+/** Each selector in `source` that styles something after a `:has()` in a way that restyles much of the page. */
+function hasProblemsIn(source: string, file = "test.pcss"): string[] {
+    return selectorsIn(source, file).flatMap((selector) =>
+        selector.includes(":has(") ? problemsInSelectors(selector, file) : [],
+    );
+}
+
+/** Each selector in `source` that matches on the class of an element around or beside the one it styles. */
+function classProblemsIn(source: string, file = "test.pcss"): string[] {
+    return selectorsIn(source, file).flatMap((selector) =>
+        /\[\s*class\b/i.test(selector) ? classMatchesInSelectors(selector, file) : [],
+    );
+}
+
+/** Each selector in `source` that restyles much of the page whenever something in it changes. */
+function problemsIn(source: string): string[] {
+    return [...hasProblemsIn(source), ...classProblemsIn(source)];
+}
+
+/** The problems `find` reports in every stylesheet. */
+function problemsInStylesheets(find: (source: string, file: string) => string[]): string[] {
+    const files = stylesheets();
+    expect(files.length).toBeGreaterThan(100);
+    return files.flatMap((file) => find(readFileSync(path.join(repoRoot, file), "utf8"), file));
 }
 
 describe("stylesheets", () => {
     it("style nothing after a :has() but elements named by a class, within small parts of the page", () => {
-        const files = stylesheets();
-        expect(files.length).toBeGreaterThan(100);
-        expect(files.flatMap((file) => problemsIn(readFileSync(path.join(repoRoot, file), "utf8"), file))).toEqual([]);
+        expect(problemsInStylesheets(hasProblemsIn)).toEqual([]);
+    });
+
+    it("match nothing on the class of an element around or beside the one they style", () => {
+        expect(problemsInStylesheets(classProblemsIn)).toEqual([]);
     });
 
     it.each([
@@ -247,6 +311,16 @@ describe("stylesheets", () => {
         [".tile:has(.panel) :nth-child(2n of :is(.icon:nth-child(odd of .active), span)) {}"],
         [".tile:has(.panel) :nth-child(2n of:is(.icon:nth-child(odd of .active), span)) {}"],
         [".tile:has(.panel) :nth-last-child(odd OF\tspan) {}"],
+        ['body [class*="_tooltip_"] > [class*="_caption_"] {}'],
+        ['[class*="_tooltip_"] > span {}'],
+        ['[class^="cpd-"] + .label {}'],
+        ['.list [class~="active"] ~ .item {}'],
+        ["[class] .item {}"],
+        ['[ class|="theme" ] .item {}'],
+        ['.panel :is(.a, [class*="_b_"]) .item {}'],
+        ['.panel :not([class$="_open"]) > .item {}'],
+        ['.item:is([class*="_tooltip_"] > .caption) {}'],
+        ['.header { [class*="_tooltip_"] & { color: red; } }'],
     ])("reports %s", (source) => {
         expect(problemsIn(source)).toHaveLength(1);
     });
@@ -266,6 +340,13 @@ describe("stylesheets", () => {
         [".tile:has(.panel) :nth-child(2n of.a) {}"],
         [".tile:has(.panel) :nth-last-child(2n of :is(.icon:nth-child(odd of .active), .b)) {}"],
         [".tile:has(.panel) .line:lang(en) {}"],
+        ['body.mx_DesktopShell [class*="_tooltip_"] {}'],
+        ['body.mx_DesktopShell [class*="_caption_"]:has(> [data-card]) {}'],
+        ['body span:first-of-type:has(+ [class*="_caption_"] > [data-card]) {}'],
+        ['.settings > [class*="_inline-field_"] {}'],
+        ['.item[data-label="[class*=x] y"] .icon {}'],
+        ['.item:not([class*="_hidden_"]) {}'],
+        ["[classname] .item {}"],
     ])("accepts %s", (source) => {
         expect(problemsIn(source)).toEqual([]);
     });
