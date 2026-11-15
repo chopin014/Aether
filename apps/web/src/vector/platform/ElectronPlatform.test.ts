@@ -494,6 +494,32 @@ describe("ElectronPlatform", () => {
         await expect(idle).resolves.toBeNull();
     });
 
+    it.each([
+        [true, true],
+        [false, false],
+        [null, false],
+    ])("reads the system's Do Not Disturb answer %s as %s", async (answer, expected) => {
+        const platform = new ElectronPlatform();
+        mockElectron.send.mockClear();
+        const dnd = platform.isSystemDoNotDisturb();
+        const [channel, { id, name }] = mockElectron.send.mock.calls[0];
+        expect(channel).toBe("ipcCall");
+        expect(name).toBe("getSystemDoNotDisturb");
+        const [, reply] = getElectronEventHandlerCall("ipcReply")!;
+        reply({}, { id, reply: answer });
+        await expect(dnd).resolves.toBe(expected);
+    });
+
+    it("keeps notification sounds when an older desktop host cannot read Do Not Disturb", async () => {
+        const platform = new ElectronPlatform();
+        mockElectron.send.mockClear();
+        const dnd = platform.isSystemDoNotDisturb();
+        const [, { id }] = mockElectron.send.mock.calls[0];
+        const [, reply] = getElectronEventHandlerCall("ipcReply")!;
+        reply({}, { id, error: "Unknown IPC Call: getSystemDoNotDisturb" });
+        await expect(dnd).resolves.toBe(false);
+    });
+
     describe("spellcheck", () => {
         it("indicates support for spellcheck settings", () => {
             const platform = new ElectronPlatform();
