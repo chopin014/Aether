@@ -13,6 +13,9 @@ import {
     elementScroll,
     observeElementOffset,
     observeElementRect,
+    observeWindowOffset,
+    observeWindowRect,
+    windowScroll,
     type VirtualizerOptions,
 } from "@tanstack/react-virtual";
 
@@ -285,6 +288,56 @@ describe("virtual-core patch: pausing", () => {
         virtualizer.setPaused(false);
         expect(-scroller.scrollLeft).toBe(stoppedAt);
         scroller.remove();
+    });
+
+    it("keeps where a smooth scroll stopped in a window scrolled right to left", async () => {
+        const root = document.documentElement;
+        const dir = root.dir;
+        root.dir = "rtl";
+        const content = document.createElement("div");
+        Object.assign(content.style, { width: "6000px", height: "10px" });
+        document.body.append(content);
+        const overflow = [root.style.overflow, document.body.style.overflow];
+        root.style.overflow = "auto";
+        document.body.style.overflow = "visible";
+        // A window keeps the browser's own offsets, which go negative right to left.
+        window.scrollTo({ left: -2000, behavior: "instant" });
+        expect(window.scrollX).toBe(-2000);
+        const virtualizer = new Virtualizer<Window, HTMLDivElement>({
+            count: 100,
+            estimateSize: () => 50,
+            horizontal: true,
+            isRtl: true,
+            getScrollElement: () => window,
+            // Where the window is, which attaching writes back.
+            initialOffset: -2000,
+            scrollToFn: windowScroll,
+            observeElementOffset: observeWindowOffset,
+            observeElementRect: observeWindowRect,
+            onChange: () => {},
+        });
+        try {
+            virtualizer._willUpdate();
+            virtualizer.scrollToOffset(0, { behavior: "smooth" });
+            await nextFrame();
+            await nextFrame();
+            await new Promise((resolve) => setTimeout(resolve, 50));
+
+            virtualizer.setPaused(true);
+            const stoppedAt = window.scrollX;
+            expect(stoppedAt).toBeLessThan(0);
+            expect(stoppedAt).toBeGreaterThan(-2000);
+            expect(virtualizer.scrollOffset).toBe(stoppedAt);
+
+            virtualizer.setPaused(false);
+            expect(window.scrollX).toBe(stoppedAt);
+        } finally {
+            virtualizer._didMount()();
+            content.remove();
+            root.dir = dir;
+            [root.style.overflow, document.body.style.overflow] = overflow;
+            window.scrollTo({ left: 0, behavior: "instant" });
+        }
     });
 
     it("attaches nothing again as its owner renders while paused, nor keeps rows in place that change meanwhile", async () => {

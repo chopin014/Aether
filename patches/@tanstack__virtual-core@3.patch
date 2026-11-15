@@ -39,7 +39,7 @@ index c9065e73a2565430fc05ec61783490abc0a6d3c0..d69e6b8c42478eb057c422201736759d
          (): VirtualItem[];
          updateDeps(newDeps: [number[], VirtualItem[]]): void;
 diff --git a/dist/esm/index.js b/dist/esm/index.js
-index dcba044582148f2b8923163b1a431571230bdfef..f5924a3e653ab9a56b91f0968e378a84a9bfd859 100644
+index dcba044582148f2b8923163b1a431571230bdfef..b2f223c5053c062db4dc8655f2ae268d4aac679a 100644
 --- a/dist/esm/index.js
 +++ b/dist/esm/index.js
 @@ -213,6 +213,10 @@ class Virtualizer {
@@ -288,7 +288,7 @@ index dcba044582148f2b8923163b1a431571230bdfef..f5924a3e653ab9a56b91f0968e378a84
        if (this.options.count > 0) {
          this._iosDeferredAdjustment = 0;
          const offset = Math.max(this.getMaxScrollOffset(), 0);
-@@ -1249,6 +1344,73 @@ class Virtualizer {
+@@ -1249,6 +1344,74 @@ class Virtualizer {
        }
        this.options.scrollToFn(offset, { behavior, adjustments }, this);
      };
@@ -351,8 +351,9 @@ index dcba044582148f2b8923163b1a431571230bdfef..f5924a3e653ab9a56b91f0968e378a84
 +        const { horizontal, isRtl } = this.options;
 +        const current = "scrollTop" in el ? horizontal ? el.scrollLeft : el.scrollTop : horizontal ? el.scrollX : el.scrollY;
 +        el.scrollTo({ [horizontal ? "left" : "top"]: current, behavior: "instant" });
-+        // In the virtualizer's own terms, as its offset observers read it: right to left, positive from the start.
-+        this.scrollOffset = horizontal && isRtl ? -current : current;
++        // In the virtualizer's own terms, as its offset observers read it: an element's right-to-left offset counts
++        // positive from the start, while a window's is kept as the browser gives it.
++        this.scrollOffset = "scrollTop" in el && horizontal && isRtl ? -current : current;
 +        this._intendedScrollOffset = null;
 +        this.scrollState = null;
 +      } else if (this._intendedScrollOffset !== null) {
@@ -362,7 +363,7 @@ index dcba044582148f2b8923163b1a431571230bdfef..f5924a3e653ab9a56b91f0968e378a84
      this.measure = () => {
        this.pendingMin = null;
        this.itemSizeCache.clear();
-@@ -1274,16 +1436,19 @@ class Virtualizer {
+@@ -1274,16 +1437,19 @@ class Virtualizer {
        }
        return false;
      } else {
