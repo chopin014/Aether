@@ -398,11 +398,17 @@ export class DesktopCallStageViewModel
         };
     };
 
+    /**
+     * The ringback plays while the stage shows the call ringing someone: from the click that starts it, as the call
+     * area says "Calling…", not from when Element Call reports the ringing a second or more later.
+     */
     private updateRingtone = (): void => {
         if (!this.ringtoneStarted) return;
-        const { state } = this.bridge;
+        const presented = presentedState(this.props.client, this.props.call, this.bridge.state, this.ringPending);
         this.ringtone.setRinging(
-            !this.props.call.locallyLeaving && state.phase === "in_call" && state.ringing === "ringing",
+            !this.props.call.locallyLeaving &&
+                (presented.phase === "in_call" || presented.phase === "joining") &&
+                presented.ringing === "ringing",
         );
     };
 
@@ -413,7 +419,6 @@ export class DesktopCallStageViewModel
         this.bridge = bridge;
         const { state } = bridge;
         this.syncProfiles();
-        this.updateRingtone();
         this.syncVolumeMaps(state.participants, state.screenShares);
         this.applyUserPreferences();
 
@@ -434,6 +439,7 @@ export class DesktopCallStageViewModel
             this.ringPending = false;
         }
         const presented = presentedState(this.props.client, this.props.call, state, this.ringPending);
+        this.updateRingtone();
         this.snapshot.merge({
             phase: presented.phase,
             roomName: state.roomName,

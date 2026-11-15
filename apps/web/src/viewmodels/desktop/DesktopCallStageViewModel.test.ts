@@ -373,6 +373,38 @@ describe("DesktopCallStageViewModel", () => {
             expect(vm.getSnapshot().callees).toEqual([]);
             vm.dispose();
         });
+
+        it("plays the ringback from the click, while the call still joins, and stops it with the ringing", () => {
+            vi.mocked(DMRoomMap.shared).mockReturnValue({
+                getUserIdForRoomId: () => "@bob:example.org",
+            } as unknown as DMRoomMap);
+            const room = {
+                isElementVideoRoom: () => false,
+                isCallRoom: () => false,
+                getMember: () => me,
+                getMembers: () => [{ ...me, membership: "join" }, bob],
+            };
+            setRinging.mockClear();
+            const vm = new DesktopCallStageViewModel({
+                client: clientFor(room),
+                call: asked(true),
+                bridge: createBridge({ phase: "joining" }),
+            });
+            vm.startRingtone();
+            expect(setRinging).toHaveBeenLastCalledWith(true);
+            const own = { id: "p-me", userId: "@me:example.org", displayName: "Me", local: true };
+            vm.setBridge(createBridge({ phase: "in_call", participants: [own as AetherParticipantMediaItem] }));
+            expect(setRinging).toHaveBeenLastCalledWith(true);
+            vm.setBridge(
+                createBridge({
+                    phase: "in_call",
+                    ringing: "decline",
+                    participants: [own as AetherParticipantMediaItem],
+                }),
+            );
+            expect(setRinging).toHaveBeenLastCalledWith(false);
+            vm.dispose();
+        });
     });
 
     it("waits for device changes, reports failure, and ignores a late failure after disposal", async () => {
