@@ -8,7 +8,13 @@ Please see LICENSE in the repository root for full details.
 // Tests for Aether's patch to @tanstack/virtual-core.
 
 import { describe, expect, it, vi } from "vitest";
-import { Virtualizer, elementScroll, observeElementOffset, observeElementRect } from "@tanstack/react-virtual";
+import {
+    Virtualizer,
+    elementScroll,
+    observeElementOffset,
+    observeElementRect,
+    type VirtualizerOptions,
+} from "@tanstack/react-virtual";
 
 function makeVirtualizer(
     onChange: () => void,
@@ -120,5 +126,203 @@ describe("virtual-core patch", () => {
         onChange.mockClear();
         virtualizer.resizeItems([[0, 50]]);
         expect(onChange).not.toHaveBeenCalled();
+    });
+});
+
+describe("virtual-core patch: pausing", () => {
+    /** Wait for the browser to draw a frame, and so deliver what its observers saw. */
+    const nextFrame = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+    /** A virtualizer over `count` rows of `height` pixels in the page, each measured as its element is given. */
+    function makeRows(
+        count: number,
+        height: number,
+        options: Partial<VirtualizerOptions<HTMLDivElement, HTMLDivElement>> = {},
+    ): {
+        virtualizer: Virtualizer<HTMLDivElement, HTMLDivElement>;
+        scroller: HTMLDivElement;
+        rows: HTMLDivElement[];
+        onChange: ReturnType<typeof vi.fn>;
+    } {
+        const scroller = document.createElement("div");
+        scroller.style.height = "200px";
+        scroller.style.overflow = "auto";
+        const rows = Array.from({ length: count }, (_, index) => {
+            const row = document.createElement("div");
+            row.dataset.index = String(index);
+            row.style.height = `${height}px`;
+            return row;
+        });
+        scroller.append(...rows);
+        document.body.append(scroller);
+        const onChange = vi.fn();
+        const virtualizer = new Virtualizer<HTMLDivElement, HTMLDivElement>({
+            count,
+            estimateSize: () => 40,
+            getScrollElement: () => scroller,
+            getItemKey: (index) => `row-${index}`,
+            scrollToFn: elementScroll,
+            observeElementOffset,
+            observeElementRect,
+            onChange,
+            ...options,
+        });
+        virtualizer._willUpdate();
+        for (const row of rows) virtualizer.measureElement(row);
+        return { virtualizer, scroller, rows, onChange };
+    }
+
+    it("keeps the sizes, the range, the offset and the rows' elements while paused", async () => {
+        const { virtualizer, scroller, rows, onChange } = makeRows(10, 50);
+        expect(virtualizer.getTotalSize()).toBe(500);
+        scroller.scrollTop = 100;
+        await vi.waitFor(() => expect(virtualizer.scrollOffset).toBe(100));
+        const range = virtualizer.range;
+        const elements = [...virtualizer.elementsCache.entries()];
+
+        virtualizer.setPaused(true);
+        onChange.mockClear();
+        rows[0].style.height = "90px";
+        scroller.style.height = "150px";
+        scroller.scrollTop = 0;
+        scroller.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+        await nextFrame();
+
+        expect(virtualizer.getTotalSize()).toBe(500);
+        expect(virtualizer.scrollOffset).toBe(100);
+        expect(virtualizer.range).toEqual(range);
+        expect(virtualizer.scrollRect?.height).toBe(200);
+        expect(onChange).not.toHaveBeenCalled();
+        // A row's element going from the page, as React lets go of it, leaves it noted.
+        rows[1].remove();
+        virtualizer.measureElement(null);
+        expect([...virtualizer.elementsCache.entries()]).toEqual(elements);
+        scroller.remove();
+    });
+
+    it("scrolls nowhere while paused, and drops a scroll on its way as it pauses", async () => {
+        const frames = new Map<number, FrameRequestCallback>();
+        let nextId = 1;
+        vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+            frames.set(nextId, callback);
+            return nextId++;
+        });
+        vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => void frames.delete(id));
+        const { virtualizer, scroller } = makeRows(20, 50);
+        virtualizer.scrollToIndex(10, { align: "start" });
+        const steering = frames.size;
+        expect(steering).toBeGreaterThan(0);
+
+        virtualizer.setPaused(true);
+        expect(frames.size).toBe(steering - 1);
+        const top = scroller.scrollTop;
+        virtualizer.scrollToOffset(0);
+        virtualizer.scrollToIndex(0);
+        virtualizer.scrollBy(-100);
+        virtualizer.scrollToEnd();
+        virtualizer.scrollToOffsetNow(0);
+        virtualizer.resizeItems([[0, 400]]);
+
+        expect(scroller.scrollTop).toBe(top);
+        expect(frames.size).toBe(steering - 1);
+        expect(virtualizer.getTotalSize()).toBe(1000);
+        vi.restoreAllMocks();
+        scroller.remove();
+    });
+
+    it("attaches nothing again as its owner renders while paused, nor keeps rows in place that change meanwhile", async () => {
+        const { virtualizer, scroller, onChange } = makeRows(10, 50, { anchorTo: "end" });
+        scroller.scrollTop = 150;
+        await vi.waitFor(() => expect(virtualizer.scrollOffset).toBe(150));
+        virtualizer.setPaused(true);
+        onChange.mockClear();
+        const listens = vi.spyOn(scroller, "addEventListener");
+
+        // Rows added above, which would move the offset to keep the rows shown in place.
+        virtualizer.setOptions({ ...virtualizer.options, count: 12, getItemKey: (index) => `row-${index - 2}` });
+        virtualizer._willUpdate();
+        expect(virtualizer.scrollOffset).toBe(150);
+        // Let go of as React does when it runs its effects again, in StrictMode, before rendering once more.
+        virtualizer._didMount()();
+        virtualizer._willUpdate();
+        scroller.scrollTop = 0;
+        scroller.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+
+        expect(onChange).not.toHaveBeenCalled();
+        expect(listens).not.toHaveBeenCalled();
+        expect(virtualizer.scrollOffset).toBe(150);
+        expect(scroller.scrollTop).toBe(0);
+        scroller.remove();
+    });
+
+    it("ignores what its observers saw before it paused, even once it has resumed", async () => {
+        // Each observer's deliveries are held, to be handed over by the test.
+        const held: FrameRequestCallback[] = [];
+        const { virtualizer, scroller, rows } = makeRows(10, 50, { useAnimationFrameWithResizeObserver: true });
+        await vi.waitFor(() => expect(virtualizer.getTotalSize()).toBe(500));
+        vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+            held.push(callback);
+            return held.length;
+        });
+        rows[0].style.height = "80px";
+        scroller.style.height = "150px";
+        await vi.waitFor(() => expect(held.length).toBeGreaterThanOrEqual(2));
+        const beforePause = held.splice(0);
+
+        virtualizer.setPaused(true);
+        // Nothing is observed while paused.
+        rows[1].style.height = "60px";
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(held).toHaveLength(0);
+        virtualizer.setPaused(false);
+        const resizes = vi.spyOn(virtualizer, "resizeItem");
+        // What the observers of this attachment see comes first: the viewport has changed size again.
+        scroller.style.height = "250px";
+        await vi.waitFor(() => expect(held.length).toBeGreaterThan(0));
+        for (const deliver of held.splice(0)) deliver(performance.now());
+        expect(virtualizer.scrollRect?.height).toBe(250);
+        resizes.mockClear();
+        for (const deliver of beforePause) deliver(performance.now());
+
+        expect(resizes).not.toHaveBeenCalled();
+        expect(virtualizer.scrollRect?.height).toBe(250);
+        vi.restoreAllMocks();
+        scroller.remove();
+    });
+
+    it("measures the rows afresh and writes its offset back as it resumes, letting go of rows gone meanwhile", async () => {
+        const { virtualizer, scroller, rows, onChange } = makeRows(10, 50);
+        scroller.scrollTop = 120;
+        await vi.waitFor(() => expect(virtualizer.scrollOffset).toBe(120));
+        virtualizer.setPaused(true);
+        // Taken out of the page and put back, which loses the scroll position, while rows change and one goes.
+        scroller.remove();
+        rows[9].style.height = "70px";
+        rows[8].remove();
+        virtualizer.measureElement(null);
+        document.body.append(scroller);
+        expect(scroller.scrollTop).toBe(0);
+
+        virtualizer.setPaused(false);
+        expect(scroller.scrollTop).toBe(120);
+        await vi.waitFor(() => expect(virtualizer.getTotalSize()).toBe(8 * 50 + 50 + 70));
+        expect(virtualizer.elementsCache.has("row-8")).toBe(false);
+        expect(onChange).toHaveBeenCalled();
+        // An offset scrolled to just before a pause, not yet read back, is the one written back.
+        virtualizer.scrollToOffsetNow(60);
+        virtualizer.setPaused(true);
+        scroller.scrollTop = 0;
+        virtualizer.setPaused(false);
+        expect(scroller.scrollTop).toBe(60);
+        virtualizer.scrollToOffsetNow(120);
+        // Pausing twice, or resuming twice, is as once.
+        virtualizer.setPaused(false);
+        virtualizer.setPaused(true);
+        virtualizer.setPaused(true);
+        virtualizer.setPaused(false);
+        expect(scroller.scrollTop).toBe(120);
+        scroller.remove();
     });
 });
