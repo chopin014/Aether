@@ -1404,7 +1404,7 @@ describe("RoomView", () => {
             fireEvent.keyDown(separator, { key: "Home" });
             expect(callArea.style.height).toBe("248px");
             fireEvent.doubleClick(separator);
-            expect(callArea.style.height).toBe("40vh");
+            expect(callArea.style.height).toBe("33vh");
         });
 
         it("makes a call that fills the room the page's one main landmark", async () => {

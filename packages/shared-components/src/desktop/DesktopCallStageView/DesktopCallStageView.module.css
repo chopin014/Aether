@@ -1429,8 +1429,8 @@ Please see LICENSE in the repository root for full details.
     display: flex;
     align-items: center;
     justify-content: center;
-    /* Room for avatar decorations, which reach past the avatar, between neighbours. */
-    gap: calc(var(--conversation-avatar-size, 96px) / 3);
+    /* Close together, as in Discord, with just enough room for avatar decorations that reach past the avatar. */
+    gap: max(var(--cpd-space-3x), calc(var(--conversation-avatar-size, 64px) / 5));
     flex-wrap: wrap;
 }
 
@@ -1440,7 +1440,8 @@ Please see LICENSE in the repository root for full details.
  * avatar decoration stays), and nothing is written under an avatar while its media connects.
  */
 .stage[data-presentation="conversation"][data-audio-only="true"] {
-    --conversation-avatar-size: clamp(80px, 10cqw, 120px);
+    /* Discord's size: about 62px across a stage 1,700px wide. */
+    --conversation-avatar-size: clamp(56px, 3.6cqw, 80px);
 }
 
 .stage[data-presentation="conversation"][data-audio-only="true"] .tile {
