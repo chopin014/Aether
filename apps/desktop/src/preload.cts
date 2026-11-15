@@ -37,6 +37,7 @@ const CHANNELS = [
     "userDownloadCompleted",
     "userDownloadAction",
     "openDesktopCapturerSourcePicker",
+    "openMatrixLink",
     "userAccessToken",
     "homeserverUrl",
     "serverSupportedVersions",
