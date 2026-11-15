@@ -55,6 +55,11 @@ export class YouTubeEmbedPlayer implements WatchPlayer {
     private error?: WatchPlayerError;
     private volume = 1;
     private loads = 0;
+    /**
+     * Whether the loaded video has played. Right after switching videos the embed can still report the previous
+     * one as ended, which must not count as the new one ending.
+     */
+    private playedSinceLoad = false;
     private disposed = false;
     /** The window the embed reports to: the one its frame is in, which changes when the call pops out. */
     private listeningWindow: Window | null = null;
@@ -90,6 +95,7 @@ export class YouTubeEmbedPlayer implements WatchPlayer {
         if (this.disposed) return;
         this.item = item;
         this.state = YouTubeState.Unstarted;
+        this.playedSinceLoad = false;
         this.time = position;
         this.timeAt = this.now();
         this.duration = null;
@@ -270,9 +276,11 @@ export class YouTubeEmbedPlayer implements WatchPlayer {
         if (typeof videoData?.title === "string" && videoData.title) this.title = videoData.title;
         const previous = this.state;
         if (typeof info.playerState === "number") this.state = info.playerState;
+        if (this.state === YouTubeState.Playing) this.playedSinceLoad = true;
         if (this.state !== previous) {
-            if (this.state === YouTubeState.Ended) this.emit("ended");
-            else if (this.state === YouTubeState.Paused && previous === YouTubeState.Playing) this.emit("paused");
+            if (this.state === YouTubeState.Ended) {
+                if (this.playedSinceLoad) this.emit("ended");
+            } else if (this.state === YouTubeState.Paused && previous === YouTubeState.Playing) this.emit("paused");
             else if (this.state === YouTubeState.Playing) this.emit("playing");
         }
         this.emit("status");

@@ -131,6 +131,20 @@ describe("YouTubeEmbedPlayer", () => {
         expect(events.filter((e) => e !== "status")).toEqual(["playing", "paused", "ended"]);
     });
 
+    it("ignores the previous video's end reported just after switching", () => {
+        loadFrame(item, 0, true);
+        fromEmbed({ event: "onReady" });
+        fromEmbed({ event: "infoDelivery", info: { playerState: 1 } });
+        fromEmbed({ event: "infoDelivery", info: { playerState: 0 } });
+        expect(events.filter((e) => e === "ended")).toHaveLength(1);
+        player.load({ ...item, id: "i2", ref: "jNQXAC9IVRw" }, 0, true);
+        fromEmbed({ event: "infoDelivery", info: { playerState: 0 } });
+        expect(events.filter((e) => e === "ended")).toHaveLength(1);
+        fromEmbed({ event: "infoDelivery", info: { playerState: 1 } });
+        fromEmbed({ event: "infoDelivery", info: { playerState: 0 } });
+        expect(events.filter((e) => e === "ended")).toHaveLength(2);
+    });
+
     it.each([
         [150, "not_embeddable"],
         [101, "not_embeddable"],

@@ -25,6 +25,8 @@ const SEEK_COOLDOWN_MS = 2000;
  */
 const COMMAND_ECHO_MS = 1200;
 const TICK_MS = 250;
+/** An end reported before the item has played this long is left over from the previous item. */
+const MIN_PLAYED_BEFORE_END_SECONDS = 1;
 /** A paused player takes about this long to start (measured on YouTube), so a countdown tells it to play early. */
 const START_LATENCY_SECONDS = 0.35;
 
@@ -170,7 +172,8 @@ export class WatchPlayerSync {
         const now = this.now();
         switch (event) {
             case "ended":
-                this.session.itemEnded(item.id);
+                // An item that has not started in shared time cannot have ended; the report is about the last one.
+                if (this.session.position(now) > MIN_PLAYED_BEFORE_END_SECONDS) this.session.itemEnded(item.id);
                 break;
             case "reset":
                 this.needsLoad = true;

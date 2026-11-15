@@ -226,6 +226,17 @@ describe("WatchPlayerSync", () => {
         expect(player().calls[0]).toMatch(/^load i2/);
     });
 
+    it("ignores an end reported for an item that has not started yet", async () => {
+        session.start([item("i1"), item("i2"), item("i3")]);
+        await vi.advanceTimersByTimeAsync(5000);
+        player().emit("ended");
+        expect(session.current?.id).toBe("i2");
+        // Straight after moving on, the player still says the previous item ended.
+        player().emit("ended");
+        expect(session.current?.id).toBe("i2");
+        expect(session.state?.ended).toBe(false);
+    });
+
     it("swaps players when the source changes and drops them when the activity ends", async () => {
         session.start([item("i1"), item("i2", "media")]);
         const youtube = player();
