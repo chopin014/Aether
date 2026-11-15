@@ -631,7 +631,21 @@ test(
             const suppression = noisePanel.getByRole("switch", { name: "Noise suppression", exact: true });
             await expect(suppression).not.toBeChecked();
             await suppression.check();
-            await expect.poll(() => denoiserStatuses).toContain(200);
+            // It may have been fetched before this test started listening; the page's own record covers that.
+            await expect
+                .poll(async () =>
+                    denoiserStatuses.includes(200)
+                        ? 200
+                        : page.evaluate(
+                              () =>
+                                  performance
+                                      .getEntriesByType("resource")
+                                      .map((entry) => entry as PerformanceResourceTiming)
+                                      .find((entry) => /aether-denoiser\.[^/]+\.wasm$/.test(entry.name))
+                                      ?.responseStatus,
+                          ),
+                )
+                .toBe(200);
             // ANS always runs at full strength, so there is nothing to tune.
             await expect(noisePanel.getByRole("slider")).toHaveCount(0);
             await expect
