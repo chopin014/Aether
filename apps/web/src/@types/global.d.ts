@@ -59,6 +59,7 @@ type ElectronChannel =
     | "userDownloadCompleted"
     | "userDownloadAction"
     | "openDesktopCapturerSourcePicker"
+    | "openMatrixLink"
     | "userAccessToken"
     | "homeserverUrl"
     | "serverSupportedVersions"

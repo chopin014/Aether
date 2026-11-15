@@ -27,10 +27,12 @@ import * as windowControlsTheme from "./watchWindowControlsTheme";
 import { CallStore } from "../../stores/CallStore";
 import type { Call } from "../../models/Call";
 import ToastStore from "../../stores/ToastStore.ts";
+import { openMatrixLink } from "./openMatrixLink";
 
 vi.mock("../../rageshake/rageshake", () => ({
     flush: vi.fn(),
 }));
+vi.mock("./openMatrixLink", () => ({ openMatrixLink: vi.fn() }));
 
 describe("ElectronPlatform", () => {
     const initialiseValues = vi.fn().mockReturnValue({
@@ -185,6 +187,15 @@ describe("ElectronPlatform", () => {
         handler();
 
         expect(dispatchFireSpy).toHaveBeenCalledWith(Action.ViewUserSettings);
+    });
+
+    it("opens a matrix: link the desktop host sends", () => {
+        new ElectronPlatform();
+        const [, handler] = getElectronEventHandlerCall("openMatrixLink")!;
+
+        handler({}, "#/user/%40alice%3Aexample.org");
+
+        expect(openMatrixLink).toHaveBeenCalledWith("#/user/%40alice%3Aexample.org");
     });
 
     it("creates a modal on openDesktopCapturerSourcePicker", async () => {
