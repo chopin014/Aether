@@ -141,6 +141,8 @@ vi.mock("../../audio/DesktopCallRingtone", () => ({
 describe("DesktopCallStageViewModel", () => {
     const mockClient = {
         getRoom: vi.fn().mockReturnValue(null),
+        // Signed out as far as these tests go, so the stage adds no tile of its own for the user.
+        getUserId: () => null,
         isUserIgnored: vi.fn().mockReturnValue(false),
         on: vi.fn(),
         off: vi.fn(),
@@ -325,6 +327,41 @@ describe("DesktopCallStageViewModel", () => {
             const own = { id: "p-me", userId: "@me:example.org", displayName: "Me", local: true };
             vm.setBridge(createBridge({ phase: "in_call", participants: [own as AetherParticipantMediaItem] }));
             expect(vm.getSnapshot().participants.map((tile) => tile.id)).toEqual(["p-me"]);
+            vm.dispose();
+        });
+
+        it("keeps the user's own tile, as the same tile, while Element Call reports nobody for a moment", () => {
+            vi.mocked(DMRoomMap.shared).mockReturnValue({
+                getUserIdForRoomId: () => "@bob:example.org",
+            } as unknown as DMRoomMap);
+            const room = {
+                isElementVideoRoom: () => false,
+                isCallRoom: () => false,
+                getMember: () => me,
+                getMembers: () => [{ ...me, membership: "join" }, bob],
+            };
+            const vm = new DesktopCallStageViewModel({
+                client: clientFor(room),
+                call: asked(true),
+                bridge: createBridge({ phase: "joining" }),
+            });
+            // In the call with nobody reported yet, as Element Call is between joining and its media.
+            vm.setBridge(createBridge({ phase: "in_call", ringing: "ringing", participants: [] }));
+            expect(vm.getSnapshot().participants).toEqual([
+                expect.objectContaining({ userId: "@me:example.org", local: true }),
+            ]);
+            const own = { id: "p-me", userId: "@me:example.org", displayName: "Me", local: true };
+            vm.setBridge(
+                createBridge({
+                    phase: "in_call",
+                    ringing: "ringing",
+                    participants: [own as AetherParticipantMediaItem],
+                }),
+            );
+            vm.setBridge(createBridge({ phase: "in_call", ringing: "ringing", participants: [] }));
+            // The stand-in takes the tile Element Call gave the user, so the tile stays rather than being redrawn.
+            expect(vm.getSnapshot().participants.map((tile) => tile.id)).toEqual(["p-me"]);
+            expect(vm.getSnapshot().callees.map((callee) => callee.userId)).toEqual(["@bob:example.org"]);
             vm.dispose();
         });
 

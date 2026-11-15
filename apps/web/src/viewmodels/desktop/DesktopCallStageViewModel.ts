@@ -165,8 +165,9 @@ const pendingParticipant = (
     client: MatrixClient,
     person: { userId: string; name: string; mxc?: string | null },
     local: boolean,
+    id = `pending:${person.userId}`,
 ): AetherParticipantMediaItem => ({
-    id: `pending:${person.userId}`,
+    id,
     userId: person.userId,
     displayName: person.name,
     avatarMxcUrl: person.mxc ?? undefined,
@@ -186,16 +187,38 @@ const pendingParticipant = (
 });
 
 /**
+ * The participants with the user among them. Element Call reports nobody for a moment as it goes from joining to in
+ * the call, which made the user's own tile vanish and come back while a conversation rang.
+ *
+ * @param localTileId - The ID Element Call last gave the user's tile, so that the stand-in is the same tile.
+ */
+const withLocalUser = (
+    client: MatrixClient,
+    call: ElementCall,
+    participants: readonly AetherParticipantMediaItem[],
+    localTileId?: string,
+): readonly AetherParticipantMediaItem[] => {
+    const me = client.getUserId();
+    if (!me || participants.some((participant) => participant.local)) return participants;
+    const member = client.getRoom(call.roomId)?.getMember(me);
+    const person = { userId: me, name: member?.name ?? me, mxc: member?.getMxcAvatarUrl() };
+    return [pendingParticipant(client, person, true, localTileId), ...participants];
+};
+
+/**
  * What the stage shows for the engine's state. A call the user asked to join is shown as joining straight away,
  * even while Element Call still sits in its lobby for a moment before joining by itself, and until the engine reports
  * media, the stage shows who it already knows about: the user, the people already in the call, and, in a direct
  * conversation that nobody else is in yet, the person being called. Element Call replaces them as it connects.
+ *
+ * @param localTileId - The ID Element Call last gave the user's tile, see {@link withLocalUser}.
  */
 const presentedState = (
     client: MatrixClient,
     call: ElementCall,
     state: AetherCallPresentationBridge["state"],
     ringPending = false,
+    localTileId?: string,
 ): {
     phase: AetherCallPresentationBridge["state"]["phase"];
     participants: readonly AetherParticipantMediaItem[];
@@ -208,17 +231,15 @@ const presentedState = (
         // Element Call reports being in the call a moment before it reports ringing; keep showing who is called.
         const ringing =
             state.ringing ?? (ringPending && isConversation && alone && state.phase === "in_call" ? "ringing" : null);
-        return { phase: joining ? "joining" : state.phase, participants: state.participants, ringing };
+        // In the call, Element Call reports nobody for a moment while it moves from joining to its media.
+        const participants =
+            joining || (state.phase === "in_call" && state.participants.length === 0)
+                ? withLocalUser(client, call, state.participants, localTileId)
+                : state.participants;
+        return { phase: joining ? "joining" : state.phase, participants, ringing };
     }
     const me = client.getUserId();
-    const room = client.getRoom(call.roomId);
-    const participants = [...state.participants];
-    if (me && !participants.some((participant) => participant.local)) {
-        const member = room?.getMember(me);
-        participants.unshift(
-            pendingParticipant(client, { userId: me, name: member?.name ?? me, mxc: member?.getMxcAvatarUrl() }, true),
-        );
-    }
+    const participants = [...withLocalUser(client, call, state.participants, localTileId)];
     for (const member of call.participants.keys()) {
         if (member.userId === me || participants.some((participant) => participant.userId === member.userId)) continue;
         participants.push(
@@ -259,6 +280,8 @@ export class DesktopCallStageViewModel
      * joins, a conversation call shows the person being called.
      */
     private ringPending = true;
+    /** The ID Element Call last gave the user's own tile, see {@link withLocalUser}. */
+    private localTileId?: string;
     /** Microphone playback of each remote person, by user ID; someone in the call twice has two. */
     private readonly participantVolumes = new Map<string, AetherMediaVolumeController[]>();
     private readonly screenShareVolumes = new Map<string, AetherMediaVolumeController>();
@@ -404,7 +427,7 @@ export class DesktopCallStageViewModel
      */
     private updateRingtone = (): void => {
         if (!this.ringtoneStarted) return;
-        const presented = presentedState(this.props.client, this.props.call, this.bridge.state, this.ringPending);
+        const presented = this.present();
         this.ringtone.setRinging(
             !this.props.call.locallyLeaving &&
                 (presented.phase === "in_call" || presented.phase === "joining") &&
@@ -438,7 +461,7 @@ export class DesktopCallStageViewModel
         if (state.ringing !== null || state.participants.some((participant) => !participant.local)) {
             this.ringPending = false;
         }
-        const presented = presentedState(this.props.client, this.props.call, state, this.ringPending);
+        const presented = this.present();
         this.updateRingtone();
         this.snapshot.merge({
             phase: presented.phase,
@@ -479,10 +502,23 @@ export class DesktopCallStageViewModel
         });
     };
 
+    /** What the stage shows for the current engine state, see {@link presentedState}. */
+    private present(): ReturnType<typeof presentedState> {
+        const local = this.bridge.state.participants.find((participant) => participant.local);
+        if (local) this.localTileId = local.id;
+        return presentedState(
+            this.props.client,
+            this.props.call,
+            this.bridge.state,
+            this.ringPending,
+            this.localTileId,
+        );
+    }
+
     /** The participant tiles for the current engine state, see {@link presentedState}. */
     private participantTiles(): DesktopCallStageParticipantTile[] {
-        return presentedState(this.props.client, this.props.call, this.bridge.state, this.ringPending).participants.map(
-            (p) => mapParticipantTile(this.props.client, p, this.props.call.soundboardUserIds),
+        return this.present().participants.map((p) =>
+            mapParticipantTile(this.props.client, p, this.props.call.soundboardUserIds),
         );
     }
 
