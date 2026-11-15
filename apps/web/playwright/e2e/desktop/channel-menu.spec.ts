@@ -201,14 +201,22 @@ for (const theme of ["dark", "light"] as const) {
             await expect(topic).toBeFocused();
         });
 
-        test("opens the same menu with a right click in the room list", async ({ page, roomId }) => {
-            const row = page.getByRole("option", { name: /^Open room general/ });
+        test("opens the same menu with a right click in the room list", async ({ page, app, user, roomId }) => {
+            // Only a server's channels are listed as channels; Home lists conversations, with their own menu.
+            await app.client.createSpace({
+                name: "Release crew",
+                initial_state: [{ type: "m.space.child", state_key: roomId, content: { via: [user.homeServer] } }],
+            });
+            await app.viewSpaceByName("Release crew");
+            const row = page.getByTestId("room-list").getByRole("button", { name: /^Open room general/ });
             await row.click({ button: "right" });
             await expect(menu(page)).toBeVisible();
             for (const name of ["Mark as read", "Invite to channel", "Copy link", "Mute channel", "Edit channel"]) {
                 await expect(menu(page).getByRole("menuitem", { name })).toBeVisible();
             }
-            await expect(menu(page).getByRole("menuitem", { name: "Leave channel" })).toBeVisible();
+            // People leave the server rather than one of its channels; its owner may delete the channel.
+            await expect(menu(page).getByRole("menuitem", { name: "Leave channel" })).toHaveCount(0);
+            await expect(menu(page).getByRole("menuitem", { name: "Delete channel" })).toBeVisible();
             await page.screenshot({ path: `${CAPTURES}/context-menu-${theme}.png` });
             await page.keyboard.press("Escape");
             await expect(menu(page)).not.toBeVisible();
