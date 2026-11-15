@@ -4532,6 +4532,396 @@ describe("RoomTimelineViewModel", () => {
         });
     });
 
+    describe("suspended rows", () => {
+        /**
+         * The room and client events the view model listens for, to follow the room. The SDK listens for the room's
+         * timeline itself as messages load, so the view model's listener for it is told by what it does instead.
+         */
+        const roomEvents = [
+            RoomEvent.AccountData,
+            RoomEvent.LocalEchoUpdated,
+            RoomEvent.Receipt,
+            RoomEvent.Redaction,
+            RoomEvent.RedactionCancelled,
+            RoomEvent.TimelineReset,
+        ];
+        const clientEvents = [MatrixEventEvent.Decrypted, RoomStateEvent.Update, ClientEvent.AccountData];
+        /** The listeners added to the test client and not removed, by event; it has no count of its own. */
+        let clientListeners: Map<string | symbol, number>;
+        const listenerCounts = (): number[] => [
+            ...roomEvents.map((event) => room.listenerCount(event)),
+            ...clientEvents.map((event) => clientListeners.get(event) ?? 0),
+        ];
+
+        beforeEach(() => {
+            clientListeners = new Map();
+            for (const [method, change] of [
+                ["on", 1],
+                ["off", -1],
+            ] as const) {
+                const original = client[method];
+                vi.spyOn(client, method).mockImplementation((event, listener) => {
+                    clientListeners.set(event, (clientListeners.get(event) ?? 0) + change);
+                    return original(event, listener);
+                });
+            }
+        });
+        const othersMessages = (...ids: string[]): MatrixEvent[] =>
+            ids.map((id) => makeMessage(id, { user: OTHER_USER_ID }));
+        /** A message arriving from sync at the end of the room's live timeline. */
+        const arrive = (event: MatrixEvent): void => {
+            room.getUnfilteredTimelineSet().addLiveEvent(event, { addToState: false });
+            room.emit(RoomEvent.Timeline, event, room, false, false, {
+                timeline: room.getLiveTimeline(),
+                liveEvent: true,
+            } as any);
+        };
+        const receiveReceipt = (eventId: string, userId: string): void => {
+            room.addReceipt(
+                new MatrixEvent({
+                    type: EventType.Receipt,
+                    content: { [eventId]: { [ReceiptType.Read]: { [userId]: { ts: 1000 } } } },
+                }),
+            );
+        };
+        const builds = (vm: RoomTimelineViewModel): ReturnType<typeof vi.spyOn> => vi.spyOn(vm as any, "buildItems");
+        const settle = (ms = 0): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+        it("stops following the room, and rebuilds and publishes nothing, while suspended", async () => {
+            let settingChanged: (() => void) | undefined;
+            vi.mocked(SettingsStore).watchSetting.mockImplementation((name, _room, callback): string => {
+                settingChanged = () => callback(name, null, SettingLevel.DEVICE, true, true);
+                return "watch-ref";
+            });
+            const { event: secret, decrypt } = makeEncryptedPending("$secret");
+            seedTimeline([makeMessage("$a"), secret]);
+            const unfollowed = listenerCounts();
+            const vm = await createStartedViewModel();
+            expect(listenerCounts()).not.toEqual(unfollowed);
+
+            vm.suspendPresentation();
+            const shown = vm.getSnapshot();
+            const built = builds(vm);
+            arrive(makeMessage("$late", { user: OTHER_USER_ID }));
+            receiveReceipt("$a", OTHER_USER_ID);
+            decrypt();
+            settingChanged?.();
+            await settle(300);
+
+            expect(listenerCounts()).toEqual(unfollowed);
+            expect(SettingsStore.unwatchSetting).toHaveBeenCalledWith("watch-ref");
+            expect(built).not.toHaveBeenCalled();
+            expect(vm.getSnapshot()).toBe(shown);
+        });
+
+        // Each update delivered by the same emit as a listener before the view model's that suspends it, as a React
+        // update flushed from an earlier listener can.
+        it.each<[string, (vm: RoomTimelineViewModel) => void]>([
+            ["a new message", (): void => arrive(makeMessage("$late", { user: OTHER_USER_ID }))],
+            ["a receipt", (): void => receiveReceipt("$a", OTHER_USER_ID)],
+            [
+                "a decryption",
+                (vm): void => {
+                    client.emit(MatrixEventEvent.Decrypted, (vm as any).timelineWindow.getEvents()[0]);
+                },
+            ],
+            [
+                "a message of ours changing",
+                (vm): void => {
+                    room.emit(RoomEvent.LocalEchoUpdated, (vm as any).timelineWindow.getEvents()[0], room);
+                },
+            ],
+            [
+                "a removal",
+                (): void => {
+                    room.emit(
+                        RoomEvent.Redaction,
+                        new MatrixEvent({ type: EventType.RoomRedaction, redacts: "$a" }),
+                        room,
+                    );
+                },
+            ],
+            [
+                "someone being ignored",
+                (): void => {
+                    client.emit(ClientEvent.AccountData, new MatrixEvent({ type: EventType.IgnoredUserList }));
+                },
+            ],
+            [
+                "the room's fully read marker",
+                (): void => {
+                    room.addAccountData([
+                        new MatrixEvent({ type: EventType.FullyRead, room_id: ROOM_ID, content: { event_id: "$a" } }),
+                    ]);
+                },
+            ],
+            [
+                "a member's profile",
+                (): void => {
+                    client.emit(RoomStateEvent.Update, room.currentState);
+                },
+            ],
+            [
+                "a new live timeline",
+                (): void => {
+                    room.emit(RoomEvent.TimelineReset, room, room.getUnfilteredTimelineSet(), true);
+                },
+            ],
+        ])("ignores %s delivered as it is suspended", async (_, deliver) => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = new RoomTimelineViewModel({ client, room });
+            vms.push(vm);
+            // Listening before the view model does, so told first. The room and client are made afresh for each test.
+            const suspend = (): void => vm.suspendPresentation();
+            for (const event of [RoomEvent.Timeline, ...roomEvents]) room.on(event, suspend);
+            const emitter = client as unknown as { on(event: string, listener: () => void): void };
+            for (const event of clientEvents) emitter.on(event, suspend);
+            vm.start();
+            await vi.waitFor(() => expect(vm.getSnapshot().items.length).toBeGreaterThan(0));
+            const shown = vm.getSnapshot();
+            const built = builds(vm);
+            const load = vi.spyOn(vm as any, "load");
+            const receipts = vi.spyOn(vm as any, "computeReadReceipts");
+            const extend = vi.spyOn((vm as any).timelineWindow, "paginate");
+
+            deliver(vm);
+            await settle(300);
+
+            expect(built).not.toHaveBeenCalled();
+            expect(load).not.toHaveBeenCalled();
+            expect(receipts).not.toHaveBeenCalled();
+            expect(extend).not.toHaveBeenCalled();
+            expect(vm.getSnapshot()).toBe(shown);
+        });
+
+        it("drops a rebuild queued before a suspension without clearing one queued after it", async () => {
+            seedTimeline([makeMessage("$a")]);
+            const vm = await createStartedViewModel();
+            const echo = (): void => {
+                room.emit(RoomEvent.LocalEchoUpdated, (vm as any).timelineWindow.getEvents()[0], room);
+            };
+            // The next visit's load would hold its rebuilds back until it ends; here the visit loads nothing.
+            vi.spyOn(vm as any, "load").mockResolvedValue(undefined);
+            const rebuilds = (): number =>
+                vi
+                    .mocked((vm as any).mergeSnapshot)
+                    .mock.calls.filter(([, reason]: unknown[]) => reason === "local-echo").length;
+            vi.spyOn(vm as any, "mergeSnapshot");
+
+            echo();
+            vm.suspendPresentation();
+            vm.activate();
+            // Asked for once the rebuild queued before the suspension has had its turn, while the next is still queued.
+            queueMicrotask(echo);
+            echo();
+            await settle();
+
+            expect(rebuilds()).toBe(1);
+        });
+
+        it("rebuilds for its room again after being suspended while a load ran", async () => {
+            seedTimeline([makeMessage("$a")]);
+            const firstLoad = Promise.withResolvers<void>();
+            const load = TimelineWindow.prototype.load;
+            const loads = vi
+                .spyOn(TimelineWindow.prototype, "load")
+                .mockImplementationOnce(() => firstLoad.promise)
+                .mockImplementation(function (this: TimelineWindow, ...args) {
+                    return load.apply(this, args);
+                });
+            const vm = new RoomTimelineViewModel({ client, room });
+            vms.push(vm);
+            vm.start();
+            await vi.waitFor(() => expect(loads).toHaveBeenCalledTimes(1));
+            vm.suspendPresentation();
+            await settle();
+            vm.activate();
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a"]));
+            const merge = vi.spyOn(vm as any, "mergeSnapshot");
+
+            room.emit(RoomEvent.LocalEchoUpdated, (vm as any).timelineWindow.getEvents()[0], room);
+            await settle();
+
+            expect(merge.mock.calls.map(([, reason]) => reason)).toContain("local-echo");
+        });
+
+        it("drops a new message it was taking in when it is suspended", async () => {
+            seedTimeline([makeMessage("$a")]);
+            const vm = await createStartedViewModel();
+            const extend = Promise.withResolvers<boolean>();
+            vi.spyOn((vm as any).timelineWindow, "paginate").mockReturnValueOnce(extend.promise);
+            arrive(makeMessage("$b", { user: OTHER_USER_ID }));
+
+            vm.suspendPresentation();
+            const shown = vm.getSnapshot();
+            const built = builds(vm);
+            extend.resolve(true);
+            await settle(10);
+
+            expect(built).not.toHaveBeenCalled();
+            expect(vm.getSnapshot()).toBe(shown);
+        });
+
+        it("ends its waits for messages to decrypt, and its decryption rebuild, as it is suspended", async () => {
+            seedTimeline([makeMessage("$a")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            const tw = (vm as any).timelineWindow;
+            const existing = tw.getEvents();
+            const { event: decrypts } = makeEncryptedPending("$decrypts");
+            const { event: fails } = makeEncryptedPending("$fails");
+            let fetched = false;
+            vi.spyOn(tw, "canPaginate").mockImplementation((...a: unknown[]) => a[0] === Direction.Backward);
+            vi.spyOn(tw, "paginate").mockImplementation(async () => {
+                fetched = true;
+                return false;
+            });
+            vi.spyOn(tw, "getEvents").mockImplementation(() => (fetched ? [decrypts, fails, ...existing] : existing));
+            vm.onStartReached();
+            await vi.waitFor(() => expect(decrypts.listenerCount(MatrixEventEvent.Decrypted)).toBe(1));
+            // A decryption the view model would rebuild for once the burst is over.
+            client.emit(MatrixEventEvent.Decrypted, existing[0]);
+            const built = builds(vm);
+
+            vm.suspendPresentation();
+
+            expect(decrypts.listenerCount(MatrixEventEvent.Decrypted)).toBe(0);
+            expect(fails.listenerCount(MatrixEventEvent.Decrypted)).toBe(0);
+            // The fetch waiting on them lets go at once, rather than when its time would have run out.
+            await vi.waitFor(() => expect((vm as any).backwardPaginateChain).toBeNull(), { timeout: 100 });
+            const shown = vm.getSnapshot();
+            vi.mocked(decrypts.getClearContent).mockReturnValue({ body: "late" } as any);
+            decrypts.emit(MatrixEventEvent.Decrypted, decrypts);
+            vi.mocked(fails.isDecryptionFailure).mockReturnValue(true);
+            fails.emit(MatrixEventEvent.Decrypted, fails);
+            await settle(600);
+            expect(built).not.toHaveBeenCalled();
+            expect(vm.getSnapshot()).toBe(shown);
+        });
+
+        it("shows nothing from a load of the last visit that finishes once the next has begun", async () => {
+            seedTimeline([makeMessage("$a")]);
+            const firstLoad = Promise.withResolvers<void>();
+            const load = TimelineWindow.prototype.load;
+            const loads = vi
+                .spyOn(TimelineWindow.prototype, "load")
+                .mockImplementationOnce(() => firstLoad.promise)
+                .mockImplementation(function (this: TimelineWindow, ...args) {
+                    return load.apply(this, args);
+                });
+            const vm = new RoomTimelineViewModel({ client, room });
+            vms.push(vm);
+            vm.start();
+            await vi.waitFor(() => expect(loads).toHaveBeenCalledTimes(1));
+
+            vm.suspendPresentation();
+            seedTimeline([makeMessage("$b")]);
+            vm.activate();
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]));
+            const shown = vm.getSnapshot();
+            const paginate = vi.spyOn(TimelineWindow.prototype, "paginate");
+            firstLoad.resolve();
+            await settle(10);
+
+            expect(vm.getSnapshot()).toBe(shown);
+            expect(paginate).not.toHaveBeenCalled();
+        });
+
+        it("follows the room again with one set of listeners, and shows what changed while it was suspended", async () => {
+            seedTimeline(othersMessages("$a"));
+            const vm = await createStartedViewModel();
+            const following = listenerCounts();
+
+            for (const id of ["$b", "$c"]) {
+                vm.suspendPresentation();
+                arrive(makeMessage(id, { user: OTHER_USER_ID }));
+                vm.activate();
+                expect(listenerCounts()).toEqual(following);
+                await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toContain(id));
+            }
+            arrive(makeMessage("$d", { user: OTHER_USER_ID }));
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b", "$c", "$d"]));
+        });
+
+        it("keeps following the room between the visits of a timeline that is not suspended", async () => {
+            seedTimeline(othersMessages("$a"));
+            const vm = await createStartedViewModel();
+            const following = listenerCounts();
+
+            vm.deactivate();
+            arrive(makeMessage("$b", { user: OTHER_USER_ID }));
+
+            expect(listenerCounts()).toEqual(following);
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual(["$a", "$b"]));
+        });
+
+        it("keeps the rows published last while suspended, whatever it is asked, and draws them as asked next visit", async () => {
+            vi.mocked(client.getSafeUserId).mockReturnValue(USER_ID);
+            seedTimeline([makeMessage("$a"), makeMessage("$b")]);
+            const vm = await createStartedViewModel();
+            receiveReceipt("$a", OTHER_USER_ID);
+            expect(vm.getSnapshot().readReceiptsByEvent.get("$a")).toHaveLength(1);
+            vm.suspendPresentation();
+            const shown = vm.getSnapshot();
+            const receipts = vi.spyOn(vm as any, "computeReadReceipts");
+
+            vm.setShowReadReceipts(false);
+            vm.jumpToLive();
+            vm.showEvent("$a");
+            vm.scrollToEventIfNeeded("$a");
+            await settle(10);
+            expect(vm.getSnapshot()).toBe(shown);
+            expect(receipts).not.toHaveBeenCalled();
+
+            vm.activate();
+            await vi.waitFor(() => expect(vm.getSnapshot().visit?.rowsReady).toBe(true));
+            expect(vm.getSnapshot().readReceiptsByEvent.size).toBe(0);
+        });
+
+        it("saves where the reader was once, across a suspension and disposal", async () => {
+            seedTimeline([makeMessage("$a"), makeMessage("$b"), makeMessage("$c")]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onAtBottomStateChange(false);
+            vm.onVisibleRangeChanged(0, indexOfKey(vm.getSnapshot().items, "$b"));
+
+            vm.suspendPresentation();
+            expect(localStorage.getItem(`timeline_scroll_${ROOM_ID}`)).toBe("$b");
+
+            localStorage.setItem(`timeline_scroll_${ROOM_ID}`, "$a");
+            vm.suspendPresentation();
+            vm.dispose();
+            expect(localStorage.getItem(`timeline_scroll_${ROOM_ID}`)).toBe("$a");
+        });
+
+        it("does not send a receipt again because one sent in an earlier visit failed", async () => {
+            seedTimeline(othersMessages("$a", "$b"));
+            const vm = await createStartedViewModel();
+            const firstReceipt = Promise.withResolvers<Awaited<ReturnType<MatrixClient["sendReadReceipt"]>>>();
+            vi.mocked(client.sendReadReceipt).mockReturnValueOnce(firstReceipt.promise);
+            const items = (): TimelineItem[] => vm.getSnapshot().items;
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(indexOfKey(items(), "$a"), indexOfKey(items(), "$a"));
+            vm.sendReadReceiptNow();
+
+            vm.suspendPresentation();
+            arrive(makeMessage("$c", { user: OTHER_USER_ID }));
+            vm.activate();
+            await vi.waitFor(() => expect(vm.getSnapshot().pendingAnchor).not.toBeNull());
+            vm.onAnchorReached();
+            vm.onVisibleRangeChanged(0, items().length - 1);
+            vm.sendReadReceiptNow();
+            const sent = (): unknown[] => vi.mocked(client.sendReadReceipt).mock.calls.map(([event]) => event?.getId());
+            expect(sent()).toEqual(["$a", "$c"]);
+
+            firstReceipt.reject(new Error("The connection dropped"));
+            await settle();
+            vm.sendReadReceiptNow();
+
+            expect(sent()).toEqual(["$a", "$c"]);
+        });
+    });
+
     describe("messages being sent", () => {
         /** Put a message of ours into the room's pending list, as the SDK does when the composer sends. */
         const addPendingMessage = (id: string, opts: { ts?: number; relatesTo?: IEventRelation } = {}): MatrixEvent => {
