@@ -108,6 +108,35 @@ describe("MatrixDispatcher", () => {
         expect(late).toHaveBeenCalledTimes(1);
     });
 
+    it("says whether payloads of other actions dispatched asynchronously still wait for their timers", async () => {
+        const dispatcher = new MatrixDispatcher();
+        // Each delivery, with whether anything but "a", and anything but "b", still waits as it is delivered.
+        const seen: string[] = [];
+        dispatcher.register((payload) => {
+            seen.push(
+                `${payload.action} not-a:${dispatcher.hasQueuedOtherThan("a")} not-b:${dispatcher.hasQueuedOtherThan("b")}`,
+            );
+        });
+        expect(dispatcher.hasQueuedOtherThan()).toBe(false);
+        dispatcher.dispatch({ action: "a" });
+        dispatcher.dispatch({ action: "a" });
+        dispatcher.dispatch({ action: "b" });
+        expect(dispatcher.hasQueuedOtherThan()).toBe(true);
+        expect(dispatcher.hasQueuedOtherThan("a")).toBe(true);
+        expect(dispatcher.hasQueuedOtherThan("a", "b")).toBe(false);
+        dispatcher.dispatch({ action: "now" }, true);
+
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(seen).toEqual([
+            "now not-a:true not-b:true",
+            // One "a" still waits.
+            "a not-a:true not-b:true",
+            "a not-a:true not-b:false",
+            "b not-a:false not-b:false",
+        ]);
+        expect(dispatcher.hasQueuedOtherThan()).toBe(false);
+    });
+
     it("should handle AsyncActionPayload", () => {
         const fn = vi.fn();
         defaultDispatcher.register(fn);
