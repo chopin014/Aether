@@ -22,6 +22,8 @@ import {
     ListBulletedIcon,
     PauseSolidIcon,
     PlaySolidIcon,
+    CollapseIcon,
+    ExpandIcon,
     PopOutIcon,
     SpotlightViewIcon,
     VolumeOffSolidIcon,
@@ -219,6 +221,10 @@ export interface WatchTogetherPlayerProps {
     compact: boolean;
     /** It is the focused tile; otherwise its controls offer to focus it, since the video takes its clicks. */
     focused: boolean;
+    /** The call is fullscreen. */
+    fullscreen?: boolean;
+    /** Shows the player alone and fullscreen, or leaves fullscreen; the video takes double-clicks itself. */
+    onToggleFullscreen?: () => void;
     onFocus: () => void;
     onOpenQueue: () => void;
 }
@@ -233,6 +239,8 @@ export function WatchTogetherPlayer({
     containerRef,
     compact,
     focused,
+    fullscreen = false,
+    onToggleFullscreen,
     onFocus,
     onOpenQueue,
 }: WatchTogetherPlayerProps): JSX.Element {
@@ -495,6 +503,25 @@ export function WatchTogetherPlayer({
                                 <span className={styles.queueCount}>{snapshot.queue.length}</span>
                             )}
                         </button>
+                        {onToggleFullscreen && (
+                            <button
+                                type="button"
+                                className={styles.iconControl}
+                                aria-label={
+                                    fullscreen
+                                        ? _t("desktop|watch_together|exit_fullscreen")
+                                        : _t("desktop|watch_together|fullscreen")
+                                }
+                                title={
+                                    fullscreen
+                                        ? _t("desktop|watch_together|exit_fullscreen")
+                                        : _t("desktop|watch_together|fullscreen")
+                                }
+                                onClick={onToggleFullscreen}
+                            >
+                                {fullscreen ? <CollapseIcon /> : <ExpandIcon />}
+                            </button>
+                        )}
                         <button
                             type="button"
                             className={styles.iconControl}

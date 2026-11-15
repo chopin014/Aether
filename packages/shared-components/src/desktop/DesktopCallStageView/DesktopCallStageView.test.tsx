@@ -60,6 +60,7 @@ class TestCallStageViewModel
     public openInviteDialog = vi.fn();
     public showRoomChat = vi.fn();
     public toggleFullscreen = vi.fn();
+    public setParticipantsOpen = vi.fn((open: boolean) => this.snapshot.merge({ participantsOpen: open }));
     public renderAudioElement = () => <div data-testid="matrix-audio-renderer" />;
 
     public constructor(overrides: Partial<DesktopCallStageViewSnapshot> = {}) {
@@ -843,6 +844,38 @@ it("opens the soundboard directly from the in-call toolbar", () => {
     expect(soundButton).toHaveFocus();
     fireEvent.click(screen.getByRole("button", { name: "Quack" }));
     expect(soundboard.play).toHaveBeenCalledOnce();
+});
+
+describe("Focused view", () => {
+    const share = (): DesktopCallStageScreenShareTile => makeScreenShare();
+
+    it("tucks the strip of other tiles away under a focused one, and brings it back", () => {
+        const vm = new TestCallStageViewModel({
+            screenShares: [share()],
+            participants: [makeParticipant()],
+            layoutMode: "spotlight",
+            spotlightTileId: share().id,
+            participantsOpen: true,
+        });
+        render(<DesktopCallStageView vm={vm} />);
+        const strip = screen.getByTestId("call-filmstrip");
+        expect(strip).toHaveAttribute("data-open", "true");
+        fireEvent.click(screen.getByRole("button", { name: "Hide Members" }));
+        expect(vm.setParticipantsOpen).toHaveBeenCalledWith(false);
+        expect(strip).not.toHaveAttribute("data-open");
+        expect(screen.getByRole("button", { name: "Show Members" })).toHaveAttribute("aria-expanded", "false");
+        // The tiles stay mounted so their video keeps playing.
+        expect(screen.getByTestId("videoTile")).toBeInTheDocument();
+    });
+
+    it("goes fullscreen on the tile that is double-clicked", () => {
+        const vm = new TestCallStageViewModel({ screenShares: [share()], participants: [makeParticipant()] });
+        vm.toggleFullscreen = vi.fn();
+        render(<DesktopCallStageView vm={vm} />);
+        fireEvent.doubleClick(screen.getByRole("button", { name: "Participant Alice" }));
+        expect(vm.setSpotlightTileId).toHaveBeenLastCalledWith(makeParticipant().id);
+        expect(vm.toggleFullscreen).toHaveBeenCalledWith(screen.getByTestId("aether-call-stage"));
+    });
 });
 
 describe("Watch together", () => {

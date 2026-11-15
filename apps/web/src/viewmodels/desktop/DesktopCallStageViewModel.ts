@@ -192,6 +192,7 @@ export class DesktopCallStageViewModel
 
     private qualityUpdate: Promise<void> = Promise.resolve();
     private watchTogether?: WatchTogetherViewModel;
+    private participantsOpenBeforeFullscreen = true;
 
     public constructor(props: DesktopCallStageViewModelProps) {
         const { state } = props.bridge;
@@ -215,6 +216,7 @@ export class DesktopCallStageViewModel
                 !docked &&
                 ActiveWidgetStore.instance.getWidgetPersistence(props.call.widget.id, props.call.widget.roomId),
             isFullscreen: typeof document !== "undefined" && Boolean(document.fullscreenElement),
+            participantsOpen: true,
             layoutMode: state.screenShares.length > 0 ? "spotlight" : "grid",
             spotlightTileId: state.screenShares[0]?.id ?? null,
             activeMenu: null,
@@ -294,8 +296,15 @@ export class DesktopCallStageViewModel
 
         if (typeof document !== "undefined") {
             const onFullscreenChange = (): void => {
-                if (!this.isDisposed) {
-                    this.snapshot.merge({ isFullscreen: Boolean(document.fullscreenElement) });
+                if (this.isDisposed) return;
+                const isFullscreen = Boolean(document.fullscreenElement);
+                if (isFullscreen === this.snapshot.current.isFullscreen) return;
+                // Fullscreen gives the focused tile the whole screen; leaving it brings back the strip as it was.
+                if (isFullscreen) {
+                    this.participantsOpenBeforeFullscreen = this.snapshot.current.participantsOpen ?? true;
+                    this.snapshot.merge({ isFullscreen, participantsOpen: false });
+                } else {
+                    this.snapshot.merge({ isFullscreen, participantsOpen: this.participantsOpenBeforeFullscreen });
                 }
             };
             document.addEventListener("fullscreenchange", onFullscreenChange);
@@ -681,6 +690,10 @@ export class DesktopCallStageViewModel
             spotlightTileId: tileId,
             layoutMode: tileId !== null ? "spotlight" : "grid",
         });
+    };
+
+    public setParticipantsOpen = (participantsOpen: boolean): void => {
+        this.snapshot.merge({ participantsOpen });
     };
 
     public setLayoutMode = (mode: DesktopCallStageLayoutMode): void => {

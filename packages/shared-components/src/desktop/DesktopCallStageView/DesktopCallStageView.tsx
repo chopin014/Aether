@@ -190,6 +190,8 @@ export interface DesktopCallStageViewSnapshot {
     readonly canShareScreen: boolean;
     readonly miniMode: boolean;
     readonly isFullscreen: boolean;
+    /** The strip of other tiles under a focused one is shown; hiding it gives the focused tile the space. */
+    readonly participantsOpen?: boolean;
     readonly layoutMode: DesktopCallStageLayoutMode;
     readonly spotlightTileId: string | null;
     readonly activeMenu: DesktopCallStageMenu | null;
@@ -242,6 +244,8 @@ export interface DesktopCallStageViewActions {
     setActiveMenu(menu: DesktopCallStageMenu | null): void;
     setOpenTileMenuId(tileId: string | null): void;
     setSpotlightTileId(tileId: string | null): void;
+    /** Shows or hides the strip of other tiles under a focused one. */
+    setParticipantsOpen?(open: boolean): void;
     setLayoutMode(mode: DesktopCallStageLayoutMode): void;
     setScreenShareAudioVolume(tileId: string, volumePercent: number): void;
     toggleScreenShareAudioMuted(tileId: string): void;
@@ -384,6 +388,8 @@ function StagePopover({
 }
 
 const FPS_OPTIONS: readonly number[] = [15, 30, 60];
+/** How long the mouse rests in fullscreen before the controls fade. */
+const FULLSCREEN_IDLE_MS = 2500;
 
 interface DesktopCallStageViewProps {
     /** Observes the retained call and executes its actions. */
@@ -519,6 +525,11 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
     const [hoveredTileId, setHoveredTileId] = useState<string | null>(null);
     const [participantMenuPoint, setParticipantMenuPoint] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
     /** Opens a person's menu at a point: the pointer for a right click, or below the tile's options button. */
+    /** Double-clicking a tile shows it alone, fullscreen, as in a video player; doing it again goes back. */
+    const focusFullscreen = (tileId: string): void => {
+        if (!snapshot.isFullscreen) vm.setSpotlightTileId(tileId);
+        vm.toggleFullscreen(stageRef.current);
+    };
     const openParticipantMenu = (tileId: string, point: { x: number; y: number }): void => {
         setParticipantMenuPoint(point);
         vm.setOpenTileMenuId(tileId);
@@ -602,6 +613,7 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                     className={styles.tileClickSurface}
                     aria-label={_t("desktop|call_stage|stream_tile_aria", { name: tile.displayName })}
                     onClick={() => vm.setSpotlightTileId(isSpotlight ? null : tile.id)}
+                    onDoubleClick={() => focusFullscreen(tile.id)}
                     onContextMenu={(e) => {
                         if (tile.hasStreamAudioVolumeControl && !preview) {
                             e.preventDefault();
@@ -823,6 +835,7 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                             className={styles.tileClickSurface}
                             aria-label={_t("desktop|call_stage|participant_tile_aria", { name: tile.displayName })}
                             onClick={() => vm.setSpotlightTileId(isSpotlight ? null : tile.id)}
+                            onDoubleClick={() => focusFullscreen(tile.id)}
                             onContextMenu={(e) => {
                                 e.preventDefault();
                                 openParticipantMenu(tile.id, { x: e.clientX, y: e.clientY });
@@ -973,6 +986,7 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
         (soloChannel ? 1 : 0) +
         (watchTogether ? 1 : 0);
     const playerInSpotlight = hasSpotlight && spotlightWatch;
+    const participantsOpen = snapshot.participantsOpen ?? true;
     /** Where the shared player is shown; the player itself is laid over this tile. */
     const renderWatchTogetherSlot = (): JSX.Element => (
         <div
@@ -985,6 +999,30 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
         />
     );
     const gridRef = useCallGridLayout(gridCount);
+
+    // In fullscreen the controls get out of the way while the mouse rests, as in a video player.
+    const [idle, setIdle] = useState(false);
+    useEffect(() => {
+        const stageElement = stageRef.current;
+        if (!snapshot.isFullscreen || !stageElement) {
+            setIdle(false);
+            return;
+        }
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const wake = (): void => {
+            setIdle(false);
+            clearTimeout(timer);
+            timer = setTimeout(() => setIdle(true), FULLSCREEN_IDLE_MS);
+        };
+        wake();
+        stageElement.addEventListener("pointermove", wake);
+        stageElement.addEventListener("keydown", wake);
+        return () => {
+            clearTimeout(timer);
+            stageElement.removeEventListener("pointermove", wake);
+            stageElement.removeEventListener("keydown", wake);
+        };
+    }, [snapshot.isFullscreen]);
 
     // A playable link pasted while the call is focused goes straight to the shared player.
     const watchTogetherVm = snapshot.watchTogether;
@@ -1014,6 +1052,8 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                 allScreenShares.length === 0 && !allParticipants.some((p) => p.videoEnabled) ? "true" : undefined
             }
             data-mini={snapshot.miniMode ? "true" : undefined}
+            data-fullscreen={snapshot.isFullscreen || undefined}
+            data-idle={idle || undefined}
             data-phase={snapshot.phase}
             data-hovered-tile={hoveredTileId ?? undefined}
             data-testid="aether-call-stage"
@@ -1183,17 +1223,46 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                                     : null}
                         </div>
                         {allScreenShares.length + allParticipants.length + (watchTogether ? 1 : 0) > 1 && (
-                            <div className={styles.filmstrip}>
-                                {watchTogether && !spotlightWatch && renderWatchTogetherSlot()}
-                                {allScreenShares
-                                    .filter(
-                                        (s) =>
-                                            spotlightShare !== null || spotlightWatch || s.id !== effectiveSpotlightId,
-                                    )
-                                    .map((s) => renderScreenShareTile(s, false, true))}
-                                {allParticipants
-                                    .filter((p) => p.id !== effectiveSpotlightId)
-                                    .map((p) => renderParticipantTile(p, false))}
+                            <div
+                                className={styles.filmstripDock}
+                                data-open={participantsOpen || undefined}
+                                data-testid="call-filmstrip"
+                            >
+                                <button
+                                    type="button"
+                                    className={styles.membersToggle}
+                                    aria-label={
+                                        participantsOpen
+                                            ? _t("desktop|call_stage|hide_members")
+                                            : _t("desktop|call_stage|show_members")
+                                    }
+                                    title={
+                                        participantsOpen
+                                            ? _t("desktop|call_stage|hide_members")
+                                            : _t("desktop|call_stage|show_members")
+                                    }
+                                    aria-expanded={participantsOpen}
+                                    onClick={() => vm.setParticipantsOpen?.(!participantsOpen)}
+                                >
+                                    <ChevronDownIcon width={20} height={20} aria-hidden="true" />
+                                </button>
+                                {/* Hidden rather than removed, so cameras and the shared player keep running. */}
+                                <div className={styles.filmstripClip} inert={!participantsOpen || undefined}>
+                                    <div className={styles.filmstrip}>
+                                        {watchTogether && !spotlightWatch && renderWatchTogetherSlot()}
+                                        {allScreenShares
+                                            .filter(
+                                                (s) =>
+                                                    spotlightShare !== null ||
+                                                    spotlightWatch ||
+                                                    s.id !== effectiveSpotlightId,
+                                            )
+                                            .map((s) => renderScreenShareTile(s, false, true))}
+                                        {allParticipants
+                                            .filter((p) => p.id !== effectiveSpotlightId)
+                                            .map((p) => renderParticipantTile(p, false))}
+                                    </div>
+                                </div>
                             </div>
                         )}
                     </>
@@ -1252,6 +1321,11 @@ export function DesktopCallStageView({ vm }: DesktopCallStageViewProps): JSX.Ele
                     containerRef={stageRef}
                     compact={!playerInSpotlight && hasSpotlight}
                     focused={playerInSpotlight}
+                    fullscreen={snapshot.isFullscreen}
+                    onToggleFullscreen={() => {
+                        if (!snapshot.isFullscreen) vm.setSpotlightTileId(WATCH_TOGETHER_TILE_ID);
+                        vm.toggleFullscreen(stageRef.current);
+                    }}
                     onFocus={() => vm.setSpotlightTileId(WATCH_TOGETHER_TILE_ID)}
                     onOpenQueue={() => vm.setActiveMenu("watch_together")}
                 />

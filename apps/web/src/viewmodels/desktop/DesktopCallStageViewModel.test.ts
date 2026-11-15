@@ -932,6 +932,25 @@ describe("DesktopCallStageViewModel", () => {
         Object.defineProperty(document, "fullscreenElement", { configurable: true, value: null });
     });
 
+    it("tucks the strip of other tiles away on request and while fullscreen, and restores it after", () => {
+        const vm = new DesktopCallStageViewModel({ client: mockClient, call: mockCall, bridge: createBridge() });
+        expect(vm.getSnapshot().participantsOpen).toBe(true);
+        vm.setParticipantsOpen(false);
+        expect(vm.getSnapshot().participantsOpen).toBe(false);
+        vm.setParticipantsOpen(true);
+        const stage = document.createElement("div");
+        Object.defineProperty(document, "fullscreenElement", { configurable: true, value: stage });
+        document.dispatchEvent(new Event("fullscreenchange"));
+        expect(vm.getSnapshot()).toMatchObject({ isFullscreen: true, participantsOpen: false });
+        // Showing the strip in fullscreen is the user's choice to make.
+        vm.setParticipantsOpen(true);
+        expect(vm.getSnapshot().participantsOpen).toBe(true);
+        Object.defineProperty(document, "fullscreenElement", { configurable: true, value: null });
+        document.dispatchEvent(new Event("fullscreenchange"));
+        expect(vm.getSnapshot()).toMatchObject({ isFullscreen: false, participantsOpen: true });
+        vm.dispose();
+    });
+
     describe("watch together", () => {
         beforeEach(() => watchTogether.setActive(false));
 
