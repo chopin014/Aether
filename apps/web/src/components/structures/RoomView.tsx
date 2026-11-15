@@ -3158,6 +3158,8 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             const b = cb(this.state.room.roomId);
             if (b) extraButtons.push(b);
         }
+        // None at all when no module adds one, so the header is not drawn again for every change to this view.
+        const headerButtons = extraButtons.length > 0 ? <>{extraButtons}</> : undefined;
 
         return (
             <ScopedRoomContextProvider {...this.state} roomViewStore={this.roomViewStore}>
@@ -3171,7 +3173,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                     {showChatEffects && this.roomView.current && <EffectsOverlay room={this.roomView.current} />}
                     <ErrorBoundary>
                         {desktopShell && !this.props.hideHeader && (
-                            <RoomHeader room={this.state.room} extraButtons={<>{extraButtons}</>} />
+                            <RoomHeader room={this.state.room} extraButtons={headerButtons} />
                         )}
                         <MainSplit
                             panel={rightPanel}
@@ -3186,7 +3188,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                                 data-layout={this.state.layout}
                             >
                                 {!desktopShell && !this.props.hideHeader && (
-                                    <RoomHeader room={this.state.room} extraButtons={<>{extraButtons}</>} />
+                                    <RoomHeader room={this.state.room} extraButtons={headerButtons} />
                                 )}
                                 {mainSplitBody}
                             </div>

@@ -75,6 +75,18 @@ vi.mock("../../../../hooks/right-panel/useCurrentPhase", () => ({
     },
 }));
 vi.mock("../../../../Modal");
+// Passed through, and counted, to tell how often the header is drawn.
+const { featureReads } = vi.hoisted(() => ({ featureReads: { askToJoin: 0 } }));
+vi.mock("../../../../hooks/useSettings.ts", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("../../../../hooks/useSettings.ts")>();
+    return {
+        ...actual,
+        useFeatureEnabled: (name: Parameters<typeof actual.useFeatureEnabled>[0], ...rest: unknown[]) => {
+            if (name === "feature_ask_to_join") featureReads.askToJoin++;
+            return (actual.useFeatureEnabled as (...args: unknown[]) => boolean)(name, ...rest);
+        },
+    };
+});
 
 describe("RoomHeader", () => {
     filterConsole(
@@ -141,6 +153,24 @@ describe("RoomHeader", () => {
     afterEach(() => {
         vi.resetAllMocks();
         SettingsStore.reset();
+    });
+
+    it("is not drawn again when what renders it does so with the same props", async () => {
+        const Parent = ({ tick }: { tick: number }): React.JSX.Element => (
+            <div data-tick={tick}>
+                <RoomHeader room={room} />
+            </div>
+        );
+        const { rerender } = render(<Parent tick={0} />, getWrapper());
+        // What its own hooks draw it again for, as they load, settles first.
+        await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+        const drawn = featureReads.askToJoin;
+        expect(drawn).toBeGreaterThan(0);
+
+        rerender(<Parent tick={1} />);
+        await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+
+        expect(featureReads.askToJoin).toBe(drawn);
     });
 
     it("renders the room header", () => {
