@@ -286,6 +286,9 @@ ipcMain.on("userDownloadAction", async function (ev: IpcMainEvent, { id, open = 
 
 export default (webContents: WebContents): void => {
     webContents.setWindowOpenHandler((details) => {
+        // The floating call window (Document Picture-in-Picture) asks for a blank window of its own kind, which
+        // the app fills itself; refusing it fails the request with "no window". Anything else opens in the browser.
+        if (details.url === "about:blank" && details.disposition === "other") return { action: "allow" };
         safeOpenURL(details.url);
         return { action: "deny" };
     });

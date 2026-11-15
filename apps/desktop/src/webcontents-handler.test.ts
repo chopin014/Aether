@@ -122,6 +122,17 @@ function completeDownload(wc: MockWebContents, savePath: string): number {
     return (completed![1] as { id: number }).id;
 }
 
+describe("window open handler", () => {
+    it("lets the floating call window open, and sends every other window to the browser", () => {
+        const webContents = makeWebContents();
+        registerWebContentsHandlers(webContents as unknown as WebContents);
+        const handler = webContents.setWindowOpenHandler.mock.calls[0][0];
+        expect(handler({ url: "about:blank", disposition: "other" })).toEqual({ action: "allow" });
+        expect(handler({ url: "about:blank", disposition: "new-window" })).toEqual({ action: "deny" });
+        expect(handler({ url: "https://example.org/", disposition: "other" })).toEqual({ action: "deny" });
+    });
+});
+
 describe("userDownloadAction handler", () => {
     let wc: MockWebContents;
 
