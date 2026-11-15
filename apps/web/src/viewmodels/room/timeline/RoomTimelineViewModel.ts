@@ -730,6 +730,9 @@ export class RoomTimelineViewModel
         this.beginVisit();
     }
 
+    /** How many extensions of the window to a newly arrived live message have not finished. */
+    private liveExtensionsPending = 0;
+
     /**
      * Suspend a settled live-bottom model and capture bounded reuse evidence. The caller must unmount its views:
      * this only suspends the model, not EventTile descendants. False means dispose through the ordinary path.
@@ -743,6 +746,9 @@ export class RoomTimelineViewModel
             this.isAtBottom &&
             this.snapshot.current.atLiveEnd &&
             !this.windowDetachedFromLive() &&
+            // Not only able to reach the live end, but there: a live message the window failed to take in would be
+            // missing from rows compared with that same window on return.
+            this.windowReachesLive() &&
             !this.snapshot.current.highlightedEventId &&
             !this.snapshot.current.pendingAnchor &&
             !this.loading &&
@@ -750,11 +756,22 @@ export class RoomTimelineViewModel
             !this.backwardPaginateChain &&
             !this.forwardPaginateChain &&
             !this.rebuildQueued &&
+            // A live message the window was just extended to is not in the rows until that completes.
+            this.liveExtensionsPending === 0 &&
             this.decryptDebounceTimer === null &&
             this.continuationCache.size <= RoomTimelineRetention.maxEvents &&
             this.receiptsByUserId.size <= RoomTimelineRetention.maxEvents &&
             this.baseItems.length <= RoomTimelineRetention.maxEvents * 2 &&
-            this.baseItems.every((item) => ["event", "read-marker", "date-separator"].includes(item.kind));
+            this.baseItems.every((item) => ["event", "read-marker", "date-separator"].includes(item.kind)) &&
+            // A return places the reader at the last row: there must be one to place them at.
+            this.baseItems.some((item) => item.kind === "event") &&
+            // The rows hold the events as they were drawn. The SDK can replace one with another object of the same ID
+            // without telling the timeline, so the rows must still hold what the room holds.
+            this.baseItems.every(
+                (item) =>
+                    item.kind !== "event" ||
+                    this.opts.room.findEventById((item.event as MatrixEvent).getId()!) === item.event,
+            );
         this.retention?.dispose();
         this.retention = eligible
             ? new RoomTimelineRetention(this.opts.client, this.opts.room, this.timelineWindow.getEvents())
@@ -776,7 +793,8 @@ export class RoomTimelineViewModel
             !this.isDisposed &&
             !this.visitActive &&
             retention.isCompatible() &&
-            RoomTimelineViewModel.readScrollTarget(this.opts.room.roomId) === null;
+            RoomTimelineViewModel.readScrollTarget(this.opts.room.roomId) === null &&
+            this.rowsStillMatch();
         retention.dispose();
         if (!compatible) return false;
         const previousMarker = this.frozenMarkerEventId;
@@ -800,13 +818,41 @@ export class RoomTimelineViewModel
         this.republish("compatible-return", {
             pendingAnchor: { targetKey, align: "end" },
             isAtBottom: false,
+            // As a fresh model starts the visit: the highlights counted during the last one may have been read since.
             numUnreadMessages: 0,
+            hasHighlights: false,
             canJumpToReadMarker: this.computeCanJumpToReadMarker(this.baseItems),
             visit: this.visitState(),
         });
         markRoomSwitch("rows", this.opts.room.roomId);
         return true;
     };
+
+    /**
+     * Whether the rows kept while parked are still the ones the window gives now, but for the unread line, which is
+     * placed afresh on return. Whatever the evidence missed, such as an event the SDK replaced without a notification
+     * that the rows had left out, then shows as a difference here and the room is opened the ordinary way.
+     */
+    private rowsStillMatch(): boolean {
+        const rows = (items: TimelineItem[]): TimelineItem[] => items.filter((item) => item.kind !== "read-marker");
+        const kept = rows(this.baseItems);
+        const fresh = rows(this.buildItems());
+        return (
+            kept.length === fresh.length &&
+            kept.every((item, i) => {
+                const now = fresh[i];
+                if (item.kind !== now.kind || item.key !== now.key) return false;
+                if (item.kind !== "event" || now.kind !== "event") return true;
+                return (
+                    item.event === now.event &&
+                    item.tileKey === now.tileKey &&
+                    item.continuation === now.continuation &&
+                    item.lastInSection === now.lastInSection &&
+                    item.sendState === now.sendState
+                );
+            })
+        );
+    }
 
     /** Where this view model is in a reading visit, for the view; see `TimelineVisitState`. */
     private visitState(): TimelineVisitState {
@@ -1251,25 +1297,33 @@ export class RoomTimelineViewModel
             return;
         }
         // Extend the window by one so the new message is inside it, then rebuild.
+        this.liveExtensionsPending++;
         void this.timelineWindow
             .paginate(Direction.Forward, 1, false)
-            .then(() => {
-                if (!this.following(generation)) return;
-                const items = this.buildItems();
+            .then(
+                () => {
+                    this.liveExtensionsPending--;
+                    if (!this.following(generation)) return;
+                    const items = this.buildItems();
 
-                const atLiveEnd = this.windowReachesLive();
-                // Accumulate unread count only for messages from other users.
-                if (!this.isAtBottom && event.getSender() !== this.opts.client.getSafeUserId()) {
-                    this.unreadMessageCount++;
-                }
-                this.baseItems = items;
-                this.republish("live-event", {
-                    atLiveEnd,
-                    numUnreadMessages: this.isAtBottom ? 0 : this.unreadMessageCount,
-                    hasHighlights: this.opts.room.getUnreadNotificationCount(NotificationCountType.Highlight) > 0,
-                    canJumpToReadMarker: this.computeCanJumpToReadMarker(items),
-                });
-            })
+                    const atLiveEnd = this.windowReachesLive();
+                    // Accumulate unread count only for messages from other users.
+                    if (!this.isAtBottom && event.getSender() !== this.opts.client.getSafeUserId()) {
+                        this.unreadMessageCount++;
+                    }
+                    this.baseItems = items;
+                    this.republish("live-event", {
+                        atLiveEnd,
+                        numUnreadMessages: this.isAtBottom ? 0 : this.unreadMessageCount,
+                        hasHighlights: this.opts.room.getUnreadNotificationCount(NotificationCountType.Highlight) > 0,
+                        canJumpToReadMarker: this.computeCanJumpToReadMarker(items),
+                    });
+                },
+                (err: unknown) => {
+                    this.liveExtensionsPending--;
+                    throw err;
+                },
+            )
             .catch((err) => {
                 logger.warn(`[TimelineVM][onRoomTimeline] forward paginate failed`, err);
             });

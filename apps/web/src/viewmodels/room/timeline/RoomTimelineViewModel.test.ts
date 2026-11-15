@@ -12,12 +12,14 @@ import {
     ClientEvent,
     ClientPrefix,
     Direction,
+    DuplicateStrategy,
     TimelineWindow,
     EventStatus,
     EventType,
     HttpApiEvent,
     M_BEACON_INFO,
     M_POLL_RESPONSE,
+    NotificationCountType,
     MatrixEvent,
     MatrixEventEvent,
     MatrixHttpApi,
@@ -36,7 +38,7 @@ import {
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { synthesizeReceipt } from "matrix-js-sdk/src/models/read-receipt";
 import { type TimelineItem } from "@element-hq/web-shared-components";
-import { createTestClient, mkMembership, mkMessage } from "test-utils";
+import { createTestClient, flushPromises, mkMembership, mkMessage } from "test-utils";
 
 import SettingsStore from "../../../settings/SettingsStore";
 import { SettingLevel } from "../../../settings/SettingLevel";
@@ -230,6 +232,107 @@ describe("RoomTimelineViewModel", () => {
             const load = vi.spyOn(TimelineWindow.prototype, "load");
             vm.activate();
             expect(load).toHaveBeenCalledOnce();
+        });
+
+        it("starts the new visit without the highlights the last one counted", async () => {
+            const vm = await settled();
+            vm.onAtBottomStateChange(false);
+            room.setUnreadNotificationCount(NotificationCountType.Highlight, 1);
+            room.getUnfilteredTimelineSet().addLiveEvent(makeMessage("$c", { user: OTHER_USER_ID }), {
+                addToState: false,
+            });
+            await vi.waitFor(() => expect(vm.getSnapshot().hasHighlights).toBe(true));
+            vm.onAtBottomStateChange(true);
+            expect(vm.parkForReuse()).toBe(true);
+            room.setUnreadNotificationCount(NotificationCountType.Highlight, 0);
+            expect(vm.resumeCompatible()).toBe(true);
+            expect(vm.getSnapshot().hasHighlights).toBe(false);
+        });
+
+        it("declines to park while a live message is still being added to the rows", async () => {
+            const vm = await settled();
+            room.getUnfilteredTimelineSet().addLiveEvent(makeMessage("$c", { user: OTHER_USER_ID }), {
+                addToState: false,
+            });
+            expect(vm.parkForReuse()).toBe(false);
+        });
+
+        it("declines to park while a failed addition of a live message leaves the window short of the live end", async () => {
+            const vm = await settled();
+            vi.spyOn(TimelineWindow.prototype, "paginate").mockRejectedValueOnce(new Error("lost"));
+            room.getUnfilteredTimelineSet().addLiveEvent(makeMessage("$c", { user: OTHER_USER_ID }), {
+                addToState: false,
+            });
+            await flushPromises();
+            expect(vm.parkForReuse()).toBe(false);
+        });
+
+        it("parks again once a failed addition of a live message is made up for", async () => {
+            const vm = await settled();
+            vi.spyOn(TimelineWindow.prototype, "paginate").mockRejectedValueOnce(new Error("lost"));
+            room.getUnfilteredTimelineSet().addLiveEvent(makeMessage("$c", { user: OTHER_USER_ID }), {
+                addToState: false,
+            });
+            await flushPromises();
+            vm.onEndReached();
+            await flushPromises();
+            expect(eventKeys(vm.getSnapshot().items)).toContain("$c");
+            expect(vm.parkForReuse()).toBe(true);
+        });
+
+        it("declines to park a timeline left with no message rows", async () => {
+            const vm = await settled();
+            // Everyone who wrote is ignored: the rows are drawn again without any message.
+            vi.mocked(client.isUserIgnored).mockImplementation((userId) => userId === OTHER_USER_ID);
+            client.emit(
+                ClientEvent.AccountData,
+                new MatrixEvent({
+                    type: EventType.IgnoredUserList,
+                    content: { ignored_users: { [OTHER_USER_ID]: {} } },
+                }),
+            );
+            await vi.waitFor(() => expect(eventKeys(vm.getSnapshot().items)).toEqual([]));
+            expect(vm.parkForReuse()).toBe(false);
+        });
+
+        it("declines to park rows holding an event the SDK silently replaced while they were shown", async () => {
+            const vm = await settled();
+            const replacement = makeMessage("$a", { user: OTHER_USER_ID, msg: "replacement" });
+            room.getUnfilteredTimelineSet().addLiveEvent(replacement, {
+                addToState: false,
+                duplicateStrategy: DuplicateStrategy.Replace,
+            });
+            expect(room.getLiveTimeline().getEvents()[0]).toBe(replacement);
+            expect(vm.parkForReuse()).toBe(false);
+        });
+
+        it("misses when an event the rows left out was replaced by one they would show", async () => {
+            const removed = makeMessage("$gone", { user: OTHER_USER_ID });
+            vi.spyOn(removed, "isRedacted").mockReturnValue(true);
+            seedTimeline([removed, makeMessage("$b", { user: OTHER_USER_ID })]);
+            const vm = await createStartedViewModel();
+            vm.onAnchorReached();
+            vm.onAtBottomStateChange(true);
+            vm.onVisibleRangeChanged(0, vm.getSnapshot().items.length - 1);
+            expect(eventKeys(vm.getSnapshot().items)).toEqual(["$b"]);
+            room.getUnfilteredTimelineSet().addLiveEvent(makeMessage("$gone", { user: OTHER_USER_ID, msg: "back" }), {
+                addToState: false,
+                duplicateStrategy: DuplicateStrategy.Replace,
+            });
+            expect(vm.parkForReuse()).toBe(true);
+            expect(vm.resumeCompatible()).toBe(false);
+        });
+
+        it("misses after the SDK silently replaces a parked event with another of the same ID", async () => {
+            const vm = await settled();
+            expect(vm.parkForReuse()).toBe(true);
+            const replacement = makeMessage("$a", { user: OTHER_USER_ID, msg: "replacement" });
+            room.getUnfilteredTimelineSet().addLiveEvent(replacement, {
+                addToState: false,
+                duplicateStrategy: DuplicateStrategy.Replace,
+            });
+            expect(room.getLiveTimeline().getEvents()[0]).toBe(replacement);
+            expect(vm.resumeCompatible()).toBe(false);
         });
 
         it("declines an unsettled or scrolled timeline", async () => {
