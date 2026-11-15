@@ -8,7 +8,7 @@ Please see LICENSE in the repository root for full details.
 import React from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
-import { Avatar, Badge, Button, Menu, MenuItem, Switch, TooltipProvider } from "@vector-im/compound-web";
+import { Avatar, Badge, Button, Menu, MenuItem, Switch, Tooltip, TooltipProvider } from "@vector-im/compound-web";
 import { CheckIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
@@ -201,6 +201,49 @@ describe("Desktop shell action colours", () => {
             expect(contrast(color, backgroundColor)).toBeGreaterThanOrEqual(4.5);
             expect(tokenColour("--cpd-color-text-on-solid-primary")).toBe("rgb(255, 255, 255)");
         });
+    });
+
+    /** Opens a tooltip naming a button with `caption`, and finds its parts from the button, as it has no role. */
+    function openTooltip(
+        caption: React.JSX.Element | string,
+    ): Record<"tooltip" | "label" | "caption" | "arrow", Element> {
+        flushSync(() =>
+            root.render(
+                <TooltipProvider>
+                    <Tooltip open={true} label="Server" caption={caption}>
+                        <button type="button">Server</button>
+                    </Tooltip>
+                </TooltipProvider>,
+            ),
+        );
+        const button = page.getByRole("button", { name: "Server" }).element();
+        const label = document.getElementById(button.getAttribute("aria-labelledby")!)!;
+        const tooltip = label.parentElement!;
+        return {
+            tooltip,
+            label,
+            caption: document.getElementById(button.getAttribute("aria-describedby")!)!,
+            arrow: tooltip.querySelector(":scope > svg")!,
+        };
+    }
+
+    it("should draw a tooltip holding a server's hover card as the card", () => {
+        const parts = openTooltip(<span data-server-hover-card="">Card</span>);
+        const tooltip = getComputedStyle(parts.tooltip);
+        expect(parts.caption.parentElement).toBe(parts.tooltip);
+        // The card shows the server's name, so the label is kept only for screen readers.
+        expect(getComputedStyle(parts.label).clipPath).toBe("inset(50%)");
+        expect(getComputedStyle(parts.caption).color).toBe(tooltip.color);
+        expect(getComputedStyle(parts.arrow).fill).toBe(tooltip.backgroundColor);
+        expect(tooltip.getPropertyValue("--server-hover-card-text")).not.toBe("");
+    });
+
+    it("should draw a tooltip holding any other caption as Compound does", () => {
+        const parts = openTooltip("Caption");
+        const tooltip = getComputedStyle(parts.tooltip);
+        expect(getComputedStyle(parts.label).clipPath).toBe("none");
+        expect(getComputedStyle(parts.caption).color).not.toBe(tooltip.color);
+        expect(tooltip.getPropertyValue("--server-hover-card-text")).toBe("");
     });
 
     it.each(["dark", "light"])("should centre server avatar initials in the %s rail", async (theme) => {
