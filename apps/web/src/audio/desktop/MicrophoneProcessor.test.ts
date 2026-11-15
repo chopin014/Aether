@@ -10,7 +10,7 @@ Please see LICENSE in the repository root for full details.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CAPTURE_LINGER_MS } from "./lingerCapture";
-import { MicrophoneProcessor, REPREPARE_AFTER_LEAVE_MS } from "./MicrophoneProcessor";
+import { MicrophoneProcessor, REPREPARE_AFTER_LEAVE_MS, SPARE_CONTEXT_MS } from "./MicrophoneProcessor";
 import { loadMicrophoneGateWorklet } from "./microphoneGateWorkletFactory";
 import { loadDenoiserModule } from "./denoiser/loadDenoiserModule";
 import { INAUDIBLE_LEVEL } from "./keepRealtimeClock";
@@ -361,14 +361,23 @@ describe("MicrophoneProcessor", () => {
         await init(child);
         await child.destroy();
         await vi.advanceTimersByTimeAsync(0);
-        // The next graph waits until the call that just ended has finished with the audio device.
+        // The call's context stays open for the next one, and the next graph waits until the call that just ended has
+        // finished with the audio device, then is built in that same context.
         expect(contexts).toHaveLength(2);
+        expect(contexts[1].close).not.toHaveBeenCalled();
+        const suspendedBefore = contexts[1].suspend.mock.calls.length;
         await vi.advanceTimersByTimeAsync(REPREPARE_AFTER_LEAVE_MS);
-        expect(contexts).toHaveLength(3);
+        (nodes[2].port.onmessage as (event: unknown) => void)({ data: { ready: true } });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(contexts).toHaveLength(2);
+        expect(nodes).toHaveLength(3);
+        // Suspending it would close its output stream, which reusing it is for.
+        expect(contexts[1].suspend).toHaveBeenCalledTimes(suspendedBefore);
         root.clearPrepared();
         await root.destroy();
         await vi.advanceTimersByTimeAsync(0);
-        expect(contexts).toHaveLength(3);
+        expect(contexts).toHaveLength(2);
+        expect(contexts[1].close).toHaveBeenCalledOnce();
     });
     it("keeps someone pointing at a voice channel right after leaving from opening the next graph early", async () => {
         vi.useFakeTimers();
@@ -383,12 +392,59 @@ describe("MicrophoneProcessor", () => {
         await child.destroy();
         await vi.advanceTimersByTimeAsync(0);
         const contextsAfterLeave = contexts.length;
+        const nodesAfterLeave = nodes.length;
         // Pointing at a channel to rejoin while the leave cue plays.
         root.prepare();
         await vi.advanceTimersByTimeAsync(0);
-        expect(contexts).toHaveLength(contextsAfterLeave);
+        expect(nodes).toHaveLength(nodesAfterLeave);
         await vi.advanceTimersByTimeAsync(REPREPARE_AFTER_LEAVE_MS);
-        expect(contexts).toHaveLength(contextsAfterLeave + 1);
+        expect(nodes).toHaveLength(nodesAfterLeave + 1);
+        // Built in the call's own context: nothing opened on the device.
+        expect(contexts).toHaveLength(contextsAfterLeave);
+        root.clearPrepared();
+        await root.destroy();
+    });
+
+    it("builds a quick rejoin in the last call's context, and keeps that context only for a while", async () => {
+        vi.useFakeTimers();
+        const root = new MicrophoneProcessor(config);
+        root.prepare();
+        await vi.advanceTimersByTimeAsync(0);
+        (nodes[0].port.onmessage as (event: unknown) => void)({ data: { ready: true } });
+        await vi.advanceTimersByTimeAsync(0);
+        const first = root.createProcessor();
+        await init(first);
+        const callContext = contexts[0];
+        await first.destroy();
+        // Rejoined before the next graph was prepared.
+        const second = root.createProcessor();
+        await init(second);
+        expect(contexts).toHaveLength(1);
+        expect(callContext.close).not.toHaveBeenCalled();
+        // One inaudible clock source per context, however many calls it carries.
+        expect(callContext.clockSource.start).toHaveBeenCalledOnce();
+        await second.destroy();
+        root.clearPrepared();
+        expect(callContext.close).toHaveBeenCalledOnce();
+        await root.destroy();
+    });
+
+    it("closes a kept context nobody used within its time", async () => {
+        vi.useFakeTimers();
+        const root = new MicrophoneProcessor(config);
+        root.prepare();
+        await vi.advanceTimersByTimeAsync(0);
+        (nodes[0].port.onmessage as (event: unknown) => void)({ data: { ready: true } });
+        await vi.advanceTimersByTimeAsync(0);
+        const child = root.createProcessor();
+        await init(child);
+        await child.destroy();
+        // Preparation would take the context; this account no longer prepares calls but stays signed in.
+        root.prepare = (): void => {};
+        await vi.advanceTimersByTimeAsync(SPARE_CONTEXT_MS - 1);
+        expect(contexts[0].close).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(contexts[0].close).toHaveBeenCalledOnce();
         root.clearPrepared();
         await root.destroy();
     });

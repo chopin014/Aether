@@ -13,11 +13,19 @@ import { loadMicrophoneGateWorklet } from "./microphoneGateWorkletFactory";
 
 /** A fresh, disconnected microphone processor. Preparation never requests microphone access. */
 export class PreparedMicrophoneGraph {
-    public readonly context = new AudioContext({ sampleRate: DENOISER_SAMPLE_RATE, latencyHint: "interactive" });
+    public readonly context: AudioContext;
+    /** Whether the graph was built in a context that is already open, as a call that ended leaves one. */
+    private readonly reused: boolean;
     public processor?: AudioWorkletNode;
     public denoiserStatus?: DenoiserStatus;
     private closed = false;
     private cancelReady?: () => void;
+
+    /** @param context - An open context to build in, such as the last call's; otherwise one is created. */
+    public constructor(context?: AudioContext) {
+        this.context = context ?? new AudioContext({ sampleRate: DENOISER_SAMPLE_RATE, latencyHint: "interactive" });
+        this.reused = context !== undefined;
+    }
 
     /** Load the worklet and model before capture starts, then keep their audio thread suspended. */
     public async initialize(options: MicrophoneGateWorkletOptions): Promise<void> {
@@ -62,7 +70,9 @@ export class PreparedMicrophoneGraph {
             });
             this.cancelReady = undefined;
             if (this.closed) throw new Error("Microphone preparation was cancelled");
-            await this.context.suspend();
+            // A reused context keeps running: suspending it would close its output stream, which is what reusing it
+            // avoids (see MicrophoneProcessor's SPARE_CONTEXT_MS).
+            if (!this.reused) await this.context.suspend();
         } catch (error) {
             this.close();
             throw error;

@@ -20,6 +20,12 @@ import { lingerCapture } from "./lingerCapture";
 
 /** How long after a call's microphone is released before the next call's graph is prepared. */
 export const REPREPARE_AFTER_LEAVE_MS = 3000;
+/**
+ * How long the audio context of a call that ended is kept for the next one. Opening or closing a low-latency context
+ * opens or closes an output stream, and on PipeWire that reconfigures the sound server and breaks up whatever is
+ * playing, such as the leave cue or a quick rejoin's join cue. Reusing it changes nothing on the device.
+ */
+export const SPARE_CONTEXT_MS = 5 * 60_000;
 
 /** What LiveKit gives a track processor when it starts or restarts. */
 interface ProcessorOptions {
@@ -81,7 +87,7 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
         // Right after a call, the graph is prepared once the leave cue has played (see prepareAfterLeave): pointing at
         // a voice channel to rejoin must not open its low-latency context sooner, which broke up the leave cue.
         if (this.prepared || this.children.size || this.reprepareTimer) return;
-        const graph = new PreparedMicrophoneGraph();
+        const graph = new PreparedMicrophoneGraph(this.claimSpareContext());
         const prepared = { graph, ready: graph.initialize(this.state), denoiser: this.wantsDenoiser(this.config) };
         this.prepared = prepared;
         void prepared.ready.catch(() => {
@@ -111,7 +117,40 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
         clearTimeout(this.reprepareTimer);
         this.reprepareTimer = undefined;
         this.discardPrepared();
+        void this.claimSpareContext()
+            ?.close()
+            .catch((error) => logger.debug("Could not close microphone processing", error));
     }
+
+    private spare?: { context: AudioContext; timer: ReturnType<typeof setTimeout> };
+
+    /** Root: keeps the context of a call that ended for the next call, while calls are being prepared for. */
+    private readonly keepSpareContext = (context: AudioContext): void => {
+        if (!this.preparationEnabled || this.spare || context.state === "closed") {
+            void context.close().catch((error) => logger.debug("Could not close microphone processing", error));
+            return;
+        }
+        const timer = setTimeout(() => {
+            if (this.spare?.context !== context) return;
+            this.spare = undefined;
+            void context.close().catch((error) => logger.debug("Could not close microphone processing", error));
+        }, SPARE_CONTEXT_MS);
+        this.spare = { context, timer };
+    };
+
+    /** Root: the kept context, for the next graph to be built in. */
+    private readonly claimSpareContext = (): AudioContext | undefined => {
+        const spare = this.spare;
+        this.spare = undefined;
+        if (!spare) return undefined;
+        clearTimeout(spare.timer);
+        return spare.context.state === "closed" ? undefined : spare.context;
+    };
+
+    /** Children: hand a call's context back to the root, or close it. */
+    private returnContext?: (context: AudioContext) => void;
+    /** Children: take the root's kept context. */
+    private takeSpareContext?: () => AudioContext | undefined;
 
     private discardPrepared(): void {
         clearTimeout(this.preparationTimer);
@@ -138,6 +177,8 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
             if (this.preparationEnabled) this.prepareAfterLeave();
         });
         child.takePrepared = this.claimPrepared;
+        child.returnContext = this.keepSpareContext;
+        child.takeSpareContext = this.claimSpareContext;
         child.onDenoiserStatus = (status): void => this.onDenoiserStatus?.(status);
         child.setPushToTalkActive(this.pushToTalkActive);
         child.setShortcutMuted(this.shortcutMuted);
@@ -226,8 +267,10 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
             prepared?.graph.close();
             throw new Error("Microphone processing was cancelled");
         }
+        // A quick rejoin finds no prepared graph yet, but the last call's context: building in it opens no new stream.
         const context =
             prepared?.graph.context ??
+            this.takeSpareContext?.() ??
             new AudioContext({ sampleRate: DENOISER_SAMPLE_RATE, latencyHint: "interactive" });
         this.context = context;
         const [denoiserModule] = await Promise.all([
@@ -310,7 +353,9 @@ export class MicrophoneProcessor implements ElementCallMicrophoneProcessor {
         this.source?.disconnect();
         this.processor?.disconnect();
         this.processedTrack?.stop();
-        this.context?.close().catch((error) => logger.debug("Could not close microphone processing", error));
+        // The context goes back to the root for the next call (see SPARE_CONTEXT_MS) rather than closing here.
+        if (this.context && this.returnContext) this.returnContext(this.context);
+        else this.context?.close().catch((error) => logger.debug("Could not close microphone processing", error));
         this.context = this.source = this.processor = this.destination = this.processedTrack = undefined;
     }
 
