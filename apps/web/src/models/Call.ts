@@ -799,7 +799,10 @@ export class ElementCall extends Call {
     }
     private stopFollowingVoiceSettings?: () => void;
     private _connectionStats = emptyCallConnectionStats("disconnected");
-    /** The join cue is held until media is really connected, so the sound matches when people can hear each other. */
+    /**
+     * The join cue is held until our media connection is up, as Discord's is. Our audio is encrypted from the join on
+     * and others decrypt it once our membership reaches them, which on a distant homeserver can be a moment later.
+     */
     private joinCuePending = false;
     /**
      * Whether media has connected since the call was last joined. Until it has, the component's "disconnected"

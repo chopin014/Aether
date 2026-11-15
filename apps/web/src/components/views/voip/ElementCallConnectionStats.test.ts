@@ -282,6 +282,7 @@ describe("Element Call media connection statistics", () => {
             "aetherObserveConnectionStats",
             source.slice(publisherStart, publisherEnd),
         );
+        f.room.state = "connecting";
         publish(
             {
                 connection$: new rxjs.BehaviorSubject({ livekitRoom: f.room }),
@@ -297,11 +298,22 @@ describe("Element Call media connection statistics", () => {
             observe,
         );
         expect(notifyConnectionStats).toHaveBeenLastCalledWith(expect.objectContaining({ state: "connecting" }));
+        // On the first join, media being up counts as connected before the homeserver confirms the membership.
+        f.room.state = "connected";
+        f.room.emit("connectionStateChanged", "connected");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(notifyConnectionStats).toHaveBeenLastCalledWith(expect.objectContaining({ state: "connected" }));
         ready.next(true);
         await vi.advanceTimersByTimeAsync(0);
         expect(notifyConnectionStats).toHaveBeenLastCalledWith(
             expect.objectContaining({ state: "connected", rttMs: 17 }),
         );
+        // Once confirmed, losing the membership is no join any more: it is not connected until it is back.
+        ready.next(false);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(notifyConnectionStats).toHaveBeenLastCalledWith(expect.objectContaining({ state: "connecting" }));
+        ready.next(true);
+        await vi.advanceTimersByTimeAsync(0);
         disposed.next();
         onEnd.forEach((callback) => callback());
         expect(notifyConnectionStats).toHaveBeenLastCalledWith(
