@@ -13,7 +13,7 @@ import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 
 import { type Args, getArgsForProtocolRegistration } from "./args.js";
-import { findMatrixLink, getMatrixLinkHash, type MatrixLink } from "./matrix-uri.js";
+import { findMatrixLink, getMatrixLinkHash, MATRIX_SCHEME, type MatrixLink } from "./matrix-uri.js";
 
 const LEGACY_PROTOCOL = "element";
 const SEARCH_PARAM = "element-desktop-ssoid";
@@ -66,6 +66,11 @@ export default class ProtocolHandler {
         if (app.isPackaged) {
             app.setAsDefaultProtocolClient(this.protocol, process.execPath, args);
             app.setAsDefaultProtocolClient(LEGACY_PROTOCOL, process.execPath, args);
+            // Other Matrix apps open matrix: links too, and the person may have chosen one of them: only take the
+            // links when nothing handles them. Development builds never register for them.
+            if (!app.getApplicationNameForProtocol(`${MATRIX_SCHEME}:`)) {
+                app.setAsDefaultProtocolClient(MATRIX_SCHEME, process.execPath, args);
+            }
         } else if (process.platform === "win32") {
             // on Mac/Linux this would just cause the electron binary to open
             // special handler for running without being packaged, e.g `electron .` by passing our app path to electron

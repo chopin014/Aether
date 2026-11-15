@@ -26,6 +26,7 @@ vi.mock("electron", () => {
             getPath: vi.fn().mockReturnValue("/Users/name/Library/Application Support/Element"),
             getAppPath: vi.fn().mockReturnValue("/bin/element-desktop"),
             setAsDefaultProtocolClient: vi.fn(),
+            getApplicationNameForProtocol: vi.fn().mockReturnValue(""),
             on: emitter.on.bind(emitter),
             emit: emitter.emit.bind(emitter),
             removeAllListeners: emitter.removeAllListeners.bind(emitter),
@@ -259,6 +260,8 @@ describe("ProtocolHandler", () => {
     describe("initialise", () => {
         beforeEach(() => {
             vi.spyOn(process, "execPath", "get").mockReturnValue("/bin/element-desktop");
+            vi.mocked(app.setAsDefaultProtocolClient).mockClear();
+            vi.mocked(app.getApplicationNameForProtocol).mockReturnValue("");
         });
 
         it("should set as default protocol client", () => {
@@ -274,6 +277,57 @@ describe("ProtocolHandler", () => {
             const args = ["--no-update"];
             expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith(TEST_PROTOCOL, "/bin/element-desktop", args);
             expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith("element", "/bin/element-desktop", args);
+            expect(app.getApplicationNameForProtocol).toHaveBeenCalledWith("matrix:");
+            expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith("matrix", "/bin/element-desktop", args);
+        });
+
+        it("leaves matrix: links to another app that already opens them", () => {
+            vi.mocked(app.getApplicationNameForProtocol).mockReturnValue("Element");
+            const handler = new ProtocolHandler(TEST_PROTOCOL);
+            handler.initialise({
+                userDataPath: USER_DATA_DIR,
+                devtools: false,
+                update: false,
+                hidden: false,
+                positional: ["/bin/element-desktop"],
+            });
+
+            expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith(TEST_PROTOCOL, "/bin/element-desktop", [
+                "--no-update",
+            ]);
+            expect(app.setAsDefaultProtocolClient).not.toHaveBeenCalledWith(
+                "matrix",
+                expect.anything(),
+                expect.anything(),
+            );
+        });
+
+        it("never registers a development build for matrix: links", () => {
+            vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+            (app as { isPackaged: boolean }).isPackaged = false;
+            try {
+                const handler = new ProtocolHandler(TEST_PROTOCOL);
+                handler.initialise({
+                    userDataPath: USER_DATA_DIR,
+                    devtools: false,
+                    update: false,
+                    hidden: false,
+                    positional: ["/bin/element-desktop"],
+                });
+            } finally {
+                (app as { isPackaged: boolean }).isPackaged = true;
+            }
+
+            expect(app.setAsDefaultProtocolClient).toHaveBeenCalledWith(
+                TEST_PROTOCOL,
+                "/bin/element-desktop",
+                expect.anything(),
+            );
+            expect(app.setAsDefaultProtocolClient).not.toHaveBeenCalledWith(
+                "matrix",
+                expect.anything(),
+                expect.anything(),
+            );
         });
 
         it("should handle deeplink", () => {
