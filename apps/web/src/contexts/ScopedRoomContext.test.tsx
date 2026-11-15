@@ -51,6 +51,7 @@ describe("ScopedRoomContext", () => {
 
     afterEach(() => {
         vi.useRealTimers();
+        vi.unstubAllGlobals();
     });
 
     /** Fakes the timers that schedule the refresh of event tiles. */
@@ -157,6 +158,28 @@ describe("ScopedRoomContext", () => {
         expect(vi.getTimerCount()).toBe(0);
         await wait(2000);
         expect(refreshes).toBe(0);
+    });
+
+    it("drops a refresh waiting for the main thread to be idle when the room view goes", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        // Holds the idle callback, so that the refresh is still to come when the room view goes.
+        const requestIdleCallback = vi.fn((_callback: IdleRequestCallback) => 7);
+        const cancelIdleCallback = vi.fn();
+        vi.stubGlobal("requestIdleCallback", requestIdleCallback);
+        vi.stubGlobal("cancelIdleCallback", cancelIdleCallback);
+        const tree = (unread: number): JSX.Element => (
+            <ScopedRoomContextProvider {...value({ numUnreadMessages: unread })}>
+                <span />
+            </ScopedRoomContextProvider>
+        );
+        const { rerender, unmount } = render(tree(0));
+        rerender(tree(1));
+        await wait(1000);
+        expect(requestIdleCallback).toHaveBeenCalledTimes(1);
+        expect(cancelIdleCallback).not.toHaveBeenCalled();
+
+        unmount();
+        expect(cancelIdleCallback).toHaveBeenCalledWith(7);
     });
 
     it("gives event tiles the room context's defaults without a provider", () => {
