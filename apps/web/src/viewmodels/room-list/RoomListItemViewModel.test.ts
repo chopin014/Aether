@@ -54,11 +54,14 @@ import RightPanelStore from "../../stores/right-panel/RightPanelStore";
 import { RightPanelPhases } from "../../stores/right-panel/RightPanelStorePhases";
 import { UPDATE_EVENT } from "../../stores/AsyncStore";
 import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
-import { prepareCallSoon } from "../../components/views/voip/prepareElementCall";
+import { prepareCallInBackground, prepareCallSoon } from "../../components/views/voip/prepareElementCall";
 import { type RoomViewStore } from "../../stores/RoomViewStore";
 import { VOICE_STATE_EVENT_TYPE } from "../../utils/call/publishedVoiceState";
 
-vi.mock("../../components/views/voip/prepareElementCall", () => ({ prepareCallSoon: vi.fn() }));
+vi.mock("../../components/views/voip/prepareElementCall", () => ({
+    prepareCallSoon: vi.fn(),
+    prepareCallInBackground: vi.fn(),
+}));
 vi.mock("../desktop/VoiceUserMenuViewModel", () => ({
     VoiceUserMenuViewModel: class {
         public constructor(private readonly props: { userId: string }) {}
@@ -624,9 +627,14 @@ describe("RoomListItemViewModel", () => {
             );
             vi.spyOn(room, "isCallRoom").mockReturnValue(isCall);
             vi.mocked(prepareCallSoon).mockClear();
+            vi.mocked(prepareCallInBackground).mockClear();
             viewModel = new RoomListItemViewModel({ room, client: matrixClient });
+            // A voice channel in view gets its call token when idle, and at once when pointed at.
+            expect(prepareCallInBackground).toHaveBeenCalledTimes(preparations);
+            if (isCall) expect(prepareCallInBackground).toHaveBeenCalledWith(room);
             viewModel.onIntentToOpen();
             expect(prepareCallSoon).toHaveBeenCalledTimes(preparations);
+            if (isCall) expect(prepareCallSoon).toHaveBeenCalledWith(room);
         });
 
         it("should initialize with room data", async () => {

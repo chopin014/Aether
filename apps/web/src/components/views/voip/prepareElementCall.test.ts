@@ -8,14 +8,22 @@ Please see LICENSE in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type MatrixClient } from "matrix-js-sdk/src/matrix";
+import { type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
 
-import { prepareCallSoon, prepareElementCall } from "./prepareElementCall";
-import { loadElementCallComponent } from "./ElementCallLoader";
+import {
+    BACKGROUND_TOKEN_LIMIT,
+    BACKGROUND_TOKEN_WINDOW_MS,
+    prepareCallInBackground,
+    prepareCallSoon,
+    prepareElementCall,
+    PREFLIGHT_CACHE_MS,
+    TOKEN_REFRESH_MS,
+} from "./prepareElementCall";
+import { loadElementCallComponent, prefetchElementCallTransport } from "./ElementCallLoader";
 import { DesktopVoicePipeline } from "../../../audio/desktop/DesktopVoicePipeline";
 import { getCallOpenIdToken } from "./ElementCallOpenIdToken";
 
-vi.mock("./ElementCallLoader", () => ({ loadElementCallComponent: vi.fn() }));
+vi.mock("./ElementCallLoader", () => ({ loadElementCallComponent: vi.fn(), prefetchElementCallTransport: vi.fn() }));
 vi.mock("./ElementCallOpenIdToken", () => ({ getCallOpenIdToken: vi.fn() }));
 vi.mock("../../../audio/DesktopVoiceSounds", () => ({ preloadDesktopVoiceSounds: vi.fn() }));
 vi.mock("../../../audio/desktop/DesktopVoicePipeline", () => ({
@@ -23,13 +31,20 @@ vi.mock("../../../audio/desktop/DesktopVoicePipeline", () => ({
 }));
 
 describe("prepareElementCall", () => {
-    const client = {} as MatrixClient;
+    const getStateEvent = vi.fn();
+    const client = {
+        getUserId: () => "@alice:example.org",
+        getDeviceId: () => "ALICE",
+        getStateEvent,
+    } as unknown as MatrixClient;
 
     beforeEach(() => {
         vi.useFakeTimers();
         vi.clearAllMocks();
         vi.mocked(loadElementCallComponent).mockResolvedValue({} as never);
         vi.mocked(getCallOpenIdToken).mockResolvedValue({} as never);
+        vi.mocked(prefetchElementCallTransport).mockResolvedValue(undefined);
+        getStateEvent.mockRejectedValue(new Error("M_NOT_FOUND"));
         vi.stubGlobal("requestIdleCallback", undefined);
     });
     afterEach(() => {
@@ -175,5 +190,107 @@ describe("prepareElementCall", () => {
         await vi.runAllTimersAsync();
         expect(loadElementCallComponent).not.toHaveBeenCalled();
         expect(cancelWait).toHaveBeenCalledOnce();
+    });
+
+    describe("call tokens", () => {
+        const room = (roomId: string, version = "11"): Room => ({ roomId, getVersion: () => version }) as Room;
+        const fetched = (): string[] => vi.mocked(prefetchElementCallTransport).mock.calls.map(([, roomId]) => roomId);
+
+        it("fetches a room's token at once when someone is about to join it, even before release", async () => {
+            const cancel = prepareElementCall(client, () => vi.fn());
+            prepareCallSoon(room("!voice"));
+            expect(fetched()).toEqual(["!voice"]);
+            cancel();
+        });
+
+        it("readies the membership write when someone is about to join, once per preflight lifetime", async () => {
+            const cancel = prepareElementCall(client, () => vi.fn());
+            prepareCallSoon(room("!voice"));
+            prepareCallSoon(room("!voice"));
+            expect(getStateEvent).toHaveBeenCalledExactlyOnceWith(
+                "!voice",
+                "org.matrix.msc3401.call.member",
+                "_@alice:example.org_ALICE_m.call",
+            );
+            await vi.advanceTimersByTimeAsync(PREFLIGHT_CACHE_MS);
+            prepareCallSoon(room("!other", "org.matrix.msc3757.10"));
+            expect(getStateEvent).toHaveBeenLastCalledWith(
+                "!other",
+                "org.matrix.msc3401.call.member",
+                "@alice:example.org_ALICE_m.call",
+            );
+            // Background fetches are not intent to join: no preflight for them.
+            getStateEvent.mockClear();
+            prepareCallInBackground(room("!listed"));
+            expect(getStateEvent).not.toHaveBeenCalled();
+            cancel();
+        });
+
+        it("fetches tokens in the background one at a time, only once released", async () => {
+            let release: (() => void) | undefined;
+            let finishFirst: (() => void) | undefined;
+            vi.mocked(prefetchElementCallTransport).mockImplementationOnce(
+                () => new Promise<void>((resolve) => (finishFirst = resolve)),
+            );
+            const cancel = prepareElementCall(client, (start) => {
+                release = start;
+                return vi.fn();
+            });
+            prepareCallInBackground(room("!a"));
+            prepareCallInBackground(room("!b"));
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(fetched()).toEqual([]);
+            release?.();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(fetched()).toEqual(["!a"]);
+            finishFirst?.();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(fetched()).toEqual(["!a", "!b"]);
+            cancel();
+        });
+
+        it("limits background fetches per window and skips rooms fetched recently", async () => {
+            const cancel = prepareElementCall(client);
+            prepareCallInBackground(room("!seen"));
+            await vi.advanceTimersByTimeAsync(0);
+            prepareCallInBackground(room("!seen"));
+            await vi.advanceTimersByTimeAsync(0);
+            expect(fetched()).toEqual(["!seen"]);
+            for (let i = 1; i <= BACKGROUND_TOKEN_LIMIT; i++) {
+                prepareCallInBackground(room(`!r${i}`));
+                await vi.advanceTimersByTimeAsync(0);
+            }
+            // The first fetch and LIMIT - 1 others fill the window; the last room waits for the next one.
+            expect(fetched()).toHaveLength(BACKGROUND_TOKEN_LIMIT);
+            // It is fetched once the window has passed, without anything else being queued.
+            await vi.advanceTimersByTimeAsync(BACKGROUND_TOKEN_WINDOW_MS);
+            // A timer set while timers run is due a millisecond later under fake timers.
+            await vi.advanceTimersByTimeAsync(1);
+            expect(fetched()).toContain(`!r${BACKGROUND_TOKEN_LIMIT}`);
+            // A room fetched within the token's life is not fetched again in the background.
+            await vi.advanceTimersByTimeAsync(TOKEN_REFRESH_MS - BACKGROUND_TOKEN_WINDOW_MS - 2);
+            const before = fetched().length;
+            prepareCallInBackground(room("!seen"));
+            await vi.advanceTimersByTimeAsync(0);
+            expect(fetched()).toHaveLength(before);
+            cancel();
+        });
+
+        it("drops a background fetch still waiting for idle time at logout", async () => {
+            const cancel = prepareElementCall(client);
+            prepareCallInBackground(room("!voice"));
+            cancel();
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(fetched()).toEqual([]);
+        });
+
+        it("fetches nothing after logout", async () => {
+            const cancel = prepareElementCall(client);
+            cancel();
+            prepareCallSoon(room("!voice"));
+            prepareCallInBackground(room("!voice"));
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(fetched()).toEqual([]);
+        });
     });
 });

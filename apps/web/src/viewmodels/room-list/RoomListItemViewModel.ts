@@ -66,7 +66,7 @@ import { threadLabel } from "../threads/threadLabel";
 import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
 import { ChannelMenuViewModel } from "../desktop/ChannelMenuViewModel";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
-import { prepareCallSoon } from "../../components/views/voip/prepareElementCall";
+import { prepareCallInBackground, prepareCallSoon } from "../../components/views/voip/prepareElementCall";
 import { SlidingSyncManager } from "../../SlidingSyncManager";
 import { getCallSessionStart } from "../../utils/call/callSessionStart";
 import { getPublishedVoiceState, VOICE_STATE_EVENT_TYPE } from "../../utils/call/publishedVoiceState";
@@ -171,6 +171,8 @@ export class RoomListItemViewModel
         this.disposables.track(() => this.callDisposables.dispose());
         // If there is an active call for this room, listen to participant changes
         this.listenToCallParticipants();
+        // A voice channel in view is a likely next click: have its call token ready when the app is idle.
+        if (initialItem.channelKind === "voice") prepareCallInBackground(props.room);
 
         // Subscribe to room-specific events
         this.disposables.trackListener(props.room, RoomEvent.Name, this.onRoomChanged);
@@ -719,7 +721,7 @@ export class RoomListItemViewModel
      */
     public onIntentToOpen = (): void => {
         SlidingSyncManager.instance.prefetchRoom(this.props.room.roomId);
-        if (this.snapshot.current.channelKind === "voice") prepareCallSoon();
+        if (this.snapshot.current.channelKind === "voice") prepareCallSoon(this.props.room);
     };
 
     public onOpenRoom = (): void => {
