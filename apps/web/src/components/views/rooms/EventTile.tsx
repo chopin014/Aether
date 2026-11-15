@@ -26,8 +26,6 @@ import {
     type RoomMember,
     type Thread,
     ThreadEvent,
-    RoomStateEvent,
-    EventType,
 } from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
 import { uniqueId } from "lodash";
@@ -414,34 +412,6 @@ export class UnwrappedEventTile extends React.Component<EventTileProps, IState> 
 
         const room = client.getRoom(this.props.mxEvent.getRoomId());
         room?.on(ThreadEvent.New, this.onNewThread);
-        // Whether the message is pinned, and the sender's current profile, are read as the tile renders; it is told
-        // when the room's state changes them.
-        this.stateRoom = room ?? undefined;
-        this.stateRoom?.on(RoomStateEvent.Events, this.onRoomStateEvent);
-    }
-
-    /** The room whose state the tile follows, kept to stop following the same one. */
-    private stateRoom?: Room;
-
-    private readonly onRoomStateEvent = (event: MatrixEvent): void => {
-        const type = event.getType();
-        if (type === EventType.RoomPinnedEvents || (type === EventType.RoomMember && this.showsCurrentProfile())) {
-            this.forceUpdate();
-        }
-    };
-
-    /**
-     * Whether the sender is shown as they are now, rather than as they were when they sent the message: a member's
-     * change of name, or another member's that makes theirs ambiguous, then changes what the tile shows.
-     */
-    private showsCurrentProfile(): boolean {
-        if (this.props.useEventSenderSnapshot) return false;
-        const type = this.context.timelineRenderingType;
-        return (
-            type === TimelineRenderingType.Thread ||
-            type === TimelineRenderingType.ThreadsList ||
-            !!SettingsStore.getValue("useOnlyCurrentProfiles")
-        );
     }
 
     private readonly updateThread = (thread: Thread): void => {
@@ -465,8 +435,6 @@ export class UnwrappedEventTile extends React.Component<EventTileProps, IState> 
             room?.off(ThreadEvent.New, this.onNewThread);
         }
         this.isListeningForReceipts = false;
-        this.stateRoom?.off(RoomStateEvent.Events, this.onRoomStateEvent);
-        this.stateRoom = undefined;
         this.props.mxEvent.removeListener(MatrixEventEvent.Decrypted, this.onDecrypted);
         this.props.mxEvent.removeListener(MatrixEventEvent.Replaced, this.onReplaced);
         if (this.props.showReactions) {

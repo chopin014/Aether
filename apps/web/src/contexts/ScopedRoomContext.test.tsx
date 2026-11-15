@@ -8,7 +8,7 @@ Please see LICENSE in the repository root for full details.
 // @vitest-environment happy-dom
 
 import React, { type JSX, useContext, useLayoutEffect } from "react";
-import { act, render, screen } from "test-utils-rtl";
+import { act, render, screen, waitFor } from "test-utils-rtl";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Room } from "matrix-js-sdk/src/matrix";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -49,7 +49,7 @@ describe("ScopedRoomContext", () => {
         room = new Room("!room:example.org", stubClient(), "@me:example.org");
     });
 
-    it("gives event tiles a value that changes only with the fields they read", () => {
+    it("gives event tiles a value that changes at once only with the fields they read", async () => {
         const seen: object[] = [];
         const TileReader = (): JSX.Element => {
             const tile = useContext(EventTileContext);
@@ -67,10 +67,13 @@ describe("ScopedRoomContext", () => {
             isRoomEncrypted: false,
             timelineRenderingType: TimelineRenderingType.Room,
             showHiddenEvents: false,
+            refresh: 0,
         });
 
+        // Unchanged in the change's own render; refreshed once the main thread is idle.
         rerender(tree({ isRoomEncrypted: false, numUnreadMessages: 3, narrow: true }));
         expect(seen.at(-1)).toBe(first);
+        await waitFor(() => expect(seen.at(-1)).toMatchObject({ refresh: 1 }));
 
         for (const [field, changed] of [
             ["isRoomEncrypted", true],
@@ -84,6 +87,29 @@ describe("ScopedRoomContext", () => {
         }
     });
 
+    it("refreshes event tiles once when the main thread is idle, however many changes come before", async () => {
+        const seen: { refresh: number }[] = [];
+        const TileReader = (): JSX.Element => {
+            seen.push(useContext(EventTileContext));
+            return <span />;
+        };
+        const tree = (unread: number): JSX.Element => (
+            <ScopedRoomContextProvider {...value({ numUnreadMessages: unread })}>
+                <TileReader />
+            </ScopedRoomContextProvider>
+        );
+        const { rerender } = render(tree(0));
+        // Opening it is not a change.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(seen.at(-1)!.refresh).toBe(0);
+        for (let unread = 1; unread <= 5; unread++) rerender(tree(unread));
+        expect(seen.at(-1)!.refresh).toBe(0);
+
+        await waitFor(() => expect(seen.at(-1)!.refresh).toBe(1));
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(seen.at(-1)!.refresh).toBe(1);
+    });
+
     it("gives event tiles the room context's defaults without a provider", () => {
         const Tile = (): JSX.Element => {
             const tile = useContext(EventTileContext);
@@ -95,8 +121,9 @@ describe("ScopedRoomContext", () => {
             );
         };
         render(<Tile />);
-        const [tile, room] = JSON.parse(screen.getByTestId("tile").textContent!);
+        const [{ refresh, ...tile }, room] = JSON.parse(screen.getByTestId("tile").textContent!);
         expect(tile).toEqual(room);
+        expect(refresh).toBe(0);
     });
 
     it("keeps selected snapshots stable for unrelated changes", () => {
